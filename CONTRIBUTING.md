@@ -21,7 +21,7 @@ All knowledge logic lives in `src/core/`. The CLI and MCP server are thin
 adapters over it. When contributing, keep these invariants (they're the product):
 
 1. **One write path.** Every change goes through a `core` command → an event.
-   Nothing writes `.kb/` or a projection directly. (`src/cli.mjs`, `src/mcp.mjs`,
+   Nothing writes `.bh/` or a projection directly. (`src/cli.mjs`, `src/mcp.mjs`,
    and any future adapter all call `src/core`.)
 2. **The ledger is the truth.** `events.mjs` is append-only. Never mutate or
    delete a past event; to undo, append a revert marker.

@@ -10,30 +10,30 @@
 import { parseArgs } from 'node:util';
 import { createKb } from './core/index.mjs';
 
-const HELP = `kb — a local, auditable, agent-operable knowledge base (reference impl)
+const HELP = `bh — a local, auditable, agent-operable context layer (reference impl)
 
 Read (eyes):
-  kb search "<query>"            find notes; results carry their sources
-  kb context "<task>"            grounded context bundle for an agent
-  kb get <id>
-  kb list [--all]
+  bh search "<query>"            find notes; results carry their sources
+  bh context "<task>"            grounded context bundle for an agent
+  bh get <id>
+  bh list [--all]
 
 Change (hands — recorded & reversible):
-  kb add "<text>" [--source <s>] [--type note|canvas] [--x <n> --y <n>]
-  kb edit <id> "<new text>"
-  kb move <id> --x <n> --y <n>
-  kb link <id> --source <s>
-  kb rm  <id>                     soft delete (recoverable)
+  bh add "<text>" [--source <s>] [--type note|canvas] [--x <n> --y <n>]
+  bh edit <id> "<new text>"
+  bh move <id> --x <n> --y <n>
+  bh link <id> --source <s>
+  bh rm  <id>                     soft delete (recoverable)
 
 History (the ledger):
-  kb log [--limit <n>]
-  kb undo <eventId|commandId>     undo one change, or a whole action / agent run
+  bh log [--limit <n>]
+  bh undo <eventId|commandId>     undo one change, or a whole action / agent run
 
 Global flags:
   --json            machine-readable output (use this from agents)
   --actor <who>     who is changing things: user (default) or agent
 
-Store: ./.kb/events.jsonl  (override with KB_DIR=/path). Every change goes through
+Store: ./.bh/events.jsonl  (override with BH_DIR=/path). Every change goes through
 these commands, so every change is recorded and can be undone.`;
 
 function main() {
@@ -87,7 +87,7 @@ function main() {
     }
     case 'rm': {
       const res = kb.remove({ id: rest[0], actor });
-      out(`deleted ${rest[0]} (recoverable: kb undo ${res.eventId})`, res);
+      out(`deleted ${rest[0]} (recoverable: bh undo ${res.eventId})`, res);
       return;
     }
     case 'get': {

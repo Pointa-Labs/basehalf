@@ -54,7 +54,7 @@ npm run demo     # 60-second narrated tour
 npm test         # the architecture, as an executable spec (9 tests)
 ```
 
-Use the CLI (creates a `.kb/` store in the current folder, like `git`):
+Use the CLI (creates a `.bh/` store in the current folder, like `git`):
 
 ```bash
 node src/cli.mjs add "We chose Postgres for the cloud DB" --source docs/decisions.md

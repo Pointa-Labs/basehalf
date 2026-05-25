@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 export function openStore(baseDir) {
-  return { path: join(baseDir, '.kb', 'events.jsonl') };
+  return { path: join(baseDir, '.bh', 'events.jsonl') };
 }
 
 // Append one fact to the ledger. `commandId` ties together all events produced

@@ -67,7 +67,7 @@ Turn this into a real MCP server (after: npm i @modelcontextprotocol/sdk):
   import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
   import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-  const server = new Server({ name: 'kb', version: '0.0.1' }, { capabilities: { tools: {} } });
+  const server = new Server({ name: 'basehalf', version: '0.0.1' }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => ({
     content: [{ type: 'text', text: JSON.stringify(handleToolCall(req.params.name, req.params.arguments)) }],

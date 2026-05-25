@@ -3,14 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "BaseHalf — a local-first, source-grounded, auditable knowledge base that coding agents (Claude Code / Codex) read and write. Reference implementation.",
+  "description": "BaseHalf — a local-first, source-grounded, auditable context layer (portable memory) that coding agents (Claude Code / Codex) read and write. Reference implementation.",
   "author": "Pointa Labs, Inc.",
   "homepage": "https://basehalf.com",
   "bin": {
-    "kb": "src/cli.mjs"
+    "bh": "src/cli.mjs"
   },
   "scripts": {
-    "kb": "node src/cli.mjs",
+    "bh": "node src/cli.mjs",
     "test": "node --test",
     "demo": "node scripts/demo.mjs"
   },

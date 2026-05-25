@@ -2,7 +2,7 @@
 node_modules/
 
 # the local knowledge store (user data — never commit it)
-.kb/
+.bh/
 
 # build output
 dist/

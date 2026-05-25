@@ -28,7 +28,7 @@ Please include:
 ## Scope notes
 
 BaseHalf is **local-first**: the reference implementation stores everything in a
-local `.kb/` directory and makes no network calls. The most relevant concerns
+local `.bh/` directory and makes no network calls. The most relevant concerns
 are therefore around the integrity of the audit log and the write path (see the
 invariants in [CONTRIBUTING.md](CONTRIBUTING.md)) rather than remote attack
 surface. Reports about the future hosted/sync layer are equally welcome.

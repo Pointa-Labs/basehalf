@@ -13,7 +13,7 @@ import { project } from './projection.mjs';
 
 const genId = (prefix) => prefix + randomUUID().slice(0, 8);
 
-export function createKb(baseDir = process.env.KB_DIR || process.cwd()) {
+export function createKb(baseDir = process.env.BH_DIR || process.cwd()) {
   const store = openStore(baseDir);
   const state = () => project(readEvents(store));
 

@@ -27,4 +27,4 @@ say('\n4) The ledger shows who did what — the audit trail is automatic:');
 for (const e of kb.log()) say(`   ${e.type.padEnd(13)} by ${e.actor}`);
 
 say('\n5) Nothing above is destructive: every change is reversible by its');
-say('   eventId or commandId (`kb undo <id>`). The events file is the truth.\n');
+say('   eventId or commandId (`bh undo <id>`). The events file is the truth.\n');
