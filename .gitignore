@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# the local knowledge store (user data — never commit it)
+.kb/
+
+# build output
+dist/
+build/
+
+# logs / env / OS cruft
+*.log
+.env
+.env.*
+.DS_Store
+
+# internal/strategy docs — never commit (kept locally only)
+private-docs/

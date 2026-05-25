@@ -1,0 +1,32 @@
+name: Bug report
+description: Something in BaseHalf behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. No CLA is needed to file an issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, expected vs. actual.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The exact `kb`/`node src/cli.mjs` commands (or steps) that trigger it.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Output of `git rev-parse --short HEAD` or the release you're on.
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS and Node version (`node -v`).

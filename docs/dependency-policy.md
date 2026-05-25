@@ -1,0 +1,52 @@
+# Dependency & license policy
+
+Why this exists: BaseHalf is open source (Apache-2.0) **and** intended to be
+commercialized (open-core). Both depend on us being able to **relicense** the
+code and ship proprietary editions. A single incompatible dependency can break
+that. This policy keeps the dependency tree clean. It also operationalizes a
+rule we already committed to legally: the founder CIIAA (§2.9) forbids pulling
+copyleft code into company software.
+
+## License categories
+
+| Category | Licenses | Rule |
+|---|---|---|
+| ✅ **Allowed** | MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, CC0, Unlicense, public domain | Use freely. |
+| ⚠️ **Review needed** | MPL-2.0, LGPL-2.1/3.0 (weak copyleft) | Allowed only after a maintainer reviews *how* it's used. Modifications to MPL files must stay open; LGPL must stay dynamically linked/replaceable. Add to the CI allowlist deliberately. |
+| ⛔ **Not accepted** | GPL, AGPL, SSPL, BSL/BUSL, Elastic License, **and any "source-available" / non-commercial license** | These either force us to open-source proprietary code or require a separate commercial license — both kill relicensing/commercialization. |
+
+When in doubt, open an issue before adding the dependency.
+
+## Canvas / editor stack (read this before building the production app)
+
+[D8](decisions.md) lists candidate libraries for the production editor. Vet each
+for license **before** adopting — some popular ones are *not* permissive:
+
+| Library | License | Verdict |
+|---|---|---|
+| **tldraw** | "tldraw license" — **source-available, needs a commercial license / watermark** | ⛔ **Don't use.** Exactly the trap to avoid. |
+| **React Flow** (`@xyflow/react`) | MIT | ✅ Recommended canvas (node/graph). |
+| **Excalidraw** (`@excalidraw/excalidraw`) | MIT | ✅ Recommended canvas (free-form). |
+| **Konva** / **Fabric.js** | MIT | ✅ Lower-level 2D canvas. |
+| **maxGraph** | Apache-2.0 | ✅ Diagramming. |
+| **BlockSuite** | MPL-2.0 (weak copyleft) | ⚠️ OK with care — changes to MPL files stay open. |
+| **ProseMirror** | MIT | ✅ |
+| **Yjs** | MIT | ✅ |
+| **SQLite** | Public domain | ✅ |
+
+**Decision for the canvas:** if a candidate requires a commercial license (tldraw),
+**replace it with a permissive one** (React Flow or Excalidraw, both MIT). We'd
+rather switch libraries than take on a commercialization blocker.
+
+## Process
+
+1. **Propose** a new runtime dependency in an issue; note its license.
+2. CI runs **`license-check`** ([.github/workflows/license-check.yml](../.github/workflows/license-check.yml))
+   and fails the PR on anything outside the ✅ allowlist.
+3. To add a ⚠️ review-needed dependency, a maintainer updates the allowlist in
+   that workflow in the same PR, with a one-line justification.
+4. Keep a `THIRD-PARTY-NOTICES.md` once we ship bundled dependencies (Apache-2.0
+   §4 attribution).
+
+Dev-only tooling (test runners, linters) is lower-risk but should still avoid
+copyleft where it could leak into shipped artifacts.

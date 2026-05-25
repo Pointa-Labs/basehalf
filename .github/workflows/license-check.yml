@@ -1,0 +1,34 @@
+name: license-check
+
+# Enforces docs/dependency-policy.md: fails the PR if any production dependency
+# carries a license outside the permissive allowlist. The reference impl is
+# zero-dependency, so this passes trivially today and guards future additions.
+#
+# To add a "review needed" license (e.g. MPL-2.0), append it to --onlyAllow
+# below in the same PR, with a justification in the PR description.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check dependency licenses
+        run: |
+          npx --yes license-checker@^25 \
+            --production \
+            --excludePrivatePackages \
+            --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \
+            --summary
