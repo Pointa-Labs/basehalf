@@ -3,19 +3,29 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "BaseHalf — a local-first, source-grounded, auditable context layer (portable memory) that coding agents (Claude Code / Codex) read and write. Reference implementation.",
+  "description": "BaseHalf — a local-first, source-grounded, auditable context layer (portable memory) that coding agents (Claude Code / Codex) read and write.",
   "author": "Pointa Labs, Inc.",
   "homepage": "https://basehalf.com",
-  "bin": {
-    "bh": "src/cli.mjs"
-  },
-  "scripts": {
-    "bh": "node src/cli.mjs",
-    "test": "node --test",
-    "demo": "node scripts/demo.mjs"
-  },
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=18.3.0"
+    "node": ">=18.17.0"
+  },
+  "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0",
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev",
+    "format": "biome format --write packages",
+    "check": "biome check packages"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22",
+    "tsup": "8.3.5",
+    "turbo": "2.3.3",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
   }
 }

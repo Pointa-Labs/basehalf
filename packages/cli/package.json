@@ -1,0 +1,21 @@
+{
+  "name": "@basehalf/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "BaseHalf CLI (bh) — a thin shell over @basehalf/core. The agent-facing front end.",
+  "license": "Apache-2.0",
+  "bin": {
+    "bh": "./dist/bin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b && tsup",
+    "dev": "tsup --watch",
+    "lint": "biome check src",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@basehalf/core": "workspace:*"
+  }
+}

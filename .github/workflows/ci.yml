@@ -1,8 +1,8 @@
 name: CI
 
-# Runs the spec on every push to main and every pull request, so a PR must be
-# green before it can merge. Make this a *required* status check in
-# Settings → Branches (alongside the CLA Assistant check).
+# Runs typecheck / build / test / lint on every push to main and every pull
+# request, so a PR must be green before it can merge. Make this a *required*
+# status check in Settings → Branches (alongside the CLA Assistant check).
 
 on:
   push:
@@ -18,13 +18,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 18.3 is the floor (package.json engines); 20 and 22 are current LTS.
-        node-version: [18.x, 20.x, 22.x]
+        # 18.17 is the root engines floor (Turbo 2.x requirement); 20 and 22 are LTS.
+        node-version: ['18.17', '20.x', '22.x']
     steps:
       - uses: actions/checkout@v4
+
+      # pnpm must be on PATH before setup-node runs, so `cache: 'pnpm'` finds it.
+      # Version is read from package.json's `packageManager` field (single source
+      # of truth) — DO NOT add `version:` here, the action errors on duplicates.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      # The reference impl is dependency-light (no lockfile), so there is
-      # nothing to install — `npm test` just runs `node --test`.
-      - run: npm test
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r build
+      - run: pnpm -r test
+      - run: pnpm -r --if-present lint

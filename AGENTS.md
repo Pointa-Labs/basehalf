@@ -1,42 +1,36 @@
 # Using BaseHalf (instructions for coding agents)
 
-This repo ships a CLI, `bh`, that is the **only** supported way to change
-BaseHalf. Every command is recorded and reversible. Always prefer `--json`,
-and always pass `--actor agent` on writes so the audit trail shows who acted.
+> **Status (PR 1 scaffold):** the monorepo skeleton is in place. The CLI binary
+> (`bh`) is built but has **no commands wired yet**. The old `node src/cli.mjs`
+> reference impl was deleted (clean slate) — that path no longer exists. If
+> you find an instruction telling you to invoke it, the instruction is stale.
 
-(While developing, invoke it as `node src/cli.mjs <cmd>`. Once installed, it's `bh <cmd>`.)
+## What's here right now
 
-## Read before you act
+- `packages/core/` — kernel: registry + context. `createCore()` returns the one
+  door. Modules will register commands under `packages/core/src/modules/<name>/`.
+- `packages/cli/` — thin shell over core. Built at `packages/cli/dist/bin.js`.
+  Today it just prints a scaffold banner; PR 2+ wires real argv parsing.
 
-```bash
-node src/cli.mjs context "<what you're working on>" --json   # grounded context bundle
-node src/cli.mjs search "<query>" --json
-node src/cli.mjs get <id> --json
-```
-
-## Change things (always --actor agent)
+## What to run
 
 ```bash
-node src/cli.mjs add "<text>" --source <where-it-came-from> --actor agent --json
-node src/cli.mjs edit <id> "<text>" --actor agent --json
-node src/cli.mjs move <id> --x <n> --y <n> --actor agent --json   # canvas layout
-node src/cli.mjs link <id> --source <s> --actor agent --json
-node src/cli.mjs rm  <id> --actor agent --json                    # soft delete
+pnpm install
+pnpm -r build         # builds @basehalf/core then @basehalf/cli
+pnpm -r test          # core sanity tests
+pnpm -r --if-present lint
+node packages/cli/dist/bin.js   # prints scaffold banner (no commands yet)
 ```
 
-## Check / fix
+## Rules (carry into PR 2+)
 
-```bash
-node src/cli.mjs log --json
-node src/cli.mjs undo <eventId|commandId> --actor agent --json    # undo a change or a whole run
-```
-
-## Rules
-
-- **Ground your facts.** Attach `--source` to any factual claim. Don't write
-  ungrounded assertions.
-- **Go through `bh`.** Never edit `.bh/events.jsonl` by hand — that bypasses the
-  audit log and undo.
-- **You bring the brain.** For high-level requests ("arrange into a circle",
-  "summarize these"), *you* compute the result and then issue primitive commands
-  (`move`, `add`, …). The software has no high-level/task-specific commands by design.
+- **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
+  CLI / MCP / desktop UI are thin shells — never put business logic in them.
+- **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
+  registers its commands via the kernel registry, and touches core only through
+  the `Context` it's given. Don't reach into kernel internals.
+- **MD = content truth, `.bh/` = derived cache, git = history.** Per the
+  architecture constitution (private repo: `private-docs/架构宪法.md`). Modules
+  that touch user files must be observers (chokidar + reconcile), never owners.
+- **Don't restore the deleted event-log impl.** It was overturned by the
+  constitution; if you need to read it, it's in git history at `c441f79`.

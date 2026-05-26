@@ -5,34 +5,45 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Run it
+> **Status note.** PR 1 (current) is a fresh monorepo skeleton; the original
+> event-log reference implementation was replaced. There are very few
+> contribution surfaces today — open an issue first to find one that's ready.
 
-No build, no install needed (Node ≥ 18):
+## Build it (Node ≥ 18.17, pnpm 9)
 
 ```bash
-npm test        # run the spec
-npm run demo    # narrated tour
-node src/cli.mjs help
+pnpm install
+pnpm -r build         # @basehalf/core, then @basehalf/cli
+pnpm -r test          # core sanity tests (vitest)
+pnpm -r --if-present lint
+node packages/cli/dist/bin.js   # scaffold banner — no commands yet
 ```
 
 ## Repo layout & the rules that must not break
 
-All knowledge logic lives in `src/core/`. The CLI and MCP server are thin
-adapters over it. When contributing, keep these invariants (they're the product):
+```text
+packages/
+  core/    kernel (registry + context) + modules (one per feature)
+  cli/     bh — thin shell over core
+```
 
-1. **One write path.** Every change goes through a `core` command → an event.
-   Nothing writes `.bh/` or a projection directly. (`src/cli.mjs`, `src/mcp.mjs`,
-   and any future adapter all call `src/core`.)
-2. **The ledger is the truth.** `events.mjs` is append-only. Never mutate or
-   delete a past event; to undo, append a revert marker.
-3. **Projections are disposable.** Anything derived (current state, search
-   index, …) must be rebuildable from the event log.
-4. **Attribute every change.** Each event carries an `actor`.
-5. **Ground facts.** Writes can carry a source; retrieval returns sources.
-6. **Primitives, not tasks.** Add small composable actions (`move`), not
-   task-specific ones (`arrange-into-heart`). The agent composes them.
+When contributing, keep these invariants:
 
-See [docs/architecture.md](docs/architecture.md) and [docs/agent-interface.md](docs/agent-interface.md).
+1. **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
+   The CLI / MCP / desktop UI are thin shells — never put business logic in them.
+2. **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
+   registers commands via the kernel registry, and touches core only through
+   the `Context` it receives. No reaching into kernel internals.
+3. **Dependencies point only inward.** `packages/cli` may depend on
+   `@basehalf/core`; the reverse is forbidden. Modules don't depend on each other
+   directly — they coordinate through commands.
+4. **MD = content truth.** Modules that touch user files must be **observers**
+   (file watcher + reconcile-on-launch), never owners. The `.bh/` cache is
+   derived; it must be rebuildable from files + git.
+5. **Primitives, not tasks.** Add small composable commands (e.g. `move`), not
+   task-specific ones (e.g. `arrange-into-heart`). The agent composes them.
+6. **No fork of the deleted event-log impl.** It was overturned by the
+   architecture; it lives in git history at `c441f79` if you need to reference it.
 
 ## Contributor License Agreement (required)
 
@@ -61,7 +72,7 @@ about what code and dependencies enter it. **Full policy:
 [docs/dependency-policy.md](docs/dependency-policy.md).** In short:
 
 - **Don't add dependencies casually.** A new runtime dependency needs discussion
-  in an issue first. The reference impl is intentionally zero-dependency.
+  in an issue first. Build/dev tooling has more latitude but still gets reviewed.
 - **Allowed licenses:** MIT, BSD-2/3-Clause, Apache-2.0, ISC.
   **Review needed:** MPL-2.0, LGPL (weak copyleft — depends on usage).
   **Not accepted:** GPL / AGPL / SSPL, BSL, or any "source-available" /
@@ -89,6 +100,6 @@ carry their own name. See [docs/trademark-policy.md](docs/trademark-policy.md).
 ## Style
 
 - Small, readable, dependency-light. Match the surrounding code.
-- The reference impl is plain ESM JavaScript on purpose (instant to run). The
-  production codebase targets TypeScript + SQLite; ports should preserve the
-  six invariants above.
+- TypeScript with NodeNext module resolution — relative imports use `.js`
+  extensions even when source is `.ts` (Node ESM requirement). Biome enforces this.
+- Run `pnpm format` (writes) or `pnpm check` (verify) before opening a PR.
