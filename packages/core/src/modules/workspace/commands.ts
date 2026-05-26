@@ -1,0 +1,149 @@
+import { basename, isAbsolute, resolve } from 'node:path';
+import type { Context, Handler } from '../../kernel/index.js';
+import { readWorkspaces, writeWorkspaces } from './store.js';
+import type {
+  WorkspaceAddArgs,
+  WorkspaceAddResult,
+  WorkspaceCurrentArgs,
+  WorkspaceCurrentResult,
+  WorkspaceEntry,
+  WorkspaceListArgs,
+  WorkspaceListResult,
+  WorkspaceRemoveArgs,
+  WorkspaceRemoveResult,
+  WorkspaceUseArgs,
+  WorkspaceUseResult,
+} from './types.js';
+
+const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+/**
+ * `workspace add <path> [--name <name>]`
+ *  - Validates the path exists and is a directory.
+ *  - Derives a name from basename (or uses `--name`); refuses duplicates.
+ *  - Creates `<path>/.bh/` if missing (eager init; lazier feels surprising).
+ *  - First workspace added becomes `current` automatically.
+ */
+export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, ctx) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const stat = await ctx.fs.stat(absPath);
+  if (!stat) {
+    throw new Error(`Path does not exist: ${absPath}`);
+  }
+  if (!stat.isDirectory) {
+    throw new Error(`Path is not a directory: ${absPath}`);
+  }
+
+  const name = args.name ?? basename(absPath);
+  if (!NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid workspace name: ${JSON.stringify(name)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
+    );
+  }
+
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.workspaces[name]) {
+    throw new Error(`Workspace already exists: ${name}`);
+  }
+
+  const addedAt = new Date().toISOString();
+  const bhDir = `${absPath}/.bh`;
+  const bhStat = await ctx.fs.stat(bhDir);
+  const bhDirCreated = bhStat === null;
+  if (bhDirCreated) {
+    await ctx.fs.mkdir(bhDir, { recursive: true });
+  }
+
+  const setAsCurrent = data.current === null;
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    version: 1,
+    current: setAsCurrent ? name : data.current,
+    workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
+  });
+
+  return {
+    workspace: { name, path: absPath, addedAt },
+    setAsCurrent,
+    bhDirCreated,
+  };
+};
+
+/** `workspace list` — returns all workspaces + which is current. */
+export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_args, ctx) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const workspaces: WorkspaceEntry[] = Object.entries(data.workspaces)
+    .map(([name, entry]) => ({ name, path: entry.path, addedAt: entry.addedAt }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { current: data.current, workspaces };
+};
+
+/** `workspace use <name>` — switch the active workspace. */
+export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const entry = data.workspaces[args.name];
+  if (!entry) {
+    throw new Error(`No such workspace: ${args.name}`);
+  }
+  await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
+  return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
+};
+
+/** `workspace current` — show active workspace (or null if none). */
+export const current: Handler<WorkspaceCurrentArgs, WorkspaceCurrentResult> = async (
+  _args,
+  ctx,
+) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) return { current: null };
+  const entry = data.workspaces[data.current];
+  if (!entry) {
+    // Stale pointer: current name no longer in workspaces. Treat as none.
+    return { current: null };
+  }
+  return { current: { name: data.current, path: entry.path, addedAt: entry.addedAt } };
+};
+
+/**
+ * `workspace remove <name>` — unregister. Does NOT delete files or `.bh/` —
+ * BaseHalf is an "observer", never an owner of user files.
+ * If the removed one was current, picks an alphabetically-first survivor (or null).
+ */
+export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async (args, ctx) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (!data.workspaces[args.name]) {
+    throw new Error(`No such workspace: ${args.name}`);
+  }
+  const { [args.name]: _removed, ...rest } = data.workspaces;
+  let newCurrent: string | null = data.current;
+  if (data.current === args.name) {
+    const survivors = Object.keys(rest).sort((a, b) => a.localeCompare(b));
+    newCurrent = survivors[0] ?? null;
+  }
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    version: 1,
+    current: newCurrent,
+    workspaces: rest,
+  });
+  return { removed: args.name, newCurrent };
+};
+
+/**
+ * Helper for `createCore()` — registers all five workspace commands.
+ * Modules expose a single `register*Module(core)` function so static composition
+ * stays trivial; when external plugins arrive, the same shape is what they emit.
+ */
+export function commands(): ReadonlyArray<
+  readonly [name: string, handler: Handler<never, unknown>]
+> {
+  return [
+    ['workspace.add', add as unknown as Handler<never, unknown>],
+    ['workspace.list', list as unknown as Handler<never, unknown>],
+    ['workspace.use', use as unknown as Handler<never, unknown>],
+    ['workspace.current', current as unknown as Handler<never, unknown>],
+    ['workspace.remove', remove as unknown as Handler<never, unknown>],
+  ];
+}
+
+export function _coerceContext(ctx: unknown): asserts ctx is Context {
+  if (!ctx || typeof ctx !== 'object') throw new TypeError('invalid context');
+}
