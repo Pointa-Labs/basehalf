@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type FsLike, createCore } from '../src/index.js';
+import { createCore } from '../src/index.js';
+import { mockFs } from './helpers/mock-fs.js';
 
 /**
  * Workspace module tests. Two layers:
@@ -10,37 +11,6 @@ import { type FsLike, createCore } from '../src/index.js';
  *  2. **Integration test** — one end-to-end against a real tmp dir, so the
  *     `createContext()` defaults + `node:fs/promises` wiring stays exercised.
  */
-
-// ── Mock FS helper ──────────────────────────────────────────────────────────
-
-function mockFs(): { fs: FsLike; files: Map<string, string>; dirs: Set<string> } {
-  const files = new Map<string, string>();
-  const dirs = new Set<string>();
-  const fs: FsLike = {
-    async readFile(path) {
-      return files.has(path) ? (files.get(path) as string) : null;
-    },
-    async writeFile(path, content) {
-      files.set(path, content);
-    },
-    async mkdir(path, opts) {
-      dirs.add(path);
-      if (opts?.recursive) {
-        let parent = path;
-        while (parent.includes('/') && parent !== '/') {
-          parent = parent.slice(0, parent.lastIndexOf('/'));
-          if (parent) dirs.add(parent);
-        }
-      }
-    },
-    async stat(path) {
-      if (files.has(path)) return { isFile: true, isDirectory: false };
-      if (dirs.has(path)) return { isFile: false, isDirectory: true };
-      return null;
-    },
-  };
-  return { fs, files, dirs };
-}
 
 describe('workspace module (mock FS)', () => {
   it('add: creates entry, creates .bh/, sets as current when first', async () => {
