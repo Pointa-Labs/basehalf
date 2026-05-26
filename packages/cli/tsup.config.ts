@@ -15,9 +15,11 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   treeshake: true,
-  // Bundle the @basehalf/core workspace dep into the CLI so `node dist/bin.js`
-  // works without resolving symlinked workspace packages at runtime.
-  noExternal: ['@basehalf/core'],
+  // Bundle the @basehalf/core workspace dep + citty into the CLI so
+  // `node dist/bin.js` works as a standalone binary (no runtime resolve of
+  // workspace packages, no separate runtime deps to ship). citty is pure ESM,
+  // so bundling works cleanly (commander was CJS and broke dynamic require).
+  noExternal: ['@basehalf/core', 'citty'],
   async onSuccess() {
     chmodSync(resolve('dist/bin.js'), 0o755);
   },

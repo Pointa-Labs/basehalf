@@ -8,7 +8,9 @@
   "bin": {
     "bh": "./dist/bin.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b && tsup",
     "dev": "tsup --watch",
@@ -16,6 +18,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@basehalf/core": "workspace:*"
+    "@basehalf/core": "workspace:*",
+    "citty": "0.1.6"
   }
 }
