@@ -14,8 +14,23 @@ not at the root.
 
 ## Decisions — record & recall design choices
 
-The single most useful thing for keeping context across sessions. **Before
-answering any non-trivial design question, look at recorded decisions first:**
+The single most useful thing for keeping context across sessions.
+
+**At the start of any session that touches architecture, infra choices, or
+"why did we…" questions, run this and read it before answering:**
+
+```bash
+node packages/cli/dist/bin.js decision recall --json
+```
+
+(Once `bh` is on `$PATH`: just `bh decision recall --json`.) If the topic is
+narrow, filter: `bh decision recall <keyword> --json` or `--tag <topic> --json`.
+
+If a recall surfaces a relevant decision, **cite it in your answer** (slug +
+rationale + sources). If it doesn't, that's also signal — you may have hit
+something undecided that's worth recording with the user.
+
+**Before answering any non-trivial design question, look at recorded decisions first:**
 
 ```bash
 bh decision recall --json                # all decisions, newest first
