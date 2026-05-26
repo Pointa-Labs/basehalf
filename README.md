@@ -4,7 +4,7 @@
 > A local-first context layer that Claude Code & Codex read and write through plain commands — every change grounded in a source, attributed, and reversible. Local. Zero-config. Yours.
 
 > Built by [Pointa Labs, Inc.](https://basehalf.com) · Open source (Apache-2.0). The name and logo are trademarks — see [docs/trademark-policy.md](docs/trademark-policy.md).
-> **Status: early** — a runnable reference implementation of the core idea. See [Status](#status).
+> **Status: rebuild in progress** — the original reference impl has been replaced by a new monorepo skeleton. See [Status](#status).
 
 ---
 
@@ -41,44 +41,50 @@ stuff while you sleep. What would you insist on?
 4. **It cites where each fact came from.**
 5. **It uses the same actions you do.**
 
-Those five rules *are* the architecture. The trick that makes them work: keep
-the **ledger** (every change as an event), not just the **balance** (current
-state). Current state is just the ledger added up — so you can always see the
-history and undo anything. (Full plain-language explanation:
-[docs/architecture.md](docs/architecture.md).)
+Those five rules *are* the architecture. The current direction: **Markdown
+files are the content truth**, a `.bh/` cache holds derived metadata (links,
+search index, attribution), and git provides history/undo. Agents edit MD
+directly with their native tools; structured operations (linking, composing,
+canvas layout) go through the `bh` CLI — the one door.
 
-## Try it (zero install — needs Node ≥ 18)
+## Status
+
+**Skeleton only.** PR 1 (this commit) replaced the original event-log reference
+implementation with a new monorepo skeleton aligned to the locked architecture:
+
+- `packages/core/` — kernel (registry + context). `createCore()` is the one door.
+- `packages/cli/` — thin `bh` shell over core. **Built but no commands wired yet.**
+
+Real commands land in PR 2+, starting with workspace-root management
+(`bh workspace add/list/use`) — the wedge-independent foundation every feature
+needs.
+
+The earlier event-log reference impl lives in git history at commit `c441f79`.
+
+## Build it
 
 ```bash
-npm run demo     # 60-second narrated tour
-npm test         # the architecture, as an executable spec (9 tests)
+pnpm install
+pnpm -r build         # @basehalf/core, then @basehalf/cli
+pnpm -r test
+pnpm -r --if-present lint
+node packages/cli/dist/bin.js   # scaffold banner (no commands yet)
 ```
 
-Use the CLI (creates a `.bh/` store in the current folder, like `git`):
+Requirements: Node ≥ 18.17, pnpm 9.
 
-```bash
-node src/cli.mjs add "We chose Postgres for the cloud DB" --source docs/decisions.md
-node src/cli.mjs context "database" --json    # grounded context bundle for the agent
-node src/cli.mjs link <id> --source docs/decisions.md
-node src/cli.mjs log
-node src/cli.mjs undo <eventId|commandId>
-node src/cli.mjs help
+## Repo layout
+
+```text
+packages/
+  core/             kernel (registry + context) + modules (one per feature)
+    src/
+      index.ts        createCore() — the one door
+      kernel/         registry, context, types
+      modules/        functions register here (empty in PR 1)
+  cli/              bh — thin shell over core
+docs/             decisions · dependency-policy · roadmap · trademark-policy
 ```
-
-An agent passes `--json` and `--actor agent` (so the ledger records who acted).
-A repo-local [CLAUDE.md](CLAUDE.md) tells coding agents how to drive it.
-
-> 📹 **Demo video coming.** For now, `npm run demo` is the fastest way to see it.
-
-## What an agent gets — three drawers
-
-| Drawer | Purpose | Commands |
-|---|---|---|
-| 👁 Eyes (read) | see current state, grounded | `search` · `context` · `get` · `list` |
-| ✋ Hands (write, recorded) | change things via primitives | `add` · `edit` · `move` · `link` · `rm` |
-| 📒 Ledger (history) | audit & undo | `log` · `undo` |
-
-Full spec: [docs/agent-interface.md](docs/agent-interface.md).
 
 ## Why not just…
 
@@ -90,35 +96,13 @@ Full spec: [docs/agent-interface.md](docs/agent-interface.md).
 | AI-memory APIs (mem0, Letta…) | black-box auto-memory you can't edit | user-owned, human- **and** AI-editable, composable |
 | ChatGPT / Claude built-in memory | siloed per vendor; not portable | portable — any agent can read/write |
 
-## Repo layout
-
-```
-src/core/        the one door + the ledger (all logic lives here)
-  events.mjs       append-only event log (the source of truth)
-  projection.mjs   fold events -> current state (a rebuildable cache)
-  index.mjs        the commands: add/edit/move/link/rm/undo + reads
-src/cli.mjs      thin CLI handle over core (humans + local agents)
-src/mcp.mjs      thin MCP handle over the SAME core (stub + wiring notes)
-test/            executable spec
-scripts/demo.mjs narrated tour
-docs/            architecture · agent-interface · decisions · roadmap · business
-```
-
-## Status
-
-Earliest stage. This repo is the **design + a runnable reference implementation**
-of the core idea. The reference impl is intentionally zero-dependency JavaScript
-(JSONL store) so it runs instantly; the production target is TypeScript + SQLite —
-the design doesn't change, because nothing outside `events.mjs` knows how events
-are stored. See [docs/roadmap.md](docs/roadmap.md).
-
 ## Contributing
 
 Contributions are welcome — but this is a deliberately narrow *substrate*, so
 **please open an issue before sending a non-trivial PR** to align on scope first.
 Then:
 
-1. Read [CONTRIBUTING.md](CONTRIBUTING.md) — the six invariants, how to run/test, and the dependency rules.
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) — how to build/test and the dependency rules.
 2. Open a PR; the template walks you through the checklist and CI runs the spec.
 3. Sign the [CLA](CLA.md) when the bot prompts (required before merge); keep contributions original and [permissively licensed](docs/dependency-policy.md).
 

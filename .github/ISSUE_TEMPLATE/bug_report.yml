@@ -18,7 +18,7 @@ body:
     id: repro
     attributes:
       label: Minimal reproduction
-      description: The exact `bh`/`node src/cli.mjs` commands (or steps) that trigger it.
+      description: The exact `bh` commands (or steps) that trigger it.
       render: shell
   - type: input
     id: version
