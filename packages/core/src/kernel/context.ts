@@ -1,24 +1,25 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
-import type { Context, FsLike } from './types.js';
+import type { Context, FsLike, Run } from './types.js';
 
 /**
  * Build the Context handed to every command handler.
  *
- * `opts.fs` and `opts.configDir` let tests inject mocks / temp dirs without
- * touching the user's home. Production defaults wire `node:fs/promises` and
- * the OS-conventional config directory.
+ * `run` is injected here (late-bound through a closure in createCore) so
+ * `ctx.run('other.command', args)` lets modules compose via the registry
+ * rather than importing each other's internals. The `opts.fs` and
+ * `opts.configDir` overrides keep tests off the user's real home dir.
  */
-export function createContext(
-  opts: {
-    fs?: FsLike;
-    configDir?: string;
-  } = {},
-): Context {
+export function createContext(opts: {
+  run: Run;
+  fs?: FsLike;
+  configDir?: string;
+}): Context {
   return Object.freeze({
     fs: opts.fs ?? defaultFs(),
     configDir: opts.configDir ?? defaultConfigDir(),
+    run: opts.run,
   });
 }
 
@@ -47,6 +48,9 @@ function defaultFs(): FsLike {
         if (isENOENT(err)) return null;
         throw err;
       }
+    },
+    async readdir(path) {
+      return await readdir(path);
     },
   };
 }

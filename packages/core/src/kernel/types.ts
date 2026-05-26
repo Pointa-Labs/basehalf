@@ -14,13 +14,26 @@
  *   noise in handlers for "config doesn't exist yet" cases).
  * - `stat` returns `null` if the path doesn't exist.
  * - `mkdir` with `recursive: true` is idempotent.
+ * - `readdir` returns just the basenames (no path prefix); empty array if
+ *   the dir exists but is empty; throws on a missing dir.
  */
 export interface FsLike {
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
   stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | null>;
+  readdir(path: string): Promise<string[]>;
 }
+
+/**
+ * The function modules use to call other commands. Same signature as
+ * `Core.run` — modules compose through this rather than importing each
+ * other's internals (preserves the "one door" + "deps point inward" rules).
+ */
+export type Run = <TArgs = unknown, TResult = unknown>(
+  name: string,
+  args: TArgs,
+) => Promise<TResult>;
 
 /**
  * The Context passed to every command handler. The kernel's "what a module
@@ -31,10 +44,12 @@ export interface FsLike {
  * - `fs` — file access.
  * - `configDir` — where BaseHalf keeps user-global config (`~/.config/basehalf`
  *   on Linux/XDG, `~/Library/Application Support/basehalf` on macOS).
+ * - `run` — call another command (module-to-module composition).
  */
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
+  readonly run: Run;
 }
 
 /**
@@ -63,7 +78,7 @@ export interface CoreOptions {
  */
 export interface Core {
   register<TArgs, TResult>(name: string, handler: Handler<TArgs, TResult>): void;
-  run<TArgs = unknown, TResult = unknown>(name: string, args: TArgs): Promise<TResult>;
+  run: Run;
   has(name: string): boolean;
 }
 
