@@ -2,19 +2,19 @@
  * @basehalf/core — the one door.
  *
  * `createCore()` builds the kernel: a registry of commands + the context every
- * handler receives. Modules call `register()` at startup to add commands;
+ * handler receives. First-party modules register themselves at construction;
  * everything else (CLI, MCP, desktop UI) talks to core exclusively via `run()`.
- *
- * v0 scaffold: no modules registered yet. `run()` throws `UnknownCommand` for
- * every name. PR 2+ wires the first real module (recommended: workspace root
- * management — wedge-independent, all features depend on it).
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Core, CoreOptions, Handler } from './kernel/index.js';
+import { registerWorkspaceModule } from './modules/workspace/index.js';
 
-export function createCore(_opts: CoreOptions = {}): Core {
+export function createCore(opts: CoreOptions = {}): Core {
   const registry = new Registry();
-  const ctx = createContext();
+  const ctx = createContext({
+    ...(opts.fs !== undefined && { fs: opts.fs }),
+    ...(opts.configDir !== undefined && { configDir: opts.configDir }),
+  });
 
   const core: Core = Object.freeze({
     register<TArgs, TResult>(name: string, handler: Handler<TArgs, TResult>): void {
@@ -34,9 +34,13 @@ export function createCore(_opts: CoreOptions = {}): Core {
     },
   });
 
+  // First-party modules: registered here, statically composed. When external
+  // plugins arrive they'll go through the same registry — just dynamic.
+  registerWorkspaceModule(core);
+
   return core;
 }
 
 // Re-export public types/error so consumers don't reach into `./kernel`.
-export type { Context, Handler, CoreOptions, Core } from './kernel/index.js';
+export type { Context, FsLike, Handler, CoreOptions, Core } from './kernel/index.js';
 export { UnknownCommand } from './kernel/index.js';

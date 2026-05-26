@@ -1,23 +1,40 @@
 /**
  * Kernel type contracts. Modules use these to register handlers and to type
- * the `context` they receive. Kept deliberately minimal in v0 — this is the
+ * the `context` they receive. Kept deliberately minimal — this is the
  * "future plugin API" we keep free to evolve until external plugins arrive.
  */
 
 /**
- * The Context passed to every command handler. The kernel's "what a module
- * may touch" surface — modules MUST NOT reach around it into kernel internals.
+ * Minimal file-system surface modules use through `Context`. Tests inject a
+ * mock; production wires `node:fs/promises`. Kept lean on purpose — grow as
+ * modules need more, not preemptively.
  *
- * v0 stub: the fields are placeholders. Real shape grows with modules:
- *  - file access (FS abstraction)
- *  - workspace root(s)
- *  - emitting events
- *  - logger
- *  - calling other commands (via `run`)
+ * Conventions:
+ * - `readFile` returns `null` if the file doesn't exist (avoids try/catch
+ *   noise in handlers for "config doesn't exist yet" cases).
+ * - `stat` returns `null` if the path doesn't exist.
+ * - `mkdir` with `recursive: true` is idempotent.
+ */
+export interface FsLike {
+  readFile(path: string): Promise<string | null>;
+  writeFile(path: string, content: string): Promise<void>;
+  mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
+  stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | null>;
+}
+
+/**
+ * The Context passed to every command handler. The kernel's "what a module
+ * may touch" surface — modules MUST NOT reach around it into kernel internals
+ * or import `node:fs` directly (use `ctx.fs` so tests can swap it).
+ *
+ * Grows as modules need it. Today:
+ * - `fs` — file access.
+ * - `configDir` — where BaseHalf keeps user-global config (`~/.config/basehalf`
+ *   on Linux/XDG, `~/Library/Application Support/basehalf` on macOS).
  */
 export interface Context {
-  /** Marker only in v0; concrete fields land as modules are added. */
-  readonly _kernel: true;
+  readonly fs: FsLike;
+  readonly configDir: string;
 }
 
 /**
@@ -30,10 +47,12 @@ export type Handler<TArgs = unknown, TResult = unknown> = (
   ctx: Context,
 ) => TResult | Promise<TResult>;
 
-/** Options accepted by `createCore()`. v0 has no fields — reserved for growth. */
+/** Options accepted by `createCore()`. Override defaults for tests / non-prod hosts. */
 export interface CoreOptions {
-  /** Marker only; concrete options land later. */
-  readonly _reserved?: never;
+  /** Inject a different FS (mock for tests). Defaults to `node:fs/promises`. */
+  readonly fs?: FsLike;
+  /** Override the global config directory. Defaults to XDG / OS conventions. */
+  readonly configDir?: string;
 }
 
 /**
