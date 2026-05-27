@@ -236,7 +236,7 @@ type SetupReport = {
 };
 
 describe('workspace --setup (mock FS, non-destructive)', () => {
-  it('appends .bh/ to existing .gitignore when missing', async () => {
+  it('appends .bh/cache/ to existing .gitignore when missing', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
     files.set('/work/.gitignore', 'node_modules/\n');
@@ -247,13 +247,16 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
       setup: true,
     });
     expect(r.setup.gitignoreUpdated).toBe(true);
-    expect(files.get('/work/.gitignore')).toMatch(/\.bh\//);
+    expect(files.get('/work/.gitignore')).toMatch(/\.bh\/cache\//);
+    // The non-cache parts of .bh/ should NOT be ignored — they travel with
+    // the folder per IR-v2-06.
+    expect(files.get('/work/.gitignore')).not.toMatch(/^\.bh\/$/m);
   });
 
-  it('skips .gitignore when .bh/ already present', async () => {
+  it('skips .gitignore when .bh/cache/ already present', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
-    files.set('/work/.gitignore', 'node_modules/\n.bh/\n');
+    files.set('/work/.gitignore', 'node_modules/\n.bh/cache/\n');
     const core = createCore({ fs, configDir: '/cfg' });
     const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
       path: '/work',
@@ -262,6 +265,26 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     });
     expect(r.setup.gitignoreSkipped).toBe(true);
     expect(r.setup.gitignoreUpdated).toBe(false);
+  });
+
+  it('does NOT skip when legacy .bh/ line is present (still needs .bh/cache/)', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    // Older workspace setup may have written a bare `.bh/` ignore. The new
+    // model needs `.bh/cache/` specifically — re-running `bh init` should
+    // append the new line (so .bh/cache/ is covered) and leave the user to
+    // remove the bare `.bh/` line manually.
+    files.set('/work/.gitignore', 'node_modules/\n.bh/\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.gitignoreUpdated).toBe(true);
+    expect(files.get('/work/.gitignore')).toMatch(/\.bh\/cache\//);
+    // The legacy `.bh/` line is preserved (we don't silently rewrite user files).
+    expect(files.get('/work/.gitignore')).toMatch(/^\.bh\/$/m);
   });
 
   it('reports gitignoreAbsent when no .gitignore exists', async () => {
@@ -287,7 +310,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
       setup: true,
     });
     expect(r.setup.claudeMdUpdated).toBe(true);
-    expect(files.get('/work/CLAUDE.md')).toMatch(/bh:recall-hint/);
+    expect(files.get('/work/CLAUDE.md')).toMatch(/bh:workspace-hint/);
   });
 
   it('appends hint section to existing CLAUDE.md (preserves prior content)', async () => {
@@ -299,15 +322,34 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     const after = files.get('/work/CLAUDE.md') as string;
     expect(after).toContain('Existing instructions');
     expect(after).toContain('Use arrow functions.');
-    expect(after).toContain('bh:recall-hint');
+    expect(after).toContain('bh:workspace-hint');
   });
 
-  it('skips CLAUDE.md when marker already present (idempotent)', async () => {
+  it('skips CLAUDE.md when current marker already present (idempotent)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
     files.set(
       '/work/CLAUDE.md',
-      '# Top\n\n<!-- bh:recall-hint -->\n## Using bh\n\nstale section\n',
+      '# Top\n\n<!-- bh:workspace-hint -->\n## BaseHalf workspace\n\nold content\n',
+    );
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.claudeMdSkipped).toBe(true);
+    expect(r.setup.claudeMdUpdated).toBe(false);
+  });
+
+  it('skips CLAUDE.md when legacy bh:recall-hint marker present (backward compat)', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    // Older workspaces had a `bh:recall-hint` marker. Re-running `bh init`
+    // should detect it and skip — we don't want to stack two hint sections.
+    files.set(
+      '/work/CLAUDE.md',
+      '# Top\n\n<!-- bh:recall-hint -->\n## Using bh\n\nlegacy decisions-recall guide\n',
     );
     const core = createCore({ fs, configDir: '/cfg' });
     const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
