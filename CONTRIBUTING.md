@@ -5,18 +5,23 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-> **Status note.** PR 1 (current) is a fresh monorepo skeleton; the original
-> event-log reference implementation was replaced. There are very few
-> contribution surfaces today — open an issue first to find one that's ready.
+> **Status note.** Pre-alpha. The CLI ships two real modules (`workspace`,
+> `decision`); the desktop app is being built in v0 (PR 8 → 16). Contribution
+> surfaces are narrow today — **open an issue first** to find one that's ready
+> for outside work. See [docs/roadmap.md](docs/roadmap.md) for the current PR
+> plan.
 
 ## Build it (Node ≥ 18.17, pnpm 9)
 
 ```bash
 pnpm install
 pnpm -r build         # @basehalf/core, then @basehalf/cli
-pnpm -r test          # core sanity tests (vitest)
+pnpm -r test          # vitest — core + workspace + decisions tests
 pnpm -r --if-present lint
-node packages/cli/dist/bin.js   # scaffold banner — no commands yet
+cd packages/cli && npm link   # makes `bh` globally available
+
+bh workspace add ~/Desktop/my-notes --setup
+bh decision recall --json
 ```
 
 ## Repo layout & the rules that must not break
@@ -25,25 +30,37 @@ node packages/cli/dist/bin.js   # scaffold banner — no commands yet
 packages/
   core/    kernel (registry + context) + modules (one per feature)
   cli/     bh — thin shell over core
+  desktop/ (planned, v0) — Electron app; React + BlockNote + React Flow on
+           the renderer, Node main process owns fs + chokidar
 ```
 
-When contributing, keep these invariants:
+When contributing, keep these invariants (see [docs/decisions.md](docs/decisions.md) for the *why*):
 
 1. **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
-   The CLI / MCP / desktop UI are thin shells — never put business logic in them.
+   CLI / desktop / MCP are thin shells — never put business logic in them.
 2. **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
    registers commands via the kernel registry, and touches core only through
-   the `Context` it receives. No reaching into kernel internals.
-3. **Dependencies point only inward.** `packages/cli` may depend on
-   `@basehalf/core`; the reverse is forbidden. Modules don't depend on each other
-   directly — they coordinate through commands.
+   the `Context` it receives. **Modules calling other modules use `ctx.run`,
+   never imports of another module's internals.**
+3. **Dependencies point only inward.** `packages/cli` and `packages/desktop`
+   may depend on `@basehalf/core`; the reverse is forbidden. Modules don't
+   depend on each other directly — they coordinate through commands.
 4. **MD = content truth.** Modules that touch user files must be **observers**
    (file watcher + reconcile-on-launch), never owners. The `.bh/` cache is
-   derived; it must be rebuildable from files + git.
-5. **Primitives, not tasks.** Add small composable commands (e.g. `move`), not
-   task-specific ones (e.g. `arrange-into-heart`). The agent composes them.
-6. **No fork of the deleted event-log impl.** It was overturned by the
-   architecture; it lives in git history at `c441f79` if you need to reference it.
+   derived (most of it); the authored parts (canvas positions, badge prompts,
+   references) live in `.bh/` too and travel with the folder.
+5. **bh never writes user files unprompted.** Only explicit user edits
+   through the BaseHalf UI (block editor, rename) write back to MD. Agents
+   edit user files with their own tools — bh stays out of that path.
+6. **Primitives, not tasks.** Add small composable commands (e.g. `badge.add-ref`,
+   `view.create`), not task-specific ones (e.g. `arrange-into-heart`). The
+   agent composes them.
+7. **Publish, don't inject.** Agent-facing surfaces write files to known paths
+   in `.bh/` (`focus.md` / `badges/<file>.json` / `index/inbound.json`); no
+   system-prompt injection, no MCP server required.
+8. **No fork of the deleted event-log impl.** It was overturned by the
+   architecture pivot ([D12](docs/decisions.md)); it lives in git history at
+   `c441f79` if you need to reference it.
 
 ## Contributor License Agreement (required)
 

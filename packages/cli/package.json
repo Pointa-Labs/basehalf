@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "BaseHalf CLI (bh) — a thin shell over @basehalf/core. The agent-facing front end.",
+  "description": "BaseHalf CLI (bh) — a thin shell over @basehalf/core. Used by humans (workspace setup, dogfood) and agents (read/write the published .bh/ protocol).",
   "license": "Apache-2.0",
   "bin": {
     "bh": "./dist/bin.js"

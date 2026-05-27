@@ -6,8 +6,9 @@ body:
     attributes:
       value: |
         Ideas are very welcome — no CLA needed. Note the roadmap is core-team
-        driven (see docs/roadmap.md), and BaseHalf is a *substrate*, not an agent:
-        it deliberately ships primitives, not task-specific features.
+        driven (see docs/roadmap.md). BaseHalf is a workspace, not an agent:
+        we provide composable primitives (badges, references, canvas, views);
+        the AI agent (Claude Code / Codex / …) brings the intelligence.
   - type: textarea
     id: problem
     attributes:
@@ -19,10 +20,12 @@ body:
     id: proposal
     attributes:
       label: Proposed change
-      description: What would you like to see? If it's a new command, is it a primitive (good) or a task (out of scope)?
+      description: What would you like to see? If it's a new command, is it a primitive (good — agent can compose it) or a task-specific feature (likely out of scope — that's the agent's job)?
   - type: checkboxes
     id: invariants
     attributes:
       label: Fit check
       options:
-        - label: This keeps BaseHalf a substrate (a primitive), not an agent feature.
+        - label: This adds a composable primitive, not a task-specific or AI-orchestration feature.
+        - label: This doesn't require bh to call an LLM or do agent orchestration.
+        - label: This doesn't require bh to modify user files (`.md`, `.pdf`, …) without explicit user action.

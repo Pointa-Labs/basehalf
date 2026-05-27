@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "BaseHalf — a local-first, source-grounded, auditable context layer (portable memory) that coding agents (Claude Code / Codex) read and write.",
+  "description": "BaseHalf — a local-first, agent-native compound thinking workspace. Notion + Excalidraw + NotebookLM-style desktop app for AI-augmented knowledge work.",
   "author": "Pointa Labs, Inc.",
   "homepage": "https://basehalf.com",
   "license": "Apache-2.0",

@@ -17,26 +17,39 @@ copyleft code into company software.
 
 When in doubt, open an issue before adding the dependency.
 
-## Canvas / editor stack (read this before building the production app)
+## Canvas / editor stack (the libraries we actually use)
 
-[D8](decisions.md) lists candidate libraries for the production editor. Vet each
-for license **before** adopting — some popular ones are *not* permissive:
+[D8](decisions.md) covers the production stack decision. The picks below are
+locked in; the rest are kept here as license guidance for anything else that
+gets considered.
+
+**Locked-in for v0:**
+
+| Library | Role | License | Status |
+|---|---|---|---|
+| **React Flow** (`@xyflow/react`) | Canvas (free-position + edges) | MIT | ✅ Locked in |
+| **BlockNote** | Block editor (Notion-style; MD round-trip) | MIT | ✅ Locked in |
+| **pdf.js** | PDF rendering | Apache-2.0 | ✅ Locked in |
+| **chokidar** | File watcher | MIT | ✅ Locked in |
+| **Zustand** | Renderer state | MIT | ✅ Locked in |
+
+**Other vetted libraries (reference for future decisions):**
 
 | Library | License | Verdict |
 |---|---|---|
 | **tldraw** | "tldraw license" — **source-available, needs a commercial license / watermark** | ⛔ **Don't use.** Exactly the trap to avoid. |
-| **React Flow** (`@xyflow/react`) | MIT | ✅ Recommended canvas (node/graph). |
-| **Excalidraw** (`@excalidraw/excalidraw`) | MIT | ✅ Recommended canvas (free-form). |
+| **Excalidraw** (`@excalidraw/excalidraw`) | MIT | ✅ OK if we ever need free-form sketch (different from React Flow's node/graph). |
 | **Konva** / **Fabric.js** | MIT | ✅ Lower-level 2D canvas. |
 | **maxGraph** | Apache-2.0 | ✅ Diagramming. |
-| **BlockSuite** | MPL-2.0 (weak copyleft) | ⚠️ OK with care — changes to MPL files stay open. |
-| **ProseMirror** | MIT | ✅ |
-| **Yjs** | MIT | ✅ |
-| **SQLite** | Public domain | ✅ |
+| **BlockSuite** | MPL-2.0 (weak copyleft) | ⚠️ OK with care — but we picked BlockNote instead (smaller, Notion-shaped, MIT). |
+| **ProseMirror / Tiptap** | MIT | ✅ Underlying engine — BlockNote sits on top. |
+| **Yjs** | MIT | ✅ Reserved for v1 collaboration (D6). |
+| **SQLite** | Public domain | ✅ Reserved for the >5k-files-in-workspace storage swap (D8). |
+| **Tantivy** (Rust) | MIT/Apache | ✅ Reserved for v1+ full-text search if needed. |
 
-**Decision for the canvas:** if a candidate requires a commercial license (tldraw),
-**replace it with a permissive one** (React Flow or Excalidraw, both MIT). We'd
-rather switch libraries than take on a commercialization blocker.
+**Hard rule:** if a candidate requires a commercial license (tldraw), **replace
+it with a permissive one** (React Flow or Excalidraw, both MIT). We'd rather
+switch libraries than take on a commercialization blocker.
 
 ## Process
 

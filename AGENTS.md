@@ -1,8 +1,14 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` has two real modules — `workspace` and `decision`. The old
-> `node src/cli.mjs` reference impl was deleted (clean slate); that path no
-> longer exists.
+> **Status:** `bh` has two real modules today — `workspace` and `decision`.
+> The desktop app (v0) is in development; once it lands, the CLAUDE.md hint
+> installed by `bh init` will switch to the **agent protocol** model
+> (`.bh/focus.md` + `.bh/badges/<file>.json` + `.bh/index/inbound.json` — see
+> [docs/decisions.md D14](docs/decisions.md)). Until then, the decisions
+> recall flow below is the main pattern.
+>
+> The old `node src/cli.mjs` reference impl was deleted (clean slate); that
+> path no longer exists.
 
 `bh` is the CLI. Invoke it as `bh <cmd>` (linked globally via `npm link` in
 `packages/cli/`). If `bh` is missing on this machine, rebuild + relink:
