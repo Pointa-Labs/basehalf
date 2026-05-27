@@ -197,11 +197,15 @@ describe('decisions module (mock FS)', () => {
     expect(top2.matches.map((m) => m.slug)).toEqual(['third', 'second']);
   });
 
-  it('show: returns full decision or throws on missing', async () => {
+  it('show: returns { decision, inboundLinks } or throws on missing', async () => {
     const { core } = await bootstrap();
     await core.run('decision.add', { title: 'T', because: 'b', slug: 'present' });
-    const r = await core.run<unknown, Decision>('decision.show', { slug: 'present' });
-    expect(r.title).toBe('T');
+    const r = await core.run<unknown, { decision: Decision; inboundLinks: unknown[] }>(
+      'decision.show',
+      { slug: 'present' },
+    );
+    expect(r.decision.title).toBe('T');
+    expect(r.inboundLinks).toEqual([]);
     await expect(core.run('decision.show', { slug: 'missing' })).rejects.toThrow(
       /No such decision/,
     );
@@ -258,9 +262,11 @@ describe('decisions module (mock FS)', () => {
     const { core } = await bootstrap();
     await core.run('decision.add', { title: 'Original Title', because: 'original' });
     await core.run('decision.update', { slug: 'original-title', addTag: ['x'] });
-    const after = await core.run<unknown, Decision>('decision.show', { slug: 'original-title' });
-    expect(after.title).toBe('Original Title');
-    expect(after.rationale).toBe('original');
+    const after = await core.run<unknown, { decision: Decision }>('decision.show', {
+      slug: 'original-title',
+    });
+    expect(after.decision.title).toBe('Original Title');
+    expect(after.decision.rationale).toBe('original');
   });
 
   it('list: same as recall with no query, behaves consistently', async () => {
@@ -311,7 +317,147 @@ describe('decisions module (integration, real FS)', () => {
     expect(JSON.parse(onDisk).title).toBe('Test decision');
 
     await core.run('decision.update', { slug: 'test-decision', status: 'deprecated' });
-    const after = await core.run<unknown, Decision>('decision.show', { slug: 'test-decision' });
-    expect(after.status).toBe('deprecated');
+    const after = await core.run<unknown, { decision: Decision }>('decision.show', {
+      slug: 'test-decision',
+    });
+    expect(after.decision.status).toBe('deprecated');
+  });
+});
+
+// ── Link / unlink / inbound ─────────────────────────────────────────────────
+
+describe('decisions: link / unlink / inbound', () => {
+  async function withTwo(): Promise<{
+    core: ReturnType<typeof createCore>;
+    files: Map<string, string>;
+  }> {
+    const m = mockFs();
+    m.dirs.add('/work');
+    const core = createCore({ fs: m.fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'ws' });
+    await core.run('decision.add', { title: 'A', because: 'a', slug: 'a' });
+    await core.run('decision.add', { title: 'B', because: 'b', slug: 'b' });
+    return { core, files: m.files };
+  }
+
+  it('link: adds outbound; show on target picks up inbound', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'depends-on' });
+
+    const showA = await core.run<unknown, { decision: Decision }>('decision.show', { slug: 'a' });
+    expect(showA.decision.links).toEqual([{ slug: 'b', kind: 'depends-on' }]);
+
+    const showB = await core.run<unknown, { inboundLinks: { fromSlug: string; kind: string }[] }>(
+      'decision.show',
+      { slug: 'b' },
+    );
+    expect(showB.inboundLinks).toEqual([{ fromSlug: 'a', kind: 'depends-on' }]);
+  });
+
+  it('link: --note is stored on outbound and surfaced in inbound', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', {
+      slug: 'a',
+      to: 'b',
+      kind: 'refines',
+      note: 'narrower scope',
+    });
+    const showB = await core.run<
+      unknown,
+      { inboundLinks: { fromSlug: string; kind: string; note?: string }[] }
+    >('decision.show', { slug: 'b' });
+    expect(showB.inboundLinks[0]?.note).toBe('narrower scope');
+  });
+
+  it('link: rejects self-link', async () => {
+    const { core } = await withTwo();
+    await expect(
+      core.run('decision.link', { slug: 'a', to: 'a', kind: 'relates' }),
+    ).rejects.toThrow(/itself/);
+  });
+
+  it('link: rejects bad kind format', async () => {
+    const { core } = await withTwo();
+    await expect(
+      core.run('decision.link', { slug: 'a', to: 'b', kind: 'BadKind!' }),
+    ).rejects.toThrow(/Invalid kind/);
+  });
+
+  it('link: rejects nonexistent target', async () => {
+    const { core } = await withTwo();
+    await expect(
+      core.run('decision.link', { slug: 'a', to: 'missing', kind: 'relates' }),
+    ).rejects.toThrow(/target does not exist/);
+  });
+
+  it('link: idempotent on (target, kind) — replaces note rather than duplicating', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'relates', note: 'first' });
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'relates', note: 'second' });
+    const showA = await core.run<unknown, { decision: Decision }>('decision.show', { slug: 'a' });
+    expect(showA.decision.links).toHaveLength(1);
+    expect(showA.decision.links[0]?.note).toBe('second');
+  });
+
+  it('link: same target with different kinds coexist', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'relates' });
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'extends' });
+    const showA = await core.run<unknown, { decision: Decision }>('decision.show', { slug: 'a' });
+    expect(showA.decision.links).toHaveLength(2);
+  });
+
+  it('unlink: removes all links (slug → target) when no kind given', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'relates' });
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'extends' });
+    const r = await core.run<unknown, { removed: unknown[]; decision: Decision }>(
+      'decision.unlink',
+      { slug: 'a', from: 'b' },
+    );
+    expect(r.removed).toHaveLength(2);
+    expect(r.decision.links).toHaveLength(0);
+  });
+
+  it('unlink: with --kind only removes that one', async () => {
+    const { core } = await withTwo();
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'relates' });
+    await core.run('decision.link', { slug: 'a', to: 'b', kind: 'extends' });
+    await core.run('decision.unlink', { slug: 'a', from: 'b', kind: 'relates' });
+    const showA = await core.run<unknown, { decision: Decision }>('decision.show', { slug: 'a' });
+    expect(showA.decision.links).toEqual([{ slug: 'b', kind: 'extends' }]);
+  });
+
+  it('unlink: throws if nothing matched', async () => {
+    const { core } = await withTwo();
+    await expect(core.run('decision.unlink', { slug: 'a', from: 'b' })).rejects.toThrow(
+      /No matching links/,
+    );
+  });
+
+  it('backward compat: decisions without `links` field read as empty', async () => {
+    // Manually write a v1 decision file WITHOUT the links field.
+    const m = mockFs();
+    m.dirs.add('/work');
+    const core = createCore({ fs: m.fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'ws' });
+    m.files.set(
+      '/work/.bh/decisions/legacy.json',
+      JSON.stringify({
+        version: 1,
+        slug: 'legacy',
+        title: 'Legacy',
+        rationale: 'no links field',
+        sources: [],
+        tags: [],
+        status: 'active',
+        decidedAt: '2026-01-01T00:00:00.000Z',
+        decidedBy: 'test',
+        supersedes: null,
+        supersededBy: null,
+      }),
+    );
+    const r = await core.run<unknown, { decision: Decision }>('decision.show', { slug: 'legacy' });
+    expect(r.decision.links).toEqual([]);
   });
 });

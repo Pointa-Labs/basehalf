@@ -1,5 +1,6 @@
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
+import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
 import type {
   WorkspaceAddArgs,
@@ -61,10 +62,13 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
     workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
   });
 
+  const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
+
   return {
     workspace: { name, path: absPath, addedAt },
     setAsCurrent,
     bhDirCreated,
+    ...(setup !== undefined && { setup }),
   };
 };
 

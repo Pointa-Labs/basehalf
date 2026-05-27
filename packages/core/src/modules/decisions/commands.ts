@@ -5,6 +5,9 @@ import type {
   Decision,
   DecisionAddArgs,
   DecisionAddResult,
+  DecisionLink,
+  DecisionLinkArgs,
+  DecisionLinkResult,
   DecisionListArgs,
   DecisionListResult,
   DecisionRecallArgs,
@@ -12,11 +15,15 @@ import type {
   DecisionShowArgs,
   DecisionShowResult,
   DecisionStatus,
+  DecisionUnlinkArgs,
+  DecisionUnlinkResult,
   DecisionUpdateArgs,
   DecisionUpdateResult,
+  InboundLink,
 } from './types.js';
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const KIND_PATTERN = /^[a-z][a-z-]{0,31}$/;
 const VALID_STATUSES: readonly DecisionStatus[] = ['active', 'deprecated', 'superseded'];
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -62,7 +69,7 @@ function dedupe(items: readonly string[]): string[] {
  *  - Derives a slug from title (or uses --slug); refuses duplicates (forces good names).
  *  - Stores at `<workspace>/.bh/decisions/<slug>.json`.
  *  - decidedBy defaults to $USER / $USERNAME / 'anonymous'.
- *  - Status starts as 'active'.
+ *  - Status starts as 'active'; links starts as [].
  */
 export const add: Handler<DecisionAddArgs, DecisionAddResult> = async (args, ctx) => {
   if (!args.title.trim()) throw new Error('Title is required and cannot be empty.');
@@ -93,6 +100,7 @@ export const add: Handler<DecisionAddArgs, DecisionAddResult> = async (args, ctx
     decidedBy: args.by ?? defaultDecidedBy(),
     supersedes: null,
     supersededBy: null,
+    links: [],
   };
 
   await writeDecision(ctx.fs, workspaceRoot, decision);
@@ -159,15 +167,42 @@ export const list: Handler<DecisionListArgs, DecisionListResult> = async (args, 
 
 // ── show ────────────────────────────────────────────────────────────────────
 
-/** `bh decision show <slug>` — full decision or throws if missing. */
+/**
+ * `bh decision show <slug>` — full decision + computed inbound links (other
+ * decisions that point to this one). Inbound is derived on every call via a
+ * linear scan; cheap up to ~1000s of decisions.
+ */
 export const show: Handler<DecisionShowArgs, DecisionShowResult> = async (args, ctx) => {
   const workspaceRoot = await currentWorkspaceRoot(ctx);
   const d = await readDecision(ctx.fs, workspaceRoot, args.slug);
   if (!d) {
     throw new Error(`No such decision: ${args.slug}`);
   }
-  return d;
+  const inboundLinks = await computeInbound(ctx, workspaceRoot, args.slug);
+  return { decision: d, inboundLinks };
 };
+
+async function computeInbound(
+  ctx: Context,
+  workspaceRoot: string,
+  targetSlug: string,
+): Promise<InboundLink[]> {
+  const all = await readAllDecisions(ctx.fs, workspaceRoot);
+  const inbound: InboundLink[] = [];
+  for (const d of all) {
+    if (d.slug === targetSlug) continue;
+    for (const link of d.links) {
+      if (link.slug === targetSlug) {
+        inbound.push({
+          fromSlug: d.slug,
+          kind: link.kind,
+          ...(link.note !== undefined && { note: link.note }),
+        });
+      }
+    }
+  }
+  return inbound;
+}
 
 // ── update ──────────────────────────────────────────────────────────────────
 
@@ -176,7 +211,8 @@ export const show: Handler<DecisionShowArgs, DecisionShowResult> = async (args, 
  *  - **Does NOT change `title` or `rationale`** — rewriting them would corrupt
  *    the audit trail. To change direction, supersede: add a new decision and
  *    set the old one's `status` to `superseded` + `supersededBy = newSlug`.
- *  - Sources/tags are append-only here (use a hand edit for removal).
+ *  - Sources/tags are append-only here (use `bh decision link/unlink` for
+ *    cross-decision relationships, hand-edit the JSON for removal).
  */
 export const update: Handler<DecisionUpdateArgs, DecisionUpdateResult> = async (args, ctx) => {
   const workspaceRoot = await currentWorkspaceRoot(ctx);
@@ -207,6 +243,81 @@ export const update: Handler<DecisionUpdateArgs, DecisionUpdateResult> = async (
   return { decision: updated };
 };
 
+// ── link ────────────────────────────────────────────────────────────────────
+
+/**
+ * `bh decision link <slug> --to <target> --kind <kind> [--note <text>]`
+ *  - Records an outbound link from <slug> to <target>.
+ *  - Both decisions must exist; self-links rejected (no value).
+ *  - `kind` is lowercase kebab; conventions documented in CLAUDE.md but the
+ *    server doesn't enforce a fixed set (different teams want different
+ *    vocabularies — relates / extends / depends-on / informed-by / refines /
+ *    conflicts-with / spawned-by / blocks / etc.).
+ *  - Idempotent: link with identical (target, kind) is a no-op rather than an
+ *    error. Different `note` overwrites.
+ */
+export const link: Handler<DecisionLinkArgs, DecisionLinkResult> = async (args, ctx) => {
+  if (args.slug === args.to) throw new Error('Cannot link a decision to itself.');
+  if (!KIND_PATTERN.test(args.kind)) {
+    throw new Error(
+      `Invalid kind: ${JSON.stringify(args.kind)} (allowed: a-z and -, 1-32 chars, starts a-z)`,
+    );
+  }
+
+  const workspaceRoot = await currentWorkspaceRoot(ctx);
+  const source = await readDecision(ctx.fs, workspaceRoot, args.slug);
+  if (!source) throw new Error(`No such decision: ${args.slug}`);
+  const target = await readDecision(ctx.fs, workspaceRoot, args.to);
+  if (!target) throw new Error(`Link target does not exist: ${args.to}`);
+
+  const newLink: DecisionLink = {
+    slug: args.to,
+    kind: args.kind,
+    ...(args.note !== undefined && { note: args.note }),
+  };
+
+  // Idempotent: replace existing (target, kind) pair if present.
+  const filtered = source.links.filter((l) => !(l.slug === args.to && l.kind === args.kind));
+  const updated: Decision = { ...source, links: [...filtered, newLink] };
+
+  await writeDecision(ctx.fs, workspaceRoot, updated);
+  return { decision: updated, added: newLink };
+};
+
+// ── unlink ──────────────────────────────────────────────────────────────────
+
+/**
+ * `bh decision unlink <slug> --from <target> [--kind <kind>]`
+ *  - Removes outbound link(s) from <slug> to <target>.
+ *  - Without --kind: removes ALL links from slug → target.
+ *  - With --kind: removes only that specific (target, kind) link.
+ *  - Returns the list of removed links (so JSON output is informative).
+ */
+export const unlink: Handler<DecisionUnlinkArgs, DecisionUnlinkResult> = async (args, ctx) => {
+  const workspaceRoot = await currentWorkspaceRoot(ctx);
+  const source = await readDecision(ctx.fs, workspaceRoot, args.slug);
+  if (!source) throw new Error(`No such decision: ${args.slug}`);
+
+  const removed: DecisionLink[] = [];
+  const kept: DecisionLink[] = [];
+  for (const l of source.links) {
+    const matchTarget = l.slug === args.from;
+    const matchKind = args.kind === undefined || l.kind === args.kind;
+    if (matchTarget && matchKind) removed.push(l);
+    else kept.push(l);
+  }
+
+  if (removed.length === 0) {
+    throw new Error(
+      `No matching links to remove (slug=${args.slug}, from=${args.from}${args.kind ? `, kind=${args.kind}` : ''}).`,
+    );
+  }
+
+  const updated: Decision = { ...source, links: kept };
+  await writeDecision(ctx.fs, workspaceRoot, updated);
+  return { decision: updated, removed };
+};
+
 // ── module registration ─────────────────────────────────────────────────────
 
 export function commands(): ReadonlyArray<
@@ -218,5 +329,7 @@ export function commands(): ReadonlyArray<
     ['decision.list', list as unknown as Handler<never, unknown>],
     ['decision.show', show as unknown as Handler<never, unknown>],
     ['decision.update', update as unknown as Handler<never, unknown>],
+    ['decision.link', link as unknown as Handler<never, unknown>],
+    ['decision.unlink', unlink as unknown as Handler<never, unknown>],
   ];
 }

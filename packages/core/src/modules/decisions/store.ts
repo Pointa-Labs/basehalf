@@ -28,7 +28,8 @@ export async function readDecision(
     if (parsed?.version !== 1) {
       throw new Error(`Unsupported decision file version: ${String(parsed?.version)} (${slug})`);
     }
-    return parsed as Decision;
+    // Backward compat: files written before the `links` field default to empty.
+    return { ...(parsed as Decision), links: parsed.links ?? [] };
   } catch (err) {
     if (err instanceof SyntaxError) {
       throw new Error(`Decision file is not valid JSON (${slug}): ${err.message}`);

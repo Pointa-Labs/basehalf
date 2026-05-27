@@ -8,6 +8,9 @@
 
 type WorkspaceEntry = { name: string; path: string; addedAt: string };
 
+type DecisionLink = { slug: string; kind: string; note?: string };
+type InboundLink = { fromSlug: string; kind: string; note?: string };
+
 type Decision = {
   version: 1;
   slug: string;
@@ -20,6 +23,15 @@ type Decision = {
   decidedBy: string;
   supersedes: string | null;
   supersededBy: string | null;
+  links: readonly DecisionLink[];
+};
+
+type SetupReport = {
+  gitignoreUpdated: boolean;
+  claudeMdUpdated: boolean;
+  gitignoreSkipped: boolean;
+  claudeMdSkipped: boolean;
+  gitignoreAbsent: boolean;
 };
 
 export function render(commandName: string, result: unknown, asJson: boolean): void {
@@ -31,7 +43,12 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
   switch (commandName) {
     case 'workspace.add':
       renderWsAdd(
-        result as { workspace: WorkspaceEntry; setAsCurrent: boolean; bhDirCreated: boolean },
+        result as {
+          workspace: WorkspaceEntry;
+          setAsCurrent: boolean;
+          bhDirCreated: boolean;
+          setup?: SetupReport;
+        },
       );
       return;
     case 'workspace.list':
@@ -56,10 +73,16 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
       renderDecList(result as { decisions: Decision[] });
       return;
     case 'decision.show':
-      renderDecShow(result as Decision);
+      renderDecShow(result as { decision: Decision; inboundLinks: readonly InboundLink[] });
       return;
     case 'decision.update':
       renderDecUpdate(result as { decision: Decision });
+      return;
+    case 'decision.link':
+      renderDecLink(result as { decision: Decision; added: DecisionLink });
+      return;
+    case 'decision.unlink':
+      renderDecUnlink(result as { decision: Decision; removed: readonly DecisionLink[] });
       return;
     default:
       // Fallback: pretty-print whatever we got.
@@ -73,11 +96,22 @@ function renderWsAdd(r: {
   workspace: WorkspaceEntry;
   setAsCurrent: boolean;
   bhDirCreated: boolean;
+  setup?: SetupReport;
 }): void {
   process.stdout.write(`Added workspace "${r.workspace.name}"\n`);
   process.stdout.write(`  path:    ${r.workspace.path}\n`);
   if (r.bhDirCreated) process.stdout.write('  .bh/:    created\n');
   if (r.setAsCurrent) process.stdout.write('  current: yes (first workspace)\n');
+  if (r.setup) {
+    const s = r.setup;
+    if (s.gitignoreUpdated) process.stdout.write('  setup:   .bh/ added to .gitignore\n');
+    else if (s.gitignoreSkipped) process.stdout.write('  setup:   .gitignore already had .bh/\n');
+    else if (s.gitignoreAbsent)
+      process.stdout.write('  setup:   no .gitignore (not a git repo?) — skipped\n');
+    if (s.claudeMdUpdated) process.stdout.write('  setup:   recall hint appended to CLAUDE.md\n');
+    else if (s.claudeMdSkipped)
+      process.stdout.write('  setup:   CLAUDE.md already had recall hint\n');
+  }
 }
 
 function renderWsList(r: { current: string | null; workspaces: WorkspaceEntry[] }): void {
@@ -144,7 +178,8 @@ function renderDecList(r: { decisions: Decision[] }): void {
   }
 }
 
-function renderDecShow(d: Decision): void {
+function renderDecShow(r: { decision: Decision; inboundLinks: readonly InboundLink[] }): void {
+  const d = r.decision;
   process.stdout.write(`${d.title} (${d.slug})\n`);
   process.stdout.write(`  Why:        ${d.rationale}\n`);
   process.stdout.write(`  Status:     ${d.status}\n`);
@@ -154,6 +189,20 @@ function renderDecShow(d: Decision): void {
   process.stdout.write(`  Decided by: ${d.decidedBy}\n`);
   if (d.supersededBy) process.stdout.write(`  Superseded by: ${d.supersededBy}\n`);
   if (d.supersedes) process.stdout.write(`  Supersedes:    ${d.supersedes}\n`);
+  if (d.links.length > 0) {
+    process.stdout.write('  Links out:\n');
+    for (const l of d.links) {
+      const noteStr = l.note ? ` — ${l.note}` : '';
+      process.stdout.write(`    → ${l.kind}: ${l.slug}${noteStr}\n`);
+    }
+  }
+  if (r.inboundLinks.length > 0) {
+    process.stdout.write('  Links in:\n');
+    for (const l of r.inboundLinks) {
+      const noteStr = l.note ? ` — ${l.note}` : '';
+      process.stdout.write(`    ← ${l.kind}: ${l.fromSlug}${noteStr}\n`);
+    }
+  }
 }
 
 function renderDecUpdate(r: { decision: Decision }): void {
@@ -170,11 +219,31 @@ function renderDecUpdate(r: { decision: Decision }): void {
   }
 }
 
+function renderDecLink(r: { decision: Decision; added: DecisionLink }): void {
+  const noteStr = r.added.note ? ` (${r.added.note})` : '';
+  process.stdout.write(
+    `Linked "${r.decision.slug}" → ${r.added.slug} [${r.added.kind}]${noteStr}\n`,
+  );
+  process.stdout.write(`  Total outbound: ${r.decision.links.length}\n`);
+}
+
+function renderDecUnlink(r: { decision: Decision; removed: readonly DecisionLink[] }): void {
+  process.stdout.write(`Removed ${r.removed.length} link(s) from "${r.decision.slug}":\n`);
+  for (const l of r.removed) {
+    process.stdout.write(`  − ${l.kind}: ${l.slug}\n`);
+  }
+  process.stdout.write(`  Remaining outbound: ${r.decision.links.length}\n`);
+}
+
 function renderDecisionLine(d: Decision): void {
   const status = d.status === 'active' ? '' : ` [${d.status}]`;
   process.stdout.write(`* ${d.title} (${d.slug})${status}\n`);
   process.stdout.write(`    Why:  ${d.rationale}\n`);
   if (d.sources.length > 0) process.stdout.write(`    Refs: ${d.sources.join(', ')}\n`);
   if (d.tags.length > 0) process.stdout.write(`    Tags: ${d.tags.join(', ')}\n`);
+  if (d.links.length > 0) {
+    const linkStr = d.links.map((l) => `${l.kind}:${l.slug}`).join(', ');
+    process.stdout.write(`    Links: ${linkStr}\n`);
+  }
   process.stdout.write(`    Date: ${d.decidedAt.slice(0, 10)}\n`);
 }
