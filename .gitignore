@@ -1,8 +1,9 @@
 # dependencies
 node_modules/
 
-# the local knowledge store (user data — never commit it)
-.bh/
+# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git so
+# canvas positions / badge prompts / references travel with the folder)
+.bh/cache/
 
 # build output
 dist/
