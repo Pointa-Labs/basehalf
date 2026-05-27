@@ -222,3 +222,33 @@ narrower wedge that didn't match what users actually do with the product.
 that the killer use case isn't "agent recall" — it's "I have a folder of
 stuff, help me think with it." The agent makes this 10x better but isn't
 the *point*. The point is the right screen being usable for thought.
+
+## D18 — Decisions module retired; corpus moved to MD in private docs (NEW, 2026-05-28)
+
+**Decision.** Remove the `decisions` module from `@basehalf/core` and the
+`bh decision` subcommands from the CLI. The team's product / architecture
+decisions corpus moves to MD files under `private-docs/decisions/<slug>.md`
+(one file per decision, frontmatter + rationale body), grepped and read
+directly without a CLI wrapper.
+
+**Why.** The `decisions` module was built for the original v0 wedge ("memory
+layer for coding agents" — see [D17](#d17--compound-thinking--the-product-form-new-overturns-earlier-memory-layer-framing)),
+where decision provenance was the product's first aha loop. After the pivot
+to compound thinking (D17), the target user is no longer a programmer
+tracking architecture decisions; it's a curious learner organizing files
+([D16](#d16--target-user--curious-learners-using-ai-to-learn-new)). Keeping
+`bh decision` as a user-facing feature would misadvertise the product as
+"for engineers."
+
+The module's reasonable remaining role — **internal dogfood tool** for the
+BaseHalf team to track its own decisions — fits better as plain MD files
+alongside the rest of `private-docs/` (which is already MD: IR, SR,
+architecture constitution, product vision). MD makes the corpus
+human-readable, greppable, and (once the v0 desktop app ships) navigable on
+canvas as native badges — without a separate storage format.
+
+**Consequences.** `bh decision *` subcommands no longer exist. The earlier
+46-decision JSON corpus has been migrated to `private-docs/decisions/`
+(private repo); the new corpus convention is in `private-docs/decisions/README.md`.
+The deleted module lives in git history if you ever need to reference its
+schema or commands.

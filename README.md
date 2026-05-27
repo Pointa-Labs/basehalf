@@ -46,14 +46,13 @@ The architecture rules:
 
 ## Status
 
-**Pre-alpha; CLI is real, desktop app in development.** Two real modules ship today:
+**Pre-alpha; CLI is real, desktop app in development.** One real module ships today:
 
-- **`bh workspace`** — register a folder as a workspace, switch between them, run `bh init` to set up
-- **`bh decision`** — record / recall design decisions (currently used internally by the BaseHalf team for dogfooding; not yet a primary user-facing feature)
+- **`bh workspace`** — register a folder as a BaseHalf workspace, switch between them, run `bh init` to set up
 
 The desktop app (canvas + block editor + file tree + agent protocol) is the v0 build. ETA: **6–10 weeks** to a dogfood-able Mac build.
 
-The earlier event-log reference implementation has been replaced by a new monorepo skeleton aligned to the current architecture. The old impl lives in git history at commit `c441f79`.
+The earlier event-log reference implementation has been replaced by a new monorepo skeleton aligned to the current architecture. The old impl lives in git history at commit `c441f79`. (A `bh decision` CLI also shipped briefly as an internal dogfood tool and has since been retired — see [docs/decisions.md D18](docs/decisions.md).)
 
 ## Try the CLI (you can use this today)
 
@@ -63,10 +62,10 @@ pnpm -r build         # @basehalf/core, then @basehalf/cli
 pnpm -r test
 cd packages/cli && npm link    # makes `bh` globally available
 
-bh workspace add ~/Desktop/my-notes --setup
+bh init                                      # register cwd as a workspace
+bh workspace add ~/Desktop/my-notes --setup  # register another folder
+bh workspace list
 bh workspace current
-bh decision add "Use X over Y" --because "..." --tag foo
-bh decision recall --json
 ```
 
 Requirements: Node ≥ 18.17, pnpm 9.

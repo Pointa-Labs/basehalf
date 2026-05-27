@@ -37,7 +37,7 @@ top.
 
 | PR | What | Est |
 |---|---|---|
-| 8 | Fix `bh init` (stop gitignoring `.bh/`); replace CLAUDE.md hint with the agent protocol guide | 0.5–1 day |
+| 8 | Fix `bh init` (gitignore only `.bh/cache/`; swap recall hint for pre-v0 workspace hint); retire the `decisions` module (corpus moves to MD in private-docs) | 1 day |
 | 9 | `packages/desktop/` — Electron skeleton (main + preload + renderer), IPC working | 1 day |
 | 10 | Workspace selector + left-side file tree (Obsidian-style) | 2 days |
 | 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | 4–5 days |
