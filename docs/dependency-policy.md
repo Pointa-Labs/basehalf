@@ -37,7 +37,7 @@ gets considered.
 
 | Library | License | Verdict |
 |---|---|---|
-| **tldraw** | "tldraw license" — **source-available, needs a commercial license / watermark** | ⛔ **Don't use.** Exactly the trap to avoid. |
+| **tldraw** | "tldraw license" — source-available, requires a commercial license for production use | ⛔ Not compatible with our Apache-2.0 + open-core path; we use React Flow instead. |
 | **Excalidraw** (`@excalidraw/excalidraw`) | MIT | ✅ OK if we ever need free-form sketch (different from React Flow's node/graph). |
 | **Konva** / **Fabric.js** | MIT | ✅ Lower-level 2D canvas. |
 | **maxGraph** | Apache-2.0 | ✅ Diagramming. |

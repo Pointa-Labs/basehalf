@@ -183,10 +183,11 @@ deep based on its own token budget.
 context window. The publish model works for **any** agent that can read
 files — no MCP server required.
 
-**Contrast with inject-style designs.** Some products (including our own
-network-based experiments) build a context BFS server-side and inject the
-result into the agent's system prompt. We can't and shouldn't — token budget
-and depth are the agent's decision.
+**Contrast with inject-style designs.** Some products build a context graph
+server-side and inject the assembled result into the agent's system prompt.
+That model doesn't fit here — bh runs alongside an external agent it has no
+control over, so we can't (and shouldn't) try to dictate token budget or
+traversal depth on the agent's behalf.
 
 ## D15 — Electron desktop app, Mac first, cross-platform target (NEW)
 

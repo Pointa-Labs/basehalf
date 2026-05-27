@@ -1,7 +1,7 @@
 # BaseHalf
 
 > **A compound-thinking workspace for AI-augmented knowledge work — local-first, agent-native.**
-> Left screen: your AI agent (Claude Code / Codex). Right screen: BaseHalf — a Notion + Excalidraw + NotebookLM hybrid where you compose, browse, and reorganize the fragments your thinking is made of.
+> Left screen: your AI agent (Claude Code / Codex). Right screen: BaseHalf — a desktop workspace inspired by Notion's block editor, Excalidraw's free-position canvas, and NotebookLM's source-grounded conversations, where you compose, browse, and reorganize the fragments your thinking is made of.
 >
 > Built by [Pointa Labs, Inc.](https://basehalf.com) · Open source ([Apache-2.0](LICENSE)). The name and logo are trademarks — see [docs/trademark-policy.md](docs/trademark-policy.md).
 >
