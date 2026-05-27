@@ -4,9 +4,9 @@
 > `node src/cli.mjs` reference impl was deleted (clean slate); that path no
 > longer exists.
 
-`bh` is the CLI; while developing, invoke it as
-`node packages/cli/dist/bin.js <cmd>` (or `pnpm --filter @basehalf/cli build`
-first if you haven't built). Once installed, it's `bh <cmd>`.
+`bh` is the CLI. Invoke it as `bh <cmd>` (linked globally via `npm link` in
+`packages/cli/`). If `bh` is missing on this machine, rebuild + relink:
+`pnpm -r build && (cd packages/cli && npm link)`.
 
 Always prefer `--json` on reads — output stays stable across versions.
 **Put `--json` after the subcommand** (e.g. `bh decision recall --json`),
@@ -20,11 +20,11 @@ The single most useful thing for keeping context across sessions.
 "why did we…" questions, run this and read it before answering:**
 
 ```bash
-node packages/cli/dist/bin.js decision recall --json
+bh decision recall --json
 ```
 
-(Once `bh` is on `$PATH`: just `bh decision recall --json`.) If the topic is
-narrow, filter: `bh decision recall <keyword> --json` or `--tag <topic> --json`.
+If the topic is narrow, filter: `bh decision recall <keyword> --json` or
+`bh decision recall --tag <topic> --json`.
 
 If a recall surfaces a relevant decision, **cite it in your answer** (slug +
 rationale + sources). If it doesn't, that's also signal — you may have hit
