@@ -6,12 +6,11 @@
  * everything else (CLI, MCP, desktop UI) talks to core exclusively via `run()`.
  *
  * The context's `run` is late-bound through a closure so modules can compose
- * (e.g. `decisions` asking `workspace.current` for the active root) without
+ * (e.g. one module asking `workspace.current` for the active root) without
  * importing each other — preserves the "one door" + "deps point inward" rules.
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
-import { registerDecisionsModule } from './modules/decisions/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
 export function createCore(opts: CoreOptions = {}): Core {
@@ -49,7 +48,6 @@ export function createCore(opts: CoreOptions = {}): Core {
   // First-party modules: registered here, statically composed. When external
   // plugins arrive they'll go through the same registry — just dynamic.
   registerWorkspaceModule(core);
-  registerDecisionsModule(core);
 
   return core;
 }

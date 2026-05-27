@@ -5,23 +5,25 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-> **Status note.** Pre-alpha. The CLI ships two real modules (`workspace`,
-> `decision`); the desktop app is being built in v0 (PR 8 → 16). Contribution
-> surfaces are narrow today — **open an issue first** to find one that's ready
-> for outside work. See [docs/roadmap.md](docs/roadmap.md) for the current PR
-> plan.
+> **Status note.** Pre-alpha. The CLI ships one real module (`workspace`);
+> the desktop app is being built in v0 (PR 8 → 16). Contribution surfaces
+> are narrow today — **open an issue first** to find one that's ready for
+> outside work. See [docs/roadmap.md](docs/roadmap.md) for the current PR
+> plan. (A `bh decision` subcommand also shipped briefly as an internal
+> dogfood tool and has since been retired; see [docs/decisions.md D18](docs/decisions.md).)
 
 ## Build it (Node ≥ 18.17, pnpm 9)
 
 ```bash
 pnpm install
 pnpm -r build         # @basehalf/core, then @basehalf/cli
-pnpm -r test          # vitest — core + workspace + decisions tests
+pnpm -r test          # vitest — core + workspace tests
 pnpm -r --if-present lint
 cd packages/cli && npm link   # makes `bh` globally available
 
-bh workspace add ~/Desktop/my-notes --setup
-bh decision recall --json
+bh init                                      # register cwd as workspace
+bh workspace add ~/Desktop/my-notes --setup  # or register an existing folder
+bh workspace list
 ```
 
 ## Repo layout & the rules that must not break
