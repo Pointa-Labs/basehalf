@@ -224,3 +224,109 @@ describe('workspace module (integration, real FS)', () => {
     expect(r.bhDirCreated).toBe(false);
   });
 });
+
+// ── --setup (non-destructive) ───────────────────────────────────────────────
+
+type SetupReport = {
+  gitignoreUpdated: boolean;
+  claudeMdUpdated: boolean;
+  gitignoreSkipped: boolean;
+  claudeMdSkipped: boolean;
+  gitignoreAbsent: boolean;
+};
+
+describe('workspace --setup (mock FS, non-destructive)', () => {
+  it('appends .bh/ to existing .gitignore when missing', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    files.set('/work/.gitignore', 'node_modules/\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.gitignoreUpdated).toBe(true);
+    expect(files.get('/work/.gitignore')).toMatch(/\.bh\//);
+  });
+
+  it('skips .gitignore when .bh/ already present', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    files.set('/work/.gitignore', 'node_modules/\n.bh/\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.gitignoreSkipped).toBe(true);
+    expect(r.setup.gitignoreUpdated).toBe(false);
+  });
+
+  it('reports gitignoreAbsent when no .gitignore exists', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.gitignoreAbsent).toBe(true);
+    expect(r.setup.gitignoreUpdated).toBe(false);
+  });
+
+  it('creates CLAUDE.md with hint when missing', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.claudeMdUpdated).toBe(true);
+    expect(files.get('/work/CLAUDE.md')).toMatch(/bh:recall-hint/);
+  });
+
+  it('appends hint section to existing CLAUDE.md (preserves prior content)', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    files.set('/work/CLAUDE.md', '# Existing instructions\n\nUse arrow functions.\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+    const after = files.get('/work/CLAUDE.md') as string;
+    expect(after).toContain('Existing instructions');
+    expect(after).toContain('Use arrow functions.');
+    expect(after).toContain('bh:recall-hint');
+  });
+
+  it('skips CLAUDE.md when marker already present (idempotent)', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    files.set(
+      '/work/CLAUDE.md',
+      '# Top\n\n<!-- bh:recall-hint -->\n## Using bh\n\nstale section\n',
+    );
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.claudeMdSkipped).toBe(true);
+    expect(r.setup.claudeMdUpdated).toBe(false);
+  });
+
+  it('omits setup report when --setup not passed (back-compat)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup?: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+    });
+    expect(r.setup).toBeUndefined();
+  });
+});

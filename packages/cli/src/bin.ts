@@ -28,12 +28,18 @@ const wsAdd = defineCommand({
   args: {
     path: { type: 'positional', description: 'Path to the folder', required: true },
     name: { type: 'string', description: 'Override workspace name' },
+    setup: {
+      type: 'boolean',
+      description:
+        'Also add .bh/ to .gitignore + append a recall hint to CLAUDE.md (non-destructive)',
+    },
     json: { type: 'boolean', description: 'JSON output' },
   },
   async run({ args }) {
     const result = await core.run('workspace.add', {
       path: args.path,
       ...(typeof args.name === 'string' && args.name.length > 0 && { name: args.name }),
+      ...(args.setup === true && { setup: true }),
     });
     render('workspace.add', result, Boolean(args.json));
   },
@@ -207,6 +213,54 @@ const decisionUpdate = defineCommand({
   },
 });
 
+const decisionLink = defineCommand({
+  meta: {
+    name: 'link',
+    description: 'Record an outbound link from <slug> to <target> with a kind',
+  },
+  args: {
+    slug: { type: 'positional', description: 'Source decision slug', required: true },
+    to: { type: 'string', description: 'Target decision slug', required: true },
+    kind: {
+      type: 'string',
+      description: 'Link kind (e.g. relates, extends, depends-on, conflicts-with, refines)',
+      required: true,
+    },
+    note: { type: 'string', description: 'Optional note about the link' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('decision.link', {
+      slug: args.slug,
+      to: args.to,
+      kind: args.kind,
+      ...(typeof args.note === 'string' && args.note.length > 0 && { note: args.note }),
+    });
+    render('decision.link', result, Boolean(args.json));
+  },
+});
+
+const decisionUnlink = defineCommand({
+  meta: {
+    name: 'unlink',
+    description: 'Remove outbound link(s) from <slug> to <target> (optionally filtered by --kind)',
+  },
+  args: {
+    slug: { type: 'positional', description: 'Source decision slug', required: true },
+    from: { type: 'string', description: 'Target decision slug', required: true },
+    kind: { type: 'string', description: 'Only remove links of this kind' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('decision.unlink', {
+      slug: args.slug,
+      from: args.from,
+      ...(typeof args.kind === 'string' && args.kind.length > 0 && { kind: args.kind }),
+    });
+    render('decision.unlink', result, Boolean(args.json));
+  },
+});
+
 const decision = defineCommand({
   meta: {
     name: 'decision',
@@ -218,6 +272,31 @@ const decision = defineCommand({
     list: decisionList,
     show: decisionShow,
     update: decisionUpdate,
+    link: decisionLink,
+    unlink: decisionUnlink,
+  },
+});
+
+// ── init ───────────────────────────────────────────────────────────────────
+
+const init = defineCommand({
+  meta: {
+    name: 'init',
+    description:
+      'Register the current directory as a workspace + setup (.gitignore + CLAUDE.md hint)',
+  },
+  args: {
+    name: { type: 'string', description: 'Override workspace name (default: cwd basename)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const cwd = process.cwd();
+    const result = await core.run('workspace.add', {
+      path: cwd,
+      setup: true,
+      ...(typeof args.name === 'string' && args.name.length > 0 && { name: args.name }),
+    });
+    render('workspace.add', result, Boolean(args.json));
   },
 });
 
@@ -229,7 +308,7 @@ const main = defineCommand({
     version: '0.0.1',
     description: 'BaseHalf — composable, portable memory for coding agents',
   },
-  subCommands: { workspace, decision },
+  subCommands: { init, workspace, decision },
 });
 
 // citty's runMain handles --help/--version/argv parsing. We wrap to translate

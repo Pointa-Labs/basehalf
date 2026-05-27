@@ -56,10 +56,20 @@ Other commands:
 
 ```bash
 bh decision list                         # same as `recall` with no query
-bh decision show <slug>                  # full decision
+bh decision show <slug>                  # full decision + inbound links from others
 bh decision update <slug> --status superseded --superseded-by <new-slug>
 bh decision update <slug> --add-source <ref> --add-tag <t>
+bh decision link <a> --to <b> --kind <relates|extends|depends-on|conflicts-with|refines|...> [--note <s>]
+bh decision unlink <a> --from <b> [--kind <k>]
 ```
+
+**Linking convention:** `kind` is freeform-ish (lowercase + dashes). Suggested
+vocabulary — use these unless you have reason to invent: `relates` (general
+see-also), `extends` (b builds on a), `depends-on` (a presupposes b),
+`refines` (a is a narrower version of b), `conflicts-with` (a contradicts b),
+`spawned-by` (a was prompted by b), `blocks` / `blocked-by`, `informed-by`
+(weaker than depends-on). Add `--note` when the relationship deserves a line
+of explanation.
 
 **Decisions cannot be silently rewritten.** `update` can change status, append
 sources/tags, or mark superseded — but title and rationale are immutable. To
@@ -76,12 +86,18 @@ modules) know which root to operate on. Adding one creates a `.bh/`
 subdirectory; removing only unregisters — it never deletes user files.
 
 ```bash
-bh workspace add <path> [--name <name>]
+bh init                                      # register cwd as workspace + setup (.gitignore + CLAUDE.md hint)
+bh workspace add <path> [--name <name>] [--setup]
 bh workspace list
 bh workspace use <name>
 bh workspace current
 bh workspace remove <name>
 ```
+
+`bh init` is the one-shot for a new project: registers the current directory,
+appends `.bh/` to `.gitignore` (if a `.gitignore` exists), and appends a
+recall-hint section to `CLAUDE.md` (non-destructive — never overwrites
+existing content, marker-detected to be idempotent).
 
 Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
 (useful for tests / sandboxed runs). Default is OS-conventional:
