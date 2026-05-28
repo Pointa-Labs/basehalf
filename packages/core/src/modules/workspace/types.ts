@@ -77,3 +77,15 @@ export interface WorkspaceRemoveResult {
   readonly removed: string;
   readonly newCurrent: string | null;
 }
+
+export interface WorkspaceListFilesArgs {
+  readonly path: string;
+}
+export interface WorkspaceListFilesEntry {
+  readonly name: string;
+  readonly type: 'file' | 'dir';
+}
+export interface WorkspaceListFilesResult {
+  readonly path: string;
+  readonly entries: readonly WorkspaceListFilesEntry[];
+}

@@ -1,4 +1,4 @@
-import { basename, isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
@@ -9,6 +9,9 @@ import type {
   WorkspaceCurrentResult,
   WorkspaceEntry,
   WorkspaceListArgs,
+  WorkspaceListFilesArgs,
+  WorkspaceListFilesEntry,
+  WorkspaceListFilesResult,
   WorkspaceListResult,
   WorkspaceRemoveArgs,
   WorkspaceRemoveResult,
@@ -132,7 +135,40 @@ export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async
 };
 
 /**
- * Helper for `createCore()` — registers all five workspace commands.
+ * `workspace.listFiles({ path })` — single-level directory listing for the
+ * desktop NavTree. Lazy by design: only direct children, sorted dirs-first
+ * then alphabetical. The renderer drives recursion by calling again with a
+ * child dir's path when the user expands it.
+ *
+ * Filtering (hidden files like .git / .bh / .DS_Store) is the renderer's
+ * job — keeping core unopinionated about display lets the same data feed
+ * different UIs (CLI, MCP, alternative shells).
+ */
+export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult> = async (
+  args,
+  ctx,
+) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const stat = await ctx.fs.stat(absPath);
+  if (!stat) throw new Error(`Path does not exist: ${absPath}`);
+  if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
+
+  const names = await ctx.fs.readdir(absPath);
+  const entries: WorkspaceListFilesEntry[] = [];
+  for (const name of names) {
+    const childStat = await ctx.fs.stat(join(absPath, name));
+    if (!childStat) continue;
+    entries.push({ name, type: childStat.isDirectory ? 'dir' : 'file' });
+  }
+  entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return { path: absPath, entries };
+};
+
+/**
+ * Helper for `createCore()` — registers all workspace commands.
  * Modules expose a single `register*Module(core)` function so static composition
  * stays trivial; when external plugins arrive, the same shape is what they emit.
  */
@@ -145,6 +181,7 @@ export function commands(): ReadonlyArray<
     ['workspace.use', use as unknown as Handler<never, unknown>],
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
+    ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
   ];
 }
 
