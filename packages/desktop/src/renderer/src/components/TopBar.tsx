@@ -34,6 +34,7 @@ export const TopBar = (): JSX.Element => {
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const createView = useWorkspaceStore((s) => s.createView);
   const renameView = useWorkspaceStore((s) => s.renameView);
+  const setViewPrompt = useWorkspaceStore((s) => s.setViewPrompt);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
   const createNote = useWorkspaceStore((s) => s.createNote);
   const editorDirty = useWorkspaceStore((s) => s.editorDirty);
@@ -73,6 +74,22 @@ export const TopBar = (): JSX.Element => {
     let name = raw.trim();
     if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
     void createNote(name);
+  };
+
+  const handleEditViewPrompt = async (): Promise<void> => {
+    if (!currentView) return;
+    const view = views.find((v) => v.id === currentView);
+    if (!view) return;
+    const next = await prompt({
+      title: `View prompt — ${view.name}`,
+      body: 'A short description of this grouping, for the AI agent reading the view (.bh/views/<id>.json). Leave blank to clear.',
+      label: 'Prompt',
+      defaultValue: view.prompt ?? '',
+      placeholder: 'e.g. Resources for the theorem-2 proof attempt',
+    });
+    // Allow blank → clear. Skip on Cancel (null).
+    if (next === null) return;
+    void setViewPrompt(currentView, next.trim());
   };
 
   const handleRenameView = async (): Promise<void> => {
@@ -224,6 +241,13 @@ export const TopBar = (): JSX.Element => {
                 title="Rename this saved view"
               >
                 Rename view
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void handleEditViewPrompt()}
+                title="Edit this view's prompt (what the AI agent reads about this grouping)"
+              >
+                Edit prompt
               </Button>
               <Button
                 variant="ghost"

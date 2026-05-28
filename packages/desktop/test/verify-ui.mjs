@@ -809,6 +809,24 @@ assert(
   `view.update reflected in store after Rename view dialog (views: ${viewListAfterRename.views.map((v) => v.name).join(', ')})`,
 );
 
+// Edit the view's prompt via the new "Edit prompt" button.
+const topbarTextForPrompt = await win.locator('header').first().innerText();
+assert(
+  topbarTextForPrompt.includes('Edit prompt'),
+  'Edit-prompt button appears alongside Rename + Delete when a view is active',
+);
+await win.locator('header button', { hasText: 'Edit prompt' }).click();
+await waitForDialog('View prompt');
+await fillDialogInput('Resources for theorem-2 proof attempt');
+await clickDialogButton('OK');
+await win.waitForTimeout(500);
+const viewListAfterPrompt = await bhRun('view.list', {});
+const promptedView = viewListAfterPrompt.views.find((v) => v.name === 'Test View Renamed');
+assert(
+  promptedView?.prompt === 'Resources for theorem-2 proof attempt',
+  `view.update with prompt patch persisted (got prompt: ${JSON.stringify(promptedView?.prompt)})`,
+);
+
 // Switch back to main canvas → Delete + Rename buttons should disappear.
 await selectByTestId('topbar-view-select', 'Main canvas');
 await win.waitForTimeout(200);
