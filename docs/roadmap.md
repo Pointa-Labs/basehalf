@@ -31,10 +31,19 @@ The center of gravity is **the desktop app**. CLI is a means, not an end.
 
 ## Current phase: v0 desktop build — feature-complete, dogfood-ready
 
-PR 8 → PR 16 all merged locally. v0 is now end-to-end usable for the core
-loop: pick a workspace, see badges on a canvas, drag to position, draw
+PR 8 → PR 18 all merged. v0 is now end-to-end usable for the core loop:
+pick a workspace, see badges on a canvas, drag to position, draw
 references between them, click → preview + edit MD via BlockNote, agent
 reads `.bh/focus.md` + `.bh/badges/*.json` + `.bh/index/inbound.json`.
+
+**Agent loop verified (2026-05-28).** A headless `claude -p` against a
+3-file workspace with one focused file and two references correctly:
+read `.bh/focus.md` → identified the focused file → read its badge JSON
+→ followed both references with their notes → read `.bh/index/inbound.json`
+and concluded "nothing else references either of them." The protocol
+works end-to-end without any prompting beyond the CLAUDE.md hint
+installed by `bh init` / `workspace.add --setup`. Remaining v0 success
+gate is real-use daily dogfood, not protocol correctness.
 
 | PR | What | Status |
 | --- | --- | --- |
