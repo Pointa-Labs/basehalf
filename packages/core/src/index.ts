@@ -12,6 +12,7 @@
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
 import { registerBadgesModule } from './modules/badges/index.js';
+import { registerFocusModule } from './modules/focus/index.js';
 import { registerInboundModule } from './modules/inbound/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
@@ -52,6 +53,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerWorkspaceModule(core);
   registerBadgesModule(core);
   registerInboundModule(core);
+  registerFocusModule(core);
 
   return core;
 }
@@ -65,3 +67,4 @@ export type * from './modules/workspace/types.js';
 export type * from './modules/badges/types.js';
 export { BadgeCorrupt } from './modules/badges/types.js';
 export type * from './modules/inbound/types.js';
+export type * from './modules/focus/types.js';
