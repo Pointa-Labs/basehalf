@@ -23,6 +23,8 @@ export interface FsLike {
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
   stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | null>;
   readdir(path: string): Promise<string[]>;
+  /** Removes a file; no-op if missing. Used by badge/view delete commands. */
+  unlink(path: string): Promise<void>;
 }
 
 /**

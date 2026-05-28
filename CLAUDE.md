@@ -1,10 +1,10 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` has one real module today — `workspace`. The desktop app
-> (v0) is in development; once it ships, the CLAUDE.md hint installed by
-> `bh init` will switch to the **agent protocol** model
-> (`.bh/focus.md` + `.bh/badges/<file>.json` + `.bh/index/inbound.json` — see
-> [docs/decisions.md D14](docs/decisions.md)).
+> **Status:** `bh` ships five modules: `workspace`, `badge`, `inbound`,
+> `focus`, `view`. The desktop app (v0) is in development; once it ships,
+> the CLAUDE.md hint installed by `bh init` will switch to the **agent
+> protocol** model (`.bh/focus.md` + `.bh/badges/<file>.json` +
+> `.bh/index/inbound.json` — see [docs/decisions.md D14](docs/decisions.md)).
 >
 > The old `node src/cli.mjs` reference impl was deleted (clean slate); that
 > path no longer exists. A short-lived `bh decision` subcommand has also been
@@ -23,9 +23,12 @@ not at the root.
 ## Workspaces — which folder is "active"
 
 A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
-place; `bh` tracks which folder is "active" so future modules (badges, focus,
-inbound — landing in v0) know which root to operate on. Adding one creates a
-`.bh/` subdirectory; removing only unregisters — it never deletes user files.
+place; `bh` tracks which folder is "active" so the badge / focus / inbound /
+view modules know which root to operate on. Adding one creates a `.bh/`
+subdirectory and **eagerly materializes a default badge for every supported
+file and subfolder** (idempotent — re-using the workspace later picks up any
+files added externally). Removing only unregisters — it never deletes user
+files.
 
 ```bash
 bh init                                      # register cwd as workspace + setup (.gitignore + CLAUDE.md hint)
@@ -46,6 +49,53 @@ Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
 (useful for tests / sandboxed runs). Default is OS-conventional:
 `~/Library/Application Support/basehalf` on macOS, `$XDG_CONFIG_HOME/basehalf`
 on Linux, `%APPDATA%/basehalf` on Windows.
+
+## Badges, references, inbound, focus, views (the v0 agent protocol)
+
+A *badge* is a file (or folder) plus a "backpack" — prompt, references to
+other files, and a canvas position. Badges live at
+`<workspace>/.bh/badges/<rel-path>.json` (`.bh/badges/<folder>/.badge.json`
+for folder kind). Materialized eagerly on workspace open.
+
+```bash
+bh badge list [--kind file|folder] [--query <substr>] [--json]
+bh badge get <file> [--kind file|folder] [--json]
+bh badge set <file> [--kind file|folder] [--prompt <text>] [--json]
+bh badge addRef <file> <to> [--note <text>] [--json]
+bh badge removeRef <file> <to> [--json]
+```
+
+The reverse index lives at `.bh/index/inbound.json` and is maintained
+incrementally on `badge.addRef/removeRef`. `bh inbound rebuild` re-derives
+from all badges if it ever drifts.
+
+```bash
+bh inbound get <file> [--json]      # who points at this file?
+bh inbound rebuild [--json]
+```
+
+The agent's "what do I read this turn?" signal is `<workspace>/.bh/focus.md`
+(Markdown so it pastes naturally into context). It's a YAML-style `active:`
+list inside MD, written by the desktop UI as the user clicks badges.
+
+```bash
+bh focus set --files <csv>   # or --view <id>
+bh focus get
+bh focus clear
+```
+
+A *saved view* is a named, free-position grouping of badges that need to
+sit together in one canvas even if they live in different workspace
+folders — references, not copies.
+
+```bash
+bh view create <name> [--id <id>] [--prompt <text>]
+bh view list
+bh view get <id>
+bh view addMember <id> <file> [--x <n>] [--y <n>]
+bh view removeMember <id> <file>
+bh view delete <id>                 # member badges + user files untouched
+```
 
 ## Recording why decisions were made (internal team workflow)
 

@@ -1,0 +1,267 @@
+import type {
+  SavedView,
+  ViewListResult,
+  WorkspaceCurrentResult,
+  WorkspaceEntry,
+  WorkspaceListResult,
+  WorkspaceUseResult,
+} from '@basehalf/core';
+import { create } from 'zustand';
+
+interface WorkspaceState {
+  workspaces: readonly WorkspaceEntry[];
+  current: string | null;
+  /**
+   * Whether the *current* workspace's path is reachable on disk.
+   * null = not yet probed; true = ok; false = missing (folder moved/deleted).
+   * Sidebar uses this to swap NavTree for the WorkspaceUnreachable UI.
+   */
+  currentReachable: boolean | null;
+  /** POSIX-relative path of the file the user is currently previewing.
+   * Set by Canvas onNodeClick + Sidebar NavTree onClick. Drives the
+   * FilePreview right-panel slot. */
+  currentFile: string | null;
+  /** Saved views in the current workspace. Empty until refresh. */
+  views: readonly SavedView[];
+  /** Currently active view; null = the workspace's full canvas (all badges). */
+  currentView: string | null;
+  /** Active scope = a folder relative path that limits which badges Canvas shows.
+   * null = the whole workspace. Set by double-clicking a folder badge. */
+  folderScope: string | null;
+  /** Whether the currently open MD editor has unsaved edits. Lifted out of
+   * MdEditor so TopBar can warn before a workspace switch silently drops
+   * them — store-side state lets the warning live at the trigger site
+   * instead of being smeared across components. */
+  editorDirty: boolean;
+  setEditorDirty: (dirty: boolean) => void;
+  error: string;
+  busy: boolean;
+  refresh: () => Promise<void>;
+  pickAndAdd: () => Promise<void>;
+  use: (name: string) => Promise<void>;
+  remove: (name: string) => Promise<void>;
+  /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
+  repath: (name: string) => Promise<void>;
+  setCurrentFile: (file: string | null) => void;
+  refreshViews: () => Promise<void>;
+  setCurrentView: (id: string | null) => void;
+  setFolderScope: (path: string | null) => void;
+  createView: (name: string) => Promise<void>;
+  deleteView: (id: string) => Promise<void>;
+  /** Create an empty MD note (writes a workspace-relative file) and open it
+   * in the preview. The watcher picks it up and badge.list materializes a
+   * badge on the next refresh — no extra step needed. */
+  createNote: (relPath: string) => Promise<void>;
+  clearError: () => void;
+}
+
+const formatError = (err: unknown): string =>
+  err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+
+// Fire-and-forget: ask main to start the file watcher for the now-current
+// workspace. If the renderer crashes between switches, main still has the
+// previous watcher; watcher.start is idempotent and short-circuits when
+// already watching the same root.
+async function startWatcher(): Promise<void> {
+  try {
+    await window.bh.run('watcher.start', {});
+  } catch {
+    // Non-fatal — workspace UI works without the watcher; we'd just miss
+    // external edits until the next refresh.
+  }
+}
+
+const isPathNotFound = (err: unknown): boolean =>
+  err instanceof Error && (err as Error & { code?: string }).code === 'PATH_NOT_FOUND';
+
+export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
+  workspaces: [],
+  current: null,
+  currentReachable: null,
+  currentFile: null,
+  views: [],
+  currentView: null,
+  folderScope: null,
+  editorDirty: false,
+  setEditorDirty: (dirty: boolean) => set({ editorDirty: dirty }),
+  error: '',
+  busy: false,
+
+  refresh: async () => {
+    try {
+      const result = (await window.bh.run('workspace.list')) as WorkspaceListResult;
+      set({
+        workspaces: result.workspaces,
+        current: result.current,
+        currentReachable: null,
+        currentFile: null,
+        views: [],
+        currentView: null,
+        folderScope: null,
+        editorDirty: false,
+        error: '',
+      });
+      const currentWs = result.current
+        ? result.workspaces.find((w) => w.name === result.current)
+        : null;
+      if (currentWs) {
+        try {
+          await window.bh.run('workspace.listFiles', { path: currentWs.path });
+          set({ currentReachable: true });
+          await startWatcher();
+          await get().refreshViews();
+        } catch (err) {
+          if (isPathNotFound(err)) {
+            set({ currentReachable: false });
+          } else {
+            set({ error: formatError(err) });
+          }
+        }
+      }
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  pickAndAdd: async () => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      const path = await window.bh.pickWorkspace();
+      if (!path) return;
+      await window.bh.run('workspace.add', { path });
+      await get().refresh();
+      await startWatcher();
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  use: async (name: string) => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
+      const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
+      // Reset per-workspace state so FilePreview / Canvas don't keep rendering
+      // against the *previous* workspace's file paths (currentFile, view,
+      // folderScope are all workspace-relative). Without this, an open
+      // editor would keep its in-memory contents and write them back into
+      // whatever file in the *new* workspace happens to share the same
+      // relative path.
+      set({
+        current: cur.current ? cur.current.name : result.current.name,
+        currentReachable: null,
+        currentFile: null,
+        views: [],
+        currentView: null,
+        folderScope: null,
+        editorDirty: false,
+        error: '',
+      });
+      await startWatcher();
+      // Re-fetch reachable + views for the new workspace.
+      const wsList = (await window.bh.run('workspace.list')) as WorkspaceListResult;
+      const currentWs = wsList.workspaces.find((w) => w.name === wsList.current);
+      if (currentWs) {
+        try {
+          await window.bh.run('workspace.listFiles', { path: currentWs.path });
+          set({ currentReachable: true });
+          await get().refreshViews();
+        } catch (err) {
+          if (isPathNotFound(err)) {
+            set({ currentReachable: false });
+          } else {
+            set({ error: formatError(err) });
+          }
+        }
+      }
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  remove: async (name: string) => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      await window.bh.run('workspace.remove', { name });
+      await get().refresh();
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  repath: async (name: string) => {
+    if (get().busy) return;
+    const newPath = await window.bh.pickWorkspace();
+    if (!newPath) return;
+    set({ busy: true });
+    try {
+      await window.bh.run('workspace.remove', { name });
+      await window.bh.run('workspace.add', { path: newPath, name });
+      // Restore as current — workspace.remove may have demoted it.
+      await window.bh.run('workspace.use', { name });
+      await get().refresh();
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  setCurrentFile: (file: string | null) => set({ currentFile: file }),
+
+  refreshViews: async () => {
+    try {
+      const result = (await window.bh.run('view.list', {})) as ViewListResult;
+      set({ views: result.views });
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  setCurrentView: (id: string | null) => set({ currentView: id }),
+
+  setFolderScope: (path: string | null) => set({ folderScope: path }),
+
+  createView: async (name: string) => {
+    try {
+      await window.bh.run('view.create', { name });
+      await get().refreshViews();
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  createNote: async (relPath: string) => {
+    try {
+      const baseName = relPath.split('/').pop() ?? relPath;
+      const title = baseName.replace(/\.md$/i, '');
+      const body = `# ${title}\n\n`;
+      await window.bh.run('workspace.writeFile', { path: relPath, content: body });
+      set({ currentFile: relPath });
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  deleteView: async (id: string) => {
+    try {
+      await window.bh.run('view.delete', { id });
+      // If the deleted view was active, drop back to main canvas.
+      if (get().currentView === id) set({ currentView: null });
+      await get().refreshViews();
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  clearError: () => set({ error: '' }),
+}));

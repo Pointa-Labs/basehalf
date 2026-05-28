@@ -1,5 +1,6 @@
-import { basename, isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
+import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
 import type {
@@ -8,12 +9,23 @@ import type {
   WorkspaceCurrentArgs,
   WorkspaceCurrentResult,
   WorkspaceEntry,
+  WorkspaceGetViewportArgs,
+  WorkspaceGetViewportResult,
   WorkspaceListArgs,
+  WorkspaceListFilesArgs,
+  WorkspaceListFilesEntry,
+  WorkspaceListFilesResult,
   WorkspaceListResult,
+  WorkspaceReadFileArgs,
+  WorkspaceReadFileResult,
   WorkspaceRemoveArgs,
   WorkspaceRemoveResult,
+  WorkspaceSetViewportArgs,
+  WorkspaceSetViewportResult,
   WorkspaceUseArgs,
   WorkspaceUseResult,
+  WorkspaceWriteFileArgs,
+  WorkspaceWriteFileResult,
 } from './types.js';
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
@@ -64,6 +76,13 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
 
+  // Workspace-becoming-current = "opening" → materialize defaults (SR-v0
+  // §3.1). For subsequent adds (not auto-current), materialization is
+  // deferred to workspace.use.
+  if (setAsCurrent) {
+    await materializeWithFallback(ctx, absPath);
+  }
+
   return {
     workspace: { name, path: absPath, addedAt },
     setAsCurrent,
@@ -76,12 +95,20 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_args, ctx) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const workspaces: WorkspaceEntry[] = Object.entries(data.workspaces)
-    .map(([name, entry]) => ({ name, path: entry.path, addedAt: entry.addedAt }))
+    .map(([name, entry]) => ({
+      name,
+      path: entry.path,
+      addedAt: entry.addedAt,
+      ...(entry.viewport !== undefined && { viewport: entry.viewport }),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { current: data.current, workspaces };
 };
 
-/** `workspace use <name>` — switch the active workspace. */
+/** `workspace use <name>` — switch the active workspace. Triggers eager
+ * badge materialization (SR-v0 §3.1) so opening a workspace always leaves
+ * every supported-type file with a default badge JSON. Idempotent on
+ * re-use because existing badges are short-circuited via badge.get. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const entry = data.workspaces[args.name];
@@ -89,6 +116,7 @@ export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, c
     throw new Error(`No such workspace: ${args.name}`);
   }
   await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
+  await materializeWithFallback(ctx, entry.path);
   return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
 };
 
@@ -132,7 +160,125 @@ export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async
 };
 
 /**
- * Helper for `createCore()` — registers all five workspace commands.
+ * `workspace.listFiles({ path })` — single-level directory listing for the
+ * desktop NavTree. Lazy by design: only direct children, sorted dirs-first
+ * then alphabetical. The renderer drives recursion by calling again with a
+ * child dir's path when the user expands it.
+ *
+ * Filtering (hidden files like .git / .bh / .DS_Store) is the renderer's
+ * job — keeping core unopinionated about display lets the same data feed
+ * different UIs (CLI, MCP, alternative shells).
+ */
+export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult> = async (
+  args,
+  ctx,
+) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const stat = await ctx.fs.stat(absPath);
+  if (!stat) {
+    // Tagged so the desktop NavTree can render a "workspace unreachable"
+    // re-select / unregister modal instead of a raw error string.
+    throw Object.assign(new Error(`Path does not exist: ${absPath}`), {
+      code: 'PATH_NOT_FOUND',
+    });
+  }
+  if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
+
+  const names = await ctx.fs.readdir(absPath);
+  const entries: WorkspaceListFilesEntry[] = [];
+  for (const name of names) {
+    const childStat = await ctx.fs.stat(join(absPath, name));
+    if (!childStat) continue;
+    entries.push({ name, type: childStat.isDirectory ? 'dir' : 'file' });
+  }
+  entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return { path: absPath, entries };
+};
+
+/** `workspace.getViewport()` — last persisted canvas viewport for the current
+ * workspace; null if never set. */
+export const getViewport: Handler<WorkspaceGetViewportArgs, WorkspaceGetViewportResult> = async (
+  _args,
+  ctx,
+) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) return null;
+  const entry = data.workspaces[data.current];
+  return entry?.viewport ?? null;
+};
+
+/** `workspace.setViewport({ viewport })` — persist canvas viewport for the
+ * current workspace. No-op if no current workspace. */
+export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewportResult> = async (
+  args,
+  ctx,
+) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) return {};
+  const entry = data.workspaces[data.current];
+  if (!entry) return {};
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    ...data,
+    workspaces: {
+      ...data.workspaces,
+      [data.current]: { ...entry, viewport: args.viewport },
+    },
+  });
+  return {};
+};
+
+function ensureInsideWorkspace(rel: string): void {
+  // Path comes from renderer via IPC — defensively reject anything that
+  // could escape the current workspace root.
+  if (rel.length === 0) throw new Error('Empty path');
+  if (isAbsolute(rel)) throw new Error(`Path must be relative, got: ${rel}`);
+  if (rel.split(/[\\/]/).some((seg) => seg === '..')) {
+    throw new Error(`Path traversal rejected: ${rel}`);
+  }
+}
+
+/** `workspace.readFile({ path })` — read a user file in the current
+ * workspace. Path is POSIX-relative; absolute paths or `..` are rejected. */
+export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const abs = join(entry.path, args.path);
+  const content = await ctx.fs.readFile(abs);
+  if (content === null) {
+    throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
+  }
+  return { path: args.path, content };
+};
+
+/** `workspace.writeFile({ path, content })` — write a user file inside the
+ * current workspace. The *only* path through which bh modifies user
+ * content. Used exclusively by the BlockNote editor in PR 14; everything
+ * else is observer-only per IR-v2-13. */
+export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const abs = join(entry.path, args.path);
+  await ctx.fs.writeFile(abs, args.content);
+  return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
+};
+
+/**
+ * Helper for `createCore()` — registers all workspace commands.
  * Modules expose a single `register*Module(core)` function so static composition
  * stays trivial; when external plugins arrive, the same shape is what they emit.
  */
@@ -145,9 +291,28 @@ export function commands(): ReadonlyArray<
     ['workspace.use', use as unknown as Handler<never, unknown>],
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
+    ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
+    ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
+    ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
+    ['workspace.readFile', readFile as unknown as Handler<never, unknown>],
+    ['workspace.writeFile', writeFile as unknown as Handler<never, unknown>],
   ];
 }
 
 export function _coerceContext(ctx: unknown): asserts ctx is Context {
   if (!ctx || typeof ctx !== 'object') throw new TypeError('invalid context');
+}
+
+/**
+ * Materialize via the badges module, but tolerate it not being registered.
+ * Tests can wire only the workspace module without dragging badges in;
+ * production createCore always has both.
+ */
+async function materializeWithFallback(ctx: Context, workspaceRoot: string): Promise<void> {
+  try {
+    await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return;
+    throw err;
+  }
 }

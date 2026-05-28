@@ -67,6 +67,9 @@ export function mockFs(): {
       }
       return Array.from(childNames).sort((a, b) => a.localeCompare(b));
     },
+    async unlink(path) {
+      files.delete(path);
+    },
   };
 
   return { fs, files, dirs };

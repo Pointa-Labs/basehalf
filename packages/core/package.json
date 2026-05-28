@@ -13,12 +13,17 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b && tsup",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check src test",
     "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "chokidar": "^5.0.0"
   }
 }

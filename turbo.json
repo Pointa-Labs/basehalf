@@ -5,12 +5,18 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "tsconfig.json", "tsup.config.ts", "package.json"],
-      "outputs": ["dist/**", "*.tsbuildinfo"]
+      "inputs": [
+        "src/**",
+        "tsconfig*.json",
+        "tsup.config.ts",
+        "electron.vite.config.ts",
+        "package.json"
+      ],
+      "outputs": ["dist/**", "out/**", "*.tsbuildinfo"]
     },
     "typecheck": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "tsconfig.json", "package.json"],
+      "inputs": ["src/**", "tsconfig*.json", "package.json"],
       "outputs": ["*.tsbuildinfo"]
     },
     "test": {

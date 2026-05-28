@@ -8,6 +8,16 @@ export interface WorkspaceEntry {
   readonly name: string;
   readonly path: string;
   readonly addedAt: string;
+  /** Last canvas viewport (pan + zoom). Restored on workspace.use. */
+  readonly viewport?: ViewportState;
+}
+
+/** Canvas viewport state — pan + zoom. Per-workspace, persisted in
+ * workspaces.json so opening a workspace restores the last view. */
+export interface ViewportState {
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly scale: number;
 }
 
 export interface WorkspacesFile {
@@ -77,3 +87,44 @@ export interface WorkspaceRemoveResult {
   readonly removed: string;
   readonly newCurrent: string | null;
 }
+
+export interface WorkspaceListFilesArgs {
+  readonly path: string;
+}
+export interface WorkspaceListFilesEntry {
+  readonly name: string;
+  readonly type: 'file' | 'dir';
+}
+export interface WorkspaceListFilesResult {
+  readonly path: string;
+  readonly entries: readonly WorkspaceListFilesEntry[];
+}
+
+export type WorkspaceGetViewportArgs = Record<string, never>;
+export type WorkspaceGetViewportResult = ViewportState | null;
+
+/** Read/write user files in the current workspace. Path is POSIX-style
+ * relative to the workspace root; absolute paths or `..` traversal are
+ * rejected. Writes are the *only* path through which bh modifies user
+ * files — used by the BlockNote editor (PR 14) and nothing else for v0. */
+export interface WorkspaceReadFileArgs {
+  readonly path: string;
+}
+export interface WorkspaceReadFileResult {
+  readonly path: string;
+  readonly content: string;
+}
+
+export interface WorkspaceWriteFileArgs {
+  readonly path: string;
+  readonly content: string;
+}
+export interface WorkspaceWriteFileResult {
+  readonly path: string;
+  readonly bytes: number;
+}
+
+export interface WorkspaceSetViewportArgs {
+  readonly viewport: ViewportState;
+}
+export type WorkspaceSetViewportResult = Record<string, never>;

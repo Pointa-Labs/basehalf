@@ -11,6 +11,11 @@
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
+import { registerBadgesModule } from './modules/badges/index.js';
+import { registerFocusModule } from './modules/focus/index.js';
+import { registerInboundModule } from './modules/inbound/index.js';
+import { registerViewsModule } from './modules/views/index.js';
+import { registerWatcherModule } from './modules/watcher/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
 export function createCore(opts: CoreOptions = {}): Core {
@@ -48,10 +53,25 @@ export function createCore(opts: CoreOptions = {}): Core {
   // First-party modules: registered here, statically composed. When external
   // plugins arrive they'll go through the same registry — just dynamic.
   registerWorkspaceModule(core);
+  registerBadgesModule(core);
+  registerInboundModule(core);
+  registerFocusModule(core);
+  registerViewsModule(core);
+  registerWatcherModule(core);
 
   return core;
 }
 
 // Re-export public types/error so consumers don't reach into `./kernel`.
 export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './kernel/index.js';
-export { UnknownCommand } from './kernel/index.js';
+export { UnknownCommand, defaultConfigDir } from './kernel/index.js';
+
+// Module result/args types — UI shells need these to narrow window.bh.run results.
+export type * from './modules/workspace/types.js';
+export type * from './modules/badges/types.js';
+export { BadgeCorrupt } from './modules/badges/types.js';
+export type * from './modules/inbound/types.js';
+export type * from './modules/focus/types.js';
+export type * from './modules/views/types.js';
+export type * from './modules/watcher/types.js';
+export { _resetWatcherForTests, watcherEvents } from './modules/watcher/index.js';

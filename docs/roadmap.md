@@ -29,26 +29,35 @@ The center of gravity is **the desktop app**. CLI is a means, not an end.
   — hosted sync, team spaces, SSO. No commitment to this; v0/v1 are fully
   free and open source.
 
-## Current phase: v0 desktop build
+## Current phase: v0 desktop build — feature-complete, dogfood-ready
 
-PR 8 → PR 16, roughly 6–10 weeks. The CLI scaffold (workspace + decisions
-modules) is the substrate; v0 builds the desktop app + the agent protocol on
-top.
+PR 8 → PR 16 all merged locally. v0 is now end-to-end usable for the core
+loop: pick a workspace, see badges on a canvas, drag to position, draw
+references between them, click → preview + edit MD via BlockNote, agent
+reads `.bh/focus.md` + `.bh/badges/*.json` + `.bh/index/inbound.json`.
 
-| PR | What | Est |
-|---|---|---|
-| 8 | Fix `bh init` (gitignore only `.bh/cache/`; swap recall hint for pre-v0 workspace hint); retire the `decisions` module (corpus moves to MD in private-docs) | 1 day |
-| 9 | `packages/desktop/` — Electron skeleton (main + preload + renderer), IPC working | 1 day |
-| 10 | Workspace selector + left-side file tree (Obsidian-style) | 2 days |
-| 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | 4–5 days |
-| 12 | `watcher` module — chokidar + reconcile-on-launch | 3 days |
-| 13 | Canvas (React Flow) + drag + viewport persistence | 4–6 days |
-| 14 | Block editor (BlockNote) + PDF viewer (pdf.js) | 4–6 days |
-| 15 | Media viewers + block-embed custom blocks | 2–3 days |
-| 16 | Polish + standalone-mode verification + dogfood readiness | 3–5 days |
+| PR | What | Status |
+| --- | --- | --- |
+| 8 | Fix `bh init` (gitignore only `.bh/cache/`; swap recall hint for pre-v0 workspace hint); retire the `decisions` module (corpus moves to MD in private-docs) | ✅ done |
+| 9 | `packages/desktop/` — Electron skeleton (main + preload + renderer), IPC working | ✅ done |
+| 10 | Workspace selector + left-side file tree (Obsidian-style) | ✅ done |
+| 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | ✅ done |
+| 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit IPC deferred to v0.x) |
+| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector deferred to v0.x) |
+| 14 | Block editor (BlockNote) + PDF viewer | ✅ done (BlockNote MD round-trip is lossy — flagged in UI; G-08 hardening deferred to v0.x) |
+| 15 | Media viewers (image / audio / video) | ✅ done |
+| 16 | Polish + dogfood readiness | ⏳ self-build complete; dogfood week ongoing |
 
-Plus integration / debug buffer: 5–7 days. **Total: 6–10 weeks** to a
-dogfood-able v0 desktop app.
+Deferred to v0.x (carried over in PR commit messages):
+
+- BlockNote round-trip view-only fallback when serialization drift > threshold
+- pdf.js (currently `file://` iframe; sufficient for reading, not annotation)
+- folder badge → sub-canvas (double-click)
+- saved-view selector in TopBar (CLI `bh view` + core commands ship today)
+- file rename heuristic (currently shows orphan + new badge)
+- external-edit IPC + reload prompt in BlockNote editor
+- macOS Full Disk Access programmatic prompt (today: guidance banner)
+- canvas perf benchmark at 1000+ badges
 
 ## What we are deliberately NOT doing yet
 

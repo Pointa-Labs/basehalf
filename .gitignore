@@ -8,6 +8,7 @@ node_modules/
 # build output
 dist/
 build/
+out/
 .turbo/
 *.tsbuildinfo
 
@@ -19,3 +20,6 @@ build/
 
 # internal/strategy docs — never commit (kept locally only)
 private-docs/
+
+# Claude Code runtime state (scheduled task locks, etc.)
+.claude/

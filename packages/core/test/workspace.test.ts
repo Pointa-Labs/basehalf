@@ -372,3 +372,73 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(r.setup).toBeUndefined();
   });
 });
+
+describe('workspace.listFiles', () => {
+  it('returns direct children with file/dir types, dirs first, alphabetical', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/root');
+    dirs.add('/root/zeta');
+    dirs.add('/root/alpha');
+    files.set('/root/readme.md', '');
+    files.set('/root/notes.txt', '');
+    const core = createCore({ fs, configDir: '/cfg' });
+
+    const result = await core.run<
+      { path: string },
+      { path: string; entries: { name: string; type: 'file' | 'dir' }[] }
+    >('workspace.listFiles', { path: '/root' });
+
+    expect(result.path).toBe('/root');
+    expect(result.entries).toEqual([
+      { name: 'alpha', type: 'dir' },
+      { name: 'zeta', type: 'dir' },
+      { name: 'notes.txt', type: 'file' },
+      { name: 'readme.md', type: 'file' },
+    ]);
+  });
+
+  it('returns one level only (no recursion)', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/root');
+    dirs.add('/root/nested');
+    files.set('/root/nested/deep.md', '');
+    const core = createCore({ fs, configDir: '/cfg' });
+
+    const result = await core.run<
+      { path: string },
+      { entries: { name: string; type: 'file' | 'dir' }[] }
+    >('workspace.listFiles', { path: '/root' });
+
+    // Only sees "nested" as a dir; doesn't descend into it.
+    expect(result.entries).toEqual([{ name: 'nested', type: 'dir' }]);
+  });
+
+  it('returns empty entries for an empty directory', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/root');
+    const core = createCore({ fs, configDir: '/cfg' });
+
+    const result = await core.run<{ path: string }, { entries: unknown[] }>('workspace.listFiles', {
+      path: '/root',
+    });
+    expect(result.entries).toEqual([]);
+  });
+
+  it('rejects non-existent path with code: PATH_NOT_FOUND', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('workspace.listFiles', { path: '/nope' })).rejects.toMatchObject({
+      message: expect.stringContaining('does not exist'),
+      code: 'PATH_NOT_FOUND',
+    });
+  });
+
+  it('rejects a file (not a directory)', async () => {
+    const { fs, files } = mockFs();
+    files.set('/notdir', 'hi');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('workspace.listFiles', { path: '/notdir' })).rejects.toThrow(
+      /not a directory/,
+    );
+  });
+});

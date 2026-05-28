@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import type { Context, FsLike, Run } from './types.js';
@@ -52,6 +52,14 @@ function defaultFs(): FsLike {
     async readdir(path) {
       return await readdir(path);
     },
+    async unlink(path) {
+      try {
+        await unlink(path);
+      } catch (err) {
+        if (isENOENT(err)) return;
+        throw err;
+      }
+    },
   };
 }
 
@@ -62,7 +70,7 @@ function defaultFs(): FsLike {
  *  - Linux:  $XDG_CONFIG_HOME/basehalf  (fallback: ~/.config/basehalf)
  *  - Win:    %APPDATA%/basehalf  (fallback: ~/AppData/Roaming/basehalf)
  */
-function defaultConfigDir(): string {
+export function defaultConfigDir(): string {
   if (process.env.BH_CONFIG_DIR) return process.env.BH_CONFIG_DIR;
   const home = homedir();
   switch (platform()) {
