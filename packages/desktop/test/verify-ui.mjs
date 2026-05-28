@@ -1218,6 +1218,40 @@ if (!heuristicFired) {
   await win.waitForTimeout(200);
 }
 
+// --- 12d. Command palette (Cmd+K): opens on shortcut, filters actions
+// by query, lets the user pick a file with Enter, closes after running.
+console.log('\n[12d] Cmd+K command palette');
+const cmdK = process.platform === 'darwin' ? 'Meta+k' : 'Control+k';
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+const paletteInput = win.locator('[data-testid="command-palette-input"]');
+assert((await paletteInput.count()) === 1, 'Cmd+K opens the command palette (input mounted)');
+await paletteInput.fill('intro');
+await win.waitForTimeout(150);
+const visibleRows = await win.locator('[role=dialog] [role=option]').count();
+assert(
+  visibleRows >= 1,
+  `Palette filtered to "intro" shows at least one match (rows=${visibleRows})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/13-command-palette.png` });
+await win.keyboard.press('Enter');
+await win.waitForTimeout(400);
+assert((await paletteInput.count()) === 0, 'Palette closes after Enter on a selected row');
+const previewHeaderAfterPalette = await win.locator('aside header').last().innerText();
+assert(
+  previewHeaderAfterPalette.includes('intro.md'),
+  `Palette Enter opened intro.md in the preview (header: ${JSON.stringify(previewHeaderAfterPalette.split('\n')[0])})`,
+);
+// Esc-close test: reopen, then press Esc — palette should disappear.
+await win.keyboard.press('Escape'); // close the file preview first
+await win.waitForTimeout(150);
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+assert((await paletteInput.count()) === 1, 'Cmd+K reopens the palette');
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+assert((await paletteInput.count()) === 0, 'Esc closes the palette');
+
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
 // confirm in the modal should actually unregister. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
