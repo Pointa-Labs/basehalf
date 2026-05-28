@@ -19,6 +19,7 @@ import {
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -299,6 +300,33 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     [file],
   );
 
+  // Add a reference to a different file. Driven by a prompt dialog so
+  // users editing in the BadgeProperties panel don't have to leave it,
+  // go to the canvas, and drag from this badge's handle to the target.
+  // Validation: non-empty, not self, not a duplicate of an existing ref.
+  // Path existence isn't checked — badge.addRef accepts any
+  // workspace-relative path and orphan refs are surfaced visually on the
+  // canvas; that matches drag-from-handle behavior.
+  const addRefViaPrompt = useCallback(async () => {
+    const to = await promptDialog({
+      title: 'Add reference',
+      body: 'Workspace-relative path to the file or folder this badge depends on.',
+      label: 'Target path',
+      placeholder: 'e.g. theory.md  or  notes/chapter-3.md',
+      validate: (v) => {
+        const t = v.trim();
+        if (t.length === 0) return 'A path is required.';
+        if (t === file) return "Can't reference itself.";
+        if (badge?.references.some((r) => r.to === t)) return 'This reference already exists.';
+        return null;
+      },
+    });
+    const trimmed = to?.trim();
+    if (!trimmed) return;
+    await window.bh.run('badge.addRef', { file, to: trimmed });
+    setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
+  }, [file, badge]);
+
   const toggleCollapsed = (): void => {
     setCollapsed((c) => {
       const next = !c;
@@ -439,12 +467,27 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 marginBottom: space[1.5],
                 fontSize: font.size.caption,
                 fontWeight: font.weight.medium,
+                display: 'flex',
+                alignItems: 'center',
+                gap: space[2],
               }}
             >
-              References{' '}
-              <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
-                {refCount} out · {inboundCount} in
+              <span>
+                References{' '}
+                <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
+                  {refCount} out · {inboundCount} in
+                </span>
               </span>
+              <div style={{ marginLeft: 'auto' }}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void addRefViaPrompt()}
+                  title="Add an outbound reference by path (alternative to dragging from the badge handle on the canvas)"
+                >
+                  + Add
+                </Button>
+              </div>
             </div>
             {refCount === 0 ? (
               <div
@@ -454,7 +497,8 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                   lineHeight: 1.5,
                 }}
               >
-                Drag from this badge's right edge to another badge to add a reference.
+                Drag from this badge's right edge to another badge — or click "+ Add" above to type
+                a path.
               </div>
             ) : (
               <ul
