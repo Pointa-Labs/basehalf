@@ -40,6 +40,13 @@ for (const entry of readdirSync(WORKSPACE_DIR)) {
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAADBJREFUOE9j/M+ABzC+JEHB/8N/MQpAFCBSDIw0OAUkVlMQVAxANCKvAAOJyERjqzgFAJ+lFXmwl/2QAAAAAElFTkSuQmCC';
 writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'base64'));
+// Seed minimal-but-recognizable PDF / audio / video fixtures so we can
+// verify the corresponding viewer branches mount. The browser doesn't
+// need a fully valid file — it just needs the right extension to dispatch
+// to <iframe> / <audio> / <video>.
+writeFileSync(join(WORKSPACE_DIR, 'sample.pdf'), '%PDF-1.4\n%verify-driver placeholder\n%%EOF\n');
+writeFileSync(join(WORKSPACE_DIR, 'sample.mp3'), 'ID3\x03\x00\x00\x00');
+writeFileSync(join(WORKSPACE_DIR, 'sample.mp4'), '\x00\x00\x00\x18ftyp');
 // Seed a Markdown file that BlockNote's default config can't round-trip
 // cleanly (raw HTML <details> block). The MdEditor should flip into
 // view-only mode rather than silently lose the user's content on save.
@@ -263,6 +270,43 @@ assert(
   `After reload, intro.md badge is at the dragged position, not the fallback grid (before x=${Math.round(introBox0.x)}, after x=${introBox2 ? Math.round(introBox2.x) : 'null'}; badge.canvas=(${persistedX},${persistedY}))`,
 );
 
+// --- 5d. Shift-click multi-select → focus.set additive path.
+// Regular click sets focus = [file]; shift-click extends without
+// switching the preview. ---
+console.log('\n[5d] Shift-click multi-select → focus.set additive');
+await bhRun('focus.clear', {});
+const introBadgeForFocus = win.locator('.react-flow__node[data-id="intro.md"]');
+await introBadgeForFocus.click();
+await win.waitForTimeout(300);
+const focusAfterFirst = await bhRun('focus.get', {});
+assert(
+  Array.isArray(focusAfterFirst.active) &&
+    focusAfterFirst.active.length === 1 &&
+    focusAfterFirst.active[0] === 'intro.md',
+  `Regular click → focus.active = [intro.md] (got ${JSON.stringify(focusAfterFirst.active)})`,
+);
+const overviewBadgeForFocus = win.locator('.react-flow__node[data-id="overview.md"]');
+await overviewBadgeForFocus.click({ modifiers: ['Shift'] });
+await win.waitForTimeout(300);
+const focusAfterShift = await bhRun('focus.get', {});
+assert(
+  focusAfterShift.active.length === 2 &&
+    focusAfterShift.active.includes('intro.md') &&
+    focusAfterShift.active.includes('overview.md'),
+  `Shift-click → focus.active extends to both files (got ${JSON.stringify(focusAfterShift.active)})`,
+);
+// Shift-click should NOT have switched the previewed file. First click
+// opened intro.md; the preview header should still say intro.md, NOT
+// overview.md.
+const previewHeaderAfterShift = await win.locator('aside header').last().innerText();
+assert(
+  previewHeaderAfterShift.includes('intro.md') && !previewHeaderAfterShift.includes('overview.md'),
+  `Shift-click doesn't switch preview (preview header: ${JSON.stringify(previewHeaderAfterShift.slice(0, 50))})`,
+);
+// Close preview to keep downstream state predictable.
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
 // --- 5c. Drag from intro.md's source handle to overview.md's target handle
 // to create an edge (badge.addRef). React-flow handles are
 // .react-flow__handle.source / .target on each node. ---
@@ -457,6 +501,27 @@ assert(
 await win.screenshot({ path: `${SCREENS_DIR}/11-view-only.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
+
+// --- 7f. Media viewers: PDF iframe + audio/video elements pass through
+// to file:// URLs with the right element type. ---
+console.log('\n[7f] PDF / audio / video viewers');
+for (const [file, selector, kind] of [
+  ['sample.pdf', 'aside iframe', 'iframe'],
+  ['sample.mp3', 'aside audio', 'audio'],
+  ['sample.mp4', 'aside video', 'video'],
+]) {
+  await sidebar.locator('button', { hasText: file }).first().click();
+  await win.waitForTimeout(400);
+  const elCount = await win.locator(selector).count();
+  assert(elCount === 1, `${kind} element renders for ${file} (count=${elCount})`);
+  const src = await win.locator(selector).first().getAttribute('src');
+  assert(
+    typeof src === 'string' && src.startsWith('file://') && src.endsWith(file),
+    `${kind}.src is file:// URL pointing at ${file} (got ${src})`,
+  );
+  await win.keyboard.press('Escape');
+  await win.waitForTimeout(150);
+}
 
 // --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
 // Tests the ImageViewer branch of FilePreview (not just MD path). ---
@@ -770,12 +835,14 @@ await win.waitForTimeout(200);
 console.log('\n[12b] External delete → orphan badge + editor warning');
 const { unlinkSync } = await import('node:fs');
 writeFileSync(`${WORKSPACE_DIR}/transient.md`, '# Transient\n\nGoing away.\n');
-await win.waitForTimeout(900); // let watcher materialize the badge
-// NavTree caches its file list; reload so transient.md shows up in the
-// sidebar (watcher-driven NavTree refresh is a separate v0.x polish).
-await win.reload();
-await win.waitForLoadState('domcontentloaded');
-await win.waitForTimeout(1200);
+await win.waitForTimeout(1200); // let watcher fire add → NavTree re-fetch
+// NavTree now subscribes to watcher events; new file should appear without
+// a window reload.
+const transientInTree = await sidebar.locator('button', { hasText: 'transient.md' }).count();
+assert(
+  transientInTree >= 1,
+  `NavTree picks up new file from watcher without window reload (rows for transient.md: ${transientInTree})`,
+);
 await sidebar.locator('button', { hasText: 'transient.md' }).first().click();
 await win.waitForTimeout(800);
 const previewBeforeDelete = await win.locator('aside').last().innerText();

@@ -1,5 +1,5 @@
 import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehalf/core';
-import { type JSX, useCallback, useEffect, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 interface NavTreeProps {
@@ -137,6 +137,26 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     setExpanded(new Set());
     setError('');
     void loadChildren(rootPath);
+  }, [rootPath, loadChildren]);
+
+  // Subscribe to watcher events so files created/deleted externally show
+  // up without a window reload. Only re-fetch parent directories we've
+  // already loaded — unexpanded ones load lazily on click anyway.
+  const childrenByPathRef = useRef(childrenByPath);
+  childrenByPathRef.current = childrenByPath;
+  useEffect(() => {
+    const unsub = window.bh.onFileEvent((event) => {
+      // Ignore our own control dir — chokidar already skips it at the
+      // watcher level, but be defensive in case that changes.
+      if (event.relPath === '.bh' || event.relPath.startsWith('.bh/')) return;
+      const lastSlash = event.relPath.lastIndexOf('/');
+      const parentRel = lastSlash === -1 ? '' : event.relPath.slice(0, lastSlash);
+      const parentAbs = parentRel === '' ? rootPath : joinPath(rootPath, parentRel);
+      if (childrenByPathRef.current.has(parentAbs)) {
+        void loadChildren(parentAbs);
+      }
+    });
+    return unsub;
   }, [rootPath, loadChildren]);
 
   const toggleExpand = (path: string): void => {
