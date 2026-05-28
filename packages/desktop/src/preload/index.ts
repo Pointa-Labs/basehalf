@@ -32,17 +32,34 @@ const bh = {
   /** Frozen at preload time; safe to read synchronously. */
   platform: process.platform as NodeJS.Platform,
   /** Subscribe to file events from the core watcher (relayed by main process).
-   * Returns an unsubscribe function. */
+   * Returns an unsubscribe function. Rename events are synthetic — the
+   * watcher pairs an unlink with a follow-up add (same dir + ext) and
+   * emits a single 'rename' so renderers can rebind currentFile without
+   * the markOrphan flicker. */
   onFileEvent: (
-    handler: (event: {
-      type: 'add' | 'change' | 'unlink';
-      relPath: string;
-      isDir: boolean;
-    }) => void,
+    handler: (
+      event:
+        | { type: 'add' | 'change' | 'unlink'; relPath: string; isDir: boolean }
+        | {
+            type: 'rename';
+            fromRelPath: string;
+            toRelPath: string;
+            toAbsPath: string;
+            isDir: boolean;
+          },
+    ) => void,
   ): (() => void) => {
     const wrapped = (
       _e: unknown,
-      event: { type: 'add' | 'change' | 'unlink'; relPath: string; isDir: boolean },
+      event:
+        | { type: 'add' | 'change' | 'unlink'; relPath: string; isDir: boolean }
+        | {
+            type: 'rename';
+            fromRelPath: string;
+            toRelPath: string;
+            toAbsPath: string;
+            isDir: boolean;
+          },
     ): void => handler(event);
     ipcRenderer.on('bh:file-event', wrapped);
     return () => ipcRenderer.off('bh:file-event', wrapped);

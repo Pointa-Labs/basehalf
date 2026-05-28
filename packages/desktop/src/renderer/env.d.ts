@@ -13,11 +13,21 @@ interface Window {
     /** Subscribe to file events from the core watcher (relayed by main).
      * Returns an unsubscribe function. */
     onFileEvent(
-      handler: (event: {
-        type: 'add' | 'change' | 'unlink';
-        relPath: string;
-        isDir: boolean;
-      }) => void,
+      handler: (
+        event:
+          | {
+              type: 'add' | 'change' | 'unlink';
+              relPath: string;
+              isDir: boolean;
+            }
+          | {
+              type: 'rename';
+              fromRelPath: string;
+              toRelPath: string;
+              toAbsPath: string;
+              isDir: boolean;
+            },
+      ) => void,
     ): () => void;
   };
 }

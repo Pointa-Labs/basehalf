@@ -683,8 +683,24 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
 
   // Subscribe to file events for *this* file. Auto-reload when clean;
   // surface a "reload? keep edits?" prompt when dirty.
+  // Defer the "File deleted on disk" warning by slightly more than the
+  // watcher's rename window so a rename (unlink+add within 250ms) doesn't
+  // flash the warning before the rename event arrives and rebinds
+  // currentFile to the new path. If a rename matching this file's old
+  // path arrives, cancel the pending warning.
   useEffect(() => {
+    let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = window.bh.onFileEvent((event) => {
+      if (event.type === 'rename') {
+        // If this file was just renamed, the parent (App) will switch
+        // currentFile to the new path. Cancel any pending "deleted"
+        // warning from the preceding unlink.
+        if (event.fromRelPath === file && pendingDeleteTimer) {
+          clearTimeout(pendingDeleteTimer);
+          pendingDeleteTimer = null;
+        }
+        return;
+      }
       if (event.relPath !== file) return;
       if (event.type === 'change') {
         if (dirtyRef.current) {
@@ -693,10 +709,18 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           setLoadKey((k) => k + 1);
         }
       } else if (event.type === 'unlink') {
-        setError('File deleted on disk.');
+        // Wait one rename-window before declaring the file actually deleted.
+        if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
+        pendingDeleteTimer = setTimeout(() => {
+          pendingDeleteTimer = null;
+          setError('File deleted on disk.');
+        }, 300);
       }
     });
-    return unsub;
+    return () => {
+      if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
+      unsub();
+    };
   }, [file]);
 
   const acceptReload = useCallback(() => {
