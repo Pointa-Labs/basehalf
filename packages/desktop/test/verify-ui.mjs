@@ -599,6 +599,34 @@ assert(
   introAfterAddBtn?.references?.some((r) => r.to === 'overview.md'),
   `+ Add dialog added the reference (refs now: ${JSON.stringify(introAfterAddBtn?.references)})`,
 );
+// Inbound list — open overview.md (now referenced by intro.md after the
+// + Add dialog above) and verify the BadgeProperties surfaces an
+// "Inbound" section listing intro.md as a clickable backlink.
+await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
+await win.waitForTimeout(600);
+const overviewPreviewText = await win.locator('aside').last().innerText();
+assert(
+  overviewPreviewText.includes('Inbound'),
+  'Inbound section renders when a file has backlinks (overview.md is pointed at by intro.md)',
+);
+assert(
+  /point[s]? here/.test(overviewPreviewText),
+  `Inbound header shows the "N file(s) point here" count (preview snippet: ${JSON.stringify(overviewPreviewText.slice(0, 250))})`,
+);
+// Clicking the inbound link should re-open intro.md.
+const inboundLink = win.locator('aside button', { hasText: 'intro.md' }).first();
+assert(
+  (await inboundLink.count()) >= 1,
+  'Inbound list exposes a clickable button for the source file (intro.md)',
+);
+await inboundLink.click();
+await win.waitForTimeout(500);
+const previewAfterBacklink = await win.locator('aside header').last().innerText();
+assert(
+  previewAfterBacklink.includes('intro.md'),
+  `Click on inbound link opens that source file in the preview (header: ${JSON.stringify(previewAfterBacklink.split('\n')[0])})`,
+);
+
 // Reset: remove the ref again so downstream tests don't trip on it.
 await win.locator('aside li', { hasText: 'overview.md' }).locator('button').first().click();
 await win.waitForTimeout(300);
