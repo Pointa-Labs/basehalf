@@ -46,7 +46,7 @@ The architecture rules:
 
 ## Status
 
-**Pre-alpha; CLI is real, desktop app in development.** Five core modules ship today:
+**Pre-alpha; CLI is real, desktop app is end-to-end usable.** Six core modules ship today:
 
 - **`bh workspace`** — register / switch / remove BaseHalf workspaces; `bh init` sets up cwd
 - **`bh badge`** — get / set / list badges (file + backpack: prompt + references + canvas position); add/remove references between them
