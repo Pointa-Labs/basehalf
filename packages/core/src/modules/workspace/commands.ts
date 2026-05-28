@@ -1,5 +1,6 @@
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
+import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
 import type {
@@ -67,6 +68,13 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
 
+  // Workspace-becoming-current = "opening" → materialize defaults (SR-v0
+  // §3.1). For subsequent adds (not auto-current), materialization is
+  // deferred to workspace.use.
+  if (setAsCurrent) {
+    await materializeWithFallback(ctx, absPath);
+  }
+
   return {
     workspace: { name, path: absPath, addedAt },
     setAsCurrent,
@@ -84,7 +92,10 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
   return { current: data.current, workspaces };
 };
 
-/** `workspace use <name>` — switch the active workspace. */
+/** `workspace use <name>` — switch the active workspace. Triggers eager
+ * badge materialization (SR-v0 §3.1) so opening a workspace always leaves
+ * every supported-type file with a default badge JSON. Idempotent on
+ * re-use because existing badges are short-circuited via badge.get. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const entry = data.workspaces[args.name];
@@ -92,6 +103,7 @@ export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, c
     throw new Error(`No such workspace: ${args.name}`);
   }
   await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
+  await materializeWithFallback(ctx, entry.path);
   return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
 };
 
@@ -193,4 +205,18 @@ export function commands(): ReadonlyArray<
 
 export function _coerceContext(ctx: unknown): asserts ctx is Context {
   if (!ctx || typeof ctx !== 'object') throw new TypeError('invalid context');
+}
+
+/**
+ * Materialize via the badges module, but tolerate it not being registered.
+ * Tests can wire only the workspace module without dragging badges in;
+ * production createCore always has both.
+ */
+async function materializeWithFallback(ctx: Context, workspaceRoot: string): Promise<void> {
+  try {
+    await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return;
+    throw err;
+  }
 }
