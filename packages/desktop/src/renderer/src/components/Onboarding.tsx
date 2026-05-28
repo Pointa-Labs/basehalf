@@ -112,8 +112,9 @@ export const Onboarding = ({ onAddFolder }: OnboardingProps): JSX.Element => (
             lineHeight: 1.5,
           }}
         >
-          BaseHalf works fully standalone. Pair it with Claude Code or any AI agent on the left half
-          of your screen for compound thinking.
+          BaseHalf is the workspace half. Pair it with Claude Code (or any AI agent) on the left
+          half of your screen — the agent reads <code style={codeStyle}>.bh/</code> to see what
+          you're focused on and how your files relate.
         </div>
       </div>
     </div>
