@@ -39,6 +39,11 @@ interface WorkspaceState {
   refresh: () => Promise<void>;
   pickAndAdd: () => Promise<void>;
   createDemo: (path: string) => Promise<void>;
+  /** Add one or more dropped paths as workspaces (drag-drop from Finder).
+   *  Each is registered with setup:true; errors per-path are aggregated
+   *  into store.error so the user sees what failed without the others
+   *  losing progress. */
+  addDroppedPaths: (paths: readonly string[]) => Promise<void>;
   use: (name: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
@@ -145,6 +150,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ error: formatError(err) });
     } finally {
       set({ busy: false });
+    }
+  },
+
+  addDroppedPaths: async (paths: readonly string[]) => {
+    if (get().busy || paths.length === 0) return;
+    set({ busy: true });
+    const failures: string[] = [];
+    try {
+      for (const path of paths) {
+        try {
+          await window.bh.run('workspace.add', { path, setup: true });
+        } catch (err) {
+          failures.push(`${path}: ${formatError(err)}`);
+        }
+      }
+      await get().refresh();
+      await startWatcher();
+    } finally {
+      set({ busy: false });
+      if (failures.length > 0) {
+        set({ error: `Drop failed for:\n  ${failures.join('\n  ')}` });
+      }
     }
   },
 
