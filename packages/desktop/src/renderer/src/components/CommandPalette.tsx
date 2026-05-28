@@ -175,6 +175,13 @@ export const CommandPalette = (): JSX.Element | null => {
 
   const [query, setQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
+  // Whether the user is currently steering with the mouse. Linear /
+  // VS Code-style palettes ignore hover-driven selection until the mouse
+  // actually moves, so opening the palette while the pointer happens to
+  // overlap a row doesn't yank selection away from row 0. Flipped true
+  // by onMouseMove inside the card; flipped back to false on any nav
+  // keystroke (and on each open).
+  const [mouseActive, setMouseActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -312,6 +319,7 @@ export const CommandPalette = (): JSX.Element | null => {
     if (!open) return;
     setQuery('');
     setSelectedIdx(0);
+    setMouseActive(false);
     // Defer focus to next microtask so the input is mounted.
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
@@ -340,9 +348,11 @@ export const CommandPalette = (): JSX.Element | null => {
       setOpen(false);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
+      setMouseActive(false);
       setSelectedIdx((i) => Math.min(filtered.length - 1, i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      setMouseActive(false);
       setSelectedIdx((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -366,7 +376,13 @@ export const CommandPalette = (): JSX.Element | null => {
       aria-modal="true"
       aria-label="Command palette"
     >
-      <div style={cardStyle} onKeyDown={handleKeyDown}>
+      <div
+        style={cardStyle}
+        onKeyDown={handleKeyDown}
+        onMouseMove={() => {
+          if (!mouseActive) setMouseActive(true);
+        }}
+      >
         <input
           ref={inputRef}
           type="text"
@@ -389,7 +405,9 @@ export const CommandPalette = (): JSX.Element | null => {
                 action={a}
                 idx={idx}
                 selected={idx === selectedIdx}
-                onHover={() => setSelectedIdx(idx)}
+                onHover={() => {
+                  if (mouseActive) setSelectedIdx(idx);
+                }}
                 onClick={() => {
                   setOpen(false);
                   queueMicrotask(a.run);
