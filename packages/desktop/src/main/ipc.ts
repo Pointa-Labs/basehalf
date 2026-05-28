@@ -1,5 +1,5 @@
 import type { Core } from '@basehalf/core';
-import { ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain } from 'electron';
 
 export interface SerializedError {
   name: string;
@@ -18,6 +18,29 @@ export function serializeError(err: unknown): SerializedError {
     return out;
   }
   return { name: 'Error', message: String(err) };
+}
+
+/**
+ * Register the `workspace:pick` IPC channel — exposes Electron's native
+ * directory picker to the renderer. Kept separate from `bh:run` because
+ * GUI-only flows (file system dialog) aren't core commands; only core
+ * commands route through `bh:run`.
+ */
+export function registerWorkspacePickHandler(): void {
+  ipcMain.handle('workspace:pick', async (event): Promise<string | null> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await (win
+      ? dialog.showOpenDialog(win, {
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Pick a folder to register as a BaseHalf workspace',
+        })
+      : dialog.showOpenDialog({
+          properties: ['openDirectory', 'createDirectory'],
+          title: 'Pick a folder to register as a BaseHalf workspace',
+        }));
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0] ?? null;
+  });
 }
 
 /**

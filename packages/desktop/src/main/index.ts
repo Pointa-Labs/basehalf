@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir } from '@basehalf/core';
 import { BrowserWindow, app, screen } from 'electron';
-import { registerBhRunHandler } from './ipc.js';
+import { registerBhRunHandler, registerWorkspacePickHandler } from './ipc.js';
 import {
   clampToDisplays,
   debounce,
@@ -22,6 +22,7 @@ const core = createCore();
 console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.list'));
 
 registerBhRunHandler(core);
+registerWorkspacePickHandler();
 
 let mainWindow: BrowserWindow | null = null;
 

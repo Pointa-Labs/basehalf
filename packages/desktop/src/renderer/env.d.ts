@@ -6,5 +6,7 @@
 interface Window {
   bh: {
     run(name: string, args?: unknown): Promise<unknown>;
+    /** Opens the OS folder picker; returns the selected path or null on cancel. */
+    pickWorkspace(): Promise<string | null>;
   };
 }

@@ -7,10 +7,12 @@ interface SerializedError {
 }
 type BhRunResponse = { ok: true; result: unknown } | { ok: false; error: SerializedError };
 
-// The renderer's only door to core. Mirrors core.run(name, args) over IPC.
-// Re-throws serialized errors as real Error instances so callsites can
-// use plain try/catch — the IPC tagged-union response is an implementation
-// detail of the channel, not something the renderer should see.
+// The renderer's only door. Mirrors core.run(name, args) over IPC and
+// exposes GUI-only Electron helpers (pickWorkspace) that don't belong
+// in core. Re-throws serialized errors as real Error instances so
+// callsites can use plain try/catch — the IPC tagged-union response is
+// an implementation detail of the channel, not something the renderer
+// should see.
 const bh = {
   run: async (name: string, args?: unknown): Promise<unknown> => {
     const response = (await ipcRenderer.invoke('bh:run', name, args)) as BhRunResponse;
@@ -22,6 +24,7 @@ const bh = {
     }
     throw err;
   },
+  pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
 };
 
 contextBridge.exposeInMainWorld('bh', bh);
