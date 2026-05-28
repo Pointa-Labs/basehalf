@@ -764,6 +764,40 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
+// --- 12b. Watcher unlink path: file deleted externally while preview is
+// open → MdEditor surfaces "File deleted on disk"; badge.markOrphan
+// flips the canvas badge into its orphan visual. ---
+console.log('\n[12b] External delete → orphan badge + editor warning');
+const { unlinkSync } = await import('node:fs');
+writeFileSync(`${WORKSPACE_DIR}/transient.md`, '# Transient\n\nGoing away.\n');
+await win.waitForTimeout(900); // let watcher materialize the badge
+// NavTree caches its file list; reload so transient.md shows up in the
+// sidebar (watcher-driven NavTree refresh is a separate v0.x polish).
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+await sidebar.locator('button', { hasText: 'transient.md' }).first().click();
+await win.waitForTimeout(800);
+const previewBeforeDelete = await win.locator('aside').last().innerText();
+assert(
+  previewBeforeDelete.includes('Saved'),
+  `Preview opens clean before delete (status: ${JSON.stringify(previewBeforeDelete.split('\n').slice(1, 3))})`,
+);
+unlinkSync(`${WORKSPACE_DIR}/transient.md`);
+await win.waitForTimeout(1500);
+const previewAfterDelete = await win.locator('aside').last().innerText();
+assert(
+  previewAfterDelete.includes('File deleted on disk'),
+  `MdEditor surfaces "File deleted on disk" after external unlink (snippet: ${JSON.stringify(previewAfterDelete.slice(0, 200))})`,
+);
+const transientBadge = await bhRun('badge.get', { file: 'transient.md', kind: 'file' });
+assert(
+  transientBadge?.orphan === true,
+  `badge.markOrphan ran after unlink (badge.orphan=${transientBadge?.orphan})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
 // --- 13. Workspace.remove via confirm — does clicking OK actually
 // unregister? Playwright catches the native confirm dialog via
 // page.on('dialog'). ---
