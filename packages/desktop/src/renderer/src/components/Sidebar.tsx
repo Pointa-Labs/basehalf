@@ -1,5 +1,6 @@
 import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { tildifyPath } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
 import { WorkspaceUnreachable } from './WorkspaceUnreachable.js';
@@ -97,7 +98,7 @@ export const Sidebar = (): JSX.Element => {
                 }}
                 title={currentWs.path}
               >
-                {currentWs.path}
+                {tildifyPath(currentWs.path)}
               </div>
             </div>
             <SidebarToggle direction="close" onClick={() => toggle(true)} />

@@ -19,6 +19,18 @@ export function defaultDemoPath(): string {
   return `${window.bh.homeDir || '/tmp'}/BaseHalf-Demo`;
 }
 
+/** Cosmetic: collapse a leading `~/...` if the path lives under the user's
+ *  home dir. Display-only — never round-trip back to bh APIs (which want
+ *  absolute paths). Returns the original path unchanged on non-Mac/Linux
+ *  hosts where homeDir is empty, or for paths outside the home tree. */
+export function tildifyPath(path: string): string {
+  const home = window.bh.homeDir;
+  if (!home) return path;
+  if (path === home) return '~';
+  if (path.startsWith(`${home}/`)) return `~${path.slice(home.length)}`;
+  return path;
+}
+
 /** Trigger the demo workspace generator at the default path. Wraps the
  *  store action so callers don't need to know the path convention. */
 export function createDemoAtDefault(): Promise<void> {

@@ -1,6 +1,6 @@
 import type { CSSProperties, JSX } from 'react';
 import { color, font, space } from '../design.js';
-import { promptForNewNote, promptForNewView } from '../lib/actions.js';
+import { promptForNewNote, promptForNewView, tildifyPath } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { confirm, prompt } from './Dialog.js';
 import { Button } from './primitives/Button.js';
@@ -172,7 +172,7 @@ export const TopBar = (): JSX.Element => {
     // Show the path as a hint in the dropdown row so users with multiple
     // similarly-named workspaces (or symlinks, or cloned folders in
     // different locations) can tell them apart at a glance.
-    hint: ws.path,
+    hint: tildifyPath(ws.path),
   }));
   const viewOptions = [
     { value: '__main__', label: 'Main canvas' },
