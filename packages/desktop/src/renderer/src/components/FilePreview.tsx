@@ -214,7 +214,8 @@ export const FilePreview = (): JSX.Element | null => {
 const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   const [badge, setBadge] = useState<BadgeFile | null>(null);
   const [prompt, setPrompt] = useState('');
-  const [inboundCount, setInboundCount] = useState(0);
+  const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
+  const inboundCount = inbound.length;
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -230,7 +231,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     let cancelled = false;
     setPrompt('');
     setBadge(null);
-    setInboundCount(0);
+    setInbound([]);
     void (async () => {
       try {
         const b = (await window.bh.run('badge.get', {
@@ -240,9 +241,9 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         if (cancelled) return;
         setBadge(b);
         setPrompt(b?.prompt ?? '');
-        const inbound = (await window.bh.run('inbound.get', { file })) as InboundGetResult;
+        const ib = (await window.bh.run('inbound.get', { file })) as InboundGetResult;
         if (cancelled) return;
-        setInboundCount(inbound.entries.length);
+        setInbound(ib.entries);
       } catch {
         // Badge may not be materialized yet (e.g. brand-new file the
         // watcher hasn't picked up). Silent — Canvas surfaces fatal errors.
@@ -522,10 +523,108 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 ))}
               </ul>
             )}
+            {inboundCount > 0 && <InboundList entries={inbound} />}
           </div>
         </div>
       )}
     </section>
+  );
+};
+
+/** Read-only list of files that REFERENCE the current file (backlinks).
+ *  To remove an inbound link, the user edits the source file's outbound
+ *  list — same as how Wikilink-style apps work. Clicking a row opens
+ *  the source file in the preview. */
+const InboundList = ({
+  entries,
+}: {
+  readonly entries: readonly { from: string; note?: string }[];
+}): JSX.Element => {
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  return (
+    <div style={{ marginTop: space[3] }}>
+      <div
+        style={{
+          color: color.textSecondary,
+          marginBottom: space[1.5],
+          fontSize: font.size.caption,
+          fontWeight: font.weight.medium,
+        }}
+      >
+        Inbound{' '}
+        <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
+          {entries.length} file{entries.length === 1 ? '' : 's'} point here
+        </span>
+      </div>
+      <ul
+        style={{
+          listStyle: 'none',
+          padding: 0,
+          margin: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: space[1],
+        }}
+      >
+        {entries.map((e) => (
+          <li
+            key={e.from}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: space[1.5],
+              padding: `${space[1]}px ${space[2]}px`,
+              background: color.surface,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.md,
+            }}
+          >
+            <span aria-hidden style={{ color: color.textTertiary, fontSize: font.size.caption }}>
+              ←
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentFile(e.from)}
+              title={`Open ${e.from}`}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontFamily: font.mono,
+                fontSize: font.size.caption,
+                color: color.accent,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                letterSpacing: -0.2,
+              }}
+            >
+              {e.from}
+            </button>
+            {e.note && (
+              <span
+                style={{
+                  color: color.textTertiary,
+                  fontSize: font.size.caption,
+                  fontStyle: 'italic',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 1,
+                  minWidth: 0,
+                }}
+              >
+                {e.note}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 };
 
