@@ -168,6 +168,84 @@ describe('workspace module (mock FS)', () => {
     await core.run('workspace.remove', { name: 'v' });
     expect(dirs.has('/vault/.bh')).toBe(true); // still there
   });
+
+  it('rename: changes the workspace name without touching path or .bh/', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/vault');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/vault', name: 'old' });
+    const r = (await core.run('workspace.rename', { from: 'old', to: 'new' })) as {
+      workspace: { name: string; path: string };
+      currentUpdated: boolean;
+    };
+    expect(r.workspace.name).toBe('new');
+    expect(r.workspace.path).toBe('/vault');
+    expect(r.currentUpdated).toBe(true);
+    // .bh/ untouched.
+    expect(dirs.has('/vault/.bh')).toBe(true);
+    // Config now lists the new name and forgets the old.
+    const list = (await core.run('workspace.list', {})) as {
+      current: string;
+      workspaces: { name: string }[];
+    };
+    expect(list.current).toBe('new');
+    expect(list.workspaces.map((w) => w.name)).toEqual(['new']);
+  });
+
+  it('rename: when renaming a non-current workspace, current pointer is untouched', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' }); // becomes current
+    await core.run('workspace.add', { path: '/b', name: 'b' });
+    const r = (await core.run('workspace.rename', { from: 'b', to: 'b2' })) as {
+      currentUpdated: boolean;
+    };
+    expect(r.currentUpdated).toBe(false);
+    const list = (await core.run('workspace.list', {})) as { current: string };
+    expect(list.current).toBe('a');
+  });
+
+  it('rename: throws when source workspace does not exist', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('workspace.rename', { from: 'ghost', to: 'whatever' })).rejects.toThrow(
+      /No such workspace: ghost/,
+    );
+  });
+
+  it('rename: throws on collision with an existing workspace name', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' });
+    await core.run('workspace.add', { path: '/b', name: 'b' });
+    await expect(core.run('workspace.rename', { from: 'a', to: 'b' })).rejects.toThrow(
+      /already taken: b/,
+    );
+  });
+
+  it('rename: throws on invalid new name (NAME_PATTERN)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' });
+    await expect(
+      core.run('workspace.rename', { from: 'a', to: '@invalid name with spaces' }),
+    ).rejects.toThrow(/Invalid workspace name/);
+  });
+
+  it('rename: throws when from === to', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' });
+    await expect(core.run('workspace.rename', { from: 'a', to: 'a' })).rejects.toThrow(
+      /from and to are the same/,
+    );
+  });
 });
 
 // ── Integration test (real disk) ────────────────────────────────────────────

@@ -80,6 +80,25 @@ const wsRemove = defineCommand({
   },
 });
 
+const wsRename = defineCommand({
+  meta: {
+    name: 'rename',
+    description: 'Rename a workspace (path and .bh/ untouched)',
+  },
+  args: {
+    from: { type: 'positional', description: 'Current workspace name', required: true },
+    to: { type: 'positional', description: 'New workspace name', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('workspace.rename', {
+      from: args.from,
+      to: args.to,
+    });
+    render('workspace.rename', result, Boolean(args.json));
+  },
+});
+
 const workspace = defineCommand({
   meta: { name: 'workspace', description: 'Manage BaseHalf workspaces' },
   subCommands: {
@@ -88,6 +107,7 @@ const workspace = defineCommand({
     use: wsUse,
     current: wsCurrent,
     remove: wsRemove,
+    rename: wsRename,
   },
 });
 

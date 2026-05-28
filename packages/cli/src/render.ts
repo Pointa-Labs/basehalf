@@ -66,6 +66,9 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'workspace.remove':
       renderWsRemove(result as { removed: string; newCurrent: string | null });
       return;
+    case 'workspace.rename':
+      renderWsRename(result as { workspace: WorkspaceEntry; currentUpdated: boolean });
+      return;
     case 'badge.get':
       renderBadge(result as Badge | null);
       return;
@@ -160,6 +163,12 @@ function renderWsCurrent(r: { current: WorkspaceEntry | null }): void {
 function renderWsRemove(r: { removed: string; newCurrent: string | null }): void {
   process.stdout.write(`Removed workspace "${r.removed}"\n`);
   if (r.newCurrent) process.stdout.write(`Current is now: ${r.newCurrent}\n`);
+}
+
+function renderWsRename(r: { workspace: WorkspaceEntry; currentUpdated: boolean }): void {
+  process.stdout.write(`Renamed workspace → "${r.workspace.name}"\n`);
+  process.stdout.write(`  path:    ${r.workspace.path}\n`);
+  if (r.currentUpdated) process.stdout.write('  current: yes (followed the rename)\n');
 }
 
 // ── badge ───────────────────────────────────────────────────────────────────

@@ -27,6 +27,7 @@ export const TopBar = (): JSX.Element => {
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
   const use = useWorkspaceStore((s) => s.use);
   const remove = useWorkspaceStore((s) => s.remove);
+  const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace);
   const views = useWorkspaceStore((s) => s.views);
   const currentView = useWorkspaceStore((s) => s.currentView);
   const setCurrentView = useWorkspaceStore((s) => s.setCurrentView);
@@ -48,6 +49,26 @@ export const TopBar = (): JSX.Element => {
       destructive: true,
     });
     if (ok) void remove(current);
+  };
+
+  const handleRenameWorkspace = async (): Promise<void> => {
+    if (!current) return;
+    const next = await prompt({
+      title: `Rename workspace "${current}"`,
+      body: 'Changes the display name only — the folder path and its .bh/ are untouched.',
+      label: 'New name',
+      defaultValue: current,
+      placeholder: 'e.g. school-spring-2026',
+      validate: (v) => {
+        const t = v.trim();
+        if (t.length === 0) return 'A name is required.';
+        if (t === current) return null; // dialog will close; handler skips below
+        if (workspaces.some((w) => w.name === t)) return `Name "${t}" is already in use.`;
+        return null;
+      },
+    });
+    const trimmed = next?.trim();
+    if (trimmed && trimmed !== current) void renameWorkspace(current, trimmed);
   };
 
   const handleCreateView = async (): Promise<void> => {
@@ -231,9 +252,19 @@ export const TopBar = (): JSX.Element => {
       </Button>
 
       {current && (
-        <Button variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
-          Remove
-        </Button>
+        <>
+          <Button
+            variant="ghost"
+            onClick={() => void handleRenameWorkspace()}
+            disabled={busy}
+            title="Rename this workspace (path + .bh/ untouched)"
+          >
+            Rename
+          </Button>
+          <Button variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
+            Remove
+          </Button>
+        </>
       )}
 
       {current && (
