@@ -157,8 +157,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().busy || paths.length === 0) return;
     set({ busy: true });
     const failures: string[] = [];
+    // Snapshot the current workspace list once so we can detect drops
+    // of already-registered paths in O(1) and switch instead of erroring.
+    const existingByPath = new Map(get().workspaces.map((w) => [w.path, w.name]));
     try {
       for (const path of paths) {
+        const alreadyRegistered = existingByPath.get(path);
+        if (alreadyRegistered) {
+          // Idempotent — same path dropped a second time switches to the
+          // existing workspace instead of failing with "already exists".
+          try {
+            await window.bh.run('workspace.use', { name: alreadyRegistered });
+          } catch (err) {
+            failures.push(`${path}: ${formatError(err)}`);
+          }
+          continue;
+        }
         try {
           await window.bh.run('workspace.add', { path, setup: true });
         } catch (err) {
