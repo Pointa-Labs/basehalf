@@ -493,6 +493,37 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
+// --- 5d-focusmd. Agent-protocol contract: clicks → focus.md on disk.
+// focus.get only proves the in-memory state; what AI agents actually
+// read is /workspace/.bh/focus.md. If the round-trip is broken, the
+// entire "make agents work with bh" value prop is broken silently.
+// Validate the on-disk YAML-style active list reflects the clicks.
+console.log('\n[5d-focusmd] focus.md on disk reflects canvas clicks');
+const focusMdPath = join(WORKSPACE_DIR, '.bh/focus.md');
+const focusMdAfterShift = readFileSync(focusMdPath, 'utf-8');
+assert(
+  /^active:/m.test(focusMdAfterShift),
+  `focus.md has the "active:" YAML key (head: ${JSON.stringify(focusMdAfterShift.slice(0, 80))})`,
+);
+assert(
+  /^\s*-\s*intro\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md lists intro.md after click (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+);
+assert(
+  /^\s*-\s*overview\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md lists overview.md after shift-click (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+);
+// Reset focus and verify the active list empties out — agents reading
+// stale focus.md after a clear would be acting on outdated context.
+await bhRun('focus.clear', {});
+await win.waitForTimeout(200);
+const focusMdAfterClear = readFileSync(focusMdPath, 'utf-8');
+assert(
+  !/^\s*-\s*intro\.md\s*$/m.test(focusMdAfterClear) &&
+    !/^\s*-\s*overview\.md\s*$/m.test(focusMdAfterClear),
+  `focus.clear empties focus.md's active list (file: ${JSON.stringify(focusMdAfterClear.slice(0, 200))})`,
+);
+
 // --- 5c. Drag from intro.md's source handle to overview.md's target handle
 // to create an edge (badge.addRef). React-flow handles are
 // .react-flow__handle.source / .target on each node. ---
