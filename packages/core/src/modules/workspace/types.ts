@@ -8,6 +8,16 @@ export interface WorkspaceEntry {
   readonly name: string;
   readonly path: string;
   readonly addedAt: string;
+  /** Last canvas viewport (pan + zoom). Restored on workspace.use. */
+  readonly viewport?: ViewportState;
+}
+
+/** Canvas viewport state — pan + zoom. Per-workspace, persisted in
+ * workspaces.json so opening a workspace restores the last view. */
+export interface ViewportState {
+  readonly offsetX: number;
+  readonly offsetY: number;
+  readonly scale: number;
 }
 
 export interface WorkspacesFile {
@@ -89,3 +99,11 @@ export interface WorkspaceListFilesResult {
   readonly path: string;
   readonly entries: readonly WorkspaceListFilesEntry[];
 }
+
+export type WorkspaceGetViewportArgs = Record<string, never>;
+export type WorkspaceGetViewportResult = ViewportState | null;
+
+export interface WorkspaceSetViewportArgs {
+  readonly viewport: ViewportState;
+}
+export type WorkspaceSetViewportResult = Record<string, never>;

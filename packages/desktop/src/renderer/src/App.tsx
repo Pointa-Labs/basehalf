@@ -1,4 +1,5 @@
 import { type JSX, useEffect } from 'react';
+import { Canvas } from './components/Canvas.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { Sidebar } from './components/Sidebar.js';
@@ -27,17 +28,8 @@ export const App = (): JSX.Element => {
       <TopBar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar />
-        <main
-          style={{
-            flex: 1,
-            padding: 16,
-            fontFamily: 'system-ui, sans-serif',
-            fontSize: 13,
-            color: '#888',
-            overflow: 'auto',
-          }}
-        >
-          Canvas lands in PR 11.
+        <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          <Canvas />
         </main>
       </div>
       <FdaTip />

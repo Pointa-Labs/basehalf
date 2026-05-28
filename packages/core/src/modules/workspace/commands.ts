@@ -9,6 +9,8 @@ import type {
   WorkspaceCurrentArgs,
   WorkspaceCurrentResult,
   WorkspaceEntry,
+  WorkspaceGetViewportArgs,
+  WorkspaceGetViewportResult,
   WorkspaceListArgs,
   WorkspaceListFilesArgs,
   WorkspaceListFilesEntry,
@@ -16,6 +18,8 @@ import type {
   WorkspaceListResult,
   WorkspaceRemoveArgs,
   WorkspaceRemoveResult,
+  WorkspaceSetViewportArgs,
+  WorkspaceSetViewportResult,
   WorkspaceUseArgs,
   WorkspaceUseResult,
 } from './types.js';
@@ -87,7 +91,12 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_args, ctx) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const workspaces: WorkspaceEntry[] = Object.entries(data.workspaces)
-    .map(([name, entry]) => ({ name, path: entry.path, addedAt: entry.addedAt }))
+    .map(([name, entry]) => ({
+      name,
+      path: entry.path,
+      addedAt: entry.addedAt,
+      ...(entry.viewport !== undefined && { viewport: entry.viewport }),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { current: data.current, workspaces };
 };
@@ -185,6 +194,38 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   return { path: absPath, entries };
 };
 
+/** `workspace.getViewport()` — last persisted canvas viewport for the current
+ * workspace; null if never set. */
+export const getViewport: Handler<WorkspaceGetViewportArgs, WorkspaceGetViewportResult> = async (
+  _args,
+  ctx,
+) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) return null;
+  const entry = data.workspaces[data.current];
+  return entry?.viewport ?? null;
+};
+
+/** `workspace.setViewport({ viewport })` — persist canvas viewport for the
+ * current workspace. No-op if no current workspace. */
+export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewportResult> = async (
+  args,
+  ctx,
+) => {
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) return {};
+  const entry = data.workspaces[data.current];
+  if (!entry) return {};
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    ...data,
+    workspaces: {
+      ...data.workspaces,
+      [data.current]: { ...entry, viewport: args.viewport },
+    },
+  });
+  return {};
+};
+
 /**
  * Helper for `createCore()` — registers all workspace commands.
  * Modules expose a single `register*Module(core)` function so static composition
@@ -200,6 +241,8 @@ export function commands(): ReadonlyArray<
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
+    ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
+    ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
   ];
 }
 
