@@ -37,18 +37,19 @@ export const EMPTY_WORKSPACES: WorkspacesFile = Object.freeze({
 export interface WorkspaceAddArgs {
   readonly path: string;
   readonly name?: string;
-  /** If true: also append `.bh/` to .gitignore + append a recall hint to CLAUDE.md (both non-destructive). */
+  /** If true: also append `.bh/cache/` to .gitignore + append the
+   *  agent-protocol hint to CLAUDE.md (both non-destructive + idempotent). */
   readonly setup?: boolean;
 }
 
 export interface SetupReport {
-  /** `.bh/` line added to .gitignore. */
+  /** `.bh/cache/` line added to .gitignore. */
   readonly gitignoreUpdated: boolean;
-  /** Recall hint section added to CLAUDE.md. */
+  /** Agent-protocol hint section added to CLAUDE.md. */
   readonly claudeMdUpdated: boolean;
-  /** Already had `.bh/` in .gitignore — skipped. */
+  /** `.gitignore` already had `.bh/cache/` — skipped. */
   readonly gitignoreSkipped: boolean;
-  /** CLAUDE.md already had the recall hint — skipped. */
+  /** CLAUDE.md already had the agent-protocol hint marker — skipped. */
   readonly claudeMdSkipped: boolean;
   /** No .gitignore (no git repo or not yet initialized) — skipped, with note. */
   readonly gitignoreAbsent: boolean;
@@ -58,7 +59,7 @@ export interface WorkspaceAddResult {
   readonly workspace: WorkspaceEntry;
   readonly setAsCurrent: boolean;
   readonly bhDirCreated: boolean;
-  /** Only present if --setup was passed. */
+  /** Only present when called with `setup: true`. */
   readonly setup?: SetupReport;
 }
 
