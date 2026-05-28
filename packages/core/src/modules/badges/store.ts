@@ -1,5 +1,5 @@
 import { dirname, join, relative } from 'node:path';
-import type { FsLike } from '../../kernel/index.js';
+import { type FsLike, assertWorkspaceRelative } from '../../kernel/index.js';
 import { BadgeCorrupt, type BadgeFile, type BadgeKind } from './types.js';
 
 const BADGES_DIR = '.bh/badges';
@@ -13,6 +13,10 @@ const FOLDER_BADGE_FILENAME = '.badge.json';
  *    a sibling file's badge — see SR-v0 §3.6)
  */
 export function badgePath(workspaceRoot: string, file: string, kind: BadgeKind): string {
+  // Single choke point for every badge read/write/delete. Validate here so
+  // a traversal path (e.g. `../../../etc/passwd`) can't escape .bh/badges/
+  // through path.join — badge.set used to write `/etc/passwd.json`.
+  assertWorkspaceRelative(file);
   if (kind === 'folder') {
     return join(workspaceRoot, BADGES_DIR, file, FOLDER_BADGE_FILENAME);
   }
