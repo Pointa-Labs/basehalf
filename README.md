@@ -68,7 +68,7 @@ bh workspace list
 bh workspace current
 ```
 
-Requirements: Node ≥ 18.17, pnpm 9.
+Requirements: Node ≥ 20.19, pnpm 9.
 
 ## Repo layout
 

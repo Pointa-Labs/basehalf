@@ -12,7 +12,7 @@ team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 > plan. (A `bh decision` subcommand also shipped briefly as an internal
 > dogfood tool and has since been retired; see [docs/decisions.md D18](docs/decisions.md).)
 
-## Build it (Node ≥ 18.17, pnpm 9)
+## Build it (Node ≥ 20.19, pnpm 9)
 
 ```bash
 pnpm install

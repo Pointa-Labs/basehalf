@@ -18,8 +18,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 18.17 is the root engines floor (Turbo 2.x requirement); 20 and 22 are LTS.
-        node-version: ['18.17', '20.x', '22.x']
+        # 20.19 is the root engines floor (electron-vite 5 requirement, Node 18 EOL);
+        # 22 is current LTS and matches Electron 42+ runtime.
+        node-version: ['20.19', '22.x']
     steps:
       - uses: actions/checkout@v4
 
