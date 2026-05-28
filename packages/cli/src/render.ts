@@ -74,6 +74,15 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
         result as { workspace: WorkspaceEntry; bhDirCreated: boolean; setup?: SetupReport },
       );
       return;
+    case 'workspace.createDemo':
+      renderWsCreateDemo(
+        result as {
+          workspace: WorkspaceEntry;
+          filesCreated: readonly string[];
+          setup: SetupReport;
+        },
+      );
+      return;
     case 'badge.get':
       renderBadge(result as Badge | null);
       return;
@@ -201,6 +210,24 @@ function renderWsRepath(r: {
     if (s.claudeMdUpdated)
       process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
   }
+}
+
+function renderWsCreateDemo(r: {
+  workspace: WorkspaceEntry;
+  filesCreated: readonly string[];
+  setup: SetupReport;
+}): void {
+  process.stdout.write(`Created demo workspace "${r.workspace.name}"\n`);
+  process.stdout.write(`  path:    ${r.workspace.path}\n`);
+  if (r.filesCreated.length > 0) {
+    process.stdout.write(`  seeded:  ${r.filesCreated.length} file(s)\n`);
+    for (const f of r.filesCreated) process.stdout.write(`           - ${f}\n`);
+  }
+  if (r.setup.claudeMdUpdated)
+    process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
+  process.stdout.write(
+    '\nOpen Claude Code in this folder and ask "what is this workspace about?"\n',
+  );
 }
 
 // ── badge ───────────────────────────────────────────────────────────────────

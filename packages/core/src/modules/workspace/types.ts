@@ -113,6 +113,22 @@ export interface WorkspaceRepathResult {
   readonly setup?: SetupReport;
 }
 
+export interface WorkspaceCreateDemoArgs {
+  /** Absolute path where the demo workspace lives. Created if missing. */
+  readonly path: string;
+  /** Workspace name; defaults to the basename of `path`. */
+  readonly name?: string;
+}
+export interface WorkspaceCreateDemoResult {
+  readonly workspace: WorkspaceEntry;
+  /** Files seeded (relative paths). Useful for showing the user what
+   *  appeared in their folder. */
+  readonly filesCreated: readonly string[];
+  /** Whether the user's CLAUDE.md / .gitignore got the agent-protocol
+   *  hint + cache-ignore (always true on success — demo enforces setup). */
+  readonly setup: SetupReport;
+}
+
 export interface WorkspaceListFilesArgs {
   readonly path: string;
 }

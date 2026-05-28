@@ -160,6 +160,33 @@ assert(
   'Onboarding card explains the first action (pick a folder)',
 );
 assert(emptyText.includes('Badge'), 'Onboarding mentions the Badge editing path');
+assert(
+  emptyText.includes('Try a demo workspace'),
+  'Onboarding offers the secondary "Try a demo workspace" CTA',
+);
+
+// --- 1b. Demo workspace generator (core path; bypasses the renderer
+// button so the test doesn't write to the dev's actual home directory).
+console.log('\n[1b] workspace.createDemo (core path)');
+const demoPath = '/tmp/bh-verify-demo-ws';
+const { rmSync: rmSync2 } = await import('node:fs');
+if (existsSync(demoPath)) rmSync2(demoPath, { recursive: true, force: true });
+const demoResult = await bhRun('workspace.createDemo', {
+  path: demoPath,
+  name: 'bh-verify-demo',
+});
+assert(
+  demoResult?.filesCreated?.includes('intro.md'),
+  `createDemo seeded intro.md (filesCreated: ${JSON.stringify(demoResult?.filesCreated)})`,
+);
+assert(
+  demoResult?.setup?.claudeMdUpdated === true,
+  `createDemo installed the agent-protocol hint in CLAUDE.md (setup: ${JSON.stringify(demoResult?.setup)})`,
+);
+// Clean up so reruns don't accumulate (and so the demo workspace doesn't
+// interfere with the suite's main `bh-verify-ws` setup that follows).
+await bhRun('workspace.remove', { name: 'bh-verify-demo' }).catch(() => undefined);
+if (existsSync(demoPath)) rmSync2(demoPath, { recursive: true, force: true });
 
 // --- 2. Register workspace via core, then trigger renderer refresh ---
 console.log('\n[2] Register workspace + refresh');

@@ -38,6 +38,7 @@ interface WorkspaceState {
   busy: boolean;
   refresh: () => Promise<void>;
   pickAndAdd: () => Promise<void>;
+  createDemo: (path: string) => Promise<void>;
   use: (name: string) => Promise<void>;
   remove: (name: string) => Promise<void>;
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
@@ -138,6 +139,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // desktop-added workspaces silently lack the bridge that makes Claude
       // Code / Codex / Cursor recognise the protocol.
       await window.bh.run('workspace.add', { path, setup: true });
+      await get().refresh();
+      await startWatcher();
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  createDemo: async (path: string) => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      // workspace.createDemo creates the folder + seeds the interconnected
+      // demo content + registers via workspace.add(setup:true). Idempotent
+      // on re-run: existing files aren't overwritten, the workspace add
+      // throws on name collision (the user picked a path whose basename
+      // collides with an existing workspace), which we surface verbatim.
+      await window.bh.run('workspace.createDemo', { path });
       await get().refresh();
       await startWatcher();
     } catch (err) {
