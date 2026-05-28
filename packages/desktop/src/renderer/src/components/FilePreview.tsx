@@ -387,22 +387,45 @@ const PdfViewer = ({ absPath }: { absPath: string }): JSX.Element => (
   />
 );
 
-const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => (
-  <div
-    style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: '#f4f4f4',
-      padding: 16,
-    }}
-  >
-    <img
-      src={`file://${absPath}`}
-      alt={absPath}
-      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-    />
-  </div>
-);
+const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => {
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f4f4f4',
+        padding: 16,
+        gap: 8,
+      }}
+    >
+      <img
+        src={`file://${absPath}`}
+        alt={absPath}
+        // width/height 100% (not max-) so small images scale UP to fill
+        // the panel — a 16×16 favicon was rendering as an unfindable dot.
+        // imageRendering:pixelated keeps icons crisp under upscale.
+        style={{
+          width: '100%',
+          height: '100%',
+          minHeight: 0,
+          objectFit: 'contain',
+          imageRendering: 'pixelated',
+        }}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          setDims({ w: img.naturalWidth, h: img.naturalHeight });
+        }}
+      />
+      {dims && (
+        <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, color: '#888' }}>
+          {dims.w} × {dims.h}
+        </span>
+      )}
+    </div>
+  );
+};

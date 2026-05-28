@@ -32,9 +32,14 @@ mkdirSync(SCREENS_DIR, { recursive: true });
 if (existsSync(join(WORKSPACE_DIR, '.bh'))) {
   rmSync(join(WORKSPACE_DIR, '.bh'), { recursive: true, force: true });
 }
-for (const entry of (await import('node:fs')).readdirSync(WORKSPACE_DIR)) {
+const { readdirSync, writeFileSync } = await import('node:fs');
+for (const entry of readdirSync(WORKSPACE_DIR)) {
   if (entry.startsWith('fresh-')) rmSync(join(WORKSPACE_DIR, entry), { force: true });
 }
+// Seed a tiny 16x16 PNG so we can exercise the image viewer.
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAADBJREFUOE9j/M+ABzC+JEHB/8N/MQpAFCBSDIw0OAUkVlMQVAxANCKvAAOJyERjqzgFAJ+lFXmwl/2QAAAAAElFTkSuQmCC';
+writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'base64'));
 
 const failures = [];
 const assert = (cond, msg) => {
@@ -198,6 +203,49 @@ assert(controlsCount === 1, 'ReactFlow Controls panel present (zoom/fit buttons)
 
 await win.screenshot({ path: `${SCREENS_DIR}/03-canvas.png` });
 
+// --- 5b. Drag a badge → position persists across reload.
+// react-flow node drag is mousedown → mousemove → mouseup; Playwright's
+// mouse APIs do this faithfully. ---
+console.log('\n[5b] Drag badge → position persists across reload');
+const introBadge = win.locator('.react-flow__node[data-id="intro.md"]');
+const introBox0 = await introBadge.boundingBox();
+assert(introBox0 !== null, 'intro.md badge has a bounding box before drag');
+const start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+const target = { x: start.x + 220, y: start.y + 120 };
+await win.mouse.move(start.x, start.y);
+await win.mouse.down();
+await win.mouse.move(target.x, target.y, { steps: 12 });
+await win.mouse.up();
+// debounced persist is 300ms; wait a bit more.
+await win.waitForTimeout(800);
+const introBox1 = await introBadge.boundingBox();
+assert(
+  introBox1 && Math.abs(introBox1.x - target.x + introBox0.width / 2) < 30,
+  `Badge follows the drag (start x=${Math.round(start.x)}, target x=${Math.round(target.x)}, ended x=${introBox1 ? Math.round(introBox1.x) : 'null'})`,
+);
+// Confirm via core: badge.canvas should hold the new position.
+const badgeAfterDrag = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+assert(
+  badgeAfterDrag?.canvas && Number.isFinite(badgeAfterDrag.canvas.x),
+  `badge.get → canvas position persisted: ${JSON.stringify(badgeAfterDrag?.canvas)}`,
+);
+const persistedX = badgeAfterDrag.canvas.x;
+const persistedY = badgeAfterDrag.canvas.y;
+// Reload and check the badge appears at the persisted position.
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const introBadgeAfterReload = win.locator('.react-flow__node[data-id="intro.md"]');
+const introBox2 = await introBadgeAfterReload.boundingBox();
+// React-flow positions the node via transform: translate(x, y) from the
+// react-flow internal viewport. Just check it didn't snap back to the
+// fallback grid position (60+0*220, 60+0*140 = (60, 60)).
+assert(
+  introBox2 &&
+    (Math.abs(introBox2.x - introBox0.x) > 50 || Math.abs(introBox2.y - introBox0.y) > 30),
+  `After reload, intro.md badge is at the dragged position, not the fallback grid (before x=${Math.round(introBox0.x)}, after x=${introBox2 ? Math.round(introBox2.x) : 'null'}; badge.canvas=(${persistedX},${persistedY}))`,
+);
+
 // --- 6. Open a file via NavTree → FilePreview should render ---
 console.log('\n[6] Open intro.md → FilePreview');
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
@@ -273,7 +321,6 @@ await win.waitForTimeout(200);
 // The watcher's "file changed on disk" path shouldn't auto-clobber unsaved
 // edits; FilePreview should surface a Reload / Keep-my-edits choice. ---
 console.log('\n[7c] External edit while dirty → reload prompt');
-const { writeFileSync } = await import('node:fs');
 await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
 await win.waitForTimeout(800);
 // Make the editor dirty without saving.
@@ -305,6 +352,54 @@ assert(
   previewAfterReload.includes('Saved') && !previewAfterReload.includes('File changed on disk'),
   `After "Reload from disk" the editor returns to clean Saved state (snippet: ${JSON.stringify(previewAfterReload.slice(0, 120))})`,
 );
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
+// --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
+// Tests the ImageViewer branch of FilePreview (not just MD path). ---
+console.log('\n[7d] Image viewer for icon.png');
+await sidebar.locator('button', { hasText: 'icon.png' }).first().click();
+await win.waitForTimeout(500);
+const imgCount = await win.locator('aside img').count();
+assert(imgCount === 1, `FilePreview renders <img> for PNG (count=${imgCount})`);
+const imgSrc = await win.locator('aside img').first().getAttribute('src');
+assert(
+  typeof imgSrc === 'string' && imgSrc.startsWith('file://') && imgSrc.endsWith('icon.png'),
+  `Image src is a file:// URL pointing at icon.png (src=${imgSrc})`,
+);
+const imgNaturalWidth = await win
+  .locator('aside img')
+  .first()
+  .evaluate((el) => el.naturalWidth);
+assert(
+  imgNaturalWidth === 16,
+  `<img> actually decoded the PNG (naturalWidth=${imgNaturalWidth}; expected 16)`,
+);
+// 🔍 Probe: how big is the rendered image actually? A 16x16 PNG in a huge
+// container with objectFit:contain stays 16x16 — so users see a near-
+// invisible dot. Worth knowing.
+const imgProbe = await win
+  .locator('aside img')
+  .first()
+  .evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const parent = el.parentElement?.getBoundingClientRect();
+    return {
+      imgW: r.width,
+      imgH: r.height,
+      containerW: parent?.width,
+      containerH: parent?.height,
+      bg: el.parentElement ? getComputedStyle(el.parentElement).backgroundColor : null,
+    };
+  });
+console.log('     image render →', JSON.stringify(imgProbe));
+assert(
+  imgProbe.imgW > 100 && imgProbe.imgH > 100,
+  `Small images scale UP to fill the preview (rendered ${imgProbe.imgW}×${imgProbe.imgH} — a 16×16 PNG used to render at native size and was unfindable)`,
+);
+const dimsCaption = await win.locator('aside span', { hasText: /\d+ × \d+/ }).count();
+assert(dimsCaption >= 1, 'Pixel-dimension caption ("16 × 16") visible under the image');
+await win.screenshot({ path: `${SCREENS_DIR}/10-image-viewer.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
