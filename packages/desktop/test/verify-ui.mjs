@@ -1761,6 +1761,66 @@ await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 assert((await paletteInput.count()) === 0, 'Palette closed after arrow-nav test');
 
+// --- 12d-actions. Palette action-row invocation: filter to a Workspace
+// row + Enter switches the active workspace; filter to a View row +
+// Enter switches the active view; "Main canvas" row clears it. §12d
+// covered filter + Enter on File rows; the Workspace and View action
+// branches in CommandPalette.actions[] were untested.
+console.log('\n[12d-actions] Palette → Workspace switch + View switch');
+// Workspace switch: filter to ws-2 and Enter.
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('bh-verify-ws-2');
+await win.waitForTimeout(200);
+await win.keyboard.press('Enter');
+await win.waitForTimeout(800);
+const wsCurrentAfterPalette = await bhRun('workspace.current', {});
+assert(
+  wsCurrentAfterPalette?.current?.name === 'bh-verify-ws-2',
+  `Palette → Workspace row switched active workspace (current: ${JSON.stringify(wsCurrentAfterPalette?.current?.name)})`,
+);
+// Switch back to bh-verify-ws via the palette so subsequent tests find
+// the original workspace state.
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('bh-verify-ws');
+await win.waitForTimeout(200);
+// First row in the filtered list is bh-verify-ws since bh-verify-ws-2 is
+// active and therefore excluded from the palette's Workspace list.
+await win.keyboard.press('Enter');
+await win.waitForTimeout(800);
+const wsCurrentRestored = await bhRun('workspace.current', {});
+assert(
+  wsCurrentRestored?.current?.name === 'bh-verify-ws',
+  `Switched back to bh-verify-ws via palette (current: ${JSON.stringify(wsCurrentRestored?.current?.name)})`,
+);
+
+// View switch: filter to the existing "Test View Renamed" → Enter
+// activates it (Delete view button appears).
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('Renamed');
+await win.waitForTimeout(200);
+await win.keyboard.press('Enter');
+await win.waitForTimeout(500);
+const topbarAfterViewPick = await win.locator('header').first().innerText();
+assert(
+  topbarAfterViewPick.includes('Delete view'),
+  `Palette → View row activated a saved view (topbar includes "Delete view")`,
+);
+// Now back to main canvas via palette → "Main canvas".
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('Main canvas');
+await win.waitForTimeout(200);
+await win.keyboard.press('Enter');
+await win.waitForTimeout(500);
+const topbarAfterMain = await win.locator('header').first().innerText();
+assert(
+  !topbarAfterMain.includes('Delete view'),
+  `Palette → "Main canvas" cleared the active view (Delete view button hidden)`,
+);
+
 // --- 12e. Global Cmd+N opens the new-note dialog (same flow as the
 // TopBar "New note" button). Cmd+Shift+N opens the new-view dialog.
 console.log('\n[12e] Cmd+N / Cmd+Shift+N global shortcuts');
