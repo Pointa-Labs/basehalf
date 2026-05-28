@@ -167,7 +167,14 @@ export const TopBar = (): JSX.Element => {
     void use(next);
   };
 
-  const workspaceOptions = workspaces.map((ws) => ({ value: ws.name, label: ws.name }));
+  const workspaceOptions = workspaces.map((ws) => ({
+    value: ws.name,
+    label: ws.name,
+    // Show the path as a hint in the dropdown row so users with multiple
+    // similarly-named workspaces (or symlinks, or cloned folders in
+    // different locations) can tell them apart at a glance.
+    hint: ws.path,
+  }));
   const viewOptions = [
     { value: '__main__', label: 'Main canvas' },
     ...views.map((v) => ({
