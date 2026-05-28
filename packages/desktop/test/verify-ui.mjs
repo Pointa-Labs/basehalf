@@ -1877,6 +1877,46 @@ assert(
   `Palette → "Main canvas" cleared the active view (Delete view button hidden)`,
 );
 
+// --- 12d-recent. The palette orders File rows by recency (recentFilesFor),
+// then alphabetical for never-opened files. So whichever file the user
+// just opened should jump to the top of the File category. Backed by
+// localStorage bh:recent-files keyed per-workspace.
+console.log('\n[12d-recent] Palette files sorted recents-first');
+// Open overview.md via sidebar to push it to the top of recents.
+await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
+await win.waitForTimeout(500);
+await win.keyboard.press('Escape'); // close preview
+await win.waitForTimeout(200);
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+// Filter to File-only rows so the first File row is unambiguous (the
+// list before filtering also contains Workspace/View/Action rows).
+await paletteInput.fill('.md');
+await win.waitForTimeout(200);
+const firstFileRowText = await win.locator('[role=dialog] [role=option]').first().innerText();
+assert(
+  firstFileRowText.includes('overview.md'),
+  `Most-recently-opened file is the first File row (got: ${JSON.stringify(firstFileRowText.slice(0, 80))})`,
+);
+// Open intro.md, then re-check — intro.md should now lead.
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(500);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('.md');
+await win.waitForTimeout(200);
+const firstFileRowAfterIntro = await win.locator('[role=dialog] [role=option]').first().innerText();
+assert(
+  firstFileRowAfterIntro.includes('intro.md'),
+  `Newly-opened file leapfrogs prior recents (got: ${JSON.stringify(firstFileRowAfterIntro.slice(0, 80))})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
 // --- 12e. Global Cmd+N opens the new-note dialog (same flow as the
 // TopBar "New note" button). Cmd+Shift+N opens the new-view dialog.
 console.log('\n[12e] Cmd+N / Cmd+Shift+N global shortcuts');
