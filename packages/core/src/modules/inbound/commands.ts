@@ -1,4 +1,4 @@
-import type { Handler } from '../../kernel/index.js';
+import { type Handler, createKeyedMutex } from '../../kernel/index.js';
 import type { BadgeListResult } from '../badges/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { inboundPath, readInbound, writeInbound } from './store.js';
@@ -26,34 +26,13 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   return current.current.path;
 }
 
-// In-process serial queue keyed by workspace root. addRef/removeRef each do
-// read → mutate → write on the SINGLE shared inbound.json; without
-// serialization two concurrent calls to the same workspace both read the
-// pre-write state and the second write clobbers the first (lost update —
-// reproduced by test/inbound-concurrency.test.ts). Chaining each op behind
-// the previous one for the same root makes the read-modify-write atomic
-// within this process, which covers the desktop and the MCP server (both
-// single-process). Cross-process `bh` CLI invocations would still race at
-// the filesystem level — out of scope here; that needs OS file locking.
-const indexWriteChains = new Map<string, Promise<unknown>>();
-
-function withIndexLock<T>(root: string, op: () => Promise<T>): Promise<T> {
-  const prev = indexWriteChains.get(root) ?? Promise.resolve();
-  // Run op after prev settles, regardless of whether prev resolved or threw —
-  // a failed write must not wedge the queue for the same root.
-  const result = prev.then(op, op);
-  // The gate for the NEXT op swallows this op's outcome so one rejection
-  // doesn't reject the following op's `prev`. The returned `result` keeps the
-  // real (possibly-rejecting) value for this caller.
-  indexWriteChains.set(
-    root,
-    result.then(
-      () => undefined,
-      () => undefined,
-    ),
-  );
-  return result;
-}
+// Serialize read → mutate → write on the SINGLE shared inbound.json per
+// workspace root. Without it, two concurrent addRef calls to the same
+// workspace both read the pre-write state and the second write clobbers the
+// first (lost update — reproduced by test/inbound-concurrency.test.ts). The
+// shared kernel mutex makes each op atomic within this process; cross-
+// process `bh` CLI races at the filesystem level are out of scope.
+const withIndexLock = createKeyedMutex();
 
 function withEntry(
   index: InboundIndex,
