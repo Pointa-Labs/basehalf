@@ -1,4 +1,4 @@
-import { basename, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
@@ -280,6 +280,14 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   const entry = data.workspaces[data.current];
   if (!entry) throw new Error('Current workspace pointer is stale');
   const abs = join(entry.path, args.path);
+  // Honor the desktop new-note dialog's "folders auto-created" promise:
+  // mkdir -p the parent so a path like `subdir/new/note.md` succeeds even
+  // when `subdir/new` doesn't exist yet. Top-level paths have an empty
+  // dirname (".") and the mkdir is a no-op.
+  const parent = dirname(abs);
+  if (parent && parent !== abs) {
+    await ctx.fs.mkdir(parent, { recursive: true });
+  }
   await ctx.fs.writeFile(abs, args.content);
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
 };

@@ -38,7 +38,11 @@ if (existsSync(join(WORKSPACE_DIR, 'CLAUDE.md'))) {
 }
 const { readdirSync, writeFileSync } = await import('node:fs');
 for (const entry of readdirSync(WORKSPACE_DIR)) {
-  if (entry.startsWith('fresh-')) rmSync(join(WORKSPACE_DIR, entry), { force: true });
+  if (entry.startsWith('fresh-')) {
+    // Recursive so directories created by the §12e-new-note nested-path
+    // test (e.g. fresh-1234567890/nested/note.md) get cleaned too.
+    rmSync(join(WORKSPACE_DIR, entry), { recursive: true, force: true });
+  }
 }
 // Seed a tiny 16x16 PNG so we can exercise the image viewer.
 const TINY_PNG_BASE64 =
@@ -1584,6 +1588,36 @@ await win.keyboard.press(cmdShiftN);
 await waitForDialog('Create a saved view');
 assert((await dialogIsOpen()) === 1, 'Cmd+Shift+N opens the Create-view dialog');
 await clickDialogButton('Cancel');
+await win.waitForTimeout(200);
+
+// --- 12e-new-note. The new-note dialog body promises "folders
+// auto-created". Verify the flow end-to-end: typing a nested path with
+// a not-yet-existing parent dir actually creates both the dir and the
+// file (workspace.writeFile must mkdir -p), and the editor opens it.
+console.log('\n[12e-new-note] New-note dialog: nested path auto-creates parents');
+const newNoteRel = `fresh-${Date.now()}/nested/note.md`;
+const newNoteAbs = join(WORKSPACE_DIR, newNoteRel);
+if (existsSync(newNoteAbs)) rmSync(newNoteAbs, { force: true });
+await win.keyboard.press(cmdN);
+await waitForDialog('New note');
+await fillDialogInput(newNoteRel);
+await clickDialogButton('OK');
+await win.waitForTimeout(800);
+assert(
+  existsSync(newNoteAbs),
+  `New note created at nested path (${newNoteRel}) — dialog promises folders auto-created`,
+);
+const newNoteContents = readFileSync(newNoteAbs, 'utf-8');
+assert(
+  newNoteContents.includes('# note'),
+  `New nested note has the basename-derived heading (got: ${JSON.stringify(newNoteContents.slice(0, 80))})`,
+);
+const editorHeaderAfterNew = await win.locator('aside header').last().innerText();
+assert(
+  editorHeaderAfterNew.includes('note.md'),
+  `Editor opened the newly-created nested note (header: ${JSON.stringify(editorHeaderAfterNew.split('\n')[0])})`,
+);
+await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
