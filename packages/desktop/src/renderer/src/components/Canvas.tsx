@@ -22,11 +22,12 @@ import {
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, motion, radius, shadow, space } from '../design.js';
-import { createDemoAtDefault } from '../lib/actions.js';
+import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
 import { Onboarding } from './Onboarding.js';
+import { Button } from './primitives/Button.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const DRAG_DEBOUNCE = 300;
@@ -280,17 +281,28 @@ export const Canvas = (): JSX.Element => {
     );
   }
 
-  // Pick the empty-canvas hint text based on why nothing's showing:
+  // Pick the empty-canvas hint based on why nothing's showing:
   // a freshly-opened workspace with no supported files vs an active
   // saved view with no members yet vs a folder scope with no children.
   // (We don't show the hint if a badge exists; the canvas speaks for itself.)
-  const emptyHint =
+  // The main-canvas case also surfaces a "Create a note" CTA so the user
+  // has a single-click path out of the empty state instead of having to
+  // discover Cmd+N or the topbar.
+  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' };
+  const emptyHint: EmptyHint | null =
     nodes.length === 0
       ? currentView !== null
-        ? 'This view has no badges yet. Drag a badge from the main canvas (clear the View dropdown above) into here — its position will be saved per-view.'
+        ? {
+            text: 'This view has no badges yet. Drag a badge from the main canvas (clear the View dropdown above) into here — its position will be saved per-view.',
+          }
         : folderScope !== null
-          ? `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`
-          : "This workspace has no files yet. Drop or create files in the folder and they'll appear as badges."
+          ? {
+              text: `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`,
+            }
+          : {
+              text: "This workspace has no files yet. Drop files in the folder and they'll appear as badges — or create one now:",
+              cta: 'new-note',
+            }
       : null;
 
   return (
@@ -335,10 +347,20 @@ export const Canvas = (): JSX.Element => {
             textAlign: 'center',
             lineHeight: 1.55,
             zIndex: 5,
-            pointerEvents: 'none',
+            // pointerEvents:'none' when there's no CTA so the dot grid
+            // behind stays draggable for panning; flip to 'auto' when
+            // the CTA button needs to be clickable.
+            pointerEvents: emptyHint.cta ? 'auto' : 'none',
           }}
         >
-          {emptyHint}
+          {emptyHint.text}
+          {emptyHint.cta === 'new-note' && (
+            <div style={{ marginTop: space[3] }}>
+              <Button variant="primary" onClick={() => void promptForNewNote()}>
+                New note
+              </Button>
+            </div>
+          )}
         </div>
       )}
       <ReactFlow
