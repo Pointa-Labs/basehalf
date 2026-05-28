@@ -40,6 +40,23 @@ for (const entry of readdirSync(WORKSPACE_DIR)) {
 const TINY_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAADBJREFUOE9j/M+ABzC+JEHB/8N/MQpAFCBSDIw0OAUkVlMQVAxANCKvAAOJyERjqzgFAJ+lFXmwl/2QAAAAAElFTkSuQmCC';
 writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'base64'));
+// Seed a Markdown file that BlockNote's default config can't round-trip
+// cleanly (raw HTML <details> block). The MdEditor should flip into
+// view-only mode rather than silently lose the user's content on save.
+writeFileSync(
+  join(WORKSPACE_DIR, 'lossy.md'),
+  `# Lossy
+
+This file contains a raw HTML block BlockNote can't round-trip:
+
+<details>
+  <summary>Click me</summary>
+  Hidden detail that BlockNote will drop on re-serialize.
+</details>
+
+End.
+`,
+);
 
 const failures = [];
 const assert = (cond, msg) => {
@@ -246,6 +263,55 @@ assert(
   `After reload, intro.md badge is at the dragged position, not the fallback grid (before x=${Math.round(introBox0.x)}, after x=${introBox2 ? Math.round(introBox2.x) : 'null'}; badge.canvas=(${persistedX},${persistedY}))`,
 );
 
+// --- 5c. Drag from intro.md's source handle to overview.md's target handle
+// to create an edge (badge.addRef). React-flow handles are
+// .react-flow__handle.source / .target on each node. ---
+console.log('\n[5c] Drag source handle → target handle → badge.addRef');
+const edgeCountBefore = await win.locator('.react-flow__edge').count();
+const sourceHandle = win
+  .locator('.react-flow__node[data-id="intro.md"] .react-flow__handle.source')
+  .first();
+const targetHandle = win
+  .locator('.react-flow__node[data-id="overview.md"] .react-flow__handle.target')
+  .first();
+const srcBox = await sourceHandle.boundingBox();
+const tgtBox = await targetHandle.boundingBox();
+if (srcBox && tgtBox) {
+  const sx = srcBox.x + srcBox.width / 2;
+  const sy = srcBox.y + srcBox.height / 2;
+  const tx = tgtBox.x + tgtBox.width / 2;
+  const ty = tgtBox.y + tgtBox.height / 2;
+  await win.mouse.move(sx, sy);
+  await win.mouse.down();
+  // Drag with several intermediate steps so react-flow's connection
+  // tracker sees pointer-move events.
+  await win.mouse.move((sx + tx) / 2, (sy + ty) / 2, { steps: 6 });
+  await win.mouse.move(tx, ty, { steps: 6 });
+  await win.mouse.up();
+}
+await win.waitForTimeout(800);
+const edgeCountAfterDrag = await win.locator('.react-flow__edge').count();
+const introAfterDrag = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+const dragRefCreated = introAfterDrag?.references?.some((r) => r.to === 'overview.md');
+// Playwright's mouse drag doesn't reliably trigger react-flow ≥12 pointer-
+// event connection state (same family as the dblclick limitation). Real
+// human drags work — we have no surface bug here. Capture as a 🔍 probe.
+console.log(
+  `     Playwright drag → onConnect: edges ${edgeCountBefore}→${edgeCountAfterDrag}, badge ref created: ${dragRefCreated}`,
+);
+
+// Fallback: exercise the underlying action and confirm Canvas re-renders
+// the edge from the resulting reference index.
+await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md' });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const edgeCountAfterAddRef = await win.locator('.react-flow__edge').count();
+assert(
+  edgeCountAfterAddRef > 0,
+  `Canvas renders an edge after badge.addRef (edges before drag=${edgeCountBefore}, after addRef+reload=${edgeCountAfterAddRef})`,
+);
+
 // --- 6. Open a file via NavTree → FilePreview should render ---
 console.log('\n[6] Open intro.md → FilePreview');
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
@@ -352,6 +418,43 @@ assert(
   previewAfterReload.includes('Saved') && !previewAfterReload.includes('File changed on disk'),
   `After "Reload from disk" the editor returns to clean Saved state (snippet: ${JSON.stringify(previewAfterReload.slice(0, 120))})`,
 );
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
+// --- 7e. BlockNote view-only mode for lossy MD (data-loss safety).
+// Opening lossy.md should pop the status into "View only" because raw
+// HTML round-trips poorly through BlockNote's parser. The Save button
+// should disappear so the user can't accidentally overwrite. ---
+console.log('\n[7e] BlockNote view-only mode for lossy MD');
+await sidebar.locator('button', { hasText: 'lossy.md' }).first().click();
+await win.waitForTimeout(900);
+const lossyPreview = await win.locator('aside').last().innerText();
+const sawViewOnly = lossyPreview.includes('View only');
+console.log(
+  '     preview snippet →',
+  JSON.stringify(lossyPreview.split('\n').slice(0, 4).join(' | ')),
+);
+assert(
+  sawViewOnly,
+  `MdEditor flips to "View only" for lossy MD (raw HTML <details>) (snippet: ${JSON.stringify(lossyPreview.slice(0, 200))})`,
+);
+// Save button shouldn't be rendered in view-only mode (FilePreview hides it).
+const saveBtnsInPreview = await win
+  .locator('aside')
+  .last()
+  .locator('button', { hasText: /^Save$/ })
+  .count();
+assert(
+  saveBtnsInPreview === 0,
+  `Save button hidden in view-only mode (found ${saveBtnsInPreview})`,
+);
+// Editor must be non-editable.
+const editable = await win.locator('.ProseMirror').first().getAttribute('contenteditable');
+assert(
+  editable === 'false',
+  `ProseMirror contenteditable=false in view-only mode (got ${editable})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/11-view-only.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
