@@ -2148,11 +2148,27 @@ assert(
 );
 
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
-// confirm in the modal should actually unregister. ---
+// confirm in the modal should actually unregister; Cancel must NOT. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
 // Switch to ws-2 so we can safely remove it.
 await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(700);
+// Cancel-path safety check first: open Remove, click Cancel, confirm
+// the workspace is STILL registered. A regression where Cancel calls
+// remove() anyway would silently destroy user state — high blast
+// radius for a button labeled "Cancel".
+const ws2CountBeforeCancel = (await bhRun('workspace.list', {})).workspaces.length;
+await win.locator('header button', { hasText: 'Remove' }).click();
+await waitForDialog('Remove workspace');
+await clickDialogButton('Cancel');
+await win.waitForTimeout(400);
+assert((await dialogIsOpen()) === 0, 'Cancel closes the Remove-workspace dialog');
+const ws2CountAfterCancel = (await bhRun('workspace.list', {})).workspaces.length;
+assert(
+  ws2CountAfterCancel === ws2CountBeforeCancel,
+  `Cancel did NOT remove the workspace (count ${ws2CountBeforeCancel}→${ws2CountAfterCancel})`,
+);
+
 const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
 await win.locator('header button', { hasText: 'Remove' }).click();
 await waitForDialog('Remove workspace');
