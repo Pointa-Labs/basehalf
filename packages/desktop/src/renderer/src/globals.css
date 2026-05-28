@@ -123,3 +123,18 @@ textarea:focus-visible {
 .react-flow__node-badge:hover > div {
   transform: translateY(-1px);
 }
+
+/* Connect-handles (the L/R dots on each badge) sit quiet by default —
+ * grey-bordered white dots. On badge hover, swap to the accent color +
+ * slight scale so the "drag from here to connect" affordance is visible
+ * before the user even touches the handle. */
+.react-flow__node-badge .react-flow__handle {
+  transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms
+    cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.react-flow__node-badge:hover .react-flow__handle,
+.react-flow__node-badge .react-flow__handle:hover {
+  background: var(--bh-accent);
+  border-color: var(--bh-accent);
+  transform: scale(1.2);
+}
