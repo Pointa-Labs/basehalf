@@ -4,10 +4,11 @@
  * testable. Module-level singleton: one active watcher per process.
  */
 
-export type WatcherEventType = 'add' | 'change' | 'unlink';
+export type WatcherEventType = 'add' | 'change' | 'unlink' | 'rename';
 
-export interface WatcherEvent {
-  readonly type: WatcherEventType;
+/** Standard add/change/unlink shape — one path involved. */
+export interface WatcherFsEvent {
+  readonly type: 'add' | 'change' | 'unlink';
   /** Absolute path on disk. */
   readonly absPath: string;
   /** POSIX relative path inside the workspace root. */
@@ -16,6 +17,20 @@ export interface WatcherEvent {
    * which we collapse to add/unlink with this flag. */
   readonly isDir: boolean;
 }
+
+/** Synthetic rename event — emitted when a buffered unlink is matched by
+ *  a subsequent add in the same parent dir with the same extension within
+ *  the rename window. Hosts (Electron main, renderer) use this to react
+ *  to file moves without the markOrphan-then-add flicker. */
+export interface WatcherRenameEvent {
+  readonly type: 'rename';
+  readonly fromRelPath: string;
+  readonly toRelPath: string;
+  readonly toAbsPath: string;
+  readonly isDir: boolean;
+}
+
+export type WatcherEvent = WatcherFsEvent | WatcherRenameEvent;
 
 export interface WatcherStartArgs {
   /** Absolute workspace path. Defaults to the current workspace's path. */
