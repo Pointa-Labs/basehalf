@@ -76,6 +76,34 @@ export const TopBar = (): JSX.Element => {
     void createNote(name);
   };
 
+  const handleEditFolderPrompt = async (): Promise<void> => {
+    if (!folderScope) return;
+    // Read the current folder badge's prompt so the dialog pre-fills.
+    const existing = (await window.bh.run('badge.get', {
+      file: folderScope,
+      kind: 'folder',
+    })) as { prompt?: string } | null;
+    const next = await prompt({
+      title: `Folder prompt — /${folderScope}`,
+      body: 'What the AI agent should know about this folder (read from the folder badge JSON). Leave blank to clear.',
+      label: 'Prompt',
+      defaultValue: existing?.prompt ?? '',
+      placeholder: 'e.g. Chapter 3 supporting material — read first',
+    });
+    if (next === null) return;
+    try {
+      await window.bh.run('badge.set', {
+        file: folderScope,
+        patch: { kind: 'folder', prompt: next.trim() },
+      });
+    } catch (err) {
+      // Surface via store so the global ErrorBanner picks it up.
+      useWorkspaceStore.setState({
+        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      });
+    }
+  };
+
   const handleEditViewPrompt = async (): Promise<void> => {
     if (!currentView) return;
     const view = views.find((v) => v.id === currentView);
@@ -214,6 +242,13 @@ export const TopBar = (): JSX.Element => {
         <>
           <Button variant="ghost" onClick={() => setFolderScope(null)} title="Exit folder scope">
             ← /{folderScope}
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void handleEditFolderPrompt()}
+            title="Edit this folder's badge prompt (what the AI agent reads about this folder)"
+          >
+            Edit folder prompt
           </Button>
           <span style={dividerStyle} aria-hidden />
         </>

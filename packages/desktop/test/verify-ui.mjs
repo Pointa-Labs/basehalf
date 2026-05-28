@@ -911,8 +911,31 @@ assert(
 );
 if (dblClickWorked) {
   await win.screenshot({ path: `${SCREENS_DIR}/07-folder-scope.png` });
+  // Edit folder prompt: button only visible inside folder scope. Exercise
+  // it before exiting.
+  const folderTopbarText = await win.locator('header').first().innerText();
+  assert(
+    folderTopbarText.includes('Edit folder prompt'),
+    'Edit-folder-prompt button appears when scoped into a folder',
+  );
+  await win.locator('header button', { hasText: 'Edit folder prompt' }).click();
+  await waitForDialog('Folder prompt');
+  await fillDialogInput('Chapter 3 supporting material — read first');
+  await clickDialogButton('OK');
+  await win.waitForTimeout(500);
+  const folderBadge = await bhRun('badge.get', { file: 'notes', kind: 'folder' });
+  assert(
+    folderBadge?.prompt === 'Chapter 3 supporting material — read first',
+    `Folder badge prompt persisted via TopBar dialog (got: ${JSON.stringify(folderBadge?.prompt)})`,
+  );
   await win.locator('header button', { hasText: '← /notes' }).click();
   await win.waitForTimeout(300);
+  // After exiting scope, the Edit-folder-prompt button must be hidden.
+  const topbarAfterExit = await win.locator('header').first().innerText();
+  assert(
+    !topbarAfterExit.includes('Edit folder prompt'),
+    'Edit-folder-prompt button hidden after exiting folder scope',
+  );
 }
 // Independently exercise the store path so we know setFolderScope itself
 // works end-to-end (independent of whether Playwright can fire react-flow
