@@ -46,9 +46,18 @@ interface Action {
   hint?: string;
   /** Short category prefix (Workspace, View, File, Action) shown left. */
   category: 'Workspace' | 'View' | 'File' | 'Action';
+  /** Optional keyboard shortcut hint (e.g. "⌘N") rendered as a small
+   *  pill on the right so users discover the global shortcuts by
+   *  browsing the palette. */
+  shortcut?: string;
   /** Runs when the user picks this action. The palette closes first. */
   run: () => void;
 }
+
+// Mac uses ⌘ / ⇧; everything else uses Ctrl / Shift to match what
+// App.tsx actually listens for.
+const MOD = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
+const SHIFT = navigator.platform.includes('Mac') ? '⇧' : 'Shift+';
 
 const backdropStyle: CSSProperties = {
   position: 'fixed',
@@ -215,12 +224,14 @@ export const CommandPalette = (): JSX.Element | null => {
         id: 'action:new-note',
         label: 'New note…',
         category: 'Action',
+        shortcut: `${MOD}N`,
         run: () => void promptForNewNote(),
       });
       out.push({
         id: 'action:new-view',
         label: 'New view…',
         category: 'Action',
+        shortcut: `${MOD}${SHIFT}N`,
         run: () => void promptForNewView(),
       });
     }
@@ -422,6 +433,24 @@ const PaletteRow = ({
         }}
       >
         {action.hint}
+      </span>
+    )}
+    {action.shortcut && (
+      <span
+        style={{
+          color: color.textSecondary,
+          fontSize: font.size.micro,
+          fontFamily: font.sans,
+          fontWeight: font.weight.medium,
+          background: color.surfaceMuted,
+          border: `1px solid ${color.divider}`,
+          padding: '2px 6px',
+          borderRadius: radius.sm,
+          flexShrink: 0,
+          letterSpacing: 0.3,
+        }}
+      >
+        {action.shortcut}
       </span>
     )}
   </button>
