@@ -54,4 +54,4 @@ export function createCore(opts: CoreOptions = {}): Core {
 
 // Re-export public types/error so consumers don't reach into `./kernel`.
 export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './kernel/index.js';
-export { UnknownCommand } from './kernel/index.js';
+export { UnknownCommand, defaultConfigDir } from './kernel/index.js';

@@ -62,7 +62,7 @@ function defaultFs(): FsLike {
  *  - Linux:  $XDG_CONFIG_HOME/basehalf  (fallback: ~/.config/basehalf)
  *  - Win:    %APPDATA%/basehalf  (fallback: ~/AppData/Roaming/basehalf)
  */
-function defaultConfigDir(): string {
+export function defaultConfigDir(): string {
   if (process.env.BH_CONFIG_DIR) return process.env.BH_CONFIG_DIR;
   const home = homedir();
   switch (platform()) {
