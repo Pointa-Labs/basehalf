@@ -1342,6 +1342,85 @@ await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 assert((await paletteInput.count()) === 0, 'Esc closes the palette');
 
+// --- 12d-nav. Arrow-key navigation edge cases. The state machine in
+// CommandPalette.tsx clamps both ends (ArrowUp at idx 0 → stays at 0;
+// ArrowDown past length-1 → stays at last), uses aria-selected to mark
+// the focused row, and ignores Enter when the filtered list is empty.
+// Classic palette off-by-one bugs (wrap-around on bounds, crash on
+// empty-Enter, stale selection after filter shrink) all surface here.
+console.log('\n[12d-nav] Palette arrow navigation + empty-Enter no-op');
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+assert((await paletteInput.count()) === 1, 'Palette re-opens for arrow-nav test');
+// Initial selection: exactly one row marked aria-selected, and it's row 0.
+const selectedCount = await win
+  .locator('[role=dialog] [role=option][aria-selected="true"]')
+  .count();
+assert(selectedCount === 1, `Palette opens with exactly one selected row (got ${selectedCount})`);
+const firstRowSelected = await win
+  .locator('[role=dialog] [role=option]')
+  .first()
+  .getAttribute('aria-selected');
+assert(firstRowSelected === 'true', 'Initial selection is row 0');
+// ArrowUp at row 0 must NOT wrap — Math.max(0, i-1) keeps it pinned.
+await win.keyboard.press('ArrowUp');
+await win.waitForTimeout(80);
+const stillRow0 = await win
+  .locator('[role=dialog] [role=option]')
+  .first()
+  .getAttribute('aria-selected');
+assert(stillRow0 === 'true', 'ArrowUp at idx 0 stays at idx 0 (no wrap-around)');
+// ArrowDown advances by 1.
+await win.keyboard.press('ArrowDown');
+await win.waitForTimeout(80);
+const row1Selected = await win
+  .locator('[role=dialog] [role=option]')
+  .nth(1)
+  .getAttribute('aria-selected');
+assert(row1Selected === 'true', 'ArrowDown advances selection by 1');
+// Spam ArrowDown past the end — Math.min(length-1, i+1) must clamp.
+const totalRows = await win.locator('[role=dialog] [role=option]').count();
+for (let i = 0; i < totalRows + 5; i++) {
+  await win.keyboard.press('ArrowDown');
+}
+await win.waitForTimeout(150);
+const lastRowSelected = await win
+  .locator('[role=dialog] [role=option]')
+  .last()
+  .getAttribute('aria-selected');
+assert(
+  lastRowSelected === 'true',
+  `ArrowDown past length-1 clamps to last row (totalRows=${totalRows})`,
+);
+// Filter to zero matches — empty state shows, Enter is a no-op (no crash,
+// palette stays open because filtered[selectedIdx] is undefined).
+await paletteInput.fill('zzz-no-such-action-xyz');
+await win.waitForTimeout(150);
+const paletteEmptyText = await win.locator('[role=dialog]').innerText();
+assert(/No matches/.test(paletteEmptyText), 'Empty filter renders the "No matches" empty state');
+await win.keyboard.press('Enter');
+await win.waitForTimeout(150);
+assert(
+  (await paletteInput.count()) === 1,
+  'Enter with zero filtered rows is a no-op (palette stays open, no crash)',
+);
+// Filter back to a real result set — selectedIdx must auto-clip to 0
+// (the input.onChange handler resets it on every keystroke so the user
+// doesn't have to scroll back up after narrowing the list).
+await paletteInput.fill('intro');
+await win.waitForTimeout(150);
+const filteredFirstSelected = await win
+  .locator('[role=dialog] [role=option]')
+  .first()
+  .getAttribute('aria-selected');
+assert(
+  filteredFirstSelected === 'true',
+  'After filtering, selection auto-resets to row 0 (no stale out-of-range index)',
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+assert((await paletteInput.count()) === 0, 'Palette closed after arrow-nav test');
+
 // --- 12e. Global Cmd+N opens the new-note dialog (same flow as the
 // TopBar "New note" button). Cmd+Shift+N opens the new-view dialog.
 console.log('\n[12e] Cmd+N / Cmd+Shift+N global shortcuts');
