@@ -43,20 +43,16 @@ describe('focus.set', () => {
     expect(result.active).toEqual([]);
   });
 
-  it('throws "View not found" when viewId points at a non-existent view (view.get → null)', async () => {
-    ctx.core.register('view.get', async () => null);
+  it('throws "View not found" when viewId does not match any view', async () => {
     await expect(ctx.core.run('focus.set', { viewId: 'missing' })).rejects.toThrow(
       /View not found/,
     );
   });
 
-  it('expands viewId via ctx.run("view.get") when the view module registers a handler', async () => {
-    ctx.core.register('view.get', async (args: { id: string }) => {
-      if (args.id !== 'exam') return null;
-      return {
-        members: [{ file: 'chapter-03.md' }, { file: 'supply.md' }],
-      };
-    });
+  it('expands viewId via the views module → members[].file', async () => {
+    await ctx.core.run('view.create', { name: 'exam' });
+    await ctx.core.run('view.addMember', { id: 'exam', file: 'chapter-03.md' });
+    await ctx.core.run('view.addMember', { id: 'exam', file: 'supply.md' });
     const result = await ctx.core.run('focus.set', { viewId: 'exam' });
     expect(result.active).toEqual(['chapter-03.md', 'supply.md']);
   });
