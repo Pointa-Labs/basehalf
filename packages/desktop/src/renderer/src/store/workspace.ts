@@ -136,8 +136,38 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
       const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
-      set({ current: cur.current ? cur.current.name : result.current.name, error: '' });
+      // Reset per-workspace state so FilePreview / Canvas don't keep rendering
+      // against the *previous* workspace's file paths (currentFile, view,
+      // folderScope are all workspace-relative). Without this, an open
+      // editor would keep its in-memory contents and write them back into
+      // whatever file in the *new* workspace happens to share the same
+      // relative path.
+      set({
+        current: cur.current ? cur.current.name : result.current.name,
+        currentReachable: null,
+        currentFile: null,
+        views: [],
+        currentView: null,
+        folderScope: null,
+        error: '',
+      });
       await startWatcher();
+      // Re-fetch reachable + views for the new workspace.
+      const wsList = (await window.bh.run('workspace.list')) as WorkspaceListResult;
+      const currentWs = wsList.workspaces.find((w) => w.name === wsList.current);
+      if (currentWs) {
+        try {
+          await window.bh.run('workspace.listFiles', { path: currentWs.path });
+          set({ currentReachable: true });
+          await get().refreshViews();
+        } catch (err) {
+          if (isPathNotFound(err)) {
+            set({ currentReachable: false });
+          } else {
+            set({ error: formatError(err) });
+          }
+        }
+      }
     } catch (err) {
       set({ error: formatError(err) });
     } finally {

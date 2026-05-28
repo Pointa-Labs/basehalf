@@ -673,6 +673,98 @@ assert(freshContent.includes('Fresh Note'), 'New note file landed on disk with e
 
 await win.screenshot({ path: `${SCREENS_DIR}/08-after-new-note.png` });
 
+// --- 12. Workspace switch while editor is dirty — potential data-loss
+// path. v0 has no built-in warning; capture observed behaviour. ---
+console.log('\n[12] Workspace switch while editor is dirty');
+const SECOND_WS = '/tmp/bh-verify-ws-2';
+if (existsSync(SECOND_WS)) rmSync(SECOND_WS, { recursive: true, force: true });
+mkdirSync(SECOND_WS, { recursive: true });
+writeFileSync(join(SECOND_WS, 'other.md'), '# Other workspace\n');
+await bhRun('workspace.add', { path: SECOND_WS });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+// Re-open intro.md and make it dirty without saving.
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(800);
+const ed = win.locator('.ProseMirror').first();
+await ed.click();
+await win.keyboard.press('End');
+const dirtyStamp = `pre-switch-${Date.now()}`;
+await win.keyboard.type(` ${dirtyStamp}`, { delay: 10 });
+await win.waitForTimeout(300);
+const dirtyText = await win.locator('aside').last().innerText();
+assert(dirtyText.includes('Unsaved changes'), 'Editor is dirty before workspace switch');
+// Switch workspace via the TopBar select.
+const wsSelect = win.locator('header select').first();
+await wsSelect.selectOption('bh-verify-ws-2');
+await win.waitForTimeout(1000);
+const introContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
+// 🔍 Observable: were the unsaved edits silently dropped, auto-saved, or
+// did a confirm/warn dialog block the switch?
+const stampOnDisk = introContent.includes(dirtyStamp);
+console.log(`     after workspace switch — stamp on disk: ${stampOnDisk}`);
+// What the new workspace shows in the sidebar.
+const sidebarAfterSwitch = await win.locator('aside').first().innerText();
+const switchedCleanly = sidebarAfterSwitch.includes('bh-verify-ws-2');
+assert(
+  switchedCleanly,
+  `Workspace switch completed (sidebar shows new workspace: ${switchedCleanly})`,
+);
+assert(
+  !stampOnDisk,
+  `🔍 Unsaved edits NOT silently committed to disk on switch (stamp on intro.md: ${stampOnDisk})`,
+);
+// Switch back and confirm the dirty edits are gone (we never told the user).
+await wsSelect.selectOption('bh-verify-ws');
+await win.waitForTimeout(1200);
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(800);
+const introPreviewAfterReturn = await win
+  .locator('.ProseMirror')
+  .first()
+  .innerText()
+  .catch(() => '');
+const previewStatusBack = await win.locator('aside').last().innerText();
+console.log(
+  `     after switching back — preview status: ${JSON.stringify(previewStatusBack.split('\n').slice(1, 3))}`,
+);
+// We expect data loss to be SILENT in v0 — the editor reverts to disk
+// content with no warning. Flag this as a finding worth knowing about.
+assert(
+  !introPreviewAfterReturn.includes(dirtyStamp),
+  `🔍 v0 silently discards unsaved edits on workspace switch (no warning dialog appeared) — observed: stamp ${introPreviewAfterReturn.includes(dirtyStamp) ? 'survived' : 'lost'}`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
+// --- 13. Workspace.remove via confirm — does clicking OK actually
+// unregister? Playwright catches the native confirm dialog via
+// page.on('dialog'). ---
+console.log('\n[13] Workspace.remove via window.confirm');
+let dialogSeen = false;
+const dialogHandler = (dialog) => {
+  dialogSeen = true;
+  console.log(
+    `     dialog: type=${dialog.type()} msg=${JSON.stringify(dialog.message().slice(0, 80))}`,
+  );
+  void dialog.accept();
+};
+win.on('dialog', dialogHandler);
+// Switch to ws-2 so we can safely remove it.
+await wsSelect.selectOption('bh-verify-ws-2');
+await win.waitForTimeout(700);
+const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
+await win.locator('header button', { hasText: 'Remove' }).click();
+await win.waitForTimeout(800);
+win.off('dialog', dialogHandler);
+const afterRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
+assert(dialogSeen, 'window.confirm dialog was surfaced for Remove');
+assert(
+  afterRemoveCount === beforeRemoveCount - 1,
+  `Workspace count dropped after confirmed Remove (${beforeRemoveCount}→${afterRemoveCount})`,
+);
+
 // --- Done ---
 await app.close();
 
