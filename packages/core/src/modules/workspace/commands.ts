@@ -1,5 +1,5 @@
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import type { Context, Handler } from '../../kernel/index.js';
+import { type Context, type Handler, assertWorkspaceRelative } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
@@ -239,12 +239,9 @@ export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewport
 
 function ensureInsideWorkspace(rel: string): void {
   // Path comes from renderer via IPC — defensively reject anything that
-  // could escape the current workspace root.
-  if (rel.length === 0) throw new Error('Empty path');
-  if (isAbsolute(rel)) throw new Error(`Path must be relative, got: ${rel}`);
-  if (rel.split(/[\\/]/).some((seg) => seg === '..')) {
-    throw new Error(`Path traversal rejected: ${rel}`);
-  }
+  // could escape the current workspace root. Delegates to the shared
+  // kernel guard so workspace + badges enforce identical rules.
+  assertWorkspaceRelative(rel);
 }
 
 /** `workspace.readFile({ path })` — read a user file in the current
