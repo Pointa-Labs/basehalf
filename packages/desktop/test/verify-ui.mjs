@@ -1620,6 +1620,72 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
+// --- 12f. Workspace rename: validation prevents empty/duplicate names,
+// successful rename round-trips through core. The rename dialog's
+// validate function (TopBar.handleRenameWorkspace) blocks submission on
+// empty + same-as-existing-other-workspace; verify both error paths
+// surface inline + the happy path actually renames.
+console.log('\n[12f] Workspace rename — validation + happy path');
+// Pre-condition: bh-verify-ws and bh-verify-ws-2 both registered, with
+// bh-verify-ws active (§12 added ws-2, §13 will remove it).
+// 1) Empty name → validation error, dialog stays open.
+await win.locator('header button', { hasText: 'Rename' }).first().click();
+await waitForDialog('Rename workspace');
+await fillDialogInput('   ');
+await clickDialogButton('OK');
+await win.waitForTimeout(200);
+const dialogEmptyText = await win.locator('[role=dialog]').innerText();
+assert(
+  /name is required/i.test(dialogEmptyText),
+  `Empty name rejected with inline error (dialog: ${JSON.stringify(dialogEmptyText.slice(0, 120))})`,
+);
+assert(
+  (await dialogIsOpen()) === 1,
+  'Dialog stays open after validation failure (not auto-closed)',
+);
+// 2) Duplicate name → "already in use" error, dialog stays open.
+await fillDialogInput('bh-verify-ws-2');
+await clickDialogButton('OK');
+await win.waitForTimeout(200);
+const dialogDupText = await win.locator('[role=dialog]').innerText();
+assert(
+  /already in use/i.test(dialogDupText),
+  `Duplicate name rejected with inline error (dialog: ${JSON.stringify(dialogDupText.slice(0, 120))})`,
+);
+assert((await dialogIsOpen()) === 1, 'Dialog still open after duplicate-name validation');
+// 3) Cancel → dialog closes, no rename.
+await clickDialogButton('Cancel');
+await win.waitForTimeout(200);
+assert((await dialogIsOpen()) === 0, 'Cancel closes the dialog');
+const wsListAfterCancel = (await bhRun('workspace.list', {})).workspaces.map((w) => w.name).sort();
+assert(
+  wsListAfterCancel.includes('bh-verify-ws') && wsListAfterCancel.includes('bh-verify-ws-2'),
+  `No rename happened after cancel (workspaces: ${JSON.stringify(wsListAfterCancel)})`,
+);
+// 4) Happy path → rename, then rename back so downstream tests still
+// find bh-verify-ws by name (§14 selects it).
+await win.locator('header button', { hasText: 'Rename' }).first().click();
+await waitForDialog('Rename workspace');
+await fillDialogInput('renamed-verify-ws');
+await clickDialogButton('OK');
+await win.waitForTimeout(700);
+const wsListAfterRename = (await bhRun('workspace.list', {})).workspaces.map((w) => w.name).sort();
+assert(
+  wsListAfterRename.includes('renamed-verify-ws') && !wsListAfterRename.includes('bh-verify-ws'),
+  `Rename took effect in core registry (workspaces: ${JSON.stringify(wsListAfterRename)})`,
+);
+// Rename back. Use the bhRun core path (not the dialog) since it's
+// quicker and we already verified the UI path above.
+await bhRun('workspace.rename', { from: 'renamed-verify-ws', to: 'bh-verify-ws' });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const wsListAfterRestore = (await bhRun('workspace.list', {})).workspaces.map((w) => w.name).sort();
+assert(
+  wsListAfterRestore.includes('bh-verify-ws'),
+  `Restored to bh-verify-ws so downstream tests work (workspaces: ${JSON.stringify(wsListAfterRestore)})`,
+);
+
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
 // confirm in the modal should actually unregister. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
