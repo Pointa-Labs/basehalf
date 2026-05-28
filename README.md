@@ -46,11 +46,15 @@ The architecture rules:
 
 ## Status
 
-**Pre-alpha; CLI is real, desktop app in development.** One real module ships today:
+**Pre-alpha; CLI is real, desktop app in development.** Five core modules ship today:
 
-- **`bh workspace`** — register a folder as a BaseHalf workspace, switch between them, run `bh init` to set up
+- **`bh workspace`** — register / switch / remove BaseHalf workspaces; `bh init` sets up cwd
+- **`bh badge`** — get / set / list badges (file + backpack: prompt + references + canvas position); add/remove references between them
+- **`bh inbound`** — query reverse references (who points at this file?); rebuild from all badges
+- **`bh focus`** — publish the agent focus signal (`.bh/focus.md`); set from file list or saved view
+- **`bh view`** — create / list / delete saved views; add / remove member badges (references, not copies)
 
-The desktop app (canvas + block editor + file tree + agent protocol) is the v0 build. ETA: **6–10 weeks** to a dogfood-able Mac build.
+The desktop app (canvas + block editor + agent protocol) is the v0 build. ETA: **6–10 weeks** to a dogfood-able Mac build.
 
 The earlier event-log reference implementation has been replaced by a new monorepo skeleton aligned to the current architecture. The old impl lives in git history at commit `c441f79`. (A `bh decision` CLI also shipped briefly as an internal dogfood tool and has since been retired — see [docs/decisions.md D18](docs/decisions.md).)
 
@@ -66,6 +70,14 @@ bh init                                      # register cwd as a workspace
 bh workspace add ~/Desktop/my-notes --setup  # register another folder
 bh workspace list
 bh workspace current
+
+bh badge list                                # show all badges in current workspace
+bh badge set chapter-03.md --prompt 'explain supply / demand simply'
+bh badge addRef chapter-03.md textbook.pdf --note 'source chapter'
+bh inbound get textbook.pdf                  # who references this file?
+bh focus set --files chapter-03.md,textbook.pdf
+bh view create 'Exam review'                 # group badges into a saved view
+bh view addMember exam-review chapter-03.md --x 100 --y 200
 ```
 
 ## Try the desktop scaffold (PR 9 — under construction)
@@ -90,12 +102,18 @@ packages/
     src/
       index.ts        createCore() — the one door
       kernel/         registry, context, types
-      modules/        workspace — more land per the v0 build (badges/inbound/focus/views/watcher)
-  cli/              bh — thin shell over core
+      modules/
+        workspace/    add / list / use / current / remove / listFiles
+                      + eager badge materialization on open
+        badges/       file + folder badges; references; canvas position
+        inbound/      reverse index; incremental + full rebuild
+        focus/        .bh/focus.md — what the agent should read this turn
+        views/        saved compound views — group badges across folders
+  cli/              bh — thin shell over core (citty subcommands)
   desktop/          Electron + React shell — IPC over core, contextIsolation on
     src/main/         BrowserWindow + window state + ipc handler
     src/preload/      contextBridge → window.bh
-    src/renderer/     React app (PR 9 = scaffold; canvas + editor land in PR 11+)
+    src/renderer/     React app — workspace UI (PR 10); canvas lands in PR 13
 docs/             decisions · dependency-policy · roadmap · trademark-policy
 ```
 
