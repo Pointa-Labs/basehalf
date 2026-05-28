@@ -94,7 +94,13 @@ export const Canvas = (): JSX.Element => {
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
-  const initialViewportRef = useRef<ViewportState | null>(null);
+  // Persisted viewport for the current workspace, lifted into state so
+  // ViewportSyncer (rendered inside <ReactFlow>) can imperatively call
+  // setViewport() after the async refresh completes. react-flow's
+  // defaultViewport is read ONCE on mount, before refresh has populated
+  // the viewport — relying on it alone snapped users back to (0,0,1)
+  // every window reload.
+  const [persistedViewport, setPersistedViewport] = useState<ViewportState | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -129,7 +135,7 @@ export const Canvas = (): JSX.Element => {
       );
       setEdges(badgesToEdges(badges));
       const vp = (await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult;
-      initialViewportRef.current = vp;
+      setPersistedViewport(vp);
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -398,21 +404,14 @@ export const Canvas = (): JSX.Element => {
           labelBgPadding: [4, 8],
           labelBgBorderRadius: radius.sm,
         }}
-        defaultViewport={
-          initialViewportRef.current
-            ? {
-                x: initialViewportRef.current.offsetX,
-                y: initialViewportRef.current.offsetY,
-                zoom: initialViewportRef.current.scale,
-              }
-            : { x: 0, y: 0, zoom: 1 }
-        }
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} color={color.border} />
         <CanvasControls />
+        <ViewportSyncer vp={persistedViewport} />
       </ReactFlow>
     </div>
   );
@@ -420,3 +419,26 @@ export const Canvas = (): JSX.Element => {
 
 // Re-export useReactFlow so children can re-center programmatically later.
 export { useReactFlow };
+
+/**
+ * Imperatively applies the persisted viewport once it loads. Rendered
+ * inside <ReactFlow> so useReactFlow() has a provider. Effect deps are
+ * the primitive viewport fields so we only call setViewport when the
+ * stored values actually change — same-value re-applies (on view /
+ * folder-scope refresh) are no-ops since deps don't shift.
+ */
+const ViewportSyncer = ({ vp }: { vp: ViewportState | null }): null => {
+  const { setViewport } = useReactFlow();
+  // Pull primitive fields up so we can list them as deps individually;
+  // biome's useExhaustiveDependencies flags optional-chain dependencies
+  // as "more specific than the capture".
+  const x = vp?.offsetX;
+  const y = vp?.offsetY;
+  const zoom = vp?.scale;
+  useEffect(() => {
+    if (x !== undefined && y !== undefined && zoom !== undefined) {
+      setViewport({ x, y, zoom });
+    }
+  }, [x, y, zoom, setViewport]);
+  return null;
+};

@@ -456,6 +456,44 @@ assert(
   `After reload, intro.md badge is at the dragged position, not the fallback grid (before x=${Math.round(introBox0.x)}, after x=${introBox2 ? Math.round(introBox2.x) : 'null'}; badge.canvas=(${persistedX},${persistedY}))`,
 );
 
+// --- 5b-viewport. workspace.setViewport + reload → defaultViewport
+// restored on react-flow mount. User pan/zoom is debounced into
+// workspace.setViewport (Canvas.onMoveEnd); on reload Canvas.refresh
+// reads workspace.getViewport and applies it as defaultViewport. If
+// that read-on-mount path silently broke, users would snap back to
+// (0,0,1) every window open with no error surfaced.
+console.log('\n[5b-viewport] workspace viewport persists across reload');
+const vpStored = { offsetX: 175, offsetY: 250, scale: 1.5 };
+await bhRun('workspace.setViewport', { viewport: vpStored });
+const vpFromCore = await bhRun('workspace.getViewport', {});
+assert(
+  vpFromCore?.offsetX === 175 && vpFromCore?.offsetY === 250 && vpFromCore?.scale === 1.5,
+  `workspace.setViewport persisted to core (got: ${JSON.stringify(vpFromCore)})`,
+);
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1500);
+await win.waitForSelector('.react-flow__node-badge', { timeout: 5000 }).catch(() => null);
+const vpTransform = await win.locator('.react-flow__viewport').first().getAttribute('style');
+const m = vpTransform?.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)\s*scale\(([\d.]+)\)/);
+assert(
+  m !== null && m !== undefined,
+  `react-flow viewport transform parsed (raw: ${JSON.stringify(vpTransform?.slice(0, 200))})`,
+);
+const [, vpx, vpy, vps] = m ?? [];
+assert(
+  Math.round(Number.parseFloat(vpx)) === 175 &&
+    Math.round(Number.parseFloat(vpy)) === 250 &&
+    Math.abs(Number.parseFloat(vps) - 1.5) < 0.01,
+  `Reloaded canvas restored persisted viewport (got transform: x=${vpx}, y=${vpy}, scale=${vps})`,
+);
+// Reset to identity so downstream badge-drag tests aren't fighting a
+// 1.5x zoom (bounding-box math would be off by the scale factor).
+await bhRun('workspace.setViewport', { viewport: { offsetX: 0, offsetY: 0, scale: 1 } });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1500);
+
 // --- 5d. Shift-click multi-select → focus.set additive path.
 // Regular click sets focus = [file]; shift-click extends without
 // switching the preview. ---
