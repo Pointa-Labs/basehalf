@@ -559,6 +559,15 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
  * means the contract surface always exists.
  */
 async function materializeWithFallback(ctx: Context, workspaceRoot: string): Promise<void> {
+  // If the workspace folder vanished between add/use (e.g. user moved it
+  // in Finder), short-circuit materialization. The renderer probes
+  // reachability separately via workspace.listFiles and renders the
+  // "Workspace folder not found" UI from there — bubbling a hard ENOENT
+  // from use() would leave the renderer thinking the switch failed
+  // outright and never flipping currentReachable to false in-session.
+  const rootStat = await ctx.fs.stat(workspaceRoot);
+  if (!rootStat) return;
+
   try {
     await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
   } catch (err) {

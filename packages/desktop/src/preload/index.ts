@@ -21,11 +21,19 @@ const bh = {
     // any handler that did `args.kind` or similar.
     const response = (await ipcRenderer.invoke('bh:run', name, args ?? {})) as BhRunResponse;
     if (response.ok) return response.result;
-    const err = new Error(response.error.message);
-    err.name = response.error.name;
-    if (response.error.code !== undefined) {
-      (err as Error & { code?: string }).code = response.error.code;
-    }
+    // When core tags an error with a `code` (e.g. PATH_NOT_FOUND),
+    // smuggle it into the message as a `[CODE] …` prefix. Electron's
+    // contextBridge sanitizes thrown Errors aggressively — even
+    // instance-assigned standard properties like err.name fall back to
+    // the prototype default ("Error"), and custom props like .code are
+    // dropped entirely. The message string is the only field that
+    // reliably survives the bridge, so callers like isPathNotFound parse
+    // the prefix to recover the discriminator.
+    const taggedMessage = response.error.code
+      ? `[${response.error.code}] ${response.error.message}`
+      : response.error.message;
+    const err = new Error(taggedMessage);
+    err.name = response.error.code ?? response.error.name;
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),

@@ -81,8 +81,13 @@ async function startWatcher(): Promise<void> {
   }
 }
 
+// PATH_NOT_FOUND is encoded as a `[PATH_NOT_FOUND] …` prefix in the error
+// message because Electron's contextBridge strips both custom Error
+// properties (.code) AND instance-assigned standard ones (.name reverts
+// to the prototype default "Error"). Message is the only field that
+// reliably survives the bridge. See preload/index.ts.
 const isPathNotFound = (err: unknown): boolean =>
-  err instanceof Error && (err as Error & { code?: string }).code === 'PATH_NOT_FOUND';
+  err instanceof Error && err.message.startsWith('[PATH_NOT_FOUND]');
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
