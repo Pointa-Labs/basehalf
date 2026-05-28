@@ -68,6 +68,18 @@ bh workspace list
 bh workspace current
 ```
 
+## Try the desktop scaffold (PR 9 — under construction)
+
+```bash
+pnpm install
+pnpm --filter @basehalf/desktop dev   # launches an Electron window
+```
+
+The window currently shows a single button that exercises the IPC bridge
+to core (`window.bh.run('workspace.list')`). Real UI lands in PR 10+
+(workspace selector, NavTree, canvas). See
+[docs/roadmap.md](docs/roadmap.md) and `private-docs/` for the v0 plan.
+
 Requirements: Node ≥ 20.19, pnpm 9.
 
 ## Repo layout
@@ -78,8 +90,12 @@ packages/
     src/
       index.ts        createCore() — the one door
       kernel/         registry, context, types
-      modules/        workspace, decisions — more land per the v0 build (badges/inbound/focus/views/watcher)
+      modules/        workspace — more land per the v0 build (badges/inbound/focus/views/watcher)
   cli/              bh — thin shell over core
+  desktop/          Electron + React shell — IPC over core, contextIsolation on
+    src/main/         BrowserWindow + window state + ipc handler
+    src/preload/      contextBridge → window.bh
+    src/renderer/     React app (PR 9 = scaffold; canvas + editor land in PR 11+)
 docs/             decisions · dependency-policy · roadmap · trademark-policy
 ```
 
