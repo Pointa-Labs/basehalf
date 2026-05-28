@@ -7,6 +7,15 @@ export const TopBar = (): JSX.Element => {
   const busy = useWorkspaceStore((s) => s.busy);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
   const use = useWorkspaceStore((s) => s.use);
+  const remove = useWorkspaceStore((s) => s.remove);
+
+  const handleRemove = (): void => {
+    if (!current) return;
+    const ok = window.confirm(
+      `Remove workspace "${current}" from BaseHalf?\n\nThe folder and its files stay on disk; only the registration is removed.`,
+    );
+    if (ok) void remove(current);
+  };
 
   return (
     <header
@@ -45,6 +54,22 @@ export const TopBar = (): JSX.Element => {
       >
         {busy ? '…' : '+ Pick folder'}
       </button>
+      {current && (
+        <button
+          type="button"
+          onClick={handleRemove}
+          disabled={busy}
+          title={`Unregister "${current}" (files stay on disk)`}
+          style={{
+            padding: '4px 10px',
+            fontSize: 13,
+            color: '#a00',
+            borderColor: '#fcc',
+          }}
+        >
+          Remove current
+        </button>
+      )}
     </header>
   );
 };

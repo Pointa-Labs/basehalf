@@ -14,6 +14,7 @@ interface WorkspaceState {
   refresh: () => Promise<void>;
   pickAndAdd: () => Promise<void>;
   use: (name: string) => Promise<void>;
+  remove: (name: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -58,6 +59,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // Re-read current via dedicated command for canonical value.
       const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
       set({ current: cur.current ? cur.current.name : result.current.name, error: '' });
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  remove: async (name: string) => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      await window.bh.run('workspace.remove', { name });
+      await get().refresh();
     } catch (err) {
       set({ error: formatError(err) });
     } finally {
