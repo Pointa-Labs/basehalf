@@ -43,6 +43,7 @@ export const TopBar = (): JSX.Element => {
   const createView = useWorkspaceStore((s) => s.createView);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
   const createNote = useWorkspaceStore((s) => s.createNote);
+  const editorDirty = useWorkspaceStore((s) => s.editorDirty);
 
   const handleRemove = (): void => {
     if (!current) return;
@@ -106,7 +107,19 @@ export const TopBar = (): JSX.Element => {
       <select
         value={current ?? ''}
         onChange={(e) => {
-          if (e.target.value) void use(e.target.value);
+          const next = e.target.value;
+          if (!next || next === current) return;
+          if (
+            editorDirty &&
+            !window.confirm(
+              'You have unsaved edits in the current file. Switching workspaces will discard them. Continue?',
+            )
+          ) {
+            // Snap the select back to the current workspace.
+            e.target.value = current ?? '';
+            return;
+          }
+          void use(next);
         }}
         disabled={busy || workspaces.length === 0}
         title={workspaces.length === 0 ? 'Add a workspace to begin' : 'Switch active workspace'}

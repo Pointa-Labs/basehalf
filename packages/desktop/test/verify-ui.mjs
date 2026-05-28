@@ -695,10 +695,36 @@ await win.keyboard.type(` ${dirtyStamp}`, { delay: 10 });
 await win.waitForTimeout(300);
 const dirtyText = await win.locator('aside').last().innerText();
 assert(dirtyText.includes('Unsaved changes'), 'Editor is dirty before workspace switch');
-// Switch workspace via the TopBar select.
+// First attempt to switch: dismiss the confirm (Cancel) — the switch should
+// be cancelled and the dirty edits preserved.
+const dismissDialog = (d) => {
+  console.log(`     dialog (dismiss): ${JSON.stringify(d.message().slice(0, 80))}`);
+  void d.dismiss();
+};
+win.on('dialog', dismissDialog);
 const wsSelect = win.locator('header select').first();
 await wsSelect.selectOption('bh-verify-ws-2');
+await win.waitForTimeout(500);
+win.off('dialog', dismissDialog);
+const stillOnWs1 = await win.locator('aside').first().innerText();
+assert(
+  stillOnWs1.includes('bh-verify-ws') && !stillOnWs1.includes('bh-verify-ws-2'),
+  'Cancelling the dirty-switch confirm keeps us on the original workspace',
+);
+const stillDirty = await win.locator('aside').last().innerText();
+assert(
+  stillDirty.includes('Unsaved changes'),
+  'Cancelling preserves the unsaved edits (still Unsaved)',
+);
+// Now actually switch, accepting the confirm.
+const acceptDialog = (d) => {
+  console.log(`     dialog (accept): ${JSON.stringify(d.message().slice(0, 80))}`);
+  void d.accept();
+};
+win.on('dialog', acceptDialog);
+await wsSelect.selectOption('bh-verify-ws-2');
 await win.waitForTimeout(1000);
+win.off('dialog', acceptDialog);
 const introContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
 // 🔍 Observable: were the unsaved edits silently dropped, auto-saved, or
 // did a confirm/warn dialog block the switch?
@@ -733,7 +759,7 @@ console.log(
 // content with no warning. Flag this as a finding worth knowing about.
 assert(
   !introPreviewAfterReturn.includes(dirtyStamp),
-  `🔍 v0 silently discards unsaved edits on workspace switch (no warning dialog appeared) — observed: stamp ${introPreviewAfterReturn.includes(dirtyStamp) ? 'survived' : 'lost'}`,
+  `After confirmed switch, the dirty edits are gone (editor reloaded from disk) — observed: stamp ${introPreviewAfterReturn.includes(dirtyStamp) ? 'survived' : 'lost'}`,
 );
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);

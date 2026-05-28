@@ -28,6 +28,12 @@ interface WorkspaceState {
   /** Active scope = a folder relative path that limits which badges Canvas shows.
    * null = the whole workspace. Set by double-clicking a folder badge. */
   folderScope: string | null;
+  /** Whether the currently open MD editor has unsaved edits. Lifted out of
+   * MdEditor so TopBar can warn before a workspace switch silently drops
+   * them — store-side state lets the warning live at the trigger site
+   * instead of being smeared across components. */
+  editorDirty: boolean;
+  setEditorDirty: (dirty: boolean) => void;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -76,6 +82,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   views: [],
   currentView: null,
   folderScope: null,
+  editorDirty: false,
+  setEditorDirty: (dirty: boolean) => set({ editorDirty: dirty }),
   error: '',
   busy: false,
 
@@ -90,6 +98,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         views: [],
         currentView: null,
         folderScope: null,
+        editorDirty: false,
         error: '',
       });
       const currentWs = result.current
@@ -149,6 +158,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         views: [],
         currentView: null,
         folderScope: null,
+        editorDirty: false,
         error: '',
       });
       await startWatcher();

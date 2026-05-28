@@ -186,6 +186,7 @@ function normalizeMd(md: string): string {
 
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote();
+  const setEditorDirty = useWorkspaceStore((s) => s.setEditorDirty);
   const [loadedFor, setLoadedFor] = useState<string>('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -200,6 +201,13 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const initialLoad = useRef(true);
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // Mirror local dirty into the store so TopBar can prompt before workspace
+  // switches drop unsaved edits. On unmount we clear it — a closed editor
+  // can't have unsaved edits.
+  useEffect(() => {
+    setEditorDirty(dirty);
+    return () => setEditorDirty(false);
+  }, [dirty, setEditorDirty]);
   const [loadKey, setLoadKey] = useState(0);
   // Capture latest save reference for the global keyboard handler so it
   // doesn't need to re-register on every keystroke that flips `dirty`.
