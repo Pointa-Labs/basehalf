@@ -154,11 +154,21 @@ const actionsStyle: CSSProperties = {
   marginTop: space[4],
 };
 
+/** CSS selector matching all natively focusable / tabbable elements
+ *  inside the dialog body. Used by the focus trap to find the first /
+ *  last focusable target. */
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export const DialogHost = (): JSX.Element | null => {
   const current = useDialogStore((s) => s.current);
   const resolveAndClose = useDialogStore((s) => s.resolveAndClose);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Esc cancels.
+  // Esc cancels + Tab/Shift+Tab cycle focus inside the dialog only.
+  // Without the trap, Tab could move focus to background buttons (the
+  // topbar buttons, sidebar rows, etc.) — confusing because the user
+  // would lose track of "I'm in a modal."
   useEffect(() => {
     if (!current) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -166,6 +176,25 @@ export const DialogHost = (): JSX.Element | null => {
         e.preventDefault();
         e.stopPropagation();
         resolveAndClose(current.type === 'confirm' ? false : null);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const container = containerRef.current;
+      if (!container) return;
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !container.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !container.contains(active))) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -175,6 +204,7 @@ export const DialogHost = (): JSX.Element | null => {
   if (!current) return null;
   return (
     <div
+      ref={containerRef}
       style={backdropStyle}
       onMouseDown={(e) => {
         // Click outside dismisses (treats as Cancel).
