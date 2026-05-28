@@ -1,10 +1,11 @@
 # Using BaseHalf (instructions for coding agents)
 
 > **Status:** `bh` ships five modules: `workspace`, `badge`, `inbound`,
-> `focus`, `view`. The desktop app (v0) is in development; once it ships,
-> the CLAUDE.md hint installed by `bh init` will switch to the **agent
-> protocol** model (`.bh/focus.md` + `.bh/badges/<file>.json` +
-> `.bh/index/inbound.json` — see [docs/decisions.md D14](docs/decisions.md)).
+> `focus`, `view`. The desktop app (v0) has shipped (PRs 9–16; see
+> [docs/roadmap.md](docs/roadmap.md)); `bh init` now installs the full
+> **agent protocol** hint pointing agents at `.bh/focus.md` +
+> `.bh/badges/<file>.json` + `.bh/index/inbound.json` (see
+> [docs/decisions.md D14](docs/decisions.md)).
 >
 > The old `node src/cli.mjs` reference impl was deleted (clean slate); that
 > path no longer exists. A short-lived `bh decision` subcommand has also been

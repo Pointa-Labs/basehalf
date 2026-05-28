@@ -24,14 +24,57 @@ const CLAUDE_HINT_SECTION = `
 ${CLAUDE_HINT_MARKER}
 ## BaseHalf workspace
 
-This folder is registered as a BaseHalf workspace. BaseHalf stores its
-metadata under \`.bh/\` (kept alongside your files so it travels with the
-folder; only \`.bh/cache/\` is gitignored since it's rebuildable).
+This folder is a BaseHalf workspace. BaseHalf is a local-first canvas +
+block editor; you (the AI agent) read its metadata under \`.bh/\` to
+understand what the user is focused on and how their files relate, then
+compose context from there.
 
-The desktop app (canvas + block editor + agent protocol) is in active
-development. Once it ships, this hint will be replaced by a full agent
-protocol guide. For now, the available \`bh\` operations are workspace
-management — see \`bh workspace --help\`.
+### Start every turn here
+
+Read \`.bh/focus.md\`. It is a small Markdown file with a YAML-style
+\`active:\` list of workspace-relative paths the user is currently focused
+on (the desktop UI updates it as the user clicks badges). Treat it as the
+"what should I be paying attention to right now" signal.
+
+### Per-file context (the "backpack")
+
+For each file in \`active:\`, read its badge JSON:
+
+- \`.bh/badges/<rel-path>.json\` for files
+- \`.bh/badges/<rel-path>/.badge.json\` for folders
+
+Badge shape:
+
+\`\`\`json
+{
+  "file": "intro.md",
+  "kind": "file",
+  "prompt": "What the user wants you to know about this file",
+  "references": [
+    { "to": "overview.md", "note": "why this one points at that one" }
+  ]
+}
+\`\`\`
+
+Follow \`references\` to walk the neighborhood — the user has explicitly
+said "these things go together."
+
+### Reverse index + saved views
+
+- \`.bh/index/inbound.json\` — who points AT a given file. Use to surface
+  related context the user has connected from elsewhere.
+- \`.bh/views/<id>.json\` — named cross-folder groupings. If the user
+  mentions a view by name, read its members to scope your context.
+
+### Constraints
+
+- **MD is the truth.** User content lives in \`.md\` and other source
+  files. \`.bh/\` is derived metadata only. Edit user files with your own
+  tools; never edit \`.bh/*.json\` directly — the desktop app and \`bh\`
+  CLI own that surface.
+- **\`.bh/cache/\` is rebuildable** and gitignored. Don't read or write to
+  it.
+- \`bh\` CLI reads accept \`--json\` for stable output (\`bh --help\`).
 `;
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {

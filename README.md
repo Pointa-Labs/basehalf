@@ -54,7 +54,7 @@ The architecture rules:
 - **`bh focus`** — publish the agent focus signal (`.bh/focus.md`); set from file list or saved view
 - **`bh view`** — create / list / delete saved views; add / remove member badges (references, not copies)
 
-The desktop app (canvas + block editor + agent protocol) is the v0 build. ETA: **6–10 weeks** to a dogfood-able Mac build.
+The desktop app (canvas + block editor + agent protocol) is the v0 build — Electron Mac build is **dogfood-ready today** (PRs 9–16; see [docs/roadmap.md](docs/roadmap.md)).
 
 The earlier event-log reference implementation has been replaced by a new monorepo skeleton aligned to the current architecture. The old impl lives in git history at commit `c441f79`. (A `bh decision` CLI also shipped briefly as an internal dogfood tool and has since been retired — see [docs/decisions.md D18](docs/decisions.md).)
 
