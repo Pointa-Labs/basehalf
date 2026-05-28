@@ -1140,6 +1140,42 @@ const expandedWidth = await win
   .evaluate((el) => el.getBoundingClientRect().width);
 assert(expandedWidth > 200, `Sidebar re-expanded (${expandedWidth}px, expected >200)`);
 
+// --- 8b. Sidebar collapse state persists across reload (localStorage-
+// backed via bh:sidebar-collapsed). §8 verified the toggle but not the
+// persistence — a broken localStorage write key would silently reset
+// the UI preference on every reload.
+console.log('\n[8b] Sidebar collapse persists across reload');
+await collapseBtn.click();
+await win.waitForTimeout(200);
+const widthCollapsedBeforeReload = await win
+  .locator('aside')
+  .first()
+  .evaluate((el) => el.getBoundingClientRect().width);
+assert(
+  widthCollapsedBeforeReload < 30,
+  `Sidebar collapsed before reload (${widthCollapsedBeforeReload}px)`,
+);
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const widthCollapsedAfterReload = await win
+  .locator('aside')
+  .first()
+  .evaluate((el) => el.getBoundingClientRect().width);
+assert(
+  widthCollapsedAfterReload < 30,
+  `Sidebar still collapsed after reload — preference persisted (${widthCollapsedAfterReload}px)`,
+);
+// Re-expand so downstream tests start from the wider sidebar layout
+// they expect (file rows, badge properties panel coordinates, etc.).
+await win.locator('aside button[title="Show file tree"]').click();
+await win.waitForTimeout(200);
+const widthAfterReExpand = await win
+  .locator('aside')
+  .first()
+  .evaluate((el) => el.getBoundingClientRect().width);
+assert(widthAfterReExpand > 200, `Re-expanded for downstream tests (${widthAfterReExpand}px)`);
+
 // --- 9. Create view + Delete-view button appears ---
 console.log('\n[9] Saved-view CRUD');
 await bhRun('view.create', { name: 'Test View' });
