@@ -19,9 +19,11 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
   const baseBg = orphan ? '#fff0f0' : isFolder ? '#fdf7e3' : '#ffffff';
   const baseBorder = orphan ? '#fcc' : isFolder ? '#e8d77a' : '#d8d8d8';
 
+  const tooltip = isFolder ? `${d.label} — double-click to enter this folder` : d.label;
+
   return (
     <div
-      title={d.label}
+      title={tooltip}
       style={{
         background: baseBg,
         border: `1px solid ${selected ? '#4a90e2' : baseBorder}`,

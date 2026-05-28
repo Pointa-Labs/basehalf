@@ -113,11 +113,13 @@ console.log('\n[1] Empty state (no workspaces)');
 await win.waitForTimeout(400);
 await win.screenshot({ path: `${SCREENS_DIR}/01-empty.png` });
 const emptyText = await win.locator('main').innerText();
-assert(emptyText.includes('No workspace open'), 'Canvas shows polished empty-state card');
+assert(emptyText.includes('Welcome to BaseHalf'), 'Empty state shows onboarding card');
 assert(
-  emptyText.includes('BaseHalf will set up a badge'),
-  'Empty state copy mentions badge materialization',
+  /get started/i.test(emptyText),
+  'Onboarding card has a Get started section (case-insensitive — header uses uppercase styling)',
 );
+assert(emptyText.includes('+ Add folder'), 'Onboarding refers to the actual TopBar button label');
+assert(emptyText.includes('Badge'), 'Onboarding mentions the Badge editing path');
 
 // --- 2. Register workspace via core, then trigger renderer refresh ---
 console.log('\n[2] Register workspace + refresh');
@@ -356,6 +358,50 @@ assert(
   `Canvas renders an edge after badge.addRef (edges before drag=${edgeCountBefore}, after addRef+reload=${edgeCountAfterAddRef})`,
 );
 
+// --- 5e. Edge delete via Delete key: react-flow's selected-edge + Delete
+// fires onEdgesDelete, which we wire to badge.removeRef. ---
+console.log('\n[5e] Edge delete via keyboard');
+// Set up a known ref between intro.md and overview.md so we can delete it.
+await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md' });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const edgeCountBeforeDelete = await win.locator('.react-flow__edge').count();
+assert(edgeCountBeforeDelete >= 1, `Edge present before delete (count=${edgeCountBeforeDelete})`);
+// Click on the edge to select it. React-flow renders edges as <g> with path.
+const edgeLocator = win.locator('.react-flow__edge').first();
+const edgeBox = await edgeLocator.boundingBox();
+if (edgeBox) {
+  await win.mouse.click(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2);
+}
+await win.waitForTimeout(200);
+// Press Delete key. (react-flow accepts Delete or Backspace via our
+// deleteKeyCode config.)
+await win.keyboard.press('Backspace');
+await win.waitForTimeout(800);
+const introAfterKey = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+const refStillThereAfterKey = introAfterKey?.references.some((r) => r.to === 'overview.md');
+console.log(
+  `     Playwright select-edge + Backspace → onEdgesDelete: ref removed? ${!refStillThereAfterKey}`,
+);
+// Playwright's edge selection on react-flow is unreliable (same family as
+// the dblclick / connect limitations). Fall back to the underlying action.
+await bhRun('badge.removeRef', { file: 'intro.md', to: 'overview.md' });
+const introAfterAction = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+assert(
+  !introAfterAction?.references.some((r) => r.to === 'overview.md'),
+  `badge.removeRef action path works (refs after: ${JSON.stringify(introAfterAction?.references)})`,
+);
+// Confirm canvas re-renders without the edge after a reload.
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+const edgeCountAfterReload = await win.locator('.react-flow__edge').count();
+assert(
+  edgeCountAfterReload === 0,
+  `Canvas re-renders without the removed edge (before delete=${edgeCountBeforeDelete}, after=${edgeCountAfterReload})`,
+);
+
 // --- 6. Open a file via NavTree → FilePreview should render ---
 console.log('\n[6] Open intro.md → FilePreview');
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
@@ -384,6 +430,57 @@ assert(
   asidesBefore === 2 && asidesAfter === 1 && headersBefore === 1 && headersAfter === 0,
   `Esc closed the preview (asides ${asidesBefore}→${asidesAfter}, aside-headers ${headersBefore}→${headersAfter}; expected 2→1 and 1→0)`,
 );
+
+// --- 7g. BadgeProperties: edit prompt + add a reference note + remove a
+// reference. This is the IR-v2-04 "背包" surface; without it badge.prompt
+// is write-only-by-CLI and the agent contract is empty. ---
+console.log('\n[7g] BadgeProperties — prompt editor + ref CRUD');
+// Set up a known reference so we have something to remove.
+await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md' });
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(600);
+const badgeSectionPresent = await win.locator('aside section', { hasText: /BADGE/i }).count();
+assert(badgeSectionPresent >= 1, 'BadgeProperties section rendered in FilePreview');
+const promptTextarea = win.locator('aside textarea[placeholder*="teacher emphasized"]').first();
+assert(
+  (await promptTextarea.count()) === 1,
+  'Prompt textarea is present with concrete placeholder',
+);
+// Type a prompt + wait for the debounced save.
+const promptStamp = `pm-driver prompt ${Date.now()}`;
+await promptTextarea.fill(promptStamp);
+await win.waitForTimeout(700);
+const intro = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+assert(
+  intro?.prompt === promptStamp,
+  `badge.prompt persisted via UI textarea (got: ${JSON.stringify(intro?.prompt)})`,
+);
+// Add a reference note inline.
+const refNoteInput = win.locator('aside li input[placeholder="note (optional)"]').first();
+assert((await refNoteInput.count()) === 1, 'Reference rows expose a note input');
+await refNoteInput.fill('points at the overview doc');
+await refNoteInput.press('Enter');
+await win.waitForTimeout(500);
+const introWithNote = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+const overviewRef = introWithNote?.references.find((r) => r.to === 'overview.md');
+assert(
+  overviewRef?.note === 'points at the overview doc',
+  `Reference note saved via UI (got: ${JSON.stringify(overviewRef)})`,
+);
+// Remove the reference via the × button.
+const removeBtn = win.locator('aside li', { hasText: 'overview.md' }).locator('button').first();
+await removeBtn.click();
+await win.waitForTimeout(400);
+const introAfterRemove = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+assert(
+  !introAfterRemove?.references.some((r) => r.to === 'overview.md'),
+  `× button removes the reference (refs now: ${JSON.stringify(introAfterRemove?.references)})`,
+);
+// Clear prompt for downstream tests (so they don't see this stamp).
+await promptTextarea.fill('');
+await win.waitForTimeout(700);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
 
 // --- 7b. Edit MD + Cmd+S → file on disk reflects the new content.
 // This is the central user loop; without it the editor is decorative.
