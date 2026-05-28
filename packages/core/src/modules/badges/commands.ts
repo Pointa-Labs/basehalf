@@ -80,11 +80,17 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
 export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   let badges = await listBadges(ctx.fs, root);
-  if (args.kind) {
-    badges = badges.filter((b) => b.kind === args.kind);
+  // BadgeListArgs is fully optional — be defensive in case a caller
+  // (CLI / MCP / a renderer that forgot the args object) hands us
+  // undefined instead of {}. core.run normalizes, but a stray call
+  // straight through ctx.run can still arrive bare.
+  const kind = args?.kind;
+  if (kind) {
+    badges = badges.filter((b) => b.kind === kind);
   }
-  if (args.query) {
-    const q = args.query.toLowerCase();
+  const query = args?.query;
+  if (query) {
+    const q = query.toLowerCase();
     badges = badges.filter(
       (b) => b.file.toLowerCase().includes(q) || (b.prompt ?? '').toLowerCase().includes(q),
     );

@@ -15,7 +15,11 @@ type BhRunResponse = { ok: true; result: unknown } | { ok: false; error: Seriali
 // should see.
 const bh = {
   run: async (name: string, args?: unknown): Promise<unknown> => {
-    const response = (await ipcRenderer.invoke('bh:run', name, args)) as BhRunResponse;
+    // Default to {} so core handlers can read `args.foo` without a
+    // defensive `?.` — renderer callsites that pass nothing
+    // (e.g. `bh.run('badge.list')`) used to send undefined and crash
+    // any handler that did `args.kind` or similar.
+    const response = (await ipcRenderer.invoke('bh:run', name, args ?? {})) as BhRunResponse;
     if (response.ok) return response.result;
     const err = new Error(response.error.message);
     err.name = response.error.name;

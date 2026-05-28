@@ -206,7 +206,11 @@ export const Canvas = (): JSX.Element => {
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
-      if (!additive) setCurrentFile(node.id);
+      const data = node.data as unknown as BadgeNodeData;
+      // Folders aren't previewable — double-click scopes into them instead.
+      // Without this guard, clicking a folder opens the "No built-in viewer
+      // for this file type" pane, which is confusing.
+      if (!additive && data.kind !== 'folder') setCurrentFile(node.id);
       void (async () => {
         try {
           if (additive) {

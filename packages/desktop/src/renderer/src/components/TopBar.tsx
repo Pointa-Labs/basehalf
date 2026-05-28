@@ -14,6 +14,10 @@ const btnStyle = (variant: 'default' | 'subtle' | 'primary' = 'default'): CSSPro
   fontFamily: 'system-ui, sans-serif',
   borderRadius: 4,
   cursor: 'pointer',
+  // Prevent multi-word labels ("+ Add folder", "+ New note") from wrapping
+  // onto two lines when the header gets cramped.
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
   border:
     variant === 'primary'
       ? '1px solid #4a90e2'

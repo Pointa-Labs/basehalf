@@ -20,3 +20,6 @@ out/
 
 # internal/strategy docs — never commit (kept locally only)
 private-docs/
+
+# Claude Code runtime state (scheduled task locks, etc.)
+.claude/
