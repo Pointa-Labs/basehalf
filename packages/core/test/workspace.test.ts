@@ -425,12 +425,13 @@ describe('workspace.listFiles', () => {
     expect(result.entries).toEqual([]);
   });
 
-  it('rejects non-existent path', async () => {
+  it('rejects non-existent path with code: PATH_NOT_FOUND', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
-    await expect(core.run('workspace.listFiles', { path: '/nope' })).rejects.toThrow(
-      /does not exist/,
-    );
+    await expect(core.run('workspace.listFiles', { path: '/nope' })).rejects.toMatchObject({
+      message: expect.stringContaining('does not exist'),
+      code: 'PATH_NOT_FOUND',
+    });
   });
 
   it('rejects a file (not a directory)', async () => {

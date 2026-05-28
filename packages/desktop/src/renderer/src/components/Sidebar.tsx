@@ -1,10 +1,12 @@
 import type { JSX } from 'react';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
+import { WorkspaceUnreachable } from './WorkspaceUnreachable.js';
 
 export const Sidebar = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const currentWs = workspaces.find((w) => w.name === current);
 
   return (
@@ -33,7 +35,11 @@ export const Sidebar = (): JSX.Element => {
               {currentWs.path}
             </div>
           </div>
-          <NavTree rootPath={currentWs.path} />
+          {currentReachable === false ? (
+            <WorkspaceUnreachable name={currentWs.name} missingPath={currentWs.path} />
+          ) : (
+            <NavTree rootPath={currentWs.path} />
+          )}
         </>
       ) : (
         <div style={{ padding: 12, color: '#999' }}>Pick a workspace folder above to begin.</div>

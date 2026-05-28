@@ -150,7 +150,13 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
 ) => {
   const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
   const stat = await ctx.fs.stat(absPath);
-  if (!stat) throw new Error(`Path does not exist: ${absPath}`);
+  if (!stat) {
+    // Tagged so the desktop NavTree can render a "workspace unreachable"
+    // re-select / unregister modal instead of a raw error string.
+    throw Object.assign(new Error(`Path does not exist: ${absPath}`), {
+      code: 'PATH_NOT_FOUND',
+    });
+  }
   if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
 
   const names = await ctx.fs.readdir(absPath);
