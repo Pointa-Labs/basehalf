@@ -831,6 +831,50 @@ assert(
   `inbound.json on disk has intro.md → overview.md (overview backlinks: ${JSON.stringify(overviewBacklinks)})`,
 );
 
+// --- 7g-validate. "+ Add" dialog has three validate rules
+// (FilePreview.addRefViaPrompt): empty path, self-reference, duplicate
+// of an existing ref. Only the happy path was exercised above; verify
+// the validation paths block submission and keep the dialog open.
+// Backlinks: intro.md → overview.md is the existing ref from the +
+// Add test above (state preserved for the inbound list test below).
+const reopenAdd = async () => {
+  await win.locator('aside button', { hasText: '+ Add' }).first().click();
+  await waitForDialog('Add reference');
+};
+// 1) Empty path → "A path is required."
+await reopenAdd();
+await fillDialogInput('   ');
+await clickDialogButton('OK');
+await win.waitForTimeout(150);
+const addEmptyText = await win.locator('[role=dialog]').innerText();
+assert(
+  /name|path/i.test(addEmptyText) && /required/i.test(addEmptyText),
+  `Empty add-ref path rejected (dialog: ${JSON.stringify(addEmptyText.slice(0, 140))})`,
+);
+assert((await dialogIsOpen()) === 1, 'Add-ref dialog stays open after empty validation');
+// 2) Self-reference → "Can't reference itself."
+await fillDialogInput('intro.md');
+await clickDialogButton('OK');
+await win.waitForTimeout(150);
+const addSelfText = await win.locator('[role=dialog]').innerText();
+assert(
+  /reference itself/i.test(addSelfText),
+  `Self-reference rejected (dialog: ${JSON.stringify(addSelfText.slice(0, 140))})`,
+);
+// 3) Duplicate of existing ref → "This reference already exists."
+await fillDialogInput('overview.md');
+await clickDialogButton('OK');
+await win.waitForTimeout(150);
+const addDupText = await win.locator('[role=dialog]').innerText();
+assert(
+  /already exists/i.test(addDupText),
+  `Duplicate ref rejected (dialog: ${JSON.stringify(addDupText.slice(0, 140))})`,
+);
+// Cancel + continue.
+await clickDialogButton('Cancel');
+await win.waitForTimeout(200);
+assert((await dialogIsOpen()) === 0, 'Add-ref dialog closes on Cancel');
+
 // Inbound list — open overview.md (now referenced by intro.md after the
 // + Add dialog above) and verify the BadgeProperties surfaces an
 // "Inbound" section listing intro.md as a clickable backlink.
