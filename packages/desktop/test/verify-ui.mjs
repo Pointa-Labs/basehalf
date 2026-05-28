@@ -10,7 +10,7 @@
 //   /tmp/bh-verify-screens/*.png
 //   Exit 0 + summary line on success; exit 1 + reason on assertion failure.
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron } from 'playwright';
@@ -1181,7 +1181,6 @@ await win.waitForTimeout(200);
 // atomically move the badge, cascade outbound refs from neighbours, and
 // auto-rebind the open editor without a "File deleted" flash.
 console.log('\n[12c] File rename end-to-end');
-const { renameSync } = await import('node:fs');
 // Seed a file with a custom prompt + a sibling that references it.
 writeFileSync(`${WORKSPACE_DIR}/rename-source.md`, '# Rename source\n\nHello.\n');
 writeFileSync(`${WORKSPACE_DIR}/rename-sibling.md`, '# Sibling\n');
@@ -1484,6 +1483,79 @@ assert(
   afterRemoveCount === beforeRemoveCount - 1,
   `Workspace count dropped after confirmed Remove (${beforeRemoveCount}→${afterRemoveCount})`,
 );
+
+// --- 14. WorkspaceUnreachable: when the workspace folder is renamed or
+// deleted on disk, switching back into that workspace must swap NavTree
+// for the "Workspace folder not found" UI with Re-select + Unregister
+// actions. The trigger path is store.use() → workspace.listFiles →
+// PATH_NOT_FOUND → currentReachable: false. Never exercised by the
+// driver before; one of the Priority 2 untested flows from the audit.
+console.log('\n[14] WorkspaceUnreachable: missing folder UI + Unregister');
+const GHOST_WS = '/tmp/bh-verify-ws-ghost';
+const GHOST_WS_MOVED = '/tmp/bh-verify-ws-ghost-moved';
+if (existsSync(GHOST_WS)) rmSync(GHOST_WS, { recursive: true, force: true });
+if (existsSync(GHOST_WS_MOVED)) rmSync(GHOST_WS_MOVED, { recursive: true, force: true });
+mkdirSync(GHOST_WS, { recursive: true });
+await bhRun('workspace.add', { path: GHOST_WS });
+// The renderer's zustand store snapshots the workspace list at refresh
+// time; bhRun bypasses it, so reload the window to re-fetch (same
+// pattern §12 uses for its ws-2 setup).
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+// Make it active via the UI selector — the store's use() runs listFiles
+// and flips currentReachable to true (folder exists, no surprise yet).
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await win.waitForTimeout(700);
+const sidebarBeforeMove = await win.locator('aside').first().innerText();
+assert(
+  !sidebarBeforeMove.includes('Workspace folder not found'),
+  'Ghost workspace is reachable before the folder is moved (sanity)',
+);
+// Simulate user moving the folder in Finder.
+renameSync(GHOST_WS, GHOST_WS_MOVED);
+// Round-trip through a different workspace so use() re-runs against the
+// now-missing path. Picking the same option in the selector wouldn't
+// fire onChange, so the listFiles call wouldn't be re-issued.
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await win.waitForTimeout(700);
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await win.waitForTimeout(1500);
+const unreachableText = await win.locator('aside').first().innerText();
+assert(
+  unreachableText.includes('Workspace folder not found'),
+  'Sidebar swaps NavTree for unreachable UI after path goes missing',
+);
+// Scope the path-verbatim assertion to the unreachable panel — the
+// sidebar header also displays the workspace path always, so just
+// substring-checking the whole `<aside>` would be a false positive.
+const unreachablePanelText = await win.locator('aside [role="alert"], aside').last().innerText();
+assert(
+  unreachablePanelText.includes(GHOST_WS),
+  `Unreachable UI shows the missing path verbatim (${GHOST_WS})`,
+);
+assert(unreachableText.includes('Re-select location'), '"Re-select location" button rendered');
+assert(unreachableText.includes('Unregister'), '"Unregister" button rendered');
+await win.screenshot({ path: `${SCREENS_DIR}/14-workspace-unreachable.png` });
+
+// Click Unregister inside the unreachable panel → destructive confirm
+// dialog opens → confirming drops the registration.
+const beforeUnregister = (await bhRun('workspace.list', {})).workspaces.length;
+await win.locator('aside button', { hasText: 'Unregister' }).click();
+await waitForDialog('Unregister');
+assert(
+  (await dialogIsOpen()) === 1,
+  'Unregister in unreachable UI opens destructive confirm dialog',
+);
+await clickDialogButton('Unregister');
+await win.waitForTimeout(700);
+const afterUnregister = (await bhRun('workspace.list', {})).workspaces.length;
+assert(
+  afterUnregister === beforeUnregister - 1,
+  `Confirmed Unregister dropped the ghost workspace (${beforeUnregister}→${afterUnregister})`,
+);
+// Cleanup so a re-run starts clean.
+if (existsSync(GHOST_WS_MOVED)) rmSync(GHOST_WS_MOVED, { recursive: true, force: true });
 
 // --- Done ---
 await app.close();
