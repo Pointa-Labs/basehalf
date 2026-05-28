@@ -1,5 +1,6 @@
 import { type JSX, useEffect } from 'react';
 import { Canvas } from './components/Canvas.js';
+import { CommandPalette, openCommandPalette } from './components/CommandPalette.js';
 import { DialogHost } from './components/Dialog.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
@@ -34,6 +35,21 @@ export const App = (): JSX.Element => {
     return unsub;
   }, []);
 
+  // Cmd+K / Ctrl+K opens the command palette globally. We swallow the
+  // event so the OS doesn't trigger any default (some macOS apps use
+  // Cmd+K for clear console etc.). Esc / click-outside close it via
+  // the palette itself.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        openCommandPalette();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div
       style={{
@@ -55,6 +71,7 @@ export const App = (): JSX.Element => {
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />
+      <CommandPalette />
     </div>
   );
 };
