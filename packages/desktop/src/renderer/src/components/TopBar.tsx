@@ -217,6 +217,17 @@ export const TopBar = (): JSX.Element => {
         fontFamily: font.sans,
         flexShrink: 0,
         height: 48,
+        // Many contextual buttons can crowd this row (workspace +
+        // view-active + folder-scope all stack up). Scroll horizontally
+        // when content exceeds width rather than clipping the buttons.
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        // Hide the horizontal scrollbar visually — most users will only
+        // see it briefly on a tiny window, and a visible scrollbar in
+        // the topbar would look like a bug. Mouse wheel / trackpad still
+        // scrolls.
+        scrollbarWidth: 'none',
+        whiteSpace: 'nowrap',
       }}
     >
       <span

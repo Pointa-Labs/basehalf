@@ -132,6 +132,14 @@ textarea:focus-visible {
   transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms
     cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+/* Topbar uses overflow-x: auto so contextual buttons (rename / edit
+ * prompt / delete view / folder scope / etc.) can stack up without
+ * clipping. Hide the scrollbar visually — wheel/trackpad still scrolls. */
+header::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
 .react-flow__node-badge:hover .react-flow__handle,
 .react-flow__node-badge .react-flow__handle:hover {
   background: var(--bh-accent);
