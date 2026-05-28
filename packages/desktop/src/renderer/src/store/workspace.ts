@@ -129,7 +129,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const path = await window.bh.pickWorkspace();
       if (!path) return;
-      await window.bh.run('workspace.add', { path });
+      // setup: true installs the agent-protocol hint into CLAUDE.md and adds
+      // .bh/cache/ to .gitignore. Both are non-destructive + idempotent (the
+      // hint marker means re-adding the same folder is safe). Without this,
+      // desktop-added workspaces silently lack the bridge that makes Claude
+      // Code / Codex / Cursor recognise the protocol.
+      await window.bh.run('workspace.add', { path, setup: true });
       await get().refresh();
       await startWatcher();
     } catch (err) {
@@ -205,7 +210,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ busy: true });
     try {
       await window.bh.run('workspace.remove', { name });
-      await window.bh.run('workspace.add', { path: newPath, name });
+      // Same as pickAndAdd: install the agent-protocol hint on the new
+      // path (idempotent for already-set-up folders).
+      await window.bh.run('workspace.add', { path: newPath, name, setup: true });
       // Restore as current — workspace.remove may have demoted it.
       await window.bh.run('workspace.use', { name });
       await get().refresh();
