@@ -59,6 +59,37 @@ describe('inbound.addRef (incremental)', () => {
     expect(result.entries).toEqual([{ from: 'a.md' }]);
   });
 
+  it('does NOT invent a rebuildAt on incremental writes (no epoch sentinel)', async () => {
+    // Regression: prior behaviour seeded inbound.json with rebuildAt set to
+    // new Date(0) ("1970-01-01T00:00:00.000Z") on the first incremental write,
+    // which looked like a broken value in every git diff. The field should
+    // only appear when inbound.rebuild has actually run.
+    await ctx.core.run('inbound.addRef', { from: 'a.md', to: 'b.md' });
+    const raw = ctx.files.get('/work/.bh/index/inbound.json');
+    expect(raw).toBeDefined();
+    const parsed = JSON.parse(raw as string) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty('rebuildAt');
+    expect(parsed.entries).toEqual({ 'b.md': [{ from: 'a.md' }] });
+  });
+
+  it('preserves a real rebuildAt across subsequent incremental writes', async () => {
+    // After an explicit rebuild, later addRef/removeRef must keep that
+    // timestamp around (it remains the answer to "when was the last full
+    // walk?") rather than dropping it.
+    await ctx.core.run('inbound.rebuild', {});
+    const afterRebuild = JSON.parse(
+      ctx.files.get('/work/.bh/index/inbound.json') as string,
+    ) as Record<string, unknown>;
+    const stamp = afterRebuild.rebuildAt as string;
+    expect(typeof stamp).toBe('string');
+    await ctx.core.run('inbound.addRef', { from: 'a.md', to: 'b.md' });
+    const afterAdd = JSON.parse(ctx.files.get('/work/.bh/index/inbound.json') as string) as Record<
+      string,
+      unknown
+    >;
+    expect(afterAdd.rebuildAt).toBe(stamp);
+  });
+
   it('appends multiple inbound entries to the same target', async () => {
     await ctx.core.run('inbound.addRef', { from: 'a.md', to: 'b.md' });
     await ctx.core.run('inbound.addRef', { from: 'c.md', to: 'b.md' });

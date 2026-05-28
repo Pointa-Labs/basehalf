@@ -16,7 +16,10 @@ export interface InboundEntry {
 export interface InboundIndex {
   readonly bhVersion: 1;
   readonly entries: Record<string, readonly InboundEntry[]>;
-  readonly rebuildAt: string;
+  /** ISO timestamp of the last full `inbound.rebuild`. Absent on indexes
+   *  built up only via incremental addRef/removeRef writes — a fake epoch
+   *  sentinel would just look like a broken value in git diffs. */
+  readonly rebuildAt?: string;
 }
 
 // ── Command args / results ──────────────────────────────────────────────────

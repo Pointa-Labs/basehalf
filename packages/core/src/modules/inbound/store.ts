@@ -4,10 +4,13 @@ import type { InboundIndex } from './types.js';
 
 const INDEX_FILE = '.bh/index/inbound.json';
 
+// Fresh index, used when the file is missing or corrupt. We deliberately
+// OMIT `rebuildAt` — an epoch sentinel ("1970-01-01T00:00:00.000Z") rendered
+// into git diffs every time the index was created looked like a bug. The
+// field is now only set when `inbound.rebuild` actually runs.
 const EMPTY = (): InboundIndex => ({
   bhVersion: 1,
   entries: {},
-  rebuildAt: new Date(0).toISOString(),
 });
 
 export function inboundPath(workspaceRoot: string): string {
