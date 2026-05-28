@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import type { Handler } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { type RunningWatcher, createChokidarWatcher } from './chokidar.js';
@@ -10,6 +11,14 @@ import type {
   WatcherStopArgs,
   WatcherStopResult,
 } from './types.js';
+
+/**
+ * Process-wide event bus the main process subscribes to so it can fan out
+ * file events to renderer webContents (e.g. "file changed externally —
+ * reload the editor?"). Listeners get the same normalized WatcherEvent
+ * that's already going to the badges module via ctx.run.
+ */
+export const watcherEvents = new EventEmitter();
 
 // Module-private state. One watcher per process; v0 only opens one workspace
 // at a time anyway (SR-Open-01).
@@ -38,6 +47,8 @@ async function resolveWorkspaceRoot(
  * watcher) — the missing UnknownCommand is swallowed.
  */
 async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Promise<void> {
+  // Side-channel for hosts (Electron main) to react too.
+  watcherEvents.emit('event', event);
   try {
     if (event.type === 'add') {
       const existing = await ctx.run('badge.get', {

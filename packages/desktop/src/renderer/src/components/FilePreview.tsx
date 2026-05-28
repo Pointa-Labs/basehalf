@@ -81,7 +81,6 @@ export const FilePreview = (): JSX.Element | null => {
         {mode === 'image' && <ImageViewer absPath={absPath} />}
         {mode === 'audio' && (
           <div style={{ padding: 16 }}>
-            {/* biome-ignore lint/a11y/useMediaCaption: user-supplied media has no companion .vtt track in v0 */}
             <audio controls src={`file://${absPath}`} style={{ width: '100%' }}>
               <track kind="captions" />
             </audio>
@@ -89,7 +88,6 @@ export const FilePreview = (): JSX.Element | null => {
         )}
         {mode === 'video' && (
           <div style={{ padding: 16 }}>
-            {/* biome-ignore lint/a11y/useMediaCaption: user-supplied media has no companion .vtt track in v0 */}
             <video controls src={`file://${absPath}`} style={{ width: '100%' }}>
               <track kind="captions" />
             </video>
@@ -113,34 +111,59 @@ export const FilePreview = (): JSX.Element | null => {
   );
 };
 
+// Normalize MD for round-trip diff: collapse 3+ blank lines, strip
+// trailing whitespace per line, normalize line endings. Anything beyond
+// this means BlockNote actually lost or added meaningful content and we
+// must not silently overwrite the user's file.
+function normalizeMd(md: string): string {
+  return md
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((l) => l.replace(/[ \t]+$/, ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote();
   const [loadedFor, setLoadedFor] = useState<string>('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>('');
+  // G-08 safety: when BlockNote's parse→serialize loop loses meaningful
+  // content, we flip to view-only so users can't accidentally overwrite
+  // the original. Inferred at load time, not on every keystroke.
+  const [viewOnly, setViewOnly] = useState(false);
+  /** External-edit reload banner. Set when the watcher reports the open file
+   * changed on disk and we already have unsaved edits — we don't auto-clobber. */
+  const [reloadPrompt, setReloadPrompt] = useState(false);
   const initialLoad = useRef(true);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const [loadKey, setLoadKey] = useState(0);
 
   useEffect(() => {
-    if (loadedFor === file) return;
+    if (loadedFor === file && loadKey === 0) return;
     initialLoad.current = true;
     void (async () => {
       try {
         const result = (await window.bh.run('workspace.readFile', {
           path: file,
         })) as WorkspaceReadFileResult;
-        const blocks = await editor.tryParseMarkdownToBlocks(result.content);
-        // replaceBlocks replaces the entire document. BlockNote's generic
-        // PartialBlock types don't satisfy our exactOptionalPropertyTypes;
-        // the runtime is fine — cast through unknown to skip the friction.
+        const original = result.content;
+        const blocks = await editor.tryParseMarkdownToBlocks(original);
         editor.replaceBlocks(
           editor.document,
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
+        const reserialized = await editor.blocksToMarkdownLossy(editor.document);
+        const lossy = normalizeMd(original) !== normalizeMd(reserialized);
+        setViewOnly(lossy);
         setLoadedFor(file);
         setDirty(false);
+        setReloadPrompt(false);
         setError('');
-        // Avoid setting dirty on the programmatic replace.
         setTimeout(() => {
           initialLoad.current = false;
         }, 50);
@@ -148,10 +171,38 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [file, editor, loadedFor]);
+  }, [file, editor, loadedFor, loadKey]);
+
+  // Subscribe to file events for *this* file. Auto-reload when clean;
+  // surface a "reload? keep edits?" prompt when dirty.
+  useEffect(() => {
+    const unsub = window.bh.onFileEvent((event) => {
+      if (event.relPath !== file) return;
+      if (event.type === 'change') {
+        if (dirtyRef.current) {
+          setReloadPrompt(true);
+        } else {
+          setLoadKey((k) => k + 1);
+        }
+      } else if (event.type === 'unlink') {
+        setError('File deleted on disk.');
+      }
+    });
+    return unsub;
+  }, [file]);
+
+  const acceptReload = useCallback(() => {
+    setReloadPrompt(false);
+    setDirty(false);
+    setLoadKey((k) => k + 1);
+  }, []);
+
+  const dismissReload = useCallback(() => {
+    setReloadPrompt(false);
+  }, []);
 
   const save = useCallback(async (): Promise<void> => {
-    if (saving) return;
+    if (saving || viewOnly) return;
     setSaving(true);
     try {
       const md = await editor.blocksToMarkdownLossy(editor.document);
@@ -162,14 +213,14 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     } finally {
       setSaving(false);
     }
-  }, [editor, file, saving]);
+  }, [editor, file, saving, viewOnly]);
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div
         style={{
           padding: '4px 12px',
-          background: dirty ? '#fff8dc' : '#fafafa',
+          background: viewOnly ? '#fff0f0' : dirty ? '#fff8dc' : '#fafafa',
           borderBottom: '1px solid #eee',
           fontSize: 12,
           fontFamily: 'system-ui, sans-serif',
@@ -178,18 +229,50 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           gap: 8,
         }}
       >
-        <span style={{ flex: 1, color: '#666' }}>
-          {dirty ? 'unsaved changes' : 'BlockNote — round-trip MD ⇄ blocks (lossy in v0)'}
+        <span style={{ flex: 1, color: viewOnly ? '#a00' : '#666' }}>
+          {viewOnly
+            ? "view-only — BlockNote can't round-trip this file safely; edit in your text editor"
+            : dirty
+              ? 'unsaved changes'
+              : 'BlockNote — MD ⇄ blocks verified clean for this file'}
         </span>
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={!dirty || saving}
-          style={{ padding: '2px 10px', fontSize: 12 }}
-        >
-          {saving ? 'saving…' : 'Save'}
-        </button>
+        {!viewOnly && (
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={!dirty || saving}
+            style={{ padding: '2px 10px', fontSize: 12 }}
+          >
+            {saving ? 'saving…' : 'Save'}
+          </button>
+        )}
       </div>
+      {reloadPrompt && (
+        <div
+          style={{
+            padding: '6px 12px',
+            background: '#fff8dc',
+            borderBottom: '1px solid #e8d77a',
+            color: '#665500',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1 }}>File changed on disk while you have unsaved edits.</span>
+          <button type="button" onClick={acceptReload} style={{ padding: '2px 8px', fontSize: 12 }}>
+            Reload from disk
+          </button>
+          <button
+            type="button"
+            onClick={dismissReload}
+            style={{ padding: '2px 8px', fontSize: 12 }}
+          >
+            Keep my edits
+          </button>
+        </div>
+      )}
       {error && (
         <div
           style={{
@@ -205,8 +288,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       <div style={{ flex: 1, overflow: 'auto' }}>
         <BlockNoteView
           editor={editor}
+          editable={!viewOnly}
           onChange={() => {
-            if (!initialLoad.current) setDirty(true);
+            if (!initialLoad.current && !viewOnly) setDirty(true);
           }}
         />
       </div>

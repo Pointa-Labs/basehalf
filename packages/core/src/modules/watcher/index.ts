@@ -8,4 +8,4 @@ export function registerWatcherModule(core: Core): void {
 }
 
 export type * from './types.js';
-export { _resetForTests as _resetWatcherForTests } from './commands.js';
+export { _resetForTests as _resetWatcherForTests, watcherEvents } from './commands.js';

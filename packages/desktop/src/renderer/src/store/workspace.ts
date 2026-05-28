@@ -1,4 +1,6 @@
 import type {
+  SavedView,
+  ViewListResult,
   WorkspaceCurrentResult,
   WorkspaceEntry,
   WorkspaceListResult,
@@ -19,6 +21,13 @@ interface WorkspaceState {
    * Set by Canvas onNodeClick + Sidebar NavTree onClick. Drives the
    * FilePreview right-panel slot. */
   currentFile: string | null;
+  /** Saved views in the current workspace. Empty until refresh. */
+  views: readonly SavedView[];
+  /** Currently active view; null = the workspace's full canvas (all badges). */
+  currentView: string | null;
+  /** Active scope = a folder relative path that limits which badges Canvas shows.
+   * null = the whole workspace. Set by double-clicking a folder badge. */
+  folderScope: string | null;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -28,6 +37,10 @@ interface WorkspaceState {
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
   repath: (name: string) => Promise<void>;
   setCurrentFile: (file: string | null) => void;
+  refreshViews: () => Promise<void>;
+  setCurrentView: (id: string | null) => void;
+  setFolderScope: (path: string | null) => void;
+  createView: (name: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -55,6 +68,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   current: null,
   currentReachable: null,
   currentFile: null,
+  views: [],
+  currentView: null,
+  folderScope: null,
   error: '',
   busy: false,
 
@@ -66,6 +82,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         current: result.current,
         currentReachable: null,
         currentFile: null,
+        views: [],
+        currentView: null,
+        folderScope: null,
         error: '',
       });
       const currentWs = result.current
@@ -76,6 +95,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           await window.bh.run('workspace.listFiles', { path: currentWs.path });
           set({ currentReachable: true });
           await startWatcher();
+          await get().refreshViews();
         } catch (err) {
           if (isPathNotFound(err)) {
             set({ currentReachable: false });
@@ -152,6 +172,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setCurrentFile: (file: string | null) => set({ currentFile: file }),
+
+  refreshViews: async () => {
+    try {
+      const result = (await window.bh.run('view.list', {})) as ViewListResult;
+      set({ views: result.views });
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  setCurrentView: (id: string | null) => set({ currentView: id }),
+
+  setFolderScope: (path: string | null) => set({ folderScope: path }),
+
+  createView: async (name: string) => {
+    try {
+      await window.bh.run('view.create', { name });
+      await get().refreshViews();
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
 
   clearError: () => set({ error: '' }),
 }));

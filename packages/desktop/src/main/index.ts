@@ -1,6 +1,6 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCore, defaultConfigDir } from '@basehalf/core';
+import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
 import { BrowserWindow, app, screen } from 'electron';
 import { registerBhRunHandler, registerWorkspacePickHandler } from './ipc.js';
 import {
@@ -23,6 +23,17 @@ console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.lis
 
 registerBhRunHandler(core);
 registerWorkspacePickHandler();
+
+// Forward file events from the core watcher to all open renderers so the
+// FilePreview component can prompt for reload when an open file changes
+// externally. Listener is attached once, lives for the whole process.
+watcherEvents.on('event', (event: { type: string; relPath: string; isDir: boolean }) => {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('bh:file-event', event);
+    }
+  }
+});
 
 let mainWindow: BrowserWindow | null = null;
 

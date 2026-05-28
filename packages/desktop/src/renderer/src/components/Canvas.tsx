@@ -1,6 +1,7 @@
 import type {
   BadgeFile,
   BadgeListResult,
+  SavedView,
   ViewportState,
   WorkspaceGetViewportResult,
 } from '@basehalf/core';
@@ -26,9 +27,13 @@ const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const DRAG_DEBOUNCE = 300;
 const VIEWPORT_DEBOUNCE = 1000;
 
-function badgeToNode(badge: BadgeFile, fallbackIndex: number): Node<BadgeNodeData> {
-  const x = badge.canvas?.x ?? 60 + (fallbackIndex % 6) * 220;
-  const y = badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / 6) * 140;
+function badgeToNode(
+  badge: BadgeFile,
+  fallbackIndex: number,
+  override?: { x?: number; y?: number },
+): Node<BadgeNodeData> {
+  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % 6) * 220;
+  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / 6) * 140;
   return {
     id: badge.file,
     type: 'badge',
@@ -77,6 +82,9 @@ export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const currentView = useWorkspaceStore((s) => s.currentView);
+  const folderScope = useWorkspaceStore((s) => s.folderScope);
+  const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
@@ -85,15 +93,42 @@ export const Canvas = (): JSX.Element => {
   const refresh = useCallback(async () => {
     try {
       const result = (await window.bh.run('badge.list')) as BadgeListResult;
-      setNodes(result.badges.map(badgeToNode));
-      setEdges(badgesToEdges(result.badges));
+      let badges = result.badges;
+      const memberPositions = new Map<string, { x?: number; y?: number }>();
+
+      if (currentView !== null) {
+        const view = (await window.bh.run('view.get', { id: currentView })) as SavedView | null;
+        if (view) {
+          const memberFiles = new Set(view.members.map((m) => m.file));
+          badges = badges.filter((b) => memberFiles.has(b.file));
+          for (const m of view.members) {
+            memberPositions.set(m.file, {
+              ...(m.x !== undefined && { x: m.x }),
+              ...(m.y !== undefined && { y: m.y }),
+            });
+          }
+        } else {
+          badges = [];
+        }
+      } else if (folderScope !== null) {
+        const prefix = `${folderScope}/`;
+        badges = badges.filter((b) => b.file === folderScope || b.file.startsWith(prefix));
+      }
+
+      setNodes(
+        badges.map((b, i) => {
+          const override = memberPositions.get(b.file);
+          return badgeToNode(b, i, override);
+        }),
+      );
+      setEdges(badgesToEdges(badges));
       const vp = (await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult;
       initialViewportRef.current = vp;
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [currentView, folderScope]);
 
   useEffect(() => {
     if (current && currentReachable) {
@@ -104,19 +139,35 @@ export const Canvas = (): JSX.Element => {
     }
   }, [current, currentReachable, refresh]);
 
+  const onNodeDoubleClick = useCallback<NodeMouseHandler>(
+    (_event, node) => {
+      // Folder badge double-click → scope canvas to that folder.
+      const data = node.data as unknown as BadgeNodeData;
+      if (data.kind === 'folder') {
+        setFolderScope(node.id);
+      }
+    },
+    [setFolderScope],
+  );
+
   const persistPosition = useMemo(
     () =>
       debounce((file: string, x: number, y: number) => {
-        void window.bh
-          .run('badge.set', {
-            file,
-            patch: { canvas: { x, y, collapsed: false } },
-          })
-          .catch(() => {
-            // Best-effort; surface via next refresh's load.
-          });
+        // In view mode, position is per-view (view.addMember stores per-file
+        // x/y on the SavedView, leaving the main-canvas badge.canvas alone).
+        // In main canvas / folder scope, drag updates the badge's canonical
+        // position via badge.set.
+        if (currentView !== null) {
+          void window.bh
+            .run('view.addMember', { id: currentView, file, position: { x, y } })
+            .catch(() => undefined);
+        } else {
+          void window.bh
+            .run('badge.set', { file, patch: { canvas: { x, y, collapsed: false } } })
+            .catch(() => undefined);
+        }
       }, DRAG_DEBOUNCE),
-    [],
+    [currentView],
   );
 
   const persistViewport = useMemo(
@@ -214,6 +265,7 @@ export const Canvas = (): JSX.Element => {
         onNodesChange={onNodesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onMoveEnd={onMoveEnd}
         defaultViewport={
           initialViewportRef.current

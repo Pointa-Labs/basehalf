@@ -27,6 +27,22 @@ const bh = {
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
   /** Frozen at preload time; safe to read synchronously. */
   platform: process.platform as NodeJS.Platform,
+  /** Subscribe to file events from the core watcher (relayed by main process).
+   * Returns an unsubscribe function. */
+  onFileEvent: (
+    handler: (event: {
+      type: 'add' | 'change' | 'unlink';
+      relPath: string;
+      isDir: boolean;
+    }) => void,
+  ): (() => void) => {
+    const wrapped = (
+      _e: unknown,
+      event: { type: 'add' | 'change' | 'unlink'; relPath: string; isDir: boolean },
+    ): void => handler(event);
+    ipcRenderer.on('bh:file-event', wrapped);
+    return () => ipcRenderer.off('bh:file-event', wrapped);
+  },
 };
 
 contextBridge.exposeInMainWorld('bh', bh);

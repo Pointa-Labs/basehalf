@@ -10,5 +10,14 @@ interface Window {
     pickWorkspace(): Promise<string | null>;
     /** "darwin" | "linux" | "win32" | etc. — frozen at preload time. */
     platform: string;
+    /** Subscribe to file events from the core watcher (relayed by main).
+     * Returns an unsubscribe function. */
+    onFileEvent(
+      handler: (event: {
+        type: 'add' | 'change' | 'unlink';
+        relPath: string;
+        isDir: boolean;
+      }) => void,
+    ): () => void;
   };
 }

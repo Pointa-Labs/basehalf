@@ -74,4 +74,4 @@ export type * from './modules/inbound/types.js';
 export type * from './modules/focus/types.js';
 export type * from './modules/views/types.js';
 export type * from './modules/watcher/types.js';
-export { _resetWatcherForTests } from './modules/watcher/index.js';
+export { _resetWatcherForTests, watcherEvents } from './modules/watcher/index.js';
