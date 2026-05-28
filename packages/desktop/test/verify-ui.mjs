@@ -416,8 +416,14 @@ console.log(
 );
 
 // Fallback: exercise the underlying action and confirm Canvas re-renders
-// the edge from the resulting reference index.
-await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md' });
+// the edge from the resulting reference index. Add a note on the ref so
+// the edge gets a label — visual check that label styling matches the
+// chrome.
+await bhRun('badge.addRef', {
+  file: 'intro.md',
+  to: 'overview.md',
+  note: 'background reading',
+});
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
@@ -426,6 +432,10 @@ assert(
   edgeCountAfterAddRef > 0,
   `Canvas renders an edge after badge.addRef (edges before drag=${edgeCountBefore}, after addRef+reload=${edgeCountAfterAddRef})`,
 );
+// Edge label should render with our custom styling — small bg, subtle border.
+const edgeLabelCount = await win.locator('.react-flow__edge-text').count();
+assert(edgeLabelCount >= 1, `Edge with a note renders a label (count=${edgeLabelCount})`);
+await win.screenshot({ path: `${SCREENS_DIR}/03b-edge-with-label.png` });
 
 // --- 5e. Edge delete via Delete key: react-flow's selected-edge + Delete
 // fires onEdgesDelete, which we wire to badge.removeRef. ---

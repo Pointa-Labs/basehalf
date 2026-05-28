@@ -351,6 +351,24 @@ export const Canvas = (): JSX.Element => {
           style: { stroke: color.textGhost, strokeWidth: 1.5 },
           // Animated edges feel jittery on a busy canvas; keep them static
           // and let selection style do the talking.
+          // Label styling — reference notes render here. The default is a
+          // hard-edged white rectangle; tokenize it so it reads like the
+          // rest of the chrome (surface + subtle border + secondary text).
+          labelStyle: {
+            fontSize: font.size.micro,
+            fontFamily: font.sans,
+            fill: color.textSecondary,
+            fontWeight: font.weight.medium,
+          },
+          labelShowBg: true,
+          labelBgStyle: {
+            fill: color.surface,
+            fillOpacity: 0.95,
+            stroke: color.border,
+            strokeWidth: 1,
+          },
+          labelBgPadding: [4, 8],
+          labelBgBorderRadius: radius.sm,
         }}
         defaultViewport={
           initialViewportRef.current
