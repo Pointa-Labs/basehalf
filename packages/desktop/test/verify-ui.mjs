@@ -679,6 +679,71 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
+// --- 7b-undo. Undo/redo via Cmd+Z / Cmd+Shift+Z. BlockNote ships its
+// own ProseMirror history plugin; the desktop shell just lets the
+// keystrokes through. Verify the round-trip works end-to-end and that
+// the "Unsaved changes" indicator stays accurate. Never exercised by
+// the driver before (Priority 3 from the undriven-flows audit).
+console.log('\n[7b-undo] Editor undo/redo via Cmd+Z / Cmd+Shift+Z');
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(800);
+const undoEditor = win.locator('.ProseMirror').first();
+await undoEditor.waitFor({ timeout: 5000 });
+await undoEditor.click();
+await win.keyboard.press('End');
+await win.keyboard.press('Enter');
+const undoStamp = `undo-stamp-${Date.now()}`;
+await win.keyboard.type(undoStamp, { delay: 10 });
+await win.waitForTimeout(400);
+const afterTypeText = await undoEditor.innerText();
+assert(
+  afterTypeText.includes(undoStamp),
+  `Stamp present in editor after typing (text: ${JSON.stringify(afterTypeText.slice(-80))})`,
+);
+const afterTypeStatus = await win.locator('aside').last().innerText();
+assert(
+  afterTypeStatus.includes('Unsaved changes'),
+  'Status flips to "Unsaved changes" after typing',
+);
+// Spam Cmd+Z several times — BlockNote/ProseMirror groups consecutive
+// character insertions into history bins, but the stamp is long enough
+// to span multiple bins. 8 undos is comfortably more than enough.
+const modZ = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
+const modShiftZ = process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z';
+for (let i = 0; i < 8; i++) {
+  await win.keyboard.press(modZ);
+  await win.waitForTimeout(40);
+}
+await win.waitForTimeout(300);
+const afterUndoText = await undoEditor.innerText();
+assert(
+  !afterUndoText.includes(undoStamp),
+  `Cmd+Z removes the typed stamp (editor tail: ${JSON.stringify(afterUndoText.slice(-80))})`,
+);
+// Cmd+Shift+Z to redo. Same volume to walk the history back forward.
+for (let i = 0; i < 8; i++) {
+  await win.keyboard.press(modShiftZ);
+  await win.waitForTimeout(40);
+}
+await win.waitForTimeout(300);
+const afterRedoText = await undoEditor.innerText();
+assert(
+  afterRedoText.includes(undoStamp),
+  `Cmd+Shift+Z restores the typed stamp (editor tail: ${JSON.stringify(afterRedoText.slice(-80))})`,
+);
+// Save the redo state so the on-disk file matches what we see. The
+// driver doesn't pin intro.md's exact content downstream, so a trailing
+// undo-stamp line is benign.
+await win.keyboard.press(`${saveModifier}+s`);
+await win.waitForTimeout(500);
+const finalStatus = await win.locator('aside').last().innerText();
+assert(
+  finalStatus.includes('Saved'),
+  `Status flips back to "Saved" after Cmd+S of the redo state (got: ${JSON.stringify(finalStatus.split('\n')[1])})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
 // --- 7c. External edit while editor is dirty → reload prompt banner.
 // The watcher's "file changed on disk" path shouldn't auto-clobber unsaved
 // edits; FilePreview should surface a Reload / Keep-my-edits choice. ---
