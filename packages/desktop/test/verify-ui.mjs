@@ -227,6 +227,87 @@ assert(
   `Esc closed the preview (asides ${asidesBefore}→${asidesAfter}, aside-headers ${headersBefore}→${headersAfter}; expected 2→1 and 1→0)`,
 );
 
+// --- 7b. Edit MD + Cmd+S → file on disk reflects the new content.
+// This is the central user loop; without it the editor is decorative.
+console.log('\n[7b] Edit MD + Cmd+S → disk roundtrip');
+const originalContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
+// Re-open intro.md
+await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
+await win.waitForTimeout(800);
+// BlockNote uses ProseMirror under the hood; its editable surface is a
+// .ProseMirror contenteditable inside .bn-container / .bn-editor.
+const editor = win.locator('.ProseMirror').first();
+await editor.waitFor({ timeout: 5000 });
+// Focus the end of the document and type.
+await editor.click();
+await win.keyboard.press('End');
+await win.keyboard.press('Enter');
+const stamp = `verify-driver-${Date.now()}`;
+await win.keyboard.type(stamp, { delay: 10 });
+await win.waitForTimeout(400);
+const previewTextDirty = await win.locator('aside').last().innerText();
+assert(
+  previewTextDirty.includes('Unsaved changes'),
+  `Status flips to "Unsaved changes" after typing (got: ${JSON.stringify(previewTextDirty.split('\n')[1])})`,
+);
+// Cmd+S — meta on macOS, control elsewhere. process.platform is the
+// driver's platform, which matches the Electron under test.
+const saveModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+await win.keyboard.press(`${saveModifier}+s`);
+await win.waitForTimeout(600);
+const previewTextSaved = await win.locator('aside').last().innerText();
+assert(
+  previewTextSaved.includes('Saved'),
+  `Status flips back to "Saved" after Cmd+S (got: ${JSON.stringify(previewTextSaved.split('\n')[1])})`,
+);
+const newContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
+assert(
+  newContent !== originalContent && newContent.includes(stamp),
+  `intro.md on disk reflects the typed text (length ${originalContent.length}→${newContent.length}, contains stamp: ${newContent.includes(stamp)})`,
+);
+// Close preview before the rest of the suite continues.
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
+// --- 7c. External edit while editor is dirty → reload prompt banner.
+// The watcher's "file changed on disk" path shouldn't auto-clobber unsaved
+// edits; FilePreview should surface a Reload / Keep-my-edits choice. ---
+console.log('\n[7c] External edit while dirty → reload prompt');
+const { writeFileSync } = await import('node:fs');
+await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
+await win.waitForTimeout(800);
+// Make the editor dirty without saving.
+const editor2 = win.locator('.ProseMirror').first();
+await editor2.click();
+await win.keyboard.press('End');
+await win.keyboard.type(' (dirty local edit)', { delay: 10 });
+await win.waitForTimeout(300);
+// Now simulate an external editor changing the same file.
+writeFileSync(`${WORKSPACE_DIR}/overview.md`, '# Overview\n\nExternally rewritten.\n');
+// chokidar fires on a debounced timer; give it room.
+await win.waitForTimeout(1500);
+const previewTextAfterExternal = await win.locator('aside').last().innerText();
+assert(
+  previewTextAfterExternal.includes('File changed on disk'),
+  `Reload prompt appears after external edit while dirty (preview snippet: ${JSON.stringify(previewTextAfterExternal.slice(0, 200))})`,
+);
+assert(
+  previewTextAfterExternal.includes('Reload from disk') &&
+    previewTextAfterExternal.includes('Keep my edits'),
+  'Both "Reload from disk" and "Keep my edits" buttons present',
+);
+await win.screenshot({ path: `${SCREENS_DIR}/09-reload-prompt.png` });
+// Accept the reload — editor should switch back to the disk version, Saved state.
+await win.locator('aside button', { hasText: 'Reload from disk' }).click();
+await win.waitForTimeout(800);
+const previewAfterReload = await win.locator('aside').last().innerText();
+assert(
+  previewAfterReload.includes('Saved') && !previewAfterReload.includes('File changed on disk'),
+  `After "Reload from disk" the editor returns to clean Saved state (snippet: ${JSON.stringify(previewAfterReload.slice(0, 120))})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+
 // --- 8. Sidebar collapse → 22px rail ---
 console.log('\n[8] Sidebar collapse');
 await collapseBtn.click();
