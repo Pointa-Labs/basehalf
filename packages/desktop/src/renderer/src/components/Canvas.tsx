@@ -203,6 +203,38 @@ export const Canvas = (): JSX.Element => {
     }
   }, []);
 
+  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
+  // removed edges here. Each edge's id is `${source}__${target}` (see
+  // badgesToEdges) so we can derive the badge.removeRef args from id alone.
+  const onEdgesDelete = useCallback(async (deleted: Edge[]) => {
+    try {
+      for (const e of deleted) {
+        await window.bh.run('badge.removeRef', { file: e.source, to: e.target });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
+  // Node deletion: in view mode, Delete removes the badge from the *view*
+  // (not from disk — that would lose the file). On the main canvas, Delete
+  // is a no-op for safety: a v0 user shouldn't be able to delete a file via
+  // an accidental keystroke, and removing the badge JSON alone would just
+  // get re-materialized on next refresh.
+  const onNodesDelete = useCallback(
+    async (deleted: Node[]) => {
+      if (currentView === null) return;
+      try {
+        for (const n of deleted) {
+          await window.bh.run('view.removeMember', { id: currentView, file: n.id });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [currentView],
+  );
+
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
@@ -243,14 +275,80 @@ export const Canvas = (): JSX.Element => {
           alignItems: 'center',
           justifyContent: 'center',
           height: '100%',
-          color: '#888',
           fontFamily: 'system-ui, sans-serif',
-          fontSize: 13,
+          padding: 24,
         }}
       >
-        <div style={{ textAlign: 'center', maxWidth: 360 }}>
-          <div style={{ fontSize: 15, color: '#444', marginBottom: 6 }}>No workspace open</div>
-          <div>Pick a folder from the top bar — BaseHalf will set up a badge for every file.</div>
+        <div
+          style={{
+            maxWidth: 520,
+            background: '#fff',
+            border: '1px solid #e8e8e8',
+            borderRadius: 8,
+            padding: '24px 28px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          }}
+        >
+          <div style={{ fontSize: 18, fontWeight: 600, color: '#222', marginBottom: 6 }}>
+            Welcome to BaseHalf
+          </div>
+          <div style={{ fontSize: 13, color: '#666', marginBottom: 18, lineHeight: 1.5 }}>
+            A local-first canvas for putting any file — PDFs, Markdown notes, images — onto a free
+            board, tagging each one with a description for AI, and connecting them however you
+            think.
+          </div>
+
+          <div
+            style={{
+              fontSize: 11,
+              color: '#888',
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+              marginBottom: 8,
+            }}
+          >
+            Get started
+          </div>
+          <ol
+            style={{
+              margin: 0,
+              padding: '0 0 0 18px',
+              fontSize: 13,
+              color: '#444',
+              lineHeight: 1.7,
+            }}
+          >
+            <li>
+              Click <strong>+ Add folder</strong> in the top bar — pick any folder; your files stay
+              where they are.
+            </li>
+            <li>Every file gets a badge on the canvas. Drag them around to organize.</li>
+            <li>
+              Open a file in the side panel; under <strong>Badge</strong>, add a prompt describing
+              it for AI (e.g. <em>"chapter 3 — focus on theorem 2"</em>).
+            </li>
+            <li>
+              Drag from one badge to another to connect them. Notes on a connection explain the
+              relationship.
+            </li>
+          </ol>
+
+          <div
+            style={{
+              marginTop: 16,
+              padding: '8px 12px',
+              background: '#fafafa',
+              borderRadius: 4,
+              fontSize: 11,
+              color: '#777',
+              lineHeight: 1.5,
+            }}
+          >
+            BaseHalf works standalone, and is designed to sit on the right half of your screen with
+            an AI agent on the left. Everything you set here gets published to{' '}
+            <code style={{ fontFamily: 'ui-monospace, monospace' }}>.bh/</code> so any AI tool
+            reading the folder can pick it up.
+          </div>
         </div>
       </div>
     );
@@ -282,6 +380,9 @@ export const Canvas = (): JSX.Element => {
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         onConnect={onConnect}
+        onEdgesDelete={onEdgesDelete}
+        onNodesDelete={onNodesDelete}
+        deleteKeyCode={['Delete', 'Backspace']}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveEnd={onMoveEnd}

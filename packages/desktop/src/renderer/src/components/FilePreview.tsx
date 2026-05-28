@@ -1,10 +1,26 @@
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
-import type { WorkspaceReadFileResult } from '@basehalf/core';
+import type {
+  BadgeFile,
+  BadgeGetResult,
+  InboundGetResult,
+  WorkspaceReadFileResult,
+} from '@basehalf/core';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useWorkspaceStore } from '../store/workspace.js';
+
+function debounce<TArgs extends unknown[]>(
+  fn: (...args: TArgs) => void,
+  ms: number,
+): (...args: TArgs) => void {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return (...args) => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
 
 function extOf(path: string): string {
   const dot = path.lastIndexOf('.');
@@ -134,6 +150,7 @@ export const FilePreview = (): JSX.Element | null => {
           Close
         </button>
       </header>
+      <BadgeProperties file={currentFile} />
       <div style={{ flex: 1, overflow: 'auto' }}>
         {mode === 'md' && <MdEditor file={currentFile} />}
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
@@ -174,6 +191,317 @@ export const FilePreview = (): JSX.Element | null => {
 // trailing whitespace per line, normalize line endings. Anything beyond
 // this means BlockNote actually lost or added meaningful content and we
 // must not silently overwrite the user's file.
+// BadgeProperties is the "背包" editor — the agent-protocol contract surface.
+// Per IR-v2-04, every badge has a prompt + references + position; users need
+// to edit prompt/references here (canvas only handles position via drag).
+// Without this UI, badge.prompt was effectively write-only-by-CLI.
+const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
+  const [badge, setBadge] = useState<BadgeFile | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [inboundCount, setInboundCount] = useState(0);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('bh:badge-props-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  // (Re)load the badge whenever the file changes. We need to reset prompt
+  // state too — otherwise switching files would briefly show the prior
+  // file's prompt while the load is in flight.
+  useEffect(() => {
+    let cancelled = false;
+    setPrompt('');
+    setBadge(null);
+    setInboundCount(0);
+    void (async () => {
+      try {
+        const b = (await window.bh.run('badge.get', {
+          file,
+          kind: 'file',
+        })) as BadgeGetResult;
+        if (cancelled) return;
+        setBadge(b);
+        setPrompt(b?.prompt ?? '');
+        const inbound = (await window.bh.run('inbound.get', { file })) as InboundGetResult;
+        if (cancelled) return;
+        setInboundCount(inbound.entries.length);
+      } catch {
+        // Badge may not be materialized yet (e.g. brand-new file the
+        // watcher hasn't picked up). Silent — Canvas surfaces fatal errors.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  // Debounced prompt save — typing in a textarea shouldn't write per keystroke.
+  const savePrompt = useMemo(
+    () =>
+      debounce(async (next: string) => {
+        try {
+          await window.bh.run('badge.set', {
+            file,
+            kind: 'file',
+            patch: { prompt: next },
+          });
+        } catch {
+          // Save errors propagate via Canvas's banner on next refresh.
+        }
+      }, 500),
+    [file],
+  );
+
+  const removeRef = useCallback(
+    async (to: string) => {
+      await window.bh.run('badge.removeRef', { file, to });
+      setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
+    },
+    [file],
+  );
+
+  const updateRefNote = useCallback(
+    async (to: string, note: string) => {
+      const trimmed = note.trim();
+      await window.bh.run('badge.addRef', {
+        file,
+        to,
+        ...(trimmed !== '' && { note: trimmed }),
+      });
+      setBadge((b) =>
+        b
+          ? {
+              ...b,
+              references: b.references.map((r) =>
+                r.to === to ? { ...r, ...(trimmed !== '' ? { note: trimmed } : {}) } : r,
+              ),
+            }
+          : b,
+      );
+    },
+    [file],
+  );
+
+  const toggleCollapsed = (): void => {
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem('bh:badge-props-collapsed', next ? '1' : '0');
+      } catch {
+        // localStorage unavailable; just don't persist.
+      }
+      return next;
+    });
+  };
+
+  const refCount = badge?.references.length ?? 0;
+  const hasPrompt = prompt.length > 0;
+  const headerSummary = collapsed
+    ? `${hasPrompt ? '✎ prompt · ' : 'no prompt · '}${refCount} out · ${inboundCount} in`
+    : '';
+
+  return (
+    <section
+      style={{
+        borderBottom: '1px solid #eee',
+        background: '#fafafa',
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: 12,
+      }}
+    >
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        title={collapsed ? 'Show badge properties' : 'Hide badge properties'}
+        style={{
+          width: '100%',
+          textAlign: 'left',
+          border: 'none',
+          background: 'transparent',
+          padding: '6px 12px',
+          fontSize: 11,
+          color: '#666',
+          cursor: 'pointer',
+          letterSpacing: 0.3,
+          textTransform: 'uppercase',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span style={{ width: 10, fontSize: 9 }}>{collapsed ? '▸' : '▾'}</span>
+        <span>Badge</span>
+        {collapsed && (
+          <span
+            style={{
+              marginLeft: 'auto',
+              textTransform: 'none',
+              letterSpacing: 0,
+              color: '#888',
+              fontSize: 11,
+            }}
+          >
+            {headerSummary}
+          </span>
+        )}
+      </button>
+      {!collapsed && (
+        <div style={{ padding: '4px 12px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ display: 'block' }}>
+            <div style={{ color: '#666', marginBottom: 2 }}>
+              Prompt
+              <span style={{ color: '#aaa', marginLeft: 6, fontSize: 11 }}>
+                what agents read about this file
+              </span>
+            </div>
+            <textarea
+              value={prompt}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                savePrompt(e.target.value);
+              }}
+              placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
+              rows={3}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '6px 8px',
+                fontSize: 12,
+                fontFamily: 'system-ui, sans-serif',
+                border: '1px solid #d0d0d0',
+                borderRadius: 4,
+                resize: 'vertical',
+                background: '#fff',
+              }}
+            />
+          </label>
+          <div>
+            <div style={{ color: '#666', marginBottom: 4 }}>
+              References{' '}
+              <span style={{ color: '#aaa', fontSize: 11 }}>
+                {refCount} out · {inboundCount} in
+              </span>
+            </div>
+            {refCount === 0 ? (
+              <div style={{ color: '#999', fontSize: 11, fontStyle: 'italic' }}>
+                Drag from this badge's right edge to another badge to add a reference.
+              </div>
+            ) : (
+              <ul
+                style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                {badge?.references.map((ref) => (
+                  <ReferenceRow
+                    key={ref.to}
+                    to={ref.to}
+                    note={ref.note ?? ''}
+                    onRemove={() => void removeRef(ref.to)}
+                    onNoteCommit={(note) => void updateRefNote(ref.to, note)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const ReferenceRow = ({
+  to,
+  note,
+  onRemove,
+  onNoteCommit,
+}: {
+  to: string;
+  note: string;
+  onRemove: () => void;
+  onNoteCommit: (note: string) => void;
+}): JSX.Element => {
+  const [local, setLocal] = useState(note);
+  // Keep local in sync if the parent re-fetches and changes the prop.
+  useEffect(() => {
+    setLocal(note);
+  }, [note]);
+  return (
+    <li
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '4px 6px',
+        background: '#fff',
+        border: '1px solid #e8e8e8',
+        borderRadius: 3,
+      }}
+    >
+      <span
+        title={to}
+        style={{
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: 11,
+          color: '#444',
+          maxWidth: 140,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flexShrink: 0,
+        }}
+      >
+        → {to}
+      </span>
+      <input
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        onBlur={() => {
+          if (local !== note) onNoteCommit(local);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder="note (optional)"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: '2px 6px',
+          fontSize: 11,
+          border: '1px solid #e0e0e0',
+          borderRadius: 3,
+          background: '#fafafa',
+        }}
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove this reference"
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: '#a00',
+          cursor: 'pointer',
+          fontSize: 14,
+          padding: '0 4px',
+          lineHeight: 1,
+        }}
+      >
+        ×
+      </button>
+    </li>
+  );
+};
+
 function normalizeMd(md: string): string {
   return md
     .replace(/\r\n/g, '\n')
