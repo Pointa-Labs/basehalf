@@ -524,6 +524,26 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 
+// --- 5b-zoom. CanvasControls zoom-in/zoom-out buttons trigger react-flow
+// zoomIn/zoomOut. If react-flow's programmatic zoom doesn't fire
+// onMoveEnd (vs only user gestures), the persist chain breaks and zoom
+// is silently lost on reload — the same class of bug as #63's
+// defaultViewport timing.
+console.log('\n[5b-zoom] CanvasControls zoom buttons → viewport persists');
+await win.locator('.bh-canvas-controls button[title="Zoom in"]').first().click();
+await win.locator('.bh-canvas-controls button[title="Zoom in"]').first().click();
+await win.waitForTimeout(1500); // VIEWPORT_DEBOUNCE buffer
+const vpAfterZoomIn = await bhRun('workspace.getViewport', {});
+assert(
+  vpAfterZoomIn && vpAfterZoomIn.scale > 1.1,
+  `Zoom-in button increased scale via persistViewport (got: ${JSON.stringify(vpAfterZoomIn)})`,
+);
+// Reset to identity for downstream tests.
+await bhRun('workspace.setViewport', { viewport: { offsetX: 0, offsetY: 0, scale: 1 } });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+
 // --- 5d. Shift-click multi-select → focus.set additive path.
 // Regular click sets focus = [file]; shift-click extends without
 // switching the preview. ---
