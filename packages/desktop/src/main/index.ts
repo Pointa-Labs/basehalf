@@ -2,6 +2,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir } from '@basehalf/core';
 import { BrowserWindow, app, screen } from 'electron';
+import { registerBhRunHandler } from './ipc.js';
 import {
   clampToDisplays,
   debounce,
@@ -19,6 +20,8 @@ const core = createCore();
 
 // AR-PR9-2 self-test signal: confirms core's first-party modules registered.
 console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.list'));
+
+registerBhRunHandler(core);
 
 let mainWindow: BrowserWindow | null = null;
 
