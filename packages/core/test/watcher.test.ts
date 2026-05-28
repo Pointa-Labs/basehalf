@@ -14,9 +14,10 @@ import type { WatcherEvent } from '../src/modules/watcher/types.js';
  */
 
 // chokidar awaitWriteFinish stabilityThreshold (100ms) + rename buffer
-// window (250ms) + slack. Unlink events are buffered for the rename
-// heuristic; markOrphan only fires after that timer expires.
-const DEBOUNCE = 500;
+// window (600ms) + slack. Both add AND unlink events are buffered for
+// the rename heuristic; markOrphan / materialize only fire after that
+// timer expires (or earlier when a paired counterpart arrives).
+const DEBOUNCE = 900;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

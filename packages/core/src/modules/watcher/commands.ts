@@ -44,18 +44,31 @@ async function resolveWorkspaceRoot(
 
 /**
  * Rename heuristic: when chokidar fires `unlink` for foo.md and then
- * `add` for bar.md within RENAME_WINDOW_MS in the same parent dir + same
- * extension, treat the pair as a rename and call badge.rename atomically
- * instead of markOrphan + materialize. Without this, a Finder rename
- * leaves an orphan badge AND every neighbour's references broken.
+ * `add` for bar.md in the same parent dir + same extension within
+ * RENAME_WINDOW_MS, treat the pair as a rename and call badge.rename
+ * atomically instead of markOrphan + materialize. Without this, a
+ * Finder rename leaves an orphan badge AND every neighbour's references
+ * broken.
  *
- * Tuned for safety: requires same parent dir + same extension before
- * matching. Cross-dir moves and extension changes fall through to the
- * (slower but safer) orphan-then-add path. False positives would
- * silently corrupt refs, so we err on the side of "miss a rename"
- * over "invent one."
+ * Bidirectional buffering: both adds AND unlinks are held briefly. On
+ * receipt of either, we check the *opposite* buffer for a matching
+ * counterpart and pair them. This handles two real-world cases the
+ * earlier "buffer unlinks only" design missed:
+ *   - macOS FSEvents can deliver add before unlink (out of order).
+ *   - macOS FSEvents has variable latency (up to ~500ms under load) so
+ *     the pair can straddle a tight window.
+ *
+ * Window bumped to 600ms — empirically covers FSEvents jitter on a busy
+ * Electron host while still feeling instant for orphan flagging (real
+ * deletions appear as orphans within ~0.6s, well under the eye's
+ * tolerance for "did something happen?").
+ *
+ * Tuned for safety: requires same parent dir + same extension + same
+ * isDir before matching. Cross-dir moves and extension changes fall
+ * through to the safer orphan-then-add path. False positives would
+ * silently corrupt refs, so we err on "miss a rename" over "invent one."
  */
-const RENAME_WINDOW_MS = 250;
+const RENAME_WINDOW_MS = 600;
 
 interface PendingUnlink {
   event: WatcherFsEvent;
@@ -63,22 +76,36 @@ interface PendingUnlink {
   finalize: () => Promise<void>;
 }
 
-/** Module-private buffer of unlink events awaiting a matching add. */
+interface PendingAdd {
+  event: WatcherFsEvent;
+  timer: ReturnType<typeof setTimeout>;
+  finalize: () => Promise<void>;
+}
+
+/** Module-private buffers. unlinks wait for a matching add; adds wait
+ *  for a matching unlink (handles out-of-order arrival). */
 const pendingUnlinks = new Map<string, PendingUnlink>();
+const pendingAdds = new Map<string, PendingAdd>();
 
 function parentDir(relPath: string): string {
   const ix = relPath.lastIndexOf('/');
   return ix === -1 ? '' : relPath.slice(0, ix);
 }
 
-function matchPendingRename(add: WatcherFsEvent): PendingUnlink | null {
-  const addDir = parentDir(add.relPath);
-  const addExt = extname(add.relPath);
-  for (const pending of pendingUnlinks.values()) {
-    if (pending.event.isDir !== add.isDir) continue;
-    if (parentDir(pending.event.relPath) !== addDir) continue;
-    if (extname(pending.event.relPath) !== addExt) continue;
-    // First match wins — real-world renames are 1:1 within the window.
+/** Find a pending entry (from either buffer) that matches the incoming
+ *  event's parent dir + extension + isDir. Generic over the buffer's
+ *  PendingEntry shape since both use `event: WatcherFsEvent`. */
+function findCounterpart<T extends { event: WatcherFsEvent }>(
+  buffer: Map<string, T>,
+  incoming: WatcherFsEvent,
+): T | null {
+  const dir = parentDir(incoming.relPath);
+  const ext = extname(incoming.relPath);
+  for (const pending of buffer.values()) {
+    if (pending.event.isDir !== incoming.isDir) continue;
+    if (parentDir(pending.event.relPath) !== dir) continue;
+    if (extname(pending.event.relPath) !== ext) continue;
+    if (pending.event.relPath === incoming.relPath) continue; // same path = not a rename
     return pending;
   }
   return null;
@@ -136,9 +163,11 @@ async function emitRename(
  * Tolerates badges not being registered (e.g. in tests that wire only
  * watcher) — the missing UnknownCommand is swallowed.
  *
- * unlinks are briefly buffered so a follow-up add in the same parent
- * dir + same extension can be reinterpreted as a rename (see
- * matchPendingRename + emitRename above).
+ * Both adds AND unlinks are briefly buffered (RENAME_WINDOW_MS) so a
+ * matching counterpart in the same parent dir + same extension can be
+ * reinterpreted as a rename instead of an orphan + materialize pair.
+ * Buffering both directions handles macOS FSEvents delivering events
+ * out of order or with variable latency.
  */
 async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Promise<void> {
   if (event.type === 'rename') {
@@ -151,27 +180,58 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
   watcherEvents.emit('event', event);
   try {
     if (event.type === 'add') {
-      const renameMatch = matchPendingRename(event);
-      if (renameMatch) {
-        clearTimeout(renameMatch.timer);
-        pendingUnlinks.delete(renameMatch.event.relPath);
-        await emitRename(ctx, renameMatch, event);
+      // If an unlink for a matching path is already buffered, pair them
+      // as a rename (unlink-first ordering — the common case).
+      const unlinkMatch = findCounterpart(pendingUnlinks, event);
+      if (unlinkMatch) {
+        clearTimeout(unlinkMatch.timer);
+        pendingUnlinks.delete(unlinkMatch.event.relPath);
+        await emitRename(ctx, unlinkMatch, event);
         return;
       }
-      const existing = await ctx.run('badge.get', {
-        file: event.relPath,
-        kind: event.isDir ? 'folder' : 'file',
-      });
-      if (!existing) {
-        await ctx.run('badge.set', {
-          file: event.relPath,
-          patch: { kind: event.isDir ? 'folder' : 'file' },
-        });
-      }
+      // No pending unlink yet — buffer this add briefly in case the
+      // unlink arrives shortly (add-first ordering, common under FSEvents
+      // on macOS). If no unlink arrives in time, materialize normally.
+      const finalize = async (): Promise<void> => {
+        pendingAdds.delete(event.relPath);
+        try {
+          const existing = await ctx.run('badge.get', {
+            file: event.relPath,
+            kind: event.isDir ? 'folder' : 'file',
+          });
+          if (!existing) {
+            await ctx.run('badge.set', {
+              file: event.relPath,
+              patch: { kind: event.isDir ? 'folder' : 'file' },
+            });
+          }
+        } catch (err) {
+          if (err instanceof Error && err.name === 'UnknownCommand') return;
+          console.error('[bh:watcher] materialize failed on buffered add', event, err);
+        }
+      };
+      const timer = setTimeout(() => {
+        void finalize();
+      }, RENAME_WINDOW_MS);
+      pendingAdds.set(event.relPath, { event, timer, finalize });
     } else if (event.type === 'unlink') {
-      // Buffer briefly — if a matching add arrives within the rename
-      // window, the pair is reinterpreted as a rename instead of an
-      // orphan. If nothing arrives, the timer fires markOrphan as before.
+      // If an add for a matching path is already buffered, pair them as
+      // a rename (add-first ordering — the FSEvents-out-of-order case).
+      const addMatch = findCounterpart(pendingAdds, event);
+      if (addMatch) {
+        clearTimeout(addMatch.timer);
+        pendingAdds.delete(addMatch.event.relPath);
+        // emitRename expects (unlink, add) ordering; build a synthetic
+        // PendingUnlink wrapper around this event.
+        await emitRename(
+          ctx,
+          { event, timer: setTimeout(() => undefined, 0), finalize: async () => undefined },
+          addMatch.event,
+        );
+        return;
+      }
+      // No pending add — buffer the unlink. If nothing arrives, the
+      // timer fires markOrphan as before.
       const finalize = async (): Promise<void> => {
         pendingUnlinks.delete(event.relPath);
         try {
@@ -197,12 +257,19 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
   }
 }
 
-/** Flush all pending unlinks immediately (use on watcher.stop / restart so
- *  buffered orphans don't get applied to the wrong workspace). */
-async function flushPendingUnlinks(): Promise<void> {
-  const pending = Array.from(pendingUnlinks.values());
+/** Flush all pending unlinks AND adds immediately (use on
+ *  watcher.stop / restart so buffered events don't get applied to the
+ *  wrong workspace after a switch). */
+async function flushPendingBuffers(): Promise<void> {
+  const unlinks = Array.from(pendingUnlinks.values());
   pendingUnlinks.clear();
-  for (const p of pending) {
+  for (const p of unlinks) {
+    clearTimeout(p.timer);
+    await p.finalize().catch(() => undefined);
+  }
+  const adds = Array.from(pendingAdds.values());
+  pendingAdds.clear();
+  for (const p of adds) {
     clearTimeout(p.timer);
     await p.finalize().catch(() => undefined);
   }
@@ -217,7 +284,7 @@ export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (args,
     // Flush buffered unlinks before tearing down — otherwise an unlink that
     // arrived just before a workspace switch could fire markOrphan against
     // the new workspace's root.
-    await flushPendingUnlinks();
+    await flushPendingBuffers();
     await runningWatcher.close();
     runningWatcher = null;
     runningRoot = null;
@@ -229,7 +296,7 @@ export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (args,
 
 export const stop: Handler<WatcherStopArgs, WatcherStopResult> = async () => {
   if (!runningWatcher) return { stopped: false };
-  await flushPendingUnlinks();
+  await flushPendingBuffers();
   await runningWatcher.close();
   runningWatcher = null;
   runningRoot = null;
@@ -248,6 +315,8 @@ export async function _resetForTests(): Promise<void> {
   // the NEXT test's workspace.
   for (const p of pendingUnlinks.values()) clearTimeout(p.timer);
   pendingUnlinks.clear();
+  for (const p of pendingAdds.values()) clearTimeout(p.timer);
+  pendingAdds.clear();
   if (runningWatcher) await runningWatcher.close();
   runningWatcher = null;
   runningRoot = null;
