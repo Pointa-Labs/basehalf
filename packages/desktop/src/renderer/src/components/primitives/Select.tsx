@@ -112,6 +112,19 @@ export const Select = ({
     }
   }, [open, options, value]);
 
+  // Keep the hovered option visible: when arrow-key navigation moves the
+  // cursor past the menu's scrollable viewport, scroll the option into
+  // view. Without this, holding ArrowDown past the visible window leaves
+  // the user pressing keys with no visible feedback. block:'nearest'
+  // does the minimum scroll needed (doesn't yank the menu to recenter).
+  useEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    if (!menu) return;
+    const option = menu.querySelector<HTMLElement>(`[data-bh-option-idx="${hoverIdx}"]`);
+    option?.scrollIntoView({ block: 'nearest' });
+  }, [open, hoverIdx]);
+
   const triggerStyle: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -183,6 +196,7 @@ export const Select = ({
                 type="button"
                 role="option"
                 aria-selected={selected}
+                data-bh-option-idx={idx}
                 onMouseEnter={() => setHoverIdx(idx)}
                 onClick={() => {
                   onChange(opt.value);
