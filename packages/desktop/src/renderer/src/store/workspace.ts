@@ -340,6 +340,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   createNote: async (relPath: string) => {
     try {
+      // Refuse to clobber an existing file. The New-note UX promises a
+      // fresh note; without this guard, typing an existing path
+      // (intro.md, etc.) silently overwrites the user's content with
+      // a `# <basename>\n\n` stub. workspace.readFile throws
+      // PATH_NOT_FOUND if the file doesn't exist; that's the success
+      // signal for "safe to create".
+      let alreadyExists = false;
+      try {
+        await window.bh.run('workspace.readFile', { path: relPath });
+        alreadyExists = true;
+      } catch (err) {
+        if (!isPathNotFound(err)) throw err;
+      }
+      if (alreadyExists) {
+        set({
+          error: `Note already exists at "${relPath}". Open it from the sidebar to edit.`,
+        });
+        return;
+      }
       const baseName = relPath.split('/').pop() ?? relPath;
       const title = baseName.replace(/\.md$/i, '');
       const body = `# ${title}\n\n`;
