@@ -246,6 +246,75 @@ describe('workspace module (mock FS)', () => {
       /from and to are the same/,
     );
   });
+
+  it('repath: atomically rebinds the workspace to a new path (preserves name + addedAt)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/old');
+    dirs.add('/new');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const initial = (await core.run('workspace.add', { path: '/old', name: 'w' })) as {
+      workspace: { addedAt: string };
+    };
+    const addedAt = initial.workspace.addedAt;
+    const r = (await core.run('workspace.repath', { name: 'w', path: '/new' })) as {
+      workspace: { name: string; path: string; addedAt: string };
+      bhDirCreated: boolean;
+    };
+    expect(r.workspace.name).toBe('w');
+    expect(r.workspace.path).toBe('/new');
+    expect(r.workspace.addedAt).toBe(addedAt); // preserved
+    expect(r.bhDirCreated).toBe(true);
+    expect(dirs.has('/new/.bh')).toBe(true);
+    // current pointer still points at 'w'.
+    const list = (await core.run('workspace.list', {})) as {
+      current: string;
+      workspaces: { name: string; path: string }[];
+    };
+    expect(list.current).toBe('w');
+    expect(list.workspaces[0]?.path).toBe('/new');
+  });
+
+  it('repath: throws when target path does not exist or is not a directory', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/old');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/old', name: 'w' });
+    await expect(core.run('workspace.repath', { name: 'w', path: '/nope' })).rejects.toThrow(
+      /does not exist/,
+    );
+  });
+
+  it('repath: throws when workspace does not exist', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/new');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('workspace.repath', { name: 'ghost', path: '/new' })).rejects.toThrow(
+      /No such workspace: ghost/,
+    );
+  });
+
+  it('repath: throws when target equals current path (no-op)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/old');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/old', name: 'w' });
+    await expect(core.run('workspace.repath', { name: 'w', path: '/old' })).rejects.toThrow(
+      /already at \/old/,
+    );
+  });
+
+  it('repath: does NOT bump current pointer when repathing a non-current workspace', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    dirs.add('/b2');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' }); // current
+    await core.run('workspace.add', { path: '/b', name: 'b' });
+    await core.run('workspace.repath', { name: 'b', path: '/b2' });
+    const list = (await core.run('workspace.list', {})) as { current: string };
+    expect(list.current).toBe('a');
+  });
 });
 
 // ── Integration test (real disk) ────────────────────────────────────────────

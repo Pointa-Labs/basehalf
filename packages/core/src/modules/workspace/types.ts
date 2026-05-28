@@ -100,6 +100,19 @@ export interface WorkspaceRenameResult {
   readonly currentUpdated: boolean;
 }
 
+export interface WorkspaceRepathArgs {
+  readonly name: string;
+  readonly path: string;
+  /** When true, also run runSetup on the new path (CLAUDE.md hint + .gitignore). */
+  readonly setup?: boolean;
+}
+export interface WorkspaceRepathResult {
+  readonly workspace: WorkspaceEntry;
+  readonly bhDirCreated: boolean;
+  /** Only present when `setup: true` was passed. */
+  readonly setup?: SetupReport;
+}
+
 export interface WorkspaceListFilesArgs {
   readonly path: string;
 }

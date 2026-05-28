@@ -69,6 +69,11 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'workspace.rename':
       renderWsRename(result as { workspace: WorkspaceEntry; currentUpdated: boolean });
       return;
+    case 'workspace.repath':
+      renderWsRepath(
+        result as { workspace: WorkspaceEntry; bhDirCreated: boolean; setup?: SetupReport },
+      );
+      return;
     case 'badge.get':
       renderBadge(result as Badge | null);
       return;
@@ -180,6 +185,22 @@ function renderWsRename(r: { workspace: WorkspaceEntry; currentUpdated: boolean 
   process.stdout.write(`Renamed workspace → "${r.workspace.name}"\n`);
   process.stdout.write(`  path:    ${r.workspace.path}\n`);
   if (r.currentUpdated) process.stdout.write('  current: yes (followed the rename)\n');
+}
+
+function renderWsRepath(r: {
+  workspace: WorkspaceEntry;
+  bhDirCreated: boolean;
+  setup?: SetupReport;
+}): void {
+  process.stdout.write(`Repathed workspace "${r.workspace.name}"\n`);
+  process.stdout.write(`  path:    ${r.workspace.path}\n`);
+  if (r.bhDirCreated) process.stdout.write('  .bh/:    created at new path\n');
+  if (r.setup) {
+    const s = r.setup;
+    if (s.gitignoreUpdated) process.stdout.write('  setup:   .bh/cache/ added to .gitignore\n');
+    if (s.claudeMdUpdated)
+      process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
+  }
 }
 
 // ── badge ───────────────────────────────────────────────────────────────────
