@@ -11,7 +11,8 @@
     "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
     "preview": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview",
     "typecheck": "tsc -b",
-    "lint": "biome check src"
+    "lint": "biome check src test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@basehalf/core": "workspace:*",
