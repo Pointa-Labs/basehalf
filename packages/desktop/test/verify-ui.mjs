@@ -1225,10 +1225,7 @@ const cmdK = process.platform === 'darwin' ? 'Meta+k' : 'Control+k';
 await win.keyboard.press(cmdK);
 await win.waitForTimeout(200);
 const paletteInput = win.locator('[data-testid="command-palette-input"]');
-assert(
-  (await paletteInput.count()) === 1,
-  'Cmd+K opens the command palette (input mounted)',
-);
+assert((await paletteInput.count()) === 1, 'Cmd+K opens the command palette (input mounted)');
 await paletteInput.fill('intro');
 await win.waitForTimeout(150);
 const visibleRows = await win.locator('[role=dialog] [role=option]').count();
@@ -1239,10 +1236,7 @@ assert(
 await win.screenshot({ path: `${SCREENS_DIR}/13-command-palette.png` });
 await win.keyboard.press('Enter');
 await win.waitForTimeout(400);
-assert(
-  (await paletteInput.count()) === 0,
-  'Palette closes after Enter on a selected row',
-);
+assert((await paletteInput.count()) === 0, 'Palette closes after Enter on a selected row');
 const previewHeaderAfterPalette = await win.locator('aside header').last().innerText();
 assert(
   previewHeaderAfterPalette.includes('intro.md'),
