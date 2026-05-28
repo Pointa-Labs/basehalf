@@ -1,5 +1,6 @@
 import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehalf/core';
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { color, font, radius, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 interface NavTreeProps {
@@ -28,19 +29,15 @@ const HIDDEN_NAMES: ReadonlySet<string> = new Set([
 
 const isVisible = (entry: WorkspaceListFilesEntry): boolean => !HIDDEN_NAMES.has(entry.name);
 
-// Plain path join — paths come from the OS already normalized; we only
-// concat names that ctx.fs.readdir returned, so no traversal worries.
 const joinPath = (parent: string, name: string): string =>
   parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`;
 
-// Strip the workspace root prefix to get a POSIX relative path for
-// workspace.readFile etc.
 const relativeTo = (root: string, abs: string): string => {
   const trimmedRoot = root.endsWith('/') ? root : `${root}/`;
   return abs.startsWith(trimmedRoot) ? abs.slice(trimmedRoot.length) : abs;
 };
 
-const ROW_HEIGHT = 24;
+const ROW_HEIGHT = 26;
 
 interface RowProps {
   depth: number;
@@ -53,9 +50,33 @@ interface RowProps {
 const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.Element => {
   const [hover, setHover] = useState(false);
   const isDir = entry.type === 'dir';
-  const indent = 8 + depth * 14;
-  const bg = isSelected ? '#e6f0fb' : hover ? '#f0f0f0' : 'transparent';
-  const color = isSelected ? '#1a4d8f' : isDir ? '#222' : '#444';
+  const indent = space[2] + depth * 14;
+
+  const bg = isSelected ? color.accentSofter : hover ? color.divider : 'transparent';
+  const fg = isSelected ? color.accent : isDir ? color.textPrimary : color.textSecondary;
+  const weight = isSelected ? font.weight.medium : font.weight.regular;
+
+  const style: CSSProperties = {
+    width: '100%',
+    textAlign: 'left',
+    border: 'none',
+    background: bg,
+    padding: 0,
+    paddingLeft: indent,
+    paddingRight: space[2],
+    height: ROW_HEIGHT,
+    fontSize: font.size.caption,
+    fontFamily: font.sans,
+    color: fg,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space[1],
+    cursor: 'pointer',
+    fontWeight: weight,
+    transition: transition(['background', 'color']),
+    position: 'relative',
+  };
+
   return (
     <button
       type="button"
@@ -63,37 +84,22 @@ const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.E
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       title={entry.name}
-      style={{
-        width: '100%',
-        textAlign: 'left',
-        border: 'none',
-        background: bg,
-        padding: 0,
-        paddingLeft: indent,
-        paddingRight: 8,
-        height: ROW_HEIGHT,
-        fontSize: 12,
-        fontFamily: 'system-ui, sans-serif',
-        color,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-        cursor: 'pointer',
-        fontWeight: isSelected ? 600 : 400,
-      }}
+      data-selected={isSelected ? 'true' : 'false'}
+      className="bh-nav-row"
+      style={style}
     >
       <span
         aria-hidden
         style={{
           width: 12,
-          fontSize: 10,
-          color: '#888',
+          color: color.textTertiary,
           display: 'inline-flex',
+          alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0,
         }}
       >
-        {isDir ? (isExpanded ? '▾' : '▸') : ''}
+        {isDir ? <ChevronIcon open={isExpanded} /> : null}
       </span>
       <span
         style={{
@@ -107,6 +113,28 @@ const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.E
     </button>
   );
 };
+
+const ChevronIcon = ({ open }: { open: boolean }): JSX.Element => (
+  <svg
+    width={9}
+    height={9}
+    viewBox="0 0 9 9"
+    aria-hidden
+    style={{
+      transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+      transition: transition(['transform']),
+    }}
+  >
+    <path
+      d="M3 2l2.5 2.5L3 7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
 
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
@@ -146,8 +174,6 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   childrenByPathRef.current = childrenByPath;
   useEffect(() => {
     const unsub = window.bh.onFileEvent((event) => {
-      // Ignore our own control dir — chokidar already skips it at the
-      // watcher level, but be defensive in case that changes.
       if (event.relPath === '.bh' || event.relPath.startsWith('.bh/')) return;
       const lastSlash = event.relPath.lastIndexOf('/');
       const parentRel = lastSlash === -1 ? '' : event.relPath.slice(0, lastSlash);
@@ -199,7 +225,21 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   };
 
   if (error) {
-    return <div style={{ color: '#a00', padding: 8, fontSize: 12 }}>{error}</div>;
+    return (
+      <div
+        style={{
+          color: color.danger,
+          padding: space[3],
+          fontSize: font.size.caption,
+        }}
+      >
+        {error}
+      </div>
+    );
   }
-  return <div style={{ padding: '4px 0' }}>{renderEntries(rootPath, 0)}</div>;
+  return (
+    <div style={{ padding: `${space[2]}px 0`, borderRadius: radius.sm }}>
+      {renderEntries(rootPath, 0)}
+    </div>
+  );
 };

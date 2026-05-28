@@ -1,32 +1,24 @@
 import type { CSSProperties, JSX } from 'react';
+import { color, font, space } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { confirm, prompt } from './Dialog.js';
+import { Button } from './primitives/Button.js';
+import { Select } from './primitives/Select.js';
 
-const divider = (
-  <span
-    aria-hidden
-    style={{ width: 1, height: 22, background: '#e0e0e0', display: 'inline-block' }}
-  />
-);
+const dividerStyle: CSSProperties = {
+  width: 1,
+  height: 20,
+  background: color.border,
+  display: 'inline-block',
+};
 
-const btnStyle = (variant: 'default' | 'subtle' | 'primary' = 'default'): CSSProperties => ({
-  padding: '4px 10px',
-  fontSize: 13,
-  fontFamily: 'system-ui, sans-serif',
-  borderRadius: 4,
-  cursor: 'pointer',
-  // Prevent multi-word labels ("+ Add folder", "+ New note") from wrapping
-  // onto two lines when the header gets cramped.
-  whiteSpace: 'nowrap',
-  flexShrink: 0,
-  border:
-    variant === 'primary'
-      ? '1px solid #4a90e2'
-      : variant === 'subtle'
-        ? '1px solid transparent'
-        : '1px solid #d0d0d0',
-  background: variant === 'primary' ? '#4a90e2' : variant === 'subtle' ? 'transparent' : '#fff',
-  color: variant === 'primary' ? '#fff' : variant === 'subtle' ? '#666' : '#222',
-});
+const labelStyle: CSSProperties = {
+  fontSize: font.size.micro,
+  color: color.textTertiary,
+  letterSpacing: font.trackedCaps,
+  textTransform: 'uppercase',
+  fontWeight: font.weight.medium,
+};
 
 export const TopBar = (): JSX.Element => {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -45,185 +37,177 @@ export const TopBar = (): JSX.Element => {
   const createNote = useWorkspaceStore((s) => s.createNote);
   const editorDirty = useWorkspaceStore((s) => s.editorDirty);
 
-  const handleRemove = (): void => {
+  const handleRemove = async (): Promise<void> => {
     if (!current) return;
-    const ok = window.confirm(
-      `Remove workspace "${current}" from BaseHalf?\n\nThe folder and its files stay on disk; only the registration is removed.`,
-    );
+    const ok = await confirm({
+      title: `Remove workspace "${current}"?`,
+      body: 'The folder and its files stay on disk; only the registration is removed.',
+      confirmText: 'Remove',
+      destructive: true,
+    });
     if (ok) void remove(current);
   };
 
-  const handleCreateView = (): void => {
-    const name = window.prompt('Name this view:');
+  const handleCreateView = async (): Promise<void> => {
+    const name = await prompt({
+      title: 'Create a saved view',
+      body: 'Saved views are named groupings of badges across folders — references, not copies.',
+      label: 'Name',
+      placeholder: 'e.g. Chapter 3 reading list',
+      validate: (v) => (v.trim().length === 0 ? 'A name is required.' : null),
+    });
     if (name?.trim()) void createView(name.trim());
   };
 
-  const handleNewNote = (): void => {
-    const raw = window.prompt(
-      'New note path (workspace-relative; folders auto-created):',
-      'untitled.md',
-    );
+  const handleNewNote = async (): Promise<void> => {
+    const raw = await prompt({
+      title: 'New note',
+      label: 'Path',
+      placeholder: 'untitled.md',
+      defaultValue: 'untitled.md',
+      body: 'Workspace-relative; folders auto-created. Extension defaults to .md.',
+      validate: (v) => (v.trim().length === 0 ? 'A path is required.' : null),
+    });
     if (!raw?.trim()) return;
     let name = raw.trim();
     if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
     void createNote(name);
   };
 
-  const handleDeleteView = (): void => {
+  const handleDeleteView = async (): Promise<void> => {
     if (!currentView) return;
     const view = views.find((v) => v.id === currentView);
     if (!view) return;
-    const ok = window.confirm(
-      `Delete view "${view.name}"?\n\nThe badges and files in it are untouched — only this saved grouping is removed.`,
-    );
+    const ok = await confirm({
+      title: `Delete view "${view.name}"?`,
+      body: 'The badges and files in it are untouched — only this saved grouping is removed.',
+      confirmText: 'Delete',
+      destructive: true,
+    });
     if (ok) void deleteView(currentView);
   };
 
   const handleViewChange = (value: string): void => {
-    if (value === '__main__') {
-      setCurrentView(null);
-      setFolderScope(null);
-    } else {
-      setCurrentView(value);
-      setFolderScope(null);
-    }
+    setCurrentView(value === '__main__' ? null : value);
+    setFolderScope(null);
   };
+
+  const handleWorkspaceChange = async (next: string): Promise<void> => {
+    if (!next || next === current) return;
+    if (editorDirty) {
+      const ok = await confirm({
+        title: 'You have unsaved edits',
+        body: 'Switching workspaces will discard the unsaved edits in the current file.',
+        confirmText: 'Discard and switch',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    void use(next);
+  };
+
+  const workspaceOptions = workspaces.map((ws) => ({ value: ws.name, label: ws.name }));
+  const viewOptions = [
+    { value: '__main__', label: 'Main canvas' },
+    ...views.map((v) => ({
+      value: v.id,
+      label: v.name,
+      hint: `${v.members.length} badge${v.members.length === 1 ? '' : 's'}`,
+    })),
+  ];
 
   return (
     <header
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        padding: '8px 12px',
-        borderBottom: '1px solid #e0e0e0',
-        background: '#fafafa',
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 13,
+        gap: space[2],
+        padding: `${space[2]}px ${space[4]}px`,
+        borderBottom: `1px solid ${color.border}`,
+        background: color.surface,
+        fontFamily: font.sans,
+        flexShrink: 0,
+        height: 48,
       }}
     >
-      <span style={{ fontWeight: 700, color: '#222', letterSpacing: 0.2 }}>BaseHalf</span>
-      {divider}
-      <select
-        value={current ?? ''}
-        onChange={(e) => {
-          const next = e.target.value;
-          if (!next || next === current) return;
-          if (
-            editorDirty &&
-            !window.confirm(
-              'You have unsaved edits in the current file. Switching workspaces will discard them. Continue?',
-            )
-          ) {
-            // Snap the select back to the current workspace.
-            e.target.value = current ?? '';
-            return;
-          }
-          void use(next);
-        }}
-        disabled={busy || workspaces.length === 0}
-        title={workspaces.length === 0 ? 'Add a workspace to begin' : 'Switch active workspace'}
+      <span
         style={{
-          padding: '4px 8px',
-          fontSize: 13,
-          minWidth: 160,
-          borderRadius: 4,
-          border: '1px solid #d0d0d0',
-          background: '#fff',
+          fontSize: font.size.body,
+          fontWeight: font.weight.semibold,
+          color: color.textPrimary,
+          letterSpacing: -0.1,
         }}
       >
-        {workspaces.length === 0 && <option value="">— no workspaces —</option>}
-        {workspaces.map((ws) => (
-          <option key={ws.name} value={ws.name}>
-            {ws.name}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        onClick={() => void pickAndAdd()}
-        disabled={busy}
-        style={btnStyle('default')}
-      >
-        {busy ? '…' : '+ Add folder'}
-      </button>
-      {current && (
-        <button
-          type="button"
-          onClick={handleRemove}
+        BaseHalf
+      </span>
+
+      <span style={dividerStyle} aria-hidden />
+
+      {workspaces.length > 0 ? (
+        <Select
+          value={current ?? ''}
+          options={workspaceOptions}
+          onChange={(v) => void handleWorkspaceChange(v)}
+          placeholder="Choose workspace…"
           disabled={busy}
-          title={`Unregister "${current}" (files stay on disk)`}
-          style={btnStyle('subtle')}
-        >
-          Remove
-        </button>
+          minWidth={180}
+          title="Switch active workspace"
+          testId="topbar-workspace-select"
+        />
+      ) : (
+        <span style={{ fontSize: font.size.ui, color: color.textTertiary }}>No workspaces</span>
       )}
+
+      <Button onClick={() => void pickAndAdd()} disabled={busy}>
+        {busy ? '…' : 'Add folder'}
+      </Button>
+
+      {current && (
+        <Button variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
+          Remove
+        </Button>
+      )}
+
       {current && (
         <>
-          {divider}
-          <button
-            type="button"
-            onClick={handleNewNote}
-            title="Create a new note in this workspace"
-            style={btnStyle('default')}
-          >
-            + New note
-          </button>
+          <span style={dividerStyle} aria-hidden />
+          <Button onClick={() => void handleNewNote()}>New note</Button>
         </>
       )}
+
       <div style={{ flex: 1 }} />
+
+      {current && folderScope && (
+        <>
+          <Button variant="ghost" onClick={() => setFolderScope(null)} title="Exit folder scope">
+            ← /{folderScope}
+          </Button>
+          <span style={dividerStyle} aria-hidden />
+        </>
+      )}
+
       {current && (
         <>
-          {folderScope && (
-            <>
-              <button
-                type="button"
-                onClick={() => setFolderScope(null)}
-                title="Exit this folder sub-canvas"
-                style={btnStyle('default')}
-              >
-                ← /{folderScope}
-              </button>
-              {divider}
-            </>
-          )}
-          <span style={{ color: '#888', fontSize: 12 }}>View</span>
-          <select
+          <span style={labelStyle}>View</span>
+          <Select
             value={currentView ?? '__main__'}
-            onChange={(e) => handleViewChange(e.target.value)}
-            style={{
-              padding: '4px 8px',
-              fontSize: 13,
-              minWidth: 160,
-              borderRadius: 4,
-              border: '1px solid #d0d0d0',
-              background: '#fff',
-            }}
-          >
-            <option value="__main__">main canvas</option>
-            {views.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} ({v.members.length})
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={handleCreateView}
-            title="Create a new saved view in this workspace"
-            style={btnStyle('default')}
-          >
-            + New view
-          </button>
+            options={viewOptions}
+            onChange={handleViewChange}
+            minWidth={180}
+            title="Switch between main canvas and saved views"
+            testId="topbar-view-select"
+          />
+          <Button onClick={() => void handleCreateView()} title="Create a new saved view">
+            New view
+          </Button>
           {currentView && (
-            <button
-              type="button"
-              onClick={handleDeleteView}
+            <Button
+              variant="ghost"
+              onClick={() => void handleDeleteView()}
               title="Delete this saved view (badges + files untouched)"
-              style={btnStyle('subtle')}
             >
               Delete view
-            </button>
+            </Button>
           )}
         </>
       )}

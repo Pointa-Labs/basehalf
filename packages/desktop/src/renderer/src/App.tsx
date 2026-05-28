@@ -1,10 +1,12 @@
 import { type JSX, useEffect } from 'react';
 import { Canvas } from './components/Canvas.js';
+import { DialogHost } from './components/Dialog.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { FilePreview } from './components/FilePreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TopBar } from './components/TopBar.js';
+import { color } from './design.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
 export const App = (): JSX.Element => {
@@ -23,9 +25,10 @@ export const App = (): JSX.Element => {
         flexDirection: 'column',
         height: '100vh',
         margin: 0,
-        background: '#fff',
+        background: color.bg,
       }}
     >
+      <FdaTip />
       <TopBar />
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Sidebar />
@@ -34,8 +37,8 @@ export const App = (): JSX.Element => {
         </main>
         <FilePreview />
       </div>
-      <FdaTip />
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
+      <DialogHost />
     </div>
   );
 };

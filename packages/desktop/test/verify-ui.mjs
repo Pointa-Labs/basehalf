@@ -108,17 +108,53 @@ win.on('console', (msg) => {
 const bhRun = (name, args = {}) =>
   win.evaluate(({ name, args }) => window.bh.run(name, args), { name, args });
 
+// ── Custom-dialog helpers (replace win.on('dialog', …)) ──────────────────────
+// The renderer now uses a React-rendered dialog instead of window.confirm /
+// window.prompt, so the driver clicks DOM buttons inside `[role=dialog]`.
+const dialogIsOpen = () => win.locator('[role=dialog]').count();
+const waitForDialog = (text) =>
+  win.locator('[role=dialog]', text ? { hasText: text } : undefined).waitFor({ timeout: 5000 });
+const clickDialogButton = (text) =>
+  win.locator('[role=dialog] button', { hasText: text }).first().click();
+const fillDialogInput = async (value) => {
+  const input = win.locator('[role=dialog] input').first();
+  await input.fill(value);
+};
+const acceptDialogIfPresent = async (clickLabel) => {
+  if ((await dialogIsOpen()) === 0) return false;
+  await clickDialogButton(clickLabel);
+  await win.waitForTimeout(200);
+  return true;
+};
+
+// ── Custom-Select helpers (replace native selectOption) ──────────────────────
+const openSelect = async (testId) => {
+  await win.locator(`[data-testid="${testId}"]`).click();
+  await win.locator('[role=listbox]').first().waitFor({ timeout: 3000 });
+};
+const pickOption = async (text) => {
+  await win.locator('[role=listbox] [role=option]', { hasText: text }).first().click();
+  await win.waitForTimeout(200);
+};
+const selectByTestId = async (testId, optionText) => {
+  await openSelect(testId);
+  await pickOption(optionText);
+};
+
 // --- 1. Empty state ---
 console.log('\n[1] Empty state (no workspaces)');
 await win.waitForTimeout(400);
 await win.screenshot({ path: `${SCREENS_DIR}/01-empty.png` });
 const emptyText = await win.locator('main').innerText();
-assert(emptyText.includes('Welcome to BaseHalf'), 'Empty state shows onboarding card');
+assert(/BaseHalf/.test(emptyText), 'Empty state shows the BaseHalf onboarding card');
 assert(
-  /get started/i.test(emptyText),
-  'Onboarding card has a Get started section (case-insensitive — header uses uppercase styling)',
+  emptyText.includes('Add a folder to begin') || emptyText.includes('Add folder'),
+  'Onboarding card has the primary CTA',
 );
-assert(emptyText.includes('+ Add folder'), 'Onboarding refers to the actual TopBar button label');
+assert(
+  /pick a folder/i.test(emptyText),
+  'Onboarding card explains the first action (pick a folder)',
+);
 assert(emptyText.includes('Badge'), 'Onboarding mentions the Badge editing path');
 
 // --- 2. Register workspace via core, then trigger renderer refresh ---
@@ -141,12 +177,12 @@ await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
 const topbarText = await win.locator('header').first().innerText();
 assert(topbarText.includes('BaseHalf'), 'TopBar shows app name');
 assert(
-  topbarText.includes('+ Add folder'),
+  topbarText.includes('Add folder'),
   'TopBar shows "+ Add folder" button (renamed from "+ Pick folder")',
 );
-assert(topbarText.includes('+ New note'), 'TopBar shows "+ New note" button (new entry)');
-assert(topbarText.includes('+ New view'), 'TopBar shows "+ New view" button');
-assert(topbarText.includes('View'), 'TopBar shows "View" label');
+assert(topbarText.includes('New note'), 'TopBar shows "+ New note" button (new entry)');
+assert(topbarText.includes('New view'), 'TopBar shows "+ New view" button');
+assert(/view/i.test(topbarText), 'TopBar shows the View label (case-insensitive)');
 assert(!topbarText.includes('Delete view'), 'Delete view button hidden until a view is active');
 
 // --- 3. Sidebar shows workspace + collapse button ---
@@ -223,9 +259,10 @@ console.log(`     first badge text: ${JSON.stringify(firstBadgeText)}`);
 // (e.g. "notes/scratch.md" would show "scratch.md" + a dirname line.)
 assert(!firstBadgeText.includes('[file]'), 'BadgeNode no longer shows "[file]" debug prefix');
 assert(!firstBadgeText.includes('[dir]'), 'BadgeNode no longer shows "[dir]" debug prefix');
-// ReactFlow Controls (zoom in/out/fit) should be present.
-const controlsCount = await win.locator('.react-flow__controls').count();
-assert(controlsCount === 1, 'ReactFlow Controls panel present (zoom/fit buttons)');
+// Custom CanvasControls (zoom in/out/fit) should be present — replaces
+// react-flow's default `<Controls />` to match the rest of the chrome.
+const controlsCount = await win.locator('.bh-canvas-controls').count();
+assert(controlsCount === 1, 'Custom canvas controls panel present (zoom/fit buttons)');
 
 await win.screenshot({ path: `${SCREENS_DIR}/03-canvas.png` });
 
@@ -693,15 +730,19 @@ console.log('\n[9] Saved-view CRUD');
 await bhRun('view.create', { name: 'Test View' });
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
-await win.waitForTimeout(500);
-// Select the view via the TopBar select. View select is the second <select>
-// in the header (first is the workspace picker).
-const viewSelect = win.locator('header select').nth(1);
-const viewOptionValue = await viewSelect
-  .locator('option', { hasText: 'Test View' })
-  .getAttribute('value');
-await viewSelect.selectOption(viewOptionValue);
-await win.waitForTimeout(200);
+await win.waitForTimeout(1500);
+// Probe what's actually in the TopBar after reload.
+const probeTopbar = await win
+  .locator('header')
+  .first()
+  .innerText()
+  .catch(() => '<no header>');
+console.log('     topbar after reload:', JSON.stringify(probeTopbar.slice(0, 200)));
+// Wait for the topbar's view select to actually render.
+await win.locator('[data-testid="topbar-view-select"]').waitFor({ timeout: 5000 });
+await win.waitForTimeout(300);
+// Pick "Test View" from the custom view dropdown.
+await selectByTestId('topbar-view-select', 'Test View');
 const topbarTextWithView = await win.locator('header').first().innerText();
 assert(
   topbarTextWithView.includes('Delete view'),
@@ -710,7 +751,7 @@ assert(
 await win.screenshot({ path: `${SCREENS_DIR}/06-view-active.png` });
 
 // Switch back to main canvas → Delete-view should disappear.
-await viewSelect.selectOption('__main__');
+await selectByTestId('topbar-view-select', 'Main canvas');
 await win.waitForTimeout(200);
 const topbarTextMain = await win.locator('header').first().innerText();
 assert(
@@ -859,15 +900,11 @@ const dirtyText = await win.locator('aside').last().innerText();
 assert(dirtyText.includes('Unsaved changes'), 'Editor is dirty before workspace switch');
 // First attempt to switch: dismiss the confirm (Cancel) — the switch should
 // be cancelled and the dirty edits preserved.
-const dismissDialog = (d) => {
-  console.log(`     dialog (dismiss): ${JSON.stringify(d.message().slice(0, 80))}`);
-  void d.dismiss();
-};
-win.on('dialog', dismissDialog);
-const wsSelect = win.locator('header select').first();
-await wsSelect.selectOption('bh-verify-ws-2');
-await win.waitForTimeout(500);
-win.off('dialog', dismissDialog);
+await openSelect('topbar-workspace-select');
+await pickOption('bh-verify-ws-2');
+await waitForDialog('unsaved edits');
+await clickDialogButton('Cancel');
+await win.waitForTimeout(400);
 const stillOnWs1 = await win.locator('aside').first().innerText();
 assert(
   stillOnWs1.includes('bh-verify-ws') && !stillOnWs1.includes('bh-verify-ws-2'),
@@ -879,14 +916,11 @@ assert(
   'Cancelling preserves the unsaved edits (still Unsaved)',
 );
 // Now actually switch, accepting the confirm.
-const acceptDialog = (d) => {
-  console.log(`     dialog (accept): ${JSON.stringify(d.message().slice(0, 80))}`);
-  void d.accept();
-};
-win.on('dialog', acceptDialog);
-await wsSelect.selectOption('bh-verify-ws-2');
-await win.waitForTimeout(1000);
-win.off('dialog', acceptDialog);
+await openSelect('topbar-workspace-select');
+await pickOption('bh-verify-ws-2');
+await waitForDialog('unsaved edits');
+await clickDialogButton('Discard and switch');
+await win.waitForTimeout(800);
 const introContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
 // 🔍 Observable: were the unsaved edits silently dropped, auto-saved, or
 // did a confirm/warn dialog block the switch?
@@ -904,8 +938,8 @@ assert(
   `🔍 Unsaved edits NOT silently committed to disk on switch (stamp on intro.md: ${stampOnDisk})`,
 );
 // Switch back and confirm the dirty edits are gone (we never told the user).
-await wsSelect.selectOption('bh-verify-ws');
-await win.waitForTimeout(1200);
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await win.waitForTimeout(1000);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 const introPreviewAfterReturn = await win
@@ -962,28 +996,23 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
-// --- 13. Workspace.remove via confirm — does clicking OK actually
-// unregister? Playwright catches the native confirm dialog via
-// page.on('dialog'). ---
-console.log('\n[13] Workspace.remove via window.confirm');
-let dialogSeen = false;
-const dialogHandler = (dialog) => {
-  dialogSeen = true;
-  console.log(
-    `     dialog: type=${dialog.type()} msg=${JSON.stringify(dialog.message().slice(0, 80))}`,
-  );
-  void dialog.accept();
-};
-win.on('dialog', dialogHandler);
+// --- 13. Workspace.remove via custom Dialog — clicking the destructive
+// confirm in the modal should actually unregister. ---
+console.log('\n[13] Workspace.remove via custom Dialog');
 // Switch to ws-2 so we can safely remove it.
-await wsSelect.selectOption('bh-verify-ws-2');
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(700);
 const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
 await win.locator('header button', { hasText: 'Remove' }).click();
+await waitForDialog('Remove workspace');
+assert((await dialogIsOpen()) === 1, 'Remove opens the custom Dialog (no native popup)');
+// Wait for the fade-in animation to finish before capturing (otherwise the
+// screenshot catches the dialog mid-animation, looking washed-out).
+await win.waitForTimeout(350);
+await win.screenshot({ path: `${SCREENS_DIR}/12-dialog-confirm.png` });
+await clickDialogButton('Remove');
 await win.waitForTimeout(800);
-win.off('dialog', dialogHandler);
 const afterRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
-assert(dialogSeen, 'window.confirm dialog was surfaced for Remove');
 assert(
   afterRemoveCount === beforeRemoveCount - 1,
   `Workspace count dropped after confirmed Remove (${beforeRemoveCount}→${afterRemoveCount})`,

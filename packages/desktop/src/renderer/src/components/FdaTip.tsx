@@ -1,11 +1,9 @@
 import { type JSX, useEffect, useState } from 'react';
+import { color, font, motion, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 const STORAGE_KEY = 'bh:fda-tip-dismissed';
 
-// macOS TCC-protected user dirs. Apple doesn't expose a programmatic FDA
-// prompt, so the best we can do is suggest the System Settings path when
-// the user registers a workspace under one of these.
 const MAC_PROTECTED_PATTERN =
   /^\/Users\/[^/]+\/(Documents|Desktop|Downloads|Pictures|Music|Movies)(\/|$)/;
 
@@ -43,41 +41,50 @@ export const FdaTip = (): JSX.Element | null => {
   return (
     <div
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        padding: '8px 12px',
-        background: '#fff8dc',
-        borderBottom: '1px solid #e8d77a',
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 12,
-        color: '#665500',
+        padding: `${space[2]}px ${space[4]}px`,
+        background: color.warningSoft,
+        borderBottom: `1px solid ${color.warning}33`,
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+        color: color.warning,
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        zIndex: 10,
+        gap: space[3],
+        flexShrink: 0,
+        animation: `bh-banner-in ${motion.normal}`,
       }}
     >
-      <span style={{ flex: 1 }}>
-        Heads up: <strong>{trigger}</strong> is under a macOS protected folder. If files don't show
-        up in the sidebar, grant <strong>Full Disk Access</strong> in System Settings → Privacy
-        &amp; Security.
+      <span aria-hidden style={{ fontSize: font.size.body }}>
+        ⚠
+      </span>
+      <span style={{ flex: 1, lineHeight: 1.5 }}>
+        <strong style={{ fontFamily: font.mono, letterSpacing: -0.2 }}>{trigger}</strong> is under a
+        macOS-protected folder. If files don’t show up, grant <strong>Full Disk Access</strong> in
+        System Settings → Privacy & Security.
       </span>
       <button
         type="button"
         onClick={dismiss}
         style={{
           background: 'transparent',
-          border: '1px solid #e8d77a',
-          color: '#665500',
-          padding: '2px 8px',
+          border: 'none',
+          color: color.warning,
+          padding: `${space[1]}px ${space[2]}px`,
           cursor: 'pointer',
-          fontSize: 12,
-          borderRadius: 3,
+          fontSize: font.size.caption,
+          borderRadius: 4,
+          fontFamily: font.sans,
+          fontWeight: font.weight.medium,
+          transition: transition(['background']),
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = `${color.warning}1a`;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'transparent';
         }}
       >
-        got it
+        Got it
       </button>
     </div>
   );
