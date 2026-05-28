@@ -173,14 +173,24 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const childrenByPathRef = useRef(childrenByPath);
   childrenByPathRef.current = childrenByPath;
   useEffect(() => {
-    const unsub = window.bh.onFileEvent((event) => {
-      if (event.relPath === '.bh' || event.relPath.startsWith('.bh/')) return;
-      const lastSlash = event.relPath.lastIndexOf('/');
-      const parentRel = lastSlash === -1 ? '' : event.relPath.slice(0, lastSlash);
+    const refreshParentOf = (rel: string): void => {
+      if (rel === '.bh' || rel.startsWith('.bh/')) return;
+      const lastSlash = rel.lastIndexOf('/');
+      const parentRel = lastSlash === -1 ? '' : rel.slice(0, lastSlash);
       const parentAbs = parentRel === '' ? rootPath : joinPath(rootPath, parentRel);
       if (childrenByPathRef.current.has(parentAbs)) {
         void loadChildren(parentAbs);
       }
+    };
+    const unsub = window.bh.onFileEvent((event) => {
+      if (event.type === 'rename') {
+        // Refresh both ends — for same-dir renames this is the same dir
+        // twice (cheap), for cross-dir moves it correctly refreshes both.
+        refreshParentOf(event.fromRelPath);
+        refreshParentOf(event.toRelPath);
+        return;
+      }
+      refreshParentOf(event.relPath);
     });
     return unsub;
   }, [rootPath, loadChildren]);

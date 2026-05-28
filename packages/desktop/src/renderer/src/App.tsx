@@ -18,6 +18,22 @@ export const App = (): JSX.Element => {
     void refresh();
   }, [refresh]);
 
+  // Global rename listener: when the watcher detects a rename of the
+  // currently-open file, rebind currentFile to the new path so the user
+  // doesn't have to manually re-click in the NavTree. Without this, the
+  // editor stays on the OLD path (which the unlink just flagged as
+  // deleted) until the user notices the new file in the sidebar.
+  useEffect(() => {
+    const unsub = window.bh.onFileEvent((event) => {
+      if (event.type !== 'rename') return;
+      const state = useWorkspaceStore.getState();
+      if (state.currentFile === event.fromRelPath) {
+        state.setCurrentFile(event.toRelPath);
+      }
+    });
+    return unsub;
+  }, []);
+
   return (
     <div
       style={{

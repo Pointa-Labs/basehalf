@@ -25,9 +25,11 @@ registerBhRunHandler(core);
 registerWorkspacePickHandler();
 
 // Forward file events from the core watcher to all open renderers so the
-// FilePreview component can prompt for reload when an open file changes
-// externally. Listener is attached once, lives for the whole process.
-watcherEvents.on('event', (event: { type: string; relPath: string; isDir: boolean }) => {
+// FilePreview can prompt for reload on external edits and rebind currentFile
+// on renames. Listener is attached once, lives for the whole process.
+// Event is a discriminated union — add/change/unlink (one path) or rename
+// (from/to). Send the whole shape; the renderer narrows on `type`.
+watcherEvents.on('event', (event: unknown) => {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('bh:file-event', event);
