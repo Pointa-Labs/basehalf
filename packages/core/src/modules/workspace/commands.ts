@@ -304,13 +304,25 @@ export function _coerceContext(ctx: unknown): asserts ctx is Context {
 }
 
 /**
- * Materialize via the badges module, but tolerate it not being registered.
- * Tests can wire only the workspace module without dragging badges in;
- * production createCore always has both.
+ * Materialize via the badges module + seed the focus.md contract surface
+ * via the focus module. Both are "bootstrap on workspace open" work, and
+ * both are tolerant of their module not being registered (tests can wire
+ * only the workspace module; production createCore always has all five).
+ *
+ * Why focus.init lives here: an agent following the CLAUDE.md hint and
+ * reading .bh/focus.md on a brand-new workspace used to get ENOENT before
+ * any UI click ever happened. Seeding the empty template on every open
+ * means the contract surface always exists.
  */
 async function materializeWithFallback(ctx: Context, workspaceRoot: string): Promise<void> {
   try {
     await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return;
+    throw err;
+  }
+  try {
+    await ctx.run('focus.init', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     throw err;
