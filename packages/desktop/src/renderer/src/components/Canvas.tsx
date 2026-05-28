@@ -354,6 +354,19 @@ export const Canvas = (): JSX.Element => {
     );
   }
 
+  // Pick the empty-canvas hint text based on why nothing's showing:
+  // a freshly-opened workspace with no supported files vs an active
+  // saved view with no members yet vs a folder scope with no children.
+  // (We don't show the hint if a badge exists; the canvas speaks for itself.)
+  const emptyHint =
+    nodes.length === 0
+      ? currentView !== null
+        ? 'This view has no badges yet. Drag a badge from the main canvas (clear the View dropdown above) into here — its position will be saved per-view.'
+        : folderScope !== null
+          ? `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`
+          : "This workspace has no files yet. Drop or create files in the folder and they'll appear as badges."
+      : null;
+
   return (
     <div style={{ width: '100%', height: '100%' }}>
       {error && (
@@ -372,6 +385,30 @@ export const Canvas = (): JSX.Element => {
           }}
         >
           {error}
+        </div>
+      )}
+      {emptyHint && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            maxWidth: 380,
+            padding: '14px 18px',
+            background: '#fff',
+            border: '1px dashed #d0d0d0',
+            borderRadius: 6,
+            fontFamily: 'system-ui, sans-serif',
+            fontSize: 13,
+            color: '#666',
+            textAlign: 'center',
+            lineHeight: 1.5,
+            zIndex: 5,
+            pointerEvents: 'none',
+          }}
+        >
+          {emptyHint}
         </div>
       )}
       <ReactFlow
