@@ -790,15 +790,36 @@ assert(
   topbarTextWithView.includes('Delete view'),
   'Delete-view button appears once a view is active',
 );
+assert(
+  topbarTextWithView.includes('Rename view'),
+  'Rename-view button appears once a view is active',
+);
 await win.screenshot({ path: `${SCREENS_DIR}/06-view-active.png` });
 
-// Switch back to main canvas → Delete-view should disappear.
+// Rename the view via the new button → custom prompt dialog → submit.
+await win.locator('header button', { hasText: 'Rename view' }).click();
+await waitForDialog('Rename view');
+await fillDialogInput('Test View Renamed');
+await clickDialogButton('OK');
+await win.waitForTimeout(500);
+const viewListAfterRename = await bhRun('view.list', {});
+const renamedView = viewListAfterRename.views.find((v) => v.name === 'Test View Renamed');
+assert(
+  renamedView !== undefined,
+  `view.update reflected in store after Rename view dialog (views: ${viewListAfterRename.views.map((v) => v.name).join(', ')})`,
+);
+
+// Switch back to main canvas → Delete + Rename buttons should disappear.
 await selectByTestId('topbar-view-select', 'Main canvas');
 await win.waitForTimeout(200);
 const topbarTextMain = await win.locator('header').first().innerText();
 assert(
   !topbarTextMain.includes('Delete view'),
   'Delete-view button hidden when back on main canvas',
+);
+assert(
+  !topbarTextMain.includes('Rename view'),
+  'Rename-view button hidden when back on main canvas',
 );
 
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
