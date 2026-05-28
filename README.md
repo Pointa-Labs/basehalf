@@ -48,11 +48,11 @@ The architecture rules:
 
 **Pre-alpha; CLI is real, desktop app is end-to-end usable.** Six core modules ship today:
 
-- **`bh workspace`** — register / switch / remove BaseHalf workspaces; `bh init` sets up cwd
-- **`bh badge`** — get / set / list badges (file + backpack: prompt + references + canvas position); add/remove references between them
+- **`bh workspace`** — register / switch / rename / remove BaseHalf workspaces; `bh init` sets up cwd
+- **`bh badge`** — get / set / list / rename badges (file + backpack: prompt + references + canvas position); add/remove references between them
 - **`bh inbound`** — query reverse references (who points at this file?); rebuild from all badges
 - **`bh focus`** — publish the agent focus signal (`.bh/focus.md`); set from file list or saved view
-- **`bh view`** — create / list / delete saved views; add / remove member badges (references, not copies)
+- **`bh view`** — create / list / update (rename + prompt) / delete saved views; add / remove member badges (references, not copies)
 
 The desktop app (canvas + block editor + agent protocol) is the v0 build — Electron Mac build is **dogfood-ready today** (PRs 9–16; see [docs/roadmap.md](docs/roadmap.md)).
 

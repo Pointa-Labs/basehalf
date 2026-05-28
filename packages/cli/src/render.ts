@@ -80,6 +80,16 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'badge.list':
       renderBadgeList(result as { badges: Badge[] });
       return;
+    case 'badge.rename':
+      renderBadgeRename(
+        result as {
+          badge: Badge;
+          updatedRefs: readonly string[];
+          focusUpdated: boolean;
+          updatedViews: readonly string[];
+        },
+      );
+      return;
     case 'inbound.get':
       renderInboundGet(result as { entries: { from: string; note?: string }[] });
       return;
@@ -95,6 +105,7 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
       return;
     case 'view.create':
     case 'view.get':
+    case 'view.update':
     case 'view.addMember':
     case 'view.removeMember':
       renderView(result as SavedView | null);
@@ -193,6 +204,22 @@ function renderBadge(badge: Badge | null): void {
     );
   }
   process.stdout.write(`  modified:   ${badge.modifiedAt}\n`);
+}
+
+function renderBadgeRename(r: {
+  badge: Badge;
+  updatedRefs: readonly string[];
+  focusUpdated: boolean;
+  updatedViews: readonly string[];
+}): void {
+  process.stdout.write(`Renamed badge → ${r.badge.file}\n`);
+  if (r.updatedRefs.length > 0) {
+    process.stdout.write(`  refs:    ${r.updatedRefs.length} neighbour(s) rewritten\n`);
+  }
+  if (r.focusUpdated) process.stdout.write('  focus:   updated (was in active list)\n');
+  if (r.updatedViews.length > 0) {
+    process.stdout.write(`  views:   ${r.updatedViews.length} membership(s) updated\n`);
+  }
 }
 
 function renderBadgeList(r: { badges: Badge[] }): void {
