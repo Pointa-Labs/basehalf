@@ -311,3 +311,143 @@ describe('badge.removeRef', () => {
     expect(result.references).toEqual([{ to: 'b.md' }]);
   });
 });
+
+describe('badge.rename', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('moves the badge JSON file from old path to new path (preserves prompt + refs + canvas + createdAt)', async () => {
+    await ctx.core.run('badge.set', {
+      file: 'foo.md',
+      patch: {
+        prompt: 'careful — load-bearing',
+        references: [{ to: 'bar.md' }],
+        canvas: { x: 42, y: 17, collapsed: false },
+      },
+    });
+    const before = (await ctx.core.run('badge.get', { file: 'foo.md' })) as BadgeFile;
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { badge: BadgeFile };
+    expect(result.badge.file).toBe('foo-v2.md');
+    expect(result.badge.prompt).toBe('careful — load-bearing');
+    expect(result.badge.references).toEqual([{ to: 'bar.md' }]);
+    expect(result.badge.canvas).toEqual({ x: 42, y: 17, collapsed: false });
+    expect(result.badge.createdAt).toBe(before.createdAt);
+    // Old badge file gone, new one exists.
+    expect(ctx.files.has('/work/.bh/badges/foo.md.json')).toBe(false);
+    expect(ctx.files.has('/work/.bh/badges/foo-v2.md.json')).toBe(true);
+  });
+
+  it('cascades inbound refs: badges that pointed at `from` now point at `to`', async () => {
+    // a.md → foo.md, b.md → foo.md (with note)
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'foo.md' });
+    await ctx.core.run('badge.addRef', { file: 'b.md', to: 'foo.md', note: 'why' });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { updatedRefs: string[] };
+    expect(new Set(result.updatedRefs)).toEqual(new Set(['a.md', 'b.md']));
+    const a = (await ctx.core.run('badge.get', { file: 'a.md' })) as BadgeFile;
+    const b = (await ctx.core.run('badge.get', { file: 'b.md' })) as BadgeFile;
+    expect(a.references).toEqual([{ to: 'foo-v2.md' }]);
+    expect(b.references).toEqual([{ to: 'foo-v2.md', note: 'why' }]);
+    // inbound index now reflects the new target.
+    const inbound = (await ctx.core.run('inbound.get', { file: 'foo-v2.md' })) as {
+      entries: { from: string }[];
+    };
+    expect(inbound.entries.map((e) => e.from).sort()).toEqual(['a.md', 'b.md']);
+    // Old target has no inbound refs.
+    const stale = (await ctx.core.run('inbound.get', { file: 'foo.md' })) as {
+      entries: unknown[];
+    };
+    expect(stale.entries).toEqual([]);
+  });
+
+  it('updates focus.md if `from` was in the active list', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('focus.set', { files: ['unrelated.md', 'foo.md'] });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { focusUpdated: boolean };
+    expect(result.focusUpdated).toBe(true);
+    const focus = (await ctx.core.run('focus.get', {})) as { active: string[] };
+    expect(focus.active).toEqual(['unrelated.md', 'foo-v2.md']);
+  });
+
+  it('leaves focus.md alone when `from` was not in active list', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('focus.set', { files: ['unrelated.md'] });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { focusUpdated: boolean };
+    expect(result.focusUpdated).toBe(false);
+    const focus = (await ctx.core.run('focus.get', {})) as { active: string[] };
+    expect(focus.active).toEqual(['unrelated.md']);
+  });
+
+  it('updates view memberships that included `from` (preserves per-view position)', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('view.create', { name: 'V1', id: 'v1' });
+    await ctx.core.run('view.create', { name: 'V2', id: 'v2' });
+    await ctx.core.run('view.addMember', {
+      id: 'v1',
+      file: 'foo.md',
+      position: { x: 100, y: 200 },
+    });
+    // v2 does NOT contain foo.md — should not be touched.
+    await ctx.core.run('view.addMember', { id: 'v2', file: 'other.md' });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { updatedViews: string[] };
+    expect(result.updatedViews).toEqual(['v1']);
+    const v1 = (await ctx.core.run('view.get', { id: 'v1' })) as {
+      members: { file: string; x?: number; y?: number }[];
+    };
+    expect(v1.members).toEqual([{ file: 'foo-v2.md', x: 100, y: 200 }]);
+    const v2 = (await ctx.core.run('view.get', { id: 'v2' })) as {
+      members: { file: string }[];
+    };
+    expect(v2.members.map((m) => m.file)).toEqual(['other.md']);
+  });
+
+  it('throws when source badge does not exist', async () => {
+    await expect(
+      ctx.core.run('badge.rename', { from: 'never.md', to: 'whatever.md' }),
+    ).rejects.toThrow(/no badge at never\.md/);
+  });
+
+  it('throws when destination already has a badge (collision)', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('badge.set', { file: 'bar.md' });
+    await expect(ctx.core.run('badge.rename', { from: 'foo.md', to: 'bar.md' })).rejects.toThrow(
+      /already exists at bar\.md/,
+    );
+  });
+
+  it('throws when from === to (no-op rename is probably a caller bug)', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await expect(ctx.core.run('badge.rename', { from: 'foo.md', to: 'foo.md' })).rejects.toThrow(
+      /from and to are the same/,
+    );
+  });
+
+  it('clears the orphan flag on the moved badge (rename = file resurrected under new name)', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('badge.markOrphan', { file: 'foo.md' });
+    const before = (await ctx.core.run('badge.get', { file: 'foo.md' })) as BadgeFile;
+    expect(before.orphan).toBe(true);
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { badge: BadgeFile };
+    expect(result.badge.orphan).toBeUndefined();
+  });
+});
