@@ -38,6 +38,7 @@ bh workspace list
 bh workspace use <name>
 bh workspace current
 bh workspace remove <name>
+bh workspace rename <from> <to>              # change a workspace's name; path + .bh/ untouched
 ```
 
 `bh init` is the one-shot for a new project: registers the current directory,
@@ -64,6 +65,7 @@ bh badge get <file> [--kind file|folder] [--json]
 bh badge set <file> [--kind file|folder] [--prompt <text>] [--json]
 bh badge addRef <file> <to> [--note <text>] [--json]
 bh badge removeRef <file> <to> [--json]
+bh badge rename <from> <to> [--kind file|folder] [--json]   # atomic move + cascade refs + focus + views
 ```
 
 The reverse index lives at `.bh/index/inbound.json` and is maintained
@@ -93,6 +95,7 @@ folders — references, not copies.
 bh view create <name> [--id <id>] [--prompt <text>]
 bh view list
 bh view get <id>
+bh view update <id> [--name <name>] [--prompt <text>]      # rename and/or set agent prompt
 bh view addMember <id> <file> [--x <n>] [--y <n>]
 bh view removeMember <id> <file>
 bh view delete <id>                 # member badges + user files untouched

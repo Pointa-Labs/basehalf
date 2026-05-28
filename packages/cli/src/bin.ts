@@ -208,6 +208,27 @@ const badgeRemoveRef = defineCommand({
   },
 });
 
+const badgeRename = defineCommand({
+  meta: {
+    name: 'rename',
+    description: 'Atomically rename a badge (cascade refs + focus + view membership)',
+  },
+  args: {
+    from: { type: 'positional', description: 'Current file path', required: true },
+    to: { type: 'positional', description: 'New file path', required: true },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.rename', {
+      from: args.from,
+      to: args.to,
+      ...(args.kind && { kind: args.kind }),
+    });
+    render('badge.rename', result, Boolean(args.json));
+  },
+});
+
 const badge = defineCommand({
   meta: { name: 'badge', description: 'Manage badge JSON (file + backpack)' },
   subCommands: {
@@ -216,6 +237,7 @@ const badge = defineCommand({
     list: badgeList,
     addRef: badgeAddRef,
     removeRef: badgeRemoveRef,
+    rename: badgeRename,
   },
 });
 
@@ -388,12 +410,39 @@ const viewRemoveMember = defineCommand({
   },
 });
 
+const viewUpdate = defineCommand({
+  meta: {
+    name: 'update',
+    description: 'Rename a view and/or set its agent-facing prompt',
+  },
+  args: {
+    id: { type: 'positional', description: 'View id', required: true },
+    name: { type: 'string', description: 'New name (omit to leave unchanged)' },
+    prompt: {
+      type: 'string',
+      description: 'New prompt for the AI agent reading this view (empty string clears)',
+    },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const patch: { name?: string; prompt?: string } = {};
+    if (typeof args.name === 'string') patch.name = args.name;
+    if (typeof args.prompt === 'string') patch.prompt = args.prompt;
+    if (Object.keys(patch).length === 0) {
+      throw new Error('view update: pass --name and/or --prompt');
+    }
+    const result = await core.run('view.update', { id: args.id, patch });
+    render('view.update', result, Boolean(args.json));
+  },
+});
+
 const view = defineCommand({
   meta: { name: 'view', description: 'Saved views — compound groupings of badges' },
   subCommands: {
     create: viewCreate,
     list: viewList,
     get: viewGet,
+    update: viewUpdate,
     delete: viewDelete,
     addMember: viewAddMember,
     removeMember: viewRemoveMember,
