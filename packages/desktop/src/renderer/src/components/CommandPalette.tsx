@@ -16,8 +16,8 @@
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { promptForNewNote, promptForNewView } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
-import { prompt } from './Dialog.js';
 
 interface CommandPaletteStore {
   open: boolean;
@@ -119,7 +119,6 @@ export const CommandPalette = (): JSX.Element | null => {
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
-  const createNote = useWorkspaceStore((s) => s.createNote);
 
   // Files in the current workspace — fetched lazily when the palette
   // opens so we don't pay the cost on every render of the host App.
@@ -216,22 +215,13 @@ export const CommandPalette = (): JSX.Element | null => {
         id: 'action:new-note',
         label: 'New note…',
         category: 'Action',
-        run: () => {
-          void (async () => {
-            const raw = await prompt({
-              title: 'New note',
-              label: 'Path',
-              placeholder: 'untitled.md',
-              defaultValue: 'untitled.md',
-              body: 'Workspace-relative; folders auto-created. Extension defaults to .md.',
-              validate: (v) => (v.trim().length === 0 ? 'A path is required.' : null),
-            });
-            if (!raw?.trim()) return;
-            let name = raw.trim();
-            if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
-            void createNote(name);
-          })();
-        },
+        run: () => void promptForNewNote(),
+      });
+      out.push({
+        id: 'action:new-view',
+        label: 'New view…',
+        category: 'Action',
+        run: () => void promptForNewView(),
       });
     }
 
@@ -246,7 +236,6 @@ export const CommandPalette = (): JSX.Element | null => {
     setFolderScope,
     setCurrentFile,
     pickAndAdd,
-    createNote,
   ]);
 
   // Filter actions by query (case-insensitive substring match on label,

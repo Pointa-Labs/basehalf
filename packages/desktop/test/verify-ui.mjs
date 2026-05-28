@@ -1252,6 +1252,23 @@ await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 assert((await paletteInput.count()) === 0, 'Esc closes the palette');
 
+// --- 12e. Global Cmd+N opens the new-note dialog (same flow as the
+// TopBar "New note" button). Cmd+Shift+N opens the new-view dialog.
+console.log('\n[12e] Cmd+N / Cmd+Shift+N global shortcuts');
+const cmdN = process.platform === 'darwin' ? 'Meta+n' : 'Control+n';
+await win.keyboard.press(cmdN);
+await waitForDialog('New note');
+assert((await dialogIsOpen()) === 1, 'Cmd+N opens the New-note dialog');
+await clickDialogButton('Cancel');
+await win.waitForTimeout(200);
+
+const cmdShiftN = process.platform === 'darwin' ? 'Meta+Shift+n' : 'Control+Shift+n';
+await win.keyboard.press(cmdShiftN);
+await waitForDialog('Create a saved view');
+assert((await dialogIsOpen()) === 1, 'Cmd+Shift+N opens the Create-view dialog');
+await clickDialogButton('Cancel');
+await win.waitForTimeout(200);
+
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
 // confirm in the modal should actually unregister. ---
 console.log('\n[13] Workspace.remove via custom Dialog');

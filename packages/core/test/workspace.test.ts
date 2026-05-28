@@ -381,6 +381,45 @@ describe('workspace module (mock FS)', () => {
       core.run('workspace.createDemo', { path: '/demo', name: '@bad name!' }),
     ).rejects.toThrow(/Invalid workspace name/);
   });
+
+  it('createDemo: idempotent on second call at the same path (no "already exists" error)', async () => {
+    const { fs, files } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    // First call — creates the workspace + seeds files.
+    const r1 = (await core.run('workspace.createDemo', {
+      path: '/demo',
+      name: 'demo',
+    })) as { filesCreated: string[] };
+    expect(r1.filesCreated.length).toBeGreaterThan(0);
+    // Second call — must not throw; existing files preserved; workspace
+    // remains registered.
+    const r2 = (await core.run('workspace.createDemo', {
+      path: '/demo',
+      name: 'demo',
+    })) as { workspace: { name: string }; filesCreated: string[] };
+    expect(r2.workspace.name).toBe('demo');
+    // filesCreated should be empty the second time (everything already
+    // existed; non-destructive seeding).
+    expect(r2.filesCreated).toEqual([]);
+    // Workspace still listed once (not duplicated).
+    const list = (await core.run('workspace.list', {})) as {
+      workspaces: { name: string }[];
+    };
+    expect(list.workspaces.filter((w) => w.name === 'demo')).toHaveLength(1);
+    // intro.md content from the first seed is preserved (we never
+    // overwrite — just verify the seed survived).
+    expect(files.get('/demo/intro.md')).toMatch(/Welcome to your BaseHalf demo workspace/);
+  });
+
+  it('createDemo: name collision on a DIFFERENT path is still an error (real conflict)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/other');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/other', name: 'demo' });
+    await expect(core.run('workspace.createDemo', { path: '/demo', name: 'demo' })).rejects.toThrow(
+      /already registered at \/other/,
+    );
+  });
 });
 
 // ── Integration test (real disk) ────────────────────────────────────────────

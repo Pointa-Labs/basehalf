@@ -1,5 +1,6 @@
 import type { CSSProperties, JSX } from 'react';
 import { color, font, space } from '../design.js';
+import { promptForNewNote, promptForNewView } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { confirm, prompt } from './Dialog.js';
 import { Button } from './primitives/Button.js';
@@ -33,11 +34,9 @@ export const TopBar = (): JSX.Element => {
   const setCurrentView = useWorkspaceStore((s) => s.setCurrentView);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
-  const createView = useWorkspaceStore((s) => s.createView);
   const renameView = useWorkspaceStore((s) => s.renameView);
   const setViewPrompt = useWorkspaceStore((s) => s.setViewPrompt);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
-  const createNote = useWorkspaceStore((s) => s.createNote);
   const editorDirty = useWorkspaceStore((s) => s.editorDirty);
 
   const handleRemove = async (): Promise<void> => {
@@ -71,31 +70,10 @@ export const TopBar = (): JSX.Element => {
     if (trimmed && trimmed !== current) void renameWorkspace(current, trimmed);
   };
 
-  const handleCreateView = async (): Promise<void> => {
-    const name = await prompt({
-      title: 'Create a saved view',
-      body: 'Saved views are named groupings of badges across folders — references, not copies.',
-      label: 'Name',
-      placeholder: 'e.g. Chapter 3 reading list',
-      validate: (v) => (v.trim().length === 0 ? 'A name is required.' : null),
-    });
-    if (name?.trim()) void createView(name.trim());
-  };
-
-  const handleNewNote = async (): Promise<void> => {
-    const raw = await prompt({
-      title: 'New note',
-      label: 'Path',
-      placeholder: 'untitled.md',
-      defaultValue: 'untitled.md',
-      body: 'Workspace-relative; folders auto-created. Extension defaults to .md.',
-      validate: (v) => (v.trim().length === 0 ? 'A path is required.' : null),
-    });
-    if (!raw?.trim()) return;
-    let name = raw.trim();
-    if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
-    void createNote(name);
-  };
+  // Both flows delegate to lib/actions so the TopBar buttons and the
+  // global Cmd+N / Cmd+Shift+N shortcuts produce identical UX.
+  const handleCreateView = (): Promise<void> => promptForNewView();
+  const handleNewNote = (): Promise<void> => promptForNewNote();
 
   const handleEditFolderPrompt = async (): Promise<void> => {
     if (!folderScope) return;
