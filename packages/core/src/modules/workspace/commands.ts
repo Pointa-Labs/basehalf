@@ -366,14 +366,38 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   }
 
   // Register the workspace; setup:true so the agent-protocol hint
-  // installs. workspace.add will throw if the name is already taken —
-  // bubble that up so the caller can surface it (collision = the user
-  // already has a workspace at this name; they should pick differently).
-  const addResult = await ctx.run<WorkspaceAddArgs, WorkspaceAddResult>('workspace.add', {
-    path: absPath,
-    name,
-    setup: true,
-  });
+  // installs. If a workspace with this name already exists (user clicked
+  // "Try a demo" a second time), make the operation idempotent: switch
+  // to it and proceed to re-apply the demo prompts + refs. Without this
+  // the user would hit "Workspace already exists" as a hard error on
+  // their second click.
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  let addResult: WorkspaceAddResult;
+  if (data.workspaces[name]) {
+    const existing = data.workspaces[name];
+    if (existing.path !== absPath) {
+      // Collision on name but different path — that IS a real conflict
+      // the user should resolve. Surface it.
+      throw new Error(
+        `Workspace name "${name}" is already registered at ${existing.path}. Pick a different demo path.`,
+      );
+    }
+    await ctx.run('workspace.use', { name });
+    addResult = {
+      workspace: { name, path: existing.path, addedAt: existing.addedAt },
+      setAsCurrent: true,
+      bhDirCreated: false,
+      // Re-run setup so a deleted CLAUDE.md gets recreated. Setup is
+      // marker-detected idempotent on existing CLAUDE.md.
+      setup: await runSetup(ctx.fs, absPath),
+    };
+  } else {
+    addResult = await ctx.run<WorkspaceAddArgs, WorkspaceAddResult>('workspace.add', {
+      path: absPath,
+      name,
+      setup: true,
+    });
+  }
 
   // Apply badge prompts + refs. badge.set + badge.addRef cascade through
   // the inbound index automatically. If a file was already on disk
