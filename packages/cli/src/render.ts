@@ -128,9 +128,9 @@ function renderWsAdd(r: {
     else if (s.gitignoreAbsent)
       process.stdout.write('  setup:   no .gitignore (not a git repo?) — skipped\n');
     if (s.claudeMdUpdated)
-      process.stdout.write('  setup:   workspace hint appended to CLAUDE.md\n');
+      process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
     else if (s.claudeMdSkipped)
-      process.stdout.write('  setup:   CLAUDE.md already had workspace hint\n');
+      process.stdout.write('  setup:   CLAUDE.md already has the agent-protocol hint\n');
   }
 }
 
