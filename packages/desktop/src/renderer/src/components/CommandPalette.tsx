@@ -16,7 +16,12 @@
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { createDemoAtDefault, promptForNewNote, promptForNewView } from '../lib/actions.js';
+import {
+  createDemoAtDefault,
+  promptForNewNote,
+  promptForNewView,
+  tildifyPath,
+} from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 interface CommandPaletteStore {
@@ -169,7 +174,7 @@ export const CommandPalette = (): JSX.Element | null => {
       out.push({
         id: `ws:${ws.name}`,
         label: ws.name,
-        hint: ws.path,
+        hint: tildifyPath(ws.path),
         category: 'Workspace',
         run: () => void use(ws.name),
       });
