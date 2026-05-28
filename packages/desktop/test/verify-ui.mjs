@@ -1497,6 +1497,44 @@ assert(freshContent.includes('Fresh Note'), 'New note file landed on disk with e
 
 await win.screenshot({ path: `${SCREENS_DIR}/08-after-new-note.png` });
 
+// --- 11b. Workspace canvas isolation: switching workspaces must NOT
+// leak the previous workspace's badges into the new canvas. ws-2 holds
+// just one file (other.md, no setup → no CLAUDE.md), so the badge count
+// for ws-2 should drop dramatically compared to bh-verify-ws's 5+
+// badges. A regression in Canvas.refresh's filter or workspace.use's
+// state reset would let stale React Flow nodes persist briefly OR
+// permanently — either is data-displayed-out-of-context.
+console.log('\n[11b] Workspace switch — canvas badges fully replaced');
+const isoSecondWs = '/tmp/bh-verify-ws-iso';
+if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
+mkdirSync(isoSecondWs, { recursive: true });
+writeFileSync(join(isoSecondWs, 'lone.md'), '# Lone file\n');
+await bhRun('workspace.add', { path: isoSecondWs });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1500);
+const badgesInOriginal = await win.locator('.react-flow__node-badge').count();
+assert(
+  badgesInOriginal >= 3,
+  `Original workspace has multiple badges as baseline (${badgesInOriginal})`,
+);
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws-iso');
+await win.waitForTimeout(1200);
+const badgesInIso = await win.locator('.react-flow__node-badge').count();
+assert(
+  badgesInIso < badgesInOriginal,
+  `Switching workspaces purges the previous canvas (was ${badgesInOriginal}, now ${badgesInIso})`,
+);
+assert(
+  badgesInIso <= 2,
+  `ws-iso canvas shows only its own file count (${badgesInIso}; expected ≤2 for lone.md)`,
+);
+// Return to the original workspace; cleanup the iso ws.
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await win.waitForTimeout(1000);
+await bhRun('workspace.remove', { name: 'bh-verify-ws-iso' });
+if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
+
 // --- 12. Workspace switch while editor is dirty — potential data-loss
 // path. v0 has no built-in warning; capture observed behaviour. ---
 console.log('\n[12] Workspace switch while editor is dirty');
