@@ -1,4 +1,7 @@
 import type { Handler } from '../../kernel/index.js';
+import type { FocusGetResult, FocusSetResult } from '../focus/types.js';
+import type { InboundGetResult } from '../inbound/types.js';
+import type { SavedView, ViewListResult } from '../views/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
@@ -14,6 +17,8 @@ import type {
   BadgeMarkOrphanArgs,
   BadgeMarkOrphanResult,
   BadgeRemoveRefArgs,
+  BadgeRenameArgs,
+  BadgeRenameResult,
   BadgeSetArgs,
   BadgeSetResult,
 } from './types.js';
@@ -178,6 +183,145 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   return next;
 };
 
+/**
+ * Atomic rename: move the badge from `from` to `to`, rewrite every
+ * inbound reference (other badges pointing at `from` get rewritten to
+ * point at `to`), update focus.md if `from` was in the active list, and
+ * patch view memberships that included `from`.
+ *
+ * Why all four updates in one command:
+ *  - Leaving inbound refs stale would silently break the agent's
+ *    neighbourhood walk: links to a missing badge are dead-ends.
+ *  - Leaving focus.md stale points the agent at a badge that no longer
+ *    exists.
+ *  - Leaving view membership stale shows broken member badges in saved
+ *    views.
+ * Anything less than all four would make rename an attractive nuisance.
+ *
+ * Used by the watcher's rename heuristic (Stage 2) but also exposable as
+ * a deliberate user action ("rename this file via bh") if we ever want
+ * a CLI/UI affordance.
+ *
+ * Errors:
+ *  - Throws if the source badge doesn't exist.
+ *  - Throws if a badge already exists at `to` (collision; caller must
+ *    resolve before calling).
+ */
+export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const kind: BadgeKind = args.kind ?? 'file';
+  if (args.from === args.to) {
+    throw new Error(`badge.rename: from and to are the same (${args.from})`);
+  }
+
+  const source = await readBadge(ctx.fs, root, args.from, kind);
+  if (!source) {
+    throw new Error(`badge.rename: no badge at ${args.from}`);
+  }
+  const collision = await readBadge(ctx.fs, root, args.to, kind);
+  if (collision) {
+    throw new Error(`badge.rename: badge already exists at ${args.to}`);
+  }
+
+  // 1. Write a copy at the new path, preserving the user's prompt /
+  // references / canvas position / createdAt. Clear orphan since the
+  // underlying file just (re)appeared under a new name.
+  const now = new Date().toISOString();
+  const moved: BadgeFile = {
+    bhVersion: 1,
+    file: args.to,
+    kind,
+    ...(source.prompt !== undefined && { prompt: source.prompt }),
+    references: source.references,
+    ...(source.canvas !== undefined && { canvas: source.canvas }),
+    createdAt: source.createdAt,
+    modifiedAt: now,
+  };
+  await writeBadge(ctx.fs, root, moved);
+
+  // 2. Delete the source badge file. (We intentionally write the new one
+  // BEFORE deleting the source so a crash between steps leaves both —
+  // bad — over a crash with neither, which loses the user's prompt and
+  // references entirely.)
+  await removeBadge(ctx.fs, root, args.from, kind);
+
+  // 3. Rewrite every inbound reference: for each badge that pointed at
+  // `from`, removeRef(from) + addRef(to, note). Each pair cascades the
+  // inbound index update via badge.addRef's existing inbound.addRef
+  // sync. Inbound module may not be registered (tests wiring just
+  // badges); swallow UnknownCommand the same way the rest of the module
+  // does.
+  const updatedRefs: string[] = [];
+  let inbound: InboundGetResult = { entries: [] };
+  try {
+    inbound = await ctx.run<{ file: string }, InboundGetResult>('inbound.get', {
+      file: args.from,
+    });
+  } catch (err) {
+    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+  }
+  for (const entry of inbound.entries) {
+    try {
+      await ctx.run('badge.removeRef', { file: entry.from, to: args.from });
+      await ctx.run('badge.addRef', {
+        file: entry.from,
+        to: args.to,
+        ...(entry.note !== undefined && { note: entry.note }),
+      });
+      updatedRefs.push(entry.from);
+    } catch (err) {
+      // A neighbour badge might have been deleted concurrently; don't
+      // abort the whole rename — leave the orphan ref for the user to
+      // notice in the canvas (we mark them visually).
+      if (!(err instanceof Error)) throw err;
+      console.warn(`[bh:badges] rename: failed to rewrite ref on ${entry.from}:`, err.message);
+    }
+  }
+
+  // 4. Update focus.md if `from` is in the active list.
+  let focusUpdated = false;
+  try {
+    const focus = await ctx.run<Record<string, never>, FocusGetResult>('focus.get', {});
+    if (focus.active.includes(args.from)) {
+      const next = focus.active.map((f) => (f === args.from ? args.to : f));
+      await ctx.run<{ files: readonly string[] }, FocusSetResult>('focus.set', { files: next });
+      focusUpdated = true;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+  }
+
+  // 5. Update view memberships that include `from`. view.removeMember
+  // followed by view.addMember preserves the per-view position (we read
+  // it off the member first, then re-add with the same coords).
+  const updatedViews: string[] = [];
+  try {
+    const viewList = await ctx.run<Record<string, never>, ViewListResult>('view.list', {});
+    for (const view of viewList.views) {
+      const member = view.members.find((m) => m.file === args.from);
+      if (!member) continue;
+      try {
+        await ctx.run('view.removeMember', { id: view.id, file: args.from });
+        await ctx.run('view.addMember', {
+          id: view.id,
+          file: args.to,
+          ...(member.x !== undefined &&
+            member.y !== undefined && { position: { x: member.x, y: member.y } }),
+          ...(member.collapsed !== undefined && { collapsed: member.collapsed }),
+        });
+        updatedViews.push(view.id);
+      } catch (err) {
+        if (!(err instanceof Error)) throw err;
+        console.warn(`[bh:badges] rename: failed to update view ${view.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+  }
+
+  return { badge: moved, updatedRefs, focusUpdated, updatedViews };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -189,5 +333,6 @@ export function commands(): ReadonlyArray<
     ['badge.addRef', addRef as unknown as Handler<never, unknown>],
     ['badge.removeRef', removeRef as unknown as Handler<never, unknown>],
     ['badge.markOrphan', markOrphan as unknown as Handler<never, unknown>],
+    ['badge.rename', rename as unknown as Handler<never, unknown>],
   ];
 }

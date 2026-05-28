@@ -92,6 +92,23 @@ export interface BadgeMarkOrphanArgs {
 }
 export type BadgeMarkOrphanResult = BadgeFile | null;
 
+export interface BadgeRenameArgs {
+  readonly from: string;
+  readonly to: string;
+  readonly kind?: BadgeKind;
+}
+export interface BadgeRenameResult {
+  readonly badge: BadgeFile;
+  /** Files whose badges had an outbound reference to `from` and were
+   *  updated to point at `to` instead. Useful for the watcher / desktop
+   *  to know which neighbours moved. */
+  readonly updatedRefs: readonly string[];
+  /** True if focus.md had `from` in its active list and was rewritten. */
+  readonly focusUpdated: boolean;
+  /** View IDs whose member list included `from` and were updated. */
+  readonly updatedViews: readonly string[];
+}
+
 /**
  * AR-PR11-7: thrown when a badge JSON on disk fails to parse. UI / list
  * callers should catch and skip; never crash on a single bad file.
