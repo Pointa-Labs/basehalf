@@ -8,8 +8,18 @@ import type {
 } from '@basehalf/core';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
-import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type JSX,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
@@ -53,16 +63,19 @@ export const FilePreview = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
 
-  // Esc closes the preview. Effect must run unconditionally — the early
-  // return below short-circuits, but React requires hook order to be stable
-  // across renders, so we register before the null check.
+  // Esc / Cmd-W close the preview. Cmd-W matches macOS muscle memory for
+  // closing a panel/tab. Effect runs unconditionally (hook-order rule) and
+  // bails when no file is open.
   useEffect(() => {
     if (!currentFile) return;
     const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (e.key === 'Escape') {
         // Don't fight BlockNote's own escape handling (e.g. exit a slash menu).
-        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        setCurrentFile(null);
+      } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
         setCurrentFile(null);
       }
     };
@@ -79,8 +92,8 @@ export const FilePreview = (): JSX.Element | null => {
     <aside
       style={{
         width: 480,
-        borderLeft: '1px solid #e0e0e0',
-        background: '#fff',
+        borderLeft: `1px solid ${color.border}`,
+        background: color.surface,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -88,14 +101,13 @@ export const FilePreview = (): JSX.Element | null => {
     >
       <header
         style={{
-          padding: '8px 12px',
-          borderBottom: '1px solid #eee',
-          background: '#fafafa',
-          fontFamily: 'system-ui, sans-serif',
-          fontSize: 12,
+          padding: `${space[3]}px ${space[4]}px`,
+          borderBottom: `1px solid ${color.border}`,
+          background: color.surface,
+          fontFamily: font.sans,
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: space[2],
         }}
         title={currentFile}
       >
@@ -113,8 +125,10 @@ export const FilePreview = (): JSX.Element | null => {
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              color: '#222',
-              fontSize: 13,
+              color: color.textPrimary,
+              fontSize: font.size.body,
+              fontWeight: font.weight.semibold,
+              letterSpacing: -0.1,
             }}
           >
             {basename}
@@ -122,33 +136,22 @@ export const FilePreview = (): JSX.Element | null => {
           {dirname && (
             <span
               style={{
-                fontSize: 10,
-                color: '#999',
+                fontSize: font.size.micro,
+                color: color.textTertiary,
+                fontFamily: font.mono,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                letterSpacing: -0.2,
               }}
             >
               {dirname}/
             </span>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setCurrentFile(null)}
-          title="Close (Esc)"
-          style={{
-            background: 'transparent',
-            border: '1px solid #ccc',
-            padding: '2px 8px',
-            fontSize: 12,
-            cursor: 'pointer',
-            borderRadius: 3,
-            color: '#555',
-          }}
-        >
+        <Button variant="ghost" size="sm" onClick={() => setCurrentFile(null)} title="Close (Esc)">
           Close
-        </button>
+        </Button>
       </header>
       <BadgeProperties file={currentFile} />
       <div style={{ flex: 1, overflow: 'auto' }}>
@@ -172,14 +175,26 @@ export const FilePreview = (): JSX.Element | null => {
         {mode === 'other' && (
           <div
             style={{
-              padding: 16,
-              fontFamily: 'system-ui, sans-serif',
-              fontSize: 13,
-              color: '#666',
+              padding: space[4],
+              fontFamily: font.sans,
+              fontSize: font.size.body,
+              color: color.textSecondary,
             }}
           >
-            <p>No built-in viewer for this file type.</p>
-            <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{absPath}</p>
+            <p style={{ margin: 0, marginBottom: space[2] }}>
+              No built-in viewer for this file type.
+            </p>
+            <p
+              style={{
+                fontFamily: font.mono,
+                fontSize: font.size.micro,
+                color: color.textTertiary,
+                margin: 0,
+                wordBreak: 'break-all',
+              }}
+            >
+              {absPath}
+            </p>
           </div>
         )}
       </div>
@@ -305,10 +320,9 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   return (
     <section
       style={{
-        borderBottom: '1px solid #eee',
-        background: '#fafafa',
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: 12,
+        borderBottom: `1px solid ${color.border}`,
+        background: color.surfaceMuted,
+        fontFamily: font.sans,
       }}
     >
       <button
@@ -320,18 +334,26 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
           textAlign: 'left',
           border: 'none',
           background: 'transparent',
-          padding: '6px 12px',
-          fontSize: 11,
-          color: '#666',
+          padding: `${space[2]}px ${space[4]}px`,
+          fontSize: font.size.micro,
+          color: color.textTertiary,
           cursor: 'pointer',
-          letterSpacing: 0.3,
+          letterSpacing: font.trackedCaps,
           textTransform: 'uppercase',
+          fontWeight: font.weight.medium,
           display: 'flex',
           alignItems: 'center',
-          gap: 6,
+          gap: space[1.5],
+          transition: transition(['color']),
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.color = color.textSecondary;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = color.textTertiary;
         }}
       >
-        <span style={{ width: 10, fontSize: 9 }}>{collapsed ? '▸' : '▾'}</span>
+        <Chevron open={!collapsed} />
         <span>Badge</span>
         {collapsed && (
           <span
@@ -339,8 +361,9 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
               marginLeft: 'auto',
               textTransform: 'none',
               letterSpacing: 0,
-              color: '#888',
-              fontSize: 11,
+              color: color.textTertiary,
+              fontSize: font.size.caption,
+              fontWeight: font.weight.regular,
             }}
           >
             {headerSummary}
@@ -348,11 +371,31 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         )}
       </button>
       {!collapsed && (
-        <div style={{ padding: '4px 12px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div
+          style={{
+            padding: `${space[1]}px ${space[4]}px ${space[4]}px`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: space[3],
+          }}
+        >
           <label style={{ display: 'block' }}>
-            <div style={{ color: '#666', marginBottom: 2 }}>
+            <div
+              style={{
+                color: color.textSecondary,
+                marginBottom: space[1],
+                fontSize: font.size.caption,
+                fontWeight: font.weight.medium,
+              }}
+            >
               Prompt
-              <span style={{ color: '#aaa', marginLeft: 6, fontSize: 11 }}>
+              <span
+                style={{
+                  color: color.textTertiary,
+                  marginLeft: space[1.5],
+                  fontWeight: font.weight.regular,
+                }}
+              >
                 what agents read about this file
               </span>
             </div>
@@ -367,25 +410,50 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
               style={{
                 width: '100%',
                 boxSizing: 'border-box',
-                padding: '6px 8px',
-                fontSize: 12,
-                fontFamily: 'system-ui, sans-serif',
-                border: '1px solid #d0d0d0',
-                borderRadius: 4,
+                padding: `${space[2]}px ${space[3]}px`,
+                fontSize: font.size.body,
+                fontFamily: font.sans,
+                color: color.textPrimary,
+                border: `1px solid ${color.borderStrong}`,
+                borderRadius: radius.md,
                 resize: 'vertical',
-                background: '#fff',
+                background: color.surface,
+                outline: 'none',
+                transition: transition(['border-color', 'box-shadow']),
+                lineHeight: 1.45,
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = color.accent;
+                e.currentTarget.style.boxShadow = shadow.focus;
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = color.borderStrong;
+                e.currentTarget.style.boxShadow = 'none';
               }}
             />
           </label>
           <div>
-            <div style={{ color: '#666', marginBottom: 4 }}>
+            <div
+              style={{
+                color: color.textSecondary,
+                marginBottom: space[1.5],
+                fontSize: font.size.caption,
+                fontWeight: font.weight.medium,
+              }}
+            >
               References{' '}
-              <span style={{ color: '#aaa', fontSize: 11 }}>
+              <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
                 {refCount} out · {inboundCount} in
               </span>
             </div>
             {refCount === 0 ? (
-              <div style={{ color: '#999', fontSize: 11, fontStyle: 'italic' }}>
+              <div
+                style={{
+                  color: color.textTertiary,
+                  fontSize: font.size.caption,
+                  lineHeight: 1.5,
+                }}
+              >
                 Drag from this badge's right edge to another badge to add a reference.
               </div>
             ) : (
@@ -396,7 +464,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                   margin: 0,
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: 4,
+                  gap: space[1],
                 }}
               >
                 {badge?.references.map((ref) => (
@@ -417,6 +485,29 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   );
 };
 
+const Chevron = ({ open }: { open: boolean }): JSX.Element => (
+  <svg
+    width={10}
+    height={10}
+    viewBox="0 0 10 10"
+    aria-hidden
+    style={{
+      transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
+      transition: transition(['transform']),
+      flexShrink: 0,
+    }}
+  >
+    <path
+      d="M3.5 2l3 3-3 3"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 const ReferenceRow = ({
   to,
   note,
@@ -433,39 +524,44 @@ const ReferenceRow = ({
   useEffect(() => {
     setLocal(note);
   }, [note]);
+  const [hovered, setHovered] = useState(false);
   return (
     <li
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 6,
-        padding: '4px 6px',
-        background: '#fff',
-        border: '1px solid #e8e8e8',
-        borderRadius: 3,
+        gap: space[1.5],
+        padding: `${space[1]}px ${space[2]}px`,
+        background: color.surface,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.md,
+        transition: transition(['border-color']),
       }}
     >
+      <span aria-hidden style={{ color: color.textTertiary, fontSize: font.size.caption }}>
+        →
+      </span>
       <span
         title={to}
         style={{
-          fontFamily: 'ui-monospace, monospace',
-          fontSize: 11,
-          color: '#444',
-          maxWidth: 140,
+          fontFamily: font.mono,
+          fontSize: font.size.caption,
+          color: color.textSecondary,
+          maxWidth: 130,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
           flexShrink: 0,
+          letterSpacing: -0.2,
         }}
       >
-        → {to}
+        {to}
       </span>
       <input
         value={local}
         onChange={(e) => setLocal(e.target.value)}
-        onBlur={() => {
-          if (local !== note) onNoteCommit(local);
-        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
             e.currentTarget.blur();
@@ -475,11 +571,24 @@ const ReferenceRow = ({
         style={{
           flex: 1,
           minWidth: 0,
-          padding: '2px 6px',
-          fontSize: 11,
-          border: '1px solid #e0e0e0',
-          borderRadius: 3,
-          background: '#fafafa',
+          padding: `${space[0.5]}px ${space[1.5]}px`,
+          fontSize: font.size.caption,
+          fontFamily: font.sans,
+          color: color.textPrimary,
+          border: '1px solid transparent',
+          borderRadius: radius.sm,
+          background: 'transparent',
+          outline: 'none',
+          transition: transition(['border-color', 'background']),
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = color.borderStrong;
+          e.currentTarget.style.background = color.surface;
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = 'transparent';
+          e.currentTarget.style.background = 'transparent';
+          if (local !== note) onNoteCommit(local);
         }}
       />
       <button
@@ -489,11 +598,12 @@ const ReferenceRow = ({
         style={{
           background: 'transparent',
           border: 'none',
-          color: '#a00',
+          color: hovered ? color.danger : color.textGhost,
           cursor: 'pointer',
-          fontSize: 14,
-          padding: '0 4px',
+          fontSize: 16,
+          padding: `0 ${space[1]}px`,
           lineHeight: 1,
+          transition: transition(['color']),
         }}
       >
         ×
@@ -627,76 +737,98 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const status: { label: string; bg: string; fg: string } = viewOnly
+  const status: { label: string; dot: string; fg: string } = viewOnly
     ? {
         label: 'View only — this file uses Markdown features the editor can’t round-trip safely',
-        bg: '#fff0f0',
-        fg: '#a00',
+        dot: color.warning,
+        fg: color.warning,
       }
     : dirty
-      ? { label: 'Unsaved changes', bg: '#fff8dc', fg: '#665500' }
-      : { label: 'Saved', bg: '#f4faf4', fg: '#3a6a3a' };
+      ? { label: 'Unsaved changes', dot: color.warning, fg: color.warning }
+      : { label: 'Saved', dot: color.success, fg: color.textTertiary };
+
+  const statusBarStyle: CSSProperties = {
+    padding: `${space[2]}px ${space[4]}px`,
+    background: color.surfaceMuted,
+    borderBottom: `1px solid ${color.border}`,
+    fontSize: font.size.caption,
+    fontFamily: font.sans,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space[2],
+  };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div
-        style={{
-          padding: '4px 12px',
-          background: status.bg,
-          borderBottom: '1px solid #eee',
-          fontSize: 12,
-          fontFamily: 'system-ui, sans-serif',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
-        <span style={{ flex: 1, color: status.fg }}>{status.label}</span>
+      <div style={statusBarStyle}>
+        <span
+          aria-hidden
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: status.dot,
+            flexShrink: 0,
+            boxShadow: dirty ? '0 0 0 3px rgba(168,107,0,0.12)' : 'none',
+            transition: transition(['background', 'box-shadow']),
+          }}
+        />
+        <span
+          style={{
+            flex: 1,
+            color: status.fg,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: viewOnly ? 'normal' : 'nowrap',
+          }}
+        >
+          {status.label}
+        </span>
         {!viewOnly && (
-          <button
-            type="button"
+          <Button
+            variant={dirty ? 'primary' : 'ghost'}
+            size="sm"
             onClick={() => void save()}
             disabled={!dirty || saving}
             title="Save (⌘S)"
-            style={{ padding: '2px 10px', fontSize: 12 }}
           >
             {saving ? 'Saving…' : 'Save'}
-          </button>
+          </Button>
         )}
       </div>
       {reloadPrompt && (
         <div
           style={{
-            padding: '6px 12px',
-            background: '#fff8dc',
-            borderBottom: '1px solid #e8d77a',
-            color: '#665500',
-            fontSize: 12,
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.warningSoft,
+            borderBottom: `1px solid ${color.warning}33`,
+            color: color.warning,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
+            gap: space[2],
+            animation: `bh-banner-in ${motion.normal}`,
           }}
         >
           <span style={{ flex: 1 }}>File changed on disk while you have unsaved edits.</span>
-          <button type="button" onClick={acceptReload} style={{ padding: '2px 8px', fontSize: 12 }}>
-            Reload from disk
-          </button>
-          <button
-            type="button"
-            onClick={dismissReload}
-            style={{ padding: '2px 8px', fontSize: 12 }}
-          >
+          <Button variant="primary" size="sm" onClick={dismissReload}>
             Keep my edits
-          </button>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={acceptReload}>
+            Reload from disk
+          </Button>
         </div>
       )}
       {error && (
         <div
           style={{
-            padding: '4px 12px',
-            background: '#fff0f0',
-            color: '#a00',
-            fontSize: 12,
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.dangerSoft,
+            color: color.danger,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            borderBottom: `1px solid ${color.danger}33`,
           }}
         >
           {error}

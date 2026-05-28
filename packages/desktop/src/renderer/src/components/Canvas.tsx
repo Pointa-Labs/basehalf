@@ -8,21 +8,24 @@ import type {
 import {
   Background,
   type Connection,
-  Controls,
   type Edge,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
   type NodeTypes,
   ReactFlow,
+  ReactFlowProvider,
   type Viewport,
   applyNodeChanges,
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { color, font, motion, radius, shadow, space } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
+import { CanvasControls } from './CanvasControls.js';
+import { Onboarding } from './Onboarding.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const DRAG_DEBOUNCE = 300;
@@ -268,90 +271,7 @@ export const Canvas = (): JSX.Element => {
   );
 
   if (!current || currentReachable === false) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100%',
-          fontFamily: 'system-ui, sans-serif',
-          padding: 24,
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 520,
-            background: '#fff',
-            border: '1px solid #e8e8e8',
-            borderRadius: 8,
-            padding: '24px 28px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-          }}
-        >
-          <div style={{ fontSize: 18, fontWeight: 600, color: '#222', marginBottom: 6 }}>
-            Welcome to BaseHalf
-          </div>
-          <div style={{ fontSize: 13, color: '#666', marginBottom: 18, lineHeight: 1.5 }}>
-            A local-first canvas for putting any file — PDFs, Markdown notes, images — onto a free
-            board, tagging each one with a description for AI, and connecting them however you
-            think.
-          </div>
-
-          <div
-            style={{
-              fontSize: 11,
-              color: '#888',
-              textTransform: 'uppercase',
-              letterSpacing: 0.4,
-              marginBottom: 8,
-            }}
-          >
-            Get started
-          </div>
-          <ol
-            style={{
-              margin: 0,
-              padding: '0 0 0 18px',
-              fontSize: 13,
-              color: '#444',
-              lineHeight: 1.7,
-            }}
-          >
-            <li>
-              Click <strong>+ Add folder</strong> in the top bar — pick any folder; your files stay
-              where they are.
-            </li>
-            <li>Every file gets a badge on the canvas. Drag them around to organize.</li>
-            <li>
-              Open a file in the side panel; under <strong>Badge</strong>, add a prompt describing
-              it for AI (e.g. <em>"chapter 3 — focus on theorem 2"</em>).
-            </li>
-            <li>
-              Drag from one badge to another to connect them. Notes on a connection explain the
-              relationship.
-            </li>
-          </ol>
-
-          <div
-            style={{
-              marginTop: 16,
-              padding: '8px 12px',
-              background: '#fafafa',
-              borderRadius: 4,
-              fontSize: 11,
-              color: '#777',
-              lineHeight: 1.5,
-            }}
-          >
-            BaseHalf works standalone, and is designed to sit on the right half of your screen with
-            an AI agent on the left. Everything you set here gets published to{' '}
-            <code style={{ fontFamily: 'ui-monospace, monospace' }}>.bh/</code> so any AI tool
-            reading the folder can pick it up.
-          </div>
-        </div>
-      </div>
-    );
+    return <Onboarding onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()} />;
   }
 
   // Pick the empty-canvas hint text based on why nothing's showing:
@@ -373,15 +293,19 @@ export const Canvas = (): JSX.Element => {
         <div
           style={{
             position: 'absolute',
-            top: 8,
-            right: 8,
-            background: '#fff0f0',
-            border: '1px solid #fcc',
-            padding: '4px 8px',
-            fontSize: 12,
-            color: '#a00',
-            borderRadius: 4,
+            top: space[3],
+            right: space[3],
+            background: color.surface,
+            border: `1px solid ${color.danger}33`,
+            padding: `${space[2]}px ${space[3]}px`,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            color: color.danger,
+            borderRadius: radius.md,
+            boxShadow: shadow.raised,
             zIndex: 10,
+            animation: `bh-banner-in ${motion.normal}`,
+            maxWidth: 360,
           }}
         >
           {error}
@@ -395,15 +319,15 @@ export const Canvas = (): JSX.Element => {
             left: '50%',
             transform: 'translate(-50%, -50%)',
             maxWidth: 380,
-            padding: '14px 18px',
-            background: '#fff',
-            border: '1px dashed #d0d0d0',
-            borderRadius: 6,
-            fontFamily: 'system-ui, sans-serif',
-            fontSize: 13,
-            color: '#666',
+            padding: `${space[4]}px ${space[5]}px`,
+            background: color.surface,
+            border: `1px dashed ${color.borderStrong}`,
+            borderRadius: radius.lg,
+            fontFamily: font.sans,
+            fontSize: font.size.body,
+            color: color.textSecondary,
             textAlign: 'center',
-            lineHeight: 1.5,
+            lineHeight: 1.55,
             zIndex: 5,
             pointerEvents: 'none',
           }}
@@ -423,6 +347,11 @@ export const Canvas = (): JSX.Element => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveEnd={onMoveEnd}
+        defaultEdgeOptions={{
+          style: { stroke: color.textGhost, strokeWidth: 1.5 },
+          // Animated edges feel jittery on a busy canvas; keep them static
+          // and let selection style do the talking.
+        }}
         defaultViewport={
           initialViewportRef.current
             ? {
@@ -436,8 +365,8 @@ export const Canvas = (): JSX.Element => {
         maxZoom={4}
         proOptions={{ hideAttribution: true }}
       >
-        <Background gap={20} color="#eee" />
-        <Controls position="bottom-right" showInteractive={false} />
+        <Background gap={20} size={1} color={color.border} />
+        <CanvasControls />
       </ReactFlow>
     </div>
   );

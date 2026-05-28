@@ -1,0 +1,125 @@
+/*
+ * BaseHalf renderer globals — base reset + animation keyframes.
+ *
+ * Inline styles do everything else; this file is only for things you
+ * can't express via React style props (pseudo-classes, keyframes,
+ * scrollbar styling, focus rings on inputs we render with native tags).
+ */
+
+:root {
+  --bh-accent: #2864c8;
+  --bh-text-ghost: #b0b0b0;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #f8f8f7;
+  color: #1a1a1a;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Subtle, native-feeling scrollbars. macOS hides them on idle. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.32);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Dialog + menu animations. CSS keyframes are reused everywhere
+ * a layer appears, so they live here rather than inlined per-component. */
+@keyframes bh-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bh-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bh-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bh-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Native text inputs: subtle focus ring matching our accent.
+ * Specific selectors avoid clobbering BlockNote's own input styling. */
+input[type="text"]:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* Selected file row in NavTree gets a left accent bar — implemented via
+ * an inset box-shadow so width stays stable across selected/unselected. */
+.bh-nav-row[data-selected="true"] {
+  box-shadow: inset 3px 0 0 var(--bh-accent);
+}
+
+/* React-flow paints selected edges in its default red. Override to our
+ * accent so selection feels cohesive with the rest of the chrome. */
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: var(--bh-accent);
+  stroke-width: 2;
+}
+
+/* Subtle lift on badge node hover — telegraphs the node is interactive
+ * without shouting. Transition lives here (not inline) so it composes with
+ * react-flow's transform without clobbering. */
+.react-flow__node-badge > div {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+.react-flow__node-badge:hover > div {
+  transform: translateY(-1px);
+}

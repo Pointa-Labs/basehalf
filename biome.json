@@ -26,6 +26,12 @@
       },
       "style": {
         "useNodejsImportProtocol": "error"
+      },
+      "a11y": {
+        "noSvgWithoutTitle": "off",
+        "useSemanticElements": "off",
+        "useFocusableInteractive": "off",
+        "noLabelWithoutControl": "off"
       }
     }
   },
