@@ -72,6 +72,19 @@ describe('view.list / view.get', () => {
     expect(result.views.map((v) => v.id)).toEqual(['alpha', 'zeta']);
   });
 
+  it('list skips corrupt view JSON without crashing (AR-PR11-7)', async () => {
+    await ctx.core.run('view.create', { name: 'good' });
+    ctx.files.set('/work/.bh/views/broken.json', '{ not json }');
+    const result = (await ctx.core.run('view.list', {})) as { views: SavedView[] };
+    expect(result.views.map((v) => v.id)).toEqual(['good']);
+  });
+
+  it('get returns null on corrupt view JSON (orphan-tolerant)', async () => {
+    ctx.files.set('/work/.bh/views/broken.json', '{ not json }');
+    const result = await ctx.core.run('view.get', { id: 'broken' });
+    expect(result).toBeNull();
+  });
+
   it('get returns null for missing id', async () => {
     const result = await ctx.core.run('view.get', { id: 'never-existed' });
     expect(result).toBeNull();
