@@ -313,6 +313,27 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(files.get('/work/CLAUDE.md')).toMatch(/bh:workspace-hint/);
   });
 
+  it('hint body names every load-bearing contract surface (regression guard)', async () => {
+    // The agent-protocol hint is the contract surface for Claude Code /
+    // Codex / Cursor. If a future edit accidentally drops one of these
+    // path mentions, the agent loses a step in the protocol walk and the
+    // value of the integration silently degrades. Cheap to test, costly
+    // to miss.
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+    const hint = files.get('/work/CLAUDE.md') ?? '';
+    // Contract paths the hint must teach the agent about.
+    expect(hint).toMatch(/\.bh\/focus\.md/);
+    expect(hint).toMatch(/\.bh\/badges\//);
+    expect(hint).toMatch(/\.bh\/index\/inbound\.json/);
+    expect(hint).toMatch(/\.bh\/views\//);
+    // Constraints that prevent agents from corrupting bh's state.
+    expect(hint).toMatch(/\.bh\/cache\//);
+    expect(hint).toMatch(/MD is the truth/i);
+  });
+
   it('appends hint section to existing CLAUDE.md (preserves prior content)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
