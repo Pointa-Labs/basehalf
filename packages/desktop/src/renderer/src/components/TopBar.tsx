@@ -33,6 +33,7 @@ export const TopBar = (): JSX.Element => {
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const createView = useWorkspaceStore((s) => s.createView);
+  const renameView = useWorkspaceStore((s) => s.renameView);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
   const createNote = useWorkspaceStore((s) => s.createNote);
   const editorDirty = useWorkspaceStore((s) => s.editorDirty);
@@ -72,6 +73,21 @@ export const TopBar = (): JSX.Element => {
     let name = raw.trim();
     if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
     void createNote(name);
+  };
+
+  const handleRenameView = async (): Promise<void> => {
+    if (!currentView) return;
+    const view = views.find((v) => v.id === currentView);
+    if (!view) return;
+    const next = await prompt({
+      title: `Rename view "${view.name}"`,
+      label: 'New name',
+      defaultValue: view.name,
+      placeholder: 'e.g. Chapter 3 reading list',
+      validate: (v) => (v.trim().length === 0 ? 'A name is required.' : null),
+    });
+    const trimmed = next?.trim();
+    if (trimmed && trimmed !== view.name) void renameView(currentView, trimmed);
   };
 
   const handleDeleteView = async (): Promise<void> => {
@@ -201,13 +217,22 @@ export const TopBar = (): JSX.Element => {
             New view
           </Button>
           {currentView && (
-            <Button
-              variant="ghost"
-              onClick={() => void handleDeleteView()}
-              title="Delete this saved view (badges + files untouched)"
-            >
-              Delete view
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => void handleRenameView()}
+                title="Rename this saved view"
+              >
+                Rename view
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => void handleDeleteView()}
+                title="Delete this saved view (badges + files untouched)"
+              >
+                Delete view
+              </Button>
+            </>
           )}
         </>
       )}

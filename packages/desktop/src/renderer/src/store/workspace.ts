@@ -47,6 +47,7 @@ interface WorkspaceState {
   setCurrentView: (id: string | null) => void;
   setFolderScope: (path: string | null) => void;
   createView: (name: string) => Promise<void>;
+  renameView: (id: string, name: string) => Promise<void>;
   deleteView: (id: string) => Promise<void>;
   /** Create an empty MD note (writes a workspace-relative file) and open it
    * in the preview. The watcher picks it up and badge.list materializes a
@@ -254,6 +255,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const body = `# ${title}\n\n`;
       await window.bh.run('workspace.writeFile', { path: relPath, content: body });
       set({ currentFile: relPath });
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  renameView: async (id: string, name: string) => {
+    try {
+      await window.bh.run('view.update', { id, patch: { name } });
+      await get().refreshViews();
     } catch (err) {
       set({ error: formatError(err) });
     }
