@@ -1,8 +1,12 @@
 name: CI
 
 # Runs typecheck / build / test / lint on every push to main and every pull
-# request, so a PR must be green before it can merge. Make this a *required*
-# status check in Settings → Branches (alongside the CLA Assistant check).
+# request, so a PR must be green before it can merge.
+#
+# Required status check (Settings → Branches): `ci-summary`. That single
+# job fans in from the `test` matrix below — protection stays correct even
+# when the matrix changes (matrix-specific names like `test (20.19)` drift
+# silently otherwise; we got bitten by that on PR #9).
 
 on:
   push:
@@ -39,3 +43,22 @@ jobs:
       - run: pnpm -r build
       - run: pnpm -r test
       - run: pnpm -r --if-present lint
+
+  # Single fan-in status check so branch protection only needs ONE name.
+  # `needs: [test]` waits for every matrix shard; `if: always()` lets us
+  # report a real failure when any shard fails (otherwise GitHub would
+  # mark the summary as "skipped" and protection would consider it
+  # missing). The result-check step turns a skip/failure of `test` into
+  # an explicit non-zero exit.
+  ci-summary:
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check matrix result
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::test matrix did not succeed (result=${{ needs.test.result }})"
+            exit 1
+          fi
+          echo "All test matrix shards passed."
