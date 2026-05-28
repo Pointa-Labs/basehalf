@@ -28,9 +28,13 @@ if (existsSync(CONFIG_DIR)) rmSync(CONFIG_DIR, { recursive: true, force: true })
 mkdirSync(CONFIG_DIR, { recursive: true });
 mkdirSync(SCREENS_DIR, { recursive: true });
 // Wipe prior .bh/ AND any leaked fresh-* notes from previous runs so badge
-// counts are stable across reruns.
+// counts are stable across reruns. Also drop CLAUDE.md so the
+// workspace.add(setup:true) assertion sees a fresh hint each time.
 if (existsSync(join(WORKSPACE_DIR, '.bh'))) {
   rmSync(join(WORKSPACE_DIR, '.bh'), { recursive: true, force: true });
+}
+if (existsSync(join(WORKSPACE_DIR, 'CLAUDE.md'))) {
+  rmSync(join(WORKSPACE_DIR, 'CLAUDE.md'), { force: true });
 }
 const { readdirSync, writeFileSync } = await import('node:fs');
 for (const entry of readdirSync(WORKSPACE_DIR)) {
@@ -159,8 +163,22 @@ assert(emptyText.includes('Badge'), 'Onboarding mentions the Badge editing path'
 
 // --- 2. Register workspace via core, then trigger renderer refresh ---
 console.log('\n[2] Register workspace + refresh');
-const addResult = await bhRun('workspace.add', { path: WORKSPACE_DIR });
+// Mirror the desktop store's pickAndAdd which calls workspace.add with
+// setup:true, so the agent-protocol hint actually lands in CLAUDE.md /
+// .gitignore on real user workflows. Without this the desktop UI would
+// register the workspace but skip the bridge that makes Claude Code /
+// Codex / Cursor recognise the protocol.
+const addResult = await bhRun('workspace.add', { path: WORKSPACE_DIR, setup: true });
 console.log('     workspace.add →', JSON.stringify(addResult));
+assert(
+  addResult?.setup?.claudeMdUpdated === true || addResult?.setup?.claudeMdSkipped === true,
+  `workspace.add(setup:true) → setup report present and CLAUDE.md handled (report: ${JSON.stringify(addResult?.setup)})`,
+);
+const claudeMdContents = readFileSync(`${WORKSPACE_DIR}/CLAUDE.md`, 'utf-8');
+assert(
+  /bh:workspace-hint/.test(claudeMdContents) && /focus\.md/.test(claudeMdContents),
+  `CLAUDE.md installed with the new agent-protocol hint (length=${claudeMdContents.length}, has marker, mentions focus.md)`,
+);
 const useName = addResult?.workspace?.name ?? 'bh-verify-ws';
 const useResult = await bhRun('workspace.use', { name: useName });
 console.log('     workspace.use →', JSON.stringify(useResult));
@@ -270,6 +288,20 @@ await win.screenshot({ path: `${SCREENS_DIR}/03-canvas.png` });
 // react-flow node drag is mousedown → mousemove → mouseup; Playwright's
 // mouse APIs do this faithfully. ---
 console.log('\n[5b] Drag badge → position persists across reload');
+// Pre-position intro.md at a known logical location so the drag test
+// doesn't depend on the alphabetical-order grid fallback (which shifts
+// whenever the badge count changes — e.g., when setup:true added CLAUDE.md).
+// Place intro.md well away from the grid-fallback positions other badges
+// land on (rows of 6 × 220px starting at x=60, y=60) so the click target
+// is unambiguous.
+await bhRun('badge.set', {
+  file: 'intro.md',
+  kind: 'file',
+  patch: { canvas: { x: 40, y: 360, collapsed: false } },
+});
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
 const introBadge = win.locator('.react-flow__node[data-id="intro.md"]');
 const introBox0 = await introBadge.boundingBox();
 assert(introBox0 !== null, 'intro.md badge has a bounding box before drag');
