@@ -1888,6 +1888,36 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
+// --- 12e-new-note-overwrite. The "New note" dialog has no
+// existence check — typing the name of an existing file would
+// silently clobber the user's content with `# <basename>\n\n`.
+// Verify createNote refuses to overwrite + surfaces an error banner
+// (post-fix in this PR).
+console.log('\n[12e-new-note-overwrite] New note refuses to clobber existing file');
+const introBeforeNote = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
+await win.keyboard.press(cmdN);
+await waitForDialog('New note');
+await fillDialogInput('intro.md');
+await clickDialogButton('OK');
+await win.waitForTimeout(700);
+const introAfterNote = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
+assert(
+  introAfterNote === introBeforeNote,
+  `New-note dialog did NOT clobber existing intro.md (length before=${introBeforeNote.length}, after=${introAfterNote.length})`,
+);
+// An error banner explaining "Note already exists" should appear.
+const bodyText = await win.locator('body').innerText();
+assert(
+  /already exists/i.test(bodyText),
+  `Error banner surfaces "already exists" message (body snippet: ${JSON.stringify(bodyText.slice(0, 200))})`,
+);
+// Dismiss the banner so it doesn't leak into the next test.
+const dismissBtn = win.locator('button', { hasText: 'Dismiss' }).first();
+if ((await dismissBtn.count()) >= 1) {
+  await dismissBtn.click();
+  await win.waitForTimeout(200);
+}
+
 // --- 12f. Workspace rename: validation prevents empty/duplicate names,
 // successful rename round-trips through core. The rename dialog's
 // validate function (TopBar.handleRenameWorkspace) blocks submission on
