@@ -1234,6 +1234,19 @@ assert(
   `Palette filtered to "intro" shows at least one match (rows=${visibleRows})`,
 );
 await win.screenshot({ path: `${SCREENS_DIR}/13-command-palette.png` });
+// Verify keyboard shortcut hints render on the chrome-action rows.
+// Filter to "new note" so the only visible row is the New note action.
+await paletteInput.fill('new note');
+await win.waitForTimeout(150);
+const actionRowText = await win.locator('[role=dialog] [role=option]').first().innerText();
+assert(
+  /⌘N|Ctrl\+N/.test(actionRowText),
+  `New-note action row shows the global shortcut hint (row text: ${JSON.stringify(actionRowText.slice(0, 80))})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/13b-palette-shortcut-hint.png` });
+// Re-set query so the Enter below still picks intro.md.
+await paletteInput.fill('intro');
+await win.waitForTimeout(150);
 await win.keyboard.press('Enter');
 await win.waitForTimeout(400);
 assert((await paletteInput.count()) === 0, 'Palette closes after Enter on a selected row');
