@@ -64,7 +64,18 @@ describe('focus.get', () => {
     ctx = await seed();
   });
 
-  it('returns empty when focus.md does not exist', async () => {
+  it('returns empty for a freshly-seeded workspace (active: (none))', async () => {
+    // seed() runs workspace.add → materializeWithFallback → focus.init,
+    // so focus.md exists with the empty template (`active:\n  (none)`).
+    // focus.get parses that to an empty active list.
+    const result = await ctx.core.run('focus.get', {});
+    expect(result.active).toEqual([]);
+  });
+
+  it('returns empty when focus.md is missing on disk (tolerant read)', async () => {
+    // Cover the path where the file was deleted externally between seed
+    // and get — the handler must still return empty without throwing.
+    ctx.files.delete('/work/.bh/focus.md');
     const result = await ctx.core.run('focus.get', {});
     expect(result.active).toEqual([]);
   });
