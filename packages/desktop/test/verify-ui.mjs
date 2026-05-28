@@ -582,6 +582,27 @@ assert(
   !introAfterRemove?.references.some((r) => r.to === 'overview.md'),
   `× button removes the reference (refs now: ${JSON.stringify(introAfterRemove?.references)})`,
 );
+
+// + Add button — type a path, submit, verify badge.addRef fired.
+const addRefBtn = win.locator('aside button', { hasText: '+ Add' }).first();
+assert(
+  (await addRefBtn.count()) === 1,
+  'BadgeProperties exposes a "+ Add" button next to the References label',
+);
+await addRefBtn.click();
+await waitForDialog('Add reference');
+await fillDialogInput('overview.md');
+await clickDialogButton('OK');
+await win.waitForTimeout(400);
+const introAfterAddBtn = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
+assert(
+  introAfterAddBtn?.references?.some((r) => r.to === 'overview.md'),
+  `+ Add dialog added the reference (refs now: ${JSON.stringify(introAfterAddBtn?.references)})`,
+);
+// Reset: remove the ref again so downstream tests don't trip on it.
+await win.locator('aside li', { hasText: 'overview.md' }).locator('button').first().click();
+await win.waitForTimeout(300);
+
 // Clear prompt for downstream tests (so they don't see this stamp).
 await promptTextarea.fill('');
 await win.waitForTimeout(700);
