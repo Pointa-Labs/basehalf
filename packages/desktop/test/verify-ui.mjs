@@ -434,10 +434,7 @@ assert(
 );
 // Edge label should render with our custom styling — small bg, subtle border.
 const edgeLabelCount = await win.locator('.react-flow__edge-text').count();
-assert(
-  edgeLabelCount >= 1,
-  `Edge with a note renders a label (count=${edgeLabelCount})`,
-);
+assert(edgeLabelCount >= 1, `Edge with a note renders a label (count=${edgeLabelCount})`);
 await win.screenshot({ path: `${SCREENS_DIR}/03b-edge-with-label.png` });
 
 // --- 5e. Edge delete via Delete key: react-flow's selected-edge + Delete
