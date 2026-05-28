@@ -8,6 +8,7 @@ import type {
 import {
   Background,
   type Connection,
+  Controls,
   type Edge,
   type Node,
   type NodeChange,
@@ -232,8 +233,21 @@ export const Canvas = (): JSX.Element => {
 
   if (!current || currentReachable === false) {
     return (
-      <div style={{ padding: 16, color: '#888', fontFamily: 'system-ui, sans-serif' }}>
-        Pick a workspace folder above to begin.
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: '#888',
+          fontFamily: 'system-ui, sans-serif',
+          fontSize: 13,
+        }}
+      >
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <div style={{ fontSize: 15, color: '#444', marginBottom: 6 }}>No workspace open</div>
+          <div>Pick a folder from the top bar — BaseHalf will set up a badge for every file.</div>
+        </div>
       </div>
     );
   }
@@ -281,6 +295,7 @@ export const Canvas = (): JSX.Element => {
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} color="#eee" />
+        <Controls position="bottom-right" showInteractive={false} />
       </ReactFlow>
     </div>
   );

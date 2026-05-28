@@ -23,6 +23,13 @@ function modeOf(path: string): ViewerMode {
   return 'other';
 }
 
+function splitPath(rel: string): { dirname: string; basename: string } {
+  const i = rel.lastIndexOf('/');
+  return i === -1
+    ? { dirname: '', basename: rel }
+    : { dirname: rel.slice(0, i), basename: rel.slice(i + 1) };
+}
+
 export const FilePreview = (): JSX.Element | null => {
   const currentFile = useWorkspaceStore((s) => s.currentFile);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
@@ -30,9 +37,27 @@ export const FilePreview = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
 
+  // Esc closes the preview. Effect must run unconditionally — the early
+  // return below short-circuits, but React requires hook order to be stable
+  // across renders, so we register before the null check.
+  useEffect(() => {
+    if (!currentFile) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        // Don't fight BlockNote's own escape handling (e.g. exit a slash menu).
+        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        setCurrentFile(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentFile, setCurrentFile]);
+
   if (!currentFile) return null;
   const mode = modeOf(currentFile);
   const absPath = `${wsPath}/${currentFile}`;
+  const { dirname, basename } = splitPath(currentFile);
 
   return (
     <aside
@@ -56,13 +81,46 @@ export const FilePreview = (): JSX.Element | null => {
           alignItems: 'center',
           gap: 8,
         }}
+        title={currentFile}
       >
-        <strong style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {currentFile}
-        </strong>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+          }}
+        >
+          <strong
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: '#222',
+              fontSize: 13,
+            }}
+          >
+            {basename}
+          </strong>
+          {dirname && (
+            <span
+              style={{
+                fontSize: 10,
+                color: '#999',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {dirname}/
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setCurrentFile(null)}
+          title="Close (Esc)"
           style={{
             background: 'transparent',
             border: '1px solid #ccc',
@@ -70,9 +128,10 @@ export const FilePreview = (): JSX.Element | null => {
             fontSize: 12,
             cursor: 'pointer',
             borderRadius: 3,
+            color: '#555',
           }}
         >
-          close
+          Close
         </button>
       </header>
       <div style={{ flex: 1, overflow: 'auto' }}>
@@ -142,6 +201,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const [loadKey, setLoadKey] = useState(0);
+  // Capture latest save reference for the global keyboard handler so it
+  // doesn't need to re-register on every keystroke that flips `dirty`.
+  const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   useEffect(() => {
     if (loadedFor === file && loadKey === 0) return;
@@ -214,13 +276,37 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       setSaving(false);
     }
   }, [editor, file, saving, viewOnly]);
+  saveRef.current = save;
+
+  // Cmd/Ctrl+S = save. We only register the listener once per file and
+  // delegate through saveRef so the binding never thrashes on dirty flips.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void saveRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const status: { label: string; bg: string; fg: string } = viewOnly
+    ? {
+        label: 'View only — this file uses Markdown features the editor can’t round-trip safely',
+        bg: '#fff0f0',
+        fg: '#a00',
+      }
+    : dirty
+      ? { label: 'Unsaved changes', bg: '#fff8dc', fg: '#665500' }
+      : { label: 'Saved', bg: '#f4faf4', fg: '#3a6a3a' };
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div
         style={{
           padding: '4px 12px',
-          background: viewOnly ? '#fff0f0' : dirty ? '#fff8dc' : '#fafafa',
+          background: status.bg,
           borderBottom: '1px solid #eee',
           fontSize: 12,
           fontFamily: 'system-ui, sans-serif',
@@ -229,21 +315,16 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           gap: 8,
         }}
       >
-        <span style={{ flex: 1, color: viewOnly ? '#a00' : '#666' }}>
-          {viewOnly
-            ? "view-only — BlockNote can't round-trip this file safely; edit in your text editor"
-            : dirty
-              ? 'unsaved changes'
-              : 'BlockNote — MD ⇄ blocks verified clean for this file'}
-        </span>
+        <span style={{ flex: 1, color: status.fg }}>{status.label}</span>
         {!viewOnly && (
           <button
             type="button"
             onClick={() => void save()}
             disabled={!dirty || saving}
+            title="Save (⌘S)"
             style={{ padding: '2px 10px', fontSize: 12 }}
           >
-            {saving ? 'saving…' : 'Save'}
+            {saving ? 'Saving…' : 'Save'}
           </button>
         )}
       </div>

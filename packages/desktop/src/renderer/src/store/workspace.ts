@@ -41,6 +41,11 @@ interface WorkspaceState {
   setCurrentView: (id: string | null) => void;
   setFolderScope: (path: string | null) => void;
   createView: (name: string) => Promise<void>;
+  deleteView: (id: string) => Promise<void>;
+  /** Create an empty MD note (writes a workspace-relative file) and open it
+   * in the preview. The watcher picks it up and badge.list materializes a
+   * badge on the next refresh — no extra step needed. */
+  createNote: (relPath: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -189,6 +194,29 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   createView: async (name: string) => {
     try {
       await window.bh.run('view.create', { name });
+      await get().refreshViews();
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  createNote: async (relPath: string) => {
+    try {
+      const baseName = relPath.split('/').pop() ?? relPath;
+      const title = baseName.replace(/\.md$/i, '');
+      const body = `# ${title}\n\n`;
+      await window.bh.run('workspace.writeFile', { path: relPath, content: body });
+      set({ currentFile: relPath });
+    } catch (err) {
+      set({ error: formatError(err) });
+    }
+  },
+
+  deleteView: async (id: string) => {
+    try {
+      await window.bh.run('view.delete', { id });
+      // If the deleted view was active, drop back to main canvas.
+      if (get().currentView === id) set({ currentView: null });
       await get().refreshViews();
     } catch (err) {
       set({ error: formatError(err) });

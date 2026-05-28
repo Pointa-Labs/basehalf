@@ -40,22 +40,77 @@ const relativeTo = (root: string, abs: string): string => {
   return abs.startsWith(trimmedRoot) ? abs.slice(trimmedRoot.length) : abs;
 };
 
-const rowBase = {
-  width: '100%',
-  textAlign: 'left' as const,
-  border: 'none',
-  background: 'transparent',
-  padding: '2px 4px',
-  fontSize: 12,
-  fontFamily: 'system-ui, sans-serif',
-  color: '#222',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 4,
+const ROW_HEIGHT = 24;
+
+interface RowProps {
+  depth: number;
+  entry: WorkspaceListFilesEntry;
+  isExpanded: boolean;
+  isSelected: boolean;
+  onClick: () => void;
+}
+
+const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.Element => {
+  const [hover, setHover] = useState(false);
+  const isDir = entry.type === 'dir';
+  const indent = 8 + depth * 14;
+  const bg = isSelected ? '#e6f0fb' : hover ? '#f0f0f0' : 'transparent';
+  const color = isSelected ? '#1a4d8f' : isDir ? '#222' : '#444';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={entry.name}
+      style={{
+        width: '100%',
+        textAlign: 'left',
+        border: 'none',
+        background: bg,
+        padding: 0,
+        paddingLeft: indent,
+        paddingRight: 8,
+        height: ROW_HEIGHT,
+        fontSize: 12,
+        fontFamily: 'system-ui, sans-serif',
+        color,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 4,
+        cursor: 'pointer',
+        fontWeight: isSelected ? 600 : 400,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 12,
+          fontSize: 10,
+          color: '#888',
+          display: 'inline-flex',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {isDir ? (isExpanded ? '▾' : '▸') : ''}
+      </span>
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {entry.name}
+      </span>
+    </button>
+  );
 };
 
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const currentFile = useWorkspaceStore((s) => s.currentFile);
   const [childrenByPath, setChildrenByPath] = useState<
     Map<string, readonly WorkspaceListFilesEntry[]>
   >(new Map());
@@ -103,35 +158,20 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     return entries.filter(isVisible).flatMap((entry) => {
       const path = joinPath(parentPath, entry.name);
       const isExpanded = expanded.has(path);
-      const indent = 8 + depth * 14;
-      const row: JSX.Element =
-        entry.type === 'dir' ? (
-          <button
-            key={path}
-            type="button"
-            onClick={() => toggleExpand(path)}
-            style={{ ...rowBase, paddingLeft: indent, cursor: 'pointer' }}
-          >
-            <span style={{ width: 10, fontSize: 9, color: '#888' }}>{isExpanded ? '▼' : '▶'}</span>
-            <span>{entry.name}</span>
-          </button>
-        ) : (
-          <button
-            key={path}
-            type="button"
-            onClick={() => setCurrentFile(relativeTo(rootPath, path))}
-            style={{
-              ...rowBase,
-              paddingLeft: indent + 14,
-              color: '#444',
-              cursor: 'pointer',
-            }}
-          >
-            <span>{entry.name}</span>
-          </button>
-        );
-
-      if (entry.type === 'dir' && isExpanded) {
+      const isDir = entry.type === 'dir';
+      const rel = relativeTo(rootPath, path);
+      const isSelected = !isDir && currentFile === rel;
+      const row: JSX.Element = (
+        <Row
+          key={path}
+          entry={entry}
+          depth={depth}
+          isExpanded={isExpanded}
+          isSelected={isSelected}
+          onClick={() => (isDir ? toggleExpand(path) : setCurrentFile(rel))}
+        />
+      );
+      if (isDir && isExpanded) {
         return [row, ...renderEntries(path, depth + 1)];
       }
       return [row];
@@ -141,5 +181,5 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   if (error) {
     return <div style={{ color: '#a00', padding: 8, fontSize: 12 }}>{error}</div>;
   }
-  return <div>{renderEntries(rootPath, 0)}</div>;
+  return <div style={{ padding: '4px 0' }}>{renderEntries(rootPath, 0)}</div>;
 };

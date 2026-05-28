@@ -9,35 +9,85 @@ export interface BadgeNodeData extends Record<string, unknown> {
 }
 
 export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
-  // NodeProps' data is typed as Record<string, unknown>; safe cast below.
   const d = data as unknown as BadgeNodeData;
   const isFolder = d.kind === 'folder';
-  const baseBg = d.orphan ? '#fff0f0' : isFolder ? '#fff8e1' : '#ffffff';
-  const baseBorder = d.orphan ? '#fcc' : isFolder ? '#e8d77a' : '#d0d0d0';
+  const orphan = d.orphan === true;
+  const lastSlash = d.label.lastIndexOf('/');
+  const basename = lastSlash === -1 ? d.label : d.label.slice(lastSlash + 1);
+  const dirname = lastSlash === -1 ? '' : d.label.slice(0, lastSlash);
+
+  const baseBg = orphan ? '#fff0f0' : isFolder ? '#fdf7e3' : '#ffffff';
+  const baseBorder = orphan ? '#fcc' : isFolder ? '#e8d77a' : '#d8d8d8';
 
   return (
     <div
+      title={d.label}
       style={{
         background: baseBg,
         border: `1px solid ${selected ? '#4a90e2' : baseBorder}`,
         borderRadius: 6,
         padding: '6px 10px',
-        minWidth: 120,
-        maxWidth: 200,
+        minWidth: 140,
+        maxWidth: 220,
         fontFamily: 'system-ui, sans-serif',
-        fontSize: 12,
-        color: d.orphan ? '#a00' : '#222',
-        boxShadow: selected ? '0 0 0 2px rgba(74,144,226,0.2)' : 'none',
+        boxShadow: selected ? '0 0 0 2px rgba(74,144,226,0.25)' : '0 1px 2px rgba(0,0,0,0.04)',
       }}
     >
       <Handle type="target" position={Position.Left} />
-      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-        <span style={{ fontSize: 10, color: '#888' }}>{isFolder ? '[dir]' : '[file]'}</span>
-        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {d.label}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span
+          style={{
+            fontWeight: 600,
+            fontSize: 13,
+            color: orphan ? '#a00' : '#222',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {basename}
         </span>
-        {d.orphan && <span style={{ fontSize: 10, color: '#a00' }}>(orphan)</span>}
+        {isFolder && !orphan && (
+          <span
+            style={{
+              fontSize: 9,
+              color: '#a07a00',
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+            }}
+          >
+            dir
+          </span>
+        )}
+        {orphan && (
+          <span
+            style={{
+              fontSize: 9,
+              color: '#a00',
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+            }}
+          >
+            orphan
+          </span>
+        )}
       </div>
+      {dirname && (
+        <div
+          style={{
+            fontSize: 10,
+            color: '#999',
+            marginTop: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {dirname}/
+        </div>
+      )}
       {d.prompt && (
         <div
           style={{
