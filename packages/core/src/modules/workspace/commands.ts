@@ -327,4 +327,10 @@ async function materializeWithFallback(ctx: Context, workspaceRoot: string): Pro
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     throw err;
   }
+  try {
+    await ctx.run('inbound.init', {});
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return;
+    throw err;
+  }
 }

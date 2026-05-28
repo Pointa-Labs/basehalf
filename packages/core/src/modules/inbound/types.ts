@@ -37,6 +37,13 @@ export interface InboundRebuildResult {
   readonly entryCount: number;
 }
 
+export type InboundInitArgs = Record<string, never>;
+export interface InboundInitResult {
+  /** True when this call wrote the empty index; false when it was already
+   *  present and we left it alone. */
+  readonly created: boolean;
+}
+
 export interface InboundAddRefArgs {
   readonly from: string;
   readonly to: string;
