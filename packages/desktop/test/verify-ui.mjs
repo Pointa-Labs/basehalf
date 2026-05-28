@@ -1686,6 +1686,49 @@ assert(
   `Restored to bh-verify-ws so downstream tests work (workspaces: ${JSON.stringify(wsListAfterRestore)})`,
 );
 
+// --- 12g. View create dialog (Cmd+Shift+N): validation + happy create
+// → switch to new view → Delete view (destructive confirm) → verify
+// gone. §9 covered create via bhRun and rename via UI; the create UI
+// flow and the delete-via-UI flow were both untested.
+console.log('\n[12g] View create dialog + Delete view UI flow');
+await win.keyboard.press(cmdShiftN);
+await waitForDialog('Create a saved view');
+// Validation: empty name rejected with inline error.
+await fillDialogInput('   ');
+await clickDialogButton('OK');
+await win.waitForTimeout(200);
+const viewDialogEmptyText = await win.locator('[role=dialog]').innerText();
+assert(
+  /name is required/i.test(viewDialogEmptyText),
+  `Empty view-name rejected (dialog: ${JSON.stringify(viewDialogEmptyText.slice(0, 120))})`,
+);
+assert((await dialogIsOpen()) === 1, 'Create-view dialog stays open after empty-name validation');
+// Happy path: type a name and submit.
+const ephemeralViewName = `Ephemeral ${Date.now()}`;
+await fillDialogInput(ephemeralViewName);
+await clickDialogButton('OK');
+await win.waitForTimeout(600);
+const viewListAfterCreate = await bhRun('view.list', {});
+const ephemeralView = viewListAfterCreate.views.find((v) => v.name === ephemeralViewName);
+assert(
+  ephemeralView !== undefined,
+  `New view created via UI dialog (views: ${viewListAfterCreate.views.map((v) => v.name).join(', ')})`,
+);
+// Switch to the new view so Delete + Rename + Edit prompt buttons show.
+await selectByTestId('topbar-view-select', ephemeralViewName);
+await win.waitForTimeout(400);
+// Delete view → confirm dialog → confirm → view dropped.
+await win.locator('header button', { hasText: 'Delete view' }).first().click();
+await waitForDialog('Delete view');
+assert((await dialogIsOpen()) === 1, 'Delete view opens the destructive confirm dialog');
+await clickDialogButton('Delete');
+await win.waitForTimeout(700);
+const viewListAfterDelete = await bhRun('view.list', {});
+assert(
+  !viewListAfterDelete.views.some((v) => v.name === ephemeralViewName),
+  `Confirmed Delete view dropped "${ephemeralViewName}" (remaining: ${viewListAfterDelete.views.map((v) => v.name).join(', ')})`,
+);
+
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
 // confirm in the modal should actually unregister. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
