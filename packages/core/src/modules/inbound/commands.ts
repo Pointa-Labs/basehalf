@@ -37,7 +37,12 @@ function withEntry(
   } else {
     entries[to] = next;
   }
-  return { ...index, entries, rebuildAt: index.rebuildAt };
+  // Preserve a previously-recorded rebuildAt; never invent one. Incremental
+  // addRef/removeRef writes are not "rebuilds" and shouldn't claim a fresh
+  // timestamp — only inbound.rebuild does that.
+  return index.rebuildAt !== undefined
+    ? { ...index, entries, rebuildAt: index.rebuildAt }
+    : { ...index, entries };
 }
 
 export const get: Handler<InboundGetArgs, InboundGetResult> = async (args, ctx) => {
