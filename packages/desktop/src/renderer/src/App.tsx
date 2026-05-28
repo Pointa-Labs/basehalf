@@ -1,4 +1,4 @@
-import { type JSX, useEffect } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 import { Canvas } from './components/Canvas.js';
 import { CommandPalette, openCommandPalette } from './components/CommandPalette.js';
 import { DialogHost } from './components/Dialog.js';
@@ -7,7 +7,7 @@ import { FdaTip } from './components/FdaTip.js';
 import { FilePreview } from './components/FilePreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TopBar } from './components/TopBar.js';
-import { color } from './design.js';
+import { color, font, motion, radius, space } from './design.js';
 import { promptForNewNote, promptForNewView } from './lib/actions.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
@@ -15,6 +15,12 @@ export const App = (): JSX.Element => {
   const error = useWorkspaceStore((s) => s.error);
   const clearError = useWorkspaceStore((s) => s.clearError);
   const refresh = useWorkspaceStore((s) => s.refresh);
+  // Drag-drop folder → add as workspace. Tracked at the App level so the
+  // overlay covers everything (TopBar, Sidebar, Canvas, FilePreview).
+  // Using a depth counter rather than a boolean — dragenter/dragleave fire
+  // on every nested child, so a naive boolean flickers on/off as the
+  // pointer moves between them.
+  const [dragDepth, setDragDepth] = useState(0);
 
   useEffect(() => {
     void refresh();
@@ -68,6 +74,42 @@ export const App = (): JSX.Element => {
         margin: 0,
         background: color.bg,
       }}
+      onDragEnter={(e) => {
+        // Only react to Finder-drag (or any external drag carrying files).
+        // Internal drag-source events (text selections, react-flow node drags)
+        // don't have the "Files" type and shouldn't show the overlay.
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragDepth((d) => d + 1);
+      }}
+      onDragLeave={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragDepth((d) => Math.max(0, d - 1));
+      }}
+      onDragOver={(e) => {
+        // Required to allow drop. Without preventDefault here the browser
+        // treats the drop area as inert and onDrop never fires.
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragDepth(0);
+        // Electron exposes a non-standard `.path` on dropped File objects
+        // (absolute path on disk). Iterate, ignore non-folder entries (the
+        // store action surfaces "path is not a directory" if a file slips
+        // through), call workspace.add with setup:true so the agent-protocol
+        // hint lands the same as the "Add folder" picker flow.
+        const paths: string[] = [];
+        for (const file of Array.from(e.dataTransfer.files)) {
+          const p = (file as File & { path?: string }).path;
+          if (typeof p === 'string' && p.length > 0) paths.push(p);
+        }
+        void useWorkspaceStore.getState().addDroppedPaths(paths);
+      }}
     >
       <FdaTip />
       <TopBar />
@@ -81,6 +123,44 @@ export const App = (): JSX.Element => {
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />
       <CommandPalette />
+      {dragDepth > 0 && (
+        <div
+          // The overlay covers everything but doesn't intercept events —
+          // pointerEvents:none lets the drag continue to fire on the
+          // underlying drop target (the App root div above).
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(40, 100, 200, 0.08)',
+            border: `3px dashed ${color.accent}`,
+            zIndex: 200,
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: `bh-fade-in ${motion.fast}`,
+          }}
+        >
+          <div
+            style={{
+              background: color.surface,
+              borderRadius: radius.xl,
+              padding: `${space[4]}px ${space[6]}px`,
+              boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+              fontFamily: font.sans,
+              fontSize: font.size.body,
+              color: color.textPrimary,
+              fontWeight: font.weight.medium,
+              letterSpacing: -0.1,
+            }}
+          >
+            Drop a folder to add as a workspace
+          </div>
+        </div>
+      )}
     </div>
   );
 };
