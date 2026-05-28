@@ -6,27 +6,40 @@ single `run(command, args)` door. No business logic lives here.
 
 ## Status
 
-PR 9 (scaffold) is in. PR 10 onward builds the real UI on top of this
-shell: workspace selector, NavTree, canvas, block editor, agent
-protocol. See [roadmap](../../docs/roadmap.md).
+PR 9 (scaffold) and PR 10 (workspace GUI) are in. The shell now boots
+with a TopBar (workspace dropdown + pick/remove), a Sidebar with
+NavTree (lazy-expand directory tree, hidden-files blacklist), an
+"unreachable workspace" recovery UI (re-select / unregister), and a
+one-shot macOS Full Disk Access guidance banner. PR 11 onward adds
+the canvas + badges + block editor + agent protocol. See
+[roadmap](../../docs/roadmap.md).
 
 ## Layout
 
 ```text
 src/
   main/
-    index.ts          BrowserWindow + core singleton + window state persistence
-    ipc.ts            ipcMain.handle('bh:run') — the only IPC channel
-    window-state.ts   read/write/clamp bounds against BH_CONFIG_DIR/window-state.json
+    index.ts                    BrowserWindow + core singleton + window state persistence
+    ipc.ts                      ipcMain handlers: bh:run (delegates to core), workspace:pick
+    window-state.ts             read/write/clamp bounds against BH_CONFIG_DIR/window-state.json
   preload/
-    index.ts          contextBridge → window.bh (renderer-side bridge)
+    index.ts                    contextBridge → window.bh (run / pickWorkspace / platform)
   renderer/
-    index.html
-    env.d.ts          ambient window.bh type declaration
-    src/main.tsx      React root entry
-    src/App.tsx       single component (PR 9 scaffold)
+    index.html                  CSS reset + React mount point
+    env.d.ts                    ambient window.bh type declaration
+    src/main.tsx                React root entry
+    src/App.tsx                 layout shell (TopBar + [Sidebar | Main] + banners)
+    src/store/
+      workspace.ts              Zustand store: workspaces, current, reachability, actions
+    src/components/
+      TopBar.tsx                workspace dropdown + Pick / Remove buttons
+      Sidebar.tsx               workspace header + (NavTree | WorkspaceUnreachable)
+      NavTree.tsx               recursive lazy-expand directory tree, hidden-files filter
+      WorkspaceUnreachable.tsx  re-select / unregister UI when current folder is gone
+      ErrorBanner.tsx           bottom-pinned dismissible error overlay
+      FdaTip.tsx                top-pinned macOS Full Disk Access guidance (once-per-host)
 test/
-  ipc.test.ts         vitest contract tests for the bh:run channel
+  ipc.test.ts                   vitest contract tests for the bh:run channel
 ```
 
 ## Commands

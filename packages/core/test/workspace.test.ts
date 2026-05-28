@@ -418,10 +418,9 @@ describe('workspace.listFiles', () => {
     dirs.add('/root');
     const core = createCore({ fs, configDir: '/cfg' });
 
-    const result = await core.run<{ path: string }, { entries: unknown[] }>(
-      'workspace.listFiles',
-      { path: '/root' },
-    );
+    const result = await core.run<{ path: string }, { entries: unknown[] }>('workspace.listFiles', {
+      path: '/root',
+    });
     expect(result.entries).toEqual([]);
   });
 
