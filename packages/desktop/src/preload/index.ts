@@ -25,6 +25,8 @@ const bh = {
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
+  /** Frozen at preload time; safe to read synchronously. */
+  platform: process.platform as NodeJS.Platform,
 };
 
 contextBridge.exposeInMainWorld('bh', bh);

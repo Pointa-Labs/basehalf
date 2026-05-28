@@ -1,5 +1,6 @@
 import { type JSX, useEffect } from 'react';
 import { ErrorBanner } from './components/ErrorBanner.js';
+import { FdaTip } from './components/FdaTip.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TopBar } from './components/TopBar.js';
 import { useWorkspaceStore } from './store/workspace.js';
@@ -39,6 +40,7 @@ export const App = (): JSX.Element => {
           Canvas lands in PR 11.
         </main>
       </div>
+      <FdaTip />
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
     </div>
   );
