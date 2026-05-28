@@ -42,6 +42,7 @@ interface WorkspaceState {
   remove: (name: string) => Promise<void>;
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
   repath: (name: string) => Promise<void>;
+  renameWorkspace: (from: string, to: string) => Promise<void>;
   setCurrentFile: (file: string | null) => void;
   refreshViews: () => Promise<void>;
   setCurrentView: (id: string | null) => void;
@@ -217,6 +218,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       await window.bh.run('workspace.add', { path: newPath, name, setup: true });
       // Restore as current — workspace.remove may have demoted it.
       await window.bh.run('workspace.use', { name });
+      await get().refresh();
+    } catch (err) {
+      set({ error: formatError(err) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  renameWorkspace: async (from: string, to: string) => {
+    if (get().busy) return;
+    set({ busy: true });
+    try {
+      await window.bh.run('workspace.rename', { from, to });
+      // Refresh pulls the new name into `current` if it was the renamed one
+      // (core's workspace.rename already updated the config pointer).
       await get().refresh();
     } catch (err) {
       set({ error: formatError(err) });

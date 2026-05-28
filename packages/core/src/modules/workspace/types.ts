@@ -89,6 +89,17 @@ export interface WorkspaceRemoveResult {
   readonly newCurrent: string | null;
 }
 
+export interface WorkspaceRenameArgs {
+  readonly from: string;
+  readonly to: string;
+}
+export interface WorkspaceRenameResult {
+  readonly workspace: WorkspaceEntry;
+  /** True when the renamed workspace was the current one and the
+   *  `current` pointer was updated to the new name. */
+  readonly currentUpdated: boolean;
+}
+
 export interface WorkspaceListFilesArgs {
   readonly path: string;
 }

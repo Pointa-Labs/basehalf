@@ -20,6 +20,8 @@ import type {
   WorkspaceReadFileResult,
   WorkspaceRemoveArgs,
   WorkspaceRemoveResult,
+  WorkspaceRenameArgs,
+  WorkspaceRenameResult,
   WorkspaceSetViewportArgs,
   WorkspaceSetViewportResult,
   WorkspaceUseArgs,
@@ -291,6 +293,7 @@ export function commands(): ReadonlyArray<
     ['workspace.use', use as unknown as Handler<never, unknown>],
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
+    ['workspace.rename', rename as unknown as Handler<never, unknown>],
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
     ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
@@ -302,6 +305,58 @@ export function commands(): ReadonlyArray<
 export function _coerceContext(ctx: unknown): asserts ctx is Context {
   if (!ctx || typeof ctx !== 'object') throw new TypeError('invalid context');
 }
+
+/**
+ * `workspace.rename(from, to)` — change a workspace's name without
+ * touching its path / .bh/ / files. Updates the `current` pointer if it
+ * was the renamed one.
+ *
+ * Why a dedicated command (vs remove + re-add): the obvious DIY recipe
+ * is `workspace.remove(from) + workspace.add(path, name: to)`, but that
+ * isn't atomic — if the add fails (e.g., the new name is taken by
+ * another workspace, or `path` no longer exists on disk), the user is
+ * left with no workspace registration at all. A single config-update
+ * write makes the operation safe.
+ */
+export const rename: Handler<WorkspaceRenameArgs, WorkspaceRenameResult> = async (args, ctx) => {
+  if (args.from === args.to) {
+    throw new Error(`workspace.rename: from and to are the same (${args.from})`);
+  }
+  if (!NAME_PATTERN.test(args.to)) {
+    throw new Error(
+      `Invalid workspace name: ${JSON.stringify(args.to)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
+    );
+  }
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const source = data.workspaces[args.from];
+  if (!source) {
+    throw new Error(`No such workspace: ${args.from}`);
+  }
+  if (data.workspaces[args.to]) {
+    throw new Error(`Workspace name already taken: ${args.to}`);
+  }
+  // Build the new workspaces map; we re-insert the renamed entry to
+  // preserve insertion order on JSON serialization. Other entries are
+  // unchanged.
+  const next: Record<string, (typeof data.workspaces)[string]> = {};
+  for (const [name, entry] of Object.entries(data.workspaces)) {
+    if (name === args.from) {
+      next[args.to] = entry;
+    } else {
+      next[name] = entry;
+    }
+  }
+  const currentUpdated = data.current === args.from;
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    version: 1,
+    current: currentUpdated ? args.to : data.current,
+    workspaces: next,
+  });
+  return {
+    workspace: { name: args.to, path: source.path, addedAt: source.addedAt },
+    currentUpdated,
+  };
+};
 
 /**
  * Materialize via the badges module + seed the focus.md contract surface
