@@ -494,6 +494,36 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 
+// --- 5b-pan. User pan on canvas background → debounced setViewport
+// fires (Canvas.onMoveEnd → persistViewport). §5b-viewport tested
+// the read-side of the round-trip (setViewport stored value → render);
+// this tests the write side (user gesture → persisted value).
+console.log('\n[5b-pan] User pans canvas → debounced setViewport fires');
+const paneLocator = win.locator('.react-flow__pane').first();
+const paneBox = await paneLocator.boundingBox();
+assert(paneBox !== null, 'react-flow pane has a bounding box');
+// Pan from the lower portion of the pane to avoid landing on a badge
+// (badges in /tmp/bh-verify-ws tend to cluster in the upper rows).
+const panStart = { x: paneBox.x + paneBox.width / 2, y: paneBox.y + paneBox.height * 0.85 };
+const panEnd = { x: panStart.x - 120, y: panStart.y - 80 };
+await win.mouse.move(panStart.x, panStart.y);
+await win.mouse.down();
+await win.mouse.move(panEnd.x, panEnd.y, { steps: 12 });
+await win.mouse.up();
+// VIEWPORT_DEBOUNCE inside Canvas.tsx + IPC latency; give 1.5s of slack.
+await win.waitForTimeout(1500);
+const vpAfterPan = await bhRun('workspace.getViewport', {});
+assert(
+  vpAfterPan && (Math.abs(vpAfterPan.offsetX) > 10 || Math.abs(vpAfterPan.offsetY) > 10),
+  `User pan persisted to workspace.setViewport (got: ${JSON.stringify(vpAfterPan)})`,
+);
+// Reset for downstream tests so the badge-drag bounding-box math
+// continues to work against an identity viewport.
+await bhRun('workspace.setViewport', { viewport: { offsetX: 0, offsetY: 0, scale: 1 } });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
+
 // --- 5d. Shift-click multi-select → focus.set additive path.
 // Regular click sets focus = [file]; shift-click extends without
 // switching the preview. ---
