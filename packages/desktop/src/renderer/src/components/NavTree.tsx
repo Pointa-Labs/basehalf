@@ -5,6 +5,28 @@ interface NavTreeProps {
   rootPath: string;
 }
 
+// SR-v0 §4.5 default blacklist for the NavTree. Hide tooling cruft +
+// our own .bh/ control dir. Plain dotfiles (.env, .gitignore) stay
+// visible — users sometimes care about those. v0.x will move this to
+// .bh/config.json so per-workspace overrides are possible.
+const HIDDEN_NAMES: ReadonlySet<string> = new Set([
+  '.git',
+  '.bh',
+  '.DS_Store',
+  '.idea',
+  '.vscode',
+  '.turbo',
+  '.next',
+  '.svelte-kit',
+  'node_modules',
+  'dist',
+  'build',
+  'out',
+  '__pycache__',
+]);
+
+const isVisible = (entry: WorkspaceListFilesEntry): boolean => !HIDDEN_NAMES.has(entry.name);
+
 // Plain path join — paths come from the OS already normalized; we only
 // concat names that ctx.fs.readdir returned, so no traversal worries.
 const joinPath = (parent: string, name: string): string =>
@@ -69,7 +91,7 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const renderEntries = (parentPath: string, depth: number): JSX.Element[] => {
     const entries = childrenByPath.get(parentPath);
     if (!entries) return [];
-    return entries.flatMap((entry) => {
+    return entries.filter(isVisible).flatMap((entry) => {
       const path = joinPath(parentPath, entry.name);
       const isExpanded = expanded.has(path);
       const indent = 8 + depth * 14;
