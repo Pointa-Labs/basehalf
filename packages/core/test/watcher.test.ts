@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type BadgeFile, _resetWatcherForTests, createCore } from '../src/index.js';
+import { type BadgeFile, _resetWatcherForTests, createCore, watcherEvents } from '../src/index.js';
+import type { WatcherEvent } from '../src/modules/watcher/types.js';
 
 /**
  * Watcher integration tests. These use real chokidar against a real tmp
@@ -12,7 +13,10 @@ import { type BadgeFile, _resetWatcherForTests, createCore } from '../src/index.
  * the module-private chokidar instance so state doesn't leak across tests.
  */
 
-const DEBOUNCE = 250; // chokidar awaitWriteFinish stabilityThreshold + slack
+// chokidar awaitWriteFinish stabilityThreshold (100ms) + rename buffer
+// window (250ms) + slack. Unlink events are buffered for the rename
+// heuristic; markOrphan only fires after that timer expires.
+const DEBOUNCE = 500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -103,6 +107,93 @@ describe('watcher module', () => {
     // No infinite loop = success; sanity check that the badge exists once.
     const list = (await core.run('badge.list', {})) as { badges: BadgeFile[] };
     expect(list.badges.filter((b) => b.file === 'fake.md')).toHaveLength(1);
+  });
+
+  it('detects rename: unlink + add (same dir + ext within window) → badge.rename', async () => {
+    // Pre-seed a file with a custom prompt + an outbound ref so we can
+    // tell rename (preservation) from orphan+add (loss).
+    await writeFile(join(workspaceRoot, 'old.md'), 'hello');
+    await core.run('workspace.use', { name: 'w' });
+    await core.run('badge.set', { file: 'old.md', patch: { prompt: 'load-bearing' } });
+    await core.run('badge.addRef', { file: 'old.md', to: 'sibling.md' });
+    // Also add an inbound ref so we can verify it gets rewritten.
+    await core.run('badge.addRef', { file: 'sibling.md', to: 'old.md', note: 'see also' });
+    await core.run('watcher.start', {});
+    // Perform an OS rename (chokidar fires unlink + add in quick succession).
+    await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
+    await sleep(DEBOUNCE);
+
+    // Old badge gone; new badge inherits prompt + references.
+    const oldBadge = await core.run('badge.get', { file: 'old.md' });
+    expect(oldBadge).toBeNull();
+    const newBadge = (await core.run('badge.get', { file: 'new.md' })) as BadgeFile | null;
+    expect(newBadge?.prompt).toBe('load-bearing');
+    expect(newBadge?.references).toEqual([{ to: 'sibling.md' }]);
+    expect(newBadge?.orphan).toBeUndefined();
+
+    // sibling.md's outbound ref rewritten to point at the new name.
+    const sibling = (await core.run('badge.get', { file: 'sibling.md' })) as BadgeFile;
+    expect(sibling.references).toEqual([{ to: 'new.md', note: 'see also' }]);
+  });
+
+  it('does NOT misfire as rename when extensions differ (markOrphan + materialize)', async () => {
+    await writeFile(join(workspaceRoot, 'doc.md'), 'hello');
+    await core.run('workspace.use', { name: 'w' });
+    await core.run('badge.set', { file: 'doc.md', patch: { prompt: 'keep me' } });
+    await core.run('watcher.start', {});
+    // Unlink doc.md; create doc.txt — different extension, NOT a rename.
+    await unlink(join(workspaceRoot, 'doc.md'));
+    await writeFile(join(workspaceRoot, 'doc.txt'), 'hello');
+    await sleep(DEBOUNCE);
+    // Old badge is orphan; new badge is empty (fresh materialize).
+    const oldBadge = (await core.run('badge.get', { file: 'doc.md' })) as BadgeFile;
+    expect(oldBadge.orphan).toBe(true);
+    expect(oldBadge.prompt).toBe('keep me'); // preserved on orphan
+    const newBadge = (await core.run('badge.get', { file: 'doc.txt' })) as BadgeFile;
+    expect(newBadge.prompt).toBeUndefined();
+  });
+
+  it('does NOT misfire as rename when parent dirs differ', async () => {
+    await mkdir(join(workspaceRoot, 'a'), { recursive: true });
+    await mkdir(join(workspaceRoot, 'b'), { recursive: true });
+    await writeFile(join(workspaceRoot, 'a', 'x.md'), 'hi');
+    await core.run('workspace.use', { name: 'w' });
+    await core.run('badge.set', { file: 'a/x.md', patch: { prompt: 'A-bound' } });
+    await core.run('watcher.start', {});
+    await unlink(join(workspaceRoot, 'a', 'x.md'));
+    await writeFile(join(workspaceRoot, 'b', 'x.md'), 'hi');
+    await sleep(DEBOUNCE);
+    // Different parent dir → orphan + fresh materialize, not rename.
+    const oldBadge = (await core.run('badge.get', { file: 'a/x.md' })) as BadgeFile;
+    expect(oldBadge.orphan).toBe(true);
+    expect(oldBadge.prompt).toBe('A-bound');
+    const newBadge = (await core.run('badge.get', { file: 'b/x.md' })) as BadgeFile;
+    expect(newBadge.prompt).toBeUndefined();
+  });
+
+  it('emits a synthetic rename event on watcherEvents for hosts to react to', async () => {
+    await writeFile(join(workspaceRoot, 'old.md'), 'hi');
+    await core.run('workspace.use', { name: 'w' });
+    await core.run('badge.set', { file: 'old.md' });
+    await core.run('watcher.start', {});
+    const events: WatcherEvent[] = [];
+    const listener = (e: WatcherEvent): void => {
+      events.push(e);
+    };
+    watcherEvents.on('event', listener);
+    try {
+      await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
+      await sleep(DEBOUNCE);
+    } finally {
+      watcherEvents.off('event', listener);
+    }
+    const renameEvent = events.find((e) => e.type === 'rename');
+    expect(renameEvent).toBeDefined();
+    if (renameEvent && renameEvent.type === 'rename') {
+      expect(renameEvent.fromRelPath).toBe('old.md');
+      expect(renameEvent.toRelPath).toBe('new.md');
+      expect(renameEvent.isDir).toBe(false);
+    }
   });
 });
 
