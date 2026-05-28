@@ -7,6 +7,7 @@ import type {
   WorkspaceUseResult,
 } from '@basehalf/core';
 import { create } from 'zustand';
+import { noteOpenedFile } from '../lib/recent-files.js';
 
 interface WorkspaceState {
   workspaces: readonly WorkspaceEntry[];
@@ -302,7 +303,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  setCurrentFile: (file: string | null) => set({ currentFile: file }),
+  setCurrentFile: (file: string | null) => {
+    set({ currentFile: file });
+    // Track opens per workspace so the palette can surface recents first.
+    // Null = closing the preview; nothing to record.
+    const current = get().current;
+    if (file !== null && current !== null) noteOpenedFile(current, file);
+  },
 
   refreshViews: async () => {
     try {

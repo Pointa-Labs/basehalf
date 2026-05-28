@@ -22,6 +22,7 @@ import {
   promptForNewView,
   tildifyPath,
 } from '../lib/actions.js';
+import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 interface CommandPaletteStore {
@@ -205,8 +206,21 @@ export const CommandPalette = (): JSX.Element | null => {
       }
     }
 
-    // Files — open in preview.
-    for (const f of files) {
+    // Files — open in preview. Sort by recency-then-alphabetical so the
+    // file the user opened 30 seconds ago is the FIRST file row even
+    // when their workspace has 100+ alphabetically-earlier files.
+    const recent = current !== null ? recentFilesFor(current) : [];
+    const recentRank = new Map<string, number>();
+    recent.forEach((path, idx) => recentRank.set(path, idx));
+    const sortedFiles = [...files].sort((a, b) => {
+      const ra = recentRank.get(a.file);
+      const rb = recentRank.get(b.file);
+      if (ra !== undefined && rb !== undefined) return ra - rb; // both recent → by recency
+      if (ra !== undefined) return -1; // a recent, b not → a first
+      if (rb !== undefined) return 1; // b recent, a not → b first
+      return a.file.localeCompare(b.file); // neither recent → alphabetical
+    });
+    for (const f of sortedFiles) {
       const basename = f.file.includes('/') ? (f.file.split('/').pop() ?? f.file) : f.file;
       out.push({
         id: `file:${f.file}`,
