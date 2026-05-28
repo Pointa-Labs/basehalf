@@ -35,7 +35,10 @@ describe('inbound.get', () => {
   });
 
   it('treats missing index file as empty (no crash)', async () => {
-    // No file written; no addRef called. get should just return empty.
+    // Workspace bootstrap (inbound.init) seeds the file, so simulate the
+    // "file got deleted externally" path by explicitly removing it before
+    // calling get. The handler must still return empty without throwing.
+    ctx.files.delete('/work/.bh/index/inbound.json');
     expect(ctx.files.has('/work/.bh/index/inbound.json')).toBe(false);
     const result = await ctx.core.run('inbound.get', { file: 'whatever.md' });
     expect(result.entries).toEqual([]);
@@ -187,6 +190,42 @@ describe('inbound.rebuild (full scan)', () => {
     const at = Date.parse(result.rebuildAt);
     expect(at).toBeGreaterThanOrEqual(before);
     expect(at).toBeLessThanOrEqual(after);
+  });
+});
+
+describe('inbound.init (seed contract surface)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('writes the empty index when inbound.json does not yet exist', async () => {
+    // seed() runs workspace.add → materializeWithFallback → inbound.init,
+    // so inbound.json is on disk after seeding.
+    const file = ctx.files.get('/work/.bh/index/inbound.json');
+    expect(file).toBeDefined();
+    const parsed = JSON.parse(file as string) as Record<string, unknown>;
+    expect(parsed).toEqual({ bhVersion: 1, entries: {} });
+    expect(parsed).not.toHaveProperty('rebuildAt');
+  });
+
+  it('is a no-op when inbound.json already has entries (idempotent — refs preserved)', async () => {
+    await ctx.core.run('inbound.addRef', { from: 'a.md', to: 'b.md' });
+    const before = ctx.files.get('/work/.bh/index/inbound.json');
+    const result = await ctx.core.run('inbound.init', {});
+    expect(result.created).toBe(false);
+    const after = ctx.files.get('/work/.bh/index/inbound.json');
+    expect(after).toBe(before);
+  });
+
+  it('rewrites the empty index when the file is missing on re-call', async () => {
+    ctx.files.delete('/work/.bh/index/inbound.json');
+    const result = await ctx.core.run('inbound.init', {});
+    expect(result.created).toBe(true);
+    const after = ctx.files.get('/work/.bh/index/inbound.json');
+    expect(after).toBeDefined();
+    const parsed = JSON.parse(after as string) as Record<string, unknown>;
+    expect(parsed).toEqual({ bhVersion: 1, entries: {} });
   });
 });
 

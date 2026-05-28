@@ -1,13 +1,15 @@
 import type { Handler } from '../../kernel/index.js';
 import type { BadgeListResult } from '../badges/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
-import { readInbound, writeInbound } from './store.js';
+import { inboundPath, readInbound, writeInbound } from './store.js';
 import type {
   InboundAddRefArgs,
   InboundEntry,
   InboundGetArgs,
   InboundGetResult,
   InboundIndex,
+  InboundInitArgs,
+  InboundInitResult,
   InboundRebuildArgs,
   InboundRebuildResult,
   InboundRemoveRefArgs,
@@ -98,6 +100,23 @@ export const rebuild: Handler<InboundRebuildArgs, InboundRebuildResult> = async 
   return { rebuildAt, entryCount: Object.keys(entries).length };
 };
 
+/**
+ * Seed `.bh/index/inbound.json` with an empty index if it doesn't exist
+ * yet. Idempotent — re-running on a populated index is a no-op so an
+ * existing reverse map is never clobbered. Called by workspace.add/use so
+ * the agent contract surface always exists; without it an agent following
+ * the CLAUDE.md hint and reading inbound.json on a brand-new workspace
+ * (zero refs yet) gets ENOENT, which is ambiguous with "the index is
+ * broken." An empty `{entries: {}}` answers "no inbound refs" cleanly.
+ */
+export const init: Handler<InboundInitArgs, InboundInitResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const existing = await ctx.fs.readFile(inboundPath(root));
+  if (existing !== null) return { created: false };
+  await writeInbound(ctx.fs, root, { bhVersion: 1, entries: {} });
+  return { created: true };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -106,5 +125,6 @@ export function commands(): ReadonlyArray<
     ['inbound.addRef', addRef as unknown as Handler<never, unknown>],
     ['inbound.removeRef', removeRef as unknown as Handler<never, unknown>],
     ['inbound.rebuild', rebuild as unknown as Handler<never, unknown>],
+    ['inbound.init', init as unknown as Handler<never, unknown>],
   ];
 }
