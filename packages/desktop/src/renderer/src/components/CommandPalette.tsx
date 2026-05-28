@@ -16,7 +16,7 @@
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { promptForNewNote, promptForNewView } from '../lib/actions.js';
+import { createDemoAtDefault, promptForNewNote, promptForNewView } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 interface CommandPaletteStore {
@@ -218,6 +218,13 @@ export const CommandPalette = (): JSX.Element | null => {
       label: 'Add folder…',
       category: 'Action',
       run: () => void pickAndAdd(),
+    });
+    out.push({
+      id: 'action:try-demo',
+      label: 'Try a demo workspace…',
+      hint: '~/BaseHalf-Demo',
+      category: 'Action',
+      run: () => void createDemoAtDefault(),
     });
     if (current !== null) {
       out.push({

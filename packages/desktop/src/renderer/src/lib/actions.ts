@@ -11,6 +11,20 @@
 import { prompt } from '../components/Dialog.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
+/** Default location for the demo workspace. Both the Onboarding "Try a
+ *  demo" button and the palette "Try a demo workspace…" action use this
+ *  path so they're idempotent against each other (createDemo itself is
+ *  also idempotent on second-run with the same path — see workspace.createDemo). */
+export function defaultDemoPath(): string {
+  return `${window.bh.homeDir || '/tmp'}/BaseHalf-Demo`;
+}
+
+/** Trigger the demo workspace generator at the default path. Wraps the
+ *  store action so callers don't need to know the path convention. */
+export function createDemoAtDefault(): Promise<void> {
+  return useWorkspaceStore.getState().createDemo(defaultDemoPath());
+}
+
 /** Prompt for a workspace-relative path and create an empty MD note.
  *  No-op (without a dialog) if there's no current workspace, since
  *  workspace.writeFile needs one. */

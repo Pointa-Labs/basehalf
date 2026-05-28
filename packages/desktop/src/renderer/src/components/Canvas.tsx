@@ -22,6 +22,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, motion, radius, shadow, space } from '../design.js';
+import { createDemoAtDefault } from '../lib/actions.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -274,12 +275,7 @@ export const Canvas = (): JSX.Element => {
     return (
       <Onboarding
         onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()}
-        onTryDemo={() => {
-          // Default path: ~/BaseHalf-Demo. Home dir is frozen at preload
-          // time via window.bh.homeDir, so we don't need an IPC round-trip.
-          const path = `${window.bh.homeDir}/BaseHalf-Demo`;
-          void useWorkspaceStore.getState().createDemo(path);
-        }}
+        onTryDemo={() => void createDemoAtDefault()}
       />
     );
   }
