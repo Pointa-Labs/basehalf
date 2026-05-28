@@ -718,6 +718,31 @@ assert(
   introAfterAddBtn?.references?.some((r) => r.to === 'overview.md'),
   `+ Add dialog added the reference (refs now: ${JSON.stringify(introAfterAddBtn?.references)})`,
 );
+
+// --- 7g-protocol. Agent-protocol contract on disk: after the UI prompt
+// edit + ref add, the actual JSON files agents read should match.
+// badge.get/inbound.get hit the same code path as the desktop, so they
+// can't catch a bug where the in-memory state is right but the JSON
+// serialization or path/filename is wrong. Read the raw files.
+const introJsonPath = join(WORKSPACE_DIR, '.bh/badges/intro.md.json');
+const introJsonRaw = readFileSync(introJsonPath, 'utf-8');
+const introJson = JSON.parse(introJsonRaw);
+assert(
+  introJson.prompt === promptStamp,
+  `intro.md.json on disk has the UI-typed prompt (got: ${JSON.stringify(introJson.prompt)})`,
+);
+assert(
+  Array.isArray(introJson.references) && introJson.references.some((r) => r.to === 'overview.md'),
+  `intro.md.json on disk has the UI-added overview.md ref (got: ${JSON.stringify(introJson.references)})`,
+);
+const inboundJsonPath = join(WORKSPACE_DIR, '.bh/index/inbound.json');
+const inboundJson = JSON.parse(readFileSync(inboundJsonPath, 'utf-8'));
+const overviewBacklinks = inboundJson.entries?.['overview.md'] ?? [];
+assert(
+  overviewBacklinks.some((b) => b.from === 'intro.md'),
+  `inbound.json on disk has intro.md → overview.md (overview backlinks: ${JSON.stringify(overviewBacklinks)})`,
+);
+
 // Inbound list — open overview.md (now referenced by intro.md after the
 // + Add dialog above) and verify the BadgeProperties surfaces an
 // "Inbound" section listing intro.md as a clickable backlink.
