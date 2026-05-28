@@ -97,6 +97,40 @@ describe('focus.clear', () => {
   });
 });
 
+describe('focus.init (seed contract surface)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('writes the empty template when focus.md does not yet exist', async () => {
+    // seed() runs workspace.add → materializeWithFallback → focus.init,
+    // so focus.md should already be on disk after seeding.
+    const file = ctx.files.get('/work/.bh/focus.md');
+    expect(file).toBeDefined();
+    expect(file).toMatch(/^# bh focus/);
+    expect(file).toMatch(/active:\s*\n\s*\(none\)/);
+  });
+
+  it('is a no-op when focus.md already has content (idempotent — user state preserved)', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    const before = ctx.files.get('/work/.bh/focus.md');
+    const result = await ctx.core.run('focus.init', {});
+    expect(result.created).toBe(false);
+    const after = ctx.files.get('/work/.bh/focus.md');
+    expect(after).toBe(before);
+  });
+
+  it('rewrites the template when focus.md is missing on a re-call (e.g. user deleted it)', async () => {
+    ctx.files.delete('/work/.bh/focus.md');
+    const result = await ctx.core.run('focus.init', {});
+    expect(result.created).toBe(true);
+    const after = ctx.files.get('/work/.bh/focus.md');
+    expect(after).toBeDefined();
+    expect(after).toMatch(/active:/);
+  });
+});
+
 describe('parseFocus / renderFocus (pure helpers)', () => {
   it('roundtrips an empty list', () => {
     const rendered = renderFocus([]);

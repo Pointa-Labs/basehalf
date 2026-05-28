@@ -1,11 +1,13 @@
 import type { Handler } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
-import { readFocus, writeFocus } from './store.js';
+import { focusPath, readFocus, writeFocus } from './store.js';
 import type {
   FocusClearArgs,
   FocusClearResult,
   FocusGetArgs,
   FocusGetResult,
+  FocusInitArgs,
+  FocusInitResult,
   FocusSetArgs,
   FocusSetResult,
 } from './types.js';
@@ -58,6 +60,22 @@ export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ct
   return { cleared: true };
 };
 
+/**
+ * Seed `.bh/focus.md` with the empty template if it doesn't exist yet.
+ * Idempotent — re-running on a workspace with a populated focus.md is a
+ * no-op so user state is never clobbered. Called by workspace.add/use so
+ * the agent contract surface always exists; without it an agent following
+ * the CLAUDE.md hint and reading focus.md on a brand-new workspace gets
+ * ENOENT before any UI click ever happens.
+ */
+export const init: Handler<FocusInitArgs, FocusInitResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const existing = await ctx.fs.readFile(focusPath(root));
+  if (existing !== null) return { created: false };
+  await writeFocus(ctx.fs, root, []);
+  return { created: true };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -65,5 +83,6 @@ export function commands(): ReadonlyArray<
     ['focus.set', set as unknown as Handler<never, unknown>],
     ['focus.get', get as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
+    ['focus.init', init as unknown as Handler<never, unknown>],
   ];
 }

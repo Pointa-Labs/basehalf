@@ -25,3 +25,10 @@ export type FocusClearArgs = Record<string, never>;
 export interface FocusClearResult {
   readonly cleared: true;
 }
+
+export type FocusInitArgs = Record<string, never>;
+export interface FocusInitResult {
+  /** True when this call wrote the empty template; false when it was already
+   *  present and we left it alone. */
+  readonly created: boolean;
+}
