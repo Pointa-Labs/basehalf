@@ -11,6 +11,7 @@
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
+import { registerBadgesModule } from './modules/badges/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
 export function createCore(opts: CoreOptions = {}): Core {
@@ -48,6 +49,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   // First-party modules: registered here, statically composed. When external
   // plugins arrive they'll go through the same registry — just dynamic.
   registerWorkspaceModule(core);
+  registerBadgesModule(core);
 
   return core;
 }
@@ -58,3 +60,5 @@ export { UnknownCommand, defaultConfigDir } from './kernel/index.js';
 
 // Module result/args types — UI shells need these to narrow window.bh.run results.
 export type * from './modules/workspace/types.js';
+export type * from './modules/badges/types.js';
+export { BadgeCorrupt } from './modules/badges/types.js';
