@@ -248,6 +248,90 @@ assert(navText.includes('intro.md'), 'NavTree lists intro.md');
 assert(navText.includes('overview.md'), 'NavTree lists overview.md');
 assert(navText.includes('notes'), 'NavTree lists notes/ folder');
 
+// --- 4-deep. NavTree recursive expansion at depth ≥3. The current driver
+// only covered the top-level list (flat intro.md / overview.md / notes/).
+// Recursive Row rendering, lazy children loading on toggle, and
+// indent-by-depth visual scaling were untested. Priority 4 from audit.
+console.log('\n[4-deep] NavTree deep expansion + lazy children + indent');
+mkdirSync(join(WORKSPACE_DIR, 'notes/projects/alpha'), { recursive: true });
+writeFileSync(
+  join(WORKSPACE_DIR, 'notes/projects/alpha/plan.md'),
+  '# Alpha plan\n\nDeeply nested content.\n',
+);
+// chokidar add events on a newly-seeded nested tree need a moment;
+// NavTree also lazy-loads children only when a folder is expanded, so
+// the watcher-triggered refresh only matters for already-loaded dirs.
+await win.waitForTimeout(900);
+
+const navRowFor = (name) =>
+  win.locator('aside button.bh-nav-row', { hasText: new RegExp(`^${name}$`) }).first();
+
+const paddingPx = async (loc) =>
+  await loc.evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingLeft));
+
+// Click 'notes' to expand → scratch.md (existing) + projects/ (new) appear.
+await navRowFor('notes').click();
+await win.waitForTimeout(500);
+const navTextDepth1 = await sidebar.innerText();
+assert(navTextDepth1.includes('scratch.md'), 'Expand notes/ surfaces scratch.md (depth 1)');
+assert(navTextDepth1.includes('projects'), 'Expand notes/ surfaces projects/ (depth 1)');
+
+// Verify indent strictly increases between depth 0 and depth 1.
+const padNotes = await paddingPx(navRowFor('notes'));
+const padProjects = await paddingPx(navRowFor('projects'));
+assert(
+  padProjects > padNotes,
+  `Depth-1 indent > depth-0 indent (notes=${padNotes}px, projects=${padProjects}px)`,
+);
+
+// Expand projects/ → alpha/ appears at depth 2.
+await navRowFor('projects').click();
+await win.waitForTimeout(500);
+const navTextDepth2 = await sidebar.innerText();
+assert(navTextDepth2.includes('alpha'), 'Expand projects/ surfaces alpha/ (depth 2)');
+const padAlpha = await paddingPx(navRowFor('alpha'));
+assert(
+  padAlpha > padProjects,
+  `Depth-2 indent > depth-1 indent (projects=${padProjects}px, alpha=${padAlpha}px)`,
+);
+
+// Expand alpha/ → plan.md appears at depth 3.
+await navRowFor('alpha').click();
+await win.waitForTimeout(500);
+const navTextDepth3 = await sidebar.innerText();
+assert(navTextDepth3.includes('plan.md'), 'Expand alpha/ surfaces plan.md (depth 3)');
+const padPlan = await paddingPx(navRowFor('plan.md'));
+assert(
+  padPlan > padAlpha,
+  `Depth-3 indent > depth-2 indent (alpha=${padAlpha}px, plan.md=${padPlan}px)`,
+);
+
+// Click the deeply-nested file → preview opens with its relative path.
+await navRowFor('plan.md').click();
+await win.waitForTimeout(700);
+const deepPreviewHeader = await win.locator('aside header').last().innerText();
+assert(
+  deepPreviewHeader.includes('plan.md'),
+  `Deep file opens in preview (header: ${JSON.stringify(deepPreviewHeader.split('\n')[0])})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/04-deep-nav.png` });
+
+// Collapse notes/ → all descendants disappear from the rendered tree
+// even though the inner expanded Set still has notes/projects/alpha
+// (NavTree only renders descendants when the chain is expanded).
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
+await navRowFor('notes').click();
+await win.waitForTimeout(400);
+const navTextCollapsed = await sidebar.innerText();
+assert(
+  !navTextCollapsed.includes('scratch.md') &&
+    !navTextCollapsed.includes('projects') &&
+    !navTextCollapsed.includes('alpha') &&
+    !navTextCollapsed.includes('plan.md'),
+  'Collapsing notes/ hides all descendants (none of scratch.md / projects / alpha / plan.md visible)',
+);
+
 // --- 5. Canvas renders badges ---
 console.log('\n[5] Canvas badges');
 const canvasProbe = await win.evaluate(() => {
