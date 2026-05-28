@@ -16,6 +16,27 @@ type SetupReport = {
   gitignoreAbsent: boolean;
 };
 
+type Badge = {
+  bhVersion: 1;
+  file: string;
+  kind: 'file' | 'folder';
+  prompt?: string;
+  references: { to: string; note?: string }[];
+  canvas?: { x: number; y: number; collapsed: boolean };
+  createdAt: string;
+  modifiedAt: string;
+};
+
+type SavedView = {
+  bhVersion: 1;
+  id: string;
+  name: string;
+  prompt?: string;
+  members: { file: string; x?: number; y?: number; collapsed?: boolean }[];
+  createdAt: string;
+  modifiedAt: string;
+};
+
 export function render(commandName: string, result: unknown, asJson: boolean): void {
   if (asJson) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -44,6 +65,42 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
       return;
     case 'workspace.remove':
       renderWsRemove(result as { removed: string; newCurrent: string | null });
+      return;
+    case 'badge.get':
+      renderBadge(result as Badge | null);
+      return;
+    case 'badge.set':
+    case 'badge.addRef':
+    case 'badge.removeRef':
+      renderBadge(result as Badge);
+      return;
+    case 'badge.list':
+      renderBadgeList(result as { badges: Badge[] });
+      return;
+    case 'inbound.get':
+      renderInboundGet(result as { entries: { from: string; note?: string }[] });
+      return;
+    case 'inbound.rebuild':
+      renderInboundRebuild(result as { rebuildAt: string; entryCount: number });
+      return;
+    case 'focus.set':
+    case 'focus.get':
+      renderFocusActive(result as { active: string[] });
+      return;
+    case 'focus.clear':
+      process.stdout.write('Focus cleared.\n');
+      return;
+    case 'view.create':
+    case 'view.get':
+    case 'view.addMember':
+    case 'view.removeMember':
+      renderView(result as SavedView | null);
+      return;
+    case 'view.list':
+      renderViewList(result as { views: SavedView[] });
+      return;
+    case 'view.delete':
+      renderViewDelete(result as { deleted: boolean });
       return;
     default:
       // Fallback: pretty-print whatever we got.
@@ -103,4 +160,102 @@ function renderWsCurrent(r: { current: WorkspaceEntry | null }): void {
 function renderWsRemove(r: { removed: string; newCurrent: string | null }): void {
   process.stdout.write(`Removed workspace "${r.removed}"\n`);
   if (r.newCurrent) process.stdout.write(`Current is now: ${r.newCurrent}\n`);
+}
+
+// ── badge ───────────────────────────────────────────────────────────────────
+
+function renderBadge(badge: Badge | null): void {
+  if (!badge) {
+    process.stdout.write('(no badge — not materialized yet)\n');
+    return;
+  }
+  process.stdout.write(`${badge.kind}: ${badge.file}\n`);
+  if (badge.prompt) process.stdout.write(`  prompt:     ${badge.prompt}\n`);
+  if (badge.references.length > 0) {
+    process.stdout.write(`  references: (${badge.references.length})\n`);
+    for (const ref of badge.references) {
+      const note = ref.note ? `  — ${ref.note}` : '';
+      process.stdout.write(`    → ${ref.to}${note}\n`);
+    }
+  }
+  if (badge.canvas) {
+    process.stdout.write(
+      `  canvas:     (${badge.canvas.x}, ${badge.canvas.y})${badge.canvas.collapsed ? ' [collapsed]' : ''}\n`,
+    );
+  }
+  process.stdout.write(`  modified:   ${badge.modifiedAt}\n`);
+}
+
+function renderBadgeList(r: { badges: Badge[] }): void {
+  if (r.badges.length === 0) {
+    process.stdout.write('No badges materialized in this workspace.\n');
+    return;
+  }
+  for (const b of r.badges) {
+    const kindMark = b.kind === 'folder' ? '/' : ' ';
+    const prompt = b.prompt ? `  ${b.prompt.slice(0, 60)}${b.prompt.length > 60 ? '…' : ''}` : '';
+    const refs = b.references.length > 0 ? ` (${b.references.length} refs)` : '';
+    process.stdout.write(`${kindMark} ${b.file}${refs}${prompt}\n`);
+  }
+}
+
+// ── inbound ─────────────────────────────────────────────────────────────────
+
+function renderInboundGet(r: { entries: { from: string; note?: string }[] }): void {
+  if (r.entries.length === 0) {
+    process.stdout.write('(no inbound references)\n');
+    return;
+  }
+  for (const e of r.entries) {
+    const note = e.note ? `  — ${e.note}` : '';
+    process.stdout.write(`← ${e.from}${note}\n`);
+  }
+}
+
+function renderInboundRebuild(r: { rebuildAt: string; entryCount: number }): void {
+  process.stdout.write(`Rebuilt inbound index: ${r.entryCount} targets at ${r.rebuildAt}\n`);
+}
+
+// ── focus ───────────────────────────────────────────────────────────────────
+
+function renderFocusActive(r: { active: string[] }): void {
+  if (r.active.length === 0) {
+    process.stdout.write('(no active focus)\n');
+    return;
+  }
+  for (const f of r.active) {
+    process.stdout.write(`* ${f}\n`);
+  }
+}
+
+// ── view ────────────────────────────────────────────────────────────────────
+
+function renderView(view: SavedView | null): void {
+  if (!view) {
+    process.stdout.write('(no view)\n');
+    return;
+  }
+  process.stdout.write(`${view.id}: ${view.name}\n`);
+  if (view.prompt) process.stdout.write(`  prompt:  ${view.prompt}\n`);
+  if (view.members.length > 0) {
+    process.stdout.write(`  members: (${view.members.length})\n`);
+    for (const m of view.members) {
+      const pos = m.x !== undefined && m.y !== undefined ? `  (${m.x}, ${m.y})` : '';
+      process.stdout.write(`    - ${m.file}${pos}\n`);
+    }
+  }
+}
+
+function renderViewList(r: { views: SavedView[] }): void {
+  if (r.views.length === 0) {
+    process.stdout.write('No saved views in this workspace.\n');
+    return;
+  }
+  for (const v of r.views) {
+    process.stdout.write(`${v.id.padEnd(20)} ${v.name}  (${v.members.length} members)\n`);
+  }
+}
+
+function renderViewDelete(r: { deleted: boolean }): void {
+  process.stdout.write(r.deleted ? 'View deleted.\n' : 'No such view.\n');
 }

@@ -91,6 +91,295 @@ const workspace = defineCommand({
   },
 });
 
+// ── badge.* ────────────────────────────────────────────────────────────────
+
+const badgeGet = defineCommand({
+  meta: { name: 'get', description: 'Show one badge JSON (null if not materialized)' },
+  args: {
+    file: { type: 'positional', description: 'Relative path in workspace', required: true },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.get', {
+      file: args.file,
+      ...(args.kind && { kind: args.kind }),
+    });
+    render('badge.get', result, Boolean(args.json));
+  },
+});
+
+const badgeSet = defineCommand({
+  meta: { name: 'set', description: 'Create or update a badge (prompt + kind only via CLI)' },
+  args: {
+    file: { type: 'positional', description: 'Relative path in workspace', required: true },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    prompt: { type: 'string', description: 'Backpack prompt for the agent' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const patch: Record<string, unknown> = {};
+    if (args.kind) patch.kind = args.kind;
+    if (typeof args.prompt === 'string') patch.prompt = args.prompt;
+    const result = await core.run('badge.set', { file: args.file, patch });
+    render('badge.set', result, Boolean(args.json));
+  },
+});
+
+const badgeList = defineCommand({
+  meta: { name: 'list', description: 'List all materialized badges in current workspace' },
+  args: {
+    kind: { type: 'string', description: 'Filter by file|folder' },
+    query: { type: 'string', description: 'Substring filter (case-insensitive)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.list', {
+      ...(args.kind && { kind: args.kind }),
+      ...(typeof args.query === 'string' && { query: args.query }),
+    });
+    render('badge.list', result, Boolean(args.json));
+  },
+});
+
+const badgeAddRef = defineCommand({
+  meta: { name: 'addRef', description: 'Add a reference from one badge to another' },
+  args: {
+    file: {
+      type: 'positional',
+      description: 'The badge that gets the new reference',
+      required: true,
+    },
+    to: { type: 'positional', description: 'Target path being referenced', required: true },
+    note: { type: 'string', description: 'Freeform note on the reference' },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.addRef', {
+      file: args.file,
+      to: args.to,
+      ...(typeof args.note === 'string' && { note: args.note }),
+      ...(args.kind && { kind: args.kind }),
+    });
+    render('badge.addRef', result, Boolean(args.json));
+  },
+});
+
+const badgeRemoveRef = defineCommand({
+  meta: { name: 'removeRef', description: 'Drop a reference between badges' },
+  args: {
+    file: {
+      type: 'positional',
+      description: 'The badge whose reference is being removed',
+      required: true,
+    },
+    to: { type: 'positional', description: 'Target path being de-referenced', required: true },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.removeRef', {
+      file: args.file,
+      to: args.to,
+      ...(args.kind && { kind: args.kind }),
+    });
+    render('badge.removeRef', result, Boolean(args.json));
+  },
+});
+
+const badge = defineCommand({
+  meta: { name: 'badge', description: 'Manage badge JSON (file + backpack)' },
+  subCommands: {
+    get: badgeGet,
+    set: badgeSet,
+    list: badgeList,
+    addRef: badgeAddRef,
+    removeRef: badgeRemoveRef,
+  },
+});
+
+// ── inbound.* ──────────────────────────────────────────────────────────────
+
+const inboundGet = defineCommand({
+  meta: { name: 'get', description: 'Show inbound references targeting a file' },
+  args: {
+    file: { type: 'positional', description: 'Relative path in workspace', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('inbound.get', { file: args.file });
+    render('inbound.get', result, Boolean(args.json));
+  },
+});
+
+const inboundRebuild = defineCommand({
+  meta: { name: 'rebuild', description: 'Rebuild the reverse index from all badges' },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('inbound.rebuild', {});
+    render('inbound.rebuild', result, Boolean(args.json));
+  },
+});
+
+const inbound = defineCommand({
+  meta: { name: 'inbound', description: 'Query / rebuild reverse references' },
+  subCommands: { get: inboundGet, rebuild: inboundRebuild },
+});
+
+// ── focus.* ────────────────────────────────────────────────────────────────
+
+const focusSet = defineCommand({
+  meta: {
+    name: 'set',
+    description: 'Publish the focus signal (.bh/focus.md) — either file list or view id',
+  },
+  args: {
+    files: { type: 'string', description: 'Comma-separated list of relative file paths' },
+    view: { type: 'string', description: 'A saved view id (alternative to --files)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    if (typeof args.view === 'string' && args.view.length > 0) {
+      const result = await core.run('focus.set', { viewId: args.view });
+      render('focus.set', result, Boolean(args.json));
+      return;
+    }
+    const files =
+      typeof args.files === 'string' && args.files.length > 0
+        ? args.files
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+    const result = await core.run('focus.set', { files });
+    render('focus.set', result, Boolean(args.json));
+  },
+});
+
+const focusGet = defineCommand({
+  meta: { name: 'get', description: 'Show the current focus active list' },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('focus.get', {});
+    render('focus.get', result, Boolean(args.json));
+  },
+});
+
+const focusClear = defineCommand({
+  meta: { name: 'clear', description: 'Clear the focus signal (active = none)' },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('focus.clear', {});
+    render('focus.clear', result, Boolean(args.json));
+  },
+});
+
+const focus = defineCommand({
+  meta: { name: 'focus', description: 'Read / write the agent focus signal' },
+  subCommands: { set: focusSet, get: focusGet, clear: focusClear },
+});
+
+// ── view.* ─────────────────────────────────────────────────────────────────
+
+const viewCreate = defineCommand({
+  meta: { name: 'create', description: 'Create a new saved view' },
+  args: {
+    name: { type: 'positional', description: 'View display name', required: true },
+    id: { type: 'string', description: 'Explicit id (default: slug of name)' },
+    prompt: { type: 'string', description: 'View-level prompt' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('view.create', {
+      name: args.name,
+      ...(typeof args.id === 'string' && args.id.length > 0 && { id: args.id }),
+      ...(typeof args.prompt === 'string' && { prompt: args.prompt }),
+    });
+    render('view.create', result, Boolean(args.json));
+  },
+});
+
+const viewList = defineCommand({
+  meta: { name: 'list', description: 'List saved views in current workspace' },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('view.list', {});
+    render('view.list', result, Boolean(args.json));
+  },
+});
+
+const viewGet = defineCommand({
+  meta: { name: 'get', description: 'Show one saved view' },
+  args: {
+    id: { type: 'positional', description: 'View id', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('view.get', { id: args.id });
+    render('view.get', result, Boolean(args.json));
+  },
+});
+
+const viewDelete = defineCommand({
+  meta: { name: 'delete', description: 'Delete a saved view (member badges untouched)' },
+  args: {
+    id: { type: 'positional', description: 'View id', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('view.delete', { id: args.id });
+    render('view.delete', result, Boolean(args.json));
+  },
+});
+
+const viewAddMember = defineCommand({
+  meta: { name: 'addMember', description: 'Add a badge to a view (reference, not copy)' },
+  args: {
+    id: { type: 'positional', description: 'View id', required: true },
+    file: { type: 'positional', description: 'Relative path of the badge to add', required: true },
+    x: { type: 'string', description: 'Canvas x position in this view' },
+    y: { type: 'string', description: 'Canvas y position in this view' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const x = typeof args.x === 'string' ? Number(args.x) : Number.NaN;
+    const y = typeof args.y === 'string' ? Number(args.y) : Number.NaN;
+    const position = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
+    const result = await core.run('view.addMember', {
+      id: args.id,
+      file: args.file,
+      ...(position !== undefined && { position }),
+    });
+    render('view.addMember', result, Boolean(args.json));
+  },
+});
+
+const viewRemoveMember = defineCommand({
+  meta: { name: 'removeMember', description: 'Drop a badge from a view' },
+  args: {
+    id: { type: 'positional', description: 'View id', required: true },
+    file: { type: 'positional', description: 'Relative path of the badge to drop', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('view.removeMember', { id: args.id, file: args.file });
+    render('view.removeMember', result, Boolean(args.json));
+  },
+});
+
+const view = defineCommand({
+  meta: { name: 'view', description: 'Saved views — compound groupings of badges' },
+  subCommands: {
+    create: viewCreate,
+    list: viewList,
+    get: viewGet,
+    delete: viewDelete,
+    addMember: viewAddMember,
+    removeMember: viewRemoveMember,
+  },
+});
+
 // ── init ───────────────────────────────────────────────────────────────────
 
 const init = defineCommand({
@@ -122,7 +411,7 @@ const main = defineCommand({
     version: '0.0.1',
     description: 'BaseHalf — local-first compound thinking workspace (pre-alpha CLI)',
   },
-  subCommands: { init, workspace },
+  subCommands: { init, workspace, badge, inbound, focus, view },
 });
 
 // citty's runMain handles --help/--version/argv parsing. We wrap to translate
