@@ -1143,6 +1143,31 @@ assert((await dialogIsOpen()) === 1, 'Remove opens the custom Dialog (no native 
 // screenshot catches the dialog mid-animation, looking washed-out).
 await win.waitForTimeout(350);
 await win.screenshot({ path: `${SCREENS_DIR}/12-dialog-confirm.png` });
+
+// Focus trap (PR #28): Tab + Shift+Tab must cycle inside the dialog —
+// focus should never escape to background topbar / sidebar controls.
+// The destructive confirm dialog autofocuses Cancel; Tab should move to
+// Remove; another Tab should wrap back to Cancel (only 2 focusables in
+// this dialog body). Verify both directions stay inside [role=dialog].
+const isInsideDialog = async () =>
+  await win.evaluate(() => {
+    const dialog = document.querySelector('[role=dialog]');
+    return dialog?.contains(document.activeElement) ?? false;
+  });
+assert(await isInsideDialog(), 'Initial focus is inside the dialog (autoFocus on Cancel)');
+await win.keyboard.press('Tab');
+await win.waitForTimeout(80);
+assert(await isInsideDialog(), 'Tab from Cancel → focus stays inside dialog (moves to Remove)');
+await win.keyboard.press('Tab');
+await win.waitForTimeout(80);
+assert(
+  await isInsideDialog(),
+  'Tab from Remove (last focusable) wraps back inside dialog (focus trap)',
+);
+await win.keyboard.press('Shift+Tab');
+await win.waitForTimeout(80);
+assert(await isInsideDialog(), 'Shift+Tab also stays inside the dialog (reverse cycle)');
+
 await clickDialogButton('Remove');
 await win.waitForTimeout(800);
 const afterRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
