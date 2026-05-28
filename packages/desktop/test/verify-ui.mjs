@@ -1272,6 +1272,70 @@ const folderScopeProbe = await win.evaluate(() => {
 });
 assert(folderScopeProbe.ok, 'store-path probe placeholder (skip if dblclick already passed)');
 
+// --- 10b. View-mode drag-persist: in view mode the per-view position
+// (view.addMember x/y) should update on drag, and the badge's canonical
+// canvas position should NOT. §5b covered main-canvas drag; the view
+// branch of Canvas.persistPosition was untested.
+console.log('\n[10b] View-mode drag → per-view position, badge.canvas untouched');
+// Seed: add intro.md to "Test View Renamed" at a known position so the
+// drag target is unambiguous. view.addMember is upsert-by-(view,file).
+const viewListBeforeDrag = await bhRun('view.list', {});
+const dragTestView = viewListBeforeDrag.views.find((v) => v.name === 'Test View Renamed');
+assert(
+  dragTestView !== undefined,
+  `"Test View Renamed" available for view-drag test (views: ${viewListBeforeDrag.views.map((v) => v.name).join(', ')})`,
+);
+await bhRun('view.addMember', {
+  id: dragTestView.id,
+  file: 'intro.md',
+  position: { x: 60, y: 60 },
+});
+// Snapshot badge.canvas BEFORE view-mode drag so we can confirm it
+// doesn't bleed when the per-view position updates.
+const badgeCanvasBefore = (await bhRun('badge.get', { file: 'intro.md', kind: 'file' }))?.canvas;
+assert(
+  badgeCanvasBefore && Number.isFinite(badgeCanvasBefore.x),
+  `intro.md has a canonical canvas pos before view drag (${JSON.stringify(badgeCanvasBefore)})`,
+);
+// Switch to the view via the topbar selector.
+await selectByTestId('topbar-view-select', 'Test View Renamed');
+await win.waitForTimeout(500);
+const viewBadge = win.locator('.react-flow__node[data-id="intro.md"]');
+const viewBox0 = await viewBadge.boundingBox();
+assert(viewBox0 !== null, 'intro.md badge has a bounding box in view mode');
+// Drag the badge with the same pattern as §5b.
+const vStart = { x: viewBox0.x + viewBox0.width / 2, y: viewBox0.y + viewBox0.height / 2 };
+const vTarget = { x: vStart.x + 180, y: vStart.y + 90 };
+await win.mouse.move(vStart.x, vStart.y);
+await win.mouse.down();
+await win.mouse.move(vTarget.x, vTarget.y, { steps: 12 });
+await win.mouse.up();
+await win.waitForTimeout(800); // debounce
+// view.get should reflect the new per-view position.
+const viewAfterDrag = await bhRun('view.get', { id: dragTestView.id });
+const memberAfterDrag = viewAfterDrag?.members.find((m) => m.file === 'intro.md');
+assert(
+  memberAfterDrag &&
+    Number.isFinite(memberAfterDrag.x) &&
+    Number.isFinite(memberAfterDrag.y) &&
+    (Math.abs(memberAfterDrag.x - 60) > 30 || Math.abs(memberAfterDrag.y - 60) > 30),
+  `view member position updated on view-mode drag (was (60,60), now ${JSON.stringify({ x: memberAfterDrag?.x, y: memberAfterDrag?.y })})`,
+);
+// Crucially, the canonical badge.canvas should NOT have moved — view
+// positions are per-view overrides and don't bleed into main canvas.
+const badgeCanvasAfter = (await bhRun('badge.get', { file: 'intro.md', kind: 'file' }))?.canvas;
+assert(
+  badgeCanvasAfter &&
+    badgeCanvasAfter.x === badgeCanvasBefore.x &&
+    badgeCanvasAfter.y === badgeCanvasBefore.y,
+  `View-mode drag didn't mutate canonical badge.canvas (before ${JSON.stringify(badgeCanvasBefore)}, after ${JSON.stringify(badgeCanvasAfter)})`,
+);
+// Switch back to main canvas so downstream tests start from a known state.
+await selectByTestId('topbar-view-select', 'Main canvas');
+await win.waitForTimeout(400);
+// Remove intro.md from the view so subsequent runs are deterministic.
+await bhRun('view.removeMember', { id: dragTestView.id, file: 'intro.md' });
+
 // --- 11. New-note: exercise workspace.writeFile (the action TopBar's
 // "+ New note" button ultimately calls). The window.prompt UI itself is
 // OS-native and can't be driven from Playwright, so we test the action path.
