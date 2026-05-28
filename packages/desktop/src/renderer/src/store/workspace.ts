@@ -29,6 +29,19 @@ interface WorkspaceState {
 const formatError = (err: unknown): string =>
   err instanceof Error ? `${err.name}: ${err.message}` : String(err);
 
+// Fire-and-forget: ask main to start the file watcher for the now-current
+// workspace. If the renderer crashes between switches, main still has the
+// previous watcher; watcher.start is idempotent and short-circuits when
+// already watching the same root.
+async function startWatcher(): Promise<void> {
+  try {
+    await window.bh.run('watcher.start', {});
+  } catch {
+    // Non-fatal — workspace UI works without the watcher; we'd just miss
+    // external edits until the next refresh.
+  }
+}
+
 const isPathNotFound = (err: unknown): boolean =>
   err instanceof Error && (err as Error & { code?: string }).code === 'PATH_NOT_FOUND';
 
@@ -55,6 +68,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         try {
           await window.bh.run('workspace.listFiles', { path: currentWs.path });
           set({ currentReachable: true });
+          await startWatcher();
         } catch (err) {
           if (isPathNotFound(err)) {
             set({ currentReachable: false });
@@ -76,6 +90,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       if (!path) return;
       await window.bh.run('workspace.add', { path });
       await get().refresh();
+      await startWatcher();
     } catch (err) {
       set({ error: formatError(err) });
     } finally {
@@ -88,9 +103,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ busy: true });
     try {
       const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
-      // Re-read current via dedicated command for canonical value.
       const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
       set({ current: cur.current ? cur.current.name : result.current.name, error: '' });
+      await startWatcher();
     } catch (err) {
       set({ error: formatError(err) });
     } finally {
