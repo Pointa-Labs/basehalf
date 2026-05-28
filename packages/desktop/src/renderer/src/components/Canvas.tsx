@@ -271,7 +271,17 @@ export const Canvas = (): JSX.Element => {
   );
 
   if (!current || currentReachable === false) {
-    return <Onboarding onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()} />;
+    return (
+      <Onboarding
+        onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()}
+        onTryDemo={() => {
+          // Default path: ~/BaseHalf-Demo. Home dir is frozen at preload
+          // time via window.bh.homeDir, so we don't need an IPC round-trip.
+          const path = `${window.bh.homeDir}/BaseHalf-Demo`;
+          void useWorkspaceStore.getState().createDemo(path);
+        }}
+      />
+    );
   }
 
   // Pick the empty-canvas hint text based on why nothing's showing:

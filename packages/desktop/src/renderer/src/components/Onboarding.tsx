@@ -19,9 +19,10 @@ import { Button } from './primitives/Button.js';
 
 interface OnboardingProps {
   readonly onAddFolder: () => void;
+  readonly onTryDemo: () => void;
 }
 
-export const Onboarding = ({ onAddFolder }: OnboardingProps): JSX.Element => (
+export const Onboarding = ({ onAddFolder, onTryDemo }: OnboardingProps): JSX.Element => (
   // Two-layer scroll-and-center pattern: outer block scrolls when content
   // exceeds the viewport (so the title never clips), inner flex centers
   // vertically when there's room. Without min-height on the inner layer,
@@ -78,9 +79,14 @@ export const Onboarding = ({ onAddFolder }: OnboardingProps): JSX.Element => (
           organized the way you think.
         </div>
 
-        <div style={{ marginBottom: space[6] }}>
+        <div
+          style={{ marginBottom: space[6], display: 'flex', gap: space[2], alignItems: 'center' }}
+        >
           <Button variant="primary" onClick={onAddFolder}>
             Add a folder to begin
+          </Button>
+          <Button variant="ghost" onClick={onTryDemo}>
+            Try a demo workspace
           </Button>
         </div>
 

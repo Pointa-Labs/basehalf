@@ -10,6 +10,9 @@ interface Window {
     pickWorkspace(): Promise<string | null>;
     /** "darwin" | "linux" | "win32" | etc. — frozen at preload time. */
     platform: string;
+    /** OS home directory (frozen at preload). Used to suggest defaults
+     *  like `~/BaseHalf-Demo` for the demo workspace generator. */
+    homeDir: string;
     /** Subscribe to file events from the core watcher (relayed by main).
      * Returns an unsubscribe function. */
     onFileEvent(

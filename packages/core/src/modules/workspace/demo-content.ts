@@ -1,0 +1,107 @@
+/**
+ * Demo workspace content — used by `workspace.createDemo` to seed a
+ * brand-new folder with a small interconnected set of MD files plus
+ * matching badge prompts + references. The goal is to put the v0
+ * agent-protocol loop in the user's hands within ~5 seconds of opening
+ * BaseHalf for the first time: they get badges on a canvas, a focused
+ * file, refs between them, and a CLAUDE.md hint so any AI agent they
+ * open in the folder immediately recognises the structure.
+ *
+ * Keep this small. The point isn't to ship a full tutorial — it's to
+ * give the user a working example they can read, edit, and extend.
+ */
+
+export interface DemoFile {
+  readonly path: string;
+  readonly content: string;
+  readonly prompt?: string;
+  /** Outbound references to other DemoFile paths. */
+  readonly refs?: ReadonlyArray<{ to: string; note?: string }>;
+}
+
+export const DEMO_FILES: readonly DemoFile[] = [
+  {
+    path: 'intro.md',
+    content: [
+      '# Welcome to your BaseHalf demo workspace',
+      '',
+      'This folder is a tiny working example of the bh agent-protocol loop.',
+      '',
+      '- `theory.md` explains *why* BaseHalf exists.',
+      '- `practice.md` shows the everyday loop.',
+      '- `cheatsheet.md` is the reference card.',
+      '',
+      'Open Claude Code (or any AI agent) in this folder and ask "what is',
+      'this workspace about?" — it should follow the references from this',
+      'file and answer correctly without any extra hand-holding.',
+      '',
+    ].join('\n'),
+    prompt: 'The entry point — read this first; it sketches the layout.',
+    refs: [
+      { to: 'theory.md', note: 'the conceptual foundation' },
+      { to: 'practice.md', note: 'how the loop feels day-to-day' },
+      { to: 'cheatsheet.md', note: 'keyboard + interaction reference' },
+    ],
+  },
+  {
+    path: 'theory.md',
+    content: [
+      '# Compound thinking',
+      '',
+      'When an AI agent has structured context about your workspace — what',
+      "you're focused on, how your files relate, what each file is *for* —",
+      'every prompt becomes a leveraged one. The agent reads the protocol',
+      'files under `.bh/` (`focus.md`, `badges/`, `index/inbound.json`) and',
+      'composes the right neighbourhood without you having to spell it out.',
+      '',
+      "BaseHalf doesn't *do* the thinking. It maintains the workspace half",
+      'of the loop so the AI half can be useful.',
+      '',
+    ].join('\n'),
+    prompt: 'The thesis behind the product.',
+  },
+  {
+    path: 'practice.md',
+    content: [
+      '# The daily loop',
+      '',
+      '1. **Drop a folder** (papers, notes, code, drafts) into BaseHalf.',
+      '2. **Describe each file** for the AI in the Badge panel — a single',
+      '   sentence is usually enough.',
+      '3. **Connect related files** by dragging from one badge to another.',
+      '   Add a short note on the edge explaining *why* they relate.',
+      '4. **Ask your AI agent**, in another window, about the work — it',
+      '   reads the structure you just made and answers in context.',
+      '',
+      'The contract surface is in `.bh/` (intentionally co-located with',
+      "your files so it travels with the folder under git). You don't",
+      'invoke bh from the agent — the agent just reads files.',
+      '',
+    ].join('\n'),
+    prompt: 'Concrete walkthrough of the everyday loop.',
+    refs: [{ to: 'theory.md', note: 'this is the theory in motion' }],
+  },
+  {
+    path: 'cheatsheet.md',
+    content: [
+      '# Cheatsheet',
+      '',
+      '## Canvas',
+      '- **Single click a badge** — open the file in the preview panel.',
+      "- **Drag from a badge's right edge** to another badge — create a reference.",
+      '- **Double-click a folder badge** — scope the canvas into that folder.',
+      '- **Drag a badge** — its position persists per workspace.',
+      '',
+      '## Editor (Markdown)',
+      '- **Cmd/Ctrl + S** — save.',
+      '- **Esc** or **Cmd/Ctrl + W** — close the preview.',
+      '',
+      '## Workspace',
+      '- **Top bar → Add folder** — register another workspace.',
+      '- **Top bar → Rename / Remove** — change or unregister this one.',
+      '- **Top bar → New view** — make a named cross-folder grouping.',
+      '',
+    ].join('\n'),
+    prompt: 'Keyboard + interaction reference. Skim, then close.',
+  },
+] as const;

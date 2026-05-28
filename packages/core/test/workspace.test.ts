@@ -315,6 +315,72 @@ describe('workspace module (mock FS)', () => {
     const list = (await core.run('workspace.list', {})) as { current: string };
     expect(list.current).toBe('a');
   });
+
+  it('createDemo: seeds files + badges + refs + focus + CLAUDE.md hint', async () => {
+    const { fs, files } = mockFs();
+    // No pre-existing dir — createDemo should mkdir.
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = (await core.run('workspace.createDemo', {
+      path: '/demo',
+      name: 'demo',
+    })) as {
+      workspace: { name: string; path: string };
+      filesCreated: string[];
+      setup: { claudeMdUpdated: boolean };
+    };
+    expect(r.workspace.name).toBe('demo');
+    expect(r.filesCreated.length).toBeGreaterThan(0);
+    expect(r.filesCreated).toContain('intro.md');
+    expect(r.setup.claudeMdUpdated).toBe(true);
+    // Files actually on disk.
+    expect(files.has('/demo/intro.md')).toBe(true);
+    expect(files.has('/demo/theory.md')).toBe(true);
+    expect(files.has('/demo/practice.md')).toBe(true);
+    expect(files.has('/demo/cheatsheet.md')).toBe(true);
+    // CLAUDE.md installed with the agent-protocol hint.
+    const claudeMd = files.get('/demo/CLAUDE.md') ?? '';
+    expect(claudeMd).toMatch(/bh:workspace-hint/);
+    expect(claudeMd).toMatch(/focus\.md/);
+    // intro.md badge got the demo prompt + outbound refs.
+    const intro = (await core.run('badge.get', { file: 'intro.md' })) as {
+      prompt?: string;
+      references: { to: string; note?: string }[];
+    };
+    expect(intro.prompt).toMatch(/entry point/i);
+    expect(intro.references.map((r) => r.to).sort()).toEqual([
+      'cheatsheet.md',
+      'practice.md',
+      'theory.md',
+    ]);
+    // focus.md points at intro.md (so an agent's first read returns useful info).
+    const focus = (await core.run('focus.get', {})) as { active: string[] };
+    expect(focus.active).toEqual(['intro.md']);
+  });
+
+  it('createDemo: does NOT overwrite existing files with the same name', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/demo');
+    // Pre-existing intro.md with custom content the user wrote.
+    files.set('/demo/intro.md', '# My intro\n\nDo not touch.\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = (await core.run('workspace.createDemo', {
+      path: '/demo',
+      name: 'demo',
+    })) as { filesCreated: string[] };
+    // intro.md was NOT in filesCreated (we skipped it; user content preserved).
+    expect(r.filesCreated).not.toContain('intro.md');
+    expect(files.get('/demo/intro.md')).toBe('# My intro\n\nDo not touch.\n');
+    // Other demo files still got written.
+    expect(r.filesCreated).toContain('theory.md');
+  });
+
+  it('createDemo: rejects invalid workspace names', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(
+      core.run('workspace.createDemo', { path: '/demo', name: '@bad name!' }),
+    ).rejects.toThrow(/Invalid workspace name/);
+  });
 });
 
 // ── Integration test (real disk) ────────────────────────────────────────────

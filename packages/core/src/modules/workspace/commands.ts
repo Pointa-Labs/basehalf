@@ -1,11 +1,14 @@
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
+import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
 import type {
   WorkspaceAddArgs,
   WorkspaceAddResult,
+  WorkspaceCreateDemoArgs,
+  WorkspaceCreateDemoResult,
   WorkspaceCurrentArgs,
   WorkspaceCurrentResult,
   WorkspaceEntry,
@@ -297,6 +300,7 @@ export function commands(): ReadonlyArray<
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
     ['workspace.rename', rename as unknown as Handler<never, unknown>],
     ['workspace.repath', repath as unknown as Handler<never, unknown>],
+    ['workspace.createDemo', createDemo as unknown as Handler<never, unknown>],
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
     ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
@@ -308,6 +312,105 @@ export function commands(): ReadonlyArray<
 export function _coerceContext(ctx: unknown): asserts ctx is Context {
   if (!ctx || typeof ctx !== 'object') throw new TypeError('invalid context');
 }
+
+/**
+ * `workspace.createDemo(path)` — seed a brand-new workspace with a tiny
+ * interconnected MD set so a first-run user sees the agent-protocol
+ * loop in action without having to assemble it themselves.
+ *
+ * Does:
+ *  1. Creates `path` if missing (mkdir recursive).
+ *  2. Writes the demo MD files (only if they don't already exist —
+ *     never overwrites user content; an existing file is left alone).
+ *  3. Registers the workspace via the normal workspace.add path with
+ *     `setup: true` so the CLAUDE.md hint + .bh/cache/ gitignore land.
+ *  4. Sets badge prompts via badge.set, draws references via
+ *     badge.addRef. Cross-module calls go through ctx.run so the dep
+ *     arrow points inward.
+ *  5. Sets focus to the intro file so an AI agent opened in the folder
+ *     immediately has a "what to pay attention to" signal.
+ *
+ * Why opinionated content (vs an empty folder): the v0 success criterion
+ * is "did anyone say 卧槽 bh 救了我一命." A blank canvas after Add folder
+ * is not that moment. A pre-populated canvas where Claude Code can
+ * answer "what's in here?" in one round-trip IS that moment.
+ */
+export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoResult> = async (
+  args,
+  ctx,
+) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const name = args.name ?? basename(absPath);
+  if (!NAME_PATTERN.test(name)) {
+    throw new Error(
+      `Invalid workspace name: ${JSON.stringify(name)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
+    );
+  }
+  // Create the directory if missing — unlike workspace.add, demo
+  // assumes the user picked a fresh location.
+  await ctx.fs.mkdir(absPath, { recursive: true });
+
+  // Seed the demo files (only if they don't already exist; never
+  // overwrite). Tracking filesCreated so the caller can surface what
+  // actually appeared.
+  const filesCreated: string[] = [];
+  for (const file of DEMO_FILES) {
+    const fileAbs = join(absPath, file.path);
+    const existing = await ctx.fs.readFile(fileAbs);
+    if (existing !== null) continue;
+    await ctx.fs.mkdir(join(absPath, file.path.split('/').slice(0, -1).join('/') || '.'), {
+      recursive: true,
+    });
+    await ctx.fs.writeFile(fileAbs, file.content);
+    filesCreated.push(file.path);
+  }
+
+  // Register the workspace; setup:true so the agent-protocol hint
+  // installs. workspace.add will throw if the name is already taken —
+  // bubble that up so the caller can surface it (collision = the user
+  // already has a workspace at this name; they should pick differently).
+  const addResult = await ctx.run<WorkspaceAddArgs, WorkspaceAddResult>('workspace.add', {
+    path: absPath,
+    name,
+    setup: true,
+  });
+
+  // Apply badge prompts + refs. badge.set + badge.addRef cascade through
+  // the inbound index automatically. If a file was already on disk
+  // (didn't get re-seeded), its badge still gets the demo prompt to
+  // make the loop coherent.
+  for (const file of DEMO_FILES) {
+    if (file.prompt !== undefined) {
+      await ctx.run('badge.set', {
+        file: file.path,
+        patch: { kind: 'file', prompt: file.prompt },
+      });
+    }
+    for (const ref of file.refs ?? []) {
+      await ctx.run('badge.addRef', {
+        file: file.path,
+        to: ref.to,
+        ...(ref.note !== undefined && { note: ref.note }),
+      });
+    }
+  }
+
+  // Focus the intro file so the agent's first read of focus.md returns
+  // a useful pointer instead of (none).
+  await ctx.run('focus.set', { files: ['intro.md'] });
+
+  return {
+    workspace: addResult.workspace,
+    filesCreated,
+    setup: addResult.setup ?? {
+      gitignoreUpdated: false,
+      claudeMdUpdated: false,
+      gitignoreSkipped: false,
+      claudeMdSkipped: false,
+      gitignoreAbsent: true,
+    },
+  };
+};
 
 /**
  * `workspace.rename(from, to)` — change a workspace's name without

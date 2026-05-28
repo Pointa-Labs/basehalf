@@ -80,6 +80,30 @@ const wsRemove = defineCommand({
   },
 });
 
+const wsDemo = defineCommand({
+  meta: {
+    name: 'demo',
+    description:
+      'Create a demo workspace pre-seeded with interconnected files + badge prompts + refs',
+  },
+  args: {
+    path: {
+      type: 'positional',
+      description: 'Absolute path where the demo workspace should live (created if missing)',
+      required: true,
+    },
+    name: { type: 'string', description: 'Workspace name (defaults to basename)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('workspace.createDemo', {
+      path: args.path,
+      ...(args.name && { name: args.name }),
+    });
+    render('workspace.createDemo', result, Boolean(args.json));
+  },
+});
+
 const wsRepath = defineCommand({
   meta: {
     name: 'repath',
@@ -133,6 +157,7 @@ const workspace = defineCommand({
     remove: wsRemove,
     rename: wsRename,
     repath: wsRepath,
+    demo: wsDemo,
   },
 });
 

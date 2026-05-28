@@ -31,6 +31,12 @@ const bh = {
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
   /** Frozen at preload time; safe to read synchronously. */
   platform: process.platform as NodeJS.Platform,
+  /** OS home directory, frozen at preload. Used by the renderer to suggest
+   *  default locations for things like the demo workspace
+   *  (e.g. `~/BaseHalf-Demo`) without requiring an IPC round-trip.
+   *  Reads process.env directly (not node:os) so this stays compatible with
+   *  sandboxed preload contexts where Node built-ins aren't available. */
+  homeDir: process.env.HOME ?? process.env.USERPROFILE ?? '',
   /** Subscribe to file events from the core watcher (relayed by main process).
    * Returns an unsubscribe function. Rename events are synthetic — the
    * watcher pairs an unlink with a follow-up add (same dir + ext) and
