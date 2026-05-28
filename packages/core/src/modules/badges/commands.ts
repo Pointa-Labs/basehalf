@@ -11,6 +11,8 @@ import type {
   BadgeKind,
   BadgeListArgs,
   BadgeListResult,
+  BadgeMarkOrphanArgs,
+  BadgeMarkOrphanResult,
   BadgeRemoveRefArgs,
   BadgeSetArgs,
   BadgeSetResult,
@@ -147,6 +149,29 @@ export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ct
   return next;
 };
 
+/**
+ * Mark an existing badge as orphan (its underlying file was deleted on disk).
+ * Preserves prompt / references / inbound so nothing is lost — the user can
+ * either re-create the file or explicitly badge.delete to scrub. Called by
+ * the watcher module on `unlink` events; no-op if the badge doesn't exist.
+ */
+export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = async (
+  args,
+  ctx,
+) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const kind = args.kind ?? 'file';
+  const existing = await readBadge(ctx.fs, root, args.file, kind);
+  if (!existing) return null;
+  const next: BadgeFile = {
+    ...existing,
+    orphan: true,
+    modifiedAt: new Date().toISOString(),
+  };
+  await writeBadge(ctx.fs, root, next);
+  return next;
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -157,5 +182,6 @@ export function commands(): ReadonlyArray<
     ['badge.delete', del as unknown as Handler<never, unknown>],
     ['badge.addRef', addRef as unknown as Handler<never, unknown>],
     ['badge.removeRef', removeRef as unknown as Handler<never, unknown>],
+    ['badge.markOrphan', markOrphan as unknown as Handler<never, unknown>],
   ];
 }

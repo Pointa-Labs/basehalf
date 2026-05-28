@@ -29,6 +29,10 @@ export interface BadgeFile {
   readonly canvas?: BadgePosition;
   readonly createdAt: string;
   readonly modifiedAt: string;
+  /** Set by watcher when the underlying file is deleted from disk.
+   * Badge is preserved (prompt / references / inbound stay intact) so the
+   * user can resurrect or cleanly delete. */
+  readonly orphan?: boolean;
 }
 
 // ── Command args / results ──────────────────────────────────────────────────
@@ -81,6 +85,12 @@ export interface BadgeRemoveRefArgs {
   readonly to: string;
   readonly kind?: BadgeKind;
 }
+
+export interface BadgeMarkOrphanArgs {
+  readonly file: string;
+  readonly kind?: BadgeKind;
+}
+export type BadgeMarkOrphanResult = BadgeFile | null;
 
 /**
  * AR-PR11-7: thrown when a badge JSON on disk fails to parse. UI / list

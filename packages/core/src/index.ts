@@ -15,6 +15,7 @@ import { registerBadgesModule } from './modules/badges/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
 import { registerInboundModule } from './modules/inbound/index.js';
 import { registerViewsModule } from './modules/views/index.js';
+import { registerWatcherModule } from './modules/watcher/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
 export function createCore(opts: CoreOptions = {}): Core {
@@ -56,6 +57,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerInboundModule(core);
   registerFocusModule(core);
   registerViewsModule(core);
+  registerWatcherModule(core);
 
   return core;
 }
@@ -71,3 +73,5 @@ export { BadgeCorrupt } from './modules/badges/types.js';
 export type * from './modules/inbound/types.js';
 export type * from './modules/focus/types.js';
 export type * from './modules/views/types.js';
+export type * from './modules/watcher/types.js';
+export { _resetWatcherForTests } from './modules/watcher/index.js';
