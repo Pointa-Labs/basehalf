@@ -22,6 +22,8 @@ import type {
   WorkspaceRemoveResult,
   WorkspaceRenameArgs,
   WorkspaceRenameResult,
+  WorkspaceRepathArgs,
+  WorkspaceRepathResult,
   WorkspaceSetViewportArgs,
   WorkspaceSetViewportResult,
   WorkspaceUseArgs,
@@ -294,6 +296,7 @@ export function commands(): ReadonlyArray<
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
     ['workspace.rename', rename as unknown as Handler<never, unknown>],
+    ['workspace.repath', repath as unknown as Handler<never, unknown>],
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
     ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
@@ -355,6 +358,65 @@ export const rename: Handler<WorkspaceRenameArgs, WorkspaceRenameResult> = async
   return {
     workspace: { name: args.to, path: source.path, addedAt: source.addedAt },
     currentUpdated,
+  };
+};
+
+/**
+ * `workspace.repath(name, path)` — rebind an existing workspace to a new
+ * folder path. Atomic config-update; preserves name + addedAt; creates
+ * `.bh/` at the new path if missing; runs setup if requested.
+ *
+ * Why a dedicated command (vs remove + re-add): the obvious DIY recipe
+ * is `workspace.remove(name)` + `workspace.add(newPath, name)`, but if
+ * the add fails (invalid path, missing folder, ...), the user is left
+ * with NO workspace registration at all. A single config rewrite
+ * skips that danger and the round-trip through `current` demotion.
+ */
+export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async (args, ctx) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const stat = await ctx.fs.stat(absPath);
+  if (!stat) {
+    throw new Error(`Path does not exist: ${absPath}`);
+  }
+  if (!stat.isDirectory) {
+    throw new Error(`Path is not a directory: ${absPath}`);
+  }
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const existing = data.workspaces[args.name];
+  if (!existing) {
+    throw new Error(`No such workspace: ${args.name}`);
+  }
+  if (existing.path === absPath) {
+    throw new Error(`Workspace ${args.name} is already at ${absPath}`);
+  }
+  // Ensure .bh/ at the new path so subsequent badges/focus/inbound writes
+  // have somewhere to live. Same lifecycle hook as workspace.add.
+  const bhDir = `${absPath}/.bh`;
+  const bhStat = await ctx.fs.stat(bhDir);
+  const bhDirCreated = bhStat === null;
+  if (bhDirCreated) {
+    await ctx.fs.mkdir(bhDir, { recursive: true });
+  }
+  // Atomic config rewrite — name + addedAt preserved, only path changes.
+  // current pointer stays put (still pointing at this name if it was).
+  await writeWorkspaces(ctx.fs, ctx.configDir, {
+    version: 1,
+    current: data.current,
+    workspaces: {
+      ...data.workspaces,
+      [args.name]: { path: absPath, addedAt: existing.addedAt },
+    },
+  });
+  const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
+  // If this workspace is currently open, re-materialize at the new path
+  // (eager badges + focus + inbound seeding). Mirrors workspace.use.
+  if (data.current === args.name) {
+    await materializeWithFallback(ctx, absPath);
+  }
+  return {
+    workspace: { name: args.name, path: absPath, addedAt: existing.addedAt },
+    bhDirCreated,
+    ...(setup !== undefined && { setup }),
   };
 };
 

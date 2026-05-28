@@ -212,12 +212,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!newPath) return;
     set({ busy: true });
     try {
-      await window.bh.run('workspace.remove', { name });
-      // Same as pickAndAdd: install the agent-protocol hint on the new
-      // path (idempotent for already-set-up folders).
-      await window.bh.run('workspace.add', { path: newPath, name, setup: true });
-      // Restore as current — workspace.remove may have demoted it.
-      await window.bh.run('workspace.use', { name });
+      // Atomic rebind — previously this was workspace.remove +
+      // workspace.add + workspace.use, which left the user with no
+      // registration if the add failed (invalid path, etc.).
+      // workspace.repath does the config rewrite in a single write and
+      // preserves name + addedAt + current.
+      await window.bh.run('workspace.repath', { name, path: newPath, setup: true });
       await get().refresh();
     } catch (err) {
       set({ error: formatError(err) });

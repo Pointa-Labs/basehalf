@@ -80,6 +80,30 @@ const wsRemove = defineCommand({
   },
 });
 
+const wsRepath = defineCommand({
+  meta: {
+    name: 'repath',
+    description: 'Rebind a workspace to a new folder (atomic; preserves name + addedAt)',
+  },
+  args: {
+    name: { type: 'positional', description: 'Workspace name', required: true },
+    path: { type: 'positional', description: 'New absolute path', required: true },
+    setup: {
+      type: 'boolean',
+      description: 'Also install the agent-protocol hint in CLAUDE.md and update .gitignore',
+    },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('workspace.repath', {
+      name: args.name,
+      path: args.path,
+      ...(args.setup ? { setup: true } : {}),
+    });
+    render('workspace.repath', result, Boolean(args.json));
+  },
+});
+
 const wsRename = defineCommand({
   meta: {
     name: 'rename',
@@ -108,6 +132,7 @@ const workspace = defineCommand({
     current: wsCurrent,
     remove: wsRemove,
     rename: wsRename,
+    repath: wsRepath,
   },
 });
 
