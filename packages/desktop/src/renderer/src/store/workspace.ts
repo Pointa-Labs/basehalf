@@ -15,6 +15,10 @@ interface WorkspaceState {
    * Sidebar uses this to swap NavTree for the WorkspaceUnreachable UI.
    */
   currentReachable: boolean | null;
+  /** POSIX-relative path of the file the user is currently previewing.
+   * Set by Canvas onNodeClick + Sidebar NavTree onClick. Drives the
+   * FilePreview right-panel slot. */
+  currentFile: string | null;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -23,6 +27,7 @@ interface WorkspaceState {
   remove: (name: string) => Promise<void>;
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
   repath: (name: string) => Promise<void>;
+  setCurrentFile: (file: string | null) => void;
   clearError: () => void;
 }
 
@@ -49,6 +54,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspaces: [],
   current: null,
   currentReachable: null,
+  currentFile: null,
   error: '',
   busy: false,
 
@@ -59,6 +65,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         workspaces: result.workspaces,
         current: result.current,
         currentReachable: null,
+        currentFile: null,
         error: '',
       });
       const currentWs = result.current
@@ -143,6 +150,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ busy: false });
     }
   },
+
+  setCurrentFile: (file: string | null) => set({ currentFile: file }),
 
   clearError: () => set({ error: '' }),
 }));

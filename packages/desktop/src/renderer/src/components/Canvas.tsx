@@ -76,6 +76,7 @@ function debounce<TArgs extends unknown[]>(
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
@@ -150,22 +151,26 @@ export const Canvas = (): JSX.Element => {
     }
   }, []);
 
-  const onNodeClick = useCallback<NodeMouseHandler>((event, node) => {
-    const additive = event.shiftKey;
-    void (async () => {
-      try {
-        if (additive) {
-          const cur = (await window.bh.run('focus.get', {})) as { active: string[] };
-          const next = cur.active.includes(node.id) ? cur.active : [...cur.active, node.id];
-          await window.bh.run('focus.set', { files: next });
-        } else {
-          await window.bh.run('focus.set', { files: [node.id] });
+  const onNodeClick = useCallback<NodeMouseHandler>(
+    (event, node) => {
+      const additive = event.shiftKey;
+      if (!additive) setCurrentFile(node.id);
+      void (async () => {
+        try {
+          if (additive) {
+            const cur = (await window.bh.run('focus.get', {})) as { active: string[] };
+            const next = cur.active.includes(node.id) ? cur.active : [...cur.active, node.id];
+            await window.bh.run('focus.set', { files: next });
+          } else {
+            await window.bh.run('focus.set', { files: [node.id] });
+          }
+        } catch {
+          // Best-effort.
         }
-      } catch {
-        // Best-effort.
-      }
-    })();
-  }, []);
+      })();
+    },
+    [setCurrentFile],
+  );
 
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {

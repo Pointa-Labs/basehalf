@@ -8,7 +8,11 @@
     "outDir": "dist/web",
     "tsBuildInfoFile": "dist/web/.tsbuildinfo",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // BlockNote's generic types collide with exactOptionalPropertyTypes; the
+    // runtime is fine. Renderer-side narrowing is naturally weaker anyway
+    // (UI components don't need invariant-preserving types as strict as core).
+    "exactOptionalPropertyTypes": false
   },
   "include": [
     "src/renderer/**/*.ts",

@@ -1,5 +1,6 @@
 import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehalf/core';
 import { type JSX, useCallback, useEffect, useState } from 'react';
+import { useWorkspaceStore } from '../store/workspace.js';
 
 interface NavTreeProps {
   rootPath: string;
@@ -32,6 +33,13 @@ const isVisible = (entry: WorkspaceListFilesEntry): boolean => !HIDDEN_NAMES.has
 const joinPath = (parent: string, name: string): string =>
   parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`;
 
+// Strip the workspace root prefix to get a POSIX relative path for
+// workspace.readFile etc.
+const relativeTo = (root: string, abs: string): string => {
+  const trimmedRoot = root.endsWith('/') ? root : `${root}/`;
+  return abs.startsWith(trimmedRoot) ? abs.slice(trimmedRoot.length) : abs;
+};
+
 const rowBase = {
   width: '100%',
   textAlign: 'left' as const,
@@ -47,6 +55,7 @@ const rowBase = {
 };
 
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [childrenByPath, setChildrenByPath] = useState<
     Map<string, readonly WorkspaceListFilesEntry[]>
   >(new Map());
@@ -107,16 +116,19 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
             <span>{entry.name}</span>
           </button>
         ) : (
-          <div
+          <button
             key={path}
+            type="button"
+            onClick={() => setCurrentFile(relativeTo(rootPath, path))}
             style={{
               ...rowBase,
               paddingLeft: indent + 14,
               color: '#444',
+              cursor: 'pointer',
             }}
           >
             <span>{entry.name}</span>
-          </div>
+          </button>
         );
 
       if (entry.type === 'dir' && isExpanded) {

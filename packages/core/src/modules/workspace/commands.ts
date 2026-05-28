@@ -16,12 +16,16 @@ import type {
   WorkspaceListFilesEntry,
   WorkspaceListFilesResult,
   WorkspaceListResult,
+  WorkspaceReadFileArgs,
+  WorkspaceReadFileResult,
   WorkspaceRemoveArgs,
   WorkspaceRemoveResult,
   WorkspaceSetViewportArgs,
   WorkspaceSetViewportResult,
   WorkspaceUseArgs,
   WorkspaceUseResult,
+  WorkspaceWriteFileArgs,
+  WorkspaceWriteFileResult,
 } from './types.js';
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
@@ -226,6 +230,53 @@ export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewport
   return {};
 };
 
+function ensureInsideWorkspace(rel: string): void {
+  // Path comes from renderer via IPC — defensively reject anything that
+  // could escape the current workspace root.
+  if (rel.length === 0) throw new Error('Empty path');
+  if (isAbsolute(rel)) throw new Error(`Path must be relative, got: ${rel}`);
+  if (rel.split(/[\\/]/).some((seg) => seg === '..')) {
+    throw new Error(`Path traversal rejected: ${rel}`);
+  }
+}
+
+/** `workspace.readFile({ path })` — read a user file in the current
+ * workspace. Path is POSIX-relative; absolute paths or `..` are rejected. */
+export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const abs = join(entry.path, args.path);
+  const content = await ctx.fs.readFile(abs);
+  if (content === null) {
+    throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
+  }
+  return { path: args.path, content };
+};
+
+/** `workspace.writeFile({ path, content })` — write a user file inside the
+ * current workspace. The *only* path through which bh modifies user
+ * content. Used exclusively by the BlockNote editor in PR 14; everything
+ * else is observer-only per IR-v2-13. */
+export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const abs = join(entry.path, args.path);
+  await ctx.fs.writeFile(abs, args.content);
+  return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
+};
+
 /**
  * Helper for `createCore()` — registers all workspace commands.
  * Modules expose a single `register*Module(core)` function so static composition
@@ -243,6 +294,8 @@ export function commands(): ReadonlyArray<
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
     ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
+    ['workspace.readFile', readFile as unknown as Handler<never, unknown>],
+    ['workspace.writeFile', writeFile as unknown as Handler<never, unknown>],
   ];
 }
 
