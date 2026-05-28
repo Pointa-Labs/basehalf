@@ -56,6 +56,10 @@ interface Action {
    *  pill on the right so users discover the global shortcuts by
    *  browsing the palette. */
   shortcut?: string;
+  /** Extra text the palette query matches against but doesn't display.
+   *  Used to make files findable by their user-written prompt without
+   *  cluttering the row visually. */
+  searchAlso?: string;
   /** Runs when the user picks this action. The palette closes first. */
   run: () => void;
 }
@@ -120,6 +124,10 @@ const emptyStyle: CSSProperties = {
 
 interface FileEntry {
   readonly file: string;
+  /** The user-written description of what this file is for. The palette
+   *  matches against this in addition to the path so users can find
+   *  files by typing words from their own prompts. */
+  readonly prompt?: string;
 }
 
 export const CommandPalette = (): JSX.Element | null => {
@@ -145,9 +153,16 @@ export const CommandPalette = (): JSX.Element | null => {
     let cancelled = false;
     void (async () => {
       try {
-        const result = (await window.bh.run('badge.list')) as { badges: { file: string }[] };
+        const result = (await window.bh.run('badge.list')) as {
+          badges: { file: string; prompt?: string }[];
+        };
         if (cancelled) return;
-        setFiles(result.badges.map((b) => ({ file: b.file })));
+        setFiles(
+          result.badges.map((b) => ({
+            file: b.file,
+            ...(b.prompt !== undefined && { prompt: b.prompt }),
+          })),
+        );
       } catch {
         // Don't block the palette on a transient core error — just show
         // workspaces / views / chrome actions until the user retries.
@@ -227,6 +242,10 @@ export const CommandPalette = (): JSX.Element | null => {
         label: basename,
         hint: f.file.includes('/') ? f.file : undefined,
         category: 'File',
+        // Searchable-but-not-displayed: match the user's prompt for this
+        // file so they can find it by typing words from their own
+        // description. Empty when the user hasn't written a prompt yet.
+        ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
         run: () => setCurrentFile(f.file),
       });
     }
@@ -281,7 +300,8 @@ export const CommandPalette = (): JSX.Element | null => {
     const q = query.trim().toLowerCase();
     if (!q) return actions;
     return actions.filter((a) => {
-      const haystack = `${a.category} ${a.label} ${a.hint ?? ''}`.toLowerCase();
+      const haystack =
+        `${a.category} ${a.label} ${a.hint ?? ''} ${a.searchAlso ?? ''}`.toLowerCase();
       return haystack.includes(q);
     });
   }, [actions, query]);

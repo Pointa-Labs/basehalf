@@ -1265,6 +1265,34 @@ assert(
   `New-note action row shows the global shortcut hint (row text: ${JSON.stringify(actionRowText.slice(0, 80))})`,
 );
 await win.screenshot({ path: `${SCREENS_DIR}/13b-palette-shortcut-hint.png` });
+
+// Palette filter also matches against the user-written badge prompt
+// (not just the filename). Set a distinctive prompt on intro.md, then
+// search for a word from THAT prompt — intro.md should still appear.
+await paletteInput.fill('');
+await win.waitForTimeout(100);
+// Set prompt out-of-band via core so the test isn't slowed by the badge
+// UI dance.
+await bhRun('badge.set', {
+  file: 'intro.md',
+  patch: { prompt: 'thaumaturgically distinctive prompt for palette search' },
+});
+// Re-open the palette so the new prompt is in the cached file list.
+await win.keyboard.press('Escape');
+await win.waitForTimeout(150);
+await win.keyboard.press(cmdK);
+await win.waitForTimeout(200);
+await paletteInput.fill('thaumaturgically');
+await win.waitForTimeout(150);
+const promptMatchRows = await win
+  .locator('[role=dialog] [role=option]', { hasText: 'intro.md' })
+  .count();
+assert(
+  promptMatchRows >= 1,
+  `Palette filter matches against badge prompt (rows with intro.md = ${promptMatchRows})`,
+);
+// Clear the test prompt so downstream tests stay deterministic.
+await bhRun('badge.set', { file: 'intro.md', patch: { prompt: '' } });
 // Re-set query so the Enter below still picks intro.md.
 await paletteInput.fill('intro');
 await win.waitForTimeout(150);
