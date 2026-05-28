@@ -121,6 +121,10 @@ export const Onboarding = ({ onAddFolder, onTryDemo }: OnboardingProps): JSX.Ele
           BaseHalf is the workspace half. Pair it with Claude Code (or any AI agent) on the left
           half of your screen — the agent reads <code style={codeStyle}>.bh/</code> to see what
           you're focused on and how your files relate.
+          <div style={{ marginTop: space[2] }}>
+            Press <code style={codeStyle}>⌘K</code> anywhere to switch workspace, open a file, or
+            run an action.
+          </div>
         </div>
       </div>
     </div>
