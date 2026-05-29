@@ -13,6 +13,24 @@ export function focusPath(workspaceRoot: string): string {
   return join(workspaceRoot, FOCUS_FILE);
 }
 
+/**
+ * focus.md is a line-delimited, human-readable Markdown surface (agents
+ * read it directly). A path containing a newline or carriage return can't
+ * round-trip through it: renderFocus would emit a multi-line list item and
+ * parseFocus would read only the first line, silently truncating the path
+ * and dropping the rest of the active list. Reject such paths at the write
+ * choke point rather than corrupt the contract surface. (Newlines in
+ * filenames are legal on POSIX but pathological; the desktop never produces
+ * them — NavTree/Canvas use real workspace-relative paths.)
+ */
+export function assertFocusablePath(path: string): void {
+  if (/[\r\n]/.test(path)) {
+    throw new Error(
+      `focus: path contains a newline, which focus.md cannot represent: ${JSON.stringify(path)}`,
+    );
+  }
+}
+
 export function renderFocus(active: readonly string[]): string {
   const lines: string[] = ['# bh focus', ''];
   lines.push('active:');
@@ -64,6 +82,7 @@ export async function writeFocus(
   workspaceRoot: string,
   active: readonly string[],
 ): Promise<void> {
+  for (const p of active) assertFocusablePath(p);
   const path = focusPath(workspaceRoot);
   await fs.mkdir(dirname(path), { recursive: true });
   await fs.writeFile(path, renderFocus(active));
