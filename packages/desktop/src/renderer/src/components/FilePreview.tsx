@@ -1266,6 +1266,54 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   );
 };
 
+// Code with a line-number gutter: the gutter is sticky-left so it stays put on
+// horizontal scroll, and scrolls with the code vertically (shared scroll
+// container). Matching font/line-height keeps the numbers aligned with their
+// lines; white-space:pre (no wrap) guarantees one logical line == one row.
+const CodeBody = ({ text }: { text: string }): JSX.Element => {
+  const body = text.replace(/\n+$/, '');
+  const lineCount = body === '' ? 1 : body.split('\n').length;
+  const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
+  const lineStyle: CSSProperties = {
+    margin: 0,
+    fontFamily: font.mono,
+    fontSize: font.size.caption,
+    lineHeight: 1.6,
+    whiteSpace: 'pre',
+    tabSize: 2,
+  };
+  return (
+    <div style={{ display: 'flex', minHeight: '100%' }}>
+      <pre
+        aria-hidden
+        style={{
+          ...lineStyle,
+          padding: `${space[4]}px ${space[3]}px`,
+          textAlign: 'right',
+          color: color.textGhost,
+          background: color.surfaceMuted,
+          borderRight: `1px solid ${color.divider}`,
+          userSelect: 'none',
+          position: 'sticky',
+          left: 0,
+          flexShrink: 0,
+        }}
+      >
+        {gutter}
+      </pre>
+      <pre
+        style={{
+          ...lineStyle,
+          padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
+          color: color.textPrimary,
+        }}
+      >
+        {body}
+      </pre>
+    </div>
+  );
+};
+
 // Read-only viewer for code + text files (the editor handles .md/.txt; media
 // have their own viewers). bh is the workspace VIEW for these — agents/IDEs do
 // the editing — so this is deliberately read-only, with a quiet line saying so.
@@ -1341,20 +1389,20 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
           </div>
         ) : (
           <>
-            <pre
-              style={{
-                margin: 0,
-                padding: space[4],
-                fontFamily: font.mono,
-                fontSize: font.size.caption,
-                lineHeight: 1.6,
-                color: color.textPrimary,
-                whiteSpace: 'pre',
-                tabSize: 2,
-              }}
-            >
-              {state.text === '' ? 'empty file' : state.text}
-            </pre>
+            {state.text === '' ? (
+              <div
+                style={{
+                  padding: space[4],
+                  fontFamily: font.mono,
+                  fontSize: font.size.caption,
+                  color: color.textTertiary,
+                }}
+              >
+                empty file
+              </div>
+            ) : (
+              <CodeBody text={state.text} />
+            )}
             {state.dropped > 0 && (
               <div
                 style={{
