@@ -1,7 +1,19 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
-import type { JSX } from 'react';
+import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { color, font, radius, shadow, space, transition } from '../design.js';
-import { FileGlyph, badgeType } from './FileGlyph.js';
+import { useWorkspaceStore } from '../store/workspace.js';
+import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
+
+// A badge is a *living tile*: it always shows a real preview of the file's
+// contents (a text excerpt / image thumbnail), so the canvas reads as "my
+// documents in space," not a graph of names. React-flow's transform scales the
+// whole tile with zoom — so the content shrinks to a thumbnail when you zoom
+// out and becomes readable as you zoom in, with no detail-toggling needed.
+
+// Cache text excerpts per path so a transient unmount (Canvas rebuilds nodes on
+// file events) doesn't refetch. Staleness self-heals on the next refresh.
+const textPreviewCache = new Map<string, string>();
+const PREVIEW_CHARS = 600;
 
 export interface BadgeNodeData extends Record<string, unknown> {
   label: string;
@@ -36,6 +48,16 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
   const basename = lastSlash === -1 ? d.label : d.label.slice(lastSlash + 1);
   const dirname = lastSlash === -1 ? '' : d.label.slice(0, lastSlash);
   const type = badgeType(d.label, isFolder);
+
+  const wsPath = useWorkspaceStore((s) => {
+    const w = s.workspaces.find((ws) => ws.name === s.current);
+    return w?.path ?? '';
+  });
+  // Always show a content preview for the types we can render cheaply
+  // (text/markdown/code → excerpt, image → thumbnail). Orphans (missing file)
+  // and folders have nothing to preview.
+  const previewable = type === 'image' || type === 'text' || type === 'code';
+  const showPreview = previewable && !orphan && !isFolder;
 
   // Orphan = file referenced but missing on disk. We want the badge to read
   // as "placeholder" rather than "error": muted background + dashed danger
@@ -75,7 +97,9 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
         borderRadius: radius.lg,
         padding: `${space[2]}px ${space[3]}px`,
         minWidth: 160,
-        maxWidth: 240,
+        // Cap preview tiles at 200 so they don't overlap their neighbour in the
+        // 220-pitch auto-layout grid; plain badges keep the roomier 240.
+        maxWidth: showPreview ? 200 : 240,
         fontFamily: font.sans,
         boxShadow,
         transition: transition(['box-shadow', 'border-color']),
@@ -163,9 +187,109 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
               {d.prompt}
             </div>
           )}
+          {showPreview && <BadgePreview type={type} label={d.label} wsPath={wsPath} />}
         </div>
       </div>
       <Handle type="source" position={Position.Right} style={handleStyle} />
+    </div>
+  );
+};
+
+// The "see inside" payload, shown only at near zoom. Cheap, type-aware, and
+// pointer-transparent so it never steals the badge's drag. Markdown/text show
+// a faded source excerpt; images a contained thumbnail. PDF/audio/video/other
+// degrade to nothing extra — the glyph + name already say what they are, and a
+// live thumbnail there would cost far more than it tells.
+const BadgePreview = ({
+  type,
+  label,
+  wsPath,
+}: {
+  type: BadgeType;
+  label: string;
+  wsPath: string;
+}): JSX.Element | null => {
+  const frame: CSSProperties = {
+    marginTop: space[2],
+    paddingTop: space[2],
+    borderTop: `1px solid ${color.border}`,
+    pointerEvents: 'none', // never intercept the badge drag
+  };
+
+  if (type === 'image') {
+    return (
+      <div style={frame}>
+        <img
+          src={`file://${wsPath}/${label}`}
+          alt=""
+          draggable={false}
+          style={{
+            display: 'block',
+            maxWidth: '100%',
+            maxHeight: 116,
+            margin: '0 auto',
+            objectFit: 'contain',
+            borderRadius: radius.sm,
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (type === 'text' || type === 'code') {
+    return (
+      <div style={frame}>
+        <TextPreview label={label} mono={type === 'code'} />
+      </div>
+    );
+  }
+
+  return null;
+};
+
+const TextPreview = ({ label, mono }: { label: string; mono: boolean }): JSX.Element => {
+  const [text, setText] = useState<string | null>(() => textPreviewCache.get(label) ?? null);
+
+  useEffect(() => {
+    if (textPreviewCache.has(label)) {
+      setText(textPreviewCache.get(label) ?? '');
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = (await window.bh.run('workspace.readFile', { path: label })) as {
+          content: string;
+        };
+        const excerpt = res.content.slice(0, PREVIEW_CHARS).trimEnd();
+        textPreviewCache.set(label, excerpt);
+        if (!cancelled) setText(excerpt);
+      } catch {
+        if (!cancelled) setText('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [label]);
+
+  return (
+    <div
+      style={{
+        fontSize: font.size.micro,
+        fontFamily: mono ? font.mono : font.sans,
+        color: color.textTertiary,
+        lineHeight: 1.45,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        maxHeight: 116,
+        overflow: 'hidden',
+        // Fade the bottom so the truncation reads as "more below," not a hard cut.
+        maskImage: 'linear-gradient(to bottom, #000 70%, transparent)',
+        WebkitMaskImage: 'linear-gradient(to bottom, #000 70%, transparent)',
+      }}
+    >
+      {text === null ? '…' : text === '' ? 'empty file' : text}
     </div>
   );
 };

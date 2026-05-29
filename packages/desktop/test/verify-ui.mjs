@@ -612,11 +612,33 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 
-// --- 5d. Shift-click multi-select → focus.set additive path.
-// Regular click sets focus = [file]; shift-click extends without
-// switching the preview. ---
-console.log('\n[5d] Shift-click multi-select → focus.set additive');
+// --- 5c-preview. File badges ALWAYS show a live preview of their contents (not
+// zoom-gated): markdown/text → an excerpt, images → an <img> thumbnail. This is
+// "documents living in space," not a graph of names. React-flow's transform
+// scales the tile, so content shrinks when zoomed out and is readable up close.
+console.log('\n[5c-preview] Badges always show a live content preview');
+await win.waitForTimeout(800); // lazy readFile for the text excerpts
+const previewTextLen = (await win.locator('.react-flow__node[data-id="intro.md"]').innerText())
+  .length;
+const previewImgCount = await win.locator('.react-flow__node[data-id="icon.png"] img').count();
+assert(
+  previewTextLen > 40,
+  `Markdown badge shows a content excerpt at default zoom (chars=${previewTextLen})`,
+);
+assert(
+  previewImgCount >= 1,
+  `Image badge shows a thumbnail at default zoom (img count=${previewImgCount})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/05c-preview.png` });
+
+// --- 5d. Click + shift-click on canvas badges manage FOCUS only — they must
+// NOT open the editor (opening is the deliberate double-click; see 5e). A
+// regular click sets focus = [file]; shift-click extends the set. This is the
+// fluid "assemble what the agent reads" flow, so the canvas (and the focus
+// viz) must stay visible — the editor overlay must stay closed. ---
+console.log('\n[5d] Click + shift-click manage focus (no editor overlay)');
 await bhRun('focus.clear', {});
+const asidesBeforeFocus = await win.locator('aside').count();
 const introBadgeForFocus = win.locator('.react-flow__node[data-id="intro.md"]');
 await introBadgeForFocus.click();
 await win.waitForTimeout(300);
@@ -637,17 +659,15 @@ assert(
     focusAfterShift.active.includes('overview.md'),
   `Shift-click → focus.active extends to both files (got ${JSON.stringify(focusAfterShift.active)})`,
 );
-// Shift-click should NOT have switched the previewed file. First click
-// opened intro.md; the preview header should still say intro.md, NOT
-// overview.md.
-const previewHeaderAfterShift = await win.locator('aside header').last().innerText();
+// Neither click opened the editor overlay — the canvas stays visible so the
+// focus viz (dot + chip) is usable. (Pre-overlay this asserted the side panel
+// didn't switch files; with the centered modal the invariant is "no editor
+// opened at all".) focus stays [intro, overview] for [5d-focusmd] below.
+const asidesDuringFocus = await win.locator('aside').count();
 assert(
-  previewHeaderAfterShift.includes('intro.md') && !previewHeaderAfterShift.includes('overview.md'),
-  `Shift-click doesn't switch preview (preview header: ${JSON.stringify(previewHeaderAfterShift.slice(0, 50))})`,
+  asidesDuringFocus === asidesBeforeFocus,
+  `Single/shift click does NOT open the editor overlay (asides ${asidesBeforeFocus}→${asidesDuringFocus})`,
 );
-// Close preview to keep downstream state predictable.
-await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
 
 // --- 5d-focusmd. Agent-protocol contract: clicks → focus.md on disk.
 // focus.get only proves the in-memory state; what AI agents actually
@@ -764,8 +784,53 @@ assert(
   Array.isArray(focusVizAfterClear.active) && focusVizAfterClear.active.length === 0,
   `Chip Clear empties focus.get (got ${JSON.stringify(focusVizAfterClear.active)})`,
 );
-await win.keyboard.press('Escape'); // close the preview intro.md opened
+// (Single-click no longer opens a preview — see [5e] — so there's nothing to
+// close here; clear focus so downstream sections start clean.)
+await bhRun('focus.clear', {});
 await win.waitForTimeout(200);
+
+// --- 5d-open. Double-click a file badge opens the full editor overlay
+// (centered modal, not a side drawer). Single-click only focuses (5d);
+// double-click is the deliberate "open it" gesture, matching the desktop
+// select-vs-open idiom. React-flow's onNodeDoubleClick fires from the
+// synthetic React event, which Playwright's high-level dblclick() sometimes
+// misses — try several mechanisms. ---
+console.log('\n[5d-open] Double-click a file badge → editor overlay opens');
+const introForOpen = win.locator('.react-flow__node[data-id="intro.md"]');
+const editorShowsIntro = async () =>
+  (await win.locator('aside header').count()) >= 1 &&
+  (await win.locator('aside header').last().innerText()).includes('intro.md');
+let openWorked = false;
+const openAttempts = [
+  async () => introForOpen.dblclick(),
+  async () => {
+    const box = await introForOpen.boundingBox();
+    if (box)
+      await win.mouse.click(box.x + box.width / 2, box.y + box.height / 2, {
+        clickCount: 2,
+        delay: 80,
+      });
+  },
+  async () =>
+    introForOpen.evaluate((el) =>
+      el.dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }),
+      ),
+    ),
+];
+for (const attempt of openAttempts) {
+  await attempt().catch(() => undefined);
+  await win.waitForTimeout(400);
+  if (await editorShowsIntro()) {
+    openWorked = true;
+    break;
+  }
+}
+assert(openWorked, 'Double-click a file badge opens the editor overlay (header shows intro.md)');
+await win.keyboard.press('Escape'); // close the editor overlay
+await win.waitForTimeout(200);
+await bhRun('focus.clear', {});
+await win.waitForTimeout(150);
 
 // --- 5c. Drag from intro.md's source handle to overview.md's target handle
 // to create an edge (badge.addRef). React-flow handles are

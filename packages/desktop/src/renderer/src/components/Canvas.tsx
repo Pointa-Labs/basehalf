@@ -39,8 +39,12 @@ function badgeToNode(
   fallbackIndex: number,
   override?: { x?: number; y?: number },
 ): Node<BadgeNodeData> {
+  // Auto-layout grid for badges without a saved position. Content TILES are
+  // taller than the old bare labels, so rows need more vertical room — but keep
+  // the column pitch tight so badges stay within the viewport (React-flow can't
+  // scroll an off-screen node into view). Saved positions win.
   const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % 6) * 220;
-  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / 6) * 140;
+  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / 6) * 250;
   return {
     id: badge.file,
     type: 'badge',
@@ -189,17 +193,23 @@ export const Canvas = (): JSX.Element => {
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
-      // Folder scoping is a main-canvas concept. Inside a saved view it
-      // would create an inconsistent state — the toolbar shows "/folder"
-      // scope chrome while the canvas still renders the view (currentView
-      // wins in refresh) — so a folder badge double-click is a no-op here.
-      if (currentView !== null) return;
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
+        // Folder scoping is a main-canvas concept. Inside a saved view it
+        // would create an inconsistent state — the toolbar shows "/folder"
+        // scope chrome while the canvas still renders the view (currentView
+        // wins in refresh) — so a folder badge double-click is a no-op there.
+        if (currentView !== null) return;
         setFolderScope(node.id);
+        return;
       }
+      // File badge → open the full editor overlay. Single-click only sets
+      // focus (keeps the canvas + focus viz visible so you can assemble a
+      // focus set by clicking around); opening the big editor is the
+      // deliberate double-click, matching the desktop select-vs-open idiom.
+      setCurrentFile(node.id);
     },
-    [currentView, setFolderScope],
+    [currentView, setFolderScope, setCurrentFile],
   );
 
   const persistPosition = useMemo(
@@ -289,11 +299,9 @@ export const Canvas = (): JSX.Element => {
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
-      const data = node.data as unknown as BadgeNodeData;
-      // Folders aren't previewable — double-click scopes into them instead.
-      // Without this guard, clicking a folder opens the "No built-in viewer
-      // for this file type" pane, which is confusing.
-      if (!additive && data.kind !== 'folder') setCurrentFile(node.id);
+      // Single-click manages FOCUS only — it never opens the editor. Opening
+      // is the double-click (onNodeDoubleClick). This keeps the canvas and the
+      // focus viz visible while you assemble a focus set by clicking badges.
       void (async () => {
         try {
           if (additive) {
@@ -316,7 +324,8 @@ export const Canvas = (): JSX.Element => {
         }
       })();
     },
-    [setCurrentFile],
+    // setFocused / setNodes are stable; nothing else external is referenced.
+    [],
   );
 
   const clearFocus = useCallback(() => {

@@ -117,8 +117,13 @@ export const App = (): JSX.Element => {
         <Sidebar />
         <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
+          {/* The editor opens as a centered overlay scoped to the canvas
+              area (position:absolute within this relative <main>), so the
+              canvas dims behind it but the Sidebar + TopBar stay lit and
+              interactive — you can switch files / workspaces without first
+              closing the editor, the way every file-based editor works. */}
+          <FilePreview />
         </main>
-        <FilePreview />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />

@@ -18,6 +18,7 @@ import {
   useState,
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { isLossyRoundTrip } from '../lib/mdLossy.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
@@ -90,195 +91,224 @@ export const FilePreview = (): JSX.Element | null => {
   const { dirname, basename } = splitPath(currentFile);
 
   return (
-    <aside
+    // Centered overlay (not a side drawer): the file opens BIG so there's
+    // real room to read and write, while the canvas dims behind it — you never
+    // lose the sense of "I'm still in my space, looking closely at one thing."
+    // position:absolute scopes the dim to the canvas area (its containing
+    // block is the relative <main>), so the Sidebar + TopBar stay lit: you can
+    // switch files without closing the editor. mousedown-on-backdrop (not
+    // click) dismisses, so a text selection that drags out of the card doesn't
+    // accidentally close it. The card stays an <aside> (driver counts asides).
+    <div
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) setCurrentFile(null);
+      }}
       style={{
-        width: 480,
-        borderLeft: `1px solid ${color.border}`,
-        background: color.surface,
+        position: 'absolute',
+        inset: 0,
+        zIndex: 40,
+        background: 'rgba(24, 26, 32, 0.34)',
         display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: space[6],
+        animation: `bh-fade-in ${motion.fast}`,
       }}
     >
-      <header
+      <aside
         style={{
-          padding: `${space[3]}px ${space[4]}px`,
-          borderBottom: `1px solid ${color.border}`,
+          width: 'min(1040px, 100%)',
+          height: 'min(900px, 100%)',
           background: color.surface,
-          fontFamily: font.sans,
+          borderRadius: radius.xl,
+          boxShadow: shadow.floating,
           display: 'flex',
-          alignItems: 'center',
-          gap: space[2],
+          flexDirection: 'column',
+          overflow: 'hidden',
+          animation: `bh-dialog-in ${motion.normal}`,
         }}
-        title={currentFile}
       >
-        <div
+        <header
           style={{
-            flex: 1,
-            minWidth: 0,
+            padding: `${space[3]}px ${space[4]}px`,
+            borderBottom: `1px solid ${color.border}`,
+            background: color.surface,
+            fontFamily: font.sans,
             display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
+            alignItems: 'center',
+            gap: space[2],
           }}
+          title={currentFile}
         >
-          <strong
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: color.textPrimary,
-              fontSize: font.size.body,
-              fontWeight: font.weight.semibold,
-              letterSpacing: -0.1,
-            }}
-          >
-            {basename}
-          </strong>
-          {dirname && (
-            <span
-              style={{
-                fontSize: font.size.micro,
-                color: color.textTertiary,
-                fontFamily: font.mono,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                letterSpacing: -0.2,
-              }}
-            >
-              {dirname}/
-            </span>
-          )}
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => setCurrentFile(null)} title="Close (Esc)">
-          Close
-        </Button>
-      </header>
-      <BadgeProperties file={currentFile} />
-      <div style={{ flex: 1, overflow: 'auto' }}>
-        {mode === 'md' && <MdEditor file={currentFile} />}
-        {mode === 'pdf' && <PdfViewer absPath={absPath} />}
-        {mode === 'image' && <ImageViewer absPath={absPath} />}
-        {mode === 'audio' && (
-          // Center the player with a glyph + filename so a lone audio bar
-          // doesn't look stranded in a tall panel.
           <div
             style={{
-              height: '100%',
+              flex: 1,
+              minWidth: 0,
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: space[4],
-              padding: space[6],
-              background: color.surfaceMuted,
+              gap: 1,
             }}
           >
-            <div
+            <strong
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: radius.xl,
-                background: color.surface,
-                border: `1px solid ${color.border}`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: color.textTertiary,
-              }}
-            >
-              <svg
-                width={26}
-                height={26}
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.25}
-                strokeLinecap="round"
-                aria-hidden
-              >
-                <path d="M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8" />
-              </svg>
-            </div>
-            <div
-              style={{
-                fontSize: font.size.body,
-                fontWeight: font.weight.medium,
-                color: color.textPrimary,
-                maxWidth: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
+                color: color.textPrimary,
+                fontSize: font.size.body,
+                fontWeight: font.weight.semibold,
+                letterSpacing: -0.1,
               }}
             >
               {basename}
+            </strong>
+            {dirname && (
+              <span
+                style={{
+                  fontSize: font.size.micro,
+                  color: color.textTertiary,
+                  fontFamily: font.mono,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: -0.2,
+                }}
+              >
+                {dirname}/
+              </span>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentFile(null)}
+            title="Close (Esc)"
+          >
+            Close
+          </Button>
+        </header>
+        <BadgeProperties file={currentFile} />
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {mode === 'md' && <MdEditor file={currentFile} />}
+          {mode === 'pdf' && <PdfViewer absPath={absPath} />}
+          {mode === 'image' && <ImageViewer absPath={absPath} />}
+          {mode === 'audio' && (
+            // Center the player with a glyph + filename so a lone audio bar
+            // doesn't look stranded in a tall panel.
+            <div
+              style={{
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: space[4],
+                padding: space[6],
+                background: color.surfaceMuted,
+              }}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: radius.xl,
+                  background: color.surface,
+                  border: `1px solid ${color.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: color.textTertiary,
+                }}
+              >
+                <svg
+                  width={26}
+                  height={26}
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.25}
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8" />
+                </svg>
+              </div>
+              <div
+                style={{
+                  fontSize: font.size.body,
+                  fontWeight: font.weight.medium,
+                  color: color.textPrimary,
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {basename}
+              </div>
+              <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
+                <track kind="captions" />
+              </audio>
             </div>
-            <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
-              <track kind="captions" />
-            </audio>
-          </div>
-        )}
-        {mode === 'video' && (
-          // Dark backing + rounded frame so video reads as a player, not a
-          // raw element on white.
-          <div
-            style={{
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: space[4],
-              background: '#1b1b1d',
-            }}
-          >
-            <video
-              controls
-              src={`file://${absPath}`}
+          )}
+          {mode === 'video' && (
+            // Dark backing + rounded frame so video reads as a player, not a
+            // raw element on white.
+            <div
               style={{
-                width: '100%',
-                maxHeight: '100%',
-                borderRadius: radius.lg,
-                boxShadow: shadow.raised,
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: space[4],
+                background: '#1b1b1d',
               }}
             >
-              <track kind="captions" />
-            </video>
-          </div>
-        )}
-        {mode === 'other' && (
-          <div
-            style={{
-              padding: space[4],
-              fontFamily: font.sans,
-              fontSize: font.size.body,
-              color: color.textSecondary,
-            }}
-          >
-            <p style={{ margin: 0, marginBottom: space[2] }}>
-              No built-in viewer for this file type.
-            </p>
-            <p
+              <video
+                controls
+                src={`file://${absPath}`}
+                style={{
+                  width: '100%',
+                  maxHeight: '100%',
+                  borderRadius: radius.lg,
+                  boxShadow: shadow.raised,
+                }}
+              >
+                <track kind="captions" />
+              </video>
+            </div>
+          )}
+          {mode === 'other' && (
+            <div
               style={{
-                fontFamily: font.mono,
-                fontSize: font.size.micro,
-                color: color.textTertiary,
-                margin: 0,
-                wordBreak: 'break-all',
+                padding: space[4],
+                fontFamily: font.sans,
+                fontSize: font.size.body,
+                color: color.textSecondary,
               }}
             >
-              {absPath}
-            </p>
-          </div>
-        )}
-      </div>
-    </aside>
+              <p style={{ margin: 0, marginBottom: space[2] }}>
+                No built-in viewer for this file type.
+              </p>
+              <p
+                style={{
+                  fontFamily: font.mono,
+                  fontSize: font.size.micro,
+                  color: color.textTertiary,
+                  margin: 0,
+                  wordBreak: 'break-all',
+                }}
+              >
+                {absPath}
+              </p>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
   );
 };
 
-// Normalize MD for round-trip diff: collapse 3+ blank lines, strip
-// trailing whitespace per line, normalize line endings. Anything beyond
-// this means BlockNote actually lost or added meaningful content and we
-// must not silently overwrite the user's file.
 // BadgeProperties is the "背包" editor — the agent-protocol contract surface.
 // Per IR-v2-04, every badge has a prompt + references + position; users need
 // to edit prompt/references here (canvas only handles position via drag).
@@ -827,16 +857,6 @@ const ReferenceRow = ({
   );
 };
 
-function normalizeMd(md: string): string {
-  return md
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((l) => l.replace(/[ \t]+$/, ''))
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote();
   const setEditorDirty = useWorkspaceStore((s) => s.setEditorDirty);
@@ -881,8 +901,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
         const reserialized = await editor.blocksToMarkdownLossy(editor.document);
-        const lossy = normalizeMd(original) !== normalizeMd(reserialized);
-        setViewOnly(lossy);
+        setViewOnly(isLossyRoundTrip(original, reserialized));
         setLoadedFor(file);
         setDirty(false);
         setReloadPrompt(false);
@@ -1074,13 +1093,18 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         </div>
       )}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <BlockNoteView
-          editor={editor}
-          editable={!viewOnly}
-          onChange={() => {
-            if (!initialLoad.current && !viewOnly) setDirty(true);
-          }}
-        />
+        {/* Cap the writing column. The overlay card is wide (room for media
+            viewers), but prose past ~740px is hard to read and write — so the
+            editor sits in a centered measure, like every serious text app. */}
+        <div style={{ maxWidth: 760, margin: '0 auto', padding: `${space[5]}px 0` }}>
+          <BlockNoteView
+            editor={editor}
+            editable={!viewOnly}
+            onChange={() => {
+              if (!initialLoad.current && !viewOnly) setDirty(true);
+            }}
+          />
+        </div>
       </div>
     </div>
   );
