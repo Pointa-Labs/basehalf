@@ -392,6 +392,18 @@ console.log(`     first badge text: ${JSON.stringify(firstBadgeText)}`);
 // (e.g. "notes/scratch.md" would show "scratch.md" + a dirname line.)
 assert(!firstBadgeText.includes('[file]'), 'BadgeNode no longer shows "[file]" debug prefix');
 assert(!firstBadgeText.includes('[dir]'), 'BadgeNode no longer shows "[dir]" debug prefix');
+// File-type identity: every badge renders a monochrome type glyph (text /
+// image / audio / video / pdf / code / folder) so the canvas is scannable
+// at a glance instead of a wall of identical rectangles.
+const firstBadgeGlyphs = await win
+  .locator('.react-flow__node-badge')
+  .first()
+  .locator('svg')
+  .count();
+assert(
+  firstBadgeGlyphs >= 1,
+  `BadgeNode renders a file-type glyph (svg count=${firstBadgeGlyphs})`,
+);
 // Custom CanvasControls (zoom in/out/fit) should be present — replaces
 // react-flow's default `<Controls />` to match the rest of the chrome.
 const controlsCount = await win.locator('.bh-canvas-controls').count();
@@ -1308,13 +1320,20 @@ assert(
 
 // --- 10. Folder double-click → sub-canvas + exit chip ---
 console.log('\n[10] Folder badge double-click → sub-canvas');
-// Folder badge: the BadgeNode renders the basename + a small "DIR" chip.
+// Folder badge: the BadgeNode renders the basename + a folder glyph. The
+// old uppercase "DIR" chip was dropped as engineer jargon in favor of a
+// folder icon + the warm folder tint (file-type-identity pass).
 // Find by data-id (react-flow sets data-id={node.id} on .react-flow__node).
 const folderBadge = win.locator('.react-flow__node[data-id="notes"]');
 const folderCount = await folderBadge.count();
 assert(folderCount === 1, `Folder badge for "notes" found (${folderCount})`);
 const folderText = await folderBadge.innerText();
-assert(folderText.includes('DIR'), 'Folder badge shows uppercase "DIR" chip (new BadgeNode)');
+assert(!folderText.includes('DIR'), 'Folder badge no longer shows the jargon "DIR" chip');
+const folderGlyphCount = await folderBadge.locator('svg').count();
+assert(
+  folderGlyphCount >= 1,
+  `Folder badge renders a folder glyph (svg count=${folderGlyphCount})`,
+);
 // Try several dblclick mechanisms. React-flow's onNodeDoubleClick is wired
 // from the synthetic React event, which Playwright's high-level dblclick()
 // sometimes misses if the inner element gets the event (vs. the .react-flow__node
