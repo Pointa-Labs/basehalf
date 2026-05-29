@@ -17,6 +17,7 @@ import {
   ReactFlowProvider,
   type Viewport,
   applyNodeChanges,
+  useNodesInitialized,
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -102,12 +103,15 @@ export const Canvas = (): JSX.Element => {
   // Add-files-to-view picker (the missing "door" into a saved view).
   const [pickerOpen, setPickerOpen] = useState(false);
   // Persisted viewport for the current workspace, lifted into state so
-  // ViewportSyncer (rendered inside <ReactFlow>) can imperatively call
-  // setViewport() after the async refresh completes. react-flow's
-  // defaultViewport is read ONCE on mount, before refresh has populated
-  // the viewport — relying on it alone snapped users back to (0,0,1)
-  // every window reload.
-  const [persistedViewport, setPersistedViewport] = useState<ViewportState | null>(null);
+  // CanvasFramer (rendered inside <ReactFlow>) frames the canvas after each
+  // async refresh: it RESTORES the saved viewport when one exists, or FITS to
+  // all badges when none does (fresh workspace / demo) so nothing is hidden
+  // off-screen. react-flow's defaultViewport is read ONCE on mount, before
+  // refresh resolves — relying on it alone snapped users back to (0,0,1) and
+  // left first-run badges spilling past the right edge. `seq` bumps per
+  // refresh so the framer re-runs; `vp` is the viewport already resolved for
+  // THAT refresh, so a saved viewport is never mistaken for "none" mid-load.
+  const [frame, setFrame] = useState<{ seq: number; vp: ViewportState | null } | null>(null);
   // The current focus set (what the agent reads from .bh/focus.md). Surfaced
   // on the canvas so the curation payoff is visible, not invisible.
   const [focused, setFocused] = useState<ReadonlySet<string>>(() => new Set());
@@ -150,7 +154,7 @@ export const Canvas = (): JSX.Element => {
       );
       setEdges(badgesToEdges(badges));
       const vp = (await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult;
-      setPersistedViewport(vp);
+      setFrame((prev) => ({ seq: (prev?.seq ?? 0) + 1, vp }));
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -566,7 +570,7 @@ export const Canvas = (): JSX.Element => {
       >
         <Background gap={20} size={1} color={color.border} />
         <CanvasControls />
-        <ViewportSyncer vp={persistedViewport} />
+        <CanvasFramer frame={frame} />
       </ReactFlow>
     </div>
   );
@@ -576,24 +580,35 @@ export const Canvas = (): JSX.Element => {
 export { useReactFlow };
 
 /**
- * Imperatively applies the persisted viewport once it loads. Rendered
- * inside <ReactFlow> so useReactFlow() has a provider. Effect deps are
- * the primitive viewport fields so we only call setViewport when the
- * stored values actually change — same-value re-applies (on view /
- * folder-scope refresh) are no-ops since deps don't shift.
+ * Frames the canvas after each refresh. Rendered inside <ReactFlow> so the
+ * hooks have a provider. For every refresh (identified by `frame.seq`) it
+ * applies exactly once, but only after `useNodesInitialized` reports the
+ * current nodes have measured dimensions — `fitView` needs real node sizes
+ * to compute the bounding box.
+ *
+ *   - saved viewport present → RESTORE it (reload / re-open keeps your place).
+ *   - no saved viewport (fresh workspace / demo) → FIT to all badges so the
+ *     whole graph is visible instead of spilling past the right edge.
+ *
+ * maxZoom:1 stops a lone badge from blowing up to fill the screen; the guard
+ * on `appliedSeq` keeps node drags (which re-flip nodesInitialized) from
+ * re-framing and yanking the canvas out from under the user.
  */
-const ViewportSyncer = ({ vp }: { vp: ViewportState | null }): null => {
-  const { setViewport } = useReactFlow();
-  // Pull primitive fields up so we can list them as deps individually;
-  // biome's useExhaustiveDependencies flags optional-chain dependencies
-  // as "more specific than the capture".
-  const x = vp?.offsetX;
-  const y = vp?.offsetY;
-  const zoom = vp?.scale;
+const CanvasFramer = ({
+  frame,
+}: { frame: { seq: number; vp: ViewportState | null } | null }): null => {
+  const { setViewport, fitView, getNodes } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+  const appliedSeq = useRef(-1);
   useEffect(() => {
-    if (x !== undefined && y !== undefined && zoom !== undefined) {
-      setViewport({ x, y, zoom });
+    if (!frame || !nodesInitialized) return;
+    if (appliedSeq.current === frame.seq) return;
+    appliedSeq.current = frame.seq;
+    if (frame.vp) {
+      setViewport({ x: frame.vp.offsetX, y: frame.vp.offsetY, zoom: frame.vp.scale });
+    } else if (getNodes().length > 0) {
+      void fitView({ padding: 0.2, maxZoom: 1, duration: 0 });
     }
-  }, [x, y, zoom, setViewport]);
+  }, [frame, nodesInitialized, setViewport, fitView, getNodes]);
   return null;
 };
