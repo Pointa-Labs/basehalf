@@ -149,6 +149,29 @@ const selectByTestId = async (testId, optionText) => {
   await pickOption(optionText);
 };
 
+// ── TopBar overflow-menu helpers ──────────────────────────────────────────
+// Low-frequency workspace/view actions (rename / remove / delete / edit
+// prompt) now live behind a "⋯" Menu primitive instead of always-visible
+// text buttons. Open the menu by testId, then click the labeled item.
+const openTopbarMenu = async (menuTestId) => {
+  await win.locator(`[data-testid="${menuTestId}"]`).click();
+  await win.locator('[role=menu]').first().waitFor({ timeout: 3000 });
+};
+const clickMenuItem = async (menuTestId, itemText) => {
+  await openTopbarMenu(menuTestId);
+  await win.locator('[role=menu] [role=menuitem]', { hasText: itemText }).first().click();
+  await win.waitForTimeout(150);
+};
+// Whether a menu offers an item with the given text (opens, checks, closes
+// via Esc). Used to assert contextual actions appear/disappear.
+const menuHasItem = async (menuTestId, itemText) => {
+  await openTopbarMenu(menuTestId);
+  const count = await win.locator('[role=menu] [role=menuitem]', { hasText: itemText }).count();
+  await win.keyboard.press('Escape');
+  await win.waitForTimeout(120);
+  return count > 0;
+};
+
 // --- 1. Empty state ---
 console.log('\n[1] Empty state (no workspaces)');
 await win.waitForTimeout(400);
@@ -232,7 +255,7 @@ assert(
 assert(topbarText.includes('New note'), 'TopBar shows "+ New note" button (new entry)');
 assert(topbarText.includes('New view'), 'TopBar shows "+ New view" button');
 assert(/view/i.test(topbarText), 'TopBar shows the View label (case-insensitive)');
-assert(!topbarText.includes('Delete view'), 'Delete view button hidden until a view is active');
+assert(!topbarText.includes('Delete view'), 'No Delete-view action until a view is active');
 
 // --- 3. Sidebar shows workspace + collapse button ---
 console.log('\n[3] Sidebar');
@@ -1250,19 +1273,22 @@ await win.locator('[data-testid="topbar-view-select"]').waitFor({ timeout: 5000 
 await win.waitForTimeout(300);
 // Pick "Test View" from the custom view dropdown.
 await selectByTestId('topbar-view-select', 'Test View');
-const topbarTextWithView = await win.locator('header').first().innerText();
+// View actions moved into a "⋯" menu next to the View select once a view
+// is active. The menu trigger should appear, offering Rename + Delete.
+const viewMenuPresent = await win.locator('[data-testid="topbar-view-menu"]').count();
+assert(viewMenuPresent === 1, 'View-actions ⋯ menu appears once a view is active');
 assert(
-  topbarTextWithView.includes('Delete view'),
-  'Delete-view button appears once a view is active',
+  await menuHasItem('topbar-view-menu', 'Delete view'),
+  'View menu offers "Delete view" once a view is active',
 );
 assert(
-  topbarTextWithView.includes('Rename view'),
-  'Rename-view button appears once a view is active',
+  await menuHasItem('topbar-view-menu', 'Rename view'),
+  'View menu offers "Rename view" once a view is active',
 );
 await win.screenshot({ path: `${SCREENS_DIR}/06-view-active.png` });
 
-// Rename the view via the new button → custom prompt dialog → submit.
-await win.locator('header button', { hasText: 'Rename view' }).click();
+// Rename the view via the menu → custom prompt dialog → submit.
+await clickMenuItem('topbar-view-menu', 'Rename view');
 await waitForDialog('Rename view');
 await fillDialogInput('Test View Renamed');
 await clickDialogButton('OK');
@@ -1274,13 +1300,12 @@ assert(
   `view.update reflected in store after Rename view dialog (views: ${viewListAfterRename.views.map((v) => v.name).join(', ')})`,
 );
 
-// Edit the view's prompt via the new "Edit prompt" button.
-const topbarTextForPrompt = await win.locator('header').first().innerText();
+// Edit the view's prompt via the menu's "Edit view prompt…" item.
 assert(
-  topbarTextForPrompt.includes('Edit prompt'),
-  'Edit-prompt button appears alongside Rename + Delete when a view is active',
+  await menuHasItem('topbar-view-menu', 'Edit view prompt'),
+  'View menu offers "Edit view prompt" alongside Rename + Delete',
 );
-await win.locator('header button', { hasText: 'Edit prompt' }).click();
+await clickMenuItem('topbar-view-menu', 'Edit view prompt');
 await waitForDialog('View prompt');
 await fillDialogInput('Resources for theorem-2 proof attempt');
 await clickDialogButton('OK');
@@ -1292,18 +1317,11 @@ assert(
   `view.update with prompt patch persisted (got prompt: ${JSON.stringify(promptedView?.prompt)})`,
 );
 
-// Switch back to main canvas → Delete + Rename buttons should disappear.
+// Switch back to main canvas → the view-actions ⋯ menu should disappear.
 await selectByTestId('topbar-view-select', 'Main canvas');
 await win.waitForTimeout(200);
-const topbarTextMain = await win.locator('header').first().innerText();
-assert(
-  !topbarTextMain.includes('Delete view'),
-  'Delete-view button hidden when back on main canvas',
-);
-assert(
-  !topbarTextMain.includes('Rename view'),
-  'Rename-view button hidden when back on main canvas',
-);
+const viewMenuOnMain = await win.locator('[data-testid="topbar-view-menu"]').count();
+assert(viewMenuOnMain === 0, 'View-actions ⋯ menu hidden when back on main canvas');
 
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
 // folder, not a previewable file). Single click sets focus only;
@@ -1960,10 +1978,10 @@ await paletteInput.fill('Renamed');
 await win.waitForTimeout(200);
 await win.keyboard.press('Enter');
 await win.waitForTimeout(500);
-const topbarAfterViewPick = await win.locator('header').first().innerText();
+const viewMenuAfterPick = await win.locator('[data-testid="topbar-view-menu"]').count();
 assert(
-  topbarAfterViewPick.includes('Delete view'),
-  `Palette → View row activated a saved view (topbar includes "Delete view")`,
+  viewMenuAfterPick === 1,
+  'Palette → View row activated a saved view (view-actions ⋯ menu present)',
 );
 // Now back to main canvas via palette → "Main canvas".
 await win.keyboard.press(cmdK);
@@ -1972,10 +1990,10 @@ await paletteInput.fill('Main canvas');
 await win.waitForTimeout(200);
 await win.keyboard.press('Enter');
 await win.waitForTimeout(500);
-const topbarAfterMain = await win.locator('header').first().innerText();
+const viewMenuAfterMain = await win.locator('[data-testid="topbar-view-menu"]').count();
 assert(
-  !topbarAfterMain.includes('Delete view'),
-  `Palette → "Main canvas" cleared the active view (Delete view button hidden)`,
+  viewMenuAfterMain === 0,
+  'Palette → "Main canvas" cleared the active view (view-actions ⋯ menu hidden)',
 );
 
 // --- 12d-recent. The palette orders File rows by recency (recentFilesFor),
@@ -2104,7 +2122,7 @@ console.log('\n[12f] Workspace rename — validation + happy path');
 // Pre-condition: bh-verify-ws and bh-verify-ws-2 both registered, with
 // bh-verify-ws active (§12 added ws-2, §13 will remove it).
 // 1) Empty name → validation error, dialog stays open.
-await win.locator('header button', { hasText: 'Rename' }).first().click();
+await clickMenuItem('topbar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('   ');
 await clickDialogButton('OK');
@@ -2139,7 +2157,7 @@ assert(
 );
 // 4) Happy path → rename, then rename back so downstream tests still
 // find bh-verify-ws by name (§14 selects it).
-await win.locator('header button', { hasText: 'Rename' }).first().click();
+await clickMenuItem('topbar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('renamed-verify-ws');
 await clickDialogButton('OK');
@@ -2189,11 +2207,11 @@ assert(
   ephemeralView !== undefined,
   `New view created via UI dialog (views: ${viewListAfterCreate.views.map((v) => v.name).join(', ')})`,
 );
-// Switch to the new view so Delete + Rename + Edit prompt buttons show.
+// Switch to the new view so the view-actions menu (Rename / Edit / Delete) shows.
 await selectByTestId('topbar-view-select', ephemeralViewName);
 await win.waitForTimeout(400);
 // Delete view → confirm dialog → confirm → view dropped.
-await win.locator('header button', { hasText: 'Delete view' }).first().click();
+await clickMenuItem('topbar-view-menu', 'Delete view');
 await waitForDialog('Delete view');
 assert((await dialogIsOpen()) === 1, 'Delete view opens the destructive confirm dialog');
 await clickDialogButton('Delete');
@@ -2215,7 +2233,7 @@ await win.waitForTimeout(700);
 // remove() anyway would silently destroy user state — high blast
 // radius for a button labeled "Cancel".
 const ws2CountBeforeCancel = (await bhRun('workspace.list', {})).workspaces.length;
-await win.locator('header button', { hasText: 'Remove' }).click();
+await clickMenuItem('topbar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 await clickDialogButton('Cancel');
 await win.waitForTimeout(400);
@@ -2227,7 +2245,7 @@ assert(
 );
 
 const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
-await win.locator('header button', { hasText: 'Remove' }).click();
+await clickMenuItem('topbar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 assert((await dialogIsOpen()) === 1, 'Remove opens the custom Dialog (no native popup)');
 // Wait for the fade-in animation to finish before capturing (otherwise the

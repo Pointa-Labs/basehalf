@@ -4,6 +4,7 @@ import { promptForNewNote, promptForNewView, tildifyPath } from '../lib/actions.
 import { useWorkspaceStore } from '../store/workspace.js';
 import { confirm, prompt } from './Dialog.js';
 import { Button } from './primitives/Button.js';
+import { Menu } from './primitives/Menu.js';
 import { Select } from './primitives/Select.js';
 
 const dividerStyle: CSSProperties = {
@@ -241,19 +242,15 @@ export const TopBar = (): JSX.Element => {
       </Button>
 
       {current && (
-        <>
-          <Button
-            variant="ghost"
-            onClick={() => void handleRenameWorkspace()}
-            disabled={busy}
-            title="Rename this workspace (path + .bh/ untouched)"
-          >
-            Rename
-          </Button>
-          <Button variant="ghost" onClick={() => void handleRemove()} disabled={busy}>
-            Remove
-          </Button>
-        </>
+        <Menu
+          testId="topbar-ws-menu"
+          title="Workspace actions"
+          disabled={busy}
+          actions={[
+            { label: 'Rename workspace…', onClick: () => void handleRenameWorkspace() },
+            { label: 'Remove workspace…', onClick: () => void handleRemove(), danger: true },
+          ]}
+        />
       )}
 
       {current && (
@@ -296,29 +293,16 @@ export const TopBar = (): JSX.Element => {
             New view
           </Button>
           {currentView && (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => void handleRenameView()}
-                title="Rename this saved view"
-              >
-                Rename view
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => void handleEditViewPrompt()}
-                title="Edit this view's prompt (what the AI agent reads about this grouping)"
-              >
-                Edit prompt
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => void handleDeleteView()}
-                title="Delete this saved view (badges + files untouched)"
-              >
-                Delete view
-              </Button>
-            </>
+            <Menu
+              testId="topbar-view-menu"
+              title="View actions"
+              align="right"
+              actions={[
+                { label: 'Rename view…', onClick: () => void handleRenameView() },
+                { label: 'Edit view prompt…', onClick: () => void handleEditViewPrompt() },
+                { label: 'Delete view…', onClick: () => void handleDeleteView(), danger: true },
+              ]}
+            />
           )}
         </>
       )}
