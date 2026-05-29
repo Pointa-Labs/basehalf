@@ -110,7 +110,24 @@ async function ensureBadge(
   kind: 'file' | 'folder',
   stats: MaterializeStats,
 ): Promise<void> {
-  const existing = await run('badge.get', { file, kind });
+  let existing: unknown;
+  try {
+    existing = await run('badge.get', { file, kind });
+  } catch (err) {
+    // A corrupt badge file on disk (failed write, bad git merge, manual
+    // edit) must NOT crash workspace open — without this catch, one bad
+    // .bh/badges/*.json makes the entire workspace unopenable via
+    // workspace.use/add. Skip it, leaving the file untouched so the user
+    // can recover or delete it. Mirrors badge.list's skip-and-warn. Catch
+    // by name, not the BadgeCorrupt class, to keep the dep arrow one-way
+    // (workspace must not import the badges module's internals).
+    if (err instanceof Error && err.name === 'BadgeCorrupt') {
+      console.warn(`[bh] skipping corrupt badge during materialize: ${file}`);
+      stats.skipped++;
+      return;
+    }
+    throw err;
+  }
   if (existing) {
     stats.skipped++;
     return;

@@ -129,4 +129,22 @@ describe('eager materialization on workspace.use (re-trigger)', () => {
     const badge = JSON.parse(raw ?? '{}') as BadgeFile;
     expect(badge.file).toBe('sub/deeper/x.md');
   });
+
+  it('does not crash workspace.use when a badge file is corrupt (skips it)', async () => {
+    // A single corrupt .bh/badges/*.json (failed write, bad git merge,
+    // manual edit) used to throw BadgeCorrupt out of materialize and make
+    // the ENTIRE workspace unopenable. It must skip the bad file (leaving
+    // it for recovery) and still open + materialize the rest.
+    const ctx = freshCore();
+    ctx.dirs.add('/work');
+    await ctx.core.run('workspace.add', { path: '/work', name: 'w' });
+    ctx.files.set('/work/doc.md', '# doc');
+    ctx.files.set('/work/other.md', '# other');
+    ctx.files.set('/work/.bh/badges/doc.md.json', 'not json {{{');
+
+    await expect(ctx.core.run('workspace.use', { name: 'w' })).resolves.toBeDefined();
+    // The healthy sibling still materialized; the corrupt file was left untouched.
+    expect(ctx.files.has('/work/.bh/badges/other.md.json')).toBe(true);
+    expect(ctx.files.get('/work/.bh/badges/doc.md.json')).toBe('not json {{{');
+  });
 });
