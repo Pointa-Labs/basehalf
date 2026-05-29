@@ -103,18 +103,24 @@ export const Canvas = (): JSX.Element => {
   // Add-files-to-view picker (the missing "door" into a saved view).
   const [pickerOpen, setPickerOpen] = useState(false);
   // Persisted viewport for the current workspace, lifted into state so
-  // CanvasFramer (rendered inside <ReactFlow>) frames the canvas after each
-  // async refresh: it RESTORES the saved viewport when one exists, or FITS to
-  // all badges when none does (fresh workspace / demo) so nothing is hidden
-  // off-screen. react-flow's defaultViewport is read ONCE on mount, before
-  // refresh resolves — relying on it alone snapped users back to (0,0,1) and
-  // left first-run badges spilling past the right edge. `seq` bumps per
-  // refresh so the framer re-runs; `vp` is the viewport already resolved for
-  // THAT refresh, so a saved viewport is never mistaken for "none" mid-load.
-  const [frame, setFrame] = useState<{ seq: number; vp: ViewportState | null } | null>(null);
-  // The current focus set (what the agent reads from .bh/focus.md). Surfaced
-  // on the canvas so the curation payoff is visible, not invisible.
-  const [focused, setFocused] = useState<ReadonlySet<string>>(() => new Set());
+  // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
+  // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
+  // the saved viewport on the main canvas, and FITS to the visible badges when
+  // there's no saved viewport (fresh workspace / demo) OR we're inside a view /
+  // folder scope (whose badges live in a different coordinate space than the
+  // per-workspace saved viewport — applying it there would strand them
+  // off-screen). Keying by context frames on ENTER but never yanks the canvas
+  // out from under a within-context refresh (e.g. a watcher file event).
+  // react-flow's defaultViewport is read ONCE on mount, before refresh
+  // resolves; relying on it alone snapped users to (0,0,1) and left first-run
+  // badges spilling past the right edge. `vp` is resolved for THAT refresh, so
+  // a saved viewport is never mistaken for "none" mid-load.
+  const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
+  // Which files are in focus lives on each node's `data.focused` flag (drives
+  // the badge ring + dot), so the focus chip's count is derived straight from
+  // the rendered nodes below — no separate set to keep in sync. That keeps the
+  // count honest in a view/folder scope (it equals the rings actually on screen,
+  // never the workspace-wide focus set).
 
   const refresh = useCallback(async () => {
     try {
@@ -137,13 +143,17 @@ export const Canvas = (): JSX.Element => {
           badges = [];
         }
       } else if (folderScope !== null) {
+        // Scoping INTO a folder shows its CONTENTS — not the folder's own badge
+        // (which would read as a sibling of its children, and would suppress the
+        // "this folder is empty" hint for a folder with no children). The
+        // folder's own prompt/refs are edited via the "Edit folder prompt"
+        // toolbar action. Nested child folders still match the prefix and show.
         const prefix = `${folderScope}/`;
-        badges = badges.filter((b) => b.file === folderScope || b.file.startsWith(prefix));
+        badges = badges.filter((b) => b.file.startsWith(prefix));
       }
 
       const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
       const focusedSet = new Set(focusResult.active);
-      setFocused(focusedSet);
       setNodes(
         badges.map((b, i) => {
           const override = memberPositions.get(b.file);
@@ -153,13 +163,20 @@ export const Canvas = (): JSX.Element => {
         }),
       );
       setEdges(badgesToEdges(badges));
-      const vp = (await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult;
-      setFrame((prev) => ({ seq: (prev?.seq ?? 0) + 1, vp }));
+      // Inside a view or folder scope, the per-workspace saved viewport doesn't
+      // frame this filtered subset (view members carry their own coordinates;
+      // a folder's badges may sit anywhere) — fit instead (vp:null). On the
+      // main canvas, restore the saved viewport.
+      const scoped = currentView !== null || folderScope !== null;
+      const vp = scoped
+        ? null
+        : ((await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult);
+      setFrame({ key: `${current}|${currentView ?? ''}|${folderScope ?? ''}`, vp });
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [currentView, folderScope]);
+  }, [current, currentView, folderScope]);
 
   useEffect(() => {
     if (current && currentReachable) {
@@ -310,7 +327,12 @@ export const Canvas = (): JSX.Element => {
         try {
           if (additive) {
             const cur = (await window.bh.run('focus.get', {})) as { active: string[] };
-            const next = cur.active.includes(node.id) ? cur.active : [...cur.active, node.id];
+            // Shift+click TOGGLES membership — add if absent, remove if present —
+            // so curating a multi-file set never forces a Clear-and-rebuild
+            // (matches Finder / browser / spreadsheet multi-select).
+            const next = cur.active.includes(node.id)
+              ? cur.active.filter((f) => f !== node.id)
+              : [...cur.active, node.id];
             await window.bh.run('focus.set', { files: next });
           } else {
             await window.bh.run('focus.set', { files: [node.id] });
@@ -319,25 +341,35 @@ export const Canvas = (): JSX.Element => {
           // the human SEES exactly what the agent now reads.
           const after = (await window.bh.run('focus.get', {})) as { active: string[] };
           const set = new Set(after.active);
-          setFocused(set);
           setNodes((prev) =>
             prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
           );
-        } catch {
-          // Best-effort.
+        } catch (err) {
+          // The focus set is the trust contract ("I see what the agent reads").
+          // A silent failure would desync the canvas from .bh/focus.md, so
+          // surface it rather than swallow it.
+          setError(err instanceof Error ? err.message : String(err));
         }
       })();
     },
-    // setFocused / setNodes are stable; nothing else external is referenced.
+    // setNodes / setError are stable; nothing else external is referenced.
     [],
   );
 
   const clearFocus = useCallback(() => {
-    void window.bh.run('focus.clear', {}).catch(() => undefined);
-    setFocused(new Set());
-    setNodes((prev) =>
-      prev.map((n) => (n.data.focused ? { ...n, data: { ...n.data, focused: false } } : n)),
-    );
+    // Persist the clear FIRST, then reflect it; on failure surface the error
+    // instead of leaving the canvas showing "empty focus" while .bh/focus.md
+    // still feeds the agent stale files (the desync reappears on reload).
+    void (async () => {
+      try {
+        await window.bh.run('focus.clear', {});
+        setNodes((prev) =>
+          prev.map((n) => (n.data.focused ? { ...n, data: { ...n.data, focused: false } } : n)),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
   }, []);
 
   const onMoveEnd = useCallback(
@@ -381,9 +413,24 @@ export const Canvas = (): JSX.Element => {
             }
       : null;
 
+  // Derived straight from the rendered nodes, so the chip reflects exactly the
+  // focused badges visible right now (honest in a view / folder scope). Naming
+  // the files — not just counting them — makes the witness concrete even when
+  // those badges are panned off-screen.
+  const focusedFiles = nodes.filter((n) => n.data.focused === true).map((n) => n.id);
+  const focusedCount = focusedFiles.length;
+  const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
+  const focusedNames = focusedFiles.map(baseName);
+  const focusedLabel =
+    focusedCount === 1
+      ? (focusedNames[0] ?? '')
+      : `${focusedNames.slice(0, 3).join(', ')}${
+          focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
+        }`;
+
   return (
     <div style={{ width: '100%', height: '100%' }}>
-      {focused.size > 0 && (
+      {focusedCount > 0 && (
         // Witnessed payoff: name the context the human handed the agent. The
         // focus set was previously a write-only side effect with no visible
         // trace — now the human can SEE (and clear) what their agent reads.
@@ -409,16 +456,40 @@ export const Canvas = (): JSX.Element => {
             animation: `bh-banner-in ${motion.normal}`,
           }}
         >
-          <span style={{ display: 'flex', alignItems: 'center', gap: space[1.5] }}>
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: space[1.5],
+              minWidth: 0,
+              maxWidth: 460,
+            }}
+            title={focusedFiles.join('\n')}
+          >
             <span
               aria-hidden
-              style={{ width: 8, height: 8, borderRadius: '50%', background: color.accent }}
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: color.accent,
+                flexShrink: 0,
+              }}
             />
-            <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
-              {focused.size}
-            </strong>
-            {focused.size === 1 ? 'file' : 'files'} in focus — your agent reads{' '}
-            {focused.size === 1 ? 'this' : 'these'}
+            <span
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
+                {focusedCount}
+              </strong>{' '}
+              {focusedCount === 1 ? 'file' : 'files'} in focus — your agent reads{' '}
+              <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
+            </span>
           </span>
           <button
             type="button"
@@ -596,14 +667,17 @@ export { useReactFlow };
  */
 const CanvasFramer = ({
   frame,
-}: { frame: { seq: number; vp: ViewportState | null } | null }): null => {
+}: { frame: { key: string; vp: ViewportState | null } | null }): null => {
   const { setViewport, fitView, getNodes } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
-  const appliedSeq = useRef(-1);
+  const framedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!frame || !nodesInitialized) return;
-    if (appliedSeq.current === frame.seq) return;
-    appliedSeq.current = frame.seq;
+    // Frame once per context. A same-key refresh (a watcher file event, a
+    // focus change) must NOT re-frame — that would yank the canvas out from
+    // under the user mid-work.
+    if (framedKey.current === frame.key) return;
+    framedKey.current = frame.key;
     if (frame.vp) {
       setViewport({ x: frame.vp.offsetX, y: frame.vp.offsetY, zoom: frame.vp.scale });
     } else if (getNodes().length > 0) {

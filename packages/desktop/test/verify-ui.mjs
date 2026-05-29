@@ -247,10 +247,7 @@ await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
 const topbarText = await win.locator('header').first().innerText();
-assert(
-  !topbarText.includes('BaseHalf'),
-  'TopBar no longer carries the BaseHalf wordmark (redundant with the native menu bar; workspace selector now leads)',
-);
+assert(topbarText.includes('BaseHalf'), 'TopBar shows the BaseHalf wordmark');
 assert(
   topbarText.includes('Add folder'),
   'TopBar shows "+ Add folder" button (renamed from "+ Pick folder")',

@@ -166,6 +166,9 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
         next.set(path, result.entries);
         return next;
       });
+      // A successful load clears any stale error from a prior failure, so an
+      // old message can't linger across a recovered/refreshed tree.
+      setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -245,21 +248,23 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     });
   };
 
-  if (error) {
-    return (
-      <div
-        style={{
-          color: color.danger,
-          padding: space[3],
-          fontSize: font.size.caption,
-        }}
-      >
-        {error}
-      </div>
-    );
-  }
+  // Surface load errors WITHOUT destroying the tree: a single failed subfolder
+  // expansion shouldn't blank the whole sidebar (a dead-end). Show the message
+  // above whatever did load; when the root itself failed, the tree is empty so
+  // the message stands alone. (Cleared on the next successful load above.)
   return (
     <div style={{ padding: `${space[2]}px 0`, borderRadius: radius.sm }}>
+      {error && (
+        <div
+          style={{
+            color: color.danger,
+            padding: `${space[1.5]}px ${space[3]}px`,
+            fontSize: font.size.caption,
+          }}
+        >
+          {error}
+        </div>
+      )}
       {renderEntries(rootPath, 0)}
     </div>
   );

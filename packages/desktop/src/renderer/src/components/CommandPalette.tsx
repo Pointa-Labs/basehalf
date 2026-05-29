@@ -363,6 +363,12 @@ export const CommandPalette = (): JSX.Element | null => {
         // takes the user somewhere (e.g. opens a dialog).
         queueMicrotask(picked.run);
       }
+    } else if (e.key === 'Tab') {
+      // Input-driven palette: arrows navigate the list, so Tab has no job
+      // here — trap it so focus can't leak to the chrome behind the modal
+      // backdrop (mirrors Dialog's trap intent). Home/End are deliberately
+      // left to the search input for text-cursor movement.
+      e.preventDefault();
     }
   };
 

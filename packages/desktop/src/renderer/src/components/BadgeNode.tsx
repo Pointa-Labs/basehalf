@@ -90,15 +90,15 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
   const borderStyle = orphan ? 'dashed' : 'solid';
   // Glyph tone: muted grey for files (calm on a busy canvas), warm for the
   // folder kind, danger when the target is missing.
-  const glyphTone = orphan ? color.danger : isFolder ? '#9a7d12' : color.textTertiary;
+  const glyphTone = orphan ? color.danger : isFolder ? color.folderGlyph : color.textTertiary;
 
   const tooltip = focused
-    ? `${d.label} — in focus; your AI agent reads this now`
+    ? `${d.label} — in focus; your AI agent reads this now. Shift-click to remove.`
     : isFolder
       ? `${d.label} — double-click to enter this folder`
       : orphan
         ? `${d.label} — referenced but missing on disk`
-        : d.label;
+        : `${d.label} — click to focus · shift-click to add`;
 
   // Focus is the load-bearing agent signal but was invisible. Render it as a
   // persistent accent ring (distinct from react-flow's transient `selected`)

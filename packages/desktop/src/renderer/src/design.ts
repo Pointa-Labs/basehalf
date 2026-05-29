@@ -43,6 +43,8 @@ export const color = {
   // Folder badge — warm tone distinguishes the kind on the canvas.
   folder: '#faf3d8',
   folderBorder: '#e8d77a',
+  // Folder glyph — the deepest amber in the family, for the icon on the tint.
+  folderGlyph: '#9a7d12',
 
   // Modal backdrop. Slightly darker than v0 to give the dialog real
   // separation from the chrome behind it (it was washing out at 0.32).

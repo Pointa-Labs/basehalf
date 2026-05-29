@@ -26,17 +26,36 @@ import { Button } from './primitives/Button.js';
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
   ms: number,
-): ((...args: TArgs) => void) & { cancel: () => void } {
+): ((...args: TArgs) => void) & { cancel: () => void; flush: () => void } {
   let t: ReturnType<typeof setTimeout> | undefined;
+  let pending: TArgs | undefined;
   const wrapped = (...args: TArgs): void => {
+    pending = args;
     if (t) clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+    t = setTimeout(() => {
+      t = undefined;
+      pending = undefined;
+      fn(...args);
+    }, ms);
   };
   // Cancel a pending call — used to drop a queued auto-save when the editor
   // unmounts, so it can't fire against a stale closure after a context switch.
   wrapped.cancel = (): void => {
     if (t) clearTimeout(t);
     t = undefined;
+    pending = undefined;
+  };
+  // Run a pending call immediately — used on close/unmount of fields whose
+  // edit must persist (e.g. the badge prompt) instead of being dropped with
+  // the timer when the user closes within the debounce window.
+  wrapped.flush = (): void => {
+    if (t) clearTimeout(t);
+    t = undefined;
+    if (pending !== undefined) {
+      const args = pending;
+      pending = undefined;
+      fn(...args);
+    }
   };
   return wrapped;
 }
@@ -78,9 +97,15 @@ export const FilePreview = (): JSX.Element | null => {
   useEffect(() => {
     if (!currentFile) return;
     const onKey = (e: KeyboardEvent): void => {
-      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (e.key === 'Escape') {
-        // Don't fight BlockNote's own escape handling (e.g. exit a slash menu).
+        // Close from the document body and the media viewers (DIV targets).
+        // Skip when a form field has focus: both BlockNote (a contentEditable
+        // DIV — not matched here, so the editor body DOES close) and form
+        // fields can preventDefault Escape, so a `defaultPrevented` check is
+        // unreliable. Form fields handle their own Escape — the badge-prompt
+        // textarea closes on Escape via its scoped onKeyDown below — so a stray
+        // Escape mid-typing in another field doesn't yank the panel shut.
+        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         setCurrentFile(null);
       } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
@@ -325,6 +350,13 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   const [prompt, setPrompt] = useState('');
   const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
   const inboundCount = inbound.length;
+  // Surfaced when a badge write (prompt or a reference edit) fails, so the
+  // user never silently loses curation work they thought they saved. Cleared
+  // on the next successful write.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // For the prompt textarea's own Escape-to-close (the global handler skips
+  // form fields, so the field closes the panel itself).
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -368,22 +400,32 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     () =>
       debounce(async (next: string) => {
         try {
-          await window.bh.run('badge.set', {
-            file,
-            kind: 'file',
-            patch: { prompt: next },
-          });
-        } catch {
-          // Save errors propagate via Canvas's banner on next refresh.
+          await window.bh.run('badge.set', { file, kind: 'file', patch: { prompt: next } });
+          setSaveError(null);
+        } catch (err) {
+          // The prompt is the literal instruction to the agent — never lose it
+          // silently. Surface so the user knows their edit didn't land.
+          setSaveError(`Couldn't save prompt: ${err instanceof Error ? err.message : String(err)}`);
         }
       }, 500),
     [file],
   );
 
+  // Persist a just-typed prompt when the panel unmounts (Esc / Cmd-W / file or
+  // workspace switch) rather than dropping the queued save with its timer.
+  useEffect(() => () => savePrompt.flush(), [savePrompt]);
+
   const removeRef = useCallback(
     async (to: string) => {
-      await window.bh.run('badge.removeRef', { file, to });
-      setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
+      try {
+        await window.bh.run('badge.removeRef', { file, to });
+        setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
+        setSaveError(null);
+      } catch (err) {
+        setSaveError(
+          `Couldn't remove reference: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     },
     [file],
   );
@@ -391,21 +433,28 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   const updateRefNote = useCallback(
     async (to: string, note: string) => {
       const trimmed = note.trim();
-      await window.bh.run('badge.addRef', {
-        file,
-        to,
-        ...(trimmed !== '' && { note: trimmed }),
-      });
-      setBadge((b) =>
-        b
-          ? {
-              ...b,
-              references: b.references.map((r) =>
-                r.to === to ? { ...r, ...(trimmed !== '' ? { note: trimmed } : {}) } : r,
-              ),
-            }
-          : b,
-      );
+      try {
+        await window.bh.run('badge.addRef', {
+          file,
+          to,
+          ...(trimmed !== '' && { note: trimmed }),
+        });
+        setBadge((b) =>
+          b
+            ? {
+                ...b,
+                references: b.references.map((r) =>
+                  r.to === to ? { ...r, ...(trimmed !== '' ? { note: trimmed } : {}) } : r,
+                ),
+              }
+            : b,
+        );
+        setSaveError(null);
+      } catch (err) {
+        setSaveError(
+          `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     },
     [file],
   );
@@ -433,8 +482,13 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     });
     const trimmed = to?.trim();
     if (!trimmed) return;
-    await window.bh.run('badge.addRef', { file, to: trimmed });
-    setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
+    try {
+      await window.bh.run('badge.addRef', { file, to: trimmed });
+      setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
+      setSaveError(null);
+    } catch (err) {
+      setSaveError(`Couldn't add reference: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }, [file, badge]);
 
   const toggleCollapsed = (): void => {
@@ -543,6 +597,15 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 setPrompt(e.target.value);
                 savePrompt(e.target.value);
               }}
+              onKeyDown={(e) => {
+                // Escape leaves the editor in one press from here too (the
+                // global handler skips form fields). Persist first.
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  savePrompt.flush();
+                  setCurrentFile(null);
+                }
+              }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
               rows={3}
               style={{
@@ -567,9 +630,29 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
               onBlur={(e) => {
                 e.currentTarget.style.borderColor = color.borderStrong;
                 e.currentTarget.style.boxShadow = 'none';
+                // Persist immediately on leaving the field rather than waiting
+                // out the 500ms debounce.
+                savePrompt.flush();
               }}
             />
           </label>
+          {saveError && (
+            <div
+              role="alert"
+              style={{
+                marginTop: space[2],
+                padding: `${space[1.5]}px ${space[3]}px`,
+                fontSize: font.size.caption,
+                fontFamily: font.sans,
+                color: color.danger,
+                background: `${color.danger}14`,
+                border: `1px solid ${color.danger}33`,
+                borderRadius: radius.md,
+              }}
+            >
+              {saveError}
+            </div>
+          )}
           <div>
             <div
               style={{
