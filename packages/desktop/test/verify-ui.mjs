@@ -55,11 +55,12 @@ writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'bas
 writeFileSync(join(WORKSPACE_DIR, 'sample.pdf'), '%PDF-1.4\n%verify-driver placeholder\n%%EOF\n');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp3'), 'ID3\x03\x00\x00\x00');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp4'), '\x00\x00\x00\x18ftyp');
-// A code file for the read-only text/code viewer (§7g). Code is NOT materialized
+// A code file for the read-only text/code viewer (§7h). Code is NOT materialized
 // as a canvas badge in v0 — it lives in the NavTree — so this opens via the tree.
+// CRLF endings on purpose: the viewer must normalize them (no stray \r).
 writeFileSync(
   join(WORKSPACE_DIR, 'sample.ts'),
-  'export const answer = 42;\nconsole.log(answer);\n',
+  'export const answer = 42;\r\nconsole.log(answer);\r\n',
 );
 // Seed a Markdown file that BlockNote's default config can't round-trip
 // cleanly (raw HTML <details> block). The MdEditor should flip into
@@ -1363,6 +1364,13 @@ const gutterText = await codeOverlay.locator('pre').first().textContent();
 assert(
   gutterText === '1\n2',
   `line-number gutter shows 1..2 for the 2-line file (got ${JSON.stringify(gutterText)})`,
+);
+// sample.ts has CRLF endings (seeded above); the viewer must normalize them so
+// no stray \r pollutes the rendered code or the gutter alignment.
+const codeBodyText = (await codeOverlay.locator('pre').nth(1).textContent()) || '';
+assert(
+  !codeBodyText.includes('\r'),
+  `CRLF line endings are normalized — no stray \\r in the rendered code (got ${JSON.stringify(codeBodyText)})`,
 );
 await win.keyboard.press('Escape');
 await win.waitForTimeout(150);

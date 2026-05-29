@@ -1270,8 +1270,13 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
 // horizontal scroll, and scrolls with the code vertically (shared scroll
 // container). Matching font/line-height keeps the numbers aligned with their
 // lines; white-space:pre (no wrap) guarantees one logical line == one row.
+//
+// Normalize line endings to \n FIRST: a CRLF (Windows) file otherwise keeps a
+// stray \r on every line, which a white-space:pre block can render as an extra
+// segment break (double-spacing) and pollutes any copy of the code. Normalizing
+// keeps the rendered lines matching the gutter. (Display-only; we never write.)
 const CodeBody = ({ text }: { text: string }): JSX.Element => {
-  const body = text.replace(/\n+$/, '');
+  const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
   const lineCount = body === '' ? 1 : body.split('\n').length;
   const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
   const lineStyle: CSSProperties = {
