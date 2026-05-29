@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, radius, shadow, space, transition } from '../design.js';
+import { splitFrontmatter } from '../lib/frontmatter.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
@@ -326,11 +327,16 @@ const TextPreview = ({
           content: string;
         };
         if (markdown) {
-          // Drop HTML comments (e.g. the bh:workspace-hint marker) before
-          // slicing: they don't render in a preview and, when adjacent to a
-          // heading, break its parsing. Then render with BlockNote so the tile
-          // matches the editor exactly; fall back to raw if conversion throws.
-          const cleaned = res.content.replace(/<!--[\s\S]*?-->/g, '').slice(0, PREVIEW_CHARS);
+          // Strip a leading YAML frontmatter block so the tile previews the
+          // note's BODY (matching the editor, which also peels it off) instead
+          // of leading with raw `title:`/`tags:` lines — Obsidian/Jekyll notes
+          // would otherwise show YAML noise on every canvas tile. Then drop HTML
+          // comments (e.g. the bh:workspace-hint marker) before slicing: they
+          // don't render in a preview and, adjacent to a heading, break parsing.
+          // Render with BlockNote so the tile matches the editor; fall back to
+          // raw if conversion throws.
+          const { body } = splitFrontmatter(res.content);
+          const cleaned = body.replace(/<!--[\s\S]*?-->/g, '').slice(0, PREVIEW_CHARS);
           try {
             out = { html: await markdownToHtml(cleaned.trim()) };
           } catch {

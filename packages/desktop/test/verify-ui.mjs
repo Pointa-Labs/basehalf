@@ -449,6 +449,17 @@ assert(
   firstBadgeGlyphs >= 1,
   `BadgeNode renders a file-type glyph (svg count=${firstBadgeGlyphs})`,
 );
+// Frontmatter is stripped from the canvas content tile too (matching the
+// editor): an Obsidian/Jekyll note's tile previews its BODY, not raw YAML keys.
+const fmBadgeText = await win
+  .locator('.react-flow__node-badge[data-id="fm.md"]')
+  .first()
+  .innerText()
+  .catch(() => '');
+assert(
+  fmBadgeText.length > 0 && !/title:|tags:/.test(fmBadgeText),
+  `frontmatter note's canvas tile previews the body, not raw YAML (got ${JSON.stringify(fmBadgeText.slice(0, 80))})`,
+);
 // Custom CanvasControls (zoom in/out/fit) should be present — replaces
 // react-flow's default `<Controls />` to match the rest of the chrome.
 const controlsCount = await win.locator('.bh-canvas-controls').count();
