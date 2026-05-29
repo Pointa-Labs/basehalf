@@ -96,6 +96,13 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   reconcile `inbound.json` — needs a `focus.resync` that preserves the `intent:`
   line and a focus-file `createKeyedMutex` (resync is the first read-modify-write
   on focus.md), which then also covers CLI / agent edits, not just the desktop.
+- **Edit a folder badge's prompt in the desktop UI.** Folders are first-class
+  agent-protocol badges (a folder `.badge.json` carries a prompt + refs), but the
+  desktop has no gesture to open a folder's panel: single-click focuses,
+  double-click scopes into the sub-canvas, and the editor opens only for files.
+  So folder prompts are CLI-only today. Needs a disambiguated affordance (e.g. an
+  edit control on the folder badge, or an editable header inside its sub-canvas)
+  — a small interaction-design call, deferred rather than bolted on.
 
 ## What we are deliberately NOT doing yet
 
