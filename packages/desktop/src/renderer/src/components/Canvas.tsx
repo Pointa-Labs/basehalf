@@ -27,6 +27,7 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
 import { Onboarding } from './Onboarding.js';
+import { ViewFilePicker } from './ViewFilePicker.js';
 import { Button } from './primitives/Button.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
@@ -94,6 +95,8 @@ export const Canvas = (): JSX.Element => {
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
+  // Add-files-to-view picker (the missing "door" into a saved view).
+  const [pickerOpen, setPickerOpen] = useState(false);
   // Persisted viewport for the current workspace, lifted into state so
   // ViewportSyncer (rendered inside <ReactFlow>) can imperatively call
   // setViewport() after the async refresh completes. react-flow's
@@ -294,12 +297,13 @@ export const Canvas = (): JSX.Element => {
   // The main-canvas case also surfaces a "Create a note" CTA so the user
   // has a single-click path out of the empty state instead of having to
   // discover Cmd+N or the topbar.
-  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' };
+  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' | 'add-to-view' };
   const emptyHint: EmptyHint | null =
     nodes.length === 0
       ? currentView !== null
         ? {
-            text: 'This view has no badges yet. Drag a badge from the main canvas (clear the View dropdown above) into here — its position will be saved per-view.',
+            text: 'This view is empty. Add files to gather them here — their positions are saved per-view, so a view can pull together files from different folders.',
+            cta: 'add-to-view',
           }
         : folderScope !== null
           ? {
@@ -367,7 +371,39 @@ export const Canvas = (): JSX.Element => {
               </Button>
             </div>
           )}
+          {emptyHint.cta === 'add-to-view' && (
+            <div style={{ marginTop: space[3] }}>
+              <Button
+                variant="primary"
+                onClick={() => setPickerOpen(true)}
+                data-testid="view-add-files-cta"
+              >
+                Add files
+              </Button>
+            </div>
+          )}
         </div>
+      )}
+      {/* In a non-empty view, a quiet affordance to add more files (the
+          empty-view card is gone once members exist). */}
+      {currentView !== null && nodes.length > 0 && (
+        <div style={{ position: 'absolute', top: space[3], left: space[3], zIndex: 6 }}>
+          <Button
+            variant="default"
+            onClick={() => setPickerOpen(true)}
+            data-testid="view-add-files"
+          >
+            + Add files
+          </Button>
+        </div>
+      )}
+      {pickerOpen && currentView !== null && (
+        <ViewFilePicker
+          viewId={currentView}
+          existing={new Set(nodes.map((n) => n.id))}
+          onClose={() => setPickerOpen(false)}
+          onAdded={() => void refresh()}
+        />
       )}
       <ReactFlow
         nodes={nodes}
