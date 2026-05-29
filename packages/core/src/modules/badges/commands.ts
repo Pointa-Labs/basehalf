@@ -110,6 +110,15 @@ export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx
 };
 
 export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => {
+  // A badge referencing itself is meaningless for the agent neighbourhood
+  // walk (you're already at that file) and breaks badge.rename — the
+  // self-ref's `to` doesn't get remapped, so the renamed badge keeps a dead
+  // reference to its old name. This guard lived only in the desktop "+ Add"
+  // dialog (a thin shell); per the one-door rule it belongs in core so the
+  // canvas self-drag, the CLI, and any agent all enforce it.
+  if (args.to === args.file) {
+    throw new Error(`Badge cannot reference itself: ${args.file}`);
+  }
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
   const existing = await readBadge(ctx.fs, root, args.file, kind);
