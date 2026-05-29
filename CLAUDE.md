@@ -133,3 +133,11 @@ questions about architecture or product direction, look in
 - **Don't restore the deleted decisions module.** It served the old
   AI-coding wedge as a dogfood tool; the corpus lives as MD in
   `private-docs/decisions/` now. See [docs/decisions.md D18](docs/decisions.md).
+- **Land changes through a PR; never push `main` directly.** Push to a
+  feature branch and open a PR — that's where CI runs. `main`'s branch
+  protection requires the `CLAAssistant` check, which only fires on a pull
+  request; a direct push to `main` (even a clean fast-forward) still passes
+  `licenses` + `ci-summary`, but leaves `CLAAssistant` stuck on "Expected"
+  forever, so the commit never turns green. Flow: branch → PR → checks green
+  → merge on GitHub. (Human-contributor specifics live in
+  [CONTRIBUTING.md](CONTRIBUTING.md).)
