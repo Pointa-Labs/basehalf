@@ -146,3 +146,95 @@ header::-webkit-scrollbar {
   border-color: var(--bh-accent);
   transform: scale(1.2);
 }
+
+/* Rendered-Markdown preview inside a canvas badge tile. BlockNote produces the
+ * HTML (same engine as the editor); these rules scale its semantic tags down
+ * to tile size so a badge reads as a formatted document, not raw source. */
+.bh-md-preview {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #6b6b6b;
+}
+.bh-md-preview > :first-child {
+  margin-top: 0;
+}
+.bh-md-preview h1,
+.bh-md-preview h2,
+.bh-md-preview h3,
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  margin: 7px 0 3px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: #1a1a1a;
+  letter-spacing: -0.2px;
+}
+.bh-md-preview h1 {
+  font-size: 15px;
+}
+.bh-md-preview h2 {
+  font-size: 13px;
+}
+.bh-md-preview h3 {
+  font-size: 12px;
+}
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  font-size: 11px;
+}
+.bh-md-preview p {
+  margin: 3px 0;
+}
+.bh-md-preview ul,
+.bh-md-preview ol {
+  margin: 3px 0;
+  padding-left: 15px;
+}
+.bh-md-preview li {
+  margin: 1px 0;
+}
+.bh-md-preview strong {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.bh-md-preview em {
+  font-style: italic;
+}
+.bh-md-preview a {
+  color: var(--bh-accent);
+  text-decoration: none;
+}
+.bh-md-preview code {
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+.bh-md-preview pre {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bh-md-preview pre code {
+  background: none;
+  padding: 0;
+}
+.bh-md-preview blockquote {
+  margin: 3px 0;
+  padding-left: 8px;
+  border-left: 2px solid #e3e3e0;
+  color: #9a9a9a;
+}
+.bh-md-preview hr {
+  border: none;
+  border-top: 1px solid #ececec;
+  margin: 6px 0;
+}
+.bh-md-preview img {
+  max-width: 100%;
+  border-radius: 4px;
+}
