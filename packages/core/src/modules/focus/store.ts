@@ -1,13 +1,21 @@
 import { dirname, join } from 'node:path';
 import type { FsLike } from '../../kernel/index.js';
+import type { FocusItem } from './types.js';
 
 const FOCUS_FILE = '.bh/focus.md';
 
 const TEMPLATE_FOOTER = `
 # (Updated automatically by bh GUI. Agent should read this at every message.
-# 'active' = files user is currently focused on; navigate their badges + references
-# in .bh/badges/ and .bh/index/inbound.json to compose your context.)
+# 'active' = files the user is focused on, with their prompts + reference notes
+# inlined above. Follow the refs deeper in .bh/badges/ + .bh/index/inbound.json
+# on your own budget if you need more.)
 `.trimStart();
+
+// Collapse to a single line so inlined prompts / notes can never inject a
+// blank line or a `- ` that parseFocus would mistake for an active item.
+function oneLine(s: string): string {
+  return s.replace(/[\r\n]+/g, ' ').trim();
+}
 
 export function focusPath(workspaceRoot: string): string {
   return join(workspaceRoot, FOCUS_FILE);
@@ -31,14 +39,40 @@ export function assertFocusablePath(path: string): void {
   }
 }
 
-export function renderFocus(active: readonly string[]): string {
+/**
+ * Render focus.md as a self-contained TURN BRIEF, not a bare path list. Each
+ * active file carries its prompt + outbound reference-notes inlined, and an
+ * optional `intent:` block carries the view prompt / task. The agent reads
+ * the human's curated *meaning* in one pass; it can still follow refs deeper
+ * on its own budget. Accepts plain strings too (treated as path-only items)
+ * so callers that don't assemble a brief stay simple.
+ */
+export function renderFocus(active: readonly (FocusItem | string)[], intent?: string): string {
+  const items: FocusItem[] = active.map((a) => (typeof a === 'string' ? { file: a } : a));
   const lines: string[] = ['# bh focus', ''];
+
+  const trimmedIntent = intent ? oneLine(intent) : '';
+  if (trimmedIntent) {
+    lines.push(`intent: ${trimmedIntent}`);
+    lines.push('');
+  }
+
   lines.push('active:');
-  if (active.length === 0) {
+  if (items.length === 0) {
     lines.push('  (none)');
   } else {
-    for (const f of active) {
-      lines.push(`  - ${f}`);
+    for (const item of items) {
+      lines.push(`  - ${item.file}`);
+      const prompt = item.prompt ? oneLine(item.prompt) : '';
+      if (prompt) lines.push(`      prompt: ${prompt}`);
+      const refs = (item.refs ?? []).filter((r) => r.to);
+      if (refs.length > 0) {
+        lines.push('      refs:');
+        for (const r of refs) {
+          const note = r.note ? oneLine(r.note) : '';
+          lines.push(note ? `        -> ${r.to}  (note: ${note})` : `        -> ${r.to}`);
+        }
+      }
     }
   }
   lines.push('');
@@ -47,9 +81,13 @@ export function renderFocus(active: readonly string[]): string {
 }
 
 /**
- * Parse the `active:` block out of focus.md. Tolerant: any line shaped
- * `  - <path>` directly under `active:` counts; `(none)` resolves to empty.
- * Anything else (comments, blanks, footer) is ignored.
+ * Parse the `active:` block out of focus.md back into the path list (the
+ * round-trippable state; the inlined prompts/refs are additive context for
+ * the agent, not state bh round-trips). Any `  - <path>` directly under
+ * `active:` counts; `(none)` resolves to empty. Inlined sub-lines
+ * (`prompt:` / `refs:` / `-> …`) are indented DEEPER than the list items, so
+ * we skip them and keep scanning; a non-list line at the list indent (or a
+ * blank / comment) ends the block.
  */
 export function parseFocus(content: string): readonly string[] {
   const lines = content.split(/\r?\n/);
@@ -63,10 +101,13 @@ export function parseFocus(content: string): readonly string[] {
     if (trimmed === '(none)') return [];
     if (trimmed.startsWith('- ')) {
       out.push(trimmed.slice(2).trim());
-    } else {
-      // Encountered a non-list line — end of the active block.
-      break;
+      continue;
     }
+    // Not a list item. Inlined sub-lines sit at indent ≥6; a foreign line at
+    // the list indent (≤4) or shallower means the active block has ended.
+    const indent = line.length - line.trimStart().length;
+    if (indent > 4) continue;
+    break;
   }
   return out;
 }
@@ -80,10 +121,11 @@ export async function readFocus(fs: FsLike, workspaceRoot: string): Promise<read
 export async function writeFocus(
   fs: FsLike,
   workspaceRoot: string,
-  active: readonly string[],
+  active: readonly (FocusItem | string)[],
+  intent?: string,
 ): Promise<void> {
-  for (const p of active) assertFocusablePath(p);
+  for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = focusPath(workspaceRoot);
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, renderFocus(active));
+  await fs.writeFile(path, renderFocus(active, intent));
 }
