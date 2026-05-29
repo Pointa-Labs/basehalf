@@ -55,6 +55,12 @@ writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'bas
 writeFileSync(join(WORKSPACE_DIR, 'sample.pdf'), '%PDF-1.4\n%verify-driver placeholder\n%%EOF\n');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp3'), 'ID3\x03\x00\x00\x00');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp4'), '\x00\x00\x00\x18ftyp');
+// A code file for the read-only text/code viewer (§7g). Code is NOT materialized
+// as a canvas badge in v0 — it lives in the NavTree — so this opens via the tree.
+writeFileSync(
+  join(WORKSPACE_DIR, 'sample.ts'),
+  'export const answer = 42;\nconsole.log(answer);\n',
+);
 // Seed a Markdown file that BlockNote's default config can't round-trip
 // cleanly (raw HTML <details> block). The MdEditor should flip into
 // view-only mode rather than silently lose the user's content on save.
@@ -1335,6 +1341,31 @@ for (const [file, selector, kind] of [
   await win.keyboard.press('Escape');
   await win.waitForTimeout(150);
 }
+
+// --- 7h. Read-only code/text viewer: click sample.ts in the tree → its content
+// renders read-only with a line-number gutter (NOT the dead-end "no viewer"). ---
+console.log('\n[7h] Read-only code/text viewer for sample.ts');
+await sidebar.locator('button', { hasText: 'sample.ts' }).first().click();
+await win.waitForTimeout(500);
+// The preview overlay is the LAST <aside> (the sidebar is the first).
+const codeOverlay = win.locator('aside').last();
+const codeText = (await codeOverlay.textContent()) || '';
+assert(
+  codeText.includes('export const answer = 42'),
+  `code viewer renders the file content (got ${JSON.stringify(codeText.slice(0, 80))})`,
+);
+assert(/Read-only/i.test(codeText), 'code viewer shows the "Read-only" indicator');
+assert(
+  !/No built-in viewer/i.test(codeText),
+  'a code file is NOT the dead-end "no viewer" fallback',
+);
+const gutterText = await codeOverlay.locator('pre').first().textContent();
+assert(
+  gutterText === '1\n2',
+  `line-number gutter shows 1..2 for the 2-line file (got ${JSON.stringify(gutterText)})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(150);
 
 // --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
 // Tests the ImageViewer branch of FilePreview (not just MD path). ---
