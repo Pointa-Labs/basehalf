@@ -98,6 +98,7 @@ export const Canvas = (): JSX.Element => {
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const currentView = useWorkspaceStore((s) => s.currentView);
+  const views = useWorkspaceStore((s) => s.views);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
@@ -431,6 +432,15 @@ export const Canvas = (): JSX.Element => {
           focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
         }`;
 
+  // A saved view's prompt IS its agent-facing intent — it becomes focus.md's
+  // `intent:` line when the view is focused. It was settable (TopBar ⋯ → Edit
+  // view prompt) but invisible while viewing, so the view's whole reason for
+  // existing was hidden. Surface it as a quiet banner. The focus chip (the live
+  // payoff) wins the top-center slot when a file is actually focused; otherwise
+  // the view's intent stands there so the user can see what they curated.
+  const activeViewPrompt =
+    currentView !== null ? (views.find((v) => v.id === currentView)?.prompt ?? '').trim() : '';
+
   return (
     <div style={{ width: '100%', height: '100%' }}>
       {focusedCount > 0 && (
@@ -579,6 +589,51 @@ export const Canvas = (): JSX.Element => {
               </Button>
             </div>
           )}
+        </div>
+      )}
+      {/* A view's prompt is its agent-facing intent — show it while viewing so
+          the curated purpose isn't invisible. Yields the top-center slot to the
+          focus chip when a file is actually focused. */}
+      {currentView !== null && activeViewPrompt !== '' && focusedCount === 0 && (
+        <div
+          data-testid="view-intent"
+          style={{
+            position: 'absolute',
+            top: space[3],
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 7,
+            maxWidth: 520,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            background: color.surface,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.pill,
+            padding: `${space[1]}px ${space[3]}px`,
+            boxShadow: shadow.card,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            color: color.textSecondary,
+            animation: `bh-banner-in ${motion.normal}`,
+          }}
+          title={activeViewPrompt}
+        >
+          <span
+            style={{
+              fontSize: font.size.micro,
+              fontWeight: font.weight.semibold,
+              letterSpacing: font.trackedCaps,
+              textTransform: 'uppercase',
+              color: color.textTertiary,
+              flexShrink: 0,
+            }}
+          >
+            Intent
+          </span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {activeViewPrompt}
+          </span>
         </div>
       )}
       {/* In a non-empty view, a quiet affordance to add more files (the
