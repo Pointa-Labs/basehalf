@@ -41,14 +41,22 @@ const VIEWPORT_DEBOUNCE = 1000;
 function badgeToNode(
   badge: BadgeFile,
   fallbackIndex: number,
+  total: number,
   override?: { x?: number; y?: number },
 ): Node<BadgeNodeData> {
   // Auto-layout grid for badges without a saved position. Content TILES are
-  // taller than the old bare labels, so rows need more vertical room — but keep
-  // the column pitch tight so badges stay within the viewport (React-flow can't
-  // scroll an off-screen node into view). Saved positions win.
-  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % 6) * 220;
-  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / 6) * 250;
+  // taller than bare labels, so rows need vertical room. Column count ADAPTS to
+  // the badge count: a fixed 6 columns stays a tidy few rows for a small folder
+  // but grows into a 25-row ribbon for a 150-file one — too tall to frame in a
+  // landscape window, so fit-to-view clamps to minZoom and strands rows
+  // off-screen. Target a grid whose pixel aspect (~220x250 cells) matches the
+  // landscape viewport (~1.54 = viewport-aspect x cell h/w) so the whole
+  // workspace frames itself. max(6, …) preserves the tuned small/medium look
+  // (<=~23 badges keep 6 columns) and only widens for big folders. Saved
+  // positions always win.
+  const cols = Math.max(6, Math.ceil(Math.sqrt(1.54 * Math.max(1, total))));
+  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % cols) * 220;
+  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / cols) * 250;
   return {
     id: badge.file,
     type: 'badge',
@@ -161,7 +169,7 @@ export const Canvas = (): JSX.Element => {
       setNodes(
         badges.map((b, i) => {
           const override = memberPositions.get(b.file);
-          const node = badgeToNode(b, i, override);
+          const node = badgeToNode(b, i, badges.length, override);
           node.data.focused = focusedSet.has(b.file);
           return node;
         }),
