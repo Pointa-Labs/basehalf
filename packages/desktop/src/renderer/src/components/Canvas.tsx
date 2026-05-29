@@ -683,6 +683,11 @@ export const Canvas = (): JSX.Element => {
         // always-on midpoint labels. Animation off; the custom edge owns its
         // stroke + accent-on-interaction styling.
         defaultEdgeOptions={{ type: 'reference', animated: false }}
+        // Drawing a reference is the core "compound thinking" gesture, so the
+        // live drag should preview the relationship in the brand accent (the
+        // same color a hovered/selected edge takes) rather than React Flow's
+        // default grey — the line you're dragging IS the connection-to-be.
+        connectionLineStyle={{ stroke: color.accent, strokeWidth: 2 }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
