@@ -79,6 +79,16 @@ Also shipped beyond the original v0 scope: a read-only code/text viewer (so
 source/config files are readable, not just docs/media) and an adaptive
 auto-layout that frames large folders on first open.
 
+New v0.x follow-ups surfaced while building the code/text viewer:
+
+- Code-viewer **syntax highlighting** (needs a highlighter dep — weigh against
+  [dependency-policy.md](dependency-policy.md); plain monospace ships today).
+- Read **extension-less text files** (Dockerfile, Makefile, LICENSE, README,
+  `.gitignore`) — they currently fall through to "no built-in viewer". The clean
+  fix is content-based text detection (null-byte / non-printable sniff) gated on
+  a **capped** `workspace.readFile` so a large unknown binary can't be slurped
+  whole; do it properly rather than an ever-growing extension allowlist.
+
 ## What we are deliberately NOT doing yet
 
 - **No agent orchestration in bh.** Claude Code / Codex / Cursor are the
