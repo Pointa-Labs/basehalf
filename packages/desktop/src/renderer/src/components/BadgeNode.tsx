@@ -323,9 +323,14 @@ const TextPreview = ({
     void (async () => {
       let out: PreviewContent;
       try {
-        const res = (await window.bh.run('workspace.readFile', { path: label })) as {
-          content: string;
-        };
+        // Cap the read: a tile only ever shows PREVIEW_CHARS of body, so don't
+        // ship a multi-MB file across IPC for a 600-char preview. Headroom above
+        // PREVIEW_CHARS covers a leading frontmatter block + the stripped HTML
+        // comment before the body slice.
+        const res = (await window.bh.run('workspace.readFile', {
+          path: label,
+          maxChars: PREVIEW_CHARS + 4096,
+        })) as { content: string };
         if (markdown) {
           // Strip a leading YAML frontmatter block so the tile previews the
           // note's BODY (matching the editor, which also peels it off) instead

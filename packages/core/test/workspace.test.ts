@@ -41,6 +41,30 @@ describe('workspace module (mock FS)', () => {
     expect(cfg.workspaces.vault?.path).toBe('/my/vault');
   });
 
+  it('readFile: maxChars caps returned content + flags truncated', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/big.txt', 'A'.repeat(1000));
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean };
+    const full = await core.run<{ path: string }, R>('workspace.readFile', { path: 'big.txt' });
+    expect(full.content.length).toBe(1000);
+    expect(full.truncated).toBeUndefined();
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'big.txt',
+      maxChars: 100,
+    });
+    expect(capped.content.length).toBe(100);
+    expect(capped.truncated).toBe(true);
+    const under = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'big.txt',
+      maxChars: 5000,
+    });
+    expect(under.content.length).toBe(1000);
+    expect(under.truncated).toBeUndefined();
+  });
+
   it('add: second workspace does NOT become current', async () => {
     const { fs, dirs } = mockFs();
     dirs.add('/a');

@@ -387,15 +387,18 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   // badge write does NOT regenerate it (focus.md re-inlines only on focus.set /
   // clear). So without this the agent would keep reading the OLD prompt until the
   // user re-clicked the badge. Re-setting the same active list re-inlines the
-  // fresh badge data. Desktop focus carries no intent (onNodeClick sets files
-  // only), so nothing is dropped. A fully general fix — reconciling focus.md in
-  // core on ANY badge change (with a focus-file mutex + intent preservation, so
-  // CLI/agent edits are covered too) — is tracked as a v0.x follow-up.
+  // fresh badge data — and we carry the existing `intent:` back through so a
+  // CLI/view-set turn intent isn't stripped by a desktop prompt edit. (The fully
+  // general fix — reconciling focus.md in core on ANY badge change with a
+  // focus-file mutex — is tracked as a v0.x follow-up.)
   const resyncFocusForFile = useCallback(async () => {
     try {
-      const { active } = (await window.bh.run('focus.get', {})) as { active: string[] };
+      const { active, intent } = (await window.bh.run('focus.get', {})) as {
+        active: string[];
+        intent?: string;
+      };
       if (active.includes(file)) {
-        await window.bh.run('focus.set', { files: active });
+        await window.bh.run('focus.set', { files: active, ...(intent ? { intent } : {}) });
       }
     } catch {
       // Non-fatal: focus.md refreshes on the next focus action.
@@ -454,8 +457,11 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
           b
             ? {
                 ...b,
+                // Clearing a note must DROP it locally too — core writes `{ to }`
+                // (no note), so spreading `{}` would keep the stale note in the
+                // optimistic copy and ReferenceRow would snap the input back to it.
                 references: b.references.map((r) =>
-                  r.to === to ? { ...r, ...(trimmed !== '' ? { note: trimmed } : {}) } : r,
+                  r.to === to ? (trimmed !== '' ? { ...r, note: trimmed } : { to: r.to }) : r,
                 ),
               }
             : b,
@@ -1343,7 +1349,7 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
 // Huge files are capped to keep a <pre> from janking the UI.
 const TEXT_VIEW_CAP = 200_000;
 const TextViewer = ({ file }: { file: string }): JSX.Element => {
-  const [state, setState] = useState<{ text: string; dropped: number } | null>(null);
+  const [state, setState] = useState<{ text: string; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1352,15 +1358,15 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
     setError(null);
     void (async () => {
       try {
+        // Ask core for only the prefix we'll render — a multi-MB file (a big
+        // package-lock.json, a minified bundle, a long .log) must NOT be shipped
+        // whole across IPC and held in renderer memory just to show 200k chars.
         const res = (await window.bh.run('workspace.readFile', {
           path: file,
+          maxChars: TEXT_VIEW_CAP,
         })) as WorkspaceReadFileResult;
-        const raw = res.content ?? '';
         if (!cancelled) {
-          setState({
-            text: raw.slice(0, TEXT_VIEW_CAP),
-            dropped: Math.max(0, raw.length - TEXT_VIEW_CAP),
-          });
+          setState({ text: res.content ?? '', truncated: res.truncated === true });
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -1426,7 +1432,7 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
             ) : (
               <CodeBody text={state.text} />
             )}
-            {state.dropped > 0 && (
+            {state.truncated && (
               <div
                 style={{
                   padding: `${space[2]}px ${space[4]}px ${space[4]}px`,
@@ -1435,8 +1441,8 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
                   color: color.textTertiary,
                 }}
               >
-                … {state.dropped.toLocaleString()} more characters not shown — open the file in your
-                editor for the full contents.
+                … truncated (showing the first {TEXT_VIEW_CAP.toLocaleString()} characters) — open
+                the file in your editor for the full contents.
               </div>
             )}
           </>

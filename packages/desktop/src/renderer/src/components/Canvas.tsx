@@ -113,6 +113,13 @@ export const Canvas = (): JSX.Element => {
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
+  // The FULL workspace focus set (from focus.md / focus.get), independent of the
+  // current view/folder scope. The focus chip reports from THIS — node-derived
+  // counts under-report inside a scope (focused files outside the view/folder
+  // aren't rendered), which would break the "see exactly what the agent reads"
+  // contract. The per-node `data.focused` flag still drives the on-canvas rings
+  // (you can only ring a badge that's actually on screen).
+  const [focusActive, setFocusActive] = useState<readonly string[]>([]);
   // Add-files-to-view picker (the missing "door" into a saved view).
   const [pickerOpen, setPickerOpen] = useState(false);
   // Persisted viewport for the current workspace, lifted into state so
@@ -166,6 +173,7 @@ export const Canvas = (): JSX.Element => {
       }
 
       const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
+      setFocusActive(focusResult.active); // chip reports the full set, not scope-filtered nodes
       const focusedSet = new Set(focusResult.active);
       setNodes(
         badges.map((b, i) => {
@@ -230,7 +238,22 @@ export const Canvas = (): JSX.Element => {
   // ignores, so the canvas would otherwise show a stale prompt or miss a
   // panel-added edge until reload. The panel emits on each successful mutation
   // (see lib/badgeBus); re-deriving nodes + edges keeps the hero surface honest.
-  useEffect(() => subscribeBadgeChange(() => void refresh()), [refresh]);
+  //
+  // COALESCED: refresh() re-walks every badge JSON (badge.list) + focus.get +
+  // viewport over IPC, so a burst of edits (rapid prompt saves / ref edits) must
+  // not trigger a full re-walk each. A trailing timer collapses a burst into one
+  // refresh (canvas is behind the editor overlay, so a small delay is invisible).
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = subscribeBadgeChange(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 250);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
+  }, [refresh]);
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
@@ -365,6 +388,7 @@ export const Canvas = (): JSX.Element => {
           // Re-read the authoritative focus set and reflect it on the canvas so
           // the human SEES exactly what the agent now reads.
           const after = (await window.bh.run('focus.get', {})) as { active: string[] };
+          setFocusActive(after.active); // keep the chip's full-set count live on click
           const set = new Set(after.active);
           setNodes((prev) =>
             prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
@@ -388,6 +412,7 @@ export const Canvas = (): JSX.Element => {
     void (async () => {
       try {
         await window.bh.run('focus.clear', {});
+        setFocusActive([]);
         setNodes((prev) =>
           prev.map((n) => (n.data.focused ? { ...n, data: { ...n.data, focused: false } } : n)),
         );
@@ -438,11 +463,12 @@ export const Canvas = (): JSX.Element => {
             }
       : null;
 
-  // Derived straight from the rendered nodes, so the chip reflects exactly the
-  // focused badges visible right now (honest in a view / folder scope). Naming
-  // the files — not just counting them — makes the witness concrete even when
-  // those badges are panned off-screen.
-  const focusedFiles = nodes.filter((n) => n.data.focused === true).map((n) => n.id);
+  // Derived from the FULL focus set (focusActive), NOT the rendered nodes —
+  // inside a view/folder scope the focus set can include files that aren't on
+  // screen, and the chip must still name everything the agent reads (its whole
+  // reason for existing is "see exactly what your agent reads"). Naming the
+  // files — not just counting — makes the witness concrete.
+  const focusedFiles = focusActive;
   const focusedCount = focusedFiles.length;
   const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
   const focusedNames = focusedFiles.map(baseName);

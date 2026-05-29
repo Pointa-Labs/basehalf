@@ -1,6 +1,6 @@
 import type { Handler } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
-import { focusPath, readFocus, writeFocus } from './store.js';
+import { focusPath, readFocusBrief, writeFocus } from './store.js';
 import type {
   FocusClearArgs,
   FocusClearResult,
@@ -85,8 +85,7 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
 
 export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const active = await readFocus(ctx.fs, root);
-  return { active };
+  return readFocusBrief(ctx.fs, root);
 };
 
 export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {

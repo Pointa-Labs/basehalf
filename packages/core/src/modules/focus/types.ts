@@ -35,6 +35,9 @@ export interface FocusItem {
 export type FocusGetArgs = Record<string, never>;
 export interface FocusGetResult {
   readonly active: readonly string[];
+  /** The turn intent (from `intent:` in focus.md), if any. Surfaced so a caller
+   *  re-setting focus can preserve it instead of dropping the block. */
+  readonly intent?: string;
 }
 
 export type FocusClearArgs = Record<string, never>;

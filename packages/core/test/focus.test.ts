@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
-import { parseFocus, renderFocus } from '../src/modules/focus/store.js';
+import { parseFocus, parseIntent, renderFocus } from '../src/modules/focus/store.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 interface TestContext {
@@ -160,6 +160,15 @@ describe('parseFocus / renderFocus (pure helpers)', () => {
 
   it('returns empty when active: section is missing', () => {
     expect(parseFocus('# random file\n\nno active section here\n')).toEqual([]);
+  });
+
+  it('parseIntent round-trips the intent line (and is undefined when absent)', () => {
+    const withIntent = renderFocus(['a.md'], 'derive theorem 2');
+    expect(parseIntent(withIntent)).toBe('derive theorem 2');
+    const noIntent = renderFocus(['a.md']);
+    expect(parseIntent(noIntent)).toBeUndefined();
+    // A `- intent:`-looking line inside the active block is NOT mistaken for it.
+    expect(parseIntent('# bh focus\n\nactive:\n  - intent.md\n')).toBeUndefined();
   });
 
   // focus.md is line-delimited; a newline in a path can't round-trip. Before

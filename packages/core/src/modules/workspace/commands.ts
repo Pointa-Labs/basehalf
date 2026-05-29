@@ -294,6 +294,14 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   if (content === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
+  // Optional cap: a preview/viewer that only renders a slice can ask for just
+  // that slice so a multi-MB file isn't serialized across IPC and held whole in
+  // the renderer. (FsLike has no partial read yet, so we still read the file in
+  // this process; capping here at least bounds what crosses the boundary. A
+  // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
+  if (typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars) {
+    return { path: args.path, content: content.slice(0, args.maxChars), truncated: true };
+  }
   return { path: args.path, content };
 };
 
