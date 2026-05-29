@@ -51,22 +51,33 @@ gate is real-use daily dogfood, not protocol correctness.
 | 9 | `packages/desktop/` — Electron skeleton (main + preload + renderer), IPC working | ✅ done |
 | 10 | Workspace selector + left-side file tree (Obsidian-style) | ✅ done |
 | 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | ✅ done |
-| 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit IPC deferred to v0.x) |
-| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector deferred to v0.x) |
+| 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit reload prompt have since shipped) |
+| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector have since shipped) |
 | 14 | Block editor (BlockNote) + PDF viewer | ✅ done (BlockNote MD round-trip is lossy — flagged in UI; G-08 hardening deferred to v0.x) |
 | 15 | Media viewers (image / audio / video) | ✅ done |
 | 16 | Polish + dogfood readiness | ⏳ self-build complete; dogfood week ongoing |
 
-Deferred to v0.x (carried over in PR commit messages):
+Originally deferred to v0.x — several have since shipped during the v0
+polish/hardening arc (status updated 2026-05-30):
 
-- BlockNote round-trip view-only fallback when serialization drift > threshold
-- pdf.js (currently `file://` iframe; sufficient for reading, not annotation)
-- folder badge → sub-canvas (double-click)
-- saved-view selector in TopBar (CLI `bh view` + core commands ship today)
-- file rename heuristic (currently shows orphan + new badge)
-- external-edit IPC + reload prompt in BlockNote editor
-- macOS Full Disk Access programmatic prompt (today: guidance banner)
-- canvas perf benchmark at 1000+ badges
+- ✅ BlockNote round-trip view-only fallback when serialization drift > threshold
+  (content-token lossy guard → view-only mode; covered in `verify-ui`).
+- pdf.js (currently `file://` iframe; sufficient for reading, not annotation) —
+  still deferred.
+- ✅ folder badge → sub-canvas (double-click) — scopes to folder contents.
+- ✅ saved-view selector in TopBar (view picker + create/rename/delete/edit-prompt).
+- ✅ file rename heuristic (watcher unlink+add → `badge.rename`; covered in
+  `watcher.test.ts`).
+- ✅ external-edit IPC + reload prompt in the editor ("changed on disk" banner →
+  Keep my edits / Reload).
+- macOS Full Disk Access programmatic prompt (today: guidance banner) — still
+  deferred.
+- canvas perf benchmark at 1000+ badges — still open; 150-badge load profiled
+  fine (snappy, no jank), so the realistic-folder case is covered.
+
+Also shipped beyond the original v0 scope: a read-only code/text viewer (so
+source/config files are readable, not just docs/media) and an adaptive
+auto-layout that frames large folders on first open.
 
 ## What we are deliberately NOT doing yet
 
