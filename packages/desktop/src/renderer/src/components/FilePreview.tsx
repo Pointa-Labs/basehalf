@@ -19,6 +19,7 @@ import {
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { emitBadgeChange } from '../lib/badgeBus.js';
+import { splitFrontmatter } from '../lib/frontmatter.js';
 import { isLossyRoundTrip } from '../lib/mdLossy.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
@@ -1003,6 +1004,11 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // What we believe is on disk — lets us ignore our own write echoes from the
   // watcher and detect genuine external edits.
   const lastDiskRef = useRef('');
+  // A leading YAML frontmatter block, kept VERBATIM and re-prepended on save so
+  // BlockNote only ever round-trips the body. Without this a frontmatter note
+  // (ubiquitous in Obsidian/Jekyll) is forced view-only because YAML can't
+  // round-trip. Empty string when the file has no frontmatter.
+  const frontmatterRef = useRef('');
   // True once the user typed but the debounced save hasn't flushed yet.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
@@ -1019,21 +1025,27 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           path: file,
         })) as WorkspaceReadFileResult;
         const original = result.content;
-        const blocks = await editor.tryParseMarkdownToBlocks(original);
+        // Peel off any leading YAML frontmatter; BlockNote only sees the body.
+        const { frontmatter, body } = splitFrontmatter(original);
+        frontmatterRef.current = frontmatter;
+        const blocks = await editor.tryParseMarkdownToBlocks(body);
         editor.replaceBlocks(
           editor.document,
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
-        const reserialized = await editor.blocksToMarkdownLossy(editor.document);
+        const bodyReserialized = await editor.blocksToMarkdownLossy(editor.document);
+        const reserialized = frontmatter + bodyReserialized;
         // Seed with the NORMALIZED serialization (what flush would write), not
         // the raw disk bytes — so merely viewing + closing a file never
         // rewrites it; only a real edit (md ≠ this) triggers a save.
         lastDiskRef.current = reserialized;
         pendingRef.current = false;
         // .txt is not markdown — BlockNote would reflow it on save. Keep plain
-        // text view-only so auto-save can't reformat it.
+        // text view-only so auto-save can't reformat it. The lossy guard checks
+        // only the BODY (frontmatter is preserved verbatim, never round-tripped),
+        // so a frontmatter note with a clean body is now editable.
         const plainText = /\.txt$/i.test(file);
-        setViewOnly(plainText || isLossyRoundTrip(original, reserialized));
+        setViewOnly(plainText || isLossyRoundTrip(body, bodyReserialized));
         setSaving(false);
         setReloadPrompt(false);
         setError('');
@@ -1053,7 +1065,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     if (viewOnlyRef.current) return;
     let md: string;
     try {
-      md = await editor.blocksToMarkdownLossy(editor.document);
+      // Re-prepend the preserved frontmatter; BlockNote only owns the body.
+      md = frontmatterRef.current + (await editor.blocksToMarkdownLossy(editor.document));
     } catch {
       return; // editor torn down mid-flush — nothing safe to write
     }
