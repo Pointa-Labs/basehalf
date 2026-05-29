@@ -94,21 +94,33 @@ function parentDir(relPath: string): string {
 
 /** Find a pending entry (from either buffer) that matches the incoming
  *  event's parent dir + extension + isDir. Generic over the buffer's
- *  PendingEntry shape since both use `event: WatcherFsEvent`. */
-function findCounterpart<T extends { event: WatcherFsEvent }>(
+ *  PendingEntry shape since both use `event: WatcherFsEvent`.
+ *
+ *  Requires a UNIQUE match: if two or more buffered entries match the
+ *  criteria, returns null. A rename is a 1:1 pairing — when several
+ *  same-dir/same-ext files were deleted (or created) inside the window
+ *  (e.g. a git branch switch rewriting many files), we cannot know which
+ *  unlink the add actually corresponds to, or whether it's a rename at
+ *  all. Per the module's safety principle ("err on miss over invent"),
+ *  ambiguity falls through to the safe orphan-then-materialize path
+ *  rather than inventing a rename that would move the wrong badge's
+ *  prompt/refs onto the new file. Exported for unit testing. */
+export function findCounterpart<T extends { event: WatcherFsEvent }>(
   buffer: Map<string, T>,
   incoming: WatcherFsEvent,
 ): T | null {
   const dir = parentDir(incoming.relPath);
   const ext = extname(incoming.relPath);
+  let match: T | null = null;
   for (const pending of buffer.values()) {
     if (pending.event.isDir !== incoming.isDir) continue;
     if (parentDir(pending.event.relPath) !== dir) continue;
     if (extname(pending.event.relPath) !== ext) continue;
     if (pending.event.relPath === incoming.relPath) continue; // same path = not a rename
-    return pending;
+    if (match !== null) return null; // 2+ candidates → ambiguous, don't invent a rename
+    match = pending;
   }
-  return null;
+  return match;
 }
 
 async function emitRename(
