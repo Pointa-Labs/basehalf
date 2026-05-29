@@ -871,8 +871,8 @@ console.log(
 
 // Fallback: exercise the underlying action and confirm Canvas re-renders
 // the edge from the resulting reference index. Add a note on the ref so
-// the edge gets a label — visual check that label styling matches the
-// chrome.
+// we can check the note surfaces ON HOVER (notes are NOT always-on labels —
+// those collide when edges share an endpoint; see ReferenceEdge).
 await bhRun('badge.addRef', {
   file: 'intro.md',
   to: 'overview.md',
@@ -886,10 +886,39 @@ assert(
   edgeCountAfterAddRef > 0,
   `Canvas renders an edge after badge.addRef (edges before drag=${edgeCountBefore}, after addRef+reload=${edgeCountAfterAddRef})`,
 );
-// Edge label should render with our custom styling — small bg, subtle border.
-const edgeLabelCount = await win.locator('.react-flow__edge-text').count();
-assert(edgeLabelCount >= 1, `Edge with a note renders a label (count=${edgeLabelCount})`);
+// Notes reveal on hover, not as always-on labels. So by default there are
+// zero label pills (the anti-clutter guarantee), and hovering an edge's hit
+// path surfaces its note as an HTML pill in the edge-label renderer.
+const pillsDefault = await win.evaluate(() => {
+  const r = document.querySelector('.react-flow__edgelabel-renderer');
+  return r ? [...r.children].filter((c) => (c.textContent || '').trim()).length : 0;
+});
+assert(
+  pillsDefault === 0,
+  `No always-on edge labels — notes reveal on hover (default pills=${pillsDefault})`,
+);
+await win.evaluate(() => {
+  document
+    .querySelector('.bh-edge-hit')
+    ?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+});
+await win.waitForTimeout(300);
+const hoverPills = await win.evaluate(() => {
+  const r = document.querySelector('.react-flow__edgelabel-renderer');
+  return r ? [...r.children].map((c) => (c.textContent || '').trim()).filter(Boolean) : [];
+});
+assert(
+  hoverPills.length >= 1,
+  `Hovering an edge reveals its note pill (got ${JSON.stringify(hoverPills)})`,
+);
 await win.screenshot({ path: `${SCREENS_DIR}/03b-edge-with-label.png` });
+// Reset hover so the revealed pill doesn't bleed into later edge interaction.
+await win.evaluate(() => {
+  document
+    .querySelector('.bh-edge-hit')
+    ?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+});
+await win.waitForTimeout(150);
 
 // --- 5e. Edge delete via Delete key: react-flow's selected-edge + Delete
 // fires onEdgesDelete, which we wire to badge.removeRef. ---

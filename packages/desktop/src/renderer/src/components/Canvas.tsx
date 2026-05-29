@@ -9,6 +9,7 @@ import {
   Background,
   type Connection,
   type Edge,
+  type EdgeTypes,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
@@ -28,10 +29,12 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
 import { Onboarding } from './Onboarding.js';
+import { ReferenceEdge } from './ReferenceEdge.js';
 import { ViewFilePicker } from './ViewFilePicker.js';
 import { Button } from './primitives/Button.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
+const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
 const DRAG_DEBOUNCE = 300;
 const VIEWPORT_DEBOUNCE = 1000;
 
@@ -603,6 +606,7 @@ export const Canvas = (): JSX.Element => {
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
         onConnect={onConnect}
         onEdgesDelete={onEdgesDelete}
@@ -611,29 +615,11 @@ export const Canvas = (): JSX.Element => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveEnd={onMoveEnd}
-        defaultEdgeOptions={{
-          style: { stroke: color.textGhost, strokeWidth: 1.5 },
-          // Animated edges feel jittery on a busy canvas; keep them static
-          // and let selection style do the talking.
-          // Label styling — reference notes render here. The default is a
-          // hard-edged white rectangle; tokenize it so it reads like the
-          // rest of the chrome (surface + subtle border + secondary text).
-          labelStyle: {
-            fontSize: font.size.micro,
-            fontFamily: font.sans,
-            fill: color.textSecondary,
-            fontWeight: font.weight.medium,
-          },
-          labelShowBg: true,
-          labelBgStyle: {
-            fill: color.surface,
-            fillOpacity: 0.95,
-            stroke: color.border,
-            strokeWidth: 1,
-          },
-          labelBgPadding: [4, 8],
-          labelBgBorderRadius: radius.sm,
-        }}
+        // All edges render through ReferenceEdge (see EDGE_TYPES): the line is
+        // always visible, the note reveals on hover/selection — no colliding
+        // always-on midpoint labels. Animation off; the custom edge owns its
+        // stroke + accent-on-interaction styling.
+        defaultEdgeOptions={{ type: 'reference', animated: false }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
