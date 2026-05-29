@@ -1,5 +1,10 @@
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-import { type Context, type Handler, assertWorkspaceRelative } from '../../kernel/index.js';
+import {
+  type Context,
+  type Handler,
+  assertWorkspaceRelative,
+  createKeyedMutex,
+} from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
@@ -37,6 +42,20 @@ import type {
 
 const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
+// Serialize read → mutate → write on the single workspaces.json config per
+// configDir. add / use / remove / rename / repath / setViewport all do this
+// dance; the desktop fires setViewport as a DEBOUNCED, un-awaited call that
+// is NOT behind the renderer's busy guard, so it can race a workspace switch
+// in-process — both read the pre-write config and the second write clobbers
+// the first (lost workspace, or a reverted `current` pointer silently undoing
+// the switch). Reproduced by test/workspace-config-concurrency.test.ts.
+// Single-process scope like inbound/views — see kernel/mutex.ts. The lock
+// wraps only the config read-modify-write; slow materialization stays
+// outside it. No config handler calls another while holding the lock, so
+// there is no re-entrancy/deadlock (createDemo delegates to add/use, which
+// take and release the lock themselves).
+const withConfigLock = createKeyedMutex();
+
 /**
  * `workspace add <path> [--name <name>]`
  *  - Validates the path exists and is a directory.
@@ -61,24 +80,29 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
     );
   }
 
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.workspaces[name]) {
-    throw new Error(`Workspace already exists: ${name}`);
-  }
-
   const addedAt = new Date().toISOString();
   const bhDir = `${absPath}/.bh`;
-  const bhStat = await ctx.fs.stat(bhDir);
-  const bhDirCreated = bhStat === null;
-  if (bhDirCreated) {
-    await ctx.fs.mkdir(bhDir, { recursive: true });
-  }
-
-  const setAsCurrent = data.current === null;
-  await writeWorkspaces(ctx.fs, ctx.configDir, {
-    version: 1,
-    current: setAsCurrent ? name : data.current,
-    workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
+  // Atomic config section: dup-check + write must not interleave with a
+  // concurrent add/use/setViewport or a workspace gets dropped. bhDir
+  // creation lives inside too — cheap, and it's gated on this name winning
+  // the dup-check.
+  const { setAsCurrent, bhDirCreated } = await withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    if (data.workspaces[name]) {
+      throw new Error(`Workspace already exists: ${name}`);
+    }
+    const bhStat = await ctx.fs.stat(bhDir);
+    const created = bhStat === null;
+    if (created) {
+      await ctx.fs.mkdir(bhDir, { recursive: true });
+    }
+    const becomesCurrent = data.current === null;
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      version: 1,
+      current: becomesCurrent ? name : data.current,
+      workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
+    });
+    return { setAsCurrent: becomesCurrent, bhDirCreated: created };
   });
 
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
@@ -117,12 +141,18 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
  * every supported-type file with a default badge JSON. Idempotent on
  * re-use because existing badges are short-circuited via badge.get. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const entry = data.workspaces[args.name];
-  if (!entry) {
-    throw new Error(`No such workspace: ${args.name}`);
-  }
-  await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
+  const entry = await withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    const found = data.workspaces[args.name];
+    if (!found) {
+      throw new Error(`No such workspace: ${args.name}`);
+    }
+    await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
+    return found;
+  });
+  // Materialize outside the lock — it touches workspace files, not the
+  // config, and can be slow; holding the config lock through it would stall
+  // a concurrent setViewport for no correctness benefit.
   await materializeWithFallback(ctx, entry.path);
   return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
 };
@@ -148,22 +178,24 @@ export const current: Handler<WorkspaceCurrentArgs, WorkspaceCurrentResult> = as
  * If the removed one was current, picks an alphabetically-first survivor (or null).
  */
 export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async (args, ctx) => {
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (!data.workspaces[args.name]) {
-    throw new Error(`No such workspace: ${args.name}`);
-  }
-  const { [args.name]: _removed, ...rest } = data.workspaces;
-  let newCurrent: string | null = data.current;
-  if (data.current === args.name) {
-    const survivors = Object.keys(rest).sort((a, b) => a.localeCompare(b));
-    newCurrent = survivors[0] ?? null;
-  }
-  await writeWorkspaces(ctx.fs, ctx.configDir, {
-    version: 1,
-    current: newCurrent,
-    workspaces: rest,
+  return withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    if (!data.workspaces[args.name]) {
+      throw new Error(`No such workspace: ${args.name}`);
+    }
+    const { [args.name]: _removed, ...rest } = data.workspaces;
+    let newCurrent: string | null = data.current;
+    if (data.current === args.name) {
+      const survivors = Object.keys(rest).sort((a, b) => a.localeCompare(b));
+      newCurrent = survivors[0] ?? null;
+    }
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      version: 1,
+      current: newCurrent,
+      workspaces: rest,
+    });
+    return { removed: args.name, newCurrent };
   });
-  return { removed: args.name, newCurrent };
 };
 
 /**
@@ -223,18 +255,20 @@ export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewport
   args,
   ctx,
 ) => {
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) return {};
-  const entry = data.workspaces[data.current];
-  if (!entry) return {};
-  await writeWorkspaces(ctx.fs, ctx.configDir, {
-    ...data,
-    workspaces: {
-      ...data.workspaces,
-      [data.current]: { ...entry, viewport: args.viewport },
-    },
+  return withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    if (data.current === null) return {};
+    const entry = data.workspaces[data.current];
+    if (!entry) return {};
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      ...data,
+      workspaces: {
+        ...data.workspaces,
+        [data.current]: { ...entry, viewport: args.viewport },
+      },
+    });
+    return {};
   });
-  return {};
 };
 
 function ensureInsideWorkspace(rel: string): void {
@@ -462,35 +496,37 @@ export const rename: Handler<WorkspaceRenameArgs, WorkspaceRenameResult> = async
       `Invalid workspace name: ${JSON.stringify(args.to)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
     );
   }
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const source = data.workspaces[args.from];
-  if (!source) {
-    throw new Error(`No such workspace: ${args.from}`);
-  }
-  if (data.workspaces[args.to]) {
-    throw new Error(`Workspace name already taken: ${args.to}`);
-  }
-  // Build the new workspaces map; we re-insert the renamed entry to
-  // preserve insertion order on JSON serialization. Other entries are
-  // unchanged.
-  const next: Record<string, (typeof data.workspaces)[string]> = {};
-  for (const [name, entry] of Object.entries(data.workspaces)) {
-    if (name === args.from) {
-      next[args.to] = entry;
-    } else {
-      next[name] = entry;
+  return withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    const source = data.workspaces[args.from];
+    if (!source) {
+      throw new Error(`No such workspace: ${args.from}`);
     }
-  }
-  const currentUpdated = data.current === args.from;
-  await writeWorkspaces(ctx.fs, ctx.configDir, {
-    version: 1,
-    current: currentUpdated ? args.to : data.current,
-    workspaces: next,
+    if (data.workspaces[args.to]) {
+      throw new Error(`Workspace name already taken: ${args.to}`);
+    }
+    // Build the new workspaces map; we re-insert the renamed entry to
+    // preserve insertion order on JSON serialization. Other entries are
+    // unchanged.
+    const next: Record<string, (typeof data.workspaces)[string]> = {};
+    for (const [name, entry] of Object.entries(data.workspaces)) {
+      if (name === args.from) {
+        next[args.to] = entry;
+      } else {
+        next[name] = entry;
+      }
+    }
+    const currentUpdated = data.current === args.from;
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      version: 1,
+      current: currentUpdated ? args.to : data.current,
+      workspaces: next,
+    });
+    return {
+      workspace: { name: args.to, path: source.path, addedAt: source.addedAt },
+      currentUpdated,
+    };
   });
-  return {
-    workspace: { name: args.to, path: source.path, addedAt: source.addedAt },
-    currentUpdated,
-  };
 };
 
 /**
@@ -513,36 +549,42 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
   if (!stat.isDirectory) {
     throw new Error(`Path is not a directory: ${absPath}`);
   }
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const existing = data.workspaces[args.name];
-  if (!existing) {
-    throw new Error(`No such workspace: ${args.name}`);
-  }
-  if (existing.path === absPath) {
-    throw new Error(`Workspace ${args.name} is already at ${absPath}`);
-  }
-  // Ensure .bh/ at the new path so subsequent badges/focus/inbound writes
-  // have somewhere to live. Same lifecycle hook as workspace.add.
   const bhDir = `${absPath}/.bh`;
-  const bhStat = await ctx.fs.stat(bhDir);
-  const bhDirCreated = bhStat === null;
-  if (bhDirCreated) {
-    await ctx.fs.mkdir(bhDir, { recursive: true });
-  }
-  // Atomic config rewrite — name + addedAt preserved, only path changes.
-  // current pointer stays put (still pointing at this name if it was).
-  await writeWorkspaces(ctx.fs, ctx.configDir, {
-    version: 1,
-    current: data.current,
-    workspaces: {
-      ...data.workspaces,
-      [args.name]: { path: absPath, addedAt: existing.addedAt },
-    },
+  // Atomic config section: validate against the live config + rewrite the
+  // entry without interleaving with a concurrent config write. bhDir
+  // creation is inside too (cheap, gated on validation). isCurrent is
+  // captured for the post-lock materialization decision.
+  const { existing, bhDirCreated, isCurrent } = await withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    const found = data.workspaces[args.name];
+    if (!found) {
+      throw new Error(`No such workspace: ${args.name}`);
+    }
+    if (found.path === absPath) {
+      throw new Error(`Workspace ${args.name} is already at ${absPath}`);
+    }
+    // Ensure .bh/ at the new path so subsequent badges/focus/inbound writes
+    // have somewhere to live. Same lifecycle hook as workspace.add.
+    const bhStat = await ctx.fs.stat(bhDir);
+    const created = bhStat === null;
+    if (created) {
+      await ctx.fs.mkdir(bhDir, { recursive: true });
+    }
+    // current pointer stays put (still pointing at this name if it was).
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      version: 1,
+      current: data.current,
+      workspaces: {
+        ...data.workspaces,
+        [args.name]: { path: absPath, addedAt: found.addedAt },
+      },
+    });
+    return { existing: found, bhDirCreated: created, isCurrent: data.current === args.name };
   });
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
   // If this workspace is currently open, re-materialize at the new path
   // (eager badges + focus + inbound seeding). Mirrors workspace.use.
-  if (data.current === args.name) {
+  if (isCurrent) {
     await materializeWithFallback(ctx, absPath);
   }
   return {
