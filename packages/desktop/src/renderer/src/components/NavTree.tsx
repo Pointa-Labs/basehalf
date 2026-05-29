@@ -2,6 +2,7 @@ import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehal
 import { type CSSProperties, type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { FileGlyph, badgeType } from './FileGlyph.js';
 
 interface NavTreeProps {
   rootPath: string;
@@ -91,7 +92,7 @@ const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.E
       <span
         aria-hidden
         style={{
-          width: 12,
+          width: 14,
           color: color.textTertiary,
           display: 'inline-flex',
           alignItems: 'center',
@@ -99,7 +100,17 @@ const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.E
           flexShrink: 0,
         }}
       >
-        {isDir ? <ChevronIcon open={isExpanded} /> : null}
+        {isDir ? (
+          <ChevronIcon open={isExpanded} />
+        ) : (
+          // File-type glyph so the tree shares the canvas's visual language
+          // and is scannable at a glance (matches BadgeNode's identity pass).
+          <FileGlyph
+            type={badgeType(entry.name, false)}
+            tone={isSelected ? color.accent : color.textTertiary}
+            size={13}
+          />
+        )}
       </span>
       <span
         style={{

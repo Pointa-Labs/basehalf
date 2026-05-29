@@ -274,6 +274,14 @@ const navText = await sidebar.innerText();
 assert(navText.includes('intro.md'), 'NavTree lists intro.md');
 assert(navText.includes('overview.md'), 'NavTree lists overview.md');
 assert(navText.includes('notes'), 'NavTree lists notes/ folder');
+// File rows carry a file-type glyph (shared with the canvas badges) so the
+// tree is scannable and the two surfaces speak one visual language.
+const introNavGlyphs = await win
+  .locator('aside button.bh-nav-row', { hasText: /^intro\.md$/ })
+  .first()
+  .locator('svg')
+  .count();
+assert(introNavGlyphs >= 1, `NavTree file row renders a type glyph (svg count=${introNavGlyphs})`);
 
 // --- 4-deep. NavTree recursive expansion at depth ≥3. The current driver
 // only covered the top-level list (flat intro.md / overview.md / notes/).
