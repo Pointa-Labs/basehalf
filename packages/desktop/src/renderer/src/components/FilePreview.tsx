@@ -160,15 +160,87 @@ export const FilePreview = (): JSX.Element | null => {
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
         {mode === 'image' && <ImageViewer absPath={absPath} />}
         {mode === 'audio' && (
-          <div style={{ padding: 16 }}>
-            <audio controls src={`file://${absPath}`} style={{ width: '100%' }}>
+          // Center the player with a glyph + filename so a lone audio bar
+          // doesn't look stranded in a tall panel.
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: space[4],
+              padding: space[6],
+              background: color.surfaceMuted,
+            }}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: radius.xl,
+                background: color.surface,
+                border: `1px solid ${color.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: color.textTertiary,
+              }}
+            >
+              <svg
+                width={26}
+                height={26}
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.25}
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8" />
+              </svg>
+            </div>
+            <div
+              style={{
+                fontSize: font.size.body,
+                fontWeight: font.weight.medium,
+                color: color.textPrimary,
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {basename}
+            </div>
+            <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
               <track kind="captions" />
             </audio>
           </div>
         )}
         {mode === 'video' && (
-          <div style={{ padding: 16 }}>
-            <video controls src={`file://${absPath}`} style={{ width: '100%' }}>
+          // Dark backing + rounded frame so video reads as a player, not a
+          // raw element on white.
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: space[4],
+              background: '#1b1b1d',
+            }}
+          >
+            <video
+              controls
+              src={`file://${absPath}`}
+              style={{
+                width: '100%',
+                maxHeight: '100%',
+                borderRadius: radius.lg,
+                boxShadow: shadow.raised,
+              }}
+            >
               <track kind="captions" />
             </video>
           </div>
@@ -1022,20 +1094,29 @@ const PdfViewer = ({ absPath }: { absPath: string }): JSX.Element => (
   />
 );
 
+// A subtle checkerboard so transparent images (logos, icons, screenshots
+// with alpha) read as transparent — the universal image-tool convention —
+// instead of blending into a flat grey fill and looking broken.
+const checkerboard = {
+  backgroundColor: color.surface,
+  backgroundImage: `linear-gradient(45deg, ${color.surfaceMuted} 25%, transparent 25%), linear-gradient(-45deg, ${color.surfaceMuted} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${color.surfaceMuted} 75%), linear-gradient(-45deg, transparent 75%, ${color.surfaceMuted} 75%)`,
+  backgroundSize: '18px 18px',
+  backgroundPosition: '0 0, 0 9px, 9px -9px, -9px 0',
+} as const;
+
 const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => {
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   return (
     <div
       style={{
+        position: 'relative',
         width: '100%',
         height: '100%',
         display: 'flex',
-        flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f4f4f4',
-        padding: 16,
-        gap: 8,
+        padding: space[4],
+        ...checkerboard,
       }}
     >
       <img
@@ -1057,7 +1138,23 @@ const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => {
         }}
       />
       {dims && (
-        <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: 11, color: '#888' }}>
+        // Floating pill so the dimension read-out doesn't reflow the image
+        // and stays legible over either the checkerboard or the image.
+        <span
+          style={{
+            position: 'absolute',
+            bottom: space[3],
+            right: space[3],
+            fontFamily: font.mono,
+            fontSize: font.size.micro,
+            color: color.textSecondary,
+            background: 'rgba(255, 255, 255, 0.9)',
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.pill,
+            padding: `2px ${space[2]}px`,
+            backdropFilter: 'blur(4px)',
+          }}
+        >
           {dims.w} × {dims.h}
         </span>
       )}
