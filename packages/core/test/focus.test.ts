@@ -161,4 +161,27 @@ describe('parseFocus / renderFocus (pure helpers)', () => {
   it('returns empty when active: section is missing', () => {
     expect(parseFocus('# random file\n\nno active section here\n')).toEqual([]);
   });
+
+  // focus.md is line-delimited; a newline in a path can't round-trip. Before
+  // the guard, focus.set({files:['a\nb.md']}) wrote a 2-line list item and
+  // focus.get read back only 'a', silently dropping the rest of the list.
+  it('rejects a path with a newline rather than corrupt the round-trip', async () => {
+    const ctx = await seed();
+    await expect(ctx.core.run('focus.set', { files: ['file\nname.md'] })).rejects.toThrow(
+      /newline/i,
+    );
+    await expect(
+      ctx.core.run('focus.set', { files: ['ok.md', 'bad\rcarriage.md'] }),
+    ).rejects.toThrow(/newline/i);
+  });
+
+  it('still accepts adversarial-but-representable names (colon, hash, parens, leading dash)', async () => {
+    const ctx = await seed();
+    const tricky = ['a:b.md', '#hash.md', '(none)', '-dash.md', 'notes/中文.md'];
+    const result = await ctx.core.run('focus.set', { files: tricky });
+    expect(result.active).toEqual(tricky);
+    // And they survive the on-disk round-trip via focus.get.
+    const got = await ctx.core.run('focus.get', {});
+    expect(got.active).toEqual(tricky);
+  });
 });
