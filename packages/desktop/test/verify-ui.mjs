@@ -1365,6 +1365,32 @@ await win.waitForTimeout(200);
 const viewMenuOnMain = await win.locator('[data-testid="topbar-view-menu"]').count();
 assert(viewMenuOnMain === 0, 'View-actions ⋯ menu hidden when back on main canvas');
 
+// --- 9c. Folder badge double-click INSIDE a view must be a no-op. Folder
+// scoping is a main-canvas concept; firing it in a view left the toolbar
+// showing "/folder" scope chrome while the canvas still rendered the view
+// (currentView wins in refresh) — an inconsistent half-state.
+console.log('\n[9c] Folder dblclick inside a view does not enter folder scope');
+await bhRun('view.create', { name: 'Folder In View' });
+const fivId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Folder In View')?.id;
+await bhRun('view.addMember', { id: fivId, file: 'notes', position: { x: 80, y: 80 } });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1000);
+await selectByTestId('topbar-view-select', 'Folder In View');
+await win.waitForTimeout(700);
+const fivFolderBadge = win.locator('.react-flow__node[data-id="notes"]');
+assert((await fivFolderBadge.count()) === 1, 'Folder badge renders inside the view');
+await fivFolderBadge.dblclick().catch(() => undefined);
+await win.waitForTimeout(500);
+const fivTopbar = await win.locator('header').first().innerText();
+assert(
+  !/←\s*\/notes/.test(fivTopbar) && !fivTopbar.includes('Edit folder prompt'),
+  `Folder dblclick in a view stays in the view, no folder scope (topbar: ${JSON.stringify(fivTopbar.slice(0, 90))})`,
+);
+await selectByTestId('topbar-view-select', 'Main canvas');
+await win.waitForTimeout(200);
+await bhRun('view.delete', { id: fivId }).catch(() => undefined);
+
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
 // folder, not a previewable file). Single click sets focus only;
 // double-click is what scopes into the folder. ---
