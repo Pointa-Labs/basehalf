@@ -254,6 +254,26 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
   // references entirely.)
   await removeBadge(ctx.fs, root, args.from, kind);
 
+  // 2b. Migrate the inbound index for the moved badge's OWN outbound refs.
+  // The moved badge keeps its references (copied in step 1), but they were
+  // written via writeBadge, which does NOT cascade to the inbound index — so
+  // each target's inbound entry still records the OLD name (`from`), a
+  // phantom backlink to a badge that no longer exists. Re-point each entry
+  // from `from` to `to` directly on the index (the badge files are already
+  // correct). Self-refs can't occur here — badge.addRef rejects them.
+  for (const ref of moved.references) {
+    try {
+      await ctx.run('inbound.removeRef', { from: args.from, to: ref.to });
+      await ctx.run('inbound.addRef', {
+        from: args.to,
+        to: ref.to,
+        ...(ref.note !== undefined && { note: ref.note }),
+      });
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+    }
+  }
+
   // 3. Rewrite every inbound reference: for each badge that pointed at
   // `from`, removeRef(from) + addRef(to, note). Each pair cascades the
   // inbound index update via badge.addRef's existing inbound.addRef
