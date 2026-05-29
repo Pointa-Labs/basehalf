@@ -11,9 +11,25 @@ export interface FocusSetArgs {
   readonly files?: readonly string[];
   /** Or, point at a saved view; its members become the active list. */
   readonly viewId?: string;
+  /** Optional turn intent — "what I'm trying to do this turn". Inlined into
+   *  focus.md as an `intent:` block. When a viewId is given, the view's own
+   *  prompt is used as the intent unless this overrides it. */
+  readonly intent?: string;
 }
 export interface FocusSetResult {
   readonly active: readonly string[];
+}
+
+/**
+ * One active item in the focus brief, with the human's curated MEANING
+ * inlined so the agent reads it in a single pass instead of re-fetching N
+ * badge JSONs. This is the compound-thinking payload: the prompt is "what
+ * the agent should know about this file", the ref notes are "why this link".
+ */
+export interface FocusItem {
+  readonly file: string;
+  readonly prompt?: string;
+  readonly refs?: readonly { readonly to: string; readonly note?: string }[];
 }
 
 export type FocusGetArgs = Record<string, never>;

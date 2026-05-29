@@ -8,6 +8,7 @@ import type {
   FocusGetResult,
   FocusInitArgs,
   FocusInitResult,
+  FocusItem,
   FocusSetArgs,
   FocusSetResult,
 } from './types.js';
@@ -23,16 +24,21 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   return current.current.path;
 }
 
-// Minimal shape of view.get for focus.set({ viewId }) expansion. Avoids
-// importing the views module's full types (which lands in PR 11-4 and
-// keeps the dep arrow one-way).
+// Minimal shapes for the cross-module reads focus.set composes via ctx.run
+// (never imports another module's internals — keeps the dep arrow one-way).
 interface ViewGetMinimal {
+  readonly prompt?: string;
   readonly members: readonly { readonly file: string }[];
+}
+interface BadgeGetMinimal {
+  readonly prompt?: string;
+  readonly references?: readonly { readonly to: string; readonly note?: string }[];
 }
 
 export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  let active: readonly string[];
+  let files: readonly string[];
+  let intent: string | undefined = args.intent;
   if (args.viewId !== undefined) {
     const view = await ctx.run<{ id: string }, ViewGetMinimal | null>('view.get', {
       id: args.viewId,
@@ -40,12 +46,41 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
     if (!view) {
       throw new Error(`View not found: ${args.viewId}`);
     }
-    active = view.members.map((m) => m.file);
+    files = view.members.map((m) => m.file);
+    // Carry the view's prompt as the turn's intent. It's the human's
+    // strongest "here's what I'm thinking" artifact and was previously
+    // dropped on the floor here (only m.file survived).
+    if (intent === undefined && view.prompt !== undefined && view.prompt.trim() !== '') {
+      intent = view.prompt;
+    }
   } else {
-    active = args.files ?? [];
+    files = args.files ?? [];
   }
-  await writeFocus(ctx.fs, root, active);
-  return { active };
+
+  // Inline each active file's curated meaning (prompt + outbound ref notes)
+  // so the agent reads the whole brief in one pass instead of re-reading N
+  // badge JSONs every turn. Composed via ctx.run only (module isolation); a
+  // file with no badge (or a folder) just contributes its bare path.
+  const items: FocusItem[] = [];
+  for (const file of files) {
+    let badge: BadgeGetMinimal | null = null;
+    try {
+      badge = await ctx.run<{ file: string }, BadgeGetMinimal | null>('badge.get', { file });
+    } catch {
+      badge = null;
+    }
+    const refs = (badge?.references ?? [])
+      .filter((r) => r.to)
+      .map((r) => ({ to: r.to, ...(r.note !== undefined && r.note !== '' && { note: r.note }) }));
+    items.push({
+      file,
+      ...(badge?.prompt !== undefined && badge.prompt !== '' && { prompt: badge.prompt }),
+      ...(refs.length > 0 && { refs }),
+    });
+  }
+
+  await writeFocus(ctx.fs, root, items, intent);
+  return { active: files };
 };
 
 export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {

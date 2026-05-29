@@ -680,6 +680,55 @@ assert(
   `focus.clear empties focus.md's active list (file: ${JSON.stringify(focusMdAfterClear.slice(0, 200))})`,
 );
 
+// --- 5d-brief. focus.md is a self-contained TURN BRIEF: it inlines each
+// active file's prompt + reference notes, and carries a view's prompt as an
+// `intent:` block. This is the compound-thinking payload — one read gives the
+// agent the human's curated MEANING, not a bare path list it would re-derive.
+// Set up + tear down via bhRun so downstream sections see a clean slate.
+console.log('\n[5d-brief] focus.md inlines prompts + ref notes + view intent');
+const briefPrompt = `pm-brief prompt ${Date.now()}`;
+const briefNote = `pm-brief note ${Date.now()}`;
+await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: briefPrompt } });
+await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md', note: briefNote });
+await bhRun('focus.set', { files: ['intro.md'] });
+const focusMdBrief = readFileSync(focusMdPath, 'utf-8');
+assert(
+  focusMdBrief.includes(`prompt: ${briefPrompt}`),
+  `focus.md inlines the active file's badge prompt (file: ${JSON.stringify(focusMdBrief.slice(0, 300))})`,
+);
+assert(
+  focusMdBrief.includes(`-> overview.md  (note: ${briefNote})`),
+  `focus.md inlines the outbound reference + its note (file: ${JSON.stringify(focusMdBrief.slice(0, 300))})`,
+);
+// The path list still round-trips despite the inlined sub-lines.
+const focusActiveAfterBrief = await bhRun('focus.get', {});
+assert(
+  Array.isArray(focusActiveAfterBrief.active) &&
+    focusActiveAfterBrief.active.length === 1 &&
+    focusActiveAfterBrief.active[0] === 'intro.md',
+  `focus.get still parses the active path list under the brief (got ${JSON.stringify(focusActiveAfterBrief.active)})`,
+);
+
+// view.prompt → focus.md intent (regression for the silently-dropped prompt
+// at focus/commands.ts: previously focus.set({viewId}) mapped only members[].file).
+const briefViewPrompt = `exam: derive theorem 2 ${Date.now()}`;
+await bhRun('view.create', { name: 'Brief View', prompt: briefViewPrompt });
+const briefViewId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Brief View')?.id;
+await bhRun('view.addMember', { id: briefViewId, file: 'intro.md' });
+await bhRun('focus.set', { viewId: briefViewId });
+const focusMdIntent = readFileSync(focusMdPath, 'utf-8');
+assert(
+  focusMdIntent.includes(`intent: ${briefViewPrompt}`),
+  `view.prompt reaches focus.md as intent — no longer dropped (file: ${JSON.stringify(focusMdIntent.slice(0, 200))})`,
+);
+
+// Tear down so [5c]/[7g] etc. start from a clean intro.md + empty focus.
+await bhRun('badge.removeRef', { file: 'intro.md', to: 'overview.md' });
+await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' } });
+await bhRun('view.delete', { id: briefViewId }).catch(() => undefined);
+await bhRun('focus.clear', {});
+await win.waitForTimeout(150);
+
 // --- 5c. Drag from intro.md's source handle to overview.md's target handle
 // to create an edge (badge.addRef). React-flow handles are
 // .react-flow__handle.source / .target on each node. ---

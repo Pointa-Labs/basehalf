@@ -184,4 +184,77 @@ describe('parseFocus / renderFocus (pure helpers)', () => {
     const got = await ctx.core.run('focus.get', {});
     expect(got.active).toEqual(tricky);
   });
+
+  it('parseFocus skips inlined prompt/refs sub-lines and still collects every path', () => {
+    const md = renderFocus(
+      [
+        { file: 'a.md', prompt: 'about a', refs: [{ to: 'b.md', note: 'why a→b' }] },
+        { file: 'b.md' },
+      ],
+      'do the thing',
+    );
+    expect(md).toContain('intent: do the thing');
+    expect(md).toContain('prompt: about a');
+    expect(md).toContain('-> b.md  (note: why a→b)');
+    // Both paths survive — the deep-indented sub-lines must not end the block.
+    expect(parseFocus(md)).toEqual(['a.md', 'b.md']);
+  });
+
+  it('collapses a multi-line prompt so it cannot inject a fake list item', () => {
+    const md = renderFocus(
+      [{ file: 'a.md', prompt: 'line1\nline2\n- not a real item' }, { file: 'b.md' }],
+      undefined,
+    );
+    expect(md).toContain('prompt: line1 line2 - not a real item');
+    // The injected "- not a real item" was flattened onto the prompt line, so
+    // it is NOT parsed as an active item; b.md is still found.
+    expect(parseFocus(md)).toEqual(['a.md', 'b.md']);
+  });
+});
+
+describe('focus brief (compound-thinking payload inlined into focus.md)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it("inlines each active file's prompt + reference notes as a turn brief", async () => {
+    await ctx.core.run('badge.set', {
+      file: 'chapter-03.md',
+      kind: 'file',
+      patch: { prompt: 'teacher emphasized ch 1, 3, 6' },
+    });
+    await ctx.core.run('badge.addRef', {
+      file: 'chapter-03.md',
+      to: 'supply.md',
+      note: 'derivation depends on this',
+    });
+    await ctx.core.run('focus.set', { files: ['chapter-03.md'] });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- chapter-03.md');
+    expect(md).toContain('prompt: teacher emphasized ch 1, 3, 6');
+    expect(md).toContain('-> supply.md  (note: derivation depends on this)');
+    // The round-trippable path list is unaffected by the inlined meaning.
+    const got = await ctx.core.run('focus.get', {});
+    expect(got.active).toEqual(['chapter-03.md']);
+  });
+
+  it('carries the view prompt into focus.md as intent (regression: was silently dropped)', async () => {
+    await ctx.core.run('view.create', { name: 'exam', prompt: 'derive theorem 2 for the exam' });
+    await ctx.core.run('view.addMember', { id: 'exam', file: 'chapter-03.md' });
+    await ctx.core.run('focus.set', { viewId: 'exam' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    // Before the fix, focus.set({viewId}) mapped only members[].file and the
+    // view's prompt — the strongest intent artifact — never reached focus.md.
+    expect(md).toContain('intent: derive theorem 2 for the exam');
+    expect(md).toContain('- chapter-03.md');
+  });
+
+  it('a file with no badge contributes just its bare path (no empty prompt/refs)', async () => {
+    await ctx.core.run('focus.set', { files: ['no-badge.md'] });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- no-badge.md');
+    expect(md).not.toContain('prompt:');
+    expect(md).not.toContain('refs:');
+  });
 });
