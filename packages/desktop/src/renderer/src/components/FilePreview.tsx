@@ -21,6 +21,7 @@ import { color, font, motion, radius, shadow, space, transition } from '../desig
 import { isLossyRoundTrip } from '../lib/mdLossy.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
+import { badgeType } from './FileGlyph.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -65,7 +66,7 @@ function extOf(path: string): string {
   return dot === -1 ? '' : path.slice(dot).toLowerCase();
 }
 
-type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'other';
+type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'text' | 'other';
 
 function modeOf(path: string): ViewerMode {
   const e = extOf(path);
@@ -74,6 +75,13 @@ function modeOf(path: string): ViewerMode {
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(e)) return 'image';
   if (['.mp3', '.wav', '.m4a'].includes(e)) return 'audio';
   if (['.mp4', '.mov', '.webm'].includes(e)) return 'video';
+  // Code (.ts/.py/.json/…) and remaining text formats (.rst/.org/.mdx) get a
+  // read-only text viewer. Without it these were a dead-end "no viewer" even
+  // though the canvas tile already shows their content — a glaring gap for the
+  // AI-coding wedge (drop a src/ folder in, can't read a single file). bh stays
+  // a read-only workspace view here; agents/IDEs edit code with their own tools.
+  const bt = badgeType(path.slice(path.lastIndexOf('/') + 1), false);
+  if (bt === 'code' || bt === 'text') return 'text';
   return 'other';
 }
 
@@ -222,6 +230,7 @@ export const FilePreview = (): JSX.Element | null => {
         <BadgeProperties file={currentFile} />
         <div style={{ flex: 1, overflow: 'auto' }}>
           {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
+          {mode === 'text' && <TextViewer key={currentFile} file={currentFile} />}
           {mode === 'pdf' && <PdfViewer absPath={absPath} />}
           {mode === 'image' && <ImageViewer absPath={absPath} />}
           {mode === 'audio' && (
@@ -1252,6 +1261,115 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             }}
           />
         </div>
+      </div>
+    </div>
+  );
+};
+
+// Read-only viewer for code + text files (the editor handles .md/.txt; media
+// have their own viewers). bh is the workspace VIEW for these — agents/IDEs do
+// the editing — so this is deliberately read-only, with a quiet line saying so.
+// Huge files are capped to keep a <pre> from janking the UI.
+const TEXT_VIEW_CAP = 200_000;
+const TextViewer = ({ file }: { file: string }): JSX.Element => {
+  const [state, setState] = useState<{ text: string; dropped: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState(null);
+    setError(null);
+    void (async () => {
+      try {
+        const res = (await window.bh.run('workspace.readFile', {
+          path: file,
+        })) as WorkspaceReadFileResult;
+        const raw = res.content ?? '';
+        if (!cancelled) {
+          setState({
+            text: raw.slice(0, TEXT_VIEW_CAP),
+            dropped: Math.max(0, raw.length - TEXT_VIEW_CAP),
+          });
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: space[2],
+          padding: `${space[2]}px ${space[4]}px`,
+          borderBottom: `1px solid ${color.divider}`,
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          color: color.textTertiary,
+          flexShrink: 0,
+        }}
+      >
+        <span
+          aria-hidden
+          style={{ width: 8, height: 8, borderRadius: '50%', background: color.textGhost }}
+        />
+        Read-only — edit with your own tools
+      </div>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {error !== null ? (
+          <div
+            style={{
+              padding: space[4],
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              color: color.danger,
+            }}
+          >
+            {error}
+          </div>
+        ) : state === null ? (
+          <div
+            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
+          >
+            …
+          </div>
+        ) : (
+          <>
+            <pre
+              style={{
+                margin: 0,
+                padding: space[4],
+                fontFamily: font.mono,
+                fontSize: font.size.caption,
+                lineHeight: 1.6,
+                color: color.textPrimary,
+                whiteSpace: 'pre',
+                tabSize: 2,
+              }}
+            >
+              {state.text === '' ? 'empty file' : state.text}
+            </pre>
+            {state.dropped > 0 && (
+              <div
+                style={{
+                  padding: `${space[2]}px ${space[4]}px ${space[4]}px`,
+                  fontFamily: font.sans,
+                  fontSize: font.size.micro,
+                  color: color.textTertiary,
+                }}
+              >
+                … {state.dropped.toLocaleString()} more characters not shown — open the file in your
+                editor for the full contents.
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
