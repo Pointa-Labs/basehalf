@@ -79,6 +79,13 @@ This file contains a raw HTML block BlockNote can't round-trip:
 End.
 `,
 );
+// A YAML-frontmatter note (Obsidian/Jekyll style) with a CLEAN body. The editor
+// should make it EDITABLE — frontmatter peeled off + preserved verbatim, only
+// the body round-tripped (§7i) — not force the whole note view-only.
+writeFileSync(
+  join(WORKSPACE_DIR, 'fm.md'),
+  '---\ntitle: Frontmatter Note\ntags: [a, b]\n---\n\n# Body heading\n\nEditable body.\n',
+);
 
 const failures = [];
 const assert = (cond, msg) => {
@@ -1401,6 +1408,26 @@ assert(
 );
 await win.keyboard.press('Escape');
 await win.waitForTimeout(150);
+
+// --- 7i. YAML frontmatter notes are EDITABLE (frontmatter peeled off + preserved
+// verbatim, body round-tripped) — NOT forced view-only the way the raw lossy
+// guard would. Regression for the read-only-for-Obsidian-notes limitation. ---
+console.log('\n[7i] Frontmatter note is editable (frontmatter preserved)');
+const fmBefore = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+await sidebar.locator('button', { hasText: 'fm.md' }).first().click();
+await win.waitForTimeout(600);
+const fmOverlayText = (await win.locator('aside').last().textContent()) || '';
+assert(
+  !/View only/i.test(fmOverlayText),
+  'a frontmatter note with a clean body is EDITABLE, not view-only',
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(400);
+const fmAfter = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+assert(
+  fmAfter.startsWith('---\ntitle: Frontmatter Note\ntags: [a, b]\n---'),
+  `frontmatter preserved verbatim (opening + closing didn't mangle it; got ${JSON.stringify(fmAfter.slice(0, 60))})`,
+);
 
 // --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
 // Tests the ImageViewer branch of FilePreview (not just MD path). ---

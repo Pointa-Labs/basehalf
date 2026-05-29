@@ -61,7 +61,10 @@ Originally deferred to v0.x — several have since shipped during the v0
 polish/hardening arc (status updated 2026-05-30):
 
 - ✅ BlockNote round-trip view-only fallback when serialization drift > threshold
-  (content-token lossy guard → view-only mode; covered in `verify-ui`).
+  (content-token lossy guard → view-only mode; covered in `verify-ui`). Follow-on
+  also shipped: YAML-frontmatter notes are now EDITABLE — the frontmatter is
+  peeled off + preserved verbatim, only the body round-trips, so Obsidian/Jekyll
+  notes aren't stuck read-only (the guard checks the body alone).
 - pdf.js (currently `file://` iframe; sufficient for reading, not annotation) —
   still deferred.
 - ✅ folder badge → sub-canvas (double-click) — scopes to folder contents.
