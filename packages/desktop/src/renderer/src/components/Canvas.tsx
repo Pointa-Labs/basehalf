@@ -287,6 +287,11 @@ export const Canvas = (): JSX.Element => {
 
   const onConnect = useCallback(async (conn: Connection) => {
     if (!conn.source || !conn.target) return;
+    // A self-drag (source handle back to the same badge's target) is a
+    // meaningless no-op, not an error — core rejects self-refs, so without
+    // this guard an accidental loop-back would flash a red error banner.
+    // Silently ignore it; the gesture just doesn't draw anything.
+    if (conn.source === conn.target) return;
     try {
       await window.bh.run('badge.addRef', { file: conn.source, to: conn.target });
       // Refresh so the new edge shows + inbound index updates ripple to other views.
