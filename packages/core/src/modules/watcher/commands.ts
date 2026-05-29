@@ -225,6 +225,12 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       const timer = setTimeout(() => {
         void finalize();
       }, RENAME_WINDOW_MS);
+      // Clear any prior timer for this path before overwriting its buffer
+      // entry — a duplicate add within the window would otherwise leave the
+      // old setTimeout running (it fires uselessly, and its finalize deletes
+      // the entry the new timer is tracking).
+      const prevAdd = pendingAdds.get(event.relPath);
+      if (prevAdd) clearTimeout(prevAdd.timer);
       pendingAdds.set(event.relPath, { event, timer, finalize });
     } else if (event.type === 'unlink') {
       // If an add for a matching path is already buffered, pair them as
@@ -259,6 +265,10 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       const timer = setTimeout(() => {
         void finalize();
       }, RENAME_WINDOW_MS);
+      // Clear any prior timer for this path (see the matching note on the
+      // add buffer above) so a duplicate unlink doesn't leak a timer.
+      const prevUnlink = pendingUnlinks.get(event.relPath);
+      if (prevUnlink) clearTimeout(prevUnlink.timer);
       pendingUnlinks.set(event.relPath, { event, timer, finalize });
     }
     // 'change' is renderer-side concern (file content changed); no badge state

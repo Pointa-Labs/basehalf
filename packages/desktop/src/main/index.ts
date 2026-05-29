@@ -80,6 +80,15 @@ async function createWindow(): Promise<void> {
   mainWindow.on('resize', persist);
   mainWindow.on('maximize', persist);
   mainWindow.on('unmaximize', persist);
+
+  // Drop the reference when the window is destroyed. On macOS the app keeps
+  // running with no window (window-all-closed doesn't quit), so without this
+  // `mainWindow` would dangle at a destroyed window until the next
+  // createWindow() reassigns it — a latent footgun for any future code that
+  // touches mainWindow without an isDestroyed() guard.
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 app.whenReady().then(() => {
