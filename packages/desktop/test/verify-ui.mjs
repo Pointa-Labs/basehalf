@@ -247,7 +247,10 @@ await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
 const topbarText = await win.locator('header').first().innerText();
-assert(topbarText.includes('BaseHalf'), 'TopBar shows app name');
+assert(
+  !topbarText.includes('BaseHalf'),
+  'TopBar no longer carries the BaseHalf wordmark (redundant with the native menu bar; workspace selector now leads)',
+);
 assert(
   topbarText.includes('Add folder'),
   'TopBar shows "+ Add folder" button (renamed from "+ Pick folder")',
@@ -1133,54 +1136,43 @@ await win.waitForTimeout(700);
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
-// --- 7b. Edit MD + Cmd+S → file on disk reflects the new content.
-// This is the central user loop; without it the editor is decorative.
-console.log('\n[7b] Edit MD + Cmd+S → disk roundtrip');
+// --- 7b. Edit MD → AUTO-SAVES to disk (no Save button). The central loop:
+// type, and the debounced auto-save persists it — no explicit save action. ---
+console.log('\n[7b] Edit MD → auto-save to disk (no Save button)');
 const originalContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
-// Re-open intro.md
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 // BlockNote uses ProseMirror under the hood; its editable surface is a
 // .ProseMirror contenteditable inside .bn-container / .bn-editor.
 const editor = win.locator('.ProseMirror').first();
 await editor.waitFor({ timeout: 5000 });
-// Focus the end of the document and type.
 await editor.click();
 await win.keyboard.press('End');
 await win.keyboard.press('Enter');
 const stamp = `verify-driver-${Date.now()}`;
 await win.keyboard.type(stamp, { delay: 10 });
-await win.waitForTimeout(400);
-const previewTextDirty = await win.locator('aside').last().innerText();
-assert(
-  previewTextDirty.includes('Unsaved changes'),
-  `Status flips to "Unsaved changes" after typing (got: ${JSON.stringify(previewTextDirty.split('\n')[1])})`,
-);
-// Cmd+S — meta on macOS, control elsewhere. process.platform is the
-// driver's platform, which matches the Electron under test.
-const saveModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-await win.keyboard.press(`${saveModifier}+s`);
-await win.waitForTimeout(600);
-const previewTextSaved = await win.locator('aside').last().innerText();
-assert(
-  previewTextSaved.includes('Saved'),
-  `Status flips back to "Saved" after Cmd+S (got: ${JSON.stringify(previewTextSaved.split('\n')[1])})`,
-);
+// No Save click — there's no Save button. Wait for the debounced auto-save.
+await win.waitForTimeout(1400);
 const newContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
 assert(
   newContent !== originalContent && newContent.includes(stamp),
-  `intro.md on disk reflects the typed text (length ${originalContent.length}→${newContent.length}, contains stamp: ${newContent.includes(stamp)})`,
+  `intro.md auto-saved to disk with NO Save click (contains stamp: ${newContent.includes(stamp)})`,
 );
-// Close preview before the rest of the suite continues.
+const previewTextSaved = await win.locator('aside').last().innerText();
+assert(
+  previewTextSaved.includes('Saved'),
+  `Editor settles on "Saved" after auto-save (snippet: ${JSON.stringify(previewTextSaved.split('\n').slice(0, 3))})`,
+);
+// And there is NO "Save" button (auto-save replaced it).
+const saveBtnCount = await win.locator('aside button', { hasText: /^Save$/ }).count();
+assert(saveBtnCount === 0, `No explicit Save button (auto-save) — found ${saveBtnCount}`);
 await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
+await win.waitForTimeout(300);
 
-// --- 7b-undo. Undo/redo via Cmd+Z / Cmd+Shift+Z. BlockNote ships its
-// own ProseMirror history plugin; the desktop shell just lets the
-// keystrokes through. Verify the round-trip works end-to-end and that
-// the "Unsaved changes" indicator stays accurate. Never exercised by
-// the driver before (Priority 3 from the undriven-flows audit).
-console.log('\n[7b-undo] Editor undo/redo via Cmd+Z / Cmd+Shift+Z');
+// --- 7b-undo. Undo/redo via Cmd+Z / Cmd+Shift+Z, then the redo state
+// auto-saves. BlockNote ships its own ProseMirror history plugin; the shell
+// just lets the keystrokes through. ---
+console.log('\n[7b-undo] Editor undo/redo via Cmd+Z / Cmd+Shift+Z → auto-saved');
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 const undoEditor = win.locator('.ProseMirror').first();
@@ -1196,14 +1188,8 @@ assert(
   afterTypeText.includes(undoStamp),
   `Stamp present in editor after typing (text: ${JSON.stringify(afterTypeText.slice(-80))})`,
 );
-const afterTypeStatus = await win.locator('aside').last().innerText();
-assert(
-  afterTypeStatus.includes('Unsaved changes'),
-  'Status flips to "Unsaved changes" after typing',
-);
 // Spam Cmd+Z several times — BlockNote/ProseMirror groups consecutive
-// character insertions into history bins, but the stamp is long enough
-// to span multiple bins. 8 undos is comfortably more than enough.
+// character insertions into history bins, but the stamp spans multiple bins.
 const modZ = process.platform === 'darwin' ? 'Meta+z' : 'Control+z';
 const modShiftZ = process.platform === 'darwin' ? 'Meta+Shift+z' : 'Control+Shift+z';
 for (let i = 0; i < 8; i++) {
@@ -1227,56 +1213,44 @@ assert(
   afterRedoText.includes(undoStamp),
   `Cmd+Shift+Z restores the typed stamp (editor tail: ${JSON.stringify(afterRedoText.slice(-80))})`,
 );
-// Save the redo state so the on-disk file matches what we see. The
-// driver doesn't pin intro.md's exact content downstream, so a trailing
-// undo-stamp line is benign.
-await win.keyboard.press(`${saveModifier}+s`);
-await win.waitForTimeout(500);
-const finalStatus = await win.locator('aside').last().innerText();
+// The redo state auto-saves — verify on disk after the debounce (no Save click).
+await win.waitForTimeout(1200);
+const undoDisk = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
 assert(
-  finalStatus.includes('Saved'),
-  `Status flips back to "Saved" after Cmd+S of the redo state (got: ${JSON.stringify(finalStatus.split('\n')[1])})`,
+  undoDisk.includes(undoStamp),
+  `Redo state auto-saved to disk (stamp on disk: ${undoDisk.includes(undoStamp)})`,
 );
 await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
+await win.waitForTimeout(300);
 
-// --- 7c. External edit while editor is dirty → reload prompt banner.
-// The watcher's "file changed on disk" path shouldn't auto-clobber unsaved
-// edits; FilePreview should surface a Reload / Keep-my-edits choice. ---
-console.log('\n[7c] External edit while dirty → reload prompt');
+// --- 7c. External edit while the file is open (e.g. the AI agent edits it)
+// → the editor AUTO-ADOPTS the disk version. With auto-save there's no
+// "unsaved" limbo to clobber; an un-typed external change flows straight in.
+// (A genuine collision — external edit *during* un-flushed typing — still
+// raises a Keep-mine / Reload banner; that race isn't asserted here.) ---
+console.log('\n[7c] External edit → editor auto-adopts the disk version');
 await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
 await win.waitForTimeout(800);
-// Make the editor dirty without saving.
-const editor2 = win.locator('.ProseMirror').first();
-await editor2.click();
-await win.keyboard.press('End');
-await win.keyboard.type(' (dirty local edit)', { delay: 10 });
-await win.waitForTimeout(300);
-// Now simulate an external editor changing the same file.
-writeFileSync(`${WORKSPACE_DIR}/overview.md`, '# Overview\n\nExternally rewritten.\n');
-// chokidar fires on a debounced timer; give it room.
-await win.waitForTimeout(1500);
-const previewTextAfterExternal = await win.locator('aside').last().innerText();
+const extMarker = `externally-rewritten-${Date.now()}`;
+writeFileSync(`${WORKSPACE_DIR}/overview.md`, `# Overview\n\n${extMarker}\n`);
+await win.waitForTimeout(1600); // chokidar + adopt + re-render
+const editorAfterExternal = await win
+  .locator('.ProseMirror')
+  .first()
+  .innerText()
+  .catch(() => '');
 assert(
-  previewTextAfterExternal.includes('File changed on disk'),
-  `Reload prompt appears after external edit while dirty (preview snippet: ${JSON.stringify(previewTextAfterExternal.slice(0, 200))})`,
+  editorAfterExternal.includes(extMarker),
+  `Editor reflects the external change with no reload click (tail: ${JSON.stringify(editorAfterExternal.slice(-80))})`,
 );
+const statusAfterExternal = await win.locator('aside').last().innerText();
 assert(
-  previewTextAfterExternal.includes('Reload from disk') &&
-    previewTextAfterExternal.includes('Keep my edits'),
-  'Both "Reload from disk" and "Keep my edits" buttons present',
+  statusAfterExternal.includes('Saved') && !statusAfterExternal.includes('changed on disk'),
+  `Adopting an external change settles on "Saved" (snippet: ${JSON.stringify(statusAfterExternal.split('\n').slice(0, 3))})`,
 );
-await win.screenshot({ path: `${SCREENS_DIR}/09-reload-prompt.png` });
-// Accept the reload — editor should switch back to the disk version, Saved state.
-await win.locator('aside button', { hasText: 'Reload from disk' }).click();
-await win.waitForTimeout(800);
-const previewAfterReload = await win.locator('aside').last().innerText();
-assert(
-  previewAfterReload.includes('Saved') && !previewAfterReload.includes('File changed on disk'),
-  `After "Reload from disk" the editor returns to clean Saved state (snippet: ${JSON.stringify(previewAfterReload.slice(0, 120))})`,
-);
+await win.screenshot({ path: `${SCREENS_DIR}/09-external-adopt.png` });
 await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
+await win.waitForTimeout(300);
 
 // --- 7e. BlockNote view-only mode for lossy MD (data-loss safety).
 // Opening lossy.md should pop the status into "View only" because raw
@@ -1817,9 +1791,11 @@ await win.waitForTimeout(1000);
 await bhRun('workspace.remove', { name: 'bh-verify-ws-iso' });
 if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
 
-// --- 12. Workspace switch while editor is dirty — potential data-loss
-// path. v0 has no built-in warning; capture observed behaviour. ---
-console.log('\n[12] Workspace switch while editor is dirty');
+// --- 12. Workspace switch while editing → auto-save persists the edit to the
+// CURRENT workspace BEFORE switching (no prompt, no data loss). This is the
+// inverse of the old "discard unsaved edits" model — auto-save means there's
+// nothing to discard. ---
+console.log('\n[12] Workspace switch auto-saves the open file first');
 const SECOND_WS = '/tmp/bh-verify-ws-2';
 if (existsSync(SECOND_WS)) rmSync(SECOND_WS, { recursive: true, force: true });
 mkdirSync(SECOND_WS, { recursive: true });
@@ -1828,75 +1804,42 @@ await bhRun('workspace.add', { path: SECOND_WS });
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
-// Re-open intro.md and make it dirty without saving.
+// Open intro.md and type, then switch IMMEDIATELY — the switch itself must
+// flush the edit (we don't wait for the debounced auto-save).
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 const ed = win.locator('.ProseMirror').first();
 await ed.click();
 await win.keyboard.press('End');
-const dirtyStamp = `pre-switch-${Date.now()}`;
-await win.keyboard.type(` ${dirtyStamp}`, { delay: 10 });
-await win.waitForTimeout(300);
-const dirtyText = await win.locator('aside').last().innerText();
-assert(dirtyText.includes('Unsaved changes'), 'Editor is dirty before workspace switch');
-// First attempt to switch: dismiss the confirm (Cancel) — the switch should
-// be cancelled and the dirty edits preserved.
-await openSelect('topbar-workspace-select');
-await pickOption('bh-verify-ws-2');
-await waitForDialog('unsaved edits');
-await clickDialogButton('Cancel');
-await win.waitForTimeout(400);
-const stillOnWs1 = await win.locator('aside').first().innerText();
-assert(
-  stillOnWs1.includes('bh-verify-ws') && !stillOnWs1.includes('bh-verify-ws-2'),
-  'Cancelling the dirty-switch confirm keeps us on the original workspace',
-);
-const stillDirty = await win.locator('aside').last().innerText();
-assert(
-  stillDirty.includes('Unsaved changes'),
-  'Cancelling preserves the unsaved edits (still Unsaved)',
-);
-// Now actually switch, accepting the confirm.
-await openSelect('topbar-workspace-select');
-await pickOption('bh-verify-ws-2');
-await waitForDialog('unsaved edits');
-await clickDialogButton('Discard and switch');
-await win.waitForTimeout(800);
-const introContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
-// 🔍 Observable: were the unsaved edits silently dropped, auto-saved, or
-// did a confirm/warn dialog block the switch?
-const stampOnDisk = introContent.includes(dirtyStamp);
-console.log(`     after workspace switch — stamp on disk: ${stampOnDisk}`);
-// What the new workspace shows in the sidebar.
+const switchStamp = `pre-switch-${Date.now()}`;
+await win.keyboard.type(` ${switchStamp}`, { delay: 10 });
+// Switch workspaces — NO "unsaved edits" dialog (auto-save flushes silently).
+await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
+await win.waitForTimeout(1000);
 const sidebarAfterSwitch = await win.locator('aside').first().innerText();
-const switchedCleanly = sidebarAfterSwitch.includes('bh-verify-ws-2');
 assert(
-  switchedCleanly,
-  `Workspace switch completed (sidebar shows new workspace: ${switchedCleanly})`,
+  sidebarAfterSwitch.includes('bh-verify-ws-2'),
+  `Workspace switch completed with no prompt (sidebar: ${JSON.stringify(sidebarAfterSwitch.split('\n').slice(0, 2))})`,
 );
+// The edit was flushed to the ORIGINAL workspace's intro.md before switching.
+const introContent = readFileSync(`${WORKSPACE_DIR}/intro.md`, 'utf-8');
 assert(
-  !stampOnDisk,
-  `🔍 Unsaved edits NOT silently committed to disk on switch (stamp on intro.md: ${stampOnDisk})`,
+  introContent.includes(switchStamp),
+  `Edit auto-saved to the original workspace on switch (stamp on intro.md: ${introContent.includes(switchStamp)})`,
 );
-// Switch back and confirm the dirty edits are gone (we never told the user).
+// Switch back: the edit is there — persisted, not silently dropped.
 await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(1000);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
-await win.waitForTimeout(800);
+await win.waitForTimeout(900);
 const introPreviewAfterReturn = await win
   .locator('.ProseMirror')
   .first()
   .innerText()
   .catch(() => '');
-const previewStatusBack = await win.locator('aside').last().innerText();
-console.log(
-  `     after switching back — preview status: ${JSON.stringify(previewStatusBack.split('\n').slice(1, 3))}`,
-);
-// We expect data loss to be SILENT in v0 — the editor reverts to disk
-// content with no warning. Flag this as a finding worth knowing about.
 assert(
-  !introPreviewAfterReturn.includes(dirtyStamp),
-  `After confirmed switch, the dirty edits are gone (editor reloaded from disk) — observed: stamp ${introPreviewAfterReturn.includes(dirtyStamp) ? 'survived' : 'lost'}`,
+  introPreviewAfterReturn.includes(switchStamp),
+  `After switching back, the edit persisted (auto-saved, not lost): stamp ${introPreviewAfterReturn.includes(switchStamp) ? 'present' : 'MISSING'}`,
 );
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);

@@ -29,12 +29,12 @@ interface WorkspaceState {
   /** Active scope = a folder relative path that limits which badges Canvas shows.
    * null = the whole workspace. Set by double-clicking a folder badge. */
   folderScope: string | null;
-  /** Whether the currently open MD editor has unsaved edits. Lifted out of
-   * MdEditor so TopBar can warn before a workspace switch silently drops
-   * them — store-side state lets the warning live at the trigger site
-   * instead of being smeared across components. */
-  editorDirty: boolean;
-  setEditorDirty: (dirty: boolean) => void;
+  /** Flush the open MD editor's pending auto-save to disk, now. Registered by
+   * MdEditor while mounted; awaited by TopBar before a workspace switch and by
+   * FilePreview before closing, so auto-saved edits always land in the CURRENT
+   * workspace before the context changes. null when no editor is open. */
+  flushEditor: (() => Promise<void>) | null;
+  setFlushEditor: (fn: (() => Promise<void>) | null) => void;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -97,8 +97,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   views: [],
   currentView: null,
   folderScope: null,
-  editorDirty: false,
-  setEditorDirty: (dirty: boolean) => set({ editorDirty: dirty }),
+  flushEditor: null,
+  setFlushEditor: (fn: (() => Promise<void>) | null) => set({ flushEditor: fn }),
   error: '',
   busy: false,
 
@@ -113,7 +113,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         views: [],
         currentView: null,
         folderScope: null,
-        editorDirty: false,
+        flushEditor: null,
         error: '',
       });
       const currentWs = result.current
@@ -161,6 +161,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   addDroppedPaths: async (paths: readonly string[]) => {
     if (get().busy || paths.length === 0) return;
+    // A dropped folder may switch the active workspace (workspace.use below).
+    // Flush the open editor to the CURRENT workspace first, so a pending
+    // auto-save can't land in the newly-active workspace's same-named file.
+    await get().flushEditor?.();
     set({ busy: true });
     const failures: string[] = [];
     // Snapshot the current workspace list once so we can detect drops
@@ -233,7 +237,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         views: [],
         currentView: null,
         folderScope: null,
-        editorDirty: false,
+        flushEditor: null,
         error: '',
       });
       await startWatcher();
@@ -309,11 +313,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setCurrentFile: (file: string | null) => {
-    set({ currentFile: file });
-    // Track opens per workspace so the palette can surface recents first.
-    // Null = closing the preview; nothing to record.
-    const current = get().current;
-    if (file !== null && current !== null) noteOpenedFile(current, file);
+    const { currentFile, flushEditor, current } = get();
+    const finish = (): void => {
+      set({ currentFile: file });
+      // Track opens per workspace so the palette can surface recents first.
+      // Null = closing the preview; nothing to record.
+      if (file !== null && current !== null) noteOpenedFile(current, file);
+    };
+    // Flush the editor we're leaving (while it's still mounted/alive) BEFORE
+    // switching or closing — so the last keystrokes always persist. This is the
+    // single safe flush point; MdEditor no longer flushes on unmount (which
+    // could serialize a torn-down editor as empty and clobber the file).
+    if (flushEditor && currentFile !== null && currentFile !== file) {
+      void flushEditor().then(finish, finish);
+    } else {
+      finish();
+    }
   },
 
   refreshViews: async () => {

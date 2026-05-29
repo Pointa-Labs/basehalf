@@ -38,7 +38,7 @@ export const TopBar = (): JSX.Element => {
   const renameView = useWorkspaceStore((s) => s.renameView);
   const setViewPrompt = useWorkspaceStore((s) => s.setViewPrompt);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
-  const editorDirty = useWorkspaceStore((s) => s.editorDirty);
+  const flushEditor = useWorkspaceStore((s) => s.flushEditor);
 
   const handleRemove = async (): Promise<void> => {
     if (!current) return;
@@ -155,15 +155,9 @@ export const TopBar = (): JSX.Element => {
 
   const handleWorkspaceChange = async (next: string): Promise<void> => {
     if (!next || next === current) return;
-    if (editorDirty) {
-      const ok = await confirm({
-        title: 'You have unsaved edits',
-        body: 'Switching workspaces will discard the unsaved edits in the current file.',
-        confirmText: 'Discard and switch',
-        destructive: true,
-      });
-      if (!ok) return;
-    }
+    // Auto-save: persist any pending edit to the CURRENT workspace's file
+    // BEFORE switching, so it lands in the right place (no prompt, no loss).
+    await flushEditor?.();
     void use(next);
   };
 

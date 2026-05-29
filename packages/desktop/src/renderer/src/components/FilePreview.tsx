@@ -26,12 +26,19 @@ import { Button } from './primitives/Button.js';
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
   ms: number,
-): (...args: TArgs) => void {
+): ((...args: TArgs) => void) & { cancel: () => void } {
   let t: ReturnType<typeof setTimeout> | undefined;
-  return (...args) => {
+  const wrapped = (...args: TArgs): void => {
     if (t) clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+  // Cancel a pending call — used to drop a queued auto-save when the editor
+  // unmounts, so it can't fire against a stale closure after a context switch.
+  wrapped.cancel = (): void => {
+    if (t) clearTimeout(t);
+    t = undefined;
+  };
+  return wrapped;
 }
 
 function extOf(path: string): string {
@@ -66,8 +73,8 @@ export const FilePreview = (): JSX.Element | null => {
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
 
   // Esc / Cmd-W close the preview. Cmd-W matches macOS muscle memory for
-  // closing a panel/tab. Effect runs unconditionally (hook-order rule) and
-  // bails when no file is open.
+  // closing a panel/tab. setCurrentFile(null) flushes the editor before
+  // clearing (see store), so closing always persists pending edits.
   useEffect(() => {
     if (!currentFile) return;
     const onKey = (e: KeyboardEvent): void => {
@@ -189,7 +196,7 @@ export const FilePreview = (): JSX.Element | null => {
         </header>
         <BadgeProperties file={currentFile} />
         <div style={{ flex: 1, overflow: 'auto' }}>
-          {mode === 'md' && <MdEditor file={currentFile} />}
+          {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
           {mode === 'pdf' && <PdfViewer absPath={absPath} />}
           {mode === 'image' && <ImageViewer absPath={absPath} />}
           {mode === 'audio' && (
@@ -857,37 +864,33 @@ const ReferenceRow = ({
   );
 };
 
+const AUTOSAVE_MS = 400;
+
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote();
-  const setEditorDirty = useWorkspaceStore((s) => s.setEditorDirty);
-  const [loadedFor, setLoadedFor] = useState<string>('');
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
+  const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
-  // G-08 safety: when BlockNote's parse→serialize loop loses meaningful
-  // content, we flip to view-only so users can't accidentally overwrite
-  // the original. Inferred at load time, not on every keystroke.
+  // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
+  // stay view-only so editing can't overwrite the original. Inferred at load.
   const [viewOnly, setViewOnly] = useState(false);
-  /** External-edit reload banner. Set when the watcher reports the open file
-   * changed on disk and we already have unsaved edits — we don't auto-clobber. */
+  /** Conflict banner: the file changed on disk while the user had un-flushed
+   *  local edits — we don't silently clobber either side. */
   const [reloadPrompt, setReloadPrompt] = useState(false);
-  const initialLoad = useRef(true);
-  const dirtyRef = useRef(dirty);
-  dirtyRef.current = dirty;
-  // Mirror local dirty into the store so TopBar can prompt before workspace
-  // switches drop unsaved edits. On unmount we clear it — a closed editor
-  // can't have unsaved edits.
-  useEffect(() => {
-    setEditorDirty(dirty);
-    return () => setEditorDirty(false);
-  }, [dirty, setEditorDirty]);
   const [loadKey, setLoadKey] = useState(0);
-  // Capture latest save reference for the global keyboard handler so it
-  // doesn't need to re-register on every keystroke that flips `dirty`.
-  const saveRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const initialLoad = useRef(true);
+  // What we believe is on disk — lets us ignore our own write echoes from the
+  // watcher and detect genuine external edits.
+  const lastDiskRef = useRef('');
+  // True once the user typed but the debounced save hasn't flushed yet.
+  const pendingRef = useRef(false);
+  const viewOnlyRef = useRef(false);
+  viewOnlyRef.current = viewOnly;
 
+  // Load on mount / explicit reload. MdEditor is keyed by `file` in the parent,
+  // so switching files remounts it and this always loads fresh.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadKey is a reload trigger — bumping it re-runs this effect to re-read the file from disk
   useEffect(() => {
-    if (loadedFor === file && loadKey === 0) return;
     initialLoad.current = true;
     void (async () => {
       try {
@@ -901,9 +904,16 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
         const reserialized = await editor.blocksToMarkdownLossy(editor.document);
-        setViewOnly(isLossyRoundTrip(original, reserialized));
-        setLoadedFor(file);
-        setDirty(false);
+        // Seed with the NORMALIZED serialization (what flush would write), not
+        // the raw disk bytes — so merely viewing + closing a file never
+        // rewrites it; only a real edit (md ≠ this) triggers a save.
+        lastDiskRef.current = reserialized;
+        pendingRef.current = false;
+        // .txt is not markdown — BlockNote would reflow it on save. Keep plain
+        // text view-only so auto-save can't reformat it.
+        const plainText = /\.txt$/i.test(file);
+        setViewOnly(plainText || isLossyRoundTrip(original, reserialized));
+        setSaving(false);
         setReloadPrompt(false);
         setError('');
         setTimeout(() => {
@@ -913,22 +923,83 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [file, editor, loadedFor, loadKey]);
+  }, [file, editor, loadKey]);
 
-  // Subscribe to file events for *this* file. Auto-reload when clean;
-  // surface a "reload? keep edits?" prompt when dirty.
-  // Defer the "File deleted on disk" warning by slightly more than the
-  // watcher's rename window so a rename (unlink+add within 250ms) doesn't
-  // flash the warning before the rename event arrives and rebinds
-  // currentFile to the new path. If a rename matching this file's old
-  // path arrives, cancel the pending warning.
+  // The actual save: serialize and write only when content changed. Safe to
+  // call anytime (no-op when nothing's pending). Sets lastDiskRef BEFORE the
+  // write so the watcher echo of our own write compares equal and is ignored.
+  const flush = useCallback(async (): Promise<void> => {
+    if (viewOnlyRef.current) return;
+    let md: string;
+    try {
+      md = await editor.blocksToMarkdownLossy(editor.document);
+    } catch {
+      return; // editor torn down mid-flush — nothing safe to write
+    }
+    if (md === lastDiskRef.current) {
+      pendingRef.current = false;
+      setSaving(false);
+      return;
+    }
+    try {
+      await window.bh.run('workspace.writeFile', { path: file, content: md });
+      // Only AFTER a successful write: mark synced (a failed write keeps
+      // lastDiskRef old so the next auto-save retries) and clear pending (kept
+      // true during the write so a mid-write external change still conflicts
+      // rather than being silently overwritten).
+      lastDiskRef.current = md;
+      pendingRef.current = false;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [editor, file]);
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+
+  // Debounced auto-save trigger — stable across renders, delegates via the ref.
+  const scheduleSave = useMemo(() => debounce(() => void flushRef.current(), AUTOSAVE_MS), []);
+
+  // Register flush with the store. setCurrentFile (file switch / close) and the
+  // TopBar (workspace switch) await this BEFORE the context changes, so pending
+  // edits persist while the editor is still alive. We deliberately do NOT flush
+  // on unmount: by then the editor may be torn down and serialize to empty,
+  // which would clobber the file. Navigation always flushes first instead.
+  useEffect(() => {
+    setFlushEditor(() => flushRef.current());
+    return () => setFlushEditor(null);
+  }, [setFlushEditor]);
+
+  // Cancel any queued auto-save when this editor unmounts (file/workspace
+  // switch), so it can't fire against a stale closure after the context
+  // changed. Navigation has already flushed synchronously via setCurrentFile /
+  // the TopBar before we get here.
+  useEffect(() => () => scheduleSave.cancel(), [scheduleSave]);
+
+  // Best-effort flush when the app/window is leaving focus or closing — covers
+  // the small window between the last keystroke and the debounced auto-save
+  // (e.g. Cmd-Q or Cmd-Tab right after typing). Fire-and-forget; on a hard
+  // quit the IPC write may not finish, but the debounce window is short.
+  useEffect(() => {
+    const onLeave = (): void => {
+      void flushRef.current();
+    };
+    window.addEventListener('beforeunload', onLeave);
+    window.addEventListener('blur', onLeave);
+    return () => {
+      window.removeEventListener('beforeunload', onLeave);
+      window.removeEventListener('blur', onLeave);
+    };
+  }, []);
+
+  // Watch this file for *external* changes (the agent or another app editing
+  // it). Defer the "deleted" warning past the rename window so a rename
+  // (unlink+add) doesn't flash it.
   useEffect(() => {
     let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = window.bh.onFileEvent((event) => {
       if (event.type === 'rename') {
-        // If this file was just renamed, the parent (App) will switch
-        // currentFile to the new path. Cancel any pending "deleted"
-        // warning from the preceding unlink.
         if (event.fromRelPath === file && pendingDeleteTimer) {
           clearTimeout(pendingDeleteTimer);
           pendingDeleteTimer = null;
@@ -937,13 +1008,27 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       }
       if (event.relPath !== file) return;
       if (event.type === 'change') {
-        if (dirtyRef.current) {
-          setReloadPrompt(true);
-        } else {
-          setLoadKey((k) => k + 1);
-        }
+        void (async () => {
+          let disk = '';
+          try {
+            disk = (
+              (await window.bh.run('workspace.readFile', {
+                path: file,
+              })) as WorkspaceReadFileResult
+            ).content;
+          } catch {
+            return;
+          }
+          // Our own auto-save echoes back as a change event — ignore it.
+          if (disk === lastDiskRef.current) return;
+          if (pendingRef.current) {
+            setReloadPrompt(true); // genuine external edit collides with local edits
+          } else {
+            lastDiskRef.current = disk;
+            setLoadKey((k) => k + 1); // adopt the external change
+          }
+        })();
       } else if (event.type === 'unlink') {
-        // Wait one rename-window before declaring the file actually deleted.
         if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
         pendingDeleteTimer = setTimeout(() => {
           pendingDeleteTimer = null;
@@ -959,36 +1044,22 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
 
   const acceptReload = useCallback(() => {
     setReloadPrompt(false);
-    setDirty(false);
-    setLoadKey((k) => k + 1);
+    pendingRef.current = false;
+    setLoadKey((k) => k + 1); // discard local, load the disk version
   }, []);
 
-  const dismissReload = useCallback(() => {
+  const keepMine = useCallback(() => {
     setReloadPrompt(false);
+    void flushRef.current(); // overwrite disk with the local version
   }, []);
 
-  const save = useCallback(async (): Promise<void> => {
-    if (saving || viewOnly) return;
-    setSaving(true);
-    try {
-      const md = await editor.blocksToMarkdownLossy(editor.document);
-      await window.bh.run('workspace.writeFile', { path: file, content: md });
-      setDirty(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [editor, file, saving, viewOnly]);
-  saveRef.current = save;
-
-  // Cmd/Ctrl+S = save. We only register the listener once per file and
-  // delegate through saveRef so the binding never thrashes on dirty flips.
+  // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
+  // it anyway). Registered once; delegates through the ref.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void saveRef.current();
+        void flushRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1001,8 +1072,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         dot: color.warning,
         fg: color.warning,
       }
-    : dirty
-      ? { label: 'Unsaved changes', dot: color.warning, fg: color.warning }
+    : saving
+      ? { label: 'Saving…', dot: color.textTertiary, fg: color.textTertiary }
       : { label: 'Saved', dot: color.success, fg: color.textTertiary };
 
   const statusBarStyle: CSSProperties = {
@@ -1027,8 +1098,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             borderRadius: '50%',
             background: status.dot,
             flexShrink: 0,
-            boxShadow: dirty ? '0 0 0 3px rgba(168,107,0,0.12)' : 'none',
-            transition: transition(['background', 'box-shadow']),
+            transition: transition(['background']),
           }}
         />
         <span
@@ -1042,17 +1112,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         >
           {status.label}
         </span>
-        {!viewOnly && (
-          <Button
-            variant={dirty ? 'primary' : 'ghost'}
-            size="sm"
-            onClick={() => void save()}
-            disabled={!dirty || saving}
-            title="Save (⌘S)"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-        )}
+        {/* No Save button — edits auto-save (debounced + flushed on close/switch). */}
       </div>
       {reloadPrompt && (
         <div
@@ -1069,8 +1129,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             animation: `bh-banner-in ${motion.normal}`,
           }}
         >
-          <span style={{ flex: 1 }}>File changed on disk while you have unsaved edits.</span>
-          <Button variant="primary" size="sm" onClick={dismissReload}>
+          <span style={{ flex: 1 }}>This file changed on disk while you were editing.</span>
+          <Button variant="primary" size="sm" onClick={keepMine}>
             Keep my edits
           </Button>
           <Button variant="ghost" size="sm" onClick={acceptReload}>
@@ -1101,7 +1161,11 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             editor={editor}
             editable={!viewOnly}
             onChange={() => {
-              if (!initialLoad.current && !viewOnly) setDirty(true);
+              if (!initialLoad.current && !viewOnly) {
+                pendingRef.current = true;
+                setSaving(true);
+                scheduleSave();
+              }
             }}
           />
         </div>
