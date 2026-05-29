@@ -278,6 +278,19 @@ describe('badge.addRef', () => {
     // No inbound module exists in PR 11-1. addRef should still succeed.
     await expect(ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' })).resolves.toBeDefined();
   });
+
+  it('rejects a self-reference (file === to)', async () => {
+    // Self-refs are meaningless for the agent walk and used to break
+    // badge.rename (the self-ref's `to` was left pointing at the old name).
+    // The guard now lives in core, not just the desktop dialog.
+    await ctx.core.run('badge.set', { file: 'a.md' });
+    await expect(ctx.core.run('badge.addRef', { file: 'a.md', to: 'a.md' })).rejects.toThrow(
+      /cannot reference itself/i,
+    );
+    // The rejected ref must not have been written.
+    const badge = (await ctx.core.run('badge.get', { file: 'a.md', kind: 'file' })) as BadgeFile;
+    expect(badge.references).toEqual([]);
+  });
 });
 
 describe('badge.removeRef', () => {
