@@ -443,11 +443,20 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   // (didn't get re-seeded), its badge still gets the demo prompt to
   // make the loop coherent.
   for (const file of DEMO_FILES) {
-    if (file.prompt !== undefined) {
-      await ctx.run('badge.set', {
-        file: file.path,
-        patch: { kind: 'file', prompt: file.prompt },
-      });
+    // Build the badge patch from whatever the demo file declares: prompt and
+    // the hub-and-spoke canvas position. collapsed:false because BadgePosition
+    // requires it. Skip the call only if there's nothing to set.
+    const patch: {
+      kind: 'file';
+      prompt?: string;
+      canvas?: { x: number; y: number; collapsed: boolean };
+    } = { kind: 'file' };
+    if (file.prompt !== undefined) patch.prompt = file.prompt;
+    if (file.canvas !== undefined) {
+      patch.canvas = { x: file.canvas.x, y: file.canvas.y, collapsed: false };
+    }
+    if (patch.prompt !== undefined || patch.canvas !== undefined) {
+      await ctx.run('badge.set', { file: file.path, patch });
     }
     for (const ref of file.refs ?? []) {
       await ctx.run('badge.addRef', {
@@ -457,6 +466,19 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
       });
     }
   }
+
+  // CLAUDE.md is created by setup (not a DEMO_FILE), so it has no position
+  // from the loop above. Place it in the top-right corner — present but
+  // clearly secondary to the four content files of the tree — instead of
+  // letting it land mid-canvas in the auto-grid. Best-effort: if setup
+  // skipped CLAUDE.md (e.g. user's own already existed), there may be no
+  // badge to position.
+  await ctx
+    .run('badge.set', {
+      file: 'CLAUDE.md',
+      patch: { kind: 'file', canvas: { x: 620, y: 60, collapsed: false } },
+    })
+    .catch(() => undefined);
 
   // Focus the intro file so the agent's first read of focus.md returns
   // a useful pointer instead of (none).

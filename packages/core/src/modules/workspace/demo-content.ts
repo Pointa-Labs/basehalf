@@ -17,6 +17,15 @@ export interface DemoFile {
   readonly prompt?: string;
   /** Outbound references to other DemoFile paths. */
   readonly refs?: ReadonlyArray<{ to: string; note?: string }>;
+  /** Initial canvas position. The demo is laid out as a deliberate tree —
+   *  `intro` as the root up top, the three files it references as a row of
+   *  children below — so a first-run user sees a *map of related ideas*
+   *  rather than a flat auto-grid row. Wider than tall so it frames well in
+   *  a landscape window. (Combined with the canvas fit-to-view on first
+   *  open, the whole graph frames itself.) `CLAUDE.md` — the agent contract,
+   *  created by setup rather than listed here — is placed separately in
+   *  createDemo, tucked in a corner so it reads as secondary. */
+  readonly canvas?: { readonly x: number; readonly y: number };
 }
 
 export const DEMO_FILES: readonly DemoFile[] = [
@@ -42,6 +51,8 @@ export const DEMO_FILES: readonly DemoFile[] = [
       { to: 'practice.md', note: 'how the loop feels day-to-day' },
       { to: 'cheatsheet.md', note: 'keyboard + interaction reference' },
     ],
+    // Root of the tree, top-center over its three children.
+    canvas: { x: 280, y: 60 },
   },
   {
     path: 'theory.md',
@@ -59,6 +70,8 @@ export const DEMO_FILES: readonly DemoFile[] = [
       '',
     ].join('\n'),
     prompt: 'The thesis behind the product.',
+    // Bottom-left child.
+    canvas: { x: 40, y: 440 },
   },
   {
     path: 'practice.md',
@@ -80,6 +93,8 @@ export const DEMO_FILES: readonly DemoFile[] = [
     ].join('\n'),
     prompt: 'Concrete walkthrough of the everyday loop.',
     refs: [{ to: 'theory.md', note: 'this is the theory in motion' }],
+    // Bottom-center child.
+    canvas: { x: 300, y: 440 },
   },
   {
     path: 'cheatsheet.md',
@@ -104,5 +119,7 @@ export const DEMO_FILES: readonly DemoFile[] = [
       '',
     ].join('\n'),
     prompt: 'Keyboard + interaction reference. Skim, then close.',
+    // Bottom-right child.
+    canvas: { x: 560, y: 440 },
   },
 ] as const;
