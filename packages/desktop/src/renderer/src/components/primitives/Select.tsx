@@ -9,8 +9,9 @@
  * arrow-key navigation. Not trying to be Radix.
  */
 
-import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { color, font, radius, shadow, space, transition } from '../../design.js';
+import { PopoverSurface, usePopover } from './Popover.js';
 
 export interface SelectOption {
   readonly value: string;
@@ -54,33 +55,23 @@ export const Select = ({
   title,
   testId,
 }: SelectProps): JSX.Element => {
-  const [open, setOpen] = useState(false);
+  const { open, toggle, close, triggerRef, floatingRef, coords } = usePopover({ disabled });
   const [hoverIdx, setHoverIdx] = useState<number>(() =>
     Math.max(
       0,
       options.findIndex((o) => o.value === value),
     ),
   );
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const current = options.find((o) => o.value === value);
   const triggerLabel = current?.label ?? placeholder;
 
-  // Click outside / Esc closes.
+  // Arrow-key roving + Enter to pick. Esc / outside-click / positioning are
+  // owned by usePopover; this effect adds only the Select-specific nav.
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      setOpen(false);
-    };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      } else if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
         setHoverIdx((i) => Math.min(options.length - 1, i + 1));
       } else if (e.key === 'ArrowUp') {
@@ -91,18 +82,14 @@ export const Select = ({
         const picked = options[hoverIdx];
         if (picked) {
           onChange(picked.value);
-          setOpen(false);
+          close();
           triggerRef.current?.focus();
         }
       }
     };
-    window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open, options, hoverIdx, onChange]);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, options, hoverIdx, onChange, close, triggerRef]);
 
   // When opening, snap hover to the current value.
   useEffect(() => {
@@ -114,16 +101,14 @@ export const Select = ({
 
   // Keep the hovered option visible: when arrow-key navigation moves the
   // cursor past the menu's scrollable viewport, scroll the option into
-  // view. Without this, holding ArrowDown past the visible window leaves
-  // the user pressing keys with no visible feedback. block:'nearest'
-  // does the minimum scroll needed (doesn't yank the menu to recenter).
+  // view. block:'nearest' does the minimum scroll needed (doesn't recenter).
   useEffect(() => {
     if (!open) return;
-    const menu = menuRef.current;
-    if (!menu) return;
-    const option = menu.querySelector<HTMLElement>(`[data-bh-option-idx="${hoverIdx}"]`);
+    const option = floatingRef.current?.querySelector<HTMLElement>(
+      `[data-bh-option-idx="${hoverIdx}"]`,
+    );
     option?.scrollIntoView({ block: 'nearest' });
-  }, [open, hoverIdx]);
+  }, [open, hoverIdx, floatingRef]);
 
   const triggerStyle: CSSProperties = {
     display: 'inline-flex',
@@ -144,29 +129,13 @@ export const Select = ({
     boxShadow: open ? shadow.focus : 'none',
   };
 
-  const menuStyle: CSSProperties = {
-    position: 'absolute',
-    top: 'calc(100% + 4px)',
-    left: 0,
-    minWidth: '100%',
-    maxHeight: 320,
-    overflowY: 'auto',
-    background: color.surface,
-    border: `1px solid ${color.borderStrong}`,
-    borderRadius: radius.lg,
-    boxShadow: shadow.raised,
-    padding: space[1],
-    zIndex: 50,
-    animation: 'bh-menu-in 120ms cubic-bezier(0.16, 1, 0.3, 1)',
-  };
-
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div style={{ display: 'inline-block' }}>
       <button
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={() => !disabled && setOpen((o) => !o)}
+        onClick={() => toggle()}
         title={title}
         data-testid={testId}
         style={triggerStyle}
@@ -186,7 +155,12 @@ export const Select = ({
         </span>
       </button>
       {open && (
-        <div ref={menuRef} style={menuStyle} role="listbox">
+        <PopoverSurface
+          coords={coords}
+          floatingRef={floatingRef}
+          role="listbox"
+          style={{ minWidth: coords?.width, maxHeight: 320, overflowY: 'auto' }}
+        >
           {options.map((opt, idx) => {
             const selected = opt.value === value;
             const hovered = idx === hoverIdx;
@@ -200,7 +174,7 @@ export const Select = ({
                 onMouseEnter={() => setHoverIdx(idx)}
                 onClick={() => {
                   onChange(opt.value);
-                  setOpen(false);
+                  close();
                   triggerRef.current?.focus();
                 }}
                 style={{
@@ -263,7 +237,7 @@ export const Select = ({
               </button>
             );
           })}
-        </div>
+        </PopoverSurface>
       )}
     </div>
   );

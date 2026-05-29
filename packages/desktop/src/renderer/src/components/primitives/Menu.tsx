@@ -11,8 +11,9 @@
  * mirrors Select's positioning + dismissal so the two feel like one family.
  */
 
-import { type CSSProperties, type JSX, type ReactNode, useEffect, useRef, useState } from 'react';
-import { color, font, radius, shadow, space, transition } from '../../design.js';
+import { type CSSProperties, type JSX, type ReactNode, useState } from 'react';
+import { color, font, radius, space, transition } from '../../design.js';
+import { PopoverSurface, usePopover } from './Popover.js';
 
 export interface MenuAction {
   readonly label: string;
@@ -50,54 +51,11 @@ export const Menu = ({
   align = 'left',
   disabled = false,
 }: MenuProps): JSX.Element => {
-  const [open, setOpen] = useState(false);
+  // Positioning, outside-click / Esc dismissal, and the toolbar-overflow clip
+  // escape all live in usePopover (shared with Select). This component owns
+  // only the trigger's hover tone and the action list.
+  const { open, toggle, close, triggerRef, floatingRef, coords } = usePopover({ align, disabled });
   const [hover, setHover] = useState(false);
-  // Viewport coords computed from the trigger on open. The toolbar that
-  // hosts this menu uses overflow-x:auto / overflow-y:hidden, which clips
-  // an absolutely-positioned dropdown that extends below it. position:fixed
-  // (anchored to the trigger's rect) escapes that clip entirely.
-  const [coords, setCoords] = useState<{ top: number; left?: number; right?: number } | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  const toggle = (): void => {
-    if (disabled) return;
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    const r = triggerRef.current?.getBoundingClientRect();
-    if (r) {
-      setCoords(
-        align === 'right'
-          ? { top: r.bottom + 4, right: Math.max(0, window.innerWidth - r.right) }
-          : { top: r.bottom + 4, left: r.left },
-      );
-    }
-    setOpen(true);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      const t = e.target as Node;
-      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return;
-      setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
 
   const triggerStyle: CSSProperties = {
     display: 'inline-flex',
@@ -118,22 +76,8 @@ export const Menu = ({
     transition: transition(['background', 'color']),
   };
 
-  const menuStyle: CSSProperties = {
-    position: 'fixed',
-    top: coords?.top ?? 0,
-    ...(coords?.left !== undefined ? { left: coords.left } : { right: coords?.right ?? 0 }),
-    minWidth: 168,
-    background: color.surface,
-    border: `1px solid ${color.borderStrong}`,
-    borderRadius: radius.lg,
-    boxShadow: shadow.raised,
-    padding: space[1],
-    zIndex: 50,
-    animation: 'bh-menu-in 120ms cubic-bezier(0.16, 1, 0.3, 1)',
-  };
-
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div style={{ display: 'inline-block' }}>
       <button
         ref={triggerRef}
         type="button"
@@ -150,7 +94,12 @@ export const Menu = ({
         {label ?? overflowGlyph}
       </button>
       {open && (
-        <div ref={menuRef} style={menuStyle} role="menu">
+        <PopoverSurface
+          coords={coords}
+          floatingRef={floatingRef}
+          role="menu"
+          style={{ minWidth: 168 }}
+        >
           {actions.map((action) => (
             <button
               key={action.label}
@@ -158,7 +107,7 @@ export const Menu = ({
               role="menuitem"
               disabled={action.disabled}
               onClick={() => {
-                setOpen(false);
+                close();
                 action.onClick();
               }}
               style={{
@@ -195,7 +144,7 @@ export const Menu = ({
               {action.label}
             </button>
           ))}
-        </div>
+        </PopoverSurface>
       )}
     </div>
   );
