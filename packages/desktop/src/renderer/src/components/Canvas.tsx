@@ -25,6 +25,7 @@ import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, motion, radius, shadow, space } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
+import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -223,6 +224,13 @@ export const Canvas = (): JSX.Element => {
       unsub();
     };
   }, [refresh]);
+
+  // Live-update when a badge's metadata (prompt / references) is edited in the
+  // editor's badge panel. Those writes land in `.bh/`, which the watcher above
+  // ignores, so the canvas would otherwise show a stale prompt or miss a
+  // panel-added edge until reload. The panel emits on each successful mutation
+  // (see lib/badgeBus); re-deriving nodes + edges keeps the hero surface honest.
+  useEffect(() => subscribeBadgeChange(() => void refresh()), [refresh]);
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {

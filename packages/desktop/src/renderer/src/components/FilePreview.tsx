@@ -18,6 +18,7 @@ import {
   useState,
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { emitBadgeChange } from '../lib/badgeBus.js';
 import { isLossyRoundTrip } from '../lib/mdLossy.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
@@ -411,6 +412,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         try {
           await window.bh.run('badge.set', { file, kind: 'file', patch: { prompt: next } });
           setSaveError(null);
+          emitBadgeChange(); // live-update the canvas badge's prompt
         } catch (err) {
           // The prompt is the literal instruction to the agent — never lose it
           // silently. Surface so the user knows their edit didn't land.
@@ -430,6 +432,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         await window.bh.run('badge.removeRef', { file, to });
         setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
         setSaveError(null);
+        emitBadgeChange(); // live-remove the edge from the canvas
       } catch (err) {
         setSaveError(
           `Couldn't remove reference: ${err instanceof Error ? err.message : String(err)}`,
@@ -459,6 +462,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
             : b,
         );
         setSaveError(null);
+        emitBadgeChange(); // live-update the edge's note on the canvas
       } catch (err) {
         setSaveError(
           `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
@@ -495,6 +499,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
       await window.bh.run('badge.addRef', { file, to: trimmed });
       setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
       setSaveError(null);
+      emitBadgeChange(); // live-add the edge to the canvas
     } catch (err) {
       setSaveError(`Couldn't add reference: ${err instanceof Error ? err.message : String(err)}`);
     }
