@@ -154,6 +154,31 @@ export const Canvas = (): JSX.Element => {
     }
   }, [current, currentReachable, refresh]);
 
+  // Live-update the canvas when files are added / removed / renamed on disk
+  // (Finder, the `bh` CLI, an AI agent writing a file). Without this the
+  // canvas went stale until a manual reload while the sidebar already
+  // refreshed — the hero surface silently lagged reality. The watcher
+  // already ignores `.bh/`, so these are real user-file events only. Skip
+  // 'change' (content edits don't alter the badge set).
+  //
+  // The delay must clear the watcher's add path: it buffers ~600ms to detect
+  // renames, THEN materializes the badge, so a refresh before ~800ms would
+  // hit a badge.list that doesn't include the new file yet (and nothing
+  // re-triggers it). A single trailing timer (cleared on each event to
+  // coalesce bursts, and on unmount/reload) fires safely past that window.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = window.bh.onFileEvent((event) => {
+      if (event.type === 'change') return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), 1100);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
+  }, [refresh]);
+
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
       // Folder scoping is a main-canvas concept. Inside a saved view it
