@@ -442,6 +442,31 @@ assert(controlsCount === 1, 'Custom canvas controls panel present (zoom/fit butt
 
 await win.screenshot({ path: `${SCREENS_DIR}/03-canvas.png` });
 
+// --- 5-live. Canvas live-updates on an external file add (Finder, `bh`, an
+// AI agent writing a file) WITHOUT a reload. The sidebar already did this;
+// the canvas — the hero surface — silently lagged reality until a manual
+// reload. Create a file on disk; expect a new badge to appear on its own.
+console.log('\n[5-live] Canvas live-updates on an external file add (no reload)');
+const liveCountBefore = await win.locator('.react-flow__node-badge').count();
+const liveName = `fresh-liveadd-${Date.now()}.md`;
+writeFileSync(join(WORKSPACE_DIR, liveName), '# Live add\n\nAppeared without a reload.\n');
+// The watcher buffers the add ~600ms (rename detection) then materializes
+// the badge; the canvas subscription refreshes shortly after. Allow slack.
+await win
+  .locator(`.react-flow__node[data-id="${liveName}"]`)
+  .waitFor({ timeout: 8000 })
+  .catch(() => null);
+const liveCountAfterAdd = await win.locator('.react-flow__node-badge').count();
+assert(
+  liveCountAfterAdd === liveCountBefore + 1,
+  `External file add appears as a badge without reload (${liveCountBefore} → ${liveCountAfterAdd})`,
+);
+// Scrub the test file + its materialized badge so it doesn't leak into later
+// steps (a deleted file would otherwise linger as an orphan badge). The §5b
+// reload that follows reconciles the canvas from disk.
+rmSync(join(WORKSPACE_DIR, liveName), { force: true });
+await bhRun('badge.delete', { file: liveName }).catch(() => undefined);
+
 // --- 5b. Drag a badge → position persists across reload.
 // react-flow node drag is mousedown → mousemove → mouseup; Playwright's
 // mouse APIs do this faithfully. ---
