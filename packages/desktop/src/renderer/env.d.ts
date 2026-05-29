@@ -8,6 +8,9 @@ interface Window {
     run(name: string, args?: unknown): Promise<unknown>;
     /** Opens the OS folder picker; returns the selected path or null on cancel. */
     pickWorkspace(): Promise<string | null>;
+    /** Open a workspace-relative file in the OS default app (e.g. .docx → Word)
+     *  for types bh can't render inline. Resolved inside the current workspace. */
+    openPath(relPath: string): Promise<{ ok: boolean; error?: string }>;
     /** "darwin" | "linux" | "win32" | etc. — frozen at preload time. */
     platform: string;
     /** OS home directory (frozen at preload). Used to suggest defaults

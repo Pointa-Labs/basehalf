@@ -321,31 +321,7 @@ export const FilePreview = (): JSX.Element | null => {
               </video>
             </div>
           )}
-          {mode === 'other' && (
-            <div
-              style={{
-                padding: space[4],
-                fontFamily: font.sans,
-                fontSize: font.size.body,
-                color: color.textSecondary,
-              }}
-            >
-              <p style={{ margin: 0, marginBottom: space[2] }}>
-                No built-in viewer for this file type.
-              </p>
-              <p
-                style={{
-                  fontFamily: font.mono,
-                  fontSize: font.size.micro,
-                  color: color.textTertiary,
-                  margin: 0,
-                  wordBreak: 'break-all',
-                }}
-              >
-                {absPath}
-              </p>
-            </div>
-          )}
+          {mode === 'other' && <UnsupportedFileViewer file={currentFile} absPath={absPath} />}
         </div>
       </aside>
     </div>
@@ -1466,6 +1442,59 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
           </>
         )}
       </div>
+    </div>
+  );
+};
+
+// No inline viewer (Office docs, archives, binaries…). Rather than a dead end,
+// offer to open the file in the OS default app (the roadmap's "open in system
+// app" for .docx/.pptx etc.) — bh stays the workspace view; the right app does
+// the rendering. Path opens are resolved inside the current workspace in main.
+const UnsupportedFileViewer = ({
+  file,
+  absPath,
+}: { file: string; absPath: string }): JSX.Element => {
+  const [error, setError] = useState<string | null>(null);
+  const openInApp = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await window.bh.openPath(file);
+      if (!res.ok) setError(res.error ?? "Couldn't open the file.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [file]);
+  return (
+    <div
+      style={{
+        padding: space[4],
+        fontFamily: font.sans,
+        fontSize: font.size.body,
+        color: color.textSecondary,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: space[3],
+        alignItems: 'flex-start',
+      }}
+    >
+      <p style={{ margin: 0 }}>No built-in viewer for this file type.</p>
+      <Button variant="primary" onClick={() => void openInApp()}>
+        Open in default app
+      </Button>
+      {error !== null && (
+        <p style={{ margin: 0, color: color.danger, fontSize: font.size.caption }}>{error}</p>
+      )}
+      <p
+        style={{
+          fontFamily: font.mono,
+          fontSize: font.size.micro,
+          color: color.textTertiary,
+          margin: 0,
+          wordBreak: 'break-all',
+        }}
+      >
+        {absPath}
+      </p>
     </div>
   );
 };

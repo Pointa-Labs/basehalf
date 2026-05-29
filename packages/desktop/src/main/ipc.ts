@@ -1,5 +1,6 @@
+import { join } from 'node:path';
 import type { Core } from '@basehalf/core';
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 
 export interface SerializedError {
   name: string;
@@ -41,6 +42,40 @@ export function registerWorkspacePickHandler(): void {
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0] ?? null;
   });
+}
+
+/**
+ * Register the `shell:open-path` channel — open a workspace file in the OS
+ * default app (e.g. a .docx in Word) for file types bh has no inline viewer
+ * for. GUI-only (Electron `shell`), so it's separate from `bh:run`.
+ *
+ * Safety: the renderer passes a WORKSPACE-RELATIVE path; we resolve it against
+ * the current workspace root (from core) and reject absolute paths / `..`, so a
+ * renderer bug can't ask the OS to open arbitrary system files. Returns the
+ * tagged result; shell.openPath resolves to '' on success or an error string.
+ */
+export function registerShellOpenHandler(core: Core): void {
+  ipcMain.handle(
+    'shell:open-path',
+    async (_event, relPath): Promise<{ ok: boolean; error?: string }> => {
+      if (typeof relPath !== 'string' || relPath.length === 0) {
+        return { ok: false, error: 'A path is required.' };
+      }
+      if (relPath.startsWith('/') || relPath.split(/[\\/]/).includes('..')) {
+        return { ok: false, error: 'Refusing to open a path outside the workspace.' };
+      }
+      try {
+        const cur = (await core.run('workspace.current', {})) as {
+          current: { path: string } | null;
+        };
+        if (!cur.current) return { ok: false, error: 'No current workspace.' };
+        const errMsg = await shell.openPath(join(cur.current.path, relPath));
+        return errMsg ? { ok: false, error: errMsg } : { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 }
 
 /**

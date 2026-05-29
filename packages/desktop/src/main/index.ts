@@ -2,7 +2,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
 import { BrowserWindow, app, screen } from 'electron';
-import { registerBhRunHandler, registerWorkspacePickHandler } from './ipc.js';
+import {
+  registerBhRunHandler,
+  registerShellOpenHandler,
+  registerWorkspacePickHandler,
+} from './ipc.js';
 import {
   clampToDisplays,
   debounce,
@@ -23,6 +27,7 @@ console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.lis
 
 registerBhRunHandler(core);
 registerWorkspacePickHandler();
+registerShellOpenHandler(core);
 
 // Forward file events from the core watcher to all open renderers so the
 // FilePreview can prompt for reload on external edits and rebind currentFile

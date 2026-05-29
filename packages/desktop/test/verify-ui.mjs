@@ -86,6 +86,9 @@ writeFileSync(
   join(WORKSPACE_DIR, 'fm.md'),
   '---\ntitle: Frontmatter Note\ntags: [a, b]\n---\n\n# Body heading\n\nEditable body.\n',
 );
+// An unsupported file type (no inline viewer) — the preview should offer
+// "Open in default app" rather than a dead end (§7j).
+writeFileSync(join(WORKSPACE_DIR, 'report.docx'), 'PK fake docx');
 
 const failures = [];
 const assert = (cond, msg) => {
@@ -1439,6 +1442,27 @@ assert(
   fmAfter.startsWith('---\ntitle: Frontmatter Note\ntags: [a, b]\n---'),
   `frontmatter preserved verbatim (opening + closing didn't mangle it; got ${JSON.stringify(fmAfter.slice(0, 60))})`,
 );
+
+// --- 7j. Unsupported file → "Open in default app" (not a dead end), and the
+// shell:open-path IPC refuses path escapes (security). We test the guard-reject
+// path so no OS app is launched. ---
+console.log('\n[7j] Unsupported file offers "Open in default app" + safe IPC');
+await sidebar.locator('button', { hasText: 'report.docx' }).first().click();
+await win.waitForTimeout(500);
+const docxOverlay = win.locator('aside').last();
+assert(
+  (await docxOverlay.locator('button', { hasText: /Open in default app/i }).count()) === 1,
+  'unsupported file offers an "Open in default app" button',
+);
+const escapeResult = await win.evaluate(() => window.bh.openPath('../etc/passwd'));
+assert(
+  escapeResult &&
+    escapeResult.ok === false &&
+    /outside the workspace/i.test(escapeResult.error || ''),
+  `shell:open-path refuses a path escape (got ${JSON.stringify(escapeResult)})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
 
 // --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
 // Tests the ImageViewer branch of FilePreview (not just MD path). ---
