@@ -156,13 +156,17 @@ export const Canvas = (): JSX.Element => {
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
-      // Folder badge double-click → scope canvas to that folder.
+      // Folder scoping is a main-canvas concept. Inside a saved view it
+      // would create an inconsistent state — the toolbar shows "/folder"
+      // scope chrome while the canvas still renders the view (currentView
+      // wins in refresh) — so a folder badge double-click is a no-op here.
+      if (currentView !== null) return;
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
         setFolderScope(node.id);
       }
     },
-    [setFolderScope],
+    [currentView, setFolderScope],
   );
 
   const persistPosition = useMemo(
