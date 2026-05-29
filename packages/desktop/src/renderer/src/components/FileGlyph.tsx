@@ -81,6 +81,36 @@ const EXT_TYPE: Record<string, BadgeType> = {
   xml: 'code',
   sh: 'code',
   sql: 'code',
+  // Shells / config / structured formats — so common config & script files get
+  // a real glyph AND open in the read-only text viewer instead of a dead-end
+  // "no viewer". (Curated to definitely-text extensions; unknown ones stay
+  // 'generic' to avoid rendering a binary as garbage.)
+  bash: 'code',
+  zsh: 'code',
+  fish: 'code',
+  ps1: 'code',
+  bat: 'code',
+  ini: 'code',
+  conf: 'code',
+  cfg: 'code',
+  env: 'code',
+  properties: 'code',
+  lock: 'code',
+  lua: 'code',
+  pl: 'code',
+  r: 'code',
+  gradle: 'code',
+  vue: 'code',
+  svelte: 'code',
+  astro: 'code',
+  graphql: 'code',
+  gql: 'code',
+  proto: 'code',
+  // Plain-text / tabular / logs.
+  csv: 'text',
+  tsv: 'text',
+  log: 'text',
+  text: 'text',
 };
 
 export const badgeType = (label: string, isFolder: boolean): BadgeType => {
