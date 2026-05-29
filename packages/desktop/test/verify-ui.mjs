@@ -1295,6 +1295,40 @@ assert(
 );
 await win.screenshot({ path: `${SCREENS_DIR}/06-view-active.png` });
 
+// --- 9-add. Add files to the view via the picker. This is the only UI path
+// INTO a saved view — before it existed, views were a dead end (you could
+// create one but had no affordance to put files in it; the only addMember
+// call was in-canvas repositioning). The empty view must offer an "Add
+// files" CTA that opens a multi-select picker.
+const addFilesCta = win.locator('[data-testid="view-add-files-cta"]');
+assert(
+  (await addFilesCta.count()) === 1,
+  'Empty view offers an "Add files" CTA (views are no longer a dead end)',
+);
+await addFilesCta.click();
+await win.locator('[data-testid="view-picker-input"]').waitFor({ timeout: 3000 });
+assert((await dialogIsOpen()) === 1, 'Add-files picker opens as a modal dialog');
+await win
+  .locator('[role=dialog] button', { hasText: /^intro\.md/ })
+  .first()
+  .click();
+await win
+  .locator('[role=dialog] button', { hasText: /Add \d+ file/ })
+  .first()
+  .click();
+await win.waitForTimeout(800);
+const testViewId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Test View')?.id;
+const testViewAfterAdd = testViewId ? await bhRun('view.get', { id: testViewId }) : null;
+assert(
+  testViewAfterAdd?.members?.some((m) => m.file === 'intro.md'),
+  `Picker added intro.md to the view (members: ${JSON.stringify(testViewAfterAdd?.members?.map((m) => m.file))})`,
+);
+const introInViewCount = await win.locator('.react-flow__node[data-id="intro.md"]').count();
+assert(
+  introInViewCount === 1,
+  `Canvas renders the added badge inside the view (count=${introInViewCount})`,
+);
+
 // Rename the view via the menu → custom prompt dialog → submit.
 await clickMenuItem('topbar-view-menu', 'Rename view');
 await waitForDialog('Rename view');
