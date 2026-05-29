@@ -381,6 +381,33 @@ describe('badge.rename', () => {
     expect(stale.entries).toEqual([]);
   });
 
+  it("migrates the moved badge's OWN outbound refs in the inbound index (from→to)", async () => {
+    // foo.md → target.md (with note). Renaming foo.md must re-point
+    // target.md's inbound entry from foo.md to foo-v2.md, not leave a
+    // phantom backlink from the deleted old name.
+    await ctx.core.run('badge.set', { file: 'target.md' });
+    await ctx.core.run('badge.addRef', { file: 'foo.md', to: 'target.md', note: 'see' });
+    expect(
+      (
+        (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
+          entries: { from: string }[];
+        }
+      ).entries.map((e) => e.from),
+    ).toEqual(['foo.md']);
+
+    await ctx.core.run('badge.rename', { from: 'foo.md', to: 'foo-v2.md' });
+
+    // The moved badge keeps its outbound ref...
+    const moved = (await ctx.core.run('badge.get', { file: 'foo-v2.md' })) as BadgeFile;
+    expect(moved.references).toEqual([{ to: 'target.md', note: 'see' }]);
+    // ...and target.md's inbound index now records the NEW name, with the
+    // note preserved, and no phantom entry from the deleted old name.
+    const inTarget = (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
+      entries: { from: string; note?: string }[];
+    };
+    expect(inTarget.entries).toEqual([{ from: 'foo-v2.md', note: 'see' }]);
+  });
+
   it('updates focus.md if `from` was in the active list', async () => {
     await ctx.core.run('badge.set', { file: 'foo.md' });
     await ctx.core.run('focus.set', { files: ['unrelated.md', 'foo.md'] });
