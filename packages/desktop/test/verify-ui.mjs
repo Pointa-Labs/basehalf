@@ -729,6 +729,44 @@ await bhRun('view.delete', { id: briefViewId }).catch(() => undefined);
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 
+// --- 5d-focusviz. Focus is VISIBLE on the canvas — the witnessed payoff.
+// Focus was a write-only side effect (click → focus.set, nothing visible);
+// now a focused badge wears a persistent "in focus" dot and a chip names the
+// context handed to the agent, with a Clear control. Closes the loop the
+// curation otherwise left invisible.
+console.log('\n[5d-focusviz] focus is visible on the canvas (dot + chip + clear)');
+await bhRun('focus.clear', {});
+await win.waitForTimeout(150);
+await win.locator('.react-flow__node[data-id="intro.md"]').click();
+await win.waitForTimeout(350);
+const focusChip = win.locator('[data-testid="focus-chip"]');
+assert((await focusChip.count()) === 1, 'Focus chip appears when a file is focused');
+assert(
+  /1\s*file in focus/.test(await focusChip.innerText()),
+  `Focus chip names the count (got: ${JSON.stringify((await focusChip.innerText()).replace(/\n/g, ' '))})`,
+);
+assert(
+  (await win.locator('.react-flow__node[data-id="intro.md"] span[title*="In focus"]').count()) ===
+    1,
+  'Focused badge shows the persistent "in focus" dot marker',
+);
+// Clear via the chip's Clear button → dot + chip gone, focus.get empty.
+await win.locator('[data-testid="focus-clear"]').click();
+await win.waitForTimeout(350);
+assert((await focusChip.count()) === 0, 'Clear button hides the focus chip');
+assert(
+  (await win.locator('.react-flow__node[data-id="intro.md"] span[title*="In focus"]').count()) ===
+    0,
+  'Clear removes the focus dot from the badge',
+);
+const focusVizAfterClear = await bhRun('focus.get', {});
+assert(
+  Array.isArray(focusVizAfterClear.active) && focusVizAfterClear.active.length === 0,
+  `Chip Clear empties focus.get (got ${JSON.stringify(focusVizAfterClear.active)})`,
+);
+await win.keyboard.press('Escape'); // close the preview intro.md opened
+await win.waitForTimeout(200);
+
 // --- 5c. Drag from intro.md's source handle to overview.md's target handle
 // to create an edge (badge.addRef). React-flow handles are
 // .react-flow__handle.source / .target on each node. ---

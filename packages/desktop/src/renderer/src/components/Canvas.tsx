@@ -104,6 +104,9 @@ export const Canvas = (): JSX.Element => {
   // the viewport — relying on it alone snapped users back to (0,0,1)
   // every window reload.
   const [persistedViewport, setPersistedViewport] = useState<ViewportState | null>(null);
+  // The current focus set (what the agent reads from .bh/focus.md). Surfaced
+  // on the canvas so the curation payoff is visible, not invisible.
+  const [focused, setFocused] = useState<ReadonlySet<string>>(() => new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -130,10 +133,15 @@ export const Canvas = (): JSX.Element => {
         badges = badges.filter((b) => b.file === folderScope || b.file.startsWith(prefix));
       }
 
+      const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
+      const focusedSet = new Set(focusResult.active);
+      setFocused(focusedSet);
       setNodes(
         badges.map((b, i) => {
           const override = memberPositions.get(b.file);
-          return badgeToNode(b, i, override);
+          const node = badgeToNode(b, i, override);
+          node.data.focused = focusedSet.has(b.file);
+          return node;
         }),
       );
       setEdges(badgesToEdges(badges));
@@ -295,6 +303,14 @@ export const Canvas = (): JSX.Element => {
           } else {
             await window.bh.run('focus.set', { files: [node.id] });
           }
+          // Re-read the authoritative focus set and reflect it on the canvas so
+          // the human SEES exactly what the agent now reads.
+          const after = (await window.bh.run('focus.get', {})) as { active: string[] };
+          const set = new Set(after.active);
+          setFocused(set);
+          setNodes((prev) =>
+            prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
+          );
         } catch {
           // Best-effort.
         }
@@ -302,6 +318,14 @@ export const Canvas = (): JSX.Element => {
     },
     [setCurrentFile],
   );
+
+  const clearFocus = useCallback(() => {
+    void window.bh.run('focus.clear', {}).catch(() => undefined);
+    setFocused(new Set());
+    setNodes((prev) =>
+      prev.map((n) => (n.data.focused ? { ...n, data: { ...n.data, focused: false } } : n)),
+    );
+  }, []);
 
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
@@ -346,6 +370,63 @@ export const Canvas = (): JSX.Element => {
 
   return (
     <div style={{ width: '100%', height: '100%' }}>
+      {focused.size > 0 && (
+        // Witnessed payoff: name the context the human handed the agent. The
+        // focus set was previously a write-only side effect with no visible
+        // trace — now the human can SEE (and clear) what their agent reads.
+        <div
+          data-testid="focus-chip"
+          style={{
+            position: 'absolute',
+            top: space[3],
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            background: color.surface,
+            border: `1px solid ${color.accentSoft}`,
+            borderRadius: radius.pill,
+            padding: `${space[1]}px ${space[1]}px ${space[1]}px ${space[3]}px`,
+            boxShadow: shadow.raised,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            color: color.textSecondary,
+            animation: `bh-banner-in ${motion.normal}`,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: space[1.5] }}>
+            <span
+              aria-hidden
+              style={{ width: 8, height: 8, borderRadius: '50%', background: color.accent }}
+            />
+            <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
+              {focused.size}
+            </strong>
+            {focused.size === 1 ? 'file' : 'files'} in focus — your agent reads{' '}
+            {focused.size === 1 ? 'this' : 'these'}
+          </span>
+          <button
+            type="button"
+            onClick={clearFocus}
+            title="Clear focus"
+            data-testid="focus-clear"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              color: color.textTertiary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              cursor: 'pointer',
+              padding: `${space[0.5]}px ${space[2]}px`,
+              borderRadius: radius.pill,
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
       {error && (
         <div
           style={{
