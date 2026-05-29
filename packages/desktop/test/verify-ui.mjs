@@ -756,6 +756,33 @@ await bhRun('view.delete', { id: briefViewId }).catch(() => undefined);
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 
+// --- 5d-resync. Editing a FOCUSED file's prompt in the panel must refresh
+// focus.md, not just the badge JSON: focus.md inlines the prompt, and a badge
+// write alone doesn't regenerate it — so without the resync the agent would
+// read stale curation every turn. ---
+console.log("\n[5d-resync] editing a focused file's prompt refreshes focus.md");
+await win.locator('.react-flow__node[data-id="intro.md"]').click(); // focus it
+await win.waitForTimeout(300);
+await win.locator('.react-flow__node-badge[data-id="intro.md"]').first().dblclick(); // open editor
+await win.waitForTimeout(700);
+const resyncPrompt = `resync-prompt-${Date.now()}`;
+const resyncTa = win.locator('aside').last().locator('textarea').first();
+await resyncTa.click();
+await resyncTa.fill(resyncPrompt);
+await win.waitForTimeout(150);
+await win.locator('aside').last().locator('header').first().click(); // blur → flush save
+await win.waitForTimeout(800);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(700);
+const focusMdResync = readFileSync(focusMdPath, 'utf-8');
+assert(
+  focusMdResync.includes(`prompt: ${resyncPrompt}`),
+  `focus.md re-inlines the edited prompt so the agent reads fresh context (file: ${JSON.stringify(focusMdResync.slice(0, 300))})`,
+);
+await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' } });
+await bhRun('focus.clear', {});
+await win.waitForTimeout(150);
+
 // --- 5d-focusviz. Focus is VISIBLE on the canvas — the witnessed payoff.
 // Focus was a write-only side effect (click → focus.set, nothing visible);
 // now a focused badge wears a persistent "in focus" dot and a chip names the

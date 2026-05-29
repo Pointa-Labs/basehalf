@@ -88,6 +88,14 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   fix is content-based text detection (null-byte / non-printable sniff) gated on
   a **capped** `workspace.readFile` so a large unknown binary can't be slurped
   whole; do it properly rather than an ever-growing extension allowlist.
+- **Core-level `.bh/` reconcile.** In-app edits to a badge (prompt / refs) need to
+  refresh derived caches that the file watcher can't see (it ignores `.bh/`
+  writes). v0 wires this in the renderer (the editor panel pings the canvas via a
+  badge bus, and re-sets focus when a focused file is edited). The robust version
+  is in core: `badge.set/addRef/removeRef` reconcile `focus.md` like they already
+  reconcile `inbound.json` — needs a `focus.resync` that preserves the `intent:`
+  line and a focus-file `createKeyedMutex` (resync is the first read-modify-write
+  on focus.md), which then also covers CLI / agent edits, not just the desktop.
 
 ## What we are deliberately NOT doing yet
 
