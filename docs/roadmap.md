@@ -87,10 +87,14 @@ New v0.x follow-ups surfaced while building the code/text viewer:
 - Code-viewer **syntax highlighting** (needs a highlighter dep — weigh against
   [dependency-policy.md](dependency-policy.md); plain monospace ships today).
 - Read **extension-less text files** (Dockerfile, Makefile, LICENSE, README,
-  `.gitignore`) — they currently fall through to "no built-in viewer". The clean
-  fix is content-based text detection (null-byte / non-printable sniff) gated on
-  a **capped** `workspace.readFile` so a large unknown binary can't be slurped
-  whole; do it properly rather than an ever-growing extension allowlist.
+  `.gitignore`). ✅ _shipped._ These are classified as viewable text, and the
+  ever-growing-allowlist trap is avoided with **content-based detection**:
+  `workspace.readFile` sniffs the (capped) raw bytes for a NUL byte **or**
+  invalid UTF-8 and returns a `binary` flag, so the text viewer shows a clean
+  "binary file — open in the right app" message instead of mojibake. The cap
+  bounds what's read/shipped; the byte-sniff is surrogate-pair-safe. (A *true*
+  streamed/partial read — vs. read-whole-then-cap — is a deeper `FsLike` change
+  still deferred.)
 - **Core-level `.bh/` reconcile.** ✅ _shipped (focus.md leg)._ In-app edits to a
   badge (prompt / refs) refresh derived caches the file watcher can't see (it
   ignores `.bh/` writes). v0 first wired this in the renderer (editor panel pings
@@ -103,13 +107,15 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   the renderer's `resyncFocusForFile` is consequently redundant (a follow-up can
   remove it). The canvas badge-bus refresh (a UI concern the watcher can't cover)
   stays in the renderer.
-- **Edit a folder badge's prompt in the desktop UI.** Folders are first-class
-  agent-protocol badges (a folder `.badge.json` carries a prompt + refs), but the
-  desktop has no gesture to open a folder's panel: single-click focuses,
-  double-click scopes into the sub-canvas, and the editor opens only for files.
-  So folder prompts are CLI-only today. Needs a disambiguated affordance (e.g. an
-  edit control on the folder badge, or an editable header inside its sub-canvas)
-  — a small interaction-design call, deferred rather than bolted on.
+- **Edit a folder badge's prompt in the desktop UI.** ✅ _shipped._ Folders are
+  first-class agent-protocol badges (a folder `.badge.json` carries a prompt +
+  refs), and they were CLI-only because single-click focuses / double-click
+  scopes into the sub-canvas / the editor opens only for files. Resolved with a
+  contextual affordance: while **scoped into** a folder, the toolbar shows an
+  **"Edit folder prompt"** action that reads the folder badge's current prompt,
+  opens a pre-filled dialog ("what the AI agent should know about this folder"),
+  and writes it back via `badge.set({ kind: 'folder' })`. Discoverable from the
+  one place you're already looking at the folder, no canvas clutter.
 
 ## What we are deliberately NOT doing yet
 
