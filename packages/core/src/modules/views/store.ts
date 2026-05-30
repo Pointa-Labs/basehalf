@@ -52,7 +52,12 @@ export async function removeView(fs: FsLike, workspaceRoot: string, id: string):
 
 export async function listViews(fs: FsLike, workspaceRoot: string): Promise<readonly SavedView[]> {
   const dir = join(workspaceRoot, VIEWS_DIR);
-  const realRoot = await canonicalize(fs, dir);
+  // Anchor to the WORKSPACE root (not .bh/views/) so a planted symlink at
+  // .bh/views itself can't relocate the anchor onto its target — same fix as
+  // listBadges.
+  const realRoot = await canonicalize(fs, workspaceRoot);
+  const realDir = await canonicalize(fs, dir);
+  if (!isContained(realRoot, realDir)) return [];
   const dirStat = await fs.stat(dir);
   if (!dirStat?.isDirectory) return [];
   const names = await fs.readdir(dir);
@@ -60,8 +65,16 @@ export async function listViews(fs: FsLike, workspaceRoot: string): Promise<read
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const child = join(dir, name);
-    // Skip a planted symlink view entry that escapes .bh/views/.
-    const realChild = await canonicalize(fs, child);
+    // Resolve canonical path under a try: a hostile/broken symlink (ELOOP on a
+    // mutual cycle, EACCES) skips this entry rather than crashing view.list
+    // (which would also brick badge.rename's cascade). Skip entries that
+    // escape the workspace root.
+    let realChild: string;
+    try {
+      realChild = await canonicalize(fs, child);
+    } catch {
+      continue;
+    }
     if (!isContained(realRoot, realChild)) continue;
     const raw = await fs.readFile(realChild);
     if (raw === null) continue;

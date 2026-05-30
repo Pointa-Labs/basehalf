@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { FsLike } from '../../kernel/index.js';
+import { type FsLike, assertReadContained, assertWriteContained } from '../../kernel/index.js';
 import type { SetupReport } from './types.js';
 
 /**
@@ -102,38 +102,62 @@ async function updateGitignore(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<Pick<SetupReport, 'gitignoreUpdated' | 'gitignoreSkipped' | 'gitignoreAbsent'>> {
-  const path = join(workspaceRoot, '.gitignore');
-  const current = await fs.readFile(path);
-  if (current === null) {
-    return { gitignoreUpdated: false, gitignoreSkipped: false, gitignoreAbsent: true };
+  const lexical = join(workspaceRoot, '.gitignore');
+  // runSetup writes two USER files (.gitignore, CLAUDE.md) — bh's only other
+  // write path besides the editor. A workspace "you drop in" can ship a
+  // planted `.gitignore`/`CLAUDE.md` SYMLINK whose innocuous name escapes
+  // assertWorkspaceRelative but whose target is outside the root (e.g.
+  // ~/.ssh/authorized_keys, a launch agent). Route read+write through the
+  // realpath guards so node:fs never follows it; refuse (skip the step)
+  // rather than clobber/plant outside.
+  try {
+    const current = await fs.readFile(await assertReadContained(fs, workspaceRoot, lexical));
+    if (current === null) {
+      return { gitignoreUpdated: false, gitignoreSkipped: false, gitignoreAbsent: true };
+    }
+    // Match `.bh/cache/` or `.bh/cache` on its own line (anchored), ignoring leading comments.
+    // Note: a bare `.bh/` line (from older versions of `bh init`) is NOT treated as
+    // already-ignored — the new model wants only `.bh/cache/` ignored, so users
+    // upgrading should remove the bare `.bh/` line manually.
+    const hasIgnore = current.split('\n').some((line) => /^\s*\.bh\/cache\/?\s*(#.*)?$/.test(line));
+    if (hasIgnore) {
+      return { gitignoreUpdated: false, gitignoreSkipped: true, gitignoreAbsent: false };
+    }
+    const trailingNewline = current.endsWith('\n') ? '' : '\n';
+    await fs.writeFile(
+      await assertWriteContained(fs, workspaceRoot, lexical),
+      `${current}${trailingNewline}\n# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git)\n.bh/cache/\n`,
+    );
+    return { gitignoreUpdated: true, gitignoreSkipped: false, gitignoreAbsent: false };
+  } catch (err) {
+    if (err instanceof Error && err.name === 'PathEscape') {
+      return { gitignoreUpdated: false, gitignoreSkipped: true, gitignoreAbsent: false };
+    }
+    throw err;
   }
-  // Match `.bh/cache/` or `.bh/cache` on its own line (anchored), ignoring leading comments.
-  // Note: a bare `.bh/` line (from older versions of `bh init`) is NOT treated as
-  // already-ignored — the new model wants only `.bh/cache/` ignored, so users
-  // upgrading should remove the bare `.bh/` line manually.
-  const hasIgnore = current.split('\n').some((line) => /^\s*\.bh\/cache\/?\s*(#.*)?$/.test(line));
-  if (hasIgnore) {
-    return { gitignoreUpdated: false, gitignoreSkipped: true, gitignoreAbsent: false };
-  }
-  const trailingNewline = current.endsWith('\n') ? '' : '\n';
-  await fs.writeFile(
-    path,
-    `${current}${trailingNewline}\n# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git)\n.bh/cache/\n`,
-  );
-  return { gitignoreUpdated: true, gitignoreSkipped: false, gitignoreAbsent: false };
 }
 
 async function updateClaudeMd(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<Pick<SetupReport, 'claudeMdUpdated' | 'claudeMdSkipped'>> {
-  const path = join(workspaceRoot, 'CLAUDE.md');
-  const current = await fs.readFile(path);
-  if (current?.includes(CLAUDE_HINT_MARKER) || current?.includes(LEGACY_CLAUDE_HINT_MARKER)) {
-    return { claudeMdUpdated: false, claudeMdSkipped: true };
+  const lexical = join(workspaceRoot, 'CLAUDE.md');
+  try {
+    const current = await fs.readFile(await assertReadContained(fs, workspaceRoot, lexical));
+    if (current?.includes(CLAUDE_HINT_MARKER) || current?.includes(LEGACY_CLAUDE_HINT_MARKER)) {
+      return { claudeMdUpdated: false, claudeMdSkipped: true };
+    }
+    const base = current ?? '# CLAUDE.md\n';
+    const trailingNewline = base.endsWith('\n') ? '' : '\n';
+    await fs.writeFile(
+      await assertWriteContained(fs, workspaceRoot, lexical),
+      `${base}${trailingNewline}${CLAUDE_HINT_SECTION}`,
+    );
+    return { claudeMdUpdated: true, claudeMdSkipped: false };
+  } catch (err) {
+    if (err instanceof Error && err.name === 'PathEscape') {
+      return { claudeMdUpdated: false, claudeMdSkipped: true };
+    }
+    throw err;
   }
-  const base = current ?? '# CLAUDE.md\n';
-  const trailingNewline = base.endsWith('\n') ? '' : '\n';
-  await fs.writeFile(path, `${base}${trailingNewline}${CLAUDE_HINT_SECTION}`);
-  return { claudeMdUpdated: true, claudeMdSkipped: false };
 }

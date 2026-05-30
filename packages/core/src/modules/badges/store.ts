@@ -79,14 +79,19 @@ export async function removeBadge(
  * callers want listing to be robust against a single bad file.
  */
 export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<readonly BadgeFile[]> {
-  const root = join(workspaceRoot, BADGES_DIR);
+  const badgesDir = join(workspaceRoot, BADGES_DIR);
   const out: BadgeFile[] = [];
-  // Contain the walk to the real .bh/badges/ tree: a planted symlink (file or
-  // directory) inside it would otherwise make node:fs follow it OUT of the
-  // workspace and read/enumerate arbitrary external files (or loop forever).
-  const realRoot = await canonicalize(fs, root);
+  // Anchor containment to the WORKSPACE root, not to .bh/badges/: if
+  // .bh/badges itself is a planted directory symlink (the whole .bh/ tree
+  // ships in git), anchoring to canonicalize(.bh/badges) would relocate the
+  // anchor onto the symlink TARGET and happily enumerate everything outside.
+  // Anchoring to the workspace root and bailing when .bh/badges escapes it
+  // closes that. Files inside a legit .bh/badges stay contained under the root.
+  const realRoot = await canonicalize(fs, workspaceRoot);
+  const realBadgesDir = await canonicalize(fs, badgesDir);
+  if (!isContained(realRoot, realBadgesDir)) return out;
   const visited = new Set<string>();
-  await walk(fs, realRoot, root, realRoot, visited, async (absPath) => {
+  await walk(fs, realRoot, badgesDir, realBadgesDir, visited, async (absPath) => {
     if (!absPath.endsWith('.json')) return;
     const raw = await fs.readFile(absPath);
     if (raw === null) return;

@@ -69,7 +69,25 @@ export async function canonicalize(fs: FsLike, p: string): Promise<string> {
       const real = await fs.realpath(cur);
       return suffix.length > 0 ? join(real, ...suffix) : real;
     } catch (err) {
-      if (!isENOENT(err)) throw err;
+      // A path we cannot resolve is not safely containable. ENOENT only means
+      // "doesn't exist YET" — keep walking up to the deepest existing ancestor
+      // so not-yet-created write targets still work. ANY OTHER realpath failure
+      // (ELOOP on a symlink cycle, EACCES, ENOTDIR) means we cannot prove where
+      // this path really points → refuse. Mapping it to PathEscape lets the
+      // robust callers (materialize, the list walks) skip it by name instead of
+      // aborting workspace open with a raw ELOOP.
+      if (!isENOENT(err)) throw new PathEscape(cur);
+      // ENOENT — but is `cur` a DANGLING SYMLINK rather than a truly-absent
+      // component? realpath ENOENTs both, yet lstat still sees the symlink. A
+      // dangling symlink must NOT be recomposed into its own contained-looking
+      // path: readFile/writeFile would re-follow it at op time, so an attacker
+      // who races the target into existence escapes (TOCTOU on the read path),
+      // and a dangling symlinked DIRECTORY in a write path would plant a file
+      // outside once mkdir -p follows it. Refuse.
+      if (fs.lstat) {
+        const ls = await fs.lstat(cur);
+        if (ls?.isSymbolicLink) throw new PathEscape(cur);
+      }
       const parent = dirname(cur);
       if (parent === cur) {
         // Walked to the filesystem root and it still ENOENTs — nothing on this

@@ -2,10 +2,13 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Context,
   type Handler,
+  PathEscape,
   assertReadContained,
   assertWorkspaceRelative,
   assertWriteContained,
+  canonicalize,
   createKeyedMutex,
+  isContained,
 } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
@@ -225,10 +228,39 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   }
   if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
 
+  // Contain enumeration to the current workspace: listFiles takes an absolute
+  // path the renderer drives from NavTree clicks, and ctx.fs.stat FOLLOWS
+  // symlinks — so a planted dir-symlink (docs -> /etc) would otherwise let the
+  // tree enumerate an arbitrary OUTSIDE directory (a filename/structure oracle
+  // even though readFile refuses the content). Require the listed dir to be
+  // inside the current workspace root, and skip any child that escapes it.
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
+  let realRoot: string | undefined;
+  if (root !== undefined) {
+    realRoot = await canonicalize(ctx.fs, root);
+    const realDir = await canonicalize(ctx.fs, absPath);
+    if (!isContained(realRoot, realDir)) {
+      throw new PathEscape(absPath);
+    }
+  }
+
   const names = await ctx.fs.readdir(absPath);
   const entries: WorkspaceListFilesEntry[] = [];
   for (const name of names) {
-    const childStat = await ctx.fs.stat(join(absPath, name));
+    const child = join(absPath, name);
+    if (realRoot !== undefined) {
+      // Filter a symlinked-out child so it never surfaces in the tree (and
+      // can't be expanded into an external dir on the next listFiles call).
+      let realChild: string;
+      try {
+        realChild = await canonicalize(ctx.fs, child);
+      } catch {
+        continue;
+      }
+      if (!isContained(realRoot, realChild)) continue;
+    }
+    const childStat = await ctx.fs.stat(child);
     if (!childStat) continue;
     entries.push({ name, type: childStat.isDirectory ? 'dir' : 'file' });
   }
@@ -415,12 +447,24 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   const filesCreated: string[] = [];
   for (const file of DEMO_FILES) {
     const fileAbs = join(absPath, file.path);
-    const existing = await ctx.fs.readFile(fileAbs);
-    if (existing !== null) continue;
+    // Keep the "every core user-file write is realpath-contained" invariant
+    // even on the demo path. Lower risk (a fresh folder the user picked, fixed
+    // boilerplate), but a planted symlink named like a demo file shouldn't let
+    // the write escape either. Refuse-and-skip rather than clobber outside.
+    let existing: string | null;
+    let writeAbs: string;
+    try {
+      existing = await ctx.fs.readFile(await assertReadContained(ctx.fs, absPath, fileAbs));
+      if (existing !== null) continue;
+      writeAbs = await assertWriteContained(ctx.fs, absPath, fileAbs);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'PathEscape') continue;
+      throw err;
+    }
     await ctx.fs.mkdir(join(absPath, file.path.split('/').slice(0, -1).join('/') || '.'), {
       recursive: true,
     });
-    await ctx.fs.writeFile(fileAbs, file.content);
+    await ctx.fs.writeFile(writeAbs, file.content);
     filesCreated.push(file.path);
   }
 

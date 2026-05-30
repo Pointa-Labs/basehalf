@@ -201,4 +201,115 @@ describe('materialize walk', () => {
     // Must resolve, not hang/throw.
     await expect(core.run('workspace.add', { path: fresh, name: 'ws3' })).resolves.toBeDefined();
   });
+
+  it('opens a workspace with a symlink LOOP at a DERIVED .bh/badges/<name> path (no ELOOP crash)', async () => {
+    // Re-verify residual: a loop at the badge path (not the user tree) is
+    // reached via badge.get->readBadge->canonicalize, which must map ELOOP to
+    // a skip rather than abort materialize/open.
+    const fresh = join(base, 'ws4');
+    await mkdir(join(fresh, 'docs'), { recursive: true }); // real user folder
+    await writeFile(join(fresh, 'docs', 'a.md'), '# a');
+    await mkdir(join(fresh, '.bh/badges'), { recursive: true });
+    await symlink(join(fresh, '.bh/badges/docs'), join(fresh, '.bh/badges/docs')); // self-loop
+    await expect(core.run('workspace.add', { path: fresh, name: 'ws4' })).resolves.toBeDefined();
+  });
+});
+
+describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSetup surface)', () => {
+  it('refuses to write THROUGH a symlinked CLAUDE.md / .gitignore on add({setup:true})', async () => {
+    const fresh = join(base, 'wss1');
+    await mkdir(fresh, { recursive: true });
+    await writeFile(join(outside, 'victim-claude.md'), 'OUTSIDE CLAUDE');
+    await writeFile(join(outside, 'victim-gi'), 'OUTSIDE GITIGNORE');
+    await symlink(join(outside, 'victim-claude.md'), join(fresh, 'CLAUDE.md'));
+    await symlink(join(outside, 'victim-gi'), join(fresh, '.gitignore'));
+    await core.run('workspace.add', { path: fresh, name: 'wss1', setup: true });
+    expect(await readFile(join(outside, 'victim-claude.md'), 'utf8')).toBe('OUTSIDE CLAUDE');
+    expect(await readFile(join(outside, 'victim-gi'), 'utf8')).toBe('OUTSIDE GITIGNORE');
+  });
+
+  it('does NOT plant a new outside file through a DANGLING CLAUDE.md symlink on setup', async () => {
+    const fresh = join(base, 'wss2');
+    await mkdir(fresh, { recursive: true });
+    await symlink(join(outside, 'planted-claude.md'), join(fresh, 'CLAUDE.md')); // dangling
+    await core.run('workspace.add', { path: fresh, name: 'wss2', setup: true });
+    expect(existsSync(join(outside, 'planted-claude.md'))).toBe(false);
+  });
+
+  it('still installs the CLAUDE.md hint on a clean workspace (no false rejection)', async () => {
+    const fresh = join(base, 'wss3');
+    await mkdir(fresh, { recursive: true });
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss3', setup: true });
+    expect(res.setup.claudeMdUpdated).toBe(true);
+    expect(await readFile(join(fresh, 'CLAUDE.md'), 'utf8')).toContain('BaseHalf workspace');
+  });
+});
+
+describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () => {
+  it('refuses to read a DANGLING symlink leaf (closes the create-target race)', async () => {
+    await symlink(join(outside, 'not-yet.txt'), join(ws, 'dang.md')); // target missing
+    await expect(core.run('workspace.readFile', { path: 'dang.md' })).rejects.toThrow(
+      /outside the workspace/,
+    );
+  });
+
+  it('a normal MISSING (non-symlink) file still reports not-found, not refused', async () => {
+    await expect(core.run('workspace.readFile', { path: 'nope.md' })).rejects.toThrow(
+      /does not exist/,
+    );
+  });
+
+  it('refuses to plant a new file under a DANGLING symlinked directory', async () => {
+    await symlink(join(outside, 'missing-dir'), join(ws, 'ddir')); // ddir -> outside/missing-dir (dangling)
+    await expect(
+      core.run('workspace.writeFile', { path: 'ddir/x.md', content: 'x' }),
+    ).rejects.toThrow(/outside the workspace/);
+    expect(existsSync(join(outside, 'missing-dir'))).toBe(false);
+  });
+});
+
+describe('.bh metadata DIRECTORY itself a symlink', () => {
+  it('listBadges does not enumerate through a symlinked .bh/badges directory', async () => {
+    const fresh = join(base, 'wsbsym');
+    await mkdir(join(fresh, '.bh'), { recursive: true });
+    const outBadges = join(base, 'outbadges');
+    await mkdir(outBadges, { recursive: true });
+    await writeFile(
+      join(outBadges, 'x.md.json'),
+      JSON.stringify({ file: 'x.md', kind: 'file', prompt: 'LEAK' }),
+    );
+    await symlink(outBadges, join(fresh, '.bh/badges')); // .bh/badges -> outside dir
+    await core.run('workspace.add', { path: fresh, name: 'wsbsym' });
+    const { badges } = await core.run('badge.list', {});
+    expect(badges.find((b: { file: string }) => b.file === 'x.md')).toBeUndefined();
+  });
+});
+
+describe('workspace.listFiles metadata oracle', () => {
+  it('refuses listing a symlinked-out dir and filters the escaping child from the root listing', async () => {
+    await mkdir(join(outside, 'sekrit'), { recursive: true });
+    await writeFile(join(outside, 'sekrit', 'k.txt'), 'k');
+    await symlink(outside, join(ws, 'docs')); // docs -> outside
+    await expect(core.run('workspace.listFiles', { path: join(ws, 'docs') })).rejects.toThrow(
+      /outside the workspace/,
+    );
+    const res = await core.run('workspace.listFiles', { path: ws });
+    expect(res.entries.find((e: { name: string }) => e.name === 'docs')).toBeUndefined();
+  });
+
+  it('still lists legitimate in-workspace dirs (no false rejection)', async () => {
+    await mkdir(join(ws, 'realdir'), { recursive: true });
+    await writeFile(join(ws, 'realdir', 'f.md'), 'f');
+    const res = await core.run('workspace.listFiles', { path: join(ws, 'realdir') });
+    expect(res.entries.find((e: { name: string }) => e.name === 'f.md')).toBeDefined();
+  });
+});
+
+describe('listViews symlink cycle (DoS)', () => {
+  it('view.list does not throw on a mutual symlink cycle in .bh/views/', async () => {
+    await mkdir(join(ws, '.bh/views'), { recursive: true });
+    await symlink(join(ws, '.bh/views/b.json'), join(ws, '.bh/views/a.json')); // a -> b
+    await symlink(join(ws, '.bh/views/a.json'), join(ws, '.bh/views/b.json')); // b -> a (ELOOP)
+    await expect(core.run('view.list', {})).resolves.toBeDefined();
+  });
 });
