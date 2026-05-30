@@ -261,11 +261,11 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [license]: LICENSE
 [trademark-policy]: docs/trademark-policy.md
 
-[badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-6366F1?style=for-the-badge&labelColor=0B1020
-[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-F59E0B?style=for-the-badge&labelColor=0B1020
-[badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=for-the-badge&logo=github&logoColor=white&labelColor=0B1020
-[badge-twitter]: https://img.shields.io/badge/X-Follow-111111?style=for-the-badge&logo=x&logoColor=white&labelColor=0B1020
-[badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=for-the-badge&logo=discord&logoColor=white&labelColor=0B1020
-[badge-qq-users]: https://img.shields.io/badge/QQ-Users-12B7F5?style=for-the-badge&labelColor=0B1020
-[badge-qq-developers]: https://img.shields.io/badge/QQ-Dev-06B6D4?style=for-the-badge&labelColor=0B1020
-[badge-license]: https://img.shields.io/badge/License-Apache--2.0-10B981?style=for-the-badge&labelColor=0B1020
+[badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
+[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-C0A8DD?style=flat&labelColor=1A1A17
+[badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
+[badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
+[badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=DBE7FB&labelColor=1A1A17
+[badge-qq-users]: https://img.shields.io/badge/QQ-Users-7EB8CD?style=flat&labelColor=1A1A17
+[badge-qq-developers]: https://img.shields.io/badge/QQ-Dev-9FBBE0?style=flat&labelColor=1A1A17
+[badge-license]: https://img.shields.io/badge/License-Apache--2.0-2A2B2B?style=flat&labelColor=1A1A17
