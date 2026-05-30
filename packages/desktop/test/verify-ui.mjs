@@ -62,12 +62,16 @@ writeFileSync(
   join(WORKSPACE_DIR, 'sample.ts'),
   'export const answer = 42;\r\nconsole.log(answer);\r\n',
 );
-// Seed a Markdown file that BlockNote's default config can't round-trip
-// cleanly (raw HTML <details> block). The MdEditor should flip into
-// view-only mode rather than silently lose the user's content on save.
+// Seed a Markdown file with constructs BlockNote can't model: an HTML comment
+// (which BlockNote parses to ZERO blocks → kept as a read-only passthrough
+// block) and a raw HTML <details> block (preserved byte-for-byte via the
+// content-addressed splice). Under the file-as-truth model the MdEditor stays
+// EDITABLE and a save preserves both verbatim instead of dropping them.
 writeFileSync(
   join(WORKSPACE_DIR, 'lossy.md'),
   `# Lossy
+
+<!-- bh:internal-marker -->
 
 This file contains a raw HTML block BlockNote can't round-trip:
 
@@ -1333,42 +1337,70 @@ await win.screenshot({ path: `${SCREENS_DIR}/09-external-adopt.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(300);
 
-// --- 7e. BlockNote view-only mode for lossy MD (data-loss safety).
-// Opening lossy.md should pop the status into "View only" because raw
-// HTML round-trips poorly through BlockNote's parser. The Save button
-// should disappear so the user can't accidentally overwrite. ---
-console.log('\n[7e] BlockNote view-only mode for lossy MD');
+// --- 7e. File-as-truth: a Markdown file with constructs BlockNote can't model
+// opens EDITABLE (not view-only); a zero-block construct (the HTML comment)
+// renders as a read-only passthrough block; and opening + closing with NO edit
+// leaves the file byte-identical on disk (no silent normalization on view). ---
+console.log('\n[7e] File-as-truth editing (passthrough + byte-identity)');
+const lossyBefore = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
 await sidebar.locator('button', { hasText: 'lossy.md' }).first().click();
 await win.waitForTimeout(900);
-const lossyPreview = await win.locator('aside').last().innerText();
-const sawViewOnly = lossyPreview.includes('View only');
+const lossyOverlay = win.locator('aside').last();
+const lossyPreview = await lossyOverlay.innerText();
 console.log(
   '     preview snippet →',
   JSON.stringify(lossyPreview.split('\n').slice(0, 4).join(' | ')),
 );
+// Editable now (NOT view-only) — the whole point of the refactor.
 assert(
-  sawViewOnly,
-  `MdEditor flips to "View only" for lossy MD (raw HTML <details>) (snippet: ${JSON.stringify(lossyPreview.slice(0, 200))})`,
+  !/View only/i.test(lossyPreview),
+  `lossy MD opens EDITABLE, not view-only (snippet: ${JSON.stringify(lossyPreview.slice(0, 160))})`,
 );
-// Save button shouldn't be rendered in view-only mode (FilePreview hides it).
-const saveBtnsInPreview = await win
-  .locator('aside')
-  .last()
-  .locator('button', { hasText: /^Save$/ })
-  .count();
-assert(
-  saveBtnsInPreview === 0,
-  `Save button hidden in view-only mode (found ${saveBtnsInPreview})`,
-);
-// Editor must be non-editable.
 const editable = await win.locator('.ProseMirror').first().getAttribute('contenteditable');
+assert(editable === 'true', `ProseMirror is editable for a file-as-truth note (got ${editable})`);
+// The HTML comment (zero blocks in BlockNote) is kept as a read-only passthrough
+// block so it's visible and survives a save verbatim.
+const passthroughText = await lossyOverlay.locator('[data-bh-raw-passthrough]').first().innerText();
 assert(
-  editable === 'false',
-  `ProseMirror contenteditable=false in view-only mode (got ${editable})`,
+  passthroughText.includes('bh:internal-marker'),
+  `the HTML comment is kept as a read-only passthrough block (got ${JSON.stringify(passthroughText)})`,
 );
-await win.screenshot({ path: `${SCREENS_DIR}/11-view-only.png` });
+await win.screenshot({ path: `${SCREENS_DIR}/11-file-truth-editable.png` });
+// Close WITHOUT editing → the file must be byte-identical (no rewrite on view).
 await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
+await win.waitForTimeout(500);
+const lossyAfterView = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
+assert(
+  lossyAfterView === lossyBefore,
+  'opening + closing a note with no edit leaves it byte-identical on disk',
+);
+
+// --- 7e2. Editing one paragraph saves a localized splice: the edit lands and the
+// un-modelable <details> region survives byte-for-byte (never dropped). ---
+console.log('\n[7e2] Localized splice save keeps untouched constructs verbatim');
+await sidebar.locator('button', { hasText: 'lossy.md' }).first().click();
+await win.waitForTimeout(700);
+// Click into the first editable prose paragraph and append text.
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.press('End');
+await win.keyboard.type(' EDITED-INLINE');
+await win.waitForTimeout(900); // past the 400ms autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const lossyAfterEdit = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
+assert(
+  lossyAfterEdit.includes('EDITED-INLINE'),
+  `the inline edit landed on disk (got: ${JSON.stringify(lossyAfterEdit.slice(0, 120))})`,
+);
+assert(
+  lossyAfterEdit.includes('<details>') && lossyAfterEdit.includes('</details>'),
+  'the raw <details> block survived the save byte-for-byte (not dropped)',
+);
+assert(
+  lossyAfterEdit.includes('<!-- bh:internal-marker -->'),
+  'the HTML comment (passthrough block) survived the save byte-for-byte',
+);
+await win.waitForTimeout(150);
 
 // --- 7f. Media viewers: PDF iframe + audio/video elements pass through
 // to file:// URLs with the right element type. ---
@@ -1438,9 +1470,11 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(400);
 const fmAfter = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+// File = truth: opening + closing with no edit rewrites NOTHING — the whole
+// file (frontmatter + body) is byte-identical, not just the frontmatter prefix.
 assert(
-  fmAfter.startsWith('---\ntitle: Frontmatter Note\ntags: [a, b]\n---'),
-  `frontmatter preserved verbatim (opening + closing didn't mangle it; got ${JSON.stringify(fmAfter.slice(0, 60))})`,
+  fmAfter === fmBefore,
+  `a frontmatter note is byte-identical after open+close with no edit (got ${JSON.stringify(fmAfter.slice(0, 60))})`,
 );
 
 // --- 7j. Unsupported file → "Open in default app" (not a dead end), and the

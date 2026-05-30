@@ -19,8 +19,9 @@ import {
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { emitBadgeChange } from '../lib/badgeBus.js';
+import { bhSchema } from '../lib/blocknoteSchema.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
-import { isLossyRoundTrip } from '../lib/mdLossy.js';
+import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
@@ -932,7 +933,7 @@ const ReferenceRow = ({
 const AUTOSAVE_MS = 400;
 
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
-  const editor = useCreateBlockNote();
+  const editor = useCreateBlockNote({ schema: bhSchema });
   const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
@@ -952,6 +953,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // (ubiquitous in Obsidian/Jekyll) is forced view-only because YAML can't
   // round-trip. Empty string when the file has no frontmatter.
   const frontmatterRef = useRef('');
+  // Content-addressed verbatim-reuse index (BlockNote-normalized key → original
+  // source tiles) built from the body on load, so the splice-save can re-emit
+  // untouched blocks byte-for-byte. Refreshed after each successful write.
+  const segIndexRef = useRef<Map<string, string[]>>(new Map());
   // True once the user typed but the debounced save hasn't flushed yet.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
@@ -968,27 +973,31 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           path: file,
         })) as WorkspaceReadFileResult;
         const original = result.content;
-        // Peel off any leading YAML frontmatter; BlockNote only sees the body.
+        // Peel any leading YAML frontmatter and keep it byte-verbatim; BlockNote
+        // only ever sees the body, which is the source of truth. The projection
+        // tiles the body into source-exact segments so the splice-save can reuse
+        // untouched bytes (see mdSegment.ts).
         const { frontmatter, body } = splitFrontmatter(original);
         frontmatterRef.current = frontmatter;
-        const blocks = await editor.tryParseMarkdownToBlocks(body);
+        const { blocks, segIndex } = await buildLoadProjection(
+          editor as unknown as MdEditorApi,
+          body,
+        );
+        segIndexRef.current = segIndex;
         editor.replaceBlocks(
           editor.document,
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
-        const bodyReserialized = await editor.blocksToMarkdownLossy(editor.document);
-        const reserialized = frontmatter + bodyReserialized;
-        // Seed with the NORMALIZED serialization (what flush would write), not
-        // the raw disk bytes — so merely viewing + closing a file never
-        // rewrites it; only a real edit (md ≠ this) triggers a save.
-        lastDiskRef.current = reserialized;
+        // File = truth: the echo baseline is the EXACT disk bytes. A save only
+        // happens on a real edit (the pendingRef guard in flush), and our own
+        // write echoes back equal to this — so merely viewing never rewrites.
+        lastDiskRef.current = original;
         pendingRef.current = false;
-        // .txt is not markdown — BlockNote would reflow it on save. Keep plain
-        // text view-only so auto-save can't reformat it. The lossy guard checks
-        // only the BODY (frontmatter is preserved verbatim, never round-tripped),
-        // so a frontmatter note with a clean body is now editable.
-        const plainText = /\.txt$/i.test(file);
-        setViewOnly(plainText || isLossyRoundTrip(body, bodyReserialized));
+        // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
+        // reinterpret its structure. Every Markdown file is now editable; the
+        // splice-save preserves anything the user doesn't touch (incl. constructs
+        // BlockNote can't model, kept as read-only passthrough blocks).
+        setViewOnly(/\.txt$/i.test(file));
         setSaving(false);
         setReloadPrompt(false);
         setError('');
@@ -1006,10 +1015,23 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // write so the watcher echo of our own write compares equal and is ignored.
   const flush = useCallback(async (): Promise<void> => {
     if (viewOnlyRef.current) return;
+    // Only the user's own edits write back. A mere open/close — or a flush before
+    // switching files — must never rewrite the file, even when the projection
+    // would normalize a multi-block region it can't index verbatim.
+    if (!pendingRef.current) {
+      setSaving(false);
+      return;
+    }
     let md: string;
     try {
-      // Re-prepend the preserved frontmatter; BlockNote only owns the body.
-      md = frontmatterRef.current + (await editor.blocksToMarkdownLossy(editor.document));
+      // Splice: untouched blocks re-emit their verbatim source; only edited/new
+      // blocks are re-serialized. Frontmatter is re-prepended inside spliceSave.
+      md = await spliceSave(
+        editor as unknown as MdEditorApi,
+        editor.document,
+        frontmatterRef.current,
+        segIndexRef.current,
+      );
     } catch {
       return; // editor torn down mid-flush — nothing safe to write
     }
@@ -1020,12 +1042,21 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     }
     try {
       await window.bh.run('workspace.writeFile', { path: file, content: md });
-      // Only AFTER a successful write: mark synced (a failed write keeps
-      // lastDiskRef old so the next auto-save retries) and clear pending (kept
-      // true during the write so a mid-write external change still conflicts
-      // rather than being silently overwritten).
+      // Only AFTER a successful write: mark synced to the EXACT bytes written (so
+      // the watcher echo compares equal) and clear pending (kept true during the
+      // write so a mid-write external change still conflicts rather than being
+      // silently overwritten).
       lastDiskRef.current = md;
       pendingRef.current = false;
+      // Re-index against the new on-disk truth so the next edit splices against
+      // current bytes (does not touch the live editor document).
+      try {
+        segIndexRef.current = (
+          await buildLoadProjection(editor as unknown as MdEditorApi, splitFrontmatter(md).body)
+        ).segIndex;
+      } catch {
+        // keep the prior index; worst case the next save normalizes a bit more
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1145,7 +1176,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
 
   const status: { label: string; dot: string; fg: string } = viewOnly
     ? {
-        label: 'View only — this file uses Markdown features the editor can’t round-trip safely',
+        label: 'View only — plain-text files are read-only here; edit them with your own tools',
         dot: color.warning,
         fg: color.warning,
       }
