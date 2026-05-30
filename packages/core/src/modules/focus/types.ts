@@ -45,6 +45,16 @@ export interface FocusClearResult {
   readonly cleared: true;
 }
 
+export type FocusBriefArgs = Record<string, never>;
+export interface FocusBriefResult {
+  /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
+   *  agent reads each message. Surfaced so the desktop can offer a one-click
+   *  "copy what my agent sees" for pasting into any AI chat (not just a
+   *  Claude-Code-in-repo auto-read flow). Empty string when no focus.md exists
+   *  or nothing is focused. */
+  readonly brief: string;
+}
+
 export type FocusInitArgs = Record<string, never>;
 export interface FocusInitResult {
   /** True when this call wrote the empty template; false when it was already

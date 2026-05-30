@@ -7,6 +7,8 @@ import {
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { focusPath, readFocusBrief, writeFocus } from './store.js';
 import type {
+  FocusBriefArgs,
+  FocusBriefResult,
   FocusClearArgs,
   FocusClearResult,
   FocusGetArgs,
@@ -137,6 +139,22 @@ export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => 
   return readFocusBrief(ctx.fs, root);
 };
 
+/**
+ * Return `.bh/focus.md` verbatim — the exact turn brief the agent reads. This
+ * is the same file `focus.get` parses, but `get` returns the round-trippable
+ * state (active paths + intent) whereas `brief` returns the human-readable
+ * Markdown the agent actually consumes, so the desktop can offer "copy what my
+ * agent sees" for pasting into any chat. Read-only; empty string when absent.
+ */
+export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const raw = await readMaybeNoFollow(
+    ctx.fs,
+    await assertReadContained(ctx.fs, root, focusPath(root)),
+  );
+  return { brief: raw ?? '' };
+};
+
 export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   await withFocusLock(root, () => writeFocus(ctx.fs, root, []));
@@ -168,6 +186,7 @@ export function commands(): ReadonlyArray<
   return [
     ['focus.set', set as unknown as Handler<never, unknown>],
     ['focus.get', get as unknown as Handler<never, unknown>],
+    ['focus.brief', brief as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],

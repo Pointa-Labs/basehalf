@@ -23,7 +23,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { color, font, motion, radius, shadow, space } from '../design.js';
+import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -422,6 +422,24 @@ export const Canvas = (): JSX.Element => {
     })();
   }, []);
 
+  // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
+  // paste exactly what their agent reads into ANY chat — making the otherwise
+  // invisible payoff of curation tangible and portable (not just the
+  // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
+  const [briefCopied, setBriefCopied] = useState(false);
+  const copyBrief = useCallback(() => {
+    void (async () => {
+      try {
+        const { brief } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        await navigator.clipboard.writeText(brief);
+        setBriefCopied(true);
+        window.setTimeout(() => setBriefCopied(false), 1600);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, []);
+
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
@@ -551,6 +569,27 @@ export const Canvas = (): JSX.Element => {
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
             </span>
           </span>
+          <button
+            type="button"
+            onClick={copyBrief}
+            title="Copy the brief your agent reads — paste it into any AI chat"
+            data-testid="focus-copy-brief"
+            style={{
+              border: 'none',
+              background: briefCopied ? color.accentSofter : 'transparent',
+              color: briefCopied ? color.accent : color.textSecondary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              fontWeight: font.weight.medium,
+              cursor: 'pointer',
+              padding: `${space[0.5]}px ${space[2]}px`,
+              borderRadius: radius.pill,
+              whiteSpace: 'nowrap',
+              transition: transition(['background', 'color']),
+            }}
+          >
+            {briefCopied ? 'Copied ✓' : 'Copy brief'}
+          </button>
           <button
             type="button"
             onClick={clearFocus}

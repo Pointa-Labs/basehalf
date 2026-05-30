@@ -367,9 +367,21 @@ const focusClear = defineCommand({
   },
 });
 
+const focusBrief = defineCommand({
+  meta: {
+    name: 'brief',
+    description: 'Print the current turn brief (.bh/focus.md) — what the agent reads',
+  },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('focus.brief', {});
+    render('focus.brief', result, Boolean(args.json));
+  },
+});
+
 const focus = defineCommand({
   meta: { name: 'focus', description: 'Read / write the agent focus signal' },
-  subCommands: { set: focusSet, get: focusGet, clear: focusClear },
+  subCommands: { set: focusSet, get: focusGet, brief: focusBrief, clear: focusClear },
 });
 
 // ── view.* ─────────────────────────────────────────────────────────────────

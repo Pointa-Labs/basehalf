@@ -87,8 +87,13 @@ internal `focus.resync` (no manual re-focus needed, CLI/agent edits included).
 ```bash
 bh focus set --files <csv>   # or --view <id>
 bh focus get
+bh focus brief               # print .bh/focus.md verbatim — the brief the agent reads
 bh focus clear
 ```
+
+`bh focus brief` (and the desktop focus chip's **Copy brief** button) hand back
+the turn brief verbatim so it can be pasted into any AI chat — making the
+curated context portable beyond the Claude-Code-auto-read-in-repo path.
 
 A *saved view* is a named, free-position grouping of badges that need to
 sit together in one canvas even if they live in different workspace
