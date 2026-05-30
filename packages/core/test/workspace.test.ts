@@ -376,9 +376,11 @@ describe('workspace module (mock FS)', () => {
       'practice.md',
       'theory.md',
     ]);
-    // focus.md points at intro.md (so an agent's first read returns useful info).
-    const focus = (await core.run('focus.get', {})) as { active: string[] };
+    // focus.md points at intro.md (so an agent's first read returns useful info)
+    // AND carries an intent, so the demo showcases the full turn brief (#91).
+    const focus = (await core.run('focus.get', {})) as { active: string[]; intent?: string };
     expect(focus.active).toEqual(['intro.md']);
+    expect(focus.intent).toBeTruthy();
   });
 
   it('createDemo: does NOT overwrite existing files with the same name', async () => {

@@ -568,8 +568,15 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     .catch(() => undefined);
 
   // Focus the intro file so the agent's first read of focus.md returns
-  // a useful pointer instead of (none).
-  await ctx.run('focus.set', { files: ['intro.md'] });
+  // a useful pointer instead of (none) — AND seed an intent so the demo's
+  // first-run focus.md showcases the COMPLETE turn brief (intent + active +
+  // inlined prompt + refs, #91), not a subset. The intent mirrors the exact
+  // question intro.md invites the user to ask, so the agent's first read is a
+  // natural, self-contained handoff.
+  await ctx.run('focus.set', {
+    files: ['intro.md'],
+    intent: 'Get oriented in this workspace — what is it about, and how do these files connect?',
+  });
 
   return {
     workspace: addResult.workspace,
