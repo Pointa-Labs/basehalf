@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { type Segment, segmentBody } from '../src/renderer/src/lib/mdSegment.js';
+import {
+  type Segment,
+  contentTokens,
+  losesContent,
+  segmentBody,
+} from '../src/renderer/src/lib/mdSegment.js';
 
 // segmentBody is pure (mdast only, no BlockNote), so it runs in the Node test env.
 // The load-time projection + splice-save (which need a real BlockNote/DOM) are
@@ -92,5 +97,24 @@ describe('segmentBody — byte-exact tiling of the body', () => {
         expect(seg.raw).toContain(seg.source);
       }
     }
+  });
+});
+
+describe('losesContent — guards segments whose round-trip drops content', () => {
+  it('extracts letter/digit runs as content tokens (ignores markup)', () => {
+    expect(contentTokens('Keep <!-- x --> this')).toBe('Keep x this');
+    expect(contentTokens('**bold** and _em_')).toBe('bold and em');
+    expect(contentTokens('中文 ok 123')).toBe('中文 ok 123');
+  });
+
+  it('flags a span whose normalized form lost a token (inline comment dropped)', () => {
+    // BlockNote turns `Keep <!-- secret --> this` into `Keep  this` (comment gone).
+    expect(losesContent('Keep <!-- secret --> this', 'Keep  this')).toBe(true);
+  });
+
+  it('does NOT flag pure formatting churn (same tokens, different markup)', () => {
+    expect(losesContent('* a\n* b', '- a\n- b')).toBe(false); // bullet marker swap
+    expect(losesContent('soft\nwrap', 'soft wrap')).toBe(false); // wrap → space
+    expect(losesContent('Plain **bold** here', 'Plain **bold** here')).toBe(false);
   });
 });

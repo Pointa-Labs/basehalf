@@ -82,6 +82,8 @@ This file contains a raw HTML block BlockNote can't round-trip:
   Hidden detail that BlockNote will drop on re-serialize.
 </details>
 
+A paragraph with an <!-- inline secret --> inline comment stays read-only.
+
 End.
 `,
 );
@@ -1411,6 +1413,10 @@ assert(
 assert(
   lossyAfterEdit.includes('<details>') && lossyAfterEdit.includes('</details>'),
   'the raw <details> block survived the save byte-for-byte (not dropped)',
+);
+assert(
+  lossyAfterEdit.includes('<!-- inline secret -->'),
+  'an inline comment inside a paragraph survived (its span stays read-only, not lossy)',
 );
 assert(
   lossyAfterEdit.includes('<!-- bh:internal-marker -->'),

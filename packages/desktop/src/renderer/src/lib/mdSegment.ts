@@ -15,11 +15,13 @@
  *     bytes, for content-keying) and `raw` (the full source tile including the
  *     original surrounding whitespace) such that concatenating every `raw`
  *     reproduces the body byte-for-byte.
- *  2. `buildLoadProjection` parses each segment through BlockNote. A segment that
- *     BlockNote nukes to nothing (HTML comments, exotic raw HTML) becomes a
- *     read-only `rawPassthrough` block carrying its verbatim `raw`. A segment that
- *     yields exactly one block is recorded in `byId` keyed by that block's stable
- *     id → { its normalized form, its verbatim `raw` }.
+ *  2. `buildLoadProjection` parses each segment through BlockNote. A segment whose
+ *     round-trip would DROP content — nuked to nothing (a standalone HTML comment)
+ *     OR partially stripped (an inline comment / raw tag inside a paragraph) —
+ *     becomes a read-only `rawPassthrough` block carrying its verbatim `raw`, so
+ *     editing can't silently delete it. A cleanly round-tripping single-block
+ *     segment is recorded in `byId` keyed by that block's stable id → its
+ *     normalized form + verbatim tile.
  *  3. `spliceSave` walks the edited document; each block emits ITSELF plus its
  *     own trailing separator, so concatenation alone rebuilds the document.
  *     Unchanged block → its verbatim tile; edited block → its new Markdown wrapped
@@ -180,6 +182,21 @@ function isDropped(blocks: unknown[]): boolean {
   return blocks.every((b) => isEmptyParagraph(b as { type?: string; content?: unknown }));
 }
 
+/** Runs of letters/digits — the document's CONTENT, ignoring markup/whitespace.
+ *  `\p{L}\p{N}` covers CJK etc., not just ASCII. */
+export function contentTokens(md: string): string {
+  return (md.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
+}
+
+/** True when BlockNote's round-trip of a segment DROPS content (not just reflows
+ *  formatting) — e.g. an inline HTML comment or raw tag inside an otherwise
+ *  editable paragraph. `parsed.length === 1` doesn't catch these (the paragraph
+ *  survives), so we compare content tokens: if they differ, editing the block
+ *  would silently delete the construct, so the segment stays read-only. */
+export function losesContent(source: string, normalized: string): boolean {
+  return contentTokens(source) !== contentTokens(normalized);
+}
+
 async function normalize(editor: MdEditorApi, blocks: unknown[]): Promise<string> {
   return (await editor.blocksToMarkdownLossy(blocks)).trimEnd();
 }
@@ -195,6 +212,15 @@ function idOf(block: unknown): string | undefined {
  *  editor keeps it invisible rather than surfacing it as a block. */
 function isOwnMarker(source: string): boolean {
   return /^\s*<!--\s*bh:/.test(source);
+}
+
+/** A read-only passthrough block carrying a span verbatim: hidden when it's bh's
+ *  own marker, shown quietly when it's the user's content. */
+function passthroughBlock(seg: Segment): unknown {
+  return {
+    type: RAW_PASSTHROUGH,
+    props: { raw: seg.raw, source: seg.source, hidden: isOwnMarker(seg.source) },
+  };
 }
 
 /** Parse a body into editor blocks + the identity-addressed reuse index. The
@@ -215,28 +241,24 @@ export async function buildLoadProjection(
       parsed = [];
     }
     if (isDropped(parsed)) {
-      // BlockNote can't model this span (HTML comment / exotic raw HTML). Carry
-      // it verbatim in a passthrough block — hidden if it's bh's own marker,
-      // shown quietly if it's the user's.
-      blocks.push({
-        type: RAW_PASSTHROUGH,
-        props: { raw: seg.raw, source: seg.source, hidden: isOwnMarker(seg.source) },
-      });
+      // BlockNote can't model this span at all (HTML comment / exotic raw HTML).
+      blocks.push(passthroughBlock(seg));
+      continue;
+    }
+    const norm = await normalize(editor, parsed);
+    if (losesContent(seg.source, norm)) {
+      // The span parses to a real block but BlockNote DROPS part of it (e.g. an
+      // inline HTML comment in a paragraph). Editing it would silently delete the
+      // construct, so keep the whole span read-only verbatim rather than lossy.
+      blocks.push(passthroughBlock(seg));
       continue;
     }
     // Index single-block segments by their stable block id. Multi-block segments
-    // (e.g. a multi-paragraph blockquote) aren't indexed — they normalize on edit
-    // (no content loss); see the header note.
+    // (e.g. a multi-paragraph blockquote) aren't indexed — they reflow on edit but
+    // (having passed the loss check) never drop content; see the header note.
     if (parsed.length === 1) {
       const id = idOf(parsed[0]);
-      if (id) {
-        byId.set(id, {
-          key: await normalize(editor, parsed),
-          raw: seg.raw,
-          prefix: seg.prefix,
-          sep: seg.sep,
-        });
-      }
+      if (id) byId.set(id, { key: norm, raw: seg.raw, prefix: seg.prefix, sep: seg.sep });
     }
     for (const b of parsed) blocks.push(b);
   }
