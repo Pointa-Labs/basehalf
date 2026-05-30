@@ -26,6 +26,8 @@ import type {
   FocusResyncResult,
   FocusSetArgs,
   FocusSetResult,
+  FocusToggleActiveFileArgs,
+  FocusToggleActiveFileResult,
 } from './types.js';
 
 async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
@@ -203,6 +205,30 @@ export const renameActiveFile: Handler<
 };
 
 /**
+ * Add (if absent) or remove (if present) one file from the active set,
+ * PRESERVING the intent + `# source-view:` provenance. Shift+click on the canvas
+ * refines an existing focus set; routing that through focus.set({files}) would
+ * drop both the curated `intent:` and the provenance — severing a view-sourced
+ * focus's refresh link and silently losing the turn intent. Atomic under the
+ * focus lock; returns the new active set so the caller skips a re-read.
+ */
+export const toggleActiveFile: Handler<
+  FocusToggleActiveFileArgs,
+  FocusToggleActiveFileResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, sourceView } = await readFocusBrief(ctx.fs, root);
+    const next = active.includes(args.file)
+      ? active.filter((f) => f !== args.file)
+      : [...active, args.file];
+    const items = await assembleItems(ctx, next);
+    await writeFocus(ctx.fs, root, items, intent, sourceView); // preserve BOTH
+    return { active: next };
+  });
+};
+
+/**
  * Re-render focus.md from its CURRENT active list with FRESH badge data,
  * preserving the `intent:` line. This is the core reconcile the renderer used
  * to fake in `resyncFocusForFile`: an in-app / CLI / agent edit to a badge's
@@ -285,6 +311,7 @@ export function commands(): ReadonlyArray<
     ['focus.refreshViewIntent', refreshViewIntent as unknown as Handler<never, unknown>],
     ['focus.clearProvenanceIfView', clearProvenanceIfView as unknown as Handler<never, unknown>],
     ['focus.renameActiveFile', renameActiveFile as unknown as Handler<never, unknown>],
+    ['focus.toggleActiveFile', toggleActiveFile as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],

@@ -81,6 +81,18 @@ export interface FocusRenameActiveFileResult {
   readonly renamed: boolean;
 }
 
+export interface FocusToggleActiveFileArgs {
+  /** File to add (if absent) or remove (if present) from the active set. The
+   *  turn intent + source-view provenance are PRESERVED — so refining a
+   *  view-sourced focus by shift+click doesn't sever the view→brief refresh
+   *  link or drop the curated intent (which a bare focus.set({files}) would). */
+  readonly file: string;
+}
+export interface FocusToggleActiveFileResult {
+  /** The active set after the toggle. */
+  readonly active: readonly string[];
+}
+
 export type FocusBriefArgs = Record<string, never>;
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
