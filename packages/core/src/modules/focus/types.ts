@@ -51,3 +51,15 @@ export interface FocusInitResult {
    *  present and we left it alone. */
   readonly created: boolean;
 }
+
+export interface FocusResyncArgs {
+  /** When given, resync is a no-op unless this file is in the active list —
+   *  so a badge edit on an UNfocused file (e.g. eager materialize) doesn't
+   *  rewrite focus.md. Omit to force a resync of the whole active list. */
+  readonly file?: string;
+}
+export interface FocusResyncResult {
+  /** True when focus.md was re-rendered (the file was active); false when the
+   *  active list was empty or didn't include `file`. */
+  readonly resynced: boolean;
+}

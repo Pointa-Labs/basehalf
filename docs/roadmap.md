@@ -91,14 +91,18 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   fix is content-based text detection (null-byte / non-printable sniff) gated on
   a **capped** `workspace.readFile` so a large unknown binary can't be slurped
   whole; do it properly rather than an ever-growing extension allowlist.
-- **Core-level `.bh/` reconcile.** In-app edits to a badge (prompt / refs) need to
-  refresh derived caches that the file watcher can't see (it ignores `.bh/`
-  writes). v0 wires this in the renderer (the editor panel pings the canvas via a
-  badge bus, and re-sets focus when a focused file is edited). The robust version
-  is in core: `badge.set/addRef/removeRef` reconcile `focus.md` like they already
-  reconcile `inbound.json` — needs a `focus.resync` that preserves the `intent:`
-  line and a focus-file `createKeyedMutex` (resync is the first read-modify-write
-  on focus.md), which then also covers CLI / agent edits, not just the desktop.
+- **Core-level `.bh/` reconcile.** ✅ _shipped (focus.md leg)._ In-app edits to a
+  badge (prompt / refs) refresh derived caches the file watcher can't see (it
+  ignores `.bh/` writes). v0 first wired this in the renderer (editor panel pings
+  the canvas via a badge bus + re-set focus on a focused-file edit); the robust
+  version is now in core: `badge.set/addRef/removeRef` call `focus.resync`, which
+  re-inlines the active brief with fresh badge data and PRESERVES the `intent:`
+  line, guarded by a focus-file `createKeyedMutex` (resync is a read-modify-write
+  on focus.md). It no-ops when the edited file isn't active, so eager materialize
+  doesn't churn focus.md. This now covers CLI / agent edits, not just the desktop;
+  the renderer's `resyncFocusForFile` is consequently redundant (a follow-up can
+  remove it). The canvas badge-bus refresh (a UI concern the watcher can't cover)
+  stays in the renderer.
 - **Edit a folder badge's prompt in the desktop UI.** Folders are first-class
   agent-protocol badges (a folder `.badge.json` carries a prompt + refs), but the
   desktop has no gesture to open a folder's panel: single-click focuses,
