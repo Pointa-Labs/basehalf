@@ -150,10 +150,18 @@ export type WorkspaceGetViewportResult = ViewportState | null;
  * files — used by the BlockNote editor (PR 14) and nothing else for v0. */
 export interface WorkspaceReadFileArgs {
   readonly path: string;
+  /** Optional cap: return at most this many characters of content. Lets a
+   *  preview/viewer avoid shipping a multi-MB file across the IPC boundary and
+   *  holding it whole in the renderer when only a slice is ever shown. When
+   *  omitted, the full file is returned (editor save-path needs the whole file). */
+  readonly maxChars?: number;
 }
 export interface WorkspaceReadFileResult {
   readonly path: string;
   readonly content: string;
+  /** True when `maxChars` was set and the file was longer — i.e. `content` is a
+   *  prefix. Lets the caller show a "… N more" affordance honestly. */
+  readonly truncated?: boolean;
 }
 
 export interface WorkspaceWriteFileArgs {

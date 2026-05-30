@@ -18,25 +18,47 @@ import {
   useState,
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { emitBadgeChange } from '../lib/badgeBus.js';
+import { splitFrontmatter } from '../lib/frontmatter.js';
 import { isLossyRoundTrip } from '../lib/mdLossy.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
+import { badgeType } from './FileGlyph.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
   ms: number,
-): ((...args: TArgs) => void) & { cancel: () => void } {
+): ((...args: TArgs) => void) & { cancel: () => void; flush: () => void } {
   let t: ReturnType<typeof setTimeout> | undefined;
+  let pending: TArgs | undefined;
   const wrapped = (...args: TArgs): void => {
+    pending = args;
     if (t) clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+    t = setTimeout(() => {
+      t = undefined;
+      pending = undefined;
+      fn(...args);
+    }, ms);
   };
   // Cancel a pending call — used to drop a queued auto-save when the editor
   // unmounts, so it can't fire against a stale closure after a context switch.
   wrapped.cancel = (): void => {
     if (t) clearTimeout(t);
     t = undefined;
+    pending = undefined;
+  };
+  // Run a pending call immediately — used on close/unmount of fields whose
+  // edit must persist (e.g. the badge prompt) instead of being dropped with
+  // the timer when the user closes within the debounce window.
+  wrapped.flush = (): void => {
+    if (t) clearTimeout(t);
+    t = undefined;
+    if (pending !== undefined) {
+      const args = pending;
+      pending = undefined;
+      fn(...args);
+    }
   };
   return wrapped;
 }
@@ -46,7 +68,7 @@ function extOf(path: string): string {
   return dot === -1 ? '' : path.slice(dot).toLowerCase();
 }
 
-type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'other';
+type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'text' | 'other';
 
 function modeOf(path: string): ViewerMode {
   const e = extOf(path);
@@ -55,6 +77,13 @@ function modeOf(path: string): ViewerMode {
   if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(e)) return 'image';
   if (['.mp3', '.wav', '.m4a'].includes(e)) return 'audio';
   if (['.mp4', '.mov', '.webm'].includes(e)) return 'video';
+  // Code (.ts/.py/.json/…) and remaining text formats (.rst/.org/.mdx) get a
+  // read-only text viewer. Without it these were a dead-end "no viewer" even
+  // though the canvas tile already shows their content — a glaring gap for the
+  // AI-coding wedge (drop a src/ folder in, can't read a single file). bh stays
+  // a read-only workspace view here; agents/IDEs edit code with their own tools.
+  const bt = badgeType(path.slice(path.lastIndexOf('/') + 1), false);
+  if (bt === 'code' || bt === 'text') return 'text';
   return 'other';
 }
 
@@ -78,9 +107,15 @@ export const FilePreview = (): JSX.Element | null => {
   useEffect(() => {
     if (!currentFile) return;
     const onKey = (e: KeyboardEvent): void => {
-      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (e.key === 'Escape') {
-        // Don't fight BlockNote's own escape handling (e.g. exit a slash menu).
+        // Close from the document body and the media viewers (DIV targets).
+        // Skip when a form field has focus: both BlockNote (a contentEditable
+        // DIV — not matched here, so the editor body DOES close) and form
+        // fields can preventDefault Escape, so a `defaultPrevented` check is
+        // unreliable. Form fields handle their own Escape — the badge-prompt
+        // textarea closes on Escape via its scoped onKeyDown below — so a stray
+        // Escape mid-typing in another field doesn't yank the panel shut.
+        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
         setCurrentFile(null);
       } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
@@ -197,6 +232,7 @@ export const FilePreview = (): JSX.Element | null => {
         <BadgeProperties file={currentFile} />
         <div style={{ flex: 1, overflow: 'auto' }}>
           {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
+          {mode === 'text' && <TextViewer key={currentFile} file={currentFile} />}
           {mode === 'pdf' && <PdfViewer absPath={absPath} />}
           {mode === 'image' && <ImageViewer absPath={absPath} />}
           {mode === 'audio' && (
@@ -285,31 +321,7 @@ export const FilePreview = (): JSX.Element | null => {
               </video>
             </div>
           )}
-          {mode === 'other' && (
-            <div
-              style={{
-                padding: space[4],
-                fontFamily: font.sans,
-                fontSize: font.size.body,
-                color: color.textSecondary,
-              }}
-            >
-              <p style={{ margin: 0, marginBottom: space[2] }}>
-                No built-in viewer for this file type.
-              </p>
-              <p
-                style={{
-                  fontFamily: font.mono,
-                  fontSize: font.size.micro,
-                  color: color.textTertiary,
-                  margin: 0,
-                  wordBreak: 'break-all',
-                }}
-              >
-                {absPath}
-              </p>
-            </div>
-          )}
+          {mode === 'other' && <UnsupportedFileViewer file={currentFile} absPath={absPath} />}
         </div>
       </aside>
     </div>
@@ -325,6 +337,13 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   const [prompt, setPrompt] = useState('');
   const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
   const inboundCount = inbound.length;
+  // Surfaced when a badge write (prompt or a reference edit) fails, so the
+  // user never silently loses curation work they thought they saved. Cleared
+  // on the next successful write.
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // For the prompt textarea's own Escape-to-close (the global handler skips
+  // form fields, so the field closes the panel itself).
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -363,51 +382,100 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     };
   }, [file]);
 
+  // A panel edit to a FOCUSED file must also refresh `.bh/focus.md` — it inlines
+  // each focused file's prompt + ref notes (the agent's turn brief, #91), and a
+  // badge write does NOT regenerate it (focus.md re-inlines only on focus.set /
+  // clear). So without this the agent would keep reading the OLD prompt until the
+  // user re-clicked the badge. Re-setting the same active list re-inlines the
+  // fresh badge data — and we carry the existing `intent:` back through so a
+  // CLI/view-set turn intent isn't stripped by a desktop prompt edit. (The fully
+  // general fix — reconciling focus.md in core on ANY badge change with a
+  // focus-file mutex — is tracked as a v0.x follow-up.)
+  const resyncFocusForFile = useCallback(async () => {
+    try {
+      const { active, intent } = (await window.bh.run('focus.get', {})) as {
+        active: string[];
+        intent?: string;
+      };
+      if (active.includes(file)) {
+        await window.bh.run('focus.set', { files: active, ...(intent ? { intent } : {}) });
+      }
+    } catch {
+      // Non-fatal: focus.md refreshes on the next focus action.
+    }
+  }, [file]);
+
   // Debounced prompt save — typing in a textarea shouldn't write per keystroke.
   const savePrompt = useMemo(
     () =>
       debounce(async (next: string) => {
         try {
-          await window.bh.run('badge.set', {
-            file,
-            kind: 'file',
-            patch: { prompt: next },
-          });
-        } catch {
-          // Save errors propagate via Canvas's banner on next refresh.
+          await window.bh.run('badge.set', { file, kind: 'file', patch: { prompt: next } });
+          setSaveError(null);
+          emitBadgeChange(); // live-update the canvas badge's prompt
+          void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+        } catch (err) {
+          // The prompt is the literal instruction to the agent — never lose it
+          // silently. Surface so the user knows their edit didn't land.
+          setSaveError(`Couldn't save prompt: ${err instanceof Error ? err.message : String(err)}`);
         }
       }, 500),
-    [file],
+    [file, resyncFocusForFile],
   );
+
+  // Persist a just-typed prompt when the panel unmounts (Esc / Cmd-W / file or
+  // workspace switch) rather than dropping the queued save with its timer.
+  useEffect(() => () => savePrompt.flush(), [savePrompt]);
 
   const removeRef = useCallback(
     async (to: string) => {
-      await window.bh.run('badge.removeRef', { file, to });
-      setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
+      try {
+        await window.bh.run('badge.removeRef', { file, to });
+        setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
+        setSaveError(null);
+        emitBadgeChange(); // live-remove the edge from the canvas
+        void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+      } catch (err) {
+        setSaveError(
+          `Couldn't remove reference: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     },
-    [file],
+    [file, resyncFocusForFile],
   );
 
   const updateRefNote = useCallback(
     async (to: string, note: string) => {
       const trimmed = note.trim();
-      await window.bh.run('badge.addRef', {
-        file,
-        to,
-        ...(trimmed !== '' && { note: trimmed }),
-      });
-      setBadge((b) =>
-        b
-          ? {
-              ...b,
-              references: b.references.map((r) =>
-                r.to === to ? { ...r, ...(trimmed !== '' ? { note: trimmed } : {}) } : r,
-              ),
-            }
-          : b,
-      );
+      try {
+        await window.bh.run('badge.addRef', {
+          file,
+          to,
+          ...(trimmed !== '' && { note: trimmed }),
+        });
+        setBadge((b) =>
+          b
+            ? {
+                ...b,
+                // Clearing a note must DROP it locally too — core writes `{ to }`
+                // (no note), so spreading `{}` would keep the stale note in the
+                // optimistic copy and ReferenceRow would snap the input back to it.
+                references: b.references.map((r) =>
+                  r.to === to ? (trimmed !== '' ? { ...r, note: trimmed } : { to: r.to }) : r,
+                ),
+              }
+            : b,
+        );
+        setSaveError(null);
+        emitBadgeChange(); // live-update the edge's note on the canvas
+        void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+      } catch (err) {
+        setSaveError(
+          `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     },
-    [file],
+    [file, resyncFocusForFile],
   );
 
   // Add a reference to a different file. Driven by a prompt dialog so
@@ -433,9 +501,16 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     });
     const trimmed = to?.trim();
     if (!trimmed) return;
-    await window.bh.run('badge.addRef', { file, to: trimmed });
-    setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
-  }, [file, badge]);
+    try {
+      await window.bh.run('badge.addRef', { file, to: trimmed });
+      setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
+      setSaveError(null);
+      emitBadgeChange(); // live-add the edge to the canvas
+      void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+    } catch (err) {
+      setSaveError(`Couldn't add reference: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [file, badge, resyncFocusForFile]);
 
   const toggleCollapsed = (): void => {
     setCollapsed((c) => {
@@ -543,6 +618,15 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 setPrompt(e.target.value);
                 savePrompt(e.target.value);
               }}
+              onKeyDown={(e) => {
+                // Escape leaves the editor in one press from here too (the
+                // global handler skips form fields). Persist first.
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  savePrompt.flush();
+                  setCurrentFile(null);
+                }
+              }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
               rows={3}
               style={{
@@ -567,9 +651,29 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
               onBlur={(e) => {
                 e.currentTarget.style.borderColor = color.borderStrong;
                 e.currentTarget.style.boxShadow = 'none';
+                // Persist immediately on leaving the field rather than waiting
+                // out the 500ms debounce.
+                savePrompt.flush();
               }}
             />
           </label>
+          {saveError && (
+            <div
+              role="alert"
+              style={{
+                marginTop: space[2],
+                padding: `${space[1.5]}px ${space[3]}px`,
+                fontSize: font.size.caption,
+                fontFamily: font.sans,
+                color: color.danger,
+                background: `${color.danger}14`,
+                border: `1px solid ${color.danger}33`,
+                borderRadius: radius.md,
+              }}
+            >
+              {saveError}
+            </div>
+          )}
           <div>
             <div
               style={{
@@ -882,6 +986,11 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // What we believe is on disk — lets us ignore our own write echoes from the
   // watcher and detect genuine external edits.
   const lastDiskRef = useRef('');
+  // A leading YAML frontmatter block, kept VERBATIM and re-prepended on save so
+  // BlockNote only ever round-trips the body. Without this a frontmatter note
+  // (ubiquitous in Obsidian/Jekyll) is forced view-only because YAML can't
+  // round-trip. Empty string when the file has no frontmatter.
+  const frontmatterRef = useRef('');
   // True once the user typed but the debounced save hasn't flushed yet.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
@@ -898,21 +1007,27 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           path: file,
         })) as WorkspaceReadFileResult;
         const original = result.content;
-        const blocks = await editor.tryParseMarkdownToBlocks(original);
+        // Peel off any leading YAML frontmatter; BlockNote only sees the body.
+        const { frontmatter, body } = splitFrontmatter(original);
+        frontmatterRef.current = frontmatter;
+        const blocks = await editor.tryParseMarkdownToBlocks(body);
         editor.replaceBlocks(
           editor.document,
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
         );
-        const reserialized = await editor.blocksToMarkdownLossy(editor.document);
+        const bodyReserialized = await editor.blocksToMarkdownLossy(editor.document);
+        const reserialized = frontmatter + bodyReserialized;
         // Seed with the NORMALIZED serialization (what flush would write), not
         // the raw disk bytes — so merely viewing + closing a file never
         // rewrites it; only a real edit (md ≠ this) triggers a save.
         lastDiskRef.current = reserialized;
         pendingRef.current = false;
         // .txt is not markdown — BlockNote would reflow it on save. Keep plain
-        // text view-only so auto-save can't reformat it.
+        // text view-only so auto-save can't reformat it. The lossy guard checks
+        // only the BODY (frontmatter is preserved verbatim, never round-tripped),
+        // so a frontmatter note with a clean body is now editable.
         const plainText = /\.txt$/i.test(file);
-        setViewOnly(plainText || isLossyRoundTrip(original, reserialized));
+        setViewOnly(plainText || isLossyRoundTrip(body, bodyReserialized));
         setSaving(false);
         setReloadPrompt(false);
         setError('');
@@ -932,7 +1047,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     if (viewOnlyRef.current) return;
     let md: string;
     try {
-      md = await editor.blocksToMarkdownLossy(editor.document);
+      // Re-prepend the preserved frontmatter; BlockNote only owns the body.
+      md = frontmatterRef.current + (await editor.blocksToMarkdownLossy(editor.document));
     } catch {
       return; // editor torn down mid-flush — nothing safe to write
     }
@@ -1170,6 +1286,221 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           />
         </div>
       </div>
+    </div>
+  );
+};
+
+// Code with a line-number gutter: the gutter is sticky-left so it stays put on
+// horizontal scroll, and scrolls with the code vertically (shared scroll
+// container). Matching font/line-height keeps the numbers aligned with their
+// lines; white-space:pre (no wrap) guarantees one logical line == one row.
+//
+// Normalize line endings to \n FIRST: a CRLF (Windows) file otherwise keeps a
+// stray \r on every line, which a white-space:pre block can render as an extra
+// segment break (double-spacing) and pollutes any copy of the code. Normalizing
+// keeps the rendered lines matching the gutter. (Display-only; we never write.)
+const CodeBody = ({ text }: { text: string }): JSX.Element => {
+  const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+  const lineCount = body === '' ? 1 : body.split('\n').length;
+  const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
+  const lineStyle: CSSProperties = {
+    margin: 0,
+    fontFamily: font.mono,
+    fontSize: font.size.caption,
+    lineHeight: 1.6,
+    whiteSpace: 'pre',
+    tabSize: 2,
+  };
+  return (
+    <div style={{ display: 'flex', minHeight: '100%' }}>
+      <pre
+        aria-hidden
+        style={{
+          ...lineStyle,
+          padding: `${space[4]}px ${space[3]}px`,
+          textAlign: 'right',
+          color: color.textGhost,
+          background: color.surfaceMuted,
+          borderRight: `1px solid ${color.divider}`,
+          userSelect: 'none',
+          position: 'sticky',
+          left: 0,
+          flexShrink: 0,
+        }}
+      >
+        {gutter}
+      </pre>
+      <pre
+        style={{
+          ...lineStyle,
+          padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
+          color: color.textPrimary,
+        }}
+      >
+        {body}
+      </pre>
+    </div>
+  );
+};
+
+// Read-only viewer for code + text files (the editor handles .md/.txt; media
+// have their own viewers). bh is the workspace VIEW for these — agents/IDEs do
+// the editing — so this is deliberately read-only, with a quiet line saying so.
+// Huge files are capped to keep a <pre> from janking the UI.
+const TEXT_VIEW_CAP = 200_000;
+const TextViewer = ({ file }: { file: string }): JSX.Element => {
+  const [state, setState] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState(null);
+    setError(null);
+    void (async () => {
+      try {
+        // Ask core for only the prefix we'll render — a multi-MB file (a big
+        // package-lock.json, a minified bundle, a long .log) must NOT be shipped
+        // whole across IPC and held in renderer memory just to show 200k chars.
+        const res = (await window.bh.run('workspace.readFile', {
+          path: file,
+          maxChars: TEXT_VIEW_CAP,
+        })) as WorkspaceReadFileResult;
+        if (!cancelled) {
+          setState({ text: res.content ?? '', truncated: res.truncated === true });
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: space[2],
+          padding: `${space[2]}px ${space[4]}px`,
+          borderBottom: `1px solid ${color.divider}`,
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          color: color.textTertiary,
+          flexShrink: 0,
+        }}
+      >
+        <span
+          aria-hidden
+          style={{ width: 8, height: 8, borderRadius: '50%', background: color.textGhost }}
+        />
+        Read-only — edit with your own tools
+      </div>
+      <div style={{ flex: 1, overflow: 'auto' }}>
+        {error !== null ? (
+          <div
+            style={{
+              padding: space[4],
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              color: color.danger,
+            }}
+          >
+            {error}
+          </div>
+        ) : state === null ? (
+          <div
+            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
+          >
+            …
+          </div>
+        ) : (
+          <>
+            {state.text === '' ? (
+              <div
+                style={{
+                  padding: space[4],
+                  fontFamily: font.mono,
+                  fontSize: font.size.caption,
+                  color: color.textTertiary,
+                }}
+              >
+                empty file
+              </div>
+            ) : (
+              <CodeBody text={state.text} />
+            )}
+            {state.truncated && (
+              <div
+                style={{
+                  padding: `${space[2]}px ${space[4]}px ${space[4]}px`,
+                  fontFamily: font.sans,
+                  fontSize: font.size.micro,
+                  color: color.textTertiary,
+                }}
+              >
+                … truncated (showing the first {TEXT_VIEW_CAP.toLocaleString()} characters) — open
+                the file in your editor for the full contents.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// No inline viewer (Office docs, archives, binaries…). Rather than a dead end,
+// offer to open the file in the OS default app (the roadmap's "open in system
+// app" for .docx/.pptx etc.) — bh stays the workspace view; the right app does
+// the rendering. Path opens are resolved inside the current workspace in main.
+const UnsupportedFileViewer = ({
+  file,
+  absPath,
+}: { file: string; absPath: string }): JSX.Element => {
+  const [error, setError] = useState<string | null>(null);
+  const openInApp = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await window.bh.openPath(file);
+      if (!res.ok) setError(res.error ?? "Couldn't open the file.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [file]);
+  return (
+    <div
+      style={{
+        padding: space[4],
+        fontFamily: font.sans,
+        fontSize: font.size.body,
+        color: color.textSecondary,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: space[3],
+        alignItems: 'flex-start',
+      }}
+    >
+      <p style={{ margin: 0 }}>No built-in viewer for this file type.</p>
+      <Button variant="primary" onClick={() => void openInApp()}>
+        Open in default app
+      </Button>
+      {error !== null && (
+        <p style={{ margin: 0, color: color.danger, fontSize: font.size.caption }}>{error}</p>
+      )}
+      <p
+        style={{
+          fontFamily: font.mono,
+          fontSize: font.size.micro,
+          color: color.textTertiary,
+          margin: 0,
+          wordBreak: 'break-all',
+        }}
+      >
+        {absPath}
+      </p>
     </div>
   );
 };

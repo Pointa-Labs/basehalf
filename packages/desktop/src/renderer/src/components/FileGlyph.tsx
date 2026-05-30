@@ -81,12 +81,74 @@ const EXT_TYPE: Record<string, BadgeType> = {
   xml: 'code',
   sh: 'code',
   sql: 'code',
+  // Dotfiles whose "extension" (the part after the leading dot) names a known
+  // text/config format — `.gitignore` → `gitignore`, etc.
+  gitignore: 'text',
+  dockerignore: 'text',
+  gitattributes: 'text',
+  editorconfig: 'text',
+  npmrc: 'text',
+  nvmrc: 'text',
+  gitkeep: 'text',
+  // Shells / config / structured formats — so common config & script files get
+  // a real glyph AND open in the read-only text viewer instead of a dead-end
+  // "no viewer". (Curated to definitely-text extensions; unknown ones stay
+  // 'generic' to avoid rendering a binary as garbage.)
+  bash: 'code',
+  zsh: 'code',
+  fish: 'code',
+  ps1: 'code',
+  bat: 'code',
+  ini: 'code',
+  conf: 'code',
+  cfg: 'code',
+  env: 'code',
+  properties: 'code',
+  lock: 'code',
+  lua: 'code',
+  pl: 'code',
+  r: 'code',
+  gradle: 'code',
+  vue: 'code',
+  svelte: 'code',
+  astro: 'code',
+  graphql: 'code',
+  gql: 'code',
+  proto: 'code',
+  // Plain-text / tabular / logs.
+  csv: 'text',
+  tsv: 'text',
+  log: 'text',
+  text: 'text',
+};
+
+// Extension-less files whose NAME is itself the type signal. These are
+// ubiquitous in a code repo (the AI-coding wedge) and are definitely text, so
+// they get a glyph + open in the read-only viewer instead of "no viewer".
+// (Arbitrary extension-less files still need content-sniffing — a v0.x item.)
+const NAME_TYPE: Record<string, BadgeType> = {
+  dockerfile: 'code',
+  makefile: 'code',
+  gemfile: 'code',
+  rakefile: 'code',
+  procfile: 'code',
+  jenkinsfile: 'code',
+  vagrantfile: 'code',
+  license: 'text',
+  readme: 'text',
+  changelog: 'text',
+  authors: 'text',
+  notice: 'text',
+  copying: 'text',
 };
 
 export const badgeType = (label: string, isFolder: boolean): BadgeType => {
   if (isFolder) return 'folder';
   const dot = label.lastIndexOf('.');
-  if (dot === -1 || dot === label.length - 1) return 'generic';
+  if (dot === -1 || dot === label.length - 1) {
+    // No usable extension — fall back to a known-name match (Dockerfile, …).
+    return NAME_TYPE[label.toLowerCase()] ?? 'generic';
+  }
   return EXT_TYPE[label.slice(dot + 1).toLowerCase()] ?? 'generic';
 };
 

@@ -1,5 +1,14 @@
 import { dirname, join, relative } from 'node:path';
-import { type FsLike, assertWorkspaceRelative } from '../../kernel/index.js';
+import {
+  type FsLike,
+  assertReadContained,
+  assertWorkspaceRelative,
+  assertWriteContained,
+  canonicalize,
+  isContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
+} from '../../kernel/index.js';
 import { BadgeCorrupt, type BadgeFile, type BadgeKind } from './types.js';
 
 const BADGES_DIR = '.bh/badges';
@@ -29,8 +38,8 @@ export async function readBadge(
   file: string,
   kind: BadgeKind,
 ): Promise<BadgeFile | null> {
-  const path = badgePath(workspaceRoot, file, kind);
-  const raw = await fs.readFile(path);
+  const path = await assertReadContained(fs, workspaceRoot, badgePath(workspaceRoot, file, kind));
+  const raw = await readMaybeNoFollow(fs, path);
   if (raw === null) return null;
   try {
     return JSON.parse(raw) as BadgeFile;
@@ -44,9 +53,13 @@ export async function writeBadge(
   workspaceRoot: string,
   badge: BadgeFile,
 ): Promise<void> {
-  const path = badgePath(workspaceRoot, badge.file, badge.kind);
+  const path = await assertWriteContained(
+    fs,
+    workspaceRoot,
+    badgePath(workspaceRoot, badge.file, badge.kind),
+  );
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, `${JSON.stringify(badge, null, 2)}\n`);
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify(badge, null, 2)}\n`);
 }
 
 export async function removeBadge(
@@ -55,7 +68,7 @@ export async function removeBadge(
   file: string,
   kind: BadgeKind,
 ): Promise<boolean> {
-  const path = badgePath(workspaceRoot, file, kind);
+  const path = await assertWriteContained(fs, workspaceRoot, badgePath(workspaceRoot, file, kind));
   const stat = await fs.stat(path);
   if (!stat) return false;
   await fs.unlink(path);
@@ -68,11 +81,32 @@ export async function removeBadge(
  * callers want listing to be robust against a single bad file.
  */
 export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<readonly BadgeFile[]> {
-  const root = join(workspaceRoot, BADGES_DIR);
+  const badgesDir = join(workspaceRoot, BADGES_DIR);
   const out: BadgeFile[] = [];
-  await walk(fs, root, async (absPath) => {
+  // Anchor containment to the WORKSPACE root, not to .bh/badges/: if
+  // .bh/badges itself is a planted directory symlink (the whole .bh/ tree
+  // ships in git), anchoring to canonicalize(.bh/badges) would relocate the
+  // anchor onto the symlink TARGET and happily enumerate everything outside.
+  // Anchoring to the workspace root and bailing when .bh/badges escapes it
+  // closes that. Files inside a legit .bh/badges stay contained under the root.
+  // The anchor canonicalize must itself be guarded: a symlink CYCLE at
+  // .bh/badges (git-shippable) makes canonicalize throw PathEscape (it maps
+  // ELOOP/EACCES → refuse), and an uncaught throw here would brick badge.list
+  // (and the canvas it draws). Treat any unresolvable/escaping anchor as
+  // "no badges" — robust like the per-entry skip below.
+  let realRoot: string;
+  let realBadgesDir: string;
+  try {
+    realRoot = await canonicalize(fs, workspaceRoot);
+    realBadgesDir = await canonicalize(fs, badgesDir);
+  } catch {
+    return out;
+  }
+  if (!isContained(realRoot, realBadgesDir)) return out;
+  const visited = new Set<string>();
+  await walk(fs, realRoot, badgesDir, realBadgesDir, visited, async (absPath) => {
     if (!absPath.endsWith('.json')) return;
-    const raw = await fs.readFile(absPath);
+    const raw = await readMaybeNoFollow(fs, absPath);
     if (raw === null) return;
     try {
       out.push(JSON.parse(raw) as BadgeFile);
@@ -86,20 +120,37 @@ export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<rea
 
 async function walk(
   fs: FsLike,
+  realRoot: string,
   dir: string,
+  realDir: string,
+  visited: Set<string>,
   visit: (absPath: string) => Promise<void>,
 ): Promise<void> {
+  if (visited.has(realDir)) return; // symlink-loop guard
+  visited.add(realDir);
   const stat = await fs.stat(dir);
   if (!stat?.isDirectory) return;
   const names = await fs.readdir(dir);
   for (const name of names) {
     const child = join(dir, name);
-    const childStat = await fs.stat(child);
-    if (!childStat) continue;
+    // Resolve canonical path + stat under a try: a hostile/broken symlink
+    // (ELOOP on a mutual cycle, EACCES, …) skips this child rather than
+    // crashing the listing — same robustness as the corrupt-badge skip below.
+    let realChild: string;
+    let childStat: Awaited<ReturnType<FsLike['stat']>>;
+    try {
+      realChild = await canonicalize(fs, child);
+      childStat = await fs.stat(child);
+    } catch {
+      continue;
+    }
+    // Skip any child whose canonical path escapes the real .bh/badges/ root —
+    // i.e. a planted symlink pointing outside the workspace.
+    if (!childStat || !isContained(realRoot, realChild)) continue;
     if (childStat.isDirectory) {
-      await walk(fs, child, visit);
+      await walk(fs, realRoot, child, realChild, visited, visit);
     } else {
-      await visit(child);
+      await visit(realChild);
     }
   }
 }

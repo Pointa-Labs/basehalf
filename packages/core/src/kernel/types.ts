@@ -25,6 +25,39 @@ export interface FsLike {
   readdir(path: string): Promise<string[]>;
   /** Removes a file; no-op if missing. Used by badge/view delete commands. */
   unlink(path: string): Promise<void>;
+  /**
+   * Canonical absolute path with every symlink resolved (`node:fs` realpath).
+   * The kernel containment guards (`kernel/contain.ts`) use it to prove a
+   * path stays inside the workspace root even when a planted symlink's name is
+   * innocuous. OPTIONAL: production `defaultFs` always provides it (the real
+   * security boundary); legacy in-memory mocks may omit it, and the guards
+   * then fall back to the lexical (string-guarded) path. Throws ENOENT if the
+   * path doesn't exist.
+   */
+  realpath?(path: string): Promise<string>;
+  /**
+   * `lstat` that does NOT follow a final-component symlink — used by the write
+   * guard to refuse writing THROUGH a planted symlink leaf. Returns null if
+   * the path is missing. OPTIONAL for the same back-compat reason as
+   * `realpath`.
+   */
+  lstat?(path: string): Promise<{ isSymbolicLink: boolean } | null>;
+  /**
+   * Read a file with O_NOFOLLOW on the final component — the open fails
+   * (PathEscape) if the leaf is a symlink at OPEN time. Closes the check-then-
+   * read TOCTOU that a path-string guard can't: after the realpath guard
+   * returns a canonical path, an attacker racing a symlink onto the leaf would
+   * otherwise be re-followed by a plain readFile. Returns null if missing.
+   * OPTIONAL (legacy mocks fall back to plain readFile — no symlinks in play).
+   */
+  readFileNoFollow?(path: string): Promise<string | null>;
+  /**
+   * Write a file with O_NOFOLLOW on the final component — refuses (PathEscape)
+   * if the leaf is a symlink at OPEN time. The symmetric write-side close of
+   * the check-then-write TOCTOU. OPTIONAL (legacy mocks fall back to
+   * writeFile).
+   */
+  writeFileNoFollow?(path: string, content: string): Promise<void>;
 }
 
 /**

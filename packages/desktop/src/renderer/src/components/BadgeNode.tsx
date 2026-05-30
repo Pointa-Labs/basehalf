@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, radius, shadow, space, transition } from '../design.js';
+import { splitFrontmatter } from '../lib/frontmatter.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
@@ -90,15 +91,15 @@ export const BadgeNode = ({ data, selected }: NodeProps): JSX.Element => {
   const borderStyle = orphan ? 'dashed' : 'solid';
   // Glyph tone: muted grey for files (calm on a busy canvas), warm for the
   // folder kind, danger when the target is missing.
-  const glyphTone = orphan ? color.danger : isFolder ? '#9a7d12' : color.textTertiary;
+  const glyphTone = orphan ? color.danger : isFolder ? color.folderGlyph : color.textTertiary;
 
   const tooltip = focused
-    ? `${d.label} — in focus; your AI agent reads this now`
+    ? `${d.label} — in focus; your AI agent reads this now. Shift-click to remove.`
     : isFolder
       ? `${d.label} — double-click to enter this folder`
       : orphan
         ? `${d.label} — referenced but missing on disk`
-        : d.label;
+        : `${d.label} — click to focus · shift-click to add`;
 
   // Focus is the load-bearing agent signal but was invisible. Render it as a
   // persistent accent ring (distinct from react-flow's transient `selected`)
@@ -322,15 +323,29 @@ const TextPreview = ({
     void (async () => {
       let out: PreviewContent;
       try {
-        const res = (await window.bh.run('workspace.readFile', { path: label })) as {
-          content: string;
-        };
+        // Cap the read: a tile only ever shows PREVIEW_CHARS of body, so don't
+        // ship a multi-MB file across IPC for a 600-char preview. Headroom above
+        // PREVIEW_CHARS covers a leading frontmatter block + the stripped HTML
+        // comment before the body slice. The headroom (16KB) must comfortably
+        // exceed any realistic leading frontmatter block — if the cap landed
+        // mid-frontmatter, splitFrontmatter couldn't find the closing fence and
+        // the tile would render raw YAML or blank. 16KB dwarfs real frontmatter
+        // (typically <1KB) while still bounding the read.
+        const res = (await window.bh.run('workspace.readFile', {
+          path: label,
+          maxChars: PREVIEW_CHARS + 16_384,
+        })) as { content: string };
         if (markdown) {
-          // Drop HTML comments (e.g. the bh:workspace-hint marker) before
-          // slicing: they don't render in a preview and, when adjacent to a
-          // heading, break its parsing. Then render with BlockNote so the tile
-          // matches the editor exactly; fall back to raw if conversion throws.
-          const cleaned = res.content.replace(/<!--[\s\S]*?-->/g, '').slice(0, PREVIEW_CHARS);
+          // Strip a leading YAML frontmatter block so the tile previews the
+          // note's BODY (matching the editor, which also peels it off) instead
+          // of leading with raw `title:`/`tags:` lines — Obsidian/Jekyll notes
+          // would otherwise show YAML noise on every canvas tile. Then drop HTML
+          // comments (e.g. the bh:workspace-hint marker) before slicing: they
+          // don't render in a preview and, adjacent to a heading, break parsing.
+          // Render with BlockNote so the tile matches the editor; fall back to
+          // raw if conversion throws.
+          const { body } = splitFrontmatter(res.content);
+          const cleaned = body.replace(/<!--[\s\S]*?-->/g, '').slice(0, PREVIEW_CHARS);
           try {
             out = { html: await markdownToHtml(cleaned.trim()) };
           } catch {

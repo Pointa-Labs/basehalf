@@ -70,6 +70,30 @@ export function mockFs(): {
     async unlink(path) {
       files.delete(path);
     },
+    // This in-memory fs has no symlinks, so realpath is identity for an
+    // existing path and ENOENT otherwise — exactly what kernel/contain.ts
+    // expects (it walks up to the deepest existing ancestor on ENOENT). The
+    // containment guards therefore pass through cleanly under mockFs; real
+    // symlink-escape behavior is covered by tests that use the actual fs.
+    async realpath(path) {
+      if (files.has(path) || dirs.has(path)) return path;
+      throw Object.assign(new Error(`ENOENT: no such file, realpath '${path}'`), {
+        code: 'ENOENT',
+      });
+    },
+    async lstat(path) {
+      if (files.has(path)) return { isSymbolicLink: false };
+      if (dirs.has(path)) return { isSymbolicLink: false };
+      return null;
+    },
+    // No symlinks in-memory, so O_NOFOLLOW reads/writes are just the plain ops.
+    async readFileNoFollow(path) {
+      return files.has(path) ? (files.get(path) as string) : null;
+    },
+    async writeFileNoFollow(path, content) {
+      files.set(path, content);
+      addAncestors(path);
+    },
   };
 
   return { fs, files, dirs };

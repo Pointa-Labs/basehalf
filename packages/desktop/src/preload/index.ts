@@ -37,6 +37,11 @@ const bh = {
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
+  /** Open a workspace-relative file in the OS default app (e.g. a .docx in Word)
+   *  for types bh can't render inline. Main resolves it inside the current
+   *  workspace + rejects path escapes. Resolves {ok} or {ok:false, error}. */
+  openPath: (relPath: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shell:open-path', relPath),
   /** Frozen at preload time; safe to read synchronously. */
   platform: process.platform as NodeJS.Platform,
   /** OS home directory, frozen at preload. Used by the renderer to suggest

@@ -55,6 +55,13 @@ writeFileSync(join(WORKSPACE_DIR, 'icon.png'), Buffer.from(TINY_PNG_BASE64, 'bas
 writeFileSync(join(WORKSPACE_DIR, 'sample.pdf'), '%PDF-1.4\n%verify-driver placeholder\n%%EOF\n');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp3'), 'ID3\x03\x00\x00\x00');
 writeFileSync(join(WORKSPACE_DIR, 'sample.mp4'), '\x00\x00\x00\x18ftyp');
+// A code file for the read-only text/code viewer (§7h). Code is NOT materialized
+// as a canvas badge in v0 — it lives in the NavTree — so this opens via the tree.
+// CRLF endings on purpose: the viewer must normalize them (no stray \r).
+writeFileSync(
+  join(WORKSPACE_DIR, 'sample.ts'),
+  'export const answer = 42;\r\nconsole.log(answer);\r\n',
+);
 // Seed a Markdown file that BlockNote's default config can't round-trip
 // cleanly (raw HTML <details> block). The MdEditor should flip into
 // view-only mode rather than silently lose the user's content on save.
@@ -72,6 +79,16 @@ This file contains a raw HTML block BlockNote can't round-trip:
 End.
 `,
 );
+// A YAML-frontmatter note (Obsidian/Jekyll style) with a CLEAN body. The editor
+// should make it EDITABLE — frontmatter peeled off + preserved verbatim, only
+// the body round-tripped (§7i) — not force the whole note view-only.
+writeFileSync(
+  join(WORKSPACE_DIR, 'fm.md'),
+  '---\ntitle: Frontmatter Note\ntags: [a, b]\n---\n\n# Body heading\n\nEditable body.\n',
+);
+// An unsupported file type (no inline viewer) — the preview should offer
+// "Open in default app" rather than a dead end (§7j).
+writeFileSync(join(WORKSPACE_DIR, 'report.docx'), 'PK fake docx');
 
 const failures = [];
 const assert = (cond, msg) => {
@@ -247,10 +264,7 @@ await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
 const topbarText = await win.locator('header').first().innerText();
-assert(
-  !topbarText.includes('BaseHalf'),
-  'TopBar no longer carries the BaseHalf wordmark (redundant with the native menu bar; workspace selector now leads)',
-);
+assert(topbarText.includes('BaseHalf'), 'TopBar shows the BaseHalf wordmark');
 assert(
   topbarText.includes('Add folder'),
   'TopBar shows "+ Add folder" button (renamed from "+ Pick folder")',
@@ -437,6 +451,17 @@ const firstBadgeGlyphs = await win
 assert(
   firstBadgeGlyphs >= 1,
   `BadgeNode renders a file-type glyph (svg count=${firstBadgeGlyphs})`,
+);
+// Frontmatter is stripped from the canvas content tile too (matching the
+// editor): an Obsidian/Jekyll note's tile previews its BODY, not raw YAML keys.
+const fmBadgeText = await win
+  .locator('.react-flow__node-badge[data-id="fm.md"]')
+  .first()
+  .innerText()
+  .catch(() => '');
+assert(
+  fmBadgeText.length > 0 && !/title:|tags:/.test(fmBadgeText),
+  `frontmatter note's canvas tile previews the body, not raw YAML (got ${JSON.stringify(fmBadgeText.slice(0, 80))})`,
 );
 // Custom CanvasControls (zoom in/out/fit) should be present — replaces
 // react-flow's default `<Controls />` to match the rest of the chrome.
@@ -752,6 +777,33 @@ await bhRun('view.delete', { id: briefViewId }).catch(() => undefined);
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 
+// --- 5d-resync. Editing a FOCUSED file's prompt in the panel must refresh
+// focus.md, not just the badge JSON: focus.md inlines the prompt, and a badge
+// write alone doesn't regenerate it — so without the resync the agent would
+// read stale curation every turn. ---
+console.log("\n[5d-resync] editing a focused file's prompt refreshes focus.md");
+await win.locator('.react-flow__node[data-id="intro.md"]').click(); // focus it
+await win.waitForTimeout(300);
+await win.locator('.react-flow__node-badge[data-id="intro.md"]').first().dblclick(); // open editor
+await win.waitForTimeout(700);
+const resyncPrompt = `resync-prompt-${Date.now()}`;
+const resyncTa = win.locator('aside').last().locator('textarea').first();
+await resyncTa.click();
+await resyncTa.fill(resyncPrompt);
+await win.waitForTimeout(150);
+await win.locator('aside').last().locator('header').first().click(); // blur → flush save
+await win.waitForTimeout(800);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(700);
+const focusMdResync = readFileSync(focusMdPath, 'utf-8');
+assert(
+  focusMdResync.includes(`prompt: ${resyncPrompt}`),
+  `focus.md re-inlines the edited prompt so the agent reads fresh context (file: ${JSON.stringify(focusMdResync.slice(0, 300))})`,
+);
+await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' } });
+await bhRun('focus.clear', {});
+await win.waitForTimeout(150);
+
 // --- 5d-focusviz. Focus is VISIBLE on the canvas — the witnessed payoff.
 // Focus was a write-only side effect (click → focus.set, nothing visible);
 // now a focused badge wears a persistent "in focus" dot and a chip names the
@@ -874,8 +926,8 @@ console.log(
 
 // Fallback: exercise the underlying action and confirm Canvas re-renders
 // the edge from the resulting reference index. Add a note on the ref so
-// the edge gets a label — visual check that label styling matches the
-// chrome.
+// we can check the note surfaces ON HOVER (notes are NOT always-on labels —
+// those collide when edges share an endpoint; see ReferenceEdge).
 await bhRun('badge.addRef', {
   file: 'intro.md',
   to: 'overview.md',
@@ -889,10 +941,39 @@ assert(
   edgeCountAfterAddRef > 0,
   `Canvas renders an edge after badge.addRef (edges before drag=${edgeCountBefore}, after addRef+reload=${edgeCountAfterAddRef})`,
 );
-// Edge label should render with our custom styling — small bg, subtle border.
-const edgeLabelCount = await win.locator('.react-flow__edge-text').count();
-assert(edgeLabelCount >= 1, `Edge with a note renders a label (count=${edgeLabelCount})`);
+// Notes reveal on hover, not as always-on labels. So by default there are
+// zero label pills (the anti-clutter guarantee), and hovering an edge's hit
+// path surfaces its note as an HTML pill in the edge-label renderer.
+const pillsDefault = await win.evaluate(() => {
+  const r = document.querySelector('.react-flow__edgelabel-renderer');
+  return r ? [...r.children].filter((c) => (c.textContent || '').trim()).length : 0;
+});
+assert(
+  pillsDefault === 0,
+  `No always-on edge labels — notes reveal on hover (default pills=${pillsDefault})`,
+);
+await win.evaluate(() => {
+  document
+    .querySelector('.bh-edge-hit')
+    ?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+});
+await win.waitForTimeout(300);
+const hoverPills = await win.evaluate(() => {
+  const r = document.querySelector('.react-flow__edgelabel-renderer');
+  return r ? [...r.children].map((c) => (c.textContent || '').trim()).filter(Boolean) : [];
+});
+assert(
+  hoverPills.length >= 1,
+  `Hovering an edge reveals its note pill (got ${JSON.stringify(hoverPills)})`,
+);
 await win.screenshot({ path: `${SCREENS_DIR}/03b-edge-with-label.png` });
+// Reset hover so the revealed pill doesn't bleed into later edge interaction.
+await win.evaluate(() => {
+  document
+    .querySelector('.bh-edge-hit')
+    ?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+});
+await win.waitForTimeout(150);
 
 // --- 5e. Edge delete via Delete key: react-flow's selected-edge + Delete
 // fires onEdgesDelete, which we wire to badge.removeRef. ---
@@ -1309,6 +1390,79 @@ for (const [file, selector, kind] of [
   await win.keyboard.press('Escape');
   await win.waitForTimeout(150);
 }
+
+// --- 7h. Read-only code/text viewer: click sample.ts in the tree → its content
+// renders read-only with a line-number gutter (NOT the dead-end "no viewer"). ---
+console.log('\n[7h] Read-only code/text viewer for sample.ts');
+await sidebar.locator('button', { hasText: 'sample.ts' }).first().click();
+await win.waitForTimeout(500);
+// The preview overlay is the LAST <aside> (the sidebar is the first).
+const codeOverlay = win.locator('aside').last();
+const codeText = (await codeOverlay.textContent()) || '';
+assert(
+  codeText.includes('export const answer = 42'),
+  `code viewer renders the file content (got ${JSON.stringify(codeText.slice(0, 80))})`,
+);
+assert(/Read-only/i.test(codeText), 'code viewer shows the "Read-only" indicator');
+assert(
+  !/No built-in viewer/i.test(codeText),
+  'a code file is NOT the dead-end "no viewer" fallback',
+);
+const gutterText = await codeOverlay.locator('pre').first().textContent();
+assert(
+  gutterText === '1\n2',
+  `line-number gutter shows 1..2 for the 2-line file (got ${JSON.stringify(gutterText)})`,
+);
+// sample.ts has CRLF endings (seeded above); the viewer must normalize them so
+// no stray \r pollutes the rendered code or the gutter alignment.
+const codeBodyText = (await codeOverlay.locator('pre').nth(1).textContent()) || '';
+assert(
+  !codeBodyText.includes('\r'),
+  `CRLF line endings are normalized — no stray \\r in the rendered code (got ${JSON.stringify(codeBodyText)})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(150);
+
+// --- 7i. YAML frontmatter notes are EDITABLE (frontmatter peeled off + preserved
+// verbatim, body round-tripped) — NOT forced view-only the way the raw lossy
+// guard would. Regression for the read-only-for-Obsidian-notes limitation. ---
+console.log('\n[7i] Frontmatter note is editable (frontmatter preserved)');
+const fmBefore = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+await sidebar.locator('button', { hasText: 'fm.md' }).first().click();
+await win.waitForTimeout(600);
+const fmOverlayText = (await win.locator('aside').last().textContent()) || '';
+assert(
+  !/View only/i.test(fmOverlayText),
+  'a frontmatter note with a clean body is EDITABLE, not view-only',
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(400);
+const fmAfter = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+assert(
+  fmAfter.startsWith('---\ntitle: Frontmatter Note\ntags: [a, b]\n---'),
+  `frontmatter preserved verbatim (opening + closing didn't mangle it; got ${JSON.stringify(fmAfter.slice(0, 60))})`,
+);
+
+// --- 7j. Unsupported file → "Open in default app" (not a dead end), and the
+// shell:open-path IPC refuses path escapes (security). We test the guard-reject
+// path so no OS app is launched. ---
+console.log('\n[7j] Unsupported file offers "Open in default app" + safe IPC');
+await sidebar.locator('button', { hasText: 'report.docx' }).first().click();
+await win.waitForTimeout(500);
+const docxOverlay = win.locator('aside').last();
+assert(
+  (await docxOverlay.locator('button', { hasText: /Open in default app/i }).count()) === 1,
+  'unsupported file offers an "Open in default app" button',
+);
+const escapeResult = await win.evaluate(() => window.bh.openPath('../etc/passwd'));
+assert(
+  escapeResult &&
+    escapeResult.ok === false &&
+    /outside the workspace/i.test(escapeResult.error || ''),
+  `shell:open-path refuses a path escape (got ${JSON.stringify(escapeResult)})`,
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(200);
 
 // --- 7d. Image viewer: click icon.png → <img> renders with file:// src.
 // Tests the ImageViewer branch of FilePreview (not just MD path). ---

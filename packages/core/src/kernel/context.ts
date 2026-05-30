@@ -1,6 +1,18 @@
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
+import { PathEscape } from './contain.js';
 import type { Context, FsLike, Run } from './types.js';
 
 /**
@@ -60,6 +72,60 @@ function defaultFs(): FsLike {
         throw err;
       }
     },
+    async realpath(path) {
+      // No ENOENT swallowing here: kernel/contain.ts relies on realpath
+      // THROWING ENOENT to know it must walk up to the deepest existing
+      // ancestor. Returns the fully symlink-resolved canonical path.
+      return await realpath(path);
+    },
+    async lstat(path) {
+      try {
+        const s = await lstat(path);
+        return { isSymbolicLink: s.isSymbolicLink() };
+      } catch (err) {
+        if (isENOENT(err)) return null;
+        throw err;
+      }
+    },
+    async readFileNoFollow(path) {
+      // O_NOFOLLOW: if the trailing component is a symlink at open time, the
+      // open fails ELOOP — so an attacker who races a symlink onto the (guard-
+      // approved canonical) leaf between the check and this read is refused
+      // instead of re-followed. Intermediate symlinks are still resolved
+      // (POSIX O_NOFOLLOW only affects the trailing component), so a workspace
+      // behind /var->/private/var is unaffected.
+      let fh: Awaited<ReturnType<typeof open>>;
+      try {
+        fh = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch (err) {
+        if (isENOENT(err)) return null;
+        if (isELOOP(err)) throw new PathEscape(path);
+        throw err;
+      }
+      try {
+        return await fh.readFile('utf8');
+      } finally {
+        await fh.close();
+      }
+    },
+    async writeFileNoFollow(path, content) {
+      let fh: Awaited<ReturnType<typeof open>>;
+      try {
+        fh = await open(
+          path,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+          0o666,
+        );
+      } catch (err) {
+        if (isELOOP(err)) throw new PathEscape(path);
+        throw err;
+      }
+      try {
+        await fh.writeFile(content, 'utf8');
+      } finally {
+        await fh.close();
+      }
+    },
   };
 }
 
@@ -84,10 +150,19 @@ export function defaultConfigDir(): string {
 }
 
 function isENOENT(err: unknown): boolean {
+  return hasCode(err, 'ENOENT');
+}
+
+/** O_NOFOLLOW open of a symlink leaf fails ELOOP (EMLINK on some platforms). */
+function isELOOP(err: unknown): boolean {
+  return hasCode(err, 'ELOOP') || hasCode(err, 'EMLINK');
+}
+
+function hasCode(err: unknown, code: string): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
     'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
+    (err as { code: unknown }).code === code
   );
 }

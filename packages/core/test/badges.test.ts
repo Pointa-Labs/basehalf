@@ -420,6 +420,20 @@ describe('badge.rename', () => {
     expect(focus.active).toEqual(['unrelated.md', 'foo-v2.md']);
   });
 
+  it('PRESERVES the focus intent when rewriting a renamed active file', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('focus.set', { files: ['foo.md'], intent: 'wire up auth' });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { focusUpdated: boolean };
+    expect(result.focusUpdated).toBe(true);
+    const focus = (await ctx.core.run('focus.get', {})) as { active: string[]; intent?: string };
+    expect(focus.active).toEqual(['foo-v2.md']);
+    // The intent brief must survive a rename — losing it strands the agent.
+    expect(focus.intent).toBe('wire up auth');
+  });
+
   it('leaves focus.md alone when `from` was not in active list', async () => {
     await ctx.core.run('badge.set', { file: 'foo.md' });
     await ctx.core.run('focus.set', { files: ['unrelated.md'] });

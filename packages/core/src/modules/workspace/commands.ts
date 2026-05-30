@@ -2,8 +2,15 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Context,
   type Handler,
+  PathEscape,
+  assertReadContained,
   assertWorkspaceRelative,
+  assertWriteContained,
+  canonicalize,
   createKeyedMutex,
+  isContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
@@ -223,10 +230,50 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   }
   if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
 
+  // Contain enumeration to the current workspace: listFiles takes an absolute
+  // path the renderer drives from NavTree clicks, and ctx.fs.stat FOLLOWS
+  // symlinks — so a planted dir-symlink (docs -> /etc) would otherwise let the
+  // tree enumerate an arbitrary OUTSIDE directory (a filename/structure oracle
+  // even though readFile refuses the content). Require the listed dir to be
+  // inside the current workspace root, and skip any child that escapes it.
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
+  // With NO current workspace there is no containment boundary — refuse rather
+  // than fall through to enumerating an arbitrary absolute path (a planted
+  // `listFiles({path:'/etc'})` would otherwise leak external dir structure).
+  // Sibling reads (badge.list/view.list) already require a current workspace;
+  // listFiles must not be the outlier.
+  if (root === undefined) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  // Guard the anchor canonicalize (ELOOP/EACCES on the root or the listed dir
+  // → refuse rather than crash with a raw fs error).
+  let realRoot: string;
+  let realDir: string;
+  try {
+    realRoot = await canonicalize(ctx.fs, root);
+    realDir = await canonicalize(ctx.fs, absPath);
+  } catch {
+    throw new PathEscape(absPath);
+  }
+  if (!isContained(realRoot, realDir)) {
+    throw new PathEscape(absPath);
+  }
+
   const names = await ctx.fs.readdir(absPath);
   const entries: WorkspaceListFilesEntry[] = [];
   for (const name of names) {
-    const childStat = await ctx.fs.stat(join(absPath, name));
+    const child = join(absPath, name);
+    // Filter a symlinked-out child so it never surfaces in the tree (and
+    // can't be expanded into an external dir on the next listFiles call).
+    let realChild: string;
+    try {
+      realChild = await canonicalize(ctx.fs, child);
+    } catch {
+      continue;
+    }
+    if (!isContained(realRoot, realChild)) continue;
+    const childStat = await ctx.fs.stat(child);
     if (!childStat) continue;
     entries.push({ name, type: childStat.isDirectory ? 'dir' : 'file' });
   }
@@ -289,10 +336,27 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   if (data.current === null) throw new Error('No current workspace');
   const entry = data.workspaces[data.current];
   if (!entry) throw new Error('Current workspace pointer is stale');
-  const abs = join(entry.path, args.path);
-  const content = await ctx.fs.readFile(abs);
+  // Realpath-contain: assertWorkspaceRelative (above) rejects ../absolute in
+  // the request string, but a planted symlink whose NAME is innocuous still
+  // escapes once node:fs follows it. Canonicalize and require containment, then
+  // read the canonical path so check and open agree. (See kernel/contain.ts.)
+  const abs = await assertReadContained(ctx.fs, entry.path, join(entry.path, args.path));
+  // O_NOFOLLOW read closes the check-then-read TOCTOU: if the leaf is swapped
+  // for a symlink between the guard above and this read, the open refuses it
+  // rather than re-following. (Residual: an intermediate-component swap still
+  // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
+  // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
+  const content = await readMaybeNoFollow(ctx.fs, abs);
   if (content === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
+  }
+  // Optional cap: a preview/viewer that only renders a slice can ask for just
+  // that slice so a multi-MB file isn't serialized across IPC and held whole in
+  // the renderer. (FsLike has no partial read yet, so we still read the file in
+  // this process; capping here at least bounds what crosses the boundary. A
+  // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
+  if (typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars) {
+    return { path: args.path, content: content.slice(0, args.maxChars), truncated: true };
   }
   return { path: args.path, content };
 };
@@ -310,7 +374,13 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   if (data.current === null) throw new Error('No current workspace');
   const entry = data.workspaces[data.current];
   if (!entry) throw new Error('Current workspace pointer is stale');
-  const abs = join(entry.path, args.path);
+  // Realpath-contain the WRITE: this is bh's only user-file write path, so a
+  // planted symlink (a `config.md -> ~/.ssh/authorized_keys` leaf, or a
+  // `drafts -> ~/Library/LaunchAgents` parent dir for a brand-new note) must
+  // not let an editor save / New-Note clobber or plant a file outside the
+  // workspace. assertWriteContained proves the real parent is inside and
+  // refuses a symlink leaf. (See kernel/contain.ts.)
+  const abs = await assertWriteContained(ctx.fs, entry.path, join(entry.path, args.path));
   // Honor the desktop new-note dialog's "folders auto-created" promise:
   // mkdir -p the parent so a path like `subdir/new/note.md` succeeds even
   // when `subdir/new` doesn't exist yet. Top-level paths have an empty
@@ -319,7 +389,9 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   if (parent && parent !== abs) {
     await ctx.fs.mkdir(parent, { recursive: true });
   }
-  await ctx.fs.writeFile(abs, args.content);
+  // O_NOFOLLOW write closes the check-then-write TOCTOU at the leaf: a symlink
+  // raced onto `abs` after the guard is refused, not written through.
+  await writeMaybeNoFollow(ctx.fs, abs, args.content);
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
 };
 
@@ -395,12 +467,27 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   const filesCreated: string[] = [];
   for (const file of DEMO_FILES) {
     const fileAbs = join(absPath, file.path);
-    const existing = await ctx.fs.readFile(fileAbs);
-    if (existing !== null) continue;
+    // Keep the "every core user-file write is realpath-contained" invariant
+    // even on the demo path. Lower risk (a fresh folder the user picked, fixed
+    // boilerplate), but a planted symlink named like a demo file shouldn't let
+    // the write escape either. Refuse-and-skip rather than clobber outside.
+    let existing: string | null;
+    let writeAbs: string;
+    try {
+      existing = await readMaybeNoFollow(
+        ctx.fs,
+        await assertReadContained(ctx.fs, absPath, fileAbs),
+      );
+      if (existing !== null) continue;
+      writeAbs = await assertWriteContained(ctx.fs, absPath, fileAbs);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'PathEscape') continue;
+      throw err;
+    }
     await ctx.fs.mkdir(join(absPath, file.path.split('/').slice(0, -1).join('/') || '.'), {
       recursive: true,
     });
-    await ctx.fs.writeFile(fileAbs, file.content);
+    await writeMaybeNoFollow(ctx.fs, writeAbs, file.content);
     filesCreated.push(file.path);
   }
 
@@ -481,8 +568,15 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     .catch(() => undefined);
 
   // Focus the intro file so the agent's first read of focus.md returns
-  // a useful pointer instead of (none).
-  await ctx.run('focus.set', { files: ['intro.md'] });
+  // a useful pointer instead of (none) — AND seed an intent so the demo's
+  // first-run focus.md showcases the COMPLETE turn brief (intent + active +
+  // inlined prompt + refs, #91), not a subset. The intent mirrors the exact
+  // question intro.md invites the user to ask, so the agent's first read is a
+  // natural, self-contained handoff.
+  await ctx.run('focus.set', {
+    files: ['intro.md'],
+    intent: 'Get oriented in this workspace — what is it about, and how do these files connect?',
+  });
 
   return {
     workspace: addResult.workspace,
@@ -641,18 +735,23 @@ async function materializeWithFallback(ctx: Context, workspaceRoot: string): Pro
     await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
   try {
     await ctx.run('focus.init', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    // A planted symlink at .bh/focus.md escapes — skip seeding rather than
+    // abort the whole workspace open (the hostile surface is neutralized).
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
   try {
     await ctx.run('inbound.init', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
 }

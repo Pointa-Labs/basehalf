@@ -27,6 +27,26 @@ export const watcherEvents = new EventEmitter();
 let runningWatcher: RunningWatcher | null = null;
 let runningRoot: string | null = null;
 
+// In-flight badge-writing work spawned by FS events: the chokidar callback's
+// handleEvent, and the rename-window timers' finalize(). These are
+// fire-and-forget, so without tracking them a write could land AFTER the
+// watcher is stopped — clobbering the NEXT workspace on a switch, or (in
+// tests) writing into a torn-down workspace ("No current workspace",
+// ENOTEMPTY rmdir, a badge read mid-write). `drainInflight()` lets stop/reset
+// wait for them to settle.
+const inflight = new Set<Promise<unknown>>();
+function track<T>(p: Promise<T>): void {
+  const tracked = p.finally(() => inflight.delete(tracked));
+  inflight.add(tracked);
+}
+async function drainInflight(): Promise<void> {
+  // Loop in case a settling task spawned another; bounded because no new FS
+  // events arrive once chokidar is closed and the buffers are cleared.
+  while (inflight.size > 0) {
+    await Promise.allSettled([...inflight]);
+  }
+}
+
 async function resolveWorkspaceRoot(
   ctx: Parameters<Handler>[1],
   explicit?: string,
@@ -223,7 +243,7 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         }
       };
       const timer = setTimeout(() => {
-        void finalize();
+        track(finalize());
       }, RENAME_WINDOW_MS);
       // Clear any prior timer for this path before overwriting its buffer
       // entry — a duplicate add within the window would otherwise leave the
@@ -263,7 +283,7 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         }
       };
       const timer = setTimeout(() => {
-        void finalize();
+        track(finalize());
       }, RENAME_WINDOW_MS);
       // Clear any prior timer for this path (see the matching note on the
       // add buffer above) so a duplicate unlink doesn't leak a timer.
@@ -308,10 +328,11 @@ export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (args,
     // the new workspace's root.
     await flushPendingBuffers();
     await runningWatcher.close();
+    await drainInflight();
     runningWatcher = null;
     runningRoot = null;
   }
-  runningWatcher = await createChokidarWatcher(root, (event) => handleEvent(ctx, event));
+  runningWatcher = await createChokidarWatcher(root, (event) => track(handleEvent(ctx, event)));
   runningRoot = root;
   return { active: true, workspaceRoot: root };
 };
@@ -320,6 +341,9 @@ export const stop: Handler<WatcherStopArgs, WatcherStopResult> = async () => {
   if (!runningWatcher) return { stopped: false };
   await flushPendingBuffers();
   await runningWatcher.close();
+  // Wait for any handler/finalize already in flight to land before declaring
+  // the watcher stopped, so a switch can't leave a write racing the next root.
+  await drainInflight();
   runningWatcher = null;
   runningRoot = null;
   return { stopped: true };
@@ -340,6 +364,10 @@ export async function _resetForTests(): Promise<void> {
   for (const p of pendingAdds.values()) clearTimeout(p.timer);
   pendingAdds.clear();
   if (runningWatcher) await runningWatcher.close();
+  // Drain in-flight handlers/finalizes so a write can't land in the NEXT
+  // test's torn-down workspace (the source of "No current workspace" /
+  // ENOTEMPTY / mid-write BadgeCorrupt flakes in watcher.test.ts).
+  await drainInflight();
   runningWatcher = null;
   runningRoot = null;
 }

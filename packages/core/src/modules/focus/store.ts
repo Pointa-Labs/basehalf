@@ -1,5 +1,11 @@
 import { dirname, join } from 'node:path';
-import type { FsLike } from '../../kernel/index.js';
+import {
+  type FsLike,
+  assertReadContained,
+  assertWriteContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
+} from '../../kernel/index.js';
 import type { FocusItem } from './types.js';
 
 const FOCUS_FILE = '.bh/focus.md';
@@ -113,9 +119,41 @@ export function parseFocus(content: string): readonly string[] {
 }
 
 export async function readFocus(fs: FsLike, workspaceRoot: string): Promise<readonly string[]> {
-  const raw = await fs.readFile(focusPath(workspaceRoot));
+  const raw = await readMaybeNoFollow(
+    fs,
+    await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
+  );
   if (raw === null) return [];
   return parseFocus(raw);
+}
+
+/**
+ * Parse the optional `intent:` line (the turn intent / view prompt, written
+ * above `active:` by renderFocus). Needed so a caller re-setting focus can
+ * PRESERVE the intent instead of dropping it — focus.set with no intent omits
+ * the block. Returns undefined when there's no intent.
+ */
+export function parseIntent(content: string): string | undefined {
+  for (const line of content.split(/\r?\n/)) {
+    if (line.trim() === 'active:') break; // intent always precedes the active list
+    const m = /^intent:\s?(.*)$/.exec(line);
+    if (m?.[1] && m[1].trim() !== '') return m[1].trim();
+  }
+  return undefined;
+}
+
+/** Read focus.md as both the active path list AND the intent line, in one read. */
+export async function readFocusBrief(
+  fs: FsLike,
+  workspaceRoot: string,
+): Promise<{ active: readonly string[]; intent?: string }> {
+  const raw = await readMaybeNoFollow(
+    fs,
+    await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
+  );
+  if (raw === null) return { active: [] };
+  const intent = parseIntent(raw);
+  return { active: parseFocus(raw), ...(intent !== undefined && { intent }) };
 }
 
 export async function writeFocus(
@@ -125,7 +163,7 @@ export async function writeFocus(
   intent?: string,
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
-  const path = focusPath(workspaceRoot);
+  const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, renderFocus(active, intent));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent));
 }

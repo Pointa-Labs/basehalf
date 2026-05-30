@@ -1,5 +1,6 @@
 import type { Core } from '@basehalf/core';
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { resolveInsideWorkspace } from './workspacePath.js';
 
 export interface SerializedError {
   name: string;
@@ -41,6 +42,38 @@ export function registerWorkspacePickHandler(): void {
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0] ?? null;
   });
+}
+
+/**
+ * Register the `shell:open-path` channel — open a workspace file in the OS
+ * default app (e.g. a .docx in Word) for file types bh has no inline viewer
+ * for. GUI-only (Electron `shell`), so it's separate from `bh:run`.
+ *
+ * Safety: the renderer passes a WORKSPACE-RELATIVE path; resolveInsideWorkspace
+ * canonicalizes it (fs.realpath) against the current workspace root and refuses
+ * anything that escapes — including via a planted SYMLINK, which a string-only
+ * `..`/absolute check can't catch. So a malicious workspace can't make us open
+ * arbitrary system files or launch an executable the OS associates. We then open
+ * the verified real path. shell.openPath resolves to '' on success / error str.
+ */
+export function registerShellOpenHandler(core: Core): void {
+  ipcMain.handle(
+    'shell:open-path',
+    async (_event, relPath): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const cur = (await core.run('workspace.current', {})) as {
+          current: { path: string } | null;
+        };
+        if (!cur.current) return { ok: false, error: 'No current workspace.' };
+        const resolved = await resolveInsideWorkspace(cur.current.path, relPath);
+        if (!resolved.ok) return resolved;
+        const errMsg = await shell.openPath(resolved.abs);
+        return errMsg ? { ok: false, error: errMsg } : { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
 }
 
 /**

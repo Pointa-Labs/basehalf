@@ -51,22 +51,61 @@ gate is real-use daily dogfood, not protocol correctness.
 | 9 | `packages/desktop/` — Electron skeleton (main + preload + renderer), IPC working | ✅ done |
 | 10 | Workspace selector + left-side file tree (Obsidian-style) | ✅ done |
 | 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | ✅ done |
-| 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit IPC deferred to v0.x) |
-| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector deferred to v0.x) |
+| 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit reload prompt have since shipped) |
+| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector have since shipped) |
 | 14 | Block editor (BlockNote) + PDF viewer | ✅ done (BlockNote MD round-trip is lossy — flagged in UI; G-08 hardening deferred to v0.x) |
 | 15 | Media viewers (image / audio / video) | ✅ done |
 | 16 | Polish + dogfood readiness | ⏳ self-build complete; dogfood week ongoing |
 
-Deferred to v0.x (carried over in PR commit messages):
+Originally deferred to v0.x — several have since shipped during the v0
+polish/hardening arc (status updated 2026-05-30):
 
-- BlockNote round-trip view-only fallback when serialization drift > threshold
-- pdf.js (currently `file://` iframe; sufficient for reading, not annotation)
-- folder badge → sub-canvas (double-click)
-- saved-view selector in TopBar (CLI `bh view` + core commands ship today)
-- file rename heuristic (currently shows orphan + new badge)
-- external-edit IPC + reload prompt in BlockNote editor
-- macOS Full Disk Access programmatic prompt (today: guidance banner)
-- canvas perf benchmark at 1000+ badges
+- ✅ BlockNote round-trip view-only fallback when serialization drift > threshold
+  (content-token lossy guard → view-only mode; covered in `verify-ui`). Follow-on
+  also shipped: YAML-frontmatter notes are now EDITABLE — the frontmatter is
+  peeled off + preserved verbatim, only the body round-trips, so Obsidian/Jekyll
+  notes aren't stuck read-only (the guard checks the body alone).
+- pdf.js (currently `file://` iframe; sufficient for reading, not annotation) —
+  still deferred.
+- ✅ folder badge → sub-canvas (double-click) — scopes to folder contents.
+- ✅ saved-view selector in TopBar (view picker + create/rename/delete/edit-prompt).
+- ✅ file rename heuristic (watcher unlink+add → `badge.rename`; covered in
+  `watcher.test.ts`).
+- ✅ external-edit IPC + reload prompt in the editor ("changed on disk" banner →
+  Keep my edits / Reload).
+- macOS Full Disk Access programmatic prompt (today: guidance banner) — still
+  deferred.
+- canvas perf benchmark at 1000+ badges — still open; 150-badge load profiled
+  fine (snappy, no jank), so the realistic-folder case is covered.
+
+Also shipped beyond the original v0 scope: a read-only code/text viewer (so
+source/config files are readable, not just docs/media) and an adaptive
+auto-layout that frames large folders on first open.
+
+New v0.x follow-ups surfaced while building the code/text viewer:
+
+- Code-viewer **syntax highlighting** (needs a highlighter dep — weigh against
+  [dependency-policy.md](dependency-policy.md); plain monospace ships today).
+- Read **extension-less text files** (Dockerfile, Makefile, LICENSE, README,
+  `.gitignore`) — they currently fall through to "no built-in viewer". The clean
+  fix is content-based text detection (null-byte / non-printable sniff) gated on
+  a **capped** `workspace.readFile` so a large unknown binary can't be slurped
+  whole; do it properly rather than an ever-growing extension allowlist.
+- **Core-level `.bh/` reconcile.** In-app edits to a badge (prompt / refs) need to
+  refresh derived caches that the file watcher can't see (it ignores `.bh/`
+  writes). v0 wires this in the renderer (the editor panel pings the canvas via a
+  badge bus, and re-sets focus when a focused file is edited). The robust version
+  is in core: `badge.set/addRef/removeRef` reconcile `focus.md` like they already
+  reconcile `inbound.json` — needs a `focus.resync` that preserves the `intent:`
+  line and a focus-file `createKeyedMutex` (resync is the first read-modify-write
+  on focus.md), which then also covers CLI / agent edits, not just the desktop.
+- **Edit a folder badge's prompt in the desktop UI.** Folders are first-class
+  agent-protocol badges (a folder `.badge.json` carries a prompt + refs), but the
+  desktop has no gesture to open a folder's panel: single-click focuses,
+  double-click scopes into the sub-canvas, and the editor opens only for files.
+  So folder prompts are CLI-only today. Needs a disambiguated affordance (e.g. an
+  edit control on the folder badge, or an editable header inside its sub-canvas)
+  — a small interaction-design call, deferred rather than bolted on.
 
 ## What we are deliberately NOT doing yet
 
