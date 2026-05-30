@@ -53,7 +53,11 @@ export function assertFocusablePath(path: string): void {
  * on its own budget. Accepts plain strings too (treated as path-only items)
  * so callers that don't assemble a brief stay simple.
  */
-export function renderFocus(active: readonly (FocusItem | string)[], intent?: string): string {
+export function renderFocus(
+  active: readonly (FocusItem | string)[],
+  intent?: string,
+  sourceView?: string,
+): string {
   const items: FocusItem[] = active.map((a) => (typeof a === 'string' ? { file: a } : a));
   const lines: string[] = ['# bh focus', ''];
 
@@ -82,6 +86,12 @@ export function renderFocus(active: readonly (FocusItem | string)[], intent?: st
     }
   }
   lines.push('');
+  // bh-internal PROVENANCE (a `#` comment the agent ignores): which saved view
+  // sourced this focus, so editing that view's prompt can refresh the `intent:`
+  // by exact identity — never by guessing from members/text. Written only when
+  // the intent is view-DERIVED (no manual override); cleared otherwise.
+  const sv = sourceView ? oneLine(sourceView) : '';
+  if (sv) lines.push(`# source-view: ${sv}`);
   lines.push(TEMPLATE_FOOTER);
   return lines.join('\n');
 }
@@ -142,18 +152,37 @@ export function parseIntent(content: string): string | undefined {
   return undefined;
 }
 
-/** Read focus.md as both the active path list AND the intent line, in one read. */
+/**
+ * Parse the bh-internal `# source-view: <id>` provenance comment (the saved view
+ * this focus was published from). Used so editing that view's prompt can refresh
+ * the brief's intent by exact identity. Returns undefined when absent (a
+ * files-sourced focus, or a view focus with a manual intent override).
+ */
+export function parseSourceView(content: string): string | undefined {
+  for (const line of content.split(/\r?\n/)) {
+    const m = /^#\s*source-view:\s?(.*)$/.exec(line.trim());
+    if (m?.[1] && m[1].trim() !== '') return m[1].trim();
+  }
+  return undefined;
+}
+
+/** Read focus.md as the active list + intent + source-view provenance, in one read. */
 export async function readFocusBrief(
   fs: FsLike,
   workspaceRoot: string,
-): Promise<{ active: readonly string[]; intent?: string }> {
+): Promise<{ active: readonly string[]; intent?: string; sourceView?: string }> {
   const raw = await readMaybeNoFollow(
     fs,
     await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
   );
   if (raw === null) return { active: [] };
   const intent = parseIntent(raw);
-  return { active: parseFocus(raw), ...(intent !== undefined && { intent }) };
+  const sourceView = parseSourceView(raw);
+  return {
+    active: parseFocus(raw),
+    ...(intent !== undefined && { intent }),
+    ...(sourceView !== undefined && { sourceView }),
+  };
 }
 
 export async function writeFocus(
@@ -161,9 +190,10 @@ export async function writeFocus(
   workspaceRoot: string,
   active: readonly (FocusItem | string)[],
   intent?: string,
+  sourceView?: string,
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await writeMaybeNoFollow(fs, path, renderFocus(active, intent));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, sourceView));
 }

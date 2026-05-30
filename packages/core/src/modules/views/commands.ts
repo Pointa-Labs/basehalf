@@ -85,7 +85,7 @@ export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ct
     if (!existing) {
       throw new Error(`View not found: ${args.id}`);
     }
-    const next: SavedView = {
+    const updated: SavedView = {
       ...existing,
       name: args.patch.name ?? existing.name,
       ...(args.patch.prompt !== undefined
@@ -93,8 +93,25 @@ export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ct
         : existing.prompt !== undefined && { prompt: existing.prompt }),
       modifiedAt: new Date().toISOString(),
     };
-    await writeView(ctx.fs, root, next);
-    return next;
+    await writeView(ctx.fs, root, updated);
+    // A view's prompt IS its agent-facing intent: focus.set({viewId}) carries it
+    // into focus.md's `intent:` line, so a prompt change must refresh a brief
+    // focused FROM this view (the agent + "Copy brief" read it).
+    // focus.refreshViewIntent re-publishes it ONLY when focus.md's
+    // `# source-view:` provenance is exactly this view, atomically under the
+    // FOCUS lock. Held INSIDE this VIEW lock so the (id-keyed) view can't be
+    // deleted+recreated mid-refresh (focus reads views lock-free, so the
+    // view→focus order never inverts → no deadlock). Best-effort: a
+    // derived-.bh/-state failure must not fail a saved prompt (like badge edits
+    // ↔ focus.resync).
+    if (args.patch.prompt !== undefined) {
+      try {
+        await ctx.run('focus.refreshViewIntent', { viewId: args.id });
+      } catch {
+        // focus.md unreachable/hostile etc. — the view edit still succeeded.
+      }
+    }
+    return updated;
   });
 };
 
@@ -104,6 +121,19 @@ export const del: Handler<ViewDeleteArgs, ViewDeleteResult> = async (args, ctx) 
   // races in, then addMember's write resurrects the just-deleted view.
   return withViewLock(viewPath(root, args.id), async () => {
     const deleted = await removeView(ctx.fs, root, args.id);
+    // If this view sourced the current focus, drop the `# source-view:` marker so
+    // a later view REUSING this slug id isn't mistaken for the source. Done
+    // INSIDE the view lock so a concurrent view.create+focus.set on the same id
+    // can't publish a FRESH marker that this clear then strips — the id can't be
+    // reused until this releases. focus reads views lock-free so view→focus never
+    // inverts. Best-effort; only meaningful when a view actually existed.
+    if (deleted) {
+      try {
+        await ctx.run('focus.clearProvenanceIfView', { viewId: args.id });
+      } catch {
+        // focus.md unreachable/hostile etc. — the delete still succeeded.
+      }
+    }
     return { deleted };
   });
 };

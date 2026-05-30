@@ -360,3 +360,59 @@ describe('focus.brief', () => {
     await expect(core.run('focus.brief', {})).rejects.toThrow(/No current workspace/i);
   });
 });
+
+describe('focus source-view provenance', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'vp' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+  });
+
+  it('focus.set({viewId}) writes the marker; focus.get does NOT leak sourceView', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
+    const got = (await ctx.core.run('focus.get', {})) as Record<string, unknown>;
+    expect(Object.keys(got)).not.toContain('sourceView');
+  });
+
+  it('focus.set({files}) and focus.clear STRIP a previously-written marker', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    await ctx.core.run('focus.clear', {});
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
+  });
+
+  it('a manual intent override records NO provenance', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v', intent: 'override' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
+  });
+
+  it('focus.renameActiveFile remaps the path AND preserves the marker', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    const res = await ctx.core.run('focus.renameActiveFile', { from: 'a.md', to: 'a2.md' });
+    expect(res.renamed).toBe(true);
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- a2.md');
+    expect(md).not.toContain('- a.md');
+    expect(md).toContain('# source-view: v'); // provenance survives the rename
+  });
+
+  it('focus.renameActiveFile is a no-op when the file is not focused', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    const res = await ctx.core.run('focus.renameActiveFile', { from: 'nope.md', to: 'x.md' });
+    expect(res.renamed).toBe(false);
+  });
+
+  it('focus.clearProvenanceIfView only clears when it is the source', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    const other = await ctx.core.run('focus.clearProvenanceIfView', { viewId: 'someone-else' });
+    expect(other.cleared).toBe(false);
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
+    const self = await ctx.core.run('focus.clearProvenanceIfView', { viewId: 'v' });
+    expect(self.cleared).toBe(true);
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
+  });
+});

@@ -45,6 +45,42 @@ export interface FocusClearResult {
   readonly cleared: true;
 }
 
+export interface FocusRefreshViewIntentArgs {
+  /** The view whose prompt just changed. focus.md is refreshed ONLY when its
+   *  `# source-view:` provenance equals this id — i.e. the focus was published
+   *  FROM this view with a view-derived (not manually overridden) intent. Exact
+   *  identity, so same-members / same-prompt / files-sourced focuses are never
+   *  clobbered, independent of prompt text. */
+  readonly viewId: string;
+}
+export interface FocusRefreshViewIntentResult {
+  /** True when focus.md was re-rendered (the view is the unmodified source of
+   *  the current brief); false when left untouched. */
+  readonly refreshed: boolean;
+}
+
+export interface FocusClearProvenanceIfViewArgs {
+  /** The view being deleted. If it's the recorded source of the current focus,
+   *  the `# source-view:` marker is dropped so a future view that REUSES this id
+   *  can't be mistaken for the source. Active list + intent are kept. */
+  readonly viewId: string;
+}
+export interface FocusClearProvenanceIfViewResult {
+  readonly cleared: boolean;
+}
+
+export interface FocusRenameActiveFileArgs {
+  /** Old workspace-relative path being renamed. */
+  readonly from: string;
+  /** New path. */
+  readonly to: string;
+}
+export interface FocusRenameActiveFileResult {
+  /** True when `from` was active and got remapped to `to` (intent + source-view
+   *  provenance preserved); false when `from` wasn't focused. */
+  readonly renamed: boolean;
+}
+
 export type FocusBriefArgs = Record<string, never>;
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
