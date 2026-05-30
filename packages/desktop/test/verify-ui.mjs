@@ -62,12 +62,18 @@ writeFileSync(
   join(WORKSPACE_DIR, 'sample.ts'),
   'export const answer = 42;\r\nconsole.log(answer);\r\n',
 );
-// Seed a Markdown file that BlockNote's default config can't round-trip
-// cleanly (raw HTML <details> block). The MdEditor should flip into
-// view-only mode rather than silently lose the user's content on save.
+// Seed a Markdown file with constructs BlockNote can't model: bh's OWN marker
+// comment (kept verbatim but rendered INVISIBLE — it's our plumbing), a plain
+// USER comment (kept verbatim and shown quietly), and a raw HTML <details>
+// block (preserved byte-for-byte via the splice). Under the file-as-truth model
+// the MdEditor stays EDITABLE and a save preserves all three verbatim.
 writeFileSync(
   join(WORKSPACE_DIR, 'lossy.md'),
   `# Lossy
+
+<!-- bh:internal-marker -->
+
+<!-- a plain user note -->
 
 This file contains a raw HTML block BlockNote can't round-trip:
 
@@ -76,16 +82,27 @@ This file contains a raw HTML block BlockNote can't round-trip:
   Hidden detail that BlockNote will drop on re-serialize.
 </details>
 
+A paragraph with an <!-- inline secret --> inline comment stays read-only.
+
 End.
 `,
 );
-// A YAML-frontmatter note (Obsidian/Jekyll style) with a CLEAN body. The editor
+// A YAML-frontmatter note with a CLEAN body. The editor
 // should make it EDITABLE — frontmatter peeled off + preserved verbatim, only
 // the body round-tripped (§7i) — not force the whole note view-only.
 writeFileSync(
   join(WORKSPACE_DIR, 'fm.md'),
   '---\ntitle: Frontmatter Note\ntags: [a, b]\n---\n\n# Body heading\n\nEditable body.\n',
 );
+// An EMPTY note — the editor must seed one editable paragraph so a blank/new note
+// has a cursor target you can type the first content into (§7e3).
+writeFileSync(join(WORKSPACE_DIR, 'blank.md'), '');
+// A RAW-ONLY note (just an HTML comment → all passthrough blocks). The editor must
+// still seed an editable paragraph so the user can add content (§7e5).
+writeFileSync(join(WORKSPACE_DIR, 'rawonly.md'), '<!-- a standalone note -->\n');
+// A TIGHT bullet list — editing one item must keep the list tight (single
+// newlines), not inject blank lines that flip it to a loose list (§7e4).
+writeFileSync(join(WORKSPACE_DIR, 'list.md'), '- alpha\n- bravo\n- charlie\n');
 // An unsupported file type (no inline viewer) — the preview should offer
 // "Open in default app" rather than a dead end (§7j).
 writeFileSync(join(WORKSPACE_DIR, 'report.docx'), 'PK fake docx');
@@ -453,7 +470,7 @@ assert(
   `BadgeNode renders a file-type glyph (svg count=${firstBadgeGlyphs})`,
 );
 // Frontmatter is stripped from the canvas content tile too (matching the
-// editor): an Obsidian/Jekyll note's tile previews its BODY, not raw YAML keys.
+// editor): a frontmatter note's tile previews its BODY, not raw YAML keys.
 const fmBadgeText = await win
   .locator('.react-flow__node-badge[data-id="fm.md"]')
   .first()
@@ -514,13 +531,52 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 const introBadge = win.locator('.react-flow__node[data-id="intro.md"]');
-const introBox0 = await introBadge.boundingBox();
+let introBox0 = await introBadge.boundingBox();
 assert(introBox0 !== null, 'intro.md badge has a bounding box before drag');
-const start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+let start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+// The grid-fallback layout shifts with the badge count, so another badge can end
+// up stacked ON TOP of intro.md's fixed position — then the drag's mousedown
+// grabs that badge and intro.md never moves. Clear the start point: move any
+// covering badge far away (collapsed; editor tests reach those via the sidebar,
+// not the canvas). Never move intro.md/overview.md — later canvas tests need them.
+const nodeAt = (p) =>
+  win.evaluate(
+    (q) =>
+      document.elementFromPoint(q.x, q.y)?.closest('.react-flow__node')?.getAttribute('data-id') ??
+      null,
+    p,
+  );
+for (let i = 0; i < 5; i++) {
+  const hit = await nodeAt(start);
+  if (hit === 'intro.md') break;
+  if (!hit || hit === 'overview.md') break; // can't safely move these; assertion below catches it
+  await bhRun('badge.set', {
+    file: hit,
+    kind: 'file',
+    patch: { canvas: { x: 1700 + i * 60, y: 1500, collapsed: true } },
+  });
+  await win.reload();
+  await win.waitForLoadState('domcontentloaded');
+  await win.waitForTimeout(1000);
+  introBox0 = await introBadge.boundingBox();
+  if (!introBox0) break;
+  start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+}
+assert(
+  (await nodeAt(start)) === 'intro.md',
+  `intro.md is the topmost badge at the drag start (no badge covering it; hit ${await nodeAt(start)})`,
+);
 const target = { x: start.x + 220, y: start.y + 120 };
+// react-flow node drag is d3-drag under the hood: a mousemove in the SAME frame
+// as mousedown can miss the drag-start, so the node never moves (flaky under
+// load). Settle after pressing, cross the drag threshold with a small move, then
+// drag to the target over many steps, and settle again before releasing.
 await win.mouse.move(start.x, start.y);
 await win.mouse.down();
-await win.mouse.move(target.x, target.y, { steps: 12 });
+await win.waitForTimeout(80);
+await win.mouse.move(start.x + 6, start.y + 6, { steps: 4 });
+await win.mouse.move(target.x, target.y, { steps: 24 });
+await win.waitForTimeout(80);
 await win.mouse.up();
 // debounced persist is 300ms; wait a bit more.
 await win.waitForTimeout(800);
@@ -1333,42 +1389,156 @@ await win.screenshot({ path: `${SCREENS_DIR}/09-external-adopt.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(300);
 
-// --- 7e. BlockNote view-only mode for lossy MD (data-loss safety).
-// Opening lossy.md should pop the status into "View only" because raw
-// HTML round-trips poorly through BlockNote's parser. The Save button
-// should disappear so the user can't accidentally overwrite. ---
-console.log('\n[7e] BlockNote view-only mode for lossy MD');
+// --- 7e. File-as-truth: a Markdown file with constructs BlockNote can't model
+// opens EDITABLE (not view-only); a zero-block construct (the HTML comment)
+// renders as a read-only passthrough block; and opening + closing with NO edit
+// leaves the file byte-identical on disk (no silent normalization on view). ---
+console.log('\n[7e] File-as-truth editing (passthrough + byte-identity)');
+const lossyBefore = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
 await sidebar.locator('button', { hasText: 'lossy.md' }).first().click();
 await win.waitForTimeout(900);
-const lossyPreview = await win.locator('aside').last().innerText();
-const sawViewOnly = lossyPreview.includes('View only');
+const lossyOverlay = win.locator('aside').last();
+const lossyPreview = await lossyOverlay.innerText();
 console.log(
   '     preview snippet →',
   JSON.stringify(lossyPreview.split('\n').slice(0, 4).join(' | ')),
 );
+// Editable now (NOT view-only) — the whole point of the refactor.
 assert(
-  sawViewOnly,
-  `MdEditor flips to "View only" for lossy MD (raw HTML <details>) (snippet: ${JSON.stringify(lossyPreview.slice(0, 200))})`,
+  !/View only/i.test(lossyPreview),
+  `lossy MD opens EDITABLE, not view-only (snippet: ${JSON.stringify(lossyPreview.slice(0, 160))})`,
 );
-// Save button shouldn't be rendered in view-only mode (FilePreview hides it).
-const saveBtnsInPreview = await win
-  .locator('aside')
-  .last()
-  .locator('button', { hasText: /^Save$/ })
-  .count();
-assert(
-  saveBtnsInPreview === 0,
-  `Save button hidden in view-only mode (found ${saveBtnsInPreview})`,
-);
-// Editor must be non-editable.
 const editable = await win.locator('.ProseMirror').first().getAttribute('contenteditable');
+assert(editable === 'true', `ProseMirror is editable for a file-as-truth note (got ${editable})`);
+// bh's own marker is kept verbatim but rendered INVISIBLE (it's our plumbing).
+const hiddenMarker = lossyOverlay.locator('[data-bh-raw-passthrough="hidden"]');
 assert(
-  editable === 'false',
-  `ProseMirror contenteditable=false in view-only mode (got ${editable})`,
+  (await hiddenMarker.count()) >= 1 && !(await hiddenMarker.first().isVisible()),
+  `bh's own marker is preserved but not shown (count=${await hiddenMarker.count()})`,
 );
-await win.screenshot({ path: `${SCREENS_DIR}/11-view-only.png` });
+// The user's own comment is kept verbatim and shown quietly (visible passthrough).
+const userPassthrough = lossyOverlay.locator(
+  '[data-bh-raw-passthrough]:not([data-bh-raw-passthrough="hidden"])',
+);
+const userText = await userPassthrough.first().innerText();
+assert(
+  (await userPassthrough.first().isVisible()) && userText.includes('a plain user note'),
+  `the user's comment is shown as a quiet passthrough (got ${JSON.stringify(userText)})`,
+);
+await win.screenshot({ path: `${SCREENS_DIR}/11-file-truth-editable.png` });
+// Close WITHOUT editing → the file must be byte-identical (no rewrite on view).
 await win.keyboard.press('Escape');
-await win.waitForTimeout(200);
+await win.waitForTimeout(500);
+const lossyAfterView = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
+assert(
+  lossyAfterView === lossyBefore,
+  'opening + closing a note with no edit leaves it byte-identical on disk',
+);
+
+// --- 7e2. Editing one paragraph saves a localized splice: the edit lands and the
+// un-modelable <details> region survives byte-for-byte (never dropped). ---
+console.log('\n[7e2] Localized splice save keeps untouched constructs verbatim');
+await sidebar.locator('button', { hasText: 'lossy.md' }).first().click();
+await win.waitForTimeout(700);
+// Click into the first editable prose paragraph and append text.
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.press('End');
+await win.keyboard.type(' EDITED-INLINE');
+await win.waitForTimeout(900); // past the 400ms autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const lossyAfterEdit = readFileSync(join(WORKSPACE_DIR, 'lossy.md'), 'utf-8');
+assert(
+  lossyAfterEdit.includes('EDITED-INLINE'),
+  `the inline edit landed on disk (got: ${JSON.stringify(lossyAfterEdit.slice(0, 120))})`,
+);
+assert(
+  lossyAfterEdit.includes('<details>') && lossyAfterEdit.includes('</details>'),
+  'the raw <details> block survived the save byte-for-byte (not dropped)',
+);
+assert(
+  lossyAfterEdit.includes('<!-- inline secret -->'),
+  'an inline comment inside a paragraph survived (its span stays read-only, not lossy)',
+);
+assert(
+  lossyAfterEdit.includes('<!-- bh:internal-marker -->'),
+  "bh's hidden marker survived the save byte-for-byte",
+);
+assert(
+  lossyAfterEdit.includes('<!-- a plain user note -->'),
+  "the user's quiet comment survived the save byte-for-byte",
+);
+await win.waitForTimeout(150);
+
+// --- 7e3. An empty note seeds one editable paragraph (you can type the first
+// content into a blank/new note), and the typed content saves. ---
+console.log('\n[7e3] Empty note is editable (seeded paragraph)');
+await sidebar.locator('button', { hasText: 'blank.md' }).first().click();
+await win.waitForTimeout(700);
+const blankParas = await win.locator('.ProseMirror p').count();
+assert(blankParas >= 1, `an empty note seeds an editable paragraph (found ${blankParas})`);
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.type('First content in a blank note.');
+await win.waitForTimeout(900); // past autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const blankAfter = readFileSync(join(WORKSPACE_DIR, 'blank.md'), 'utf-8');
+assert(
+  blankAfter.includes('First content in a blank note.'),
+  `typing into a blank note saves to disk (got ${JSON.stringify(blankAfter.slice(0, 80))})`,
+);
+await win.waitForTimeout(150);
+
+// --- 7e4. Editing one item of a TIGHT list keeps it tight — the localized edit
+// reuses the item's original single-newline separators instead of injecting
+// blank lines that would flip the whole list to loose. ---
+console.log('\n[7e4] Editing a tight-list item keeps the list tight');
+await sidebar.locator('button', { hasText: 'list.md' }).first().click();
+await win.waitForTimeout(700);
+// Click into the middle item ("bravo") and append text.
+await win.locator('.ProseMirror').getByText('bravo', { exact: false }).first().click();
+await win.keyboard.press('End');
+await win.keyboard.type(' EDIT');
+await win.waitForTimeout(900); // past the autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const listMdAfter = readFileSync(join(WORKSPACE_DIR, 'list.md'), 'utf-8');
+assert(
+  listMdAfter.includes('bravo EDIT'),
+  `the list-item edit landed (got ${JSON.stringify(listMdAfter)})`,
+);
+assert(
+  !listMdAfter.includes('\n\n'),
+  `editing one item keeps the list tight — no blank lines injected (got ${JSON.stringify(listMdAfter)})`,
+);
+assert(
+  listMdAfter.includes('alpha') && listMdAfter.includes('charlie'),
+  `the untouched list items survive (got ${JSON.stringify(listMdAfter)})`,
+);
+await win.waitForTimeout(150);
+
+// --- 7e5. A raw-only note (all passthrough) still gets an editable paragraph, so
+// the user can add content; the raw construct is preserved on save. ---
+console.log('\n[7e5] Raw-only note is still editable (seeded paragraph)');
+await sidebar.locator('button', { hasText: 'rawonly.md' }).first().click();
+await win.waitForTimeout(700);
+const rawParas = await win.locator('.ProseMirror p').count();
+assert(rawParas >= 1, `a raw-only note seeds an editable paragraph (found ${rawParas})`);
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.type('added below the comment');
+await win.waitForTimeout(900);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const rawOnlyAfter = readFileSync(join(WORKSPACE_DIR, 'rawonly.md'), 'utf-8');
+assert(
+  rawOnlyAfter.includes('added below the comment'),
+  `typing into a raw-only note saves (got ${JSON.stringify(rawOnlyAfter)})`,
+);
+assert(
+  rawOnlyAfter.includes('<!-- a standalone note -->'),
+  'the raw construct survives editing a raw-only note',
+);
+await win.waitForTimeout(150);
 
 // --- 7f. Media viewers: PDF iframe + audio/video elements pass through
 // to file:// URLs with the right element type. ---
@@ -1425,7 +1595,7 @@ await win.waitForTimeout(150);
 
 // --- 7i. YAML frontmatter notes are EDITABLE (frontmatter peeled off + preserved
 // verbatim, body round-tripped) — NOT forced view-only the way the raw lossy
-// guard would. Regression for the read-only-for-Obsidian-notes limitation. ---
+// guard would. Regression for the read-only-for-frontmatter-notes limitation. ---
 console.log('\n[7i] Frontmatter note is editable (frontmatter preserved)');
 const fmBefore = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
 await sidebar.locator('button', { hasText: 'fm.md' }).first().click();
@@ -1438,9 +1608,11 @@ assert(
 await win.keyboard.press('Escape');
 await win.waitForTimeout(400);
 const fmAfter = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
+// File = truth: opening + closing with no edit rewrites NOTHING — the whole
+// file (frontmatter + body) is byte-identical, not just the frontmatter prefix.
 assert(
-  fmAfter.startsWith('---\ntitle: Frontmatter Note\ntags: [a, b]\n---'),
-  `frontmatter preserved verbatim (opening + closing didn't mangle it; got ${JSON.stringify(fmAfter.slice(0, 60))})`,
+  fmAfter === fmBefore,
+  `a frontmatter note is byte-identical after open+close with no edit (got ${JSON.stringify(fmAfter.slice(0, 60))})`,
 );
 
 // --- 7j. Unsupported file → "Open in default app" (not a dead end), and the
