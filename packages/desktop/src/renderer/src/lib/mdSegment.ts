@@ -7,7 +7,7 @@
  * `blocksToMarkdownLossy(document)` did, normalizing the whole file and dropping
  * constructs BlockNote can't model).
  *
- * Mechanism — content-addressed verbatim reuse:
+ * Mechanism — identity-addressed verbatim reuse:
  *  1. `segmentBody` tiles the body into ordered top-level "segments" using a real
  *     positioned Markdown parser (mdast), descending one level into top-level
  *     lists so each list ITEM is its own segment (BlockNote treats list items as
@@ -17,23 +17,28 @@
  *     reproduces the body byte-for-byte.
  *  2. `buildLoadProjection` parses each segment through BlockNote. A segment that
  *     BlockNote nukes to nothing (HTML comments, exotic raw HTML) becomes a
- *     read-only `rawPassthrough` block carrying its verbatim `raw`. A segment
- *     that yields exactly one block is indexed by its BlockNote-normalized form
- *     (`key → [raw…]`, FIFO, duplicate-aware).
- *  3. `spliceSave` walks the edited document; a block whose normalized form still
- *     matches an unconsumed segment key emits that segment's verbatim `raw`; an
+ *     read-only `rawPassthrough` block carrying its verbatim `raw`. A segment that
+ *     yields exactly one block is recorded in `byId` keyed by that block's stable
+ *     id → { its normalized form, its verbatim `raw` }.
+ *  3. `spliceSave` walks the edited document; a block still carrying a known id
+ *     whose normalized form still matches emits that block's verbatim `raw`; an
  *     edited/new block emits its own (normalized) Markdown. Untouched content is
- *     therefore byte-identical; normalization is confined to blocks the user
- *     actually changed.
+ *     byte-identical; normalization is confined to blocks the user actually
+ *     changed.
+ *
+ * Why identity, not content: BlockNote preserves a block's id across edits and
+ * through `replaceBlocks`, so keying by id (not by content) means two
+ * byte-identical-but-differently-spaced paragraphs each map to their OWN tile —
+ * editing one can never rewrite the other's surrounding bytes.
  *
  * FAIL-SAFE: every ambiguous path emits the block's own content. The system can
  * over-normalize (cosmetic) but cannot drop content — mdast covers 100% of the
  * body's bytes and an unmatched block always serializes itself.
  *
  * Known v1 limitation: a segment that BlockNote splits into MORE than one block
- * (e.g. a multi-paragraph blockquote) is not verbatim-indexed, so it normalizes
- * on the first edit elsewhere. No content is lost; this is strictly better than
- * the old whole-document normalization and is covered by tests.
+ * (e.g. a multi-paragraph blockquote) is not id-indexed, so it normalizes on the
+ * first edit elsewhere. No content is lost; this is strictly better than the old
+ * whole-document normalization and is covered by tests.
  */
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import { gfmFromMarkdown } from 'mdast-util-gfm';
@@ -59,11 +64,19 @@ export interface MdEditorApi {
   blocksToMarkdownLossy(blocks: unknown[]): Promise<string> | string;
 }
 
+/** A reusable source tile keyed by the block that owns it: `key` is the block's
+ *  BlockNote-normalized Markdown at load (to detect later edits), `raw` is the
+ *  verbatim source tile to re-emit while the block is unchanged. */
+export interface ReuseEntry {
+  key: string;
+  raw: string;
+}
+
 export interface LoadProjection {
   /** PartialBlock[] to hand to `editor.replaceBlocks` (typed loosely; the caller casts). */
   blocks: unknown[];
-  /** Content key → verbatim source tiles, in document order (FIFO consumption). */
-  segIndex: Map<string, string[]>;
+  /** Live block id → its verbatim source tile, for identity-addressed reuse. */
+  byId: Map<string, ReuseEntry>;
 }
 
 interface Unit {
@@ -153,22 +166,21 @@ async function normalize(editor: MdEditorApi, blocks: unknown[]): Promise<string
   return (await editor.blocksToMarkdownLossy(blocks)).trimEnd();
 }
 
-function pushIndex(index: Map<string, string[]>, key: string, raw: string): void {
-  const bucket = index.get(key);
-  if (bucket) bucket.push(raw);
-  else index.set(key, [raw]);
+function idOf(block: unknown): string | undefined {
+  const id = (block as { id?: unknown }).id;
+  return typeof id === 'string' ? id : undefined;
 }
 
-/** Parse a body into editor blocks + the verbatim-reuse index. Does NOT touch the
- *  editor document (the caller does `replaceBlocks`). Safe to call again after a
- *  save to refresh the index against the new on-disk truth. */
+/** Parse a body into editor blocks + the identity-addressed reuse index. The
+ *  blocks carry the ids that `replaceBlocks` will preserve, so `byId` stays valid
+ *  for the live document across edits. Does NOT touch the editor document. */
 export async function buildLoadProjection(
   editor: MdEditorApi,
   body: string,
 ): Promise<LoadProjection> {
   const segs = segmentBody(body);
   const blocks: unknown[] = [];
-  const segIndex = new Map<string, string[]>();
+  const byId = new Map<string, ReuseEntry>();
   for (const seg of segs) {
     let parsed: unknown[] = [];
     try {
@@ -180,14 +192,20 @@ export async function buildLoadProjection(
       blocks.push({ type: RAW_PASSTHROUGH, props: { raw: seg.raw, source: seg.source } });
       continue;
     }
-    // Only single-block segments are verbatim-indexed (per-block save matching).
-    // Multi-block segments are kept (no loss) but will normalize on edit.
+    // Index single-block segments by their stable block id. Multi-block segments
+    // (e.g. a multi-paragraph blockquote) aren't indexed — they normalize on edit
+    // (no content loss); see the header note.
     if (parsed.length === 1) {
-      pushIndex(segIndex, await normalize(editor, parsed), seg.raw);
+      const id = idOf(parsed[0]);
+      if (id) byId.set(id, { key: await normalize(editor, parsed), raw: seg.raw });
     }
     for (const b of parsed) blocks.push(b);
   }
-  return { blocks, segIndex };
+  // A new/blank note (empty body, or frontmatter-only) parses to no blocks; seed
+  // one empty paragraph so the editor has an editable cursor target. Saving stays
+  // gated on a real edit, so a blank note isn't rewritten just by opening it.
+  if (blocks.length === 0) blocks.push({ type: 'paragraph' });
+  return { blocks, byId };
 }
 
 interface Piece {
@@ -218,17 +236,15 @@ function joinPieces(pieces: Piece[]): string {
   return out;
 }
 
-/** Serialize the edited document back to Markdown, reusing verbatim source for
- *  every block the user didn't change. `segIndex` is cloned, not mutated. */
+/** Serialize the edited document back to Markdown, re-emitting verbatim source
+ *  for every block the user didn't change (matched by block id, so duplicate
+ *  content can't cross-pollinate). `byId` is read, never mutated. */
 export async function spliceSave(
   editor: MdEditorApi,
   document: unknown[],
   frontmatter: string,
-  segIndex: Map<string, string[]>,
+  byId: Map<string, ReuseEntry>,
 ): Promise<string> {
-  const pool = new Map<string, string[]>();
-  for (const [k, v] of segIndex) pool.set(k, [...v]);
-
   const pieces: Piece[] = [];
   for (const block of document) {
     const b = block as { type?: string; props?: { raw?: string } };
@@ -236,10 +252,11 @@ export async function spliceSave(
       pieces.push({ verbatim: true, text: b.props?.raw ?? '' });
       continue;
     }
-    const cur = await normalize(editor, [block]);
-    const bucket = pool.get(cur);
-    if (bucket && bucket.length > 0) {
-      pieces.push({ verbatim: true, text: bucket.shift() as string });
+    const id = idOf(block);
+    const entry = id ? byId.get(id) : undefined;
+    if (entry && (await normalize(editor, [block])) === entry.key) {
+      // Same block, unchanged content → re-emit its exact original bytes.
+      pieces.push({ verbatim: true, text: entry.raw });
     } else {
       pieces.push({
         verbatim: false,

@@ -90,6 +90,9 @@ writeFileSync(
   join(WORKSPACE_DIR, 'fm.md'),
   '---\ntitle: Frontmatter Note\ntags: [a, b]\n---\n\n# Body heading\n\nEditable body.\n',
 );
+// An EMPTY note — the editor must seed one editable paragraph so a blank/new note
+// has a cursor target you can type the first content into (§7e3).
+writeFileSync(join(WORKSPACE_DIR, 'blank.md'), '');
 // An unsupported file type (no inline viewer) — the preview should offer
 // "Open in default app" rather than a dead end (§7j).
 writeFileSync(join(WORKSPACE_DIR, 'report.docx'), 'PK fake docx');
@@ -1399,6 +1402,25 @@ assert(
 assert(
   lossyAfterEdit.includes('<!-- bh:internal-marker -->'),
   'the HTML comment (passthrough block) survived the save byte-for-byte',
+);
+await win.waitForTimeout(150);
+
+// --- 7e3. An empty note seeds one editable paragraph (you can type the first
+// content into a blank/new note), and the typed content saves. ---
+console.log('\n[7e3] Empty note is editable (seeded paragraph)');
+await sidebar.locator('button', { hasText: 'blank.md' }).first().click();
+await win.waitForTimeout(700);
+const blankParas = await win.locator('.ProseMirror p').count();
+assert(blankParas >= 1, `an empty note seeds an editable paragraph (found ${blankParas})`);
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.type('First content in a blank note.');
+await win.waitForTimeout(900); // past autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const blankAfter = readFileSync(join(WORKSPACE_DIR, 'blank.md'), 'utf-8');
+assert(
+  blankAfter.includes('First content in a blank note.'),
+  `typing into a blank note saves to disk (got ${JSON.stringify(blankAfter.slice(0, 80))})`,
 );
 await win.waitForTimeout(150);
 

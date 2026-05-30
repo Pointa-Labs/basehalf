@@ -21,7 +21,12 @@ import { color, font, motion, radius, shadow, space, transition } from '../desig
 import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
-import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
+import {
+  type MdEditorApi,
+  type ReuseEntry,
+  buildLoadProjection,
+  spliceSave,
+} from '../lib/mdSegment.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
@@ -953,10 +958,11 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // (ubiquitous in Obsidian/Jekyll) is forced view-only because YAML can't
   // round-trip. Empty string when the file has no frontmatter.
   const frontmatterRef = useRef('');
-  // Content-addressed verbatim-reuse index (BlockNote-normalized key → original
-  // source tiles) built from the body on load, so the splice-save can re-emit
-  // untouched blocks byte-for-byte. Refreshed after each successful write.
-  const segIndexRef = useRef<Map<string, string[]>>(new Map());
+  // Identity-addressed verbatim-reuse index (block id → its original source tile)
+  // built from the body on load, so the splice-save can re-emit untouched blocks
+  // byte-for-byte. Keyed by block id (preserved across edits) so duplicate content
+  // can't cross-pollinate; stays valid for the live document without rebuilding.
+  const byIdRef = useRef<Map<string, ReuseEntry>>(new Map());
   // True once the user typed but the debounced save hasn't flushed yet.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
@@ -979,11 +985,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         // untouched bytes (see mdSegment.ts).
         const { frontmatter, body } = splitFrontmatter(original);
         frontmatterRef.current = frontmatter;
-        const { blocks, segIndex } = await buildLoadProjection(
-          editor as unknown as MdEditorApi,
-          body,
-        );
-        segIndexRef.current = segIndex;
+        const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
+        byIdRef.current = byId;
         editor.replaceBlocks(
           editor.document,
           blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
@@ -1030,7 +1033,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         editor as unknown as MdEditorApi,
         editor.document,
         frontmatterRef.current,
-        segIndexRef.current,
+        byIdRef.current,
       );
     } catch {
       return; // editor torn down mid-flush — nothing safe to write
@@ -1045,18 +1048,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       // Only AFTER a successful write: mark synced to the EXACT bytes written (so
       // the watcher echo compares equal) and clear pending (kept true during the
       // write so a mid-write external change still conflicts rather than being
-      // silently overwritten).
+      // silently overwritten). The reuse index is keyed by block id and stays
+      // valid for the live document, so there's nothing to rebuild here.
       lastDiskRef.current = md;
       pendingRef.current = false;
-      // Re-index against the new on-disk truth so the next edit splices against
-      // current bytes (does not touch the live editor document).
-      try {
-        segIndexRef.current = (
-          await buildLoadProjection(editor as unknown as MdEditorApi, splitFrontmatter(md).body)
-        ).segIndex;
-      } catch {
-        // keep the prior index; worst case the next save normalizes a bit more
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
