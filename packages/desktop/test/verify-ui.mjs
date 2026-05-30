@@ -528,13 +528,52 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 const introBadge = win.locator('.react-flow__node[data-id="intro.md"]');
-const introBox0 = await introBadge.boundingBox();
+let introBox0 = await introBadge.boundingBox();
 assert(introBox0 !== null, 'intro.md badge has a bounding box before drag');
-const start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+let start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+// The grid-fallback layout shifts with the badge count, so another badge can end
+// up stacked ON TOP of intro.md's fixed position — then the drag's mousedown
+// grabs that badge and intro.md never moves. Clear the start point: move any
+// covering badge far away (collapsed; editor tests reach those via the sidebar,
+// not the canvas). Never move intro.md/overview.md — later canvas tests need them.
+const nodeAt = (p) =>
+  win.evaluate(
+    (q) =>
+      document.elementFromPoint(q.x, q.y)?.closest('.react-flow__node')?.getAttribute('data-id') ??
+      null,
+    p,
+  );
+for (let i = 0; i < 5; i++) {
+  const hit = await nodeAt(start);
+  if (hit === 'intro.md') break;
+  if (!hit || hit === 'overview.md') break; // can't safely move these; assertion below catches it
+  await bhRun('badge.set', {
+    file: hit,
+    kind: 'file',
+    patch: { canvas: { x: 1700 + i * 60, y: 1500, collapsed: true } },
+  });
+  await win.reload();
+  await win.waitForLoadState('domcontentloaded');
+  await win.waitForTimeout(1000);
+  introBox0 = await introBadge.boundingBox();
+  if (!introBox0) break;
+  start = { x: introBox0.x + introBox0.width / 2, y: introBox0.y + introBox0.height / 2 };
+}
+assert(
+  (await nodeAt(start)) === 'intro.md',
+  `intro.md is the topmost badge at the drag start (no badge covering it; hit ${await nodeAt(start)})`,
+);
 const target = { x: start.x + 220, y: start.y + 120 };
+// react-flow node drag is d3-drag under the hood: a mousemove in the SAME frame
+// as mousedown can miss the drag-start, so the node never moves (flaky under
+// load). Settle after pressing, cross the drag threshold with a small move, then
+// drag to the target over many steps, and settle again before releasing.
 await win.mouse.move(start.x, start.y);
 await win.mouse.down();
-await win.mouse.move(target.x, target.y, { steps: 12 });
+await win.waitForTimeout(80);
+await win.mouse.move(start.x + 6, start.y + 6, { steps: 4 });
+await win.mouse.move(target.x, target.y, { steps: 24 });
+await win.waitForTimeout(80);
 await win.mouse.up();
 // debounced persist is 300ms; wait a bit more.
 await win.waitForTimeout(800);
