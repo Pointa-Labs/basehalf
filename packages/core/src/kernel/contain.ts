@@ -201,6 +201,24 @@ export async function readBytesMaybeNoFollow(fs: FsLike, abs: string): Promise<U
   return content === null ? null : Buffer.from(content, 'utf8');
 }
 
+/**
+ * Bounded raw-byte read: at most `maxBytes` from the start of `abs`, with the
+ * same leaf-symlink policy as `readBytesMaybeNoFollow`. Production's FsLike
+ * reads only the prefix (so a huge mis-typed/mis-routed file can't be slurped
+ * whole before a caller caps + sniffs it); an FsLike without the capped reader
+ * falls back to read-whole-then-slice — correct output, just not memory-bounded
+ * (the legacy/mock paths have no multi-GB files in play).
+ */
+export async function readBytesCappedMaybeNoFollow(
+  fs: FsLike,
+  abs: string,
+  maxBytes: number,
+): Promise<Uint8Array | null> {
+  if (fs.readFileBytesCappedNoFollow) return fs.readFileBytesCappedNoFollow(abs, maxBytes);
+  const whole = await readBytesMaybeNoFollow(fs, abs);
+  return whole === null ? null : whole.subarray(0, maxBytes);
+}
+
 /** Write `abs` with O_NOFOLLOW when supported, else plain write. */
 export async function writeMaybeNoFollow(fs: FsLike, abs: string, content: string): Promise<void> {
   if (fs.writeFileNoFollow) await fs.writeFileNoFollow(abs, content);

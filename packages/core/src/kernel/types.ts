@@ -64,6 +64,15 @@ export interface FsLike {
    */
   readFileBytesNoFollow?(path: string): Promise<Uint8Array | null>;
   /**
+   * Bounded-byte variant of `readFileBytesNoFollow`: read AT MOST `maxBytes`
+   * from the start of the file (still O_NOFOLLOW on the leaf). Lets a capped
+   * preview fetch a fixed prefix instead of slurping a multi-GB file into
+   * memory before the cap/sniff runs. Returns null if missing. OPTIONAL —
+   * callers fall back to read-whole-then-slice when absent (correct output,
+   * just not memory-bounded; legacy mocks have no large files in play).
+   */
+  readFileBytesCappedNoFollow?(path: string, maxBytes: number): Promise<Uint8Array | null>;
+  /**
    * Write a file with O_NOFOLLOW on the final component — refuses (PathEscape)
    * if the leaf is a symlink at OPEN time. The symmetric write-side close of
    * the check-then-write TOCTOU. OPTIONAL (legacy mocks fall back to
