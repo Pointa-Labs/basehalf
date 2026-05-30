@@ -278,6 +278,40 @@ describe('view.update', () => {
     await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'new' } });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: new');
   });
+
+  it('does NOT refresh after the source view is DELETED and its id is reused', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old intent' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    // Delete the focused view → provenance is cleared so a reused id can't hijack.
+    await ctx.core.run('view.delete', { id: 'v' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
+    // Recreate a DIFFERENT view reusing the same slug id.
+    await ctx.core.run('view.create', { name: 'V2', id: 'v', prompt: 'unrelated' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'edited unrelated' } });
+    // The old brief's intent must NOT be rewritten by the unrelated reused-id view.
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: old intent');
+    expect(brief).not.toContain('unrelated');
+  });
+
+  it('still refreshes the intent after a focused member file was renamed', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    // Simulate the focus side of a member rename (what badge.rename triggers).
+    await ctx.core.run('focus.renameActiveFile', { from: 'a.md', to: 'a2.md' });
+    // Keep the view's membership consistent with the rename, as badge.rename does.
+    await ctx.core.run('view.removeMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a2.md' });
+    // Editing the (still-focused) view's prompt must STILL refresh — provenance
+    // survived the rename.
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'fresh' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: fresh');
+    expect(brief).toContain('- a2.md');
+  });
 });
 
 describe('view.delete', () => {

@@ -1,5 +1,4 @@
 import type { Handler } from '../../kernel/index.js';
-import type { FocusGetResult, FocusSetResult } from '../focus/types.js';
 import type { InboundGetResult } from '../inbound/types.js';
 import type { SavedView, ViewListResult } from '../views/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
@@ -338,23 +337,18 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // 4. Update focus.md if `from` is in the active list.
+  // 4. Update focus.md if `from` is in the active list. focus.renameActiveFile
+  // remaps the path in place UNDER the focus lock, preserving BOTH the turn
+  // intent and the `# source-view:` provenance — a bare focus.set({files})
+  // would drop the intent block AND strip provenance (so editing the source
+  // view's prompt would stop refreshing the brief after a member rename).
   let focusUpdated = false;
   try {
-    const focus = await ctx.run<Record<string, never>, FocusGetResult>('focus.get', {});
-    if (focus.active.includes(args.from)) {
-      const next = focus.active.map((f) => (f === args.from ? args.to : f));
-      // Preserve the turn intent: focus.set with no `intent` DROPS the
-      // `intent:` block (it's omitted, not carried), so a bare rewrite here
-      // would silently lose the user's "what I'm doing this turn" brief on
-      // every file rename (the watcher fires badge.rename on any OS rename).
-      // Thread the existing intent back through. See focus brief (PR #91).
-      await ctx.run<{ files: readonly string[]; intent?: string }, FocusSetResult>('focus.set', {
-        files: next,
-        ...(focus.intent !== undefined && { intent: focus.intent }),
-      });
-      focusUpdated = true;
-    }
+    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(
+      'focus.renameActiveFile',
+      { from: args.from, to: args.to },
+    );
+    focusUpdated = res.renamed;
   } catch (err) {
     if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
   }

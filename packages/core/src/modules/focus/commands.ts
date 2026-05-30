@@ -10,6 +10,8 @@ import type {
   FocusBriefArgs,
   FocusBriefResult,
   FocusClearArgs,
+  FocusClearProvenanceIfViewArgs,
+  FocusClearProvenanceIfViewResult,
   FocusClearResult,
   FocusGetArgs,
   FocusGetResult,
@@ -18,6 +20,8 @@ import type {
   FocusItem,
   FocusRefreshViewIntentArgs,
   FocusRefreshViewIntentResult,
+  FocusRenameActiveFileArgs,
+  FocusRenameActiveFileResult,
   FocusResyncArgs,
   FocusResyncResult,
   FocusSetArgs,
@@ -154,6 +158,51 @@ export const refreshViewIntent: Handler<
 };
 
 /**
+ * Drop the `# source-view:` marker when the view it names is being DELETED, so a
+ * future view that reuses the same slug id can't be mistaken for the source of
+ * this focus (which would let editing the new view's prompt rewrite an unrelated
+ * brief). Active list + intent are preserved — only the provenance is cleared.
+ * Atomic under the focus lock; no-op when this view isn't the source.
+ */
+export const clearProvenanceIfView: Handler<
+  FocusClearProvenanceIfViewArgs,
+  FocusClearProvenanceIfViewResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, sourceView } = await readFocusBrief(ctx.fs, root);
+    if (sourceView !== args.viewId) return { cleared: false };
+    const items = await assembleItems(ctx, active);
+    await writeFocus(ctx.fs, root, items, intent); // no sourceView → marker dropped
+    return { cleared: true };
+  });
+};
+
+/**
+ * Remap a renamed file in the active list IN PLACE, preserving the intent AND
+ * the `# source-view:` provenance. badge.rename used to round-trip through the
+ * public focus.get/focus.set shapes, which strip provenance — so after renaming
+ * a focused view's member, editing that view's prompt stopped refreshing the
+ * brief. This keeps the focus live-linked to its source view across a rename.
+ * Atomic under the focus lock; no-op when `from` isn't focused.
+ */
+export const renameActiveFile: Handler<
+  FocusRenameActiveFileArgs,
+  FocusRenameActiveFileResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, sourceView } = await readFocusBrief(ctx.fs, root);
+    if (!active.includes(args.from)) return { renamed: false };
+    // writeFocus asserts every active path (incl. the new `to`) before writing.
+    const next = active.map((f) => (f === args.from ? args.to : f));
+    const items = await assembleItems(ctx, next);
+    await writeFocus(ctx.fs, root, items, intent, sourceView);
+    return { renamed: true };
+  });
+};
+
+/**
  * Re-render focus.md from its CURRENT active list with FRESH badge data,
  * preserving the `intent:` line. This is the core reconcile the renderer used
  * to fake in `resyncFocusForFile`: an in-app / CLI / agent edit to a badge's
@@ -234,6 +283,8 @@ export function commands(): ReadonlyArray<
     ['focus.get', get as unknown as Handler<never, unknown>],
     ['focus.brief', brief as unknown as Handler<never, unknown>],
     ['focus.refreshViewIntent', refreshViewIntent as unknown as Handler<never, unknown>],
+    ['focus.clearProvenanceIfView', clearProvenanceIfView as unknown as Handler<never, unknown>],
+    ['focus.renameActiveFile', renameActiveFile as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],

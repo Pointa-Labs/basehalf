@@ -59,6 +59,28 @@ export interface FocusRefreshViewIntentResult {
   readonly refreshed: boolean;
 }
 
+export interface FocusClearProvenanceIfViewArgs {
+  /** The view being deleted. If it's the recorded source of the current focus,
+   *  the `# source-view:` marker is dropped so a future view that REUSES this id
+   *  can't be mistaken for the source. Active list + intent are kept. */
+  readonly viewId: string;
+}
+export interface FocusClearProvenanceIfViewResult {
+  readonly cleared: boolean;
+}
+
+export interface FocusRenameActiveFileArgs {
+  /** Old workspace-relative path being renamed. */
+  readonly from: string;
+  /** New path. */
+  readonly to: string;
+}
+export interface FocusRenameActiveFileResult {
+  /** True when `from` was active and got remapped to `to` (intent + source-view
+   *  provenance preserved); false when `from` wasn't focused. */
+  readonly renamed: boolean;
+}
+
 export type FocusBriefArgs = Record<string, never>;
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the

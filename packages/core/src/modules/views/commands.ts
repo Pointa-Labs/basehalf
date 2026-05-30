@@ -118,10 +118,22 @@ export const del: Handler<ViewDeleteArgs, ViewDeleteResult> = async (args, ctx) 
   const root = await currentWorkspaceRoot(ctx);
   // Under the lock so a concurrent addMember can't read the view, delete
   // races in, then addMember's write resurrects the just-deleted view.
-  return withViewLock(viewPath(root, args.id), async () => {
-    const deleted = await removeView(ctx.fs, root, args.id);
-    return { deleted };
+  const deleted = await withViewLock(viewPath(root, args.id), async () => {
+    return removeView(ctx.fs, root, args.id);
   });
+  // If this view sourced the current focus, drop the `# source-view:` marker so
+  // a later view that REUSES this slug id isn't mistaken for the source (editing
+  // its prompt would otherwise rewrite an unrelated brief). Best-effort: a
+  // derived-.bh/-state failure must not fail the delete. Outside the view lock
+  // (it takes the focus lock); only meaningful when a view actually existed.
+  if (deleted) {
+    try {
+      await ctx.run('focus.clearProvenanceIfView', { viewId: args.id });
+    } catch {
+      // focus.md unreachable/hostile etc. — the delete still succeeded.
+    }
+  }
+  return { deleted };
 };
 
 export const addMember: Handler<ViewAddMemberArgs, ViewAddMemberResult> = async (args, ctx) => {
