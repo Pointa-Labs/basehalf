@@ -416,7 +416,9 @@ export const CommandPalette = (): JSX.Element | null => {
         category: 'Search',
         ...(hit.file.includes('/') && { hint: hit.file }),
         ...(snippet !== undefined && snippet.length > 0 && { sub: snippet }),
-        run: () => setCurrentFile(hit.file),
+        // Open AT the match: pass the query so the MD editor jumps to + flashes
+        // the passage instead of landing at the top.
+        run: () => setCurrentFile(hit.file, q),
       });
     }
     return out;
