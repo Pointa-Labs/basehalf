@@ -112,8 +112,6 @@ Core modules currently ship for:
 - `view` - create saved compound views.
 - `watcher` - reconcile external filesystem changes.
 
-See [docs/roadmap.md][roadmap] for the current v0/v0.x plan.
-
 ## Quickstart
 
 Requirements: Node >= 20.19 and pnpm 9.
@@ -182,7 +180,7 @@ packages/
         watcher/      chokidar reconciliation for local filesystem changes
   cli/              bh - thin shell over @basehalf/core
   desktop/          Electron + React shell over core via IPC
-docs/             decisions, roadmap, dependency policy, trademark policy
+docs/             decisions, dependency policy, trademark policy
 ```
 
 ## Architecture Principles
@@ -257,7 +255,6 @@ Replace only the URLs below when the public community links are ready.
 [twitter]: https://x.com/REPLACE_ME
 [discord]: https://discord.gg/REPLACE_ME
 [qq-group]: https://qm.qq.com/q/REPLACE_ME
-[roadmap]: docs/roadmap.md
 [contributing]: CONTRIBUTING.md
 [cla]: CLA.md
 [code-of-conduct]: CODE_OF_CONDUCT.md
