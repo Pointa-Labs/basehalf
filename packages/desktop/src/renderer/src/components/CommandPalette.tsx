@@ -28,6 +28,7 @@ import {
   promptForNewView,
   tildifyPath,
 } from '../lib/actions.js';
+import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
@@ -522,6 +523,7 @@ export const CommandPalette = (): JSX.Element | null => {
                 action={a}
                 idx={idx}
                 selected={idx === selectedIdx}
+                query={query.trim()}
                 onHover={() => {
                   if (mouseActive) setSelectedIdx(idx);
                 }}
@@ -538,16 +540,49 @@ export const CommandPalette = (): JSX.Element | null => {
   );
 };
 
+/**
+ * Render `text` with runs matching `query` marked (accent + semibold), so a row
+ * shows WHERE it matched — scannable in both the label and the content snippet.
+ * `<mark>` (background neutralized) keeps the relevance semantics for AT.
+ */
+function renderHighlighted(text: string, query: string): JSX.Element {
+  const segments = highlightSegments(text, query);
+  // Key by each segment's character offset in the string — stable + unique, and
+  // not the array index (so it survives the lint + any future re-split).
+  let offset = 0;
+  const nodes = segments.map((seg) => {
+    const key = offset;
+    offset += seg.text.length;
+    return seg.match ? (
+      <mark
+        key={key}
+        style={{
+          background: 'transparent',
+          color: color.accent,
+          fontWeight: font.weight.semibold,
+        }}
+      >
+        {seg.text}
+      </mark>
+    ) : (
+      <span key={key}>{seg.text}</span>
+    );
+  });
+  return <>{nodes}</>;
+}
+
 const PaletteRow = ({
   action,
   idx,
   selected,
+  query,
   onHover,
   onClick,
 }: {
   action: Action;
   idx: number;
   selected: boolean;
+  query: string;
   onHover: () => void;
   onClick: () => void;
 }): JSX.Element => (
@@ -597,7 +632,7 @@ const PaletteRow = ({
           fontWeight: selected ? font.weight.medium : font.weight.regular,
         }}
       >
-        {action.label}
+        {renderHighlighted(action.label, query)}
       </span>
       {action.sub && (
         // Search rows: the matching snippet, so you can see WHY the file
@@ -612,7 +647,7 @@ const PaletteRow = ({
             fontFamily: font.mono,
           }}
         >
-          {action.sub}
+          {renderHighlighted(action.sub, query)}
         </span>
       )}
     </span>
