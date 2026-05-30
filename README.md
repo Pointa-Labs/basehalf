@@ -261,11 +261,11 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [license]: LICENSE
 [trademark-policy]: docs/trademark-policy.md
 
-[badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-111827?style=flat-square
-[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-111827?style=flat-square
-[badge-discussions]: https://img.shields.io/badge/Discussions-GitHub-24292F?style=flat-square&logo=github&logoColor=white
-[badge-twitter]: https://img.shields.io/badge/Twitter%20%2F%20X-Follow-111111?style=flat-square&logo=x&logoColor=white
-[badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white
-[badge-qq-users]: https://img.shields.io/badge/QQ%20Users-Join-12B7F5?style=flat-square
-[badge-qq-developers]: https://img.shields.io/badge/QQ%20Dev-Join-12B7F5?style=flat-square
-[badge-license]: https://img.shields.io/badge/License-Apache--2.0-2F855A?style=flat-square
+[badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
+[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-C0A8DD?style=flat&labelColor=1A1A17
+[badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
+[badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
+[badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=DBE7FB&labelColor=1A1A17
+[badge-qq-users]: https://img.shields.io/badge/QQ-Users-7EB8CD?style=flat&labelColor=1A1A17
+[badge-qq-developers]: https://img.shields.io/badge/QQ-Dev-9FBBE0?style=flat&labelColor=1A1A17
+[badge-license]: https://img.shields.io/badge/License-Apache--2.0-2A2B2B?style=flat&labelColor=1A1A17
