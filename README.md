@@ -15,7 +15,7 @@ work from the same materials you see.
 [![Discussions][badge-discussions]][discussions]
 [![Twitter / X][badge-twitter]][twitter]
 [![Discord][badge-discord]][discord]
-[![QQ Community][badge-qq-community]][community]
+[![QQ Groups][badge-qq-groups]][community]
 
 [![Web Version][badge-website]][website]
 [![GitCGR][badge-gitcgr]][gitcgr]
@@ -266,5 +266,5 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
 [badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
 [badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=DBE7FB&labelColor=1A1A17
-[badge-qq-community]: https://img.shields.io/badge/QQ-Community-7EB8CD?style=flat&labelColor=1A1A17
+[badge-qq-groups]: https://img.shields.io/badge/QQ-Groups-7EB8CD?style=flat&labelColor=1A1A17
 [badge-license]: https://img.shields.io/badge/License-Apache--2.0-2A2B2B?style=flat&labelColor=1A1A17
