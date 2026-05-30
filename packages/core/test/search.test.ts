@@ -250,16 +250,18 @@ describe('search.query', () => {
     expect(loneSurrogate.test(text)).toBe(false);
   });
 
-  it('searches a FILE whose basename matches a skip-dir name (skip is dirs-only)', async () => {
+  it('searches a FILE named like a skip-dir but still prunes a DIRECTORY of that name', async () => {
     const { core } = await setup((m) => {
-      // An extensionless note literally named `build` — a DIRECTORY named build
-      // is pruned, but a file by that name must still be searched.
+      // An extensionless note literally named `build` must be searched (the skip
+      // is dirs-only), while a real DIRECTORY named `vendor` must still be pruned.
       m.files.set('/v/build', 'findme inside build');
-      m.dirs.add('/v/build-dir');
-      m.files.set('/v/build-dir/skip-me.md', 'findme too');
+      m.dirs.add('/v/vendor');
+      m.files.set('/v/vendor/inner.md', 'findme too');
     });
     const res = await run(core, { query: 'findme' });
-    expect(res.hits.map((h) => h.file)).toContain('build');
+    const files = res.hits.map((h) => h.file);
+    expect(files).toContain('build'); // file named like a skip-dir → searched
+    expect(files).not.toContain('vendor/inner.md'); // dir named like a skip-dir → pruned
   });
 
   it('flags result truncated when a capped large file might hide a match past the cap', async () => {

@@ -309,13 +309,20 @@ function renderSearch(r: {
   }[];
   truncated?: boolean;
 }): void {
+  // `truncated` means the search was incomplete — either more files matched
+  // than the cap, or a file larger than the read cap was only partially scanned
+  // (a match could lie beyond it). Surface it in BOTH the no-match and the
+  // has-matches case so "No matches" never hides an incomplete search.
   if (r.hits.length === 0) {
-    process.stdout.write(`No matches for "${r.query}".\n`);
+    const warn = r.truncated
+      ? ' (search incomplete — some large files were only partially scanned; a match may lie beyond the cap)'
+      : '';
+    process.stdout.write(`No matches for "${r.query}".${warn}\n`);
     return;
   }
   const fileCount = r.hits.length;
   process.stdout.write(
-    `${fileCount} file${fileCount === 1 ? '' : 's'} match "${r.query}"${r.truncated ? ' (more — capped)' : ''}\n`,
+    `${fileCount} file${fileCount === 1 ? '' : 's'} match "${r.query}"${r.truncated ? ' (results may be incomplete — capped)' : ''}\n`,
   );
   for (const hit of r.hits) {
     const more = hit.total > hit.matches.length ? ` (+${hit.total - hit.matches.length} more)` : '';

@@ -163,9 +163,10 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
       if (frame.rel === '') throw err;
       continue;
     }
-    // Sort entries for a deterministic walk order (dirs and files interleaved
-    // alphabetically); listFiles already sorts dirs-first, but we push dirs to a
-    // LIFO stack so reverse them to keep alphabetical pop order.
+    // listFiles already returns entries sorted (dirs-first, then alphabetical);
+    // we collect child dirs here and push them REVERSED below so the LIFO stack
+    // pops them alphabetically. (Final result order is fixed by the rank-before-
+    // cap sort at the end, so walk order only affects tie-broken traversal.)
     const dirs: (typeof frame)[] = [];
     for (const entry of listing.entries) {
       const childRel = frame.rel ? `${frame.rel}/${entry.name}` : entry.name;
