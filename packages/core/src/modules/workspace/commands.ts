@@ -365,10 +365,7 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // Content sniff: NUL bytes and invalid UTF-8 are not renderable text. Sniff
   // the same prefix the viewer asked for, but do it on raw bytes before UTF-8
   // decoding has a chance to replace invalid sequences with mojibake.
-  const sniffBytes =
-    typeof args.maxChars === 'number' && args.maxChars >= 0
-      ? bytes.subarray(0, args.maxChars)
-      : bytes;
+  const sniffBytes = capped ? bytes.subarray(0, Buffer.byteLength(slice, 'utf8')) : bytes;
   const binary = sniffBytes.includes(0) || !isUtf8(sniffBytes);
   return {
     path: args.path,

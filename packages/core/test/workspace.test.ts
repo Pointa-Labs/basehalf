@@ -94,6 +94,22 @@ describe('workspace module (mock FS)', () => {
     expect(bad.content).toContain('\uFFFD');
   });
 
+  it('readFile: does not split valid UTF-8 while sniffing a capped text prefix', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/unicode.log', `${'A'.repeat(199_999)}é tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'unicode.log',
+      maxChars: 200_000,
+    });
+    expect(capped.truncated).toBe(true);
+    expect(capped.content.endsWith('é')).toBe(true);
+    expect(capped.binary).toBeUndefined();
+  });
+
   it('readFile: binary sniff only inspects the capped prefix (what the viewer renders)', async () => {
     const NUL = String.fromCharCode(0);
     const { fs, files, dirs } = mockFs();
