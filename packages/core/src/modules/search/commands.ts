@@ -44,6 +44,11 @@ const SNIPPET_MAX_CHARS = 200;
 // Hard ceiling on directories walked — a backstop against a pathological deep
 // tree turning one search into an unbounded crawl. Far above any real workspace.
 const MAX_DIRS = 5_000;
+// Hard ceiling on FILES read in one search. We scan the whole tree (not just
+// the first `maxFiles` matches) so results can be RANKED before the cap — but a
+// pathological flat dir of 1M files still needs a bound. Hitting it flags the
+// result `truncated`. Far above any real workspace.
+const MAX_FILES_SCANNED = 20_000;
 
 function clampPositive(value: number | undefined, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return fallback;
@@ -57,20 +62,36 @@ function clampPositive(value: number | undefined, fallback: number): number {
  * line. `needleLower`/`lineLower` are the pre-lowercased forms (the caller
  * already has them, so we don't re-lowercase per line).
  */
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
 function snippet(line: string, lineLower: string, needleLower: string): string {
   const trimmedStart = line.length - line.trimStart().length;
   const collapsed = line.trim();
   if (collapsed.length <= SNIPPET_MAX_CHARS) return collapsed;
   // Long line: center the window on the first match (relative to the trimmed
-  // line, since that's what we return).
+  // line, since that's what we return). `half` is clamped to ≥0 so a needle
+  // LONGER than the window (a pasted long phrase) still anchors the window at
+  // the match start instead of being pushed past it.
   const matchInLine = lineLower.indexOf(needleLower);
   const matchInTrimmed = Math.max(0, matchInLine - trimmedStart);
-  const half = Math.floor((SNIPPET_MAX_CHARS - needleLower.length) / 2);
+  const half = Math.max(0, Math.floor((SNIPPET_MAX_CHARS - needleLower.length) / 2));
   let start = Math.max(0, matchInTrimmed - half);
   let end = Math.min(collapsed.length, start + SNIPPET_MAX_CHARS);
   // If clamping at the end pulled the window short, slide it left to fill.
   start = Math.max(0, end - SNIPPET_MAX_CHARS);
   end = Math.min(collapsed.length, start + SNIPPET_MAX_CHARS);
+  // Snap the window off any surrogate-pair boundary so a clipped emoji / astral
+  // char never ships as a lone surrogate (renders as U+FFFD). When start lands
+  // on a low surrogate its high half is outside the window → drop the orphan;
+  // when end-1 is a high surrogate its low half is outside → drop it. The `…`
+  // already covers the dropped half.
+  if (start > 0 && isLowSurrogate(collapsed.charCodeAt(start))) start++;
+  if (end < collapsed.length && isHighSurrogate(collapsed.charCodeAt(end - 1))) end--;
   const core = collapsed.slice(start, end);
   return `${start > 0 ? '…' : ''}${core}${end < collapsed.length ? '…' : ''}`;
 }
@@ -101,6 +122,7 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
   const hits: SearchHit[] = [];
   let truncated = false;
   let dirsWalked = 0;
+  let filesScanned = 0;
 
   // Iterative DFS so a deep tree can't blow the call stack. Each frame carries
   // the absolute path (for listFiles) + the workspace-relative POSIX path (for
@@ -116,9 +138,12 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
     let listing: { entries: ReadonlyArray<{ name: string; type: 'file' | 'dir' }> };
     try {
       listing = (await ctx.run('workspace.listFiles', { path: frame.abs })) as typeof listing;
-    } catch {
-      // A directory that vanished / became unreachable mid-walk (or a
-      // symlink-escape listFiles refuses) — skip it, don't abort the search.
+    } catch (err) {
+      // The ROOT listing failing means the active workspace is gone / unmounted
+      // / unreachable — surface that (PATH_NOT_FOUND / containment) rather than
+      // report "no matches" for a broken workspace. Only a CHILD dir that
+      // vanished mid-walk (or a symlink-escape listFiles refuses) is skipped.
+      if (frame.rel === '') throw err;
       continue;
     }
     // Sort entries for a deterministic walk order (dirs and files interleaved
@@ -133,6 +158,13 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
         dirs.push({ abs: childAbs, rel: childRel });
         continue;
       }
+      // Scan budget: we deliberately read EVERY candidate file (so the result
+      // set can be ranked, not just the first `maxFiles` in traversal order),
+      // bounded only by this backstop.
+      if (++filesScanned > MAX_FILES_SCANNED) {
+        truncated = true;
+        break outer;
+      }
       let file: { content: string; truncated?: boolean; binary?: boolean };
       try {
         file = (await ctx.run('workspace.readFile', {
@@ -146,7 +178,9 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
       const contentLower = file.content.toLowerCase();
       if (!contentLower.includes(needleLower)) continue;
 
-      const lines = file.content.split(/\r?\n/);
+      // Split on LF, CRLF, AND bare CR (classic-Mac) so line numbers + per-line
+      // snippets stay correct and no interior \r leaks into a snippet.
+      const lines = file.content.split(/\r\n|\r|\n/);
       const matches: SearchMatch[] = [];
       let total = 0;
       for (let i = 0; i < lines.length; i++) {
@@ -169,10 +203,6 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
         total,
         ...(file.truncated && { truncated: true }),
       });
-      if (hits.length >= maxFiles) {
-        truncated = true;
-        break outer;
-      }
     }
     // Push dirs reversed so alphabetical-first pops first off the LIFO stack.
     for (let i = dirs.length - 1; i >= 0; i--) {
@@ -181,9 +211,15 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
     }
   }
 
+  // Rank by match count (desc) then path BEFORE applying the file cap, so the
+  // strongest matches survive — not just whichever files came first in
+  // traversal order. The cap is a RESULT cap (top-N by relevance), not a
+  // traversal-order cut; a capped result set is flagged `truncated`.
   hits.sort((a, b) => b.total - a.total || a.file.localeCompare(b.file));
+  const capped = hits.length > maxFiles;
+  const top = capped ? hits.slice(0, maxFiles) : hits;
 
-  return { query: needle, hits, ...(truncated && { truncated: true }) };
+  return { query: needle, hits: top, ...((truncated || capped) && { truncated: true }) };
 };
 
 export function commands(): ReadonlyArray<

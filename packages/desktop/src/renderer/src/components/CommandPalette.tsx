@@ -152,13 +152,23 @@ export const CommandPalette = (): JSX.Element | null => {
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
 
-  // Files in the current workspace — fetched lazily when the palette
-  // opens so we don't pay the cost on every render of the host App.
-  // Cached for the lifetime of the open session; closes & reopens
-  // refresh in case the user added files via Finder in between.
+  // Files in the current workspace — fetched lazily when the palette opens (so
+  // we don't pay the cost on every render of the host App) AND whenever the
+  // active workspace changes. Re-fetching on `current` is load-bearing: a
+  // workspace switch is reachable WITH the palette still open (dropping a folder
+  // onto the window bubbles to App's onDrop → workspace.use, and the palette
+  // isn't closed), and without this the File rows would keep the previous
+  // workspace's paths — clicking one would open a missing/wrong file in the now
+  // -active workspace. `files` is cleared synchronously on the switch so no stale
+  // row is even briefly clickable (mirrors the Search-row workspace gate below).
   const [files, setFiles] = useState<readonly FileEntry[]>([]);
   useEffect(() => {
     if (!open) return;
+    setFiles([]);
+    // No active workspace → no files to list (badge.list would have nothing to
+    // resolve against). Referencing `current` here also makes it the explicit
+    // re-fetch trigger it's meant to be.
+    if (current === null) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -180,7 +190,7 @@ export const CommandPalette = (): JSX.Element | null => {
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, current]);
 
   const [query, setQuery] = useState('');
   // Debounced full-text content search. Fires only once the user pauses (180ms)
@@ -193,6 +203,7 @@ export const CommandPalette = (): JSX.Element | null => {
     if (current === null || q.length < 2) {
       setContentHits([]);
       setHitsQuery('');
+      setHitsWorkspace(null);
       return;
     }
     let cancelled = false;
@@ -207,10 +218,12 @@ export const CommandPalette = (): JSX.Element | null => {
           if (cancelled) return;
           setContentHits(res.hits);
           setHitsQuery(q);
+          setHitsWorkspace(current);
         } catch {
           if (!cancelled) {
             setContentHits([]);
             setHitsQuery('');
+            setHitsWorkspace(null);
           }
         }
       })();
@@ -220,11 +233,15 @@ export const CommandPalette = (): JSX.Element | null => {
       clearTimeout(handle);
     };
   }, [open, query, current]);
-  // Content-search results (async, debounced). `hitsQuery` is the trimmed query
-  // these hits belong to, so a slower search returning after the user typed
-  // more never renders snippets under a mismatched query.
+  // Content-search results (async, debounced). The hits belong to a specific
+  // (workspace, query) pair: `hitsQuery` guards a slower search returning after
+  // the user typed more, and `hitsWorkspace` guards reopening the palette in a
+  // DIFFERENT workspace with the same query — without it, stale rows from the
+  // previous workspace would show (and open a wrong/missing path) until the new
+  // debounced search returns.
   const [contentHits, setContentHits] = useState<SearchQueryResult['hits']>([]);
   const [hitsQuery, setHitsQuery] = useState('');
+  const [hitsWorkspace, setHitsWorkspace] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Whether the user is currently steering with the mouse. Linear /
   // VS Code-style palettes ignore hover-driven selection until the mouse
@@ -370,7 +387,8 @@ export const CommandPalette = (): JSX.Element | null => {
   // matched by NAME shouldn't appear twice).
   const contentActions = useMemo<Action[]>(() => {
     const q = query.trim();
-    if (q.length < 2 || hitsQuery !== q) return [];
+    // Only show hits that belong to the CURRENT (workspace, query) pair.
+    if (q.length < 2 || hitsQuery !== q || hitsWorkspace !== current) return [];
     const shownFiles = new Set(
       filtered.filter((a) => a.category === 'File').map((a) => a.id.slice('file:'.length)),
     );
@@ -389,7 +407,7 @@ export const CommandPalette = (): JSX.Element | null => {
       });
     }
     return out;
-  }, [contentHits, hitsQuery, query, filtered, setCurrentFile]);
+  }, [contentHits, hitsQuery, hitsWorkspace, current, query, filtered, setCurrentFile]);
 
   // The full navigable list: instant matches first, then content matches.
   const rows = useMemo(() => [...filtered, ...contentActions], [filtered, contentActions]);
