@@ -299,6 +299,17 @@ describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
     expect(after).toBe(before);
   });
 
+  it('a kind-only / canvas-only badge.set on an ACTIVE file does NOT touch the brief', async () => {
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { prompt: 'keep' } });
+    await ctx.core.run('focus.set', { files: ['ch.md'] });
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    // A canvas drag of the focused badge — no prompt/refs change → no resync.
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { canvas: { x: 9, y: 9 } } });
+    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(after).toBe(before);
+    expect(after).toContain('prompt: keep'); // brief intact
+  });
+
   it('focus.resync is a no-op (resynced:false) when focus is empty', async () => {
     const res = await ctx.core.run('focus.resync', { file: 'anything.md' });
     expect(res.resynced).toBe(false);

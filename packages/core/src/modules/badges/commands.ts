@@ -100,7 +100,14 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
       };
 
   await writeBadge(ctx.fs, root, next);
-  await reconcileFocus(ctx, args.file);
+  // Only reconcile focus.md when the edit actually changes the INLINED BRIEF
+  // (prompt or refs). A kind-only / canvas-only patch — e.g. every eager
+  // materialize badge.set on workspace open, or a canvas drag of a focused
+  // badge — leaves the brief identical, so skip the focus.md read+rewrite
+  // entirely (no churn, no added latency on the hot open path).
+  if (patch.prompt !== undefined || patch.references !== undefined) {
+    await reconcileFocus(ctx, args.file);
+  }
   return next;
 };
 
