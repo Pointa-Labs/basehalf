@@ -16,6 +16,8 @@ import type {
   FocusInitArgs,
   FocusInitResult,
   FocusItem,
+  FocusRefreshViewIntentArgs,
+  FocusRefreshViewIntentResult,
   FocusResyncArgs,
   FocusResyncResult,
   FocusSetArgs,
@@ -112,6 +114,52 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
   return { active: files };
 };
 
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((x, i) => x === sb[i]);
+}
+
+/**
+ * Re-publish focus.md's intent from a view whose prompt just changed — but ONLY
+ * when the current brief is provably sourced FROM that view and unmodified. A
+ * view's prompt IS its agent-facing intent (focus.set({viewId}) carries it into
+ * `intent:`), so editing the prompt of a focused view must refresh the brief or
+ * the agent / Copy-brief reads a stale task.
+ *
+ * The whole check-then-write happens UNDER the focus lock so a concurrent
+ * focus.set/clear can't interleave between the decision and the write (TOCTOU).
+ * Source-awareness is two-part, both required:
+ *   1. the active set still equals the view's members, AND
+ *   2. the current `intent:` still equals the view's PRE-edit prompt.
+ * (2) is what makes it SOURCE-aware rather than mere set-matching: a *different*
+ * view with identical members, a manual `intent` override, or a files-sourced
+ * focus that happens to equal the members all fail (2) and are left untouched.
+ * Empty (0-member) focused views are handled — sameSet([], []) is true.
+ */
+export const refreshViewIntent: Handler<
+  FocusRefreshViewIntentArgs,
+  FocusRefreshViewIntentResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent } = await readFocusBrief(ctx.fs, root);
+    if ((intent ?? '') !== args.expectedIntent) return { refreshed: false };
+    const view = await ctx.run<{ id: string }, ViewGetMinimal | null>('view.get', {
+      id: args.viewId,
+    });
+    if (!view) return { refreshed: false };
+    const members = view.members.map((m) => m.file);
+    if (!sameSet(active, members)) return { refreshed: false };
+    const newIntent =
+      view.prompt !== undefined && view.prompt.trim() !== '' ? view.prompt : undefined;
+    const items = await assembleItems(ctx, members);
+    await writeFocus(ctx.fs, root, items, newIntent);
+    return { refreshed: true };
+  });
+};
+
 /**
  * Re-render focus.md from its CURRENT active list with FRESH badge data,
  * preserving the `intent:` line. This is the core reconcile the renderer used
@@ -187,6 +235,7 @@ export function commands(): ReadonlyArray<
     ['focus.set', set as unknown as Handler<never, unknown>],
     ['focus.get', get as unknown as Handler<never, unknown>],
     ['focus.brief', brief as unknown as Handler<never, unknown>],
+    ['focus.refreshViewIntent', refreshViewIntent as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],

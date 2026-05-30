@@ -45,6 +45,22 @@ export interface FocusClearResult {
   readonly cleared: true;
 }
 
+export interface FocusRefreshViewIntentArgs {
+  /** The view whose prompt just changed (its members + new prompt are re-read). */
+  readonly viewId: string;
+  /** The view's prompt BEFORE the edit. focus.md is refreshed ONLY when its
+   *  current `intent:` still equals this — proof the brief's intent is derived
+   *  from THIS view and unmodified. Guards against clobbering: a different view
+   *  with the same members, a manual `intent` override, or a files-sourced
+   *  focus whose list happens to equal the members. Empty string ↔ no intent. */
+  readonly expectedIntent: string;
+}
+export interface FocusRefreshViewIntentResult {
+  /** True when focus.md was re-rendered (the view is the unmodified source of
+   *  the current brief); false when left untouched. */
+  readonly refreshed: boolean;
+}
+
 export type FocusBriefArgs = Record<string, never>;
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the

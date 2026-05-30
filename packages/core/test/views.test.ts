@@ -182,6 +182,50 @@ describe('view.update', () => {
     await ctx.core.run('view.update', { id: v.id, patch: { name: 'renamed' } });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toBe(before);
   });
+
+  it('does NOT clobber view A when a DIFFERENT view B with identical members is edited', async () => {
+    await ctx.core.run('view.create', { name: 'A', id: 'a', prompt: 'intent A' });
+    await ctx.core.run('view.addMember', { id: 'a', file: 'x.md' });
+    await ctx.core.run('view.addMember', { id: 'a', file: 'y.md' });
+    await ctx.core.run('view.create', { name: 'B', id: 'b', prompt: 'intent B' });
+    await ctx.core.run('view.addMember', { id: 'b', file: 'x.md' });
+    await ctx.core.run('view.addMember', { id: 'b', file: 'y.md' });
+    await ctx.core.run('focus.set', { viewId: 'a' }); // focused on A
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: intent A');
+    // Editing B (same members, NOT focused) must not hijack A's brief.
+    await ctx.core.run('view.update', { id: 'b', patch: { prompt: 'intent B v2' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: intent A');
+    expect(brief).not.toContain('intent B');
+  });
+
+  it('does NOT clobber a manual intent override on a focused view', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'view prompt' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'x.md' });
+    await ctx.core.run('focus.set', { viewId: 'v', intent: 'my manual override' });
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'view prompt v2' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: my manual override');
+  });
+
+  it('does NOT clobber a files-sourced curated intent that happens to equal the members', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'view prompt' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'x.md' });
+    await ctx.core.run('focus.set', { files: ['x.md'], intent: 'hand-curated intent' });
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'view prompt v2' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: hand-curated intent');
+  });
+
+  it('refreshes the intent of a focused EMPTY (0-member) view on prompt edit', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old empty intent' });
+    await ctx.core.run('focus.set', { viewId: 'v' }); // 0 members → active (none)
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(before).toContain('intent: old empty intent');
+    expect(before).toContain('(none)');
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'new empty intent' } });
+    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(after).toContain('intent: new empty intent');
+    expect(after).toContain('(none)');
+  });
 });
 
 describe('view.delete', () => {
