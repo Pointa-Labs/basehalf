@@ -13,6 +13,13 @@ import { join, sep } from 'node:path';
  * to be the real root or strictly under it. Missing paths and realpath failures
  * are refused rather than guessed.
  *
+ * Known residual (accepted for v0): a narrow TOCTOU at the final component — if
+ * the verified file is swapped for an escaping symlink between this check and
+ * shell.openPath, the open follows it. Closing it needs an O_NOFOLLOW fd-based
+ * open, which Electron's shell.openPath doesn't expose; exploitability is low
+ * (needs concurrent write to an already-attacker-controlled workspace + precise
+ * timing against a user click). Tracked as a v0.x hardening item.
+ *
  * Kept electron-free (only node:fs/path) so it's unit-testable without the
  * Electron runtime.
  */

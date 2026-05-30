@@ -136,11 +136,11 @@ export const Canvas = (): JSX.Element => {
   // badges spilling past the right edge. `vp` is resolved for THAT refresh, so
   // a saved viewport is never mistaken for "none" mid-load.
   const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
-  // Which files are in focus lives on each node's `data.focused` flag (drives
-  // the badge ring + dot), so the focus chip's count is derived straight from
-  // the rendered nodes below — no separate set to keep in sync. That keeps the
-  // count honest in a view/folder scope (it equals the rings actually on screen,
-  // never the workspace-wide focus set).
+  // Two views of focus, deliberately distinct: each node's `data.focused` flag
+  // drives the on-canvas ring/dot (you can only ring a badge that's on screen),
+  // while `focusActive` above holds the FULL workspace focus set that the chip
+  // reports — so inside a view/folder scope the chip still names every file the
+  // agent reads, even ones not currently rendered.
 
   const refresh = useCallback(async () => {
     try {

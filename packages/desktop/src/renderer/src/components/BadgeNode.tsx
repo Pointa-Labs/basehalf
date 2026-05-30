@@ -326,10 +326,14 @@ const TextPreview = ({
         // Cap the read: a tile only ever shows PREVIEW_CHARS of body, so don't
         // ship a multi-MB file across IPC for a 600-char preview. Headroom above
         // PREVIEW_CHARS covers a leading frontmatter block + the stripped HTML
-        // comment before the body slice.
+        // comment before the body slice. The headroom (16KB) must comfortably
+        // exceed any realistic leading frontmatter block — if the cap landed
+        // mid-frontmatter, splitFrontmatter couldn't find the closing fence and
+        // the tile would render raw YAML or blank. 16KB dwarfs real frontmatter
+        // (typically <1KB) while still bounding the read.
         const res = (await window.bh.run('workspace.readFile', {
           path: label,
-          maxChars: PREVIEW_CHARS + 4096,
+          maxChars: PREVIEW_CHARS + 16_384,
         })) as { content: string };
         if (markdown) {
           // Strip a leading YAML frontmatter block so the tile previews the
