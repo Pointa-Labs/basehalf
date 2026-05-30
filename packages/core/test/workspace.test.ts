@@ -671,6 +671,20 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
 });
 
 describe('workspace.listFiles', () => {
+  // listFiles now contains enumeration to the current workspace root, so seed
+  // one pointing at the listed dir WITHOUT materializing (which would write
+  // .bh/ into the dir and pollute these listing assertions).
+  function seedCurrent(files: Map<string, string>, name: string, path: string): void {
+    files.set(
+      '/cfg/workspaces.json',
+      JSON.stringify({
+        version: 1,
+        current: name,
+        workspaces: { [name]: { path, addedAt: '2026-01-01T00:00:00.000Z' } },
+      }),
+    );
+  }
+
   it('returns direct children with file/dir types, dirs first, alphabetical', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/root');
@@ -678,6 +692,7 @@ describe('workspace.listFiles', () => {
     dirs.add('/root/alpha');
     files.set('/root/readme.md', '');
     files.set('/root/notes.txt', '');
+    seedCurrent(files, 'root', '/root');
     const core = createCore({ fs, configDir: '/cfg' });
 
     const result = await core.run<
@@ -699,6 +714,7 @@ describe('workspace.listFiles', () => {
     dirs.add('/root');
     dirs.add('/root/nested');
     files.set('/root/nested/deep.md', '');
+    seedCurrent(files, 'root', '/root');
     const core = createCore({ fs, configDir: '/cfg' });
 
     const result = await core.run<
@@ -711,8 +727,9 @@ describe('workspace.listFiles', () => {
   });
 
   it('returns empty entries for an empty directory', async () => {
-    const { fs, dirs } = mockFs();
+    const { fs, files, dirs } = mockFs();
     dirs.add('/root');
+    seedCurrent(files, 'root', '/root');
     const core = createCore({ fs, configDir: '/cfg' });
 
     const result = await core.run<{ path: string }, { entries: unknown[] }>('workspace.listFiles', {
@@ -736,6 +753,16 @@ describe('workspace.listFiles', () => {
     const core = createCore({ fs, configDir: '/cfg' });
     await expect(core.run('workspace.listFiles', { path: '/notdir' })).rejects.toThrow(
       /not a directory/,
+    );
+  });
+
+  it('refuses to enumerate with NO current workspace (no external-dir oracle)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/etc');
+    dirs.add('/etc/secret');
+    const core = createCore({ fs, configDir: '/cfg' }); // no workspace seeded
+    await expect(core.run('workspace.listFiles', { path: '/etc' })).rejects.toThrow(
+      /No current workspace/,
     );
   });
 });

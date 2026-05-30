@@ -42,6 +42,22 @@ export interface FsLike {
    * `realpath`.
    */
   lstat?(path: string): Promise<{ isSymbolicLink: boolean } | null>;
+  /**
+   * Read a file with O_NOFOLLOW on the final component — the open fails
+   * (PathEscape) if the leaf is a symlink at OPEN time. Closes the check-then-
+   * read TOCTOU that a path-string guard can't: after the realpath guard
+   * returns a canonical path, an attacker racing a symlink onto the leaf would
+   * otherwise be re-followed by a plain readFile. Returns null if missing.
+   * OPTIONAL (legacy mocks fall back to plain readFile — no symlinks in play).
+   */
+  readFileNoFollow?(path: string): Promise<string | null>;
+  /**
+   * Write a file with O_NOFOLLOW on the final component — refuses (PathEscape)
+   * if the leaf is a symlink at OPEN time. The symmetric write-side close of
+   * the check-then-write TOCTOU. OPTIONAL (legacy mocks fall back to
+   * writeFile).
+   */
+  writeFileNoFollow?(path: string, content: string): Promise<void>;
 }
 
 /**

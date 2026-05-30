@@ -236,30 +236,41 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   // inside the current workspace root, and skip any child that escapes it.
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
-  let realRoot: string | undefined;
-  if (root !== undefined) {
+  // With NO current workspace there is no containment boundary — refuse rather
+  // than fall through to enumerating an arbitrary absolute path (a planted
+  // `listFiles({path:'/etc'})` would otherwise leak external dir structure).
+  // Sibling reads (badge.list/view.list) already require a current workspace;
+  // listFiles must not be the outlier.
+  if (root === undefined) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  // Guard the anchor canonicalize (ELOOP/EACCES on the root or the listed dir
+  // → refuse rather than crash with a raw fs error).
+  let realRoot: string;
+  let realDir: string;
+  try {
     realRoot = await canonicalize(ctx.fs, root);
-    const realDir = await canonicalize(ctx.fs, absPath);
-    if (!isContained(realRoot, realDir)) {
-      throw new PathEscape(absPath);
-    }
+    realDir = await canonicalize(ctx.fs, absPath);
+  } catch {
+    throw new PathEscape(absPath);
+  }
+  if (!isContained(realRoot, realDir)) {
+    throw new PathEscape(absPath);
   }
 
   const names = await ctx.fs.readdir(absPath);
   const entries: WorkspaceListFilesEntry[] = [];
   for (const name of names) {
     const child = join(absPath, name);
-    if (realRoot !== undefined) {
-      // Filter a symlinked-out child so it never surfaces in the tree (and
-      // can't be expanded into an external dir on the next listFiles call).
-      let realChild: string;
-      try {
-        realChild = await canonicalize(ctx.fs, child);
-      } catch {
-        continue;
-      }
-      if (!isContained(realRoot, realChild)) continue;
+    // Filter a symlinked-out child so it never surfaces in the tree (and
+    // can't be expanded into an external dir on the next listFiles call).
+    let realChild: string;
+    try {
+      realChild = await canonicalize(ctx.fs, child);
+    } catch {
+      continue;
     }
+    if (!isContained(realRoot, realChild)) continue;
     const childStat = await ctx.fs.stat(child);
     if (!childStat) continue;
     entries.push({ name, type: childStat.isDirectory ? 'dir' : 'file' });
@@ -328,7 +339,14 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // escapes once node:fs follows it. Canonicalize and require containment, then
   // read the canonical path so check and open agree. (See kernel/contain.ts.)
   const abs = await assertReadContained(ctx.fs, entry.path, join(entry.path, args.path));
-  const content = await ctx.fs.readFile(abs);
+  // O_NOFOLLOW read closes the check-then-read TOCTOU: if the leaf is swapped
+  // for a symlink between the guard above and this read, the open refuses it
+  // rather than re-following. (Residual: an intermediate-component swap still
+  // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
+  // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
+  const content = ctx.fs.readFileNoFollow
+    ? await ctx.fs.readFileNoFollow(abs)
+    : await ctx.fs.readFile(abs);
   if (content === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
@@ -371,7 +389,13 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   if (parent && parent !== abs) {
     await ctx.fs.mkdir(parent, { recursive: true });
   }
-  await ctx.fs.writeFile(abs, args.content);
+  // O_NOFOLLOW write closes the check-then-write TOCTOU at the leaf: a symlink
+  // raced onto `abs` after the guard is refused, not written through.
+  if (ctx.fs.writeFileNoFollow) {
+    await ctx.fs.writeFileNoFollow(abs, args.content);
+  } else {
+    await ctx.fs.writeFile(abs, args.content);
+  }
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
 };
 

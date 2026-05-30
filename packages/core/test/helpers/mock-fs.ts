@@ -86,6 +86,14 @@ export function mockFs(): {
       if (dirs.has(path)) return { isSymbolicLink: false };
       return null;
     },
+    // No symlinks in-memory, so O_NOFOLLOW reads/writes are just the plain ops.
+    async readFileNoFollow(path) {
+      return files.has(path) ? (files.get(path) as string) : null;
+    },
+    async writeFileNoFollow(path, content) {
+      files.set(path, content);
+      addAncestors(path);
+    },
   };
 
   return { fs, files, dirs };

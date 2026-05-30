@@ -55,8 +55,17 @@ export async function listViews(fs: FsLike, workspaceRoot: string): Promise<read
   // Anchor to the WORKSPACE root (not .bh/views/) so a planted symlink at
   // .bh/views itself can't relocate the anchor onto its target — same fix as
   // listBadges.
-  const realRoot = await canonicalize(fs, workspaceRoot);
-  const realDir = await canonicalize(fs, dir);
+  // Guard the anchor canonicalize too: an ELOOP symlink cycle at .bh/views
+  // would otherwise throw PathEscape out of view.list (and badge.rename's
+  // cascade). Treat an unresolvable/escaping anchor as "no views".
+  let realRoot: string;
+  let realDir: string;
+  try {
+    realRoot = await canonicalize(fs, workspaceRoot);
+    realDir = await canonicalize(fs, dir);
+  } catch {
+    return [];
+  }
   if (!isContained(realRoot, realDir)) return [];
   const dirStat = await fs.stat(dir);
   if (!dirStat?.isDirectory) return [];

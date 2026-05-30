@@ -26,6 +26,20 @@ import type { FsLike } from './types.js';
  * mocks may omit them — in which case the guards fall back to the lexical
  * (already string-guarded) path, preserving today's behavior with no symlinks
  * in play.
+ *
+ * Threat scope. These guards fully close the STATIC class: a symlink (file,
+ * dir, dangling, cyclic) planted in a workspace you open/clone/sync. A
+ * stronger, live attacker — a concurrent process racing the filesystem during
+ * your read/write — meets two layers: (1) the leaf TOCTOU (swap the final
+ * component for a symlink between this check and the op) is closed for the
+ * user-file path by O_NOFOLLOW reads/writes (`FsLike.readFileNoFollow` /
+ * `writeFileNoFollow`), which refuse a symlink leaf at OPEN time rather than
+ * re-following a re-resolved path string; (2) an INTERMEDIATE-component swap
+ * (race a directory in the path into an escaping symlink) remains an accepted
+ * residual for v0 — closing it needs `openat2(RESOLVE_BENEATH)` / per-component
+ * `O_NOFOLLOW` traversal, which Node's stdlib doesn't expose. It requires an
+ * active local attacker process with write access inside the workspace and
+ * precise timing; the `.bh/` JSON stores share that intermediate-swap residual.
  */
 
 /** Thrown when a canonicalized path escapes (or routes through a symlink out

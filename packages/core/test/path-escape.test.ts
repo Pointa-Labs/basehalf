@@ -313,3 +313,19 @@ describe('listViews symlink cycle (DoS)', () => {
     await expect(core.run('view.list', {})).resolves.toBeDefined();
   });
 });
+
+describe('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCLE', () => {
+  it('badge.list returns gracefully (no PathEscape throw) when .bh/badges is a symlink cycle', async () => {
+    await mkdir(join(ws, '.bh'), { recursive: true });
+    await symlink(join(ws, '.bh/b2'), join(ws, '.bh/badges')); // badges -> b2
+    await symlink(join(ws, '.bh/badges'), join(ws, '.bh/b2')); // b2 -> badges (ELOOP)
+    await expect(core.run('badge.list', {})).resolves.toBeDefined();
+  });
+
+  it('view.list returns gracefully when .bh/views is a symlink cycle', async () => {
+    await mkdir(join(ws, '.bh'), { recursive: true });
+    await symlink(join(ws, '.bh/v2'), join(ws, '.bh/views')); // views -> v2
+    await symlink(join(ws, '.bh/views'), join(ws, '.bh/v2')); // v2 -> views (ELOOP)
+    await expect(core.run('view.list', {})).resolves.toBeDefined();
+  });
+});

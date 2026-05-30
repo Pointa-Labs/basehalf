@@ -87,8 +87,19 @@ export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<rea
   // anchor onto the symlink TARGET and happily enumerate everything outside.
   // Anchoring to the workspace root and bailing when .bh/badges escapes it
   // closes that. Files inside a legit .bh/badges stay contained under the root.
-  const realRoot = await canonicalize(fs, workspaceRoot);
-  const realBadgesDir = await canonicalize(fs, badgesDir);
+  // The anchor canonicalize must itself be guarded: a symlink CYCLE at
+  // .bh/badges (git-shippable) makes canonicalize throw PathEscape (it maps
+  // ELOOP/EACCES → refuse), and an uncaught throw here would brick badge.list
+  // (and the canvas it draws). Treat any unresolvable/escaping anchor as
+  // "no badges" — robust like the per-entry skip below.
+  let realRoot: string;
+  let realBadgesDir: string;
+  try {
+    realRoot = await canonicalize(fs, workspaceRoot);
+    realBadgesDir = await canonicalize(fs, badgesDir);
+  } catch {
+    return out;
+  }
   if (!isContained(realRoot, realBadgesDir)) return out;
   const visited = new Set<string>();
   await walk(fs, realRoot, badgesDir, realBadgesDir, visited, async (absPath) => {
