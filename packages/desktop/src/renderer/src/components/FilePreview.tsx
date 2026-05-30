@@ -382,28 +382,13 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
     };
   }, [file]);
 
-  // A panel edit to a FOCUSED file must also refresh `.bh/focus.md` — it inlines
-  // each focused file's prompt + ref notes (the agent's turn brief, #91), and a
-  // badge write does NOT regenerate it (focus.md re-inlines only on focus.set /
-  // clear). So without this the agent would keep reading the OLD prompt until the
-  // user re-clicked the badge. Re-setting the same active list re-inlines the
-  // fresh badge data — and we carry the existing `intent:` back through so a
-  // CLI/view-set turn intent isn't stripped by a desktop prompt edit. (The fully
-  // general fix — reconciling focus.md in core on ANY badge change with a
-  // focus-file mutex — is tracked as a v0.x follow-up.)
-  const resyncFocusForFile = useCallback(async () => {
-    try {
-      const { active, intent } = (await window.bh.run('focus.get', {})) as {
-        active: string[];
-        intent?: string;
-      };
-      if (active.includes(file)) {
-        await window.bh.run('focus.set', { files: active, ...(intent ? { intent } : {}) });
-      }
-    } catch {
-      // Non-fatal: focus.md refreshes on the next focus action.
-    }
-  }, [file]);
+  // NOTE: a panel edit to a FOCUSED file must refresh `.bh/focus.md` (it inlines
+  // each focused file's prompt + ref-notes — the turn brief, #91). That used to
+  // be patched here in the renderer; it's now done in CORE — `badge.set` /
+  // `addRef` / `removeRef` call `focus.resync`, which re-inlines the active
+  // brief (preserving `intent:`) under a focus-file mutex, so the refresh
+  // happens inside each `window.bh.run('badge.…')` await below and covers CLI /
+  // agent edits too, not just this panel. So there's no renderer resync to call.
 
   // Debounced prompt save — typing in a textarea shouldn't write per keystroke.
   const savePrompt = useMemo(
@@ -413,14 +398,14 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
           await window.bh.run('badge.set', { file, kind: 'file', patch: { prompt: next } });
           setSaveError(null);
           emitBadgeChange(); // live-update the canvas badge's prompt
-          void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+          // focus.md is refreshed by core (badge.set → focus.resync); see NOTE above.
         } catch (err) {
           // The prompt is the literal instruction to the agent — never lose it
           // silently. Surface so the user knows their edit didn't land.
           setSaveError(`Couldn't save prompt: ${err instanceof Error ? err.message : String(err)}`);
         }
       }, 500),
-    [file, resyncFocusForFile],
+    [file],
   );
 
   // Persist a just-typed prompt when the panel unmounts (Esc / Cmd-W / file or
@@ -434,14 +419,14 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
         setSaveError(null);
         emitBadgeChange(); // live-remove the edge from the canvas
-        void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+        // focus.md refreshed by core (badge.removeRef → focus.resync); see NOTE above.
       } catch (err) {
         setSaveError(
           `Couldn't remove reference: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     },
-    [file, resyncFocusForFile],
+    [file],
   );
 
   const updateRefNote = useCallback(
@@ -468,14 +453,14 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
         );
         setSaveError(null);
         emitBadgeChange(); // live-update the edge's note on the canvas
-        void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+        // focus.md refreshed by core (badge.addRef → focus.resync); see NOTE above.
       } catch (err) {
         setSaveError(
           `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     },
-    [file, resyncFocusForFile],
+    [file],
   );
 
   // Add a reference to a different file. Driven by a prompt dialog so
@@ -506,11 +491,11 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
       setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
       setSaveError(null);
       emitBadgeChange(); // live-add the edge to the canvas
-      void resyncFocusForFile(); // keep the agent's focus.md brief fresh
+      // focus.md refreshed by core (badge.addRef → focus.resync); see NOTE above.
     } catch (err) {
       setSaveError(`Couldn't add reference: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [file, badge, resyncFocusForFile]);
+  }, [file, badge]);
 
   const toggleCollapsed = (): void => {
     setCollapsed((c) => {
