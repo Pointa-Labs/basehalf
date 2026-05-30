@@ -23,7 +23,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { color, font, motion, radius, shadow, space } from '../design.js';
+import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -422,6 +422,37 @@ export const Canvas = (): JSX.Element => {
     })();
   }, []);
 
+  // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
+  // paste exactly what their agent reads into ANY chat — making the otherwise
+  // invisible payoff of curation tangible and portable (not just the
+  // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
+  const [briefCopied, setBriefCopied] = useState(false);
+  const copyResetTimer = useRef<number | null>(null);
+  const copyBrief = useCallback(() => {
+    void (async () => {
+      try {
+        const { brief } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        // Nothing to copy (focus.md absent under a still-visible chip) — don't
+        // write an empty string or flash a misleading "Copied ✓".
+        if (brief.length === 0) return;
+        await navigator.clipboard.writeText(brief);
+        setBriefCopied(true);
+        // Reset the confirmation; clear any prior timer so a rapid re-click
+        // doesn't let an earlier timer flip the label back early.
+        if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+        copyResetTimer.current = window.setTimeout(() => setBriefCopied(false), 1600);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, []);
+  useEffect(
+    () => () => {
+      if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+    },
+    [],
+  );
+
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
@@ -551,6 +582,28 @@ export const Canvas = (): JSX.Element => {
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
             </span>
           </span>
+          <button
+            type="button"
+            onClick={copyBrief}
+            title="Copy the brief your agent reads — paste it into any AI chat"
+            aria-live="polite"
+            data-testid="focus-copy-brief"
+            style={{
+              border: 'none',
+              background: briefCopied ? color.accentSofter : 'transparent',
+              color: briefCopied ? color.accent : color.textSecondary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              fontWeight: font.weight.medium,
+              cursor: 'pointer',
+              padding: `${space[0.5]}px ${space[2]}px`,
+              borderRadius: radius.pill,
+              whiteSpace: 'nowrap',
+              transition: transition(['background', 'color']),
+            }}
+          >
+            {briefCopied ? 'Copied ✓' : 'Copy brief'}
+          </button>
           <button
             type="button"
             onClick={clearFocus}

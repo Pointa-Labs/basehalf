@@ -323,3 +323,40 @@ describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('prompt: P-a');
   });
 });
+
+describe('focus.brief', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('returns the verbatim focus.md content (what the agent reads)', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'about A' } });
+    await ctx.core.run('focus.set', { files: ['a.md'], intent: 'do the thing' });
+    const res = await ctx.core.run('focus.brief', {});
+    const onDisk = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(res.brief).toBe(onDisk); // byte-for-byte what's on disk
+    expect(res.brief).toContain('intent: do the thing');
+    expect(res.brief).toContain('- a.md');
+    expect(res.brief).toContain('prompt: about A');
+  });
+
+  it('returns the (none) brief when focus is empty (not an error)', async () => {
+    await ctx.core.run('focus.set', { files: [] });
+    const res = await ctx.core.run('focus.brief', {});
+    expect(res.brief).toContain('active:');
+    expect(res.brief).toContain('(none)');
+  });
+
+  it('returns an empty string (not a throw) when focus.md is absent on disk', async () => {
+    ctx.files.delete('/work/.bh/focus.md'); // e.g. user deleted it externally
+    const res = await ctx.core.run('focus.brief', {});
+    expect(res.brief).toBe('');
+  });
+
+  it('throws when there is no current workspace', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('focus.brief', {})).rejects.toThrow(/No current workspace/i);
+  });
+});

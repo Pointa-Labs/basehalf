@@ -117,6 +117,12 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'focus.clear':
       process.stdout.write('Focus cleared.\n');
       return;
+    case 'focus.brief': {
+      // Print the brief verbatim (it's already Markdown). Empty → a hint.
+      const brief = (result as { brief: string }).brief;
+      process.stdout.write(brief.length > 0 ? `${brief}\n` : '(no focus brief yet)\n');
+      return;
+    }
     case 'view.create':
     case 'view.get':
     case 'view.update':
