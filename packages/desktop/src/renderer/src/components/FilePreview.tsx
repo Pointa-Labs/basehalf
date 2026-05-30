@@ -954,9 +954,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // watcher and detect genuine external edits.
   const lastDiskRef = useRef('');
   // A leading YAML frontmatter block, kept VERBATIM and re-prepended on save so
-  // BlockNote only ever round-trips the body. Without this a frontmatter note
-  // (ubiquitous in Obsidian/Jekyll) is forced view-only because YAML can't
-  // round-trip. Empty string when the file has no frontmatter.
+  // BlockNote only ever round-trips the body. Without this, a note that opens
+  // with a YAML block would be forced view-only because YAML can't round-trip.
+  // Empty string when the file has no frontmatter.
   const frontmatterRef = useRef('');
   // Identity-addressed verbatim-reuse index (block id → its original source tile)
   // built from the body on load, so the splice-save can re-emit untouched blocks

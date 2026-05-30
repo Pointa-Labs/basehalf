@@ -62,16 +62,18 @@ writeFileSync(
   join(WORKSPACE_DIR, 'sample.ts'),
   'export const answer = 42;\r\nconsole.log(answer);\r\n',
 );
-// Seed a Markdown file with constructs BlockNote can't model: an HTML comment
-// (which BlockNote parses to ZERO blocks → kept as a read-only passthrough
-// block) and a raw HTML <details> block (preserved byte-for-byte via the
-// content-addressed splice). Under the file-as-truth model the MdEditor stays
-// EDITABLE and a save preserves both verbatim instead of dropping them.
+// Seed a Markdown file with constructs BlockNote can't model: bh's OWN marker
+// comment (kept verbatim but rendered INVISIBLE — it's our plumbing), a plain
+// USER comment (kept verbatim and shown quietly), and a raw HTML <details>
+// block (preserved byte-for-byte via the splice). Under the file-as-truth model
+// the MdEditor stays EDITABLE and a save preserves all three verbatim.
 writeFileSync(
   join(WORKSPACE_DIR, 'lossy.md'),
   `# Lossy
 
 <!-- bh:internal-marker -->
+
+<!-- a plain user note -->
 
 This file contains a raw HTML block BlockNote can't round-trip:
 
@@ -83,7 +85,7 @@ This file contains a raw HTML block BlockNote can't round-trip:
 End.
 `,
 );
-// A YAML-frontmatter note (Obsidian/Jekyll style) with a CLEAN body. The editor
+// A YAML-frontmatter note with a CLEAN body. The editor
 // should make it EDITABLE — frontmatter peeled off + preserved verbatim, only
 // the body round-tripped (§7i) — not force the whole note view-only.
 writeFileSync(
@@ -460,7 +462,7 @@ assert(
   `BadgeNode renders a file-type glyph (svg count=${firstBadgeGlyphs})`,
 );
 // Frontmatter is stripped from the canvas content tile too (matching the
-// editor): an Obsidian/Jekyll note's tile previews its BODY, not raw YAML keys.
+// editor): a frontmatter note's tile previews its BODY, not raw YAML keys.
 const fmBadgeText = await win
   .locator('.react-flow__node-badge[data-id="fm.md"]')
   .first()
@@ -1361,12 +1363,20 @@ assert(
 );
 const editable = await win.locator('.ProseMirror').first().getAttribute('contenteditable');
 assert(editable === 'true', `ProseMirror is editable for a file-as-truth note (got ${editable})`);
-// The HTML comment (zero blocks in BlockNote) is kept as a read-only passthrough
-// block so it's visible and survives a save verbatim.
-const passthroughText = await lossyOverlay.locator('[data-bh-raw-passthrough]').first().innerText();
+// bh's own marker is kept verbatim but rendered INVISIBLE (it's our plumbing).
+const hiddenMarker = lossyOverlay.locator('[data-bh-raw-passthrough="hidden"]');
 assert(
-  passthroughText.includes('bh:internal-marker'),
-  `the HTML comment is kept as a read-only passthrough block (got ${JSON.stringify(passthroughText)})`,
+  (await hiddenMarker.count()) >= 1 && !(await hiddenMarker.first().isVisible()),
+  `bh's own marker is preserved but not shown (count=${await hiddenMarker.count()})`,
+);
+// The user's own comment is kept verbatim and shown quietly (visible passthrough).
+const userPassthrough = lossyOverlay.locator(
+  '[data-bh-raw-passthrough]:not([data-bh-raw-passthrough="hidden"])',
+);
+const userText = await userPassthrough.first().innerText();
+assert(
+  (await userPassthrough.first().isVisible()) && userText.includes('a plain user note'),
+  `the user's comment is shown as a quiet passthrough (got ${JSON.stringify(userText)})`,
 );
 await win.screenshot({ path: `${SCREENS_DIR}/11-file-truth-editable.png` });
 // Close WITHOUT editing → the file must be byte-identical (no rewrite on view).
@@ -1401,7 +1411,11 @@ assert(
 );
 assert(
   lossyAfterEdit.includes('<!-- bh:internal-marker -->'),
-  'the HTML comment (passthrough block) survived the save byte-for-byte',
+  "bh's hidden marker survived the save byte-for-byte",
+);
+assert(
+  lossyAfterEdit.includes('<!-- a plain user note -->'),
+  "the user's quiet comment survived the save byte-for-byte",
 );
 await win.waitForTimeout(150);
 
@@ -1479,7 +1493,7 @@ await win.waitForTimeout(150);
 
 // --- 7i. YAML frontmatter notes are EDITABLE (frontmatter peeled off + preserved
 // verbatim, body round-tripped) — NOT forced view-only the way the raw lossy
-// guard would. Regression for the read-only-for-Obsidian-notes limitation. ---
+// guard would. Regression for the read-only-for-frontmatter-notes limitation. ---
 console.log('\n[7i] Frontmatter note is editable (frontmatter preserved)');
 const fmBefore = readFileSync(join(WORKSPACE_DIR, 'fm.md'), 'utf-8');
 await sidebar.locator('button', { hasText: 'fm.md' }).first().click();

@@ -171,6 +171,14 @@ function idOf(block: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined;
 }
 
+/** bh's own bookkeeping marker — an HTML comment of the form `<!-- bh:… -->`
+ *  (e.g. the workspace-hint marker bh writes into a hint file). It must survive
+ *  a save byte-for-byte, but it's our plumbing, not the user's content, so the
+ *  editor keeps it invisible rather than surfacing it as a block. */
+function isOwnMarker(source: string): boolean {
+  return /^\s*<!--\s*bh:/.test(source);
+}
+
 /** Parse a body into editor blocks + the identity-addressed reuse index. The
  *  blocks carry the ids that `replaceBlocks` will preserve, so `byId` stays valid
  *  for the live document across edits. Does NOT touch the editor document. */
@@ -189,7 +197,13 @@ export async function buildLoadProjection(
       parsed = [];
     }
     if (isDropped(parsed)) {
-      blocks.push({ type: RAW_PASSTHROUGH, props: { raw: seg.raw, source: seg.source } });
+      // BlockNote can't model this span (HTML comment / exotic raw HTML). Carry
+      // it verbatim in a passthrough block — hidden if it's bh's own marker,
+      // shown quietly if it's the user's.
+      blocks.push({
+        type: RAW_PASSTHROUGH,
+        props: { raw: seg.raw, source: seg.source, hidden: isOwnMarker(seg.source) },
+      });
       continue;
     }
     // Index single-block segments by their stable block id. Multi-block segments
