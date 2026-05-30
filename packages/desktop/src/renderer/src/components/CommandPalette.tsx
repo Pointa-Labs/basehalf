@@ -157,14 +157,18 @@ export const CommandPalette = (): JSX.Element | null => {
   // active workspace changes. Re-fetching on `current` is load-bearing: a
   // workspace switch is reachable WITH the palette still open (dropping a folder
   // onto the window bubbles to App's onDrop → workspace.use, and the palette
-  // isn't closed), and without this the File rows would keep the previous
-  // workspace's paths — clicking one would open a missing/wrong file in the now
-  // -active workspace. `files` is cleared synchronously on the switch so no stale
-  // row is even briefly clickable (mirrors the Search-row workspace gate below).
+  // isn't closed). `files` carries the workspace it was fetched for; the File
+  // rows are gated on `filesWorkspace === current` in the actions memo, exactly
+  // like the Search rows — so a stale (previous-workspace) File row is never
+  // rendered, not even for the single commit between `current` flipping and this
+  // effect re-fetching. Clicking a File row could otherwise open a missing/wrong
+  // path in the now-active workspace (the same class as the gated Search bug).
   const [files, setFiles] = useState<readonly FileEntry[]>([]);
+  const [filesWorkspace, setFilesWorkspace] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
     setFiles([]);
+    setFilesWorkspace(null);
     // No active workspace → no files to list (badge.list would have nothing to
     // resolve against). Referencing `current` here also makes it the explicit
     // re-fetch trigger it's meant to be.
@@ -182,6 +186,7 @@ export const CommandPalette = (): JSX.Element | null => {
             ...(b.prompt !== undefined && { prompt: b.prompt }),
           })),
         );
+        setFilesWorkspace(current);
       } catch {
         // Don't block the palette on a transient core error — just show
         // workspaces / views / chrome actions until the user retries.
@@ -296,33 +301,39 @@ export const CommandPalette = (): JSX.Element | null => {
       }
     }
 
-    // Files — open in preview. Sort by recency-then-alphabetical so the
-    // file the user opened 30 seconds ago is the FIRST file row even
-    // when their workspace has 100+ alphabetically-earlier files.
-    const recent = current !== null ? recentFilesFor(current) : [];
-    const recentRank = new Map<string, number>();
-    recent.forEach((path, idx) => recentRank.set(path, idx));
-    const sortedFiles = [...files].sort((a, b) => {
-      const ra = recentRank.get(a.file);
-      const rb = recentRank.get(b.file);
-      if (ra !== undefined && rb !== undefined) return ra - rb; // both recent → by recency
-      if (ra !== undefined) return -1; // a recent, b not → a first
-      if (rb !== undefined) return 1; // b recent, a not → b first
-      return a.file.localeCompare(b.file); // neither recent → alphabetical
-    });
-    for (const f of sortedFiles) {
-      const basename = f.file.includes('/') ? (f.file.split('/').pop() ?? f.file) : f.file;
-      out.push({
-        id: `file:${f.file}`,
-        label: basename,
-        hint: f.file.includes('/') ? f.file : undefined,
-        category: 'File',
-        // Searchable-but-not-displayed: match the user's prompt for this
-        // file so they can find it by typing words from their own
-        // description. Empty when the user hasn't written a prompt yet.
-        ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
-        run: () => setCurrentFile(f.file),
+    // Files — open in preview. Only when `files` was fetched for the CURRENTLY
+    // active workspace: on a workspace switch with the palette open, `current`
+    // flips a commit before the re-fetch effect runs, and emitting rows from the
+    // old workspace's `files` here would render stale paths that open the wrong
+    // file. This synchronous (files,current) gate mirrors the Search-row gate.
+    // Sort by recency-then-alphabetical so the file the user opened 30 seconds
+    // ago is the FIRST file row even in a 100+-file workspace.
+    if (filesWorkspace === current && current !== null) {
+      const recent = recentFilesFor(current);
+      const recentRank = new Map<string, number>();
+      recent.forEach((path, idx) => recentRank.set(path, idx));
+      const sortedFiles = [...files].sort((a, b) => {
+        const ra = recentRank.get(a.file);
+        const rb = recentRank.get(b.file);
+        if (ra !== undefined && rb !== undefined) return ra - rb; // both recent → by recency
+        if (ra !== undefined) return -1; // a recent, b not → a first
+        if (rb !== undefined) return 1; // b recent, a not → b first
+        return a.file.localeCompare(b.file); // neither recent → alphabetical
       });
+      for (const f of sortedFiles) {
+        const basename = f.file.includes('/') ? (f.file.split('/').pop() ?? f.file) : f.file;
+        out.push({
+          id: `file:${f.file}`,
+          label: basename,
+          hint: f.file.includes('/') ? f.file : undefined,
+          category: 'File',
+          // Searchable-but-not-displayed: match the user's prompt for this
+          // file so they can find it by typing words from their own
+          // description. Empty when the user hasn't written a prompt yet.
+          ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
+          run: () => setCurrentFile(f.file),
+        });
+      }
     }
 
     // Chrome actions — always available.
@@ -362,6 +373,7 @@ export const CommandPalette = (): JSX.Element | null => {
     current,
     views,
     files,
+    filesWorkspace,
     use,
     setCurrentView,
     setFolderScope,
