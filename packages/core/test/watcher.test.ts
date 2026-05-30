@@ -172,21 +172,22 @@ describe('watcher module', { retry: 2 }, () => {
     // Perform an OS rename (chokidar fires unlink + add in quick succession).
     await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
 
-    // Wait for the rename to finalize: new badge present with the inherited
-    // prompt (the terminal signal that badge.rename ran, not orphan+add).
-    const newBadge = (await waitFor(
-      () => core.run('badge.get', { file: 'new.md' }),
-      (b) => (b as BadgeFile | null)?.prompt === 'load-bearing',
-    )) as BadgeFile | null;
-    // Old badge gone; new badge inherits prompt + references.
+    // Wait for the rename to FULLY finalize. badge.rename writes the new badge
+    // FIRST, then rewrites referencing siblings — so the sibling's rewritten
+    // outbound ref is the TERMINAL signal. Waiting on new.md's prompt alone
+    // races the still-pending sibling rewrite (the gap widened once badge
+    // edits started reconciling focus.md).
+    const sibling = (await waitFor(
+      () => core.run('badge.get', { file: 'sibling.md' }),
+      (b) => (b as BadgeFile | null)?.references?.[0]?.to === 'new.md',
+    )) as BadgeFile;
+    const newBadge = (await core.run('badge.get', { file: 'new.md' })) as BadgeFile | null;
     const oldBadge = await core.run('badge.get', { file: 'old.md' });
     expect(oldBadge).toBeNull();
     expect(newBadge?.prompt).toBe('load-bearing');
     expect(newBadge?.references).toEqual([{ to: 'sibling.md' }]);
     expect(newBadge?.orphan).toBeUndefined();
-
     // sibling.md's outbound ref rewritten to point at the new name.
-    const sibling = (await core.run('badge.get', { file: 'sibling.md' })) as BadgeFile;
     expect(sibling.references).toEqual([{ to: 'new.md', note: 'see also' }]);
   });
 

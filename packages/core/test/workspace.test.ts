@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -63,6 +64,84 @@ describe('workspace module (mock FS)', () => {
     });
     expect(under.content.length).toBe(1000);
     expect(under.truncated).toBeUndefined();
+  });
+
+  it('readFile: flags a binary file (NUL byte) but still returns its content', async () => {
+    const NUL = String.fromCharCode(0);
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/data.bin', `PK${NUL}${NUL}binary-ish`);
+    files.set('/v/note.txt', 'plain text, no nulls here');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const bin = await core.run<{ path: string }, R>('workspace.readFile', { path: 'data.bin' });
+    expect(bin.binary).toBe(true);
+    expect(bin.content).toContain('PK'); // content NOT blanked — no data loss for editors
+    const txt = await core.run<{ path: string }, R>('workspace.readFile', { path: 'note.txt' });
+    expect(txt.binary).toBeUndefined();
+  });
+
+  it('readFile: flags invalid UTF-8 bytes even when there is no NUL byte', async () => {
+    const { fs, fileBytes, dirs } = mockFs();
+    dirs.add('/v');
+    fileBytes.set('/v/bad.log', Buffer.from([0x50, 0x4b, 0xff, 0xfe, 0x20, 0x6c, 0x6f, 0x67]));
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const bad = await core.run<{ path: string }, R>('workspace.readFile', { path: 'bad.log' });
+    expect(bad.binary).toBe(true);
+    expect(bad.content).toContain('\uFFFD');
+  });
+
+  it('readFile: does not split valid UTF-8 while sniffing a capped text prefix', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/unicode.log', `${'A'.repeat(199_999)}é tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'unicode.log',
+      maxChars: 200_000,
+    });
+    expect(capped.truncated).toBe(true);
+    expect(capped.content.endsWith('é')).toBe(true);
+    expect(capped.binary).toBeUndefined();
+  });
+
+  it('readFile: does not split surrogate pairs while sniffing a capped text prefix', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/emoji.log', `${'A'.repeat(199_999)}😀 tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'emoji.log',
+      maxChars: 200_000,
+    });
+    expect(capped.truncated).toBe(true);
+    expect(capped.content).toBe('A'.repeat(199_999));
+    expect(capped.binary).toBeUndefined();
+  });
+
+  it('readFile: binary sniff only inspects the capped prefix (what the viewer renders)', async () => {
+    const NUL = String.fromCharCode(0);
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    // The NUL is past the first 100 chars -> a maxChars:100 read sees only text.
+    files.set('/v/late.bin', `${'A'.repeat(200)}${NUL}tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'late.bin',
+      maxChars: 100,
+    });
+    expect(capped.binary).toBeUndefined();
+    const full = await core.run<{ path: string }, R>('workspace.readFile', { path: 'late.bin' });
+    expect(full.binary).toBe(true);
   });
 
   it('add: second workspace does NOT become current', async () => {
@@ -500,6 +579,21 @@ describe('workspace module (integration, real FS)', () => {
       name: 'pre-existing',
     });
     expect(r.bhDirCreated).toBe(false);
+  });
+
+  it('readFile: real FS flags invalid UTF-8 bytes even when there is no NUL byte', async () => {
+    await writeFile(join(tmpWs, 'bad.log'), Buffer.from([0x50, 0x4b, 0xff, 0xfe, 0x20, 0x6c]));
+    const core = createCore({ configDir: tmpCfg });
+    await core.run('workspace.add', { path: tmpWs, name: 'rw-test' });
+
+    type R = { content: string; binary?: boolean };
+    const bad = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'bad.log',
+      maxChars: 200_000,
+    });
+
+    expect(bad.binary).toBe(true);
+    expect(bad.content).toContain('\uFFFD');
   });
 });
 

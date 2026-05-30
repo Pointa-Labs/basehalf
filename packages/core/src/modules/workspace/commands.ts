@@ -1,3 +1,4 @@
+import { Buffer, isUtf8 } from 'node:buffer';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Context,
@@ -9,6 +10,7 @@ import {
   canonicalize,
   createKeyedMutex,
   isContained,
+  readBytesMaybeNoFollow,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
@@ -325,6 +327,13 @@ function ensureInsideWorkspace(rel: string): void {
   assertWorkspaceRelative(rel);
 }
 
+function capTextPrefix(content: string, maxChars: number): string {
+  const prefix = content.slice(0, maxChars);
+  if (prefix.length === 0) return prefix;
+  const last = prefix.charCodeAt(prefix.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? prefix.slice(0, -1) : prefix;
+}
+
 /** `workspace.readFile({ path })` — read a user file in the current
  * workspace. Path is POSIX-relative; absolute paths or `..` are rejected. */
 export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> = async (
@@ -346,19 +355,31 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // rather than re-following. (Residual: an intermediate-component swap still
   // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
   // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
-  const content = await readMaybeNoFollow(ctx.fs, abs);
-  if (content === null) {
+  const raw = await readBytesMaybeNoFollow(ctx.fs, abs);
+  if (raw === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
+  const bytes = Buffer.from(raw);
+  const content = bytes.toString('utf8');
   // Optional cap: a preview/viewer that only renders a slice can ask for just
   // that slice so a multi-MB file isn't serialized across IPC and held whole in
   // the renderer. (FsLike has no partial read yet, so we still read the file in
   // this process; capping here at least bounds what crosses the boundary. A
   // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
-  if (typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars) {
-    return { path: args.path, content: content.slice(0, args.maxChars), truncated: true };
-  }
-  return { path: args.path, content };
+  const capped =
+    typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars;
+  const slice = capped ? capTextPrefix(content, args.maxChars) : content;
+  // Content sniff: NUL bytes and invalid UTF-8 are not renderable text. Sniff
+  // the same prefix the viewer asked for, but do it on raw bytes before UTF-8
+  // decoding has a chance to replace invalid sequences with mojibake.
+  const sniffBytes = capped ? bytes.subarray(0, Buffer.byteLength(slice, 'utf8')) : bytes;
+  const binary = sniffBytes.includes(0) || !isUtf8(sniffBytes);
+  return {
+    path: args.path,
+    content: slice,
+    ...(capped && { truncated: true }),
+    ...(binary && { binary: true }),
+  };
 };
 
 /** `workspace.writeFile({ path, content })` — write a user file inside the

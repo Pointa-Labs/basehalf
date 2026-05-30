@@ -40,6 +40,27 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   return current.current.path;
 }
 
+/**
+ * Reconcile focus.md after a badge edit, exactly like badge.addRef/removeRef
+ * already reconcile the inbound index: if `file` is in the active list,
+ * focus.resync re-inlines the fresh prompt/refs so the agent's turn brief
+ * doesn't go stale. Best-effort + tolerant — the badge write already
+ * succeeded, so a focus refresh failure (module not registered, a hostile
+ * symlinked focus.md → PathEscape, etc.) must never fail the badge op.
+ * focus.resync itself no-ops when `file` isn't active, so this is cheap on the
+ * common (eager-materialize) path.
+ */
+async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promise<void> {
+  try {
+    await ctx.run('focus.resync', { file });
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
+      return;
+    }
+    console.warn('[bh:badges] focus.resync after badge edit failed (non-fatal):', err);
+  }
+}
+
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return readBadge(ctx.fs, root, args.file, args.kind ?? 'file');
@@ -79,6 +100,14 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
       };
 
   await writeBadge(ctx.fs, root, next);
+  // Only reconcile focus.md when the edit actually changes the INLINED BRIEF
+  // (prompt or refs). A kind-only / canvas-only patch — e.g. every eager
+  // materialize badge.set on workspace open, or a canvas drag of a focused
+  // badge — leaves the brief identical, so skip the focus.md read+rewrite
+  // entirely (no churn, no added latency on the hot open path).
+  if (patch.prompt !== undefined || patch.references !== undefined) {
+    await reconcileFocus(ctx, args.file);
+  }
   return next;
 };
 
@@ -145,6 +174,7 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
     // Inbound module may not be registered yet (PR11-2). Don't fail the badge op.
     if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
   }
+  await reconcileFocus(ctx, args.file);
   return next;
 };
 
@@ -166,6 +196,7 @@ export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ct
   } catch (err) {
     if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
   }
+  await reconcileFocus(ctx, args.file);
   return next;
 };
 

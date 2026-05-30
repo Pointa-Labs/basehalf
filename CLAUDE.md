@@ -79,7 +79,10 @@ bh inbound rebuild [--json]
 
 The agent's "what do I read this turn?" signal is `<workspace>/.bh/focus.md`
 (Markdown so it pastes naturally into context). It's a YAML-style `active:`
-list inside MD, written by the desktop UI as the user clicks badges.
+list inside MD, written by the desktop UI as the user clicks badges. Editing a
+focused file's badge (`badge.set/addRef/removeRef`) auto-reconciles focus.md so
+its inlined prompt/refs stay fresh — and preserves the `intent:` line — via an
+internal `focus.resync` (no manual re-focus needed, CLI/agent edits included).
 
 ```bash
 bh focus set --files <csv>   # or --view <id>

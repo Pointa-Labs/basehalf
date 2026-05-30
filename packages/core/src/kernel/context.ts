@@ -46,6 +46,14 @@ function defaultFs(): FsLike {
         throw err;
       }
     },
+    async readFileBytes(path) {
+      try {
+        return await readFile(path);
+      } catch (err) {
+        if (isENOENT(err)) return null;
+        throw err;
+      }
+    },
     async writeFile(path, content) {
       await writeFile(path, content, 'utf8');
     },
@@ -104,6 +112,21 @@ function defaultFs(): FsLike {
       }
       try {
         return await fh.readFile('utf8');
+      } finally {
+        await fh.close();
+      }
+    },
+    async readFileBytesNoFollow(path) {
+      let fh: Awaited<ReturnType<typeof open>>;
+      try {
+        fh = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch (err) {
+        if (isENOENT(err)) return null;
+        if (isELOOP(err)) throw new PathEscape(path);
+        throw err;
+      }
+      try {
+        return await fh.readFile();
       } finally {
         await fh.close();
       }

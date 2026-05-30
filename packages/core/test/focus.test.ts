@@ -267,3 +267,59 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
     expect(md).not.toContain('refs:');
   });
 });
+
+describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('badge.set on an ACTIVE file auto-refreshes the inlined prompt, preserving intent', async () => {
+    // Focus FIRST, then edit the badge — the case the renderer used to patch
+    // with resyncFocusForFile and badge.rename used to drop the intent on.
+    await ctx.core.run('focus.set', { files: ['ch.md'], intent: 'study for the exam' });
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { prompt: 'NEW inlined prompt' } });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('prompt: NEW inlined prompt'); // refreshed without a re-focus
+    expect(md).toContain('intent: study for the exam'); // intent survived the resync
+  });
+
+  it('badge.addRef on an ACTIVE file inlines the new reference into the brief', async () => {
+    await ctx.core.run('focus.set', { files: ['ch.md'] });
+    await ctx.core.run('badge.addRef', { file: 'ch.md', to: 'supply.md', note: 'depends on' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('-> supply.md  (note: depends on)');
+  });
+
+  it('a badge edit on an UNfocused file does NOT rewrite focus.md (no churn)', async () => {
+    await ctx.core.run('focus.set', { files: ['ch.md'] });
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    await ctx.core.run('badge.set', { file: 'other.md', patch: { prompt: 'irrelevant' } });
+    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(after).toBe(before);
+  });
+
+  it('a kind-only / canvas-only badge.set on an ACTIVE file does NOT touch the brief', async () => {
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { prompt: 'keep' } });
+    await ctx.core.run('focus.set', { files: ['ch.md'] });
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    // A canvas drag of the focused badge — no prompt/refs change → no resync.
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { canvas: { x: 9, y: 9 } } });
+    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(after).toBe(before);
+    expect(after).toContain('prompt: keep'); // brief intact
+  });
+
+  it('focus.resync is a no-op (resynced:false) when focus is empty', async () => {
+    const res = await ctx.core.run('focus.resync', { file: 'anything.md' });
+    expect(res.resynced).toBe(false);
+  });
+
+  it('focus.resync with no file arg re-renders the whole active list', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const res = await ctx.core.run('focus.resync', {});
+    expect(res.resynced).toBe(true);
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('prompt: P-a');
+  });
+});
