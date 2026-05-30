@@ -119,8 +119,11 @@ export const FilePreview = (): JSX.Element | null => {
   // passage. Scoped to the MD editor — its block-per-element layout makes a
   // matched text node resolve to a single block (a clean scroll target);
   // anything else (the single-<pre> text viewer, media) just opens at the top,
-  // so we consume the target without scrolling. The content renders async, so
-  // we retry on a short cadence until the match appears or we give up.
+  // so we consume the target without scrolling. We search ONLY the BlockNote
+  // editable body (`[contenteditable]`), never the editor chrome — otherwise a
+  // query like "saved" would match the status bar that renders first. The
+  // editable renders async, so we retry on a short cadence until it appears +
+  // the match is found, or we give up.
   useEffect(() => {
     if (!currentFile || openMatchQuery === null) return;
     if (modeOf(currentFile) !== 'md') {
@@ -132,8 +135,8 @@ export const FilePreview = (): JSX.Element | null => {
     let timer = 0;
     const tick = (): void => {
       if (cancelled) return;
-      const root = contentRef.current;
-      if (root !== null && scrollToFirstMatch(root, openMatchQuery)) {
+      const body = contentRef.current?.querySelector<HTMLElement>('[contenteditable="true"]');
+      if (body != null && scrollToFirstMatch(body, openMatchQuery)) {
         clearOpenMatchQuery();
         return;
       }
