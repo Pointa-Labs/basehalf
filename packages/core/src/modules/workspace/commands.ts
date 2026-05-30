@@ -327,6 +327,13 @@ function ensureInsideWorkspace(rel: string): void {
   assertWorkspaceRelative(rel);
 }
 
+function capTextPrefix(content: string, maxChars: number): string {
+  const prefix = content.slice(0, maxChars);
+  if (prefix.length === 0) return prefix;
+  const last = prefix.charCodeAt(prefix.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? prefix.slice(0, -1) : prefix;
+}
+
 /** `workspace.readFile({ path })` — read a user file in the current
  * workspace. Path is POSIX-relative; absolute paths or `..` are rejected. */
 export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> = async (
@@ -361,7 +368,7 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
   const capped =
     typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars;
-  const slice = capped ? content.slice(0, args.maxChars) : content;
+  const slice = capped ? capTextPrefix(content, args.maxChars) : content;
   // Content sniff: NUL bytes and invalid UTF-8 are not renderable text. Sniff
   // the same prefix the viewer asked for, but do it on raw bytes before UTF-8
   // decoding has a chance to replace invalid sequences with mojibake.

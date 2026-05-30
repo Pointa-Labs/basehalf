@@ -110,6 +110,22 @@ describe('workspace module (mock FS)', () => {
     expect(capped.binary).toBeUndefined();
   });
 
+  it('readFile: does not split surrogate pairs while sniffing a capped text prefix', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/emoji.log', `${'A'.repeat(199_999)}😀 tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'emoji.log',
+      maxChars: 200_000,
+    });
+    expect(capped.truncated).toBe(true);
+    expect(capped.content).toBe('A'.repeat(199_999));
+    expect(capped.binary).toBeUndefined();
+  });
+
   it('readFile: binary sniff only inspects the capped prefix (what the viewer renders)', async () => {
     const NUL = String.fromCharCode(0);
     const { fs, files, dirs } = mockFs();
