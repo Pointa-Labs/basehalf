@@ -129,6 +129,59 @@ describe('view.update', () => {
       /View not found/,
     );
   });
+
+  it('re-publishes the focused brief intent when a focused view prompt changes', async () => {
+    const v = (await ctx.core.run('view.create', {
+      name: 'V',
+      prompt: 'old intent',
+    })) as SavedView;
+    await ctx.core.run('view.addMember', { id: v.id, file: 'a.md' });
+    await ctx.core.run('view.addMember', { id: v.id, file: 'b.md' });
+    await ctx.core.run('focus.set', { viewId: v.id });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: old intent');
+
+    await ctx.core.run('view.update', { id: v.id, patch: { prompt: 'new intent' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: new intent');
+    expect(brief).not.toContain('old intent');
+  });
+
+  it('clears the brief intent when a focused view prompt is emptied', async () => {
+    const v = (await ctx.core.run('view.create', {
+      name: 'V',
+      prompt: 'some intent',
+    })) as SavedView;
+    await ctx.core.run('view.addMember', { id: v.id, file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: v.id });
+    await ctx.core.run('view.update', { id: v.id, patch: { prompt: '' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).not.toContain('intent:');
+  });
+
+  it('leaves focus.md untouched when the active set no longer matches the view members', async () => {
+    const v = (await ctx.core.run('view.create', {
+      name: 'V',
+      prompt: 'old intent',
+    })) as SavedView;
+    await ctx.core.run('view.addMember', { id: v.id, file: 'a.md' });
+    await ctx.core.run('view.addMember', { id: v.id, file: 'b.md' });
+    await ctx.core.run('focus.set', { viewId: v.id });
+    // User manually narrows focus → active no longer equals the view members.
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+
+    await ctx.core.run('view.update', { id: v.id, patch: { prompt: 'new intent' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toBe(before); // unchanged
+  });
+
+  it('does not touch focus.md when only the view name changes (no prompt edit)', async () => {
+    const v = (await ctx.core.run('view.create', { name: 'V', prompt: 'keep' })) as SavedView;
+    await ctx.core.run('view.addMember', { id: v.id, file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: v.id });
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    await ctx.core.run('view.update', { id: v.id, patch: { name: 'renamed' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toBe(before);
+  });
 });
 
 describe('view.delete', () => {

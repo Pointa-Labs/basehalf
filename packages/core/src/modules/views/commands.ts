@@ -80,12 +80,12 @@ export const get: Handler<ViewGetArgs, ViewGetResult> = async (args, ctx) => {
 
 export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  return withViewLock(viewPath(root, args.id), async () => {
+  const next = await withViewLock(viewPath(root, args.id), async () => {
     const existing = await readView(ctx.fs, root, args.id);
     if (!existing) {
       throw new Error(`View not found: ${args.id}`);
     }
-    const next: SavedView = {
+    const updated: SavedView = {
       ...existing,
       name: args.patch.name ?? existing.name,
       ...(args.patch.prompt !== undefined
@@ -93,10 +93,47 @@ export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ct
         : existing.prompt !== undefined && { prompt: existing.prompt }),
       modifiedAt: new Date().toISOString(),
     };
-    await writeView(ctx.fs, root, next);
-    return next;
+    await writeView(ctx.fs, root, updated);
+    return updated;
   });
+  // A view's prompt IS its agent-facing intent: focus.set({viewId}) carries it
+  // into focus.md's `intent:` line. So when the prompt changes, a brief focused
+  // FROM this view would otherwise keep the stale intent (the agent + the "Copy
+  // brief" button read it). Re-publish focus so the intent tracks the new
+  // prompt — the same "reconcile derived .bh/ state on an edit" contract that
+  // wires badge edits to focus.resync. Done OUTSIDE the view lock (it takes the
+  // focus lock + re-reads this view), and only when the prompt actually changed.
+  if (args.patch.prompt !== undefined) {
+    await republishFocusIfViewFocused(ctx, next);
+  }
+  return next;
 };
+
+/**
+ * Re-publish focus.md from `view` IF that view is the currently-focused source
+ * — i.e. the active focus set is exactly the view's members. Conservative: if
+ * the user manually edited the focus set after focusing the view (active no
+ * longer equals members), we can't be sure the brief came from this view, so we
+ * leave it untouched rather than clobber a hand-curated set. A focus.set({
+ * viewId }) re-derives both the active list and the intent from the now-updated
+ * view, so the brief's intent line tracks the new prompt.
+ */
+async function republishFocusIfViewFocused(
+  ctx: Parameters<Handler>[1],
+  view: SavedView,
+): Promise<void> {
+  let focus: { active: readonly string[] };
+  try {
+    focus = await ctx.run<Record<string, never>, { active: readonly string[] }>('focus.get', {});
+  } catch {
+    return; // no focus / no workspace — nothing to reconcile
+  }
+  const active = [...focus.active].sort();
+  const members = view.members.map((m) => m.file).sort();
+  if (active.length === 0 || active.length !== members.length) return;
+  if (!active.every((f, i) => f === members[i])) return;
+  await ctx.run('focus.set', { viewId: view.id });
+}
 
 export const del: Handler<ViewDeleteArgs, ViewDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
