@@ -250,6 +250,30 @@ describe('search.query', () => {
     expect(loneSurrogate.test(text)).toBe(false);
   });
 
+  it('searches a FILE whose basename matches a skip-dir name (skip is dirs-only)', async () => {
+    const { core } = await setup((m) => {
+      // An extensionless note literally named `build` — a DIRECTORY named build
+      // is pruned, but a file by that name must still be searched.
+      m.files.set('/v/build', 'findme inside build');
+      m.dirs.add('/v/build-dir');
+      m.files.set('/v/build-dir/skip-me.md', 'findme too');
+    });
+    const res = await run(core, { query: 'findme' });
+    expect(res.hits.map((h) => h.file)).toContain('build');
+  });
+
+  it('flags result truncated when a capped large file might hide a match past the cap', async () => {
+    const { core } = await setup((m) => {
+      // Match sits BEYOND PER_FILE_MAX_CHARS (100k), so it's not in the searched
+      // prefix — but the search was incomplete, so truncated must be flagged
+      // rather than reporting a clean "no matches".
+      m.files.set('/v/huge.md', `${'a'.repeat(150_000)}needle`);
+    });
+    const res = await run(core, { query: 'needle' });
+    expect(res.hits).toEqual([]);
+    expect(res.truncated).toBe(true);
+  });
+
   it('throws when there is no current workspace', async () => {
     const m = mockFs();
     const core = createCore({ fs: m.fs, configDir: '/cfg' });

@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { Handler } from '../../kernel/index.js';
+import { type Handler, canonicalize } from '../../kernel/index.js';
 import type { SearchHit, SearchMatch, SearchQueryArgs, SearchQueryResult } from './types.js';
 
 // Directories we never descend into. A superset of the renderer's NavTree
@@ -126,11 +126,28 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
 
   // Iterative DFS so a deep tree can't blow the call stack. Each frame carries
   // the absolute path (for listFiles) + the workspace-relative POSIX path (for
-  // readFile and the result).
+  // readFile and the result). `visited` holds canonical (realpath) dirs already
+  // walked: workspace.listFiles contains children to the workspace but does NOT
+  // cycle-guard the CALLER's recursion, so an IN-BOUNDS directory symlink back
+  // to an ancestor (e.g. `notes/self -> ..`) would otherwise make us rescan the
+  // same tree until MAX_DIRS (duplicate hits + a spurious truncated flag). Dedup
+  // on the canonical path the way materializeWorkspace does.
+  const visited = new Set<string>();
   const stack: Array<{ abs: string; rel: string }> = [{ abs: root, rel: '' }];
   outer: while (stack.length > 0) {
     const frame = stack.pop();
     if (!frame) break;
+    let realDir: string;
+    try {
+      realDir = await canonicalize(ctx.fs, frame.abs);
+    } catch (err) {
+      // Root canonicalize failing = workspace gone/unmounted → surface it (same
+      // policy as the listFiles failure below); a child that vanished is skipped.
+      if (frame.rel === '') throw err;
+      continue;
+    }
+    if (visited.has(realDir)) continue; // symlink cycle / already walked
+    visited.add(realDir);
     if (++dirsWalked > MAX_DIRS) {
       truncated = true;
       break;
@@ -151,10 +168,13 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
     // LIFO stack so reverse them to keep alphabetical pop order.
     const dirs: (typeof frame)[] = [];
     for (const entry of listing.entries) {
-      if (SKIP_DIRS.has(entry.name)) continue;
       const childRel = frame.rel ? `${frame.rel}/${entry.name}` : entry.name;
       const childAbs = join(frame.abs, entry.name);
       if (entry.type === 'dir') {
+        // SKIP_DIRS prunes tooling/cache DIRECTORIES only — a regular FILE whose
+        // basename happens to be `build` / `vendor` / `node_modules` (an
+        // extensionless note) is still searched.
+        if (SKIP_DIRS.has(entry.name)) continue;
         dirs.push({ abs: childAbs, rel: childRel });
         continue;
       }
@@ -175,6 +195,11 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
         continue; // unreadable file (vanished, refused) — skip
       }
       if (file.binary) continue;
+      // A file longer than the per-file cap was only PARTIALLY searched, so a
+      // match could lie beyond the prefix — flag the whole result as incomplete
+      // whether or not the prefix matched, so "no matches" never hides a capped
+      // large file.
+      if (file.truncated) truncated = true;
       const contentLower = file.content.toLowerCase();
       if (!contentLower.includes(needleLower)) continue;
 
