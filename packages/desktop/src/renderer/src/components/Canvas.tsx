@@ -461,14 +461,26 @@ export const Canvas = (): JSX.Element => {
     [],
   );
 
-  // Drop a pending single-click focus change on unmount.
-  useEffect(() => {
-    return () => {
-      if (clickTimer.current) clearTimeout(clickTimer.current.timeout);
-    };
+  // Drop a pending deferred single-click focus — used by anything that should
+  // SUPERSEDE the click (Clear-focus, a workspace switch, unmount), so a stale
+  // timer can't fire afterward and undo the explicit action / write into the
+  // wrong workspace.
+  const cancelPendingClick = useCallback(() => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current.timeout);
+      clickTimer.current = null;
+    }
   }, []);
 
+  // Drop a pending deferred click on unmount AND whenever the active workspace
+  // changes: Canvas stays mounted across a switch but window.bh re-points at the
+  // new root, so a stale timer could otherwise fire and write the old
+  // workspace's badge into the new one's focus brief (or undo an explicit Clear).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is a trigger — re-run (cleanup cancels) when the workspace changes.
+  useEffect(() => () => cancelPendingClick(), [current, cancelPendingClick]);
+
   const clearFocus = useCallback(() => {
+    cancelPendingClick(); // an explicit clear must win over a still-deferred click
     // Persist the clear FIRST, then reflect it; on failure surface the error
     // instead of leaving the canvas showing "empty focus" while .bh/focus.md
     // still feeds the agent stale files (the desync reappears on reload).
@@ -483,7 +495,7 @@ export const Canvas = (): JSX.Element => {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, []);
+  }, [cancelPendingClick]);
 
   // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
   // paste exactly what their agent reads into ANY chat — making the otherwise

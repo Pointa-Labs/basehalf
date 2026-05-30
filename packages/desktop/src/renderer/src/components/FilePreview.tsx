@@ -1145,10 +1145,17 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    // force=true: navigating away is a USER action — preserve their pending
-    // edits (keep-mine) even when a conflict banner is up, rather than the gated
-    // auto-save no-op which would silently discard them on the editor's remount.
-    setFlushEditor(() => flushRef.current(true));
+    // The navigation gatekeeper. An unresolved conflict banner is a decision
+    // point — return `false` so setCurrentFile / the workspace switch DON'T
+    // proceed (forcing the user to pick Keep/Reload) rather than silently
+    // dropping local edits OR clobbering the external write. With no conflict,
+    // flush normally (the re-read guard may itself surface one mid-flush, which
+    // we also report as blocked).
+    setFlushEditor(async () => {
+      if (reloadPromptRef.current) return false;
+      await flushRef.current(false);
+      return !reloadPromptRef.current;
+    });
     return () => setFlushEditor(null);
   }, [setFlushEditor]);
 
@@ -1164,7 +1171,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // quit the IPC write may not finish, but the debounce window is short.
   useEffect(() => {
     const onLeave = (): void => {
-      void flushRef.current(true); // user is leaving → keep-mine (don't drop edits)
+      // Gated flush: persists pending edits when there's no conflict, and
+      // no-ops while a banner is up (the editor stays mounted across blur, so
+      // nothing is lost — the user still resolves Keep/Reload on return).
+      void flushRef.current(false);
     };
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('blur', onLeave);
@@ -1248,7 +1258,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void flushRef.current(true); // explicit "save now" = keep-mine
+        // Gated: saves normally, but no-ops while a conflict banner is up so
+        // Cmd-S can't bypass the explicit Keep/Reload decision and clobber disk.
+        void flushRef.current(false);
       }
     };
     window.addEventListener('keydown', onKey);

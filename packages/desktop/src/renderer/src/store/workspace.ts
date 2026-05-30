@@ -37,8 +37,12 @@ interface WorkspaceState {
    * MdEditor while mounted; awaited by TopBar before a workspace switch and by
    * FilePreview before closing, so auto-saved edits always land in the CURRENT
    * workspace before the context changes. null when no editor is open. */
-  flushEditor: (() => Promise<void>) | null;
-  setFlushEditor: (fn: (() => Promise<void>) | null) => void;
+  // Resolves `false` when an unresolved disk-conflict banner is up (or one
+  // surfaces mid-flush) — navigation MUST NOT proceed, so the user is forced to
+  // pick Keep/Reload rather than silently clobbering either side. `true` = the
+  // editor flushed (or had nothing pending) and it's safe to switch/close.
+  flushEditor: (() => Promise<boolean>) | null;
+  setFlushEditor: (fn: (() => Promise<boolean>) | null) => void;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -109,7 +113,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   currentView: null,
   folderScope: null,
   flushEditor: null,
-  setFlushEditor: (fn: (() => Promise<void>) | null) => set({ flushEditor: fn }),
+  setFlushEditor: (fn: (() => Promise<boolean>) | null) => set({ flushEditor: fn }),
   error: '',
   busy: false,
 
@@ -176,7 +180,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // A dropped folder may switch the active workspace (workspace.use below).
     // Flush the open editor to the CURRENT workspace first, so a pending
     // auto-save can't land in the newly-active workspace's same-named file.
-    await get().flushEditor?.();
+    // A `false` flush = an unresolved conflict is open: block the switch so the
+    // user resolves it against THIS workspace's file before we re-point roots.
+    if ((await get().flushEditor?.()) === false) {
+      set({
+        error: "Resolve this file's disk conflict (Keep or Reload) before changing workspace.",
+      });
+      return;
+    }
     set({ busy: true });
     const failures: string[] = [];
     // Snapshot the current workspace list once so we can detect drops
@@ -232,6 +243,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   use: async (name: string) => {
     if (get().busy) return;
+    // Flush the open editor to the CURRENT workspace before re-pointing roots,
+    // so its pending edits land in the right file. A `false` flush = an
+    // unresolved conflict: block the switch and send the user to Keep/Reload.
+    if ((await get().flushEditor?.()) === false) {
+      set({
+        error: "Resolve this file's disk conflict (Keep or Reload) before changing workspace.",
+      });
+      return;
+    }
     set({ busy: true });
     try {
       const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
@@ -340,7 +360,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // single safe flush point; MdEditor no longer flushes on unmount (which
     // could serialize a torn-down editor as empty and clobber the file).
     if (flushEditor && currentFile !== null && currentFile !== file) {
-      void flushEditor().then(finish, finish);
+      // A `false` resolution means an unresolved disk conflict is open — don't
+      // switch/close (that would silently drop local OR clobber the external
+      // edit); keep the editor up and nudge the user to the Keep/Reload buttons.
+      void flushEditor().then((ok) => {
+        if (ok) finish();
+        else
+          set({ error: "Resolve this file's disk conflict (Keep or Reload) before leaving it." });
+      }, finish);
     } else {
       finish();
     }
