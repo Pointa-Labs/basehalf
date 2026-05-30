@@ -46,14 +46,12 @@ export interface FocusClearResult {
 }
 
 export interface FocusRefreshViewIntentArgs {
-  /** The view whose prompt just changed (its members + new prompt are re-read). */
+  /** The view whose prompt just changed. focus.md is refreshed ONLY when its
+   *  `# source-view:` provenance equals this id — i.e. the focus was published
+   *  FROM this view with a view-derived (not manually overridden) intent. Exact
+   *  identity, so same-members / same-prompt / files-sourced focuses are never
+   *  clobbered, independent of prompt text. */
   readonly viewId: string;
-  /** The view's prompt BEFORE the edit. focus.md is refreshed ONLY when its
-   *  current `intent:` still equals this — proof the brief's intent is derived
-   *  from THIS view and unmodified. Guards against clobbering: a different view
-   *  with the same members, a manual `intent` override, or a files-sourced
-   *  focus whose list happens to equal the members. Empty string ↔ no intent. */
-  readonly expectedIntent: string;
 }
 export interface FocusRefreshViewIntentResult {
   /** True when focus.md was re-rendered (the view is the unmodified source of

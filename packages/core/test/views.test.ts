@@ -226,6 +226,58 @@ describe('view.update', () => {
     expect(after).toContain('intent: new empty intent');
     expect(after).toContain('(none)');
   });
+
+  it('does NOT clobber a same-members sibling even when BOTH prompts are blank', async () => {
+    // Provenance (not member/text matching) distinguishes the source. With no
+    // prompts, an intent-text guard would have nothing to compare and collide.
+    await ctx.core.run('view.create', { name: 'A', id: 'a' }); // no prompt
+    await ctx.core.run('view.addMember', { id: 'a', file: 'x.md' });
+    await ctx.core.run('view.create', { name: 'B', id: 'b' }); // no prompt, same member
+    await ctx.core.run('view.addMember', { id: 'b', file: 'x.md' });
+    await ctx.core.run('focus.set', { viewId: 'a' }); // focused on A (no intent)
+    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(before).not.toContain('intent:');
+    await ctx.core.run('view.update', { id: 'b', patch: { prompt: 'B got a prompt' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toBe(before); // A's brief untouched
+  });
+
+  it('refreshes a multi-line / whitespace view prompt (provenance, not text match)', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'line one\nline two' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'x.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    // focus.md normalizes newlines to spaces in the intent line.
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: line one line two');
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: '  padded new task  ' } });
+    // Refresh fires by id identity regardless of the old prompt's whitespace/newlines.
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: padded new task');
+  });
+
+  it('preserves the focused active list verbatim when refreshing (no member-drift pull-in)', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'b.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' }); // active [a, b]
+    // Drift the view's membership AFTER focusing.
+    await ctx.core.run('view.addMember', { id: 'v', file: 'c.md' }); // view now [a, b, c]
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'new' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: new');
+    expect(brief).toContain('- a.md');
+    expect(brief).toContain('- b.md');
+    expect(brief).not.toContain('- c.md'); // active stays the focused set, not the drifted view
+  });
+
+  it('keeps the source-view provenance across a focus.resync (badge edit)', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    // A badge edit on a focused file triggers focus.resync, which re-renders
+    // focus.md — provenance must survive or later prompt edits stop refreshing.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'badge note' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'new' } });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: new');
+  });
 });
 
 describe('view.delete', () => {

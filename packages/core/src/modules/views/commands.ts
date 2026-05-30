@@ -80,13 +80,11 @@ export const get: Handler<ViewGetArgs, ViewGetResult> = async (args, ctx) => {
 
 export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  let oldPrompt = '';
   const next = await withViewLock(viewPath(root, args.id), async () => {
     const existing = await readView(ctx.fs, root, args.id);
     if (!existing) {
       throw new Error(`View not found: ${args.id}`);
     }
-    oldPrompt = existing.prompt ?? '';
     const updated: SavedView = {
       ...existing,
       name: args.patch.name ?? existing.name,
@@ -101,15 +99,14 @@ export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ct
   // A view's prompt IS its agent-facing intent: focus.set({viewId}) carries it
   // into focus.md's `intent:` line. So when the prompt changes, a brief focused
   // FROM this view would keep the stale intent (the agent + the "Copy brief"
-  // button read it). focus.refreshViewIntent re-publishes it — but ONLY when the
-  // brief is provably this view's, unmodified (its members are still active AND
-  // its old prompt is still the intent), atomically under the focus lock. We
-  // pass the PRE-edit prompt as that proof. Best-effort: a derived-.bh/-state
-  // failure must not turn a saved prompt into a failed view.update (mirrors how
-  // badge edits treat focus.resync as non-fatal). Only when the prompt changed.
+  // button read it). focus.refreshViewIntent re-publishes it — but ONLY when
+  // focus.md's `# source-view:` provenance is exactly this view (set by focus.set
+  // for a view-derived focus), atomically under the focus lock. Best-effort: a
+  // derived-.bh/-state failure must not turn a saved prompt into a failed
+  // view.update (mirrors how badge edits treat focus.resync as non-fatal).
   if (args.patch.prompt !== undefined) {
     try {
-      await ctx.run('focus.refreshViewIntent', { viewId: args.id, expectedIntent: oldPrompt });
+      await ctx.run('focus.refreshViewIntent', { viewId: args.id });
     } catch {
       // focus.md unreachable/hostile etc. — the view edit still succeeded.
     }

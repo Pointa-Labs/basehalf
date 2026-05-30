@@ -89,6 +89,7 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   let files: readonly string[];
   let intent: string | undefined = args.intent;
+  let sourceView: string | undefined;
   if (args.viewId !== undefined) {
     const view = await ctx.run<{ id: string }, ViewGetMinimal | null>('view.get', {
       id: args.viewId,
@@ -103,40 +104,34 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
     if (intent === undefined && view.prompt !== undefined && view.prompt.trim() !== '') {
       intent = view.prompt;
     }
+    // Record provenance ONLY when the intent is view-DERIVED (no manual
+    // override) — so a later prompt edit can refresh this brief by identity, but
+    // a hand-set intent override is never auto-clobbered. Recorded even when the
+    // view's prompt is currently blank, so editing it later still refreshes.
+    if (args.intent === undefined) sourceView = args.viewId;
   } else {
     files = args.files ?? [];
   }
 
   await withFocusLock(root, async () => {
     const items = await assembleItems(ctx, files);
-    await writeFocus(ctx.fs, root, items, intent);
+    await writeFocus(ctx.fs, root, items, intent, sourceView);
   });
   return { active: files };
 };
 
-function sameSet(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  const sa = [...a].sort();
-  const sb = [...b].sort();
-  return sa.every((x, i) => x === sb[i]);
-}
-
 /**
- * Re-publish focus.md's intent from a view whose prompt just changed — but ONLY
- * when the current brief is provably sourced FROM that view and unmodified. A
- * view's prompt IS its agent-facing intent (focus.set({viewId}) carries it into
- * `intent:`), so editing the prompt of a focused view must refresh the brief or
- * the agent / Copy-brief reads a stale task.
- *
- * The whole check-then-write happens UNDER the focus lock so a concurrent
- * focus.set/clear can't interleave between the decision and the write (TOCTOU).
- * Source-awareness is two-part, both required:
- *   1. the active set still equals the view's members, AND
- *   2. the current `intent:` still equals the view's PRE-edit prompt.
- * (2) is what makes it SOURCE-aware rather than mere set-matching: a *different*
- * view with identical members, a manual `intent` override, or a files-sourced
- * focus that happens to equal the members all fail (2) and are left untouched.
- * Empty (0-member) focused views are handled — sameSet([], []) is true.
+ * Re-publish focus.md's `intent:` from a view whose prompt just changed — but
+ * ONLY when this view is the recorded SOURCE of the current focus (the
+ * `# source-view:` provenance written by focus.set equals viewId). Identity, not
+ * inference: a DIFFERENT view with identical members (or an identical/blank
+ * prompt), a manual intent override, and a files-sourced focus all lack this
+ * view's provenance and are left untouched — independent of prompt text or
+ * whitespace/newline normalization. The whole check-then-write runs UNDER the
+ * focus lock (no TOCTOU with a concurrent focus.set/clear). The current active
+ * list is preserved verbatim (member drift since focusing is a separate
+ * concern); only the intent is refreshed to the view's new prompt, and the
+ * provenance is re-stamped.
  */
 export const refreshViewIntent: Handler<
   FocusRefreshViewIntentArgs,
@@ -144,18 +139,16 @@ export const refreshViewIntent: Handler<
 > = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
-    const { active, intent } = await readFocusBrief(ctx.fs, root);
-    if ((intent ?? '') !== args.expectedIntent) return { refreshed: false };
+    const { active, sourceView } = await readFocusBrief(ctx.fs, root);
+    if (sourceView !== args.viewId) return { refreshed: false };
     const view = await ctx.run<{ id: string }, ViewGetMinimal | null>('view.get', {
       id: args.viewId,
     });
     if (!view) return { refreshed: false };
-    const members = view.members.map((m) => m.file);
-    if (!sameSet(active, members)) return { refreshed: false };
     const newIntent =
       view.prompt !== undefined && view.prompt.trim() !== '' ? view.prompt : undefined;
-    const items = await assembleItems(ctx, members);
-    await writeFocus(ctx.fs, root, items, newIntent);
+    const items = await assembleItems(ctx, active);
+    await writeFocus(ctx.fs, root, items, newIntent, args.viewId);
     return { refreshed: true };
   });
 };
@@ -173,18 +166,23 @@ export const refreshViewIntent: Handler<
 export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
-    const { active, intent } = await readFocusBrief(ctx.fs, root);
+    const { active, intent, sourceView } = await readFocusBrief(ctx.fs, root);
     if (active.length === 0) return { resynced: false };
     if (args.file !== undefined && !active.includes(args.file)) return { resynced: false };
     const items = await assembleItems(ctx, active);
-    await writeFocus(ctx.fs, root, items, intent);
+    // Preserve provenance (and intent) — a badge edit must not strip the
+    // `# source-view:` marker, or a later view-prompt edit would stop refreshing.
+    await writeFocus(ctx.fs, root, items, intent, sourceView);
     return { resynced: true };
   });
 };
 
 export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  return readFocusBrief(ctx.fs, root);
+  // Strip the internal sourceView — focus.get's contract is the round-trippable
+  // active list + intent.
+  const { active, intent } = await readFocusBrief(ctx.fs, root);
+  return { active, ...(intent !== undefined && { intent }) };
 };
 
 /**
