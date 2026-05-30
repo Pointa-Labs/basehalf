@@ -80,7 +80,7 @@ export const get: Handler<ViewGetArgs, ViewGetResult> = async (args, ctx) => {
 
 export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const next = await withViewLock(viewPath(root, args.id), async () => {
+  return withViewLock(viewPath(root, args.id), async () => {
     const existing = await readView(ctx.fs, root, args.id);
     if (!existing) {
       throw new Error(`View not found: ${args.id}`);
@@ -94,46 +94,48 @@ export const update: Handler<ViewUpdateArgs, ViewUpdateResult> = async (args, ct
       modifiedAt: new Date().toISOString(),
     };
     await writeView(ctx.fs, root, updated);
+    // A view's prompt IS its agent-facing intent: focus.set({viewId}) carries it
+    // into focus.md's `intent:` line, so a prompt change must refresh a brief
+    // focused FROM this view (the agent + "Copy brief" read it).
+    // focus.refreshViewIntent re-publishes it ONLY when focus.md's
+    // `# source-view:` provenance is exactly this view, atomically under the
+    // FOCUS lock. Held INSIDE this VIEW lock so the (id-keyed) view can't be
+    // deleted+recreated mid-refresh (focus reads views lock-free, so the
+    // view→focus order never inverts → no deadlock). Best-effort: a
+    // derived-.bh/-state failure must not fail a saved prompt (like badge edits
+    // ↔ focus.resync).
+    if (args.patch.prompt !== undefined) {
+      try {
+        await ctx.run('focus.refreshViewIntent', { viewId: args.id });
+      } catch {
+        // focus.md unreachable/hostile etc. — the view edit still succeeded.
+      }
+    }
     return updated;
   });
-  // A view's prompt IS its agent-facing intent: focus.set({viewId}) carries it
-  // into focus.md's `intent:` line. So when the prompt changes, a brief focused
-  // FROM this view would keep the stale intent (the agent + the "Copy brief"
-  // button read it). focus.refreshViewIntent re-publishes it — but ONLY when
-  // focus.md's `# source-view:` provenance is exactly this view (set by focus.set
-  // for a view-derived focus), atomically under the focus lock. Best-effort: a
-  // derived-.bh/-state failure must not turn a saved prompt into a failed
-  // view.update (mirrors how badge edits treat focus.resync as non-fatal).
-  if (args.patch.prompt !== undefined) {
-    try {
-      await ctx.run('focus.refreshViewIntent', { viewId: args.id });
-    } catch {
-      // focus.md unreachable/hostile etc. — the view edit still succeeded.
-    }
-  }
-  return next;
 };
 
 export const del: Handler<ViewDeleteArgs, ViewDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   // Under the lock so a concurrent addMember can't read the view, delete
   // races in, then addMember's write resurrects the just-deleted view.
-  const deleted = await withViewLock(viewPath(root, args.id), async () => {
-    return removeView(ctx.fs, root, args.id);
-  });
-  // If this view sourced the current focus, drop the `# source-view:` marker so
-  // a later view that REUSES this slug id isn't mistaken for the source (editing
-  // its prompt would otherwise rewrite an unrelated brief). Best-effort: a
-  // derived-.bh/-state failure must not fail the delete. Outside the view lock
-  // (it takes the focus lock); only meaningful when a view actually existed.
-  if (deleted) {
-    try {
-      await ctx.run('focus.clearProvenanceIfView', { viewId: args.id });
-    } catch {
-      // focus.md unreachable/hostile etc. — the delete still succeeded.
+  return withViewLock(viewPath(root, args.id), async () => {
+    const deleted = await removeView(ctx.fs, root, args.id);
+    // If this view sourced the current focus, drop the `# source-view:` marker so
+    // a later view REUSING this slug id isn't mistaken for the source. Done
+    // INSIDE the view lock so a concurrent view.create+focus.set on the same id
+    // can't publish a FRESH marker that this clear then strips — the id can't be
+    // reused until this releases. focus reads views lock-free so view→focus never
+    // inverts. Best-effort; only meaningful when a view actually existed.
+    if (deleted) {
+      try {
+        await ctx.run('focus.clearProvenanceIfView', { viewId: args.id });
+      } catch {
+        // focus.md unreachable/hostile etc. — the delete still succeeded.
+      }
     }
-  }
-  return { deleted };
+    return { deleted };
+  });
 };
 
 export const addMember: Handler<ViewAddMemberArgs, ViewAddMemberResult> = async (args, ctx) => {
