@@ -4,6 +4,7 @@ import {
   contentTokens,
   losesContent,
   segmentBody,
+  spliceSave,
 } from '../src/renderer/src/lib/mdSegment.js';
 
 // segmentBody is pure (mdast only, no BlockNote), so it runs in the Node test env.
@@ -122,5 +123,47 @@ describe('losesContent — guards segments whose round-trip drops content', () =
     expect(losesContent('* a\n* b', '- a\n- b')).toBe(false); // bullet marker swap
     expect(losesContent('soft\nwrap', 'soft wrap')).toBe(false); // wrap → space
     expect(losesContent('Plain **bold** here', 'Plain **bold** here')).toBe(false);
+  });
+});
+
+describe('spliceSave — frontmatter / body join fidelity', () => {
+  // Minimal fake editor: a brand-new block (id not in byId) only needs
+  // blocksToMarkdownLossy. Cast through unknown — we exercise the join logic.
+  const fakeEditor = {
+    blocksToMarkdownLossy: async () => 'hello\n',
+    // biome-ignore lint/suspicious/noExplicitAny: minimal test double
+  } as any;
+  const newBlock = [{ type: 'paragraph', id: 'b1' }];
+
+  it('inserts a newline when frontmatter ends at EOF with no trailing newline', async () => {
+    // The corruption case: `---\nk: v\n---` (no trailing newline) + typed body.
+    const out = await spliceSave(fakeEditor, newBlock, '---\nk: v\n---', new Map());
+    expect(out).toBe('---\nk: v\n---\nhello\n'); // NOT `---hello`
+    // The closing fence is still on its own line (frontmatter survives a reopen).
+    expect(out).toContain('---\nhello');
+  });
+
+  it('does not double the newline when frontmatter already ends in one', async () => {
+    const out = await spliceSave(fakeEditor, newBlock, '---\nk: v\n---\n', new Map());
+    expect(out).toBe('---\nk: v\n---\nhello\n');
+  });
+
+  it('uses CRLF as the separator for a CRLF frontmatter', async () => {
+    const out = await spliceSave(fakeEditor, newBlock, '---\r\nk: v\r\n---', new Map());
+    expect(out).toBe('---\r\nk: v\r\n---\r\nhello\n');
+  });
+
+  it('keeps the closing fence newline-terminated even for an empty body', async () => {
+    // A seeded empty paragraph still emits a separator, so the result is
+    // `---\nk: v\n---\n\n` — the fence stays on its own line (no `---` glued to
+    // content), so the frontmatter survives a reopen.
+    const emptyEditor = { blocksToMarkdownLossy: async () => '' } as never;
+    const out = await spliceSave(
+      emptyEditor,
+      [{ type: 'paragraph', id: 'b1' }],
+      '---\nk: v\n---',
+      new Map(),
+    );
+    expect(out.startsWith('---\nk: v\n---\n')).toBe(true);
   });
 });

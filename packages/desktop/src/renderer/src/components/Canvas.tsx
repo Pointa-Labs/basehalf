@@ -258,6 +258,12 @@ export const Canvas = (): JSX.Element => {
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
+      // Cancel the deferred single-click focus collapse — opening a badge must
+      // not first wipe the curated focus set.
+      if (clickTimer.current) {
+        clearTimeout(clickTimer.current);
+        clickTimer.current = null;
+      }
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
         // Folder scoping is a main-canvas concept. Inside a saved view it
@@ -366,50 +372,78 @@ export const Canvas = (): JSX.Element => {
     [currentView],
   );
 
+  // Pending single-click focus change, deferred so a double-click can cancel it.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
-      // Single-click manages FOCUS only — it never opens the editor. Opening
-      // is the double-click (onNodeDoubleClick). This keeps the canvas and the
-      // focus viz visible while you assemble a focus set by clicking badges.
-      void (async () => {
-        try {
-          let after: { active: readonly string[] };
-          if (additive) {
-            // Shift+click TOGGLES membership — add if absent, remove if present —
-            // so curating a multi-file set never forces a Clear-and-rebuild
-            // (matches Finder / browser / spreadsheet multi-select). Routed
-            // through focus.toggleActiveFile so REFINING a view-sourced focus
-            // keeps the turn intent + `# source-view:` provenance (a bare
-            // focus.set({files}) would silently drop both — severing the
-            // view→brief refresh link and losing the curated intent).
-            after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
-              active: string[];
-            };
-          } else {
-            // Plain click = focus JUST this file: a fresh files-focus that
-            // intentionally starts clean (no prior intent / view provenance).
-            await window.bh.run('focus.set', { files: [node.id] });
-            after = (await window.bh.run('focus.get', {})) as { active: string[] };
+      // Single-click manages FOCUS only — it never opens the editor. Opening is
+      // the double-click (onNodeDoubleClick). This keeps the canvas + focus viz
+      // visible while you assemble a focus set by clicking badges.
+      const apply = (): void => {
+        void (async () => {
+          try {
+            let after: { active: readonly string[] };
+            if (additive) {
+              // Shift+click TOGGLES membership — add if absent, remove if present
+              // — so curating a multi-file set never forces a Clear-and-rebuild
+              // (matches Finder / browser / spreadsheet multi-select). Routed
+              // through focus.toggleActiveFile so REFINING a view-sourced focus
+              // keeps the turn intent + `# source-view:` provenance (a bare
+              // focus.set({files}) would silently drop both — severing the
+              // view→brief refresh link and losing the curated intent).
+              after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
+                active: string[];
+              };
+            } else {
+              // Plain click = focus JUST this file: a fresh files-focus that
+              // intentionally starts clean (no prior intent / view provenance).
+              await window.bh.run('focus.set', { files: [node.id] });
+              after = (await window.bh.run('focus.get', {})) as { active: string[] };
+            }
+            // Reflect the authoritative focus set on the canvas so the human SEES
+            // exactly what the agent now reads.
+            setFocusActive(after.active); // keep the chip's full-set count live on click
+            const set = new Set(after.active);
+            setNodes((prev) =>
+              prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
+            );
+          } catch (err) {
+            // The focus set is the trust contract ("I see what the agent reads").
+            // A silent failure would desync the canvas from .bh/focus.md, so
+            // surface it rather than swallow it.
+            setError(err instanceof Error ? err.message : String(err));
           }
-          // Reflect the authoritative focus set on the canvas so the human SEES
-          // exactly what the agent now reads.
-          setFocusActive(after.active); // keep the chip's full-set count live on click
-          const set = new Set(after.active);
-          setNodes((prev) =>
-            prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
-          );
-        } catch (err) {
-          // The focus set is the trust contract ("I see what the agent reads").
-          // A silent failure would desync the canvas from .bh/focus.md, so
-          // surface it rather than swallow it.
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })();
+        })();
+      };
+      // Shift+click is unambiguous (no shift+double-click gesture) → apply now.
+      // A PLAIN click is DEFERRED: a double-click fires this plain onNodeClick
+      // FIRST (DOM click before dblclick), and the plain branch REPLACES focus
+      // with just this file — so double-clicking a badge to OPEN it would wipe a
+      // curated multi-file focus set (+ its intent/provenance) before the editor
+      // opens. onNodeDoubleClick cancels this timer, so opening never collapses
+      // focus.
+      if (additive) {
+        apply();
+        return;
+      }
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+      clickTimer.current = setTimeout(() => {
+        clickTimer.current = null;
+        apply();
+      }, 200);
     },
-    // setNodes / setError are stable; nothing else external is referenced.
+    // setNodes / setFocusActive / setError are stable; nothing else external.
     [],
   );
+
+  // Drop a pending single-click focus change on unmount.
+  useEffect(() => {
+    return () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    };
+  }, []);
 
   const clearFocus = useCallback(() => {
     // Persist the clear FIRST, then reflect it; on failure surface the error

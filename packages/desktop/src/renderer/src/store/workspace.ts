@@ -395,7 +395,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const title = baseName.replace(/\.md$/i, '');
       const body = `# ${title}\n\n`;
       await window.bh.run('workspace.writeFile', { path: relPath, content: body });
-      set({ currentFile: relPath });
+      // Route through setCurrentFile (not a bare set) so the editor we're leaving
+      // FLUSHES its pending auto-save first — a bare currentFile swap remounts
+      // MdEditor, which deliberately does NOT flush on unmount, silently dropping
+      // the prior note's last keystrokes.
+      get().setCurrentFile(relPath);
     } catch (err) {
       set({ error: formatError(err) });
     }
