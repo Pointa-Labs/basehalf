@@ -313,7 +313,15 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     const focus = await ctx.run<Record<string, never>, FocusGetResult>('focus.get', {});
     if (focus.active.includes(args.from)) {
       const next = focus.active.map((f) => (f === args.from ? args.to : f));
-      await ctx.run<{ files: readonly string[] }, FocusSetResult>('focus.set', { files: next });
+      // Preserve the turn intent: focus.set with no `intent` DROPS the
+      // `intent:` block (it's omitted, not carried), so a bare rewrite here
+      // would silently lose the user's "what I'm doing this turn" brief on
+      // every file rename (the watcher fires badge.rename on any OS rename).
+      // Thread the existing intent back through. See focus brief (PR #91).
+      await ctx.run<{ files: readonly string[]; intent?: string }, FocusSetResult>('focus.set', {
+        files: next,
+        ...(focus.intent !== undefined && { intent: focus.intent }),
+      });
       focusUpdated = true;
     }
   } catch (err) {
