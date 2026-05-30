@@ -427,18 +427,31 @@ export const Canvas = (): JSX.Element => {
   // invisible payoff of curation tangible and portable (not just the
   // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
   const [briefCopied, setBriefCopied] = useState(false);
+  const copyResetTimer = useRef<number | null>(null);
   const copyBrief = useCallback(() => {
     void (async () => {
       try {
         const { brief } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        // Nothing to copy (focus.md absent under a still-visible chip) — don't
+        // write an empty string or flash a misleading "Copied ✓".
+        if (brief.length === 0) return;
         await navigator.clipboard.writeText(brief);
         setBriefCopied(true);
-        window.setTimeout(() => setBriefCopied(false), 1600);
+        // Reset the confirmation; clear any prior timer so a rapid re-click
+        // doesn't let an earlier timer flip the label back early.
+        if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+        copyResetTimer.current = window.setTimeout(() => setBriefCopied(false), 1600);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
   }, []);
+  useEffect(
+    () => () => {
+      if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+    },
+    [],
+  );
 
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
@@ -573,6 +586,7 @@ export const Canvas = (): JSX.Element => {
             type="button"
             onClick={copyBrief}
             title="Copy the brief your agent reads — paste it into any AI chat"
+            aria-live="polite"
             data-testid="focus-copy-brief"
             style={{
               border: 'none',

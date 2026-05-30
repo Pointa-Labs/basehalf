@@ -347,4 +347,16 @@ describe('focus.brief', () => {
     expect(res.brief).toContain('active:');
     expect(res.brief).toContain('(none)');
   });
+
+  it('returns an empty string (not a throw) when focus.md is absent on disk', async () => {
+    ctx.files.delete('/work/.bh/focus.md'); // e.g. user deleted it externally
+    const res = await ctx.core.run('focus.brief', {});
+    expect(res.brief).toBe('');
+  });
+
+  it('throws when there is no current workspace', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('focus.brief', {})).rejects.toThrow(/No current workspace/i);
+  });
 });
