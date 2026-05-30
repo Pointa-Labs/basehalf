@@ -8,7 +8,10 @@ import type { FsLike } from '../src/index.js';
 // realpath/lstat/*NoFollow, so the focus store's containment guards degrade to
 // the lexical path (correct: no symlinks here) and still hit readFile/writeFile
 // where the yield lives. Mirrors inbound-concurrency.test.ts.
-function yieldingFs(): { fs: FsLike; files: Map<string, string>; dirs: Set<string> } {
+function yieldingFs(hooks?: {
+  onReadFile?: (path: string, content: string | null) => Promise<string | null> | string | null;
+  onWriteFile?: (path: string, content: string) => Promise<void> | void;
+}): { fs: FsLike; files: Map<string, string>; dirs: Set<string> } {
   const files = new Map<string, string>();
   const dirs = new Set<string>();
   const tick = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -22,12 +25,14 @@ function yieldingFs(): { fs: FsLike; files: Map<string, string>; dirs: Set<strin
   const fs: FsLike = {
     async readFile(path) {
       await tick();
-      return files.has(path) ? (files.get(path) as string) : null;
+      const content = files.has(path) ? (files.get(path) as string) : null;
+      return hooks?.onReadFile ? hooks.onReadFile(path, content) : content;
     },
     async writeFile(path, content) {
       await tick();
       files.set(path, content);
       addAncestors(path);
+      await hooks?.onWriteFile?.(path, content);
     },
     async mkdir(path, opts) {
       await tick();
@@ -69,6 +74,18 @@ function yieldingFs(): { fs: FsLike; files: Map<string, string>; dirs: Set<strin
     },
   };
   return { fs, files, dirs };
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Regression for the focus.md lost-update race: focus.resync is a
@@ -114,5 +131,46 @@ describe('focus.md lost-update race', () => {
 
     const got = (await core.run('focus.get', {})) as { active: string[] };
     expect(got.active).toEqual(['a.md', 'b.md']);
+  });
+
+  it('concurrent badge edit + focus.set keep the fresh inlined prompt', async () => {
+    const oldBadgeReadStarted = deferred();
+    const releaseOldBadgeRead = deferred();
+    const freshFocusWritten = deferred();
+    let blockNextBadgeRead = false;
+    const { fs, files, dirs } = yieldingFs({
+      async onReadFile(path, content) {
+        if (blockNextBadgeRead && path === '/work/.bh/badges/a.md.json') {
+          blockNextBadgeRead = false;
+          oldBadgeReadStarted.resolve();
+          await releaseOldBadgeRead.promise;
+        }
+        return content;
+      },
+      onWriteFile(path, content) {
+        if (path === '/work/.bh/focus.md' && content.includes('prompt: FRESH prompt')) {
+          freshFocusWritten.resolve();
+        }
+      },
+    });
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w' });
+
+    await core.run('badge.set', { file: 'a.md', patch: { prompt: 'OLD prompt' } });
+    await core.run('focus.set', { files: ['a.md'] });
+
+    blockNextBadgeRead = true;
+    const setP = core.run('focus.set', { files: ['a.md'] });
+    await oldBadgeReadStarted.promise;
+
+    const editP = core.run('badge.set', { file: 'a.md', patch: { prompt: 'FRESH prompt' } });
+    await Promise.race([freshFocusWritten.promise, sleep(50)]);
+    releaseOldBadgeRead.resolve();
+    await Promise.all([setP, editP]);
+
+    const md = files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('prompt: FRESH prompt');
+    expect(md).not.toContain('prompt: OLD prompt');
   });
 });

@@ -103,8 +103,10 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
     files = args.files ?? [];
   }
 
-  const items = await assembleItems(ctx, files);
-  await withFocusLock(root, () => writeFocus(ctx.fs, root, items, intent));
+  await withFocusLock(root, async () => {
+    const items = await assembleItems(ctx, files);
+    await writeFocus(ctx.fs, root, items, intent);
+  });
   return { active: files };
 };
 
