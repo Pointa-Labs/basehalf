@@ -86,15 +86,19 @@ New v0.x follow-ups surfaced while building the code/text viewer:
 
 - Code-viewer **syntax highlighting** (needs a highlighter dep — weigh against
   [dependency-policy.md](dependency-policy.md); plain monospace ships today).
-- Read **extension-less text files** (Dockerfile, Makefile, LICENSE, README,
-  `.gitignore`). ✅ _shipped._ These are classified as viewable text, and the
-  ever-growing-allowlist trap is avoided with **content-based detection**:
-  `workspace.readFile` sniffs the (capped) raw bytes for a NUL byte **or**
-  invalid UTF-8 and returns a `binary` flag, so the text viewer shows a clean
-  "binary file — open in the right app" message instead of mojibake. The cap
-  bounds what's read/shipped; the byte-sniff is surrogate-pair-safe. (A *true*
-  streamed/partial read — vs. read-whole-then-cap — is a deeper `FsLike` change
-  still deferred.)
+- Read **extension-less / unknown text files** (`Dockerfile`, `VERSION`, `TODO`,
+  `CODEOWNERS`, a stray `*.tf` / `*.hcl` / `*.foo`). ✅ _shipped._ Viewer routing
+  (`lib/viewerMode.ts`) is now a **deny-list, not an allow-list**: known non-text
+  formats (Office/iWork docs, archives, fonts, media we don't decode inline) hand
+  off to "open in default app"; **everything else routes to the read-only text
+  viewer** — so there is no allowlist to keep growing and no dead-end. The
+  capped byte-sniff in `workspace.readFile` (NUL **or** invalid-UTF-8 →
+  `binary` flag, surrogate-pair-safe) is the safety net: a binary optimistically
+  routed in renders a clean "binary file" message **with an open-in-app button**,
+  never mojibake. The capped read is now **bounded** (`readFileBytesCappedNoFollow`):
+  it fetches only `maxChars*4` bytes via an O_NOFOLLOW partial read, so even a
+  multi-GB mis-routed file (or a huge log) never lands in memory whole before the
+  cap/sniff runs — the read-whole-then-cap step is gone.
 - **Core-level `.bh/` reconcile.** ✅ _shipped (focus.md leg)._ In-app edits to a
   badge (prompt / refs) refresh derived caches the file watcher can't see (it
   ignores `.bh/` writes). v0 first wired this in the renderer (editor panel pings

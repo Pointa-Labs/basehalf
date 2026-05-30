@@ -10,6 +10,7 @@ import {
   canonicalize,
   createKeyedMutex,
   isContained,
+  readBytesCappedMaybeNoFollow,
   readBytesMaybeNoFollow,
   readMaybeNoFollow,
   writeMaybeNoFollow,
@@ -355,29 +356,43 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // rather than re-following. (Residual: an intermediate-component swap still
   // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
   // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
-  const raw = await readBytesMaybeNoFollow(ctx.fs, abs);
+  // Optional cap: a preview/viewer that only renders a slice asks for just that
+  // slice. When it does, BOUND the bytes we read — UTF-8 is ≤4 bytes/char, so
+  // `maxChars*4 (+4 for a boundary-split trailing char)` always decodes to ≥
+  // maxChars chars, which we char-cap precisely below. This is the partial read
+  // that makes it safe to optimistically route unknown files to the text viewer:
+  // a mis-routed binary (or a multi-GB log) only ever puts this small prefix in
+  // memory before the sniff/cap runs, instead of being slurped whole. Uncapped
+  // callers (the editor) still read the full file.
+  const maxChars =
+    typeof args.maxChars === 'number' && args.maxChars >= 0 ? args.maxChars : undefined;
+  const raw =
+    maxChars !== undefined
+      ? await readBytesCappedMaybeNoFollow(ctx.fs, abs, maxChars * 4 + 4)
+      : await readBytesMaybeNoFollow(ctx.fs, abs);
   if (raw === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
   const bytes = Buffer.from(raw);
   const content = bytes.toString('utf8');
-  // Optional cap: a preview/viewer that only renders a slice can ask for just
-  // that slice so a multi-MB file isn't serialized across IPC and held whole in
-  // the renderer. (FsLike has no partial read yet, so we still read the file in
-  // this process; capping here at least bounds what crosses the boundary. A
-  // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
-  const capped =
-    typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars;
-  const slice = capped ? capTextPrefix(content, args.maxChars) : content;
+  // `truncated` when the file held more than the requested prefix. With the
+  // bounded read above, `content.length > maxChars` is exactly that signal: the
+  // byte budget always over-reads past maxChars chars whenever more remained.
+  let slice = content;
+  let truncated = false;
+  if (maxChars !== undefined && content.length > maxChars) {
+    slice = capTextPrefix(content, maxChars);
+    truncated = true;
+  }
   // Content sniff: NUL bytes and invalid UTF-8 are not renderable text. Sniff
-  // the same prefix the viewer asked for, but do it on raw bytes before UTF-8
-  // decoding has a chance to replace invalid sequences with mojibake.
-  const sniffBytes = capped ? bytes.subarray(0, Buffer.byteLength(slice, 'utf8')) : bytes;
+  // the same prefix the viewer gets, but on raw bytes before UTF-8 decoding has
+  // a chance to replace invalid sequences with mojibake.
+  const sniffBytes = truncated ? bytes.subarray(0, Buffer.byteLength(slice, 'utf8')) : bytes;
   const binary = sniffBytes.includes(0) || !isUtf8(sniffBytes);
   return {
     path: args.path,
     content: slice,
-    ...(capped && { truncated: true }),
+    ...(truncated && { truncated: true }),
     ...(binary && { binary: true }),
   };
 };

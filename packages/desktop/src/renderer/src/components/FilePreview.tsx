@@ -21,9 +21,9 @@ import { color, font, motion, radius, shadow, space, transition } from '../desig
 import { emitBadgeChange } from '../lib/badgeBus.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import { isLossyRoundTrip } from '../lib/mdLossy.js';
+import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
-import { badgeType } from './FileGlyph.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -61,30 +61,6 @@ function debounce<TArgs extends unknown[]>(
     }
   };
   return wrapped;
-}
-
-function extOf(path: string): string {
-  const dot = path.lastIndexOf('.');
-  return dot === -1 ? '' : path.slice(dot).toLowerCase();
-}
-
-type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'text' | 'other';
-
-function modeOf(path: string): ViewerMode {
-  const e = extOf(path);
-  if (['.md', '.markdown', '.txt'].includes(e)) return 'md';
-  if (e === '.pdf') return 'pdf';
-  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(e)) return 'image';
-  if (['.mp3', '.wav', '.m4a'].includes(e)) return 'audio';
-  if (['.mp4', '.mov', '.webm'].includes(e)) return 'video';
-  // Code (.ts/.py/.json/…) and remaining text formats (.rst/.org/.mdx) get a
-  // read-only text viewer. Without it these were a dead-end "no viewer" even
-  // though the canvas tile already shows their content — a glaring gap for the
-  // AI-coding wedge (drop a src/ folder in, can't read a single file). bh stays
-  // a read-only workspace view here; agents/IDEs edit code with their own tools.
-  const bt = badgeType(path.slice(path.lastIndexOf('/') + 1), false);
-  if (bt === 'code' || bt === 'text') return 'text';
-  return 'other';
 }
 
 function splitPath(rel: string): { dirname: string; basename: string } {
@@ -1338,6 +1314,19 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  // A file optimistically routed here can turn out binary (the content-sniff
+  // flags it). Offer the same "open in default app" escape hatch the
+  // UnsupportedFileViewer gives, so a sniffed binary is never a dead end.
+  const [openError, setOpenError] = useState<string | null>(null);
+  const openInApp = useCallback(async () => {
+    setOpenError(null);
+    try {
+      const res = await window.bh.openPath(file);
+      if (!res.ok) setOpenError(res.error ?? "Couldn't open the file.");
+    } catch (err) {
+      setOpenError(err instanceof Error ? err.message : String(err));
+    }
+  }, [file]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1410,9 +1399,9 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
         ) : (
           <>
             {state.binary ? (
-              // Content-sniff found binary bytes that an extension heuristic
-              // misrouted to the text viewer. Show a clean message instead of
-              // rendering mojibake.
+              // Content-sniff found binary bytes in a file optimistically routed
+              // to the text viewer. Show a clean message + an open-in-app
+              // affordance instead of rendering mojibake or dead-ending.
               <div
                 style={{
                   padding: space[4],
@@ -1420,10 +1409,17 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
                   fontSize: font.size.caption,
                   color: color.textTertiary,
                   lineHeight: 1.5,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: space[3],
+                  alignItems: 'flex-start',
                 }}
               >
-                This looks like a binary file, so it can’t be shown as text. Open it with the right
-                app for its type.
+                <span>This looks like a binary file, so it can’t be shown as text.</span>
+                <Button variant="primary" onClick={() => void openInApp()}>
+                  Open in default app
+                </Button>
+                {openError !== null && <span style={{ color: color.danger }}>{openError}</span>}
               </div>
             ) : state.text === '' ? (
               <div

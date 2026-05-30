@@ -66,6 +66,25 @@ describe('workspace module (mock FS)', () => {
     expect(under.truncated).toBeUndefined();
   });
 
+  it('readFile: a capped read fetches only a bounded prefix, never the whole file', async () => {
+    // Regression for the optimistic-text-routing risk: an unknown/huge file
+    // routed to the viewer must not be slurped whole before the cap/sniff runs.
+    const { fs, files, dirs, capRequests } = mockFs();
+    dirs.add('/v');
+    files.set('/v/huge.log', 'A'.repeat(5_000_000)); // 5 MB
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; truncated?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'huge.log',
+      maxChars: 100,
+    });
+    expect(capped.content.length).toBe(100);
+    expect(capped.truncated).toBe(true);
+    // The fs was asked for ONLY the bounded byte budget (maxChars*4 + 4), not 5 MB.
+    expect(capRequests).toEqual([100 * 4 + 4]);
+  });
+
   it('readFile: flags a binary file (NUL byte) but still returns its content', async () => {
     const NUL = String.fromCharCode(0);
     const { fs, files, dirs } = mockFs();
@@ -594,6 +613,25 @@ describe('workspace module (integration, real FS)', () => {
 
     expect(bad.binary).toBe(true);
     expect(bad.content).toContain('\uFFFD');
+  });
+
+  it('readFile: real FS bounds a capped read of a large file to the requested prefix', async () => {
+    // Exercises the production O_NOFOLLOW bounded reader (readFileBytesCappedNoFollow):
+    // a 2 MB file capped at 1000 chars returns exactly that prefix + truncated,
+    // without reading the whole file into memory.
+    await writeFile(join(tmpWs, 'big.log'), 'A'.repeat(2_000_000));
+    const core = createCore({ configDir: tmpCfg });
+    await core.run('workspace.add', { path: tmpWs, name: 'rw-cap' });
+
+    type R = { content: string; truncated?: boolean; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'big.log',
+      maxChars: 1000,
+    });
+
+    expect(capped.content.length).toBe(1000);
+    expect(capped.truncated).toBe(true);
+    expect(capped.binary).toBeUndefined();
   });
 });
 

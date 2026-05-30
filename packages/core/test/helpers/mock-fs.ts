@@ -15,10 +15,13 @@ export function mockFs(): {
   files: Map<string, string>;
   fileBytes: Map<string, Uint8Array>;
   dirs: Set<string>;
+  /** maxBytes of every `readFileBytesCappedNoFollow` call, for boundedness assertions. */
+  capRequests: number[];
 } {
   const files = new Map<string, string>();
   const fileBytes = new Map<string, Uint8Array>();
   const dirs = new Set<string>();
+  const capRequests: number[] = [];
 
   function addAncestors(path: string): void {
     let parent = path;
@@ -111,6 +114,17 @@ export function mockFs(): {
     async readFileBytesNoFollow(path) {
       return fs.readFileBytes ? fs.readFileBytes(path) : null;
     },
+    // Bounded prefix read (records the requested budget so tests can assert the
+    // caller never asks for the whole file).
+    async readFileBytesCappedNoFollow(path, maxBytes) {
+      capRequests.push(maxBytes);
+      const whole = fileBytes.has(path)
+        ? Buffer.from(fileBytes.get(path) as Uint8Array)
+        : files.has(path)
+          ? Buffer.from(files.get(path) as string, 'utf8')
+          : null;
+      return whole === null ? null : whole.subarray(0, maxBytes);
+    },
     async writeFileNoFollow(path, content) {
       files.set(path, content);
       fileBytes.delete(path);
@@ -118,5 +132,5 @@ export function mockFs(): {
     },
   };
 
-  return { fs, files, fileBytes, dirs };
+  return { fs, files, fileBytes, dirs, capRequests };
 }

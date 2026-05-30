@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { constants } from 'node:fs';
 import {
   lstat,
@@ -127,6 +128,27 @@ function defaultFs(): FsLike {
       }
       try {
         return await fh.readFile();
+      } finally {
+        await fh.close();
+      }
+    },
+    async readFileBytesCappedNoFollow(path, maxBytes) {
+      let fh: Awaited<ReturnType<typeof open>>;
+      try {
+        fh = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      } catch (err) {
+        if (isENOENT(err)) return null;
+        if (isELOOP(err)) throw new PathEscape(path);
+        throw err;
+      }
+      try {
+        if (maxBytes <= 0) return new Uint8Array(0);
+        // A regular-file read from offset 0 fills the buffer up to maxBytes or
+        // EOF, whichever comes first — so a huge file never lands in memory
+        // whole, only this fixed prefix.
+        const buf = Buffer.alloc(maxBytes);
+        const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+        return buf.subarray(0, bytesRead);
       } finally {
         await fh.close();
       }

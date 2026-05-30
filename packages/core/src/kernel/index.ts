@@ -7,6 +7,7 @@ export {
   isContained,
   assertReadContained,
   assertWriteContained,
+  readBytesCappedMaybeNoFollow,
   readBytesMaybeNoFollow,
   readMaybeNoFollow,
   writeMaybeNoFollow,
