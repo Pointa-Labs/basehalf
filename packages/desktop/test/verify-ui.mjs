@@ -97,6 +97,9 @@ writeFileSync(
 // An EMPTY note — the editor must seed one editable paragraph so a blank/new note
 // has a cursor target you can type the first content into (§7e3).
 writeFileSync(join(WORKSPACE_DIR, 'blank.md'), '');
+// A RAW-ONLY note (just an HTML comment → all passthrough blocks). The editor must
+// still seed an editable paragraph so the user can add content (§7e5).
+writeFileSync(join(WORKSPACE_DIR, 'rawonly.md'), '<!-- a standalone note -->\n');
 // A TIGHT bullet list — editing one item must keep the list tight (single
 // newlines), not inject blank lines that flip it to a loose list (§7e4).
 writeFileSync(join(WORKSPACE_DIR, 'list.md'), '- alpha\n- bravo\n- charlie\n');
@@ -1511,6 +1514,29 @@ assert(
 assert(
   listMdAfter.includes('alpha') && listMdAfter.includes('charlie'),
   `the untouched list items survive (got ${JSON.stringify(listMdAfter)})`,
+);
+await win.waitForTimeout(150);
+
+// --- 7e5. A raw-only note (all passthrough) still gets an editable paragraph, so
+// the user can add content; the raw construct is preserved on save. ---
+console.log('\n[7e5] Raw-only note is still editable (seeded paragraph)');
+await sidebar.locator('button', { hasText: 'rawonly.md' }).first().click();
+await win.waitForTimeout(700);
+const rawParas = await win.locator('.ProseMirror p').count();
+assert(rawParas >= 1, `a raw-only note seeds an editable paragraph (found ${rawParas})`);
+await win.locator('.ProseMirror p').first().click();
+await win.keyboard.type('added below the comment');
+await win.waitForTimeout(900);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const rawOnlyAfter = readFileSync(join(WORKSPACE_DIR, 'rawonly.md'), 'utf-8');
+assert(
+  rawOnlyAfter.includes('added below the comment'),
+  `typing into a raw-only note saves (got ${JSON.stringify(rawOnlyAfter)})`,
+);
+assert(
+  rawOnlyAfter.includes('<!-- a standalone note -->'),
+  'the raw construct survives editing a raw-only note',
 );
 await win.waitForTimeout(150);
 

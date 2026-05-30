@@ -112,6 +112,12 @@ describe('losesContent — guards segments whose round-trip drops content', () =
     expect(losesContent('Keep <!-- secret --> this', 'Keep  this')).toBe(true);
   });
 
+  it('flags a SYMBOL-only inline comment being dropped (no letter/digit tokens)', () => {
+    // `<!-- !!! -->` carries no tokens, so only the comment comparison catches it.
+    expect(losesContent('Keep <!-- !!! --> this', 'Keep  this')).toBe(true);
+    expect(losesContent('a <!-- --> b', 'a  b')).toBe(true);
+  });
+
   it('does NOT flag pure formatting churn (same tokens, different markup)', () => {
     expect(losesContent('* a\n* b', '- a\n- b')).toBe(false); // bullet marker swap
     expect(losesContent('soft\nwrap', 'soft wrap')).toBe(false); // wrap → space

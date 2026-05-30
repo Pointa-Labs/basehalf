@@ -188,13 +188,23 @@ export function contentTokens(md: string): string {
   return (md.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
 }
 
+/** HTML comments verbatim. Compared separately because a SYMBOL-only comment
+ *  (`<!-- !!! -->`) carries no letter/digit tokens, so the token check alone
+ *  wouldn't notice BlockNote dropping it. */
+function htmlComments(md: string): string {
+  return (md.match(/<!--[\s\S]*?-->/g) ?? []).join(' ');
+}
+
 /** True when BlockNote's round-trip of a segment DROPS content (not just reflows
  *  formatting) — e.g. an inline HTML comment or raw tag inside an otherwise
  *  editable paragraph. `parsed.length === 1` doesn't catch these (the paragraph
- *  survives), so we compare content tokens: if they differ, editing the block
- *  would silently delete the construct, so the segment stays read-only. */
+ *  survives), so we compare content tokens AND HTML comments: if either differs,
+ *  editing the block would silently delete the construct, so it stays read-only. */
 export function losesContent(source: string, normalized: string): boolean {
-  return contentTokens(source) !== contentTokens(normalized);
+  return (
+    contentTokens(source) !== contentTokens(normalized) ||
+    htmlComments(source) !== htmlComments(normalized)
+  );
 }
 
 async function normalize(editor: MdEditorApi, blocks: unknown[]): Promise<string> {
@@ -262,10 +272,13 @@ export async function buildLoadProjection(
     }
     for (const b of parsed) blocks.push(b);
   }
-  // A new/blank note (empty body, or frontmatter-only) parses to no blocks; seed
-  // one empty paragraph so the editor has an editable cursor target. Saving stays
-  // gated on a real edit, so a blank note isn't rewritten just by opening it.
-  if (blocks.length === 0) blocks.push({ type: 'paragraph' });
+  // Seed one empty paragraph when there's nothing the user can type into — an
+  // empty/frontmatter-only body (no blocks) OR a raw-only note (all passthrough
+  // blocks, which have `content: 'none'`). Without it such a note has no editable
+  // cursor target. Saving stays gated on a real edit, so the seeded paragraph is
+  // never written unless the user actually types into it.
+  const hasEditable = blocks.some((b) => (b as { type?: string }).type !== RAW_PASSTHROUGH);
+  if (!hasEditable) blocks.push({ type: 'paragraph' });
   return { blocks, byId };
 }
 
