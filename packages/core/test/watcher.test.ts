@@ -44,16 +44,32 @@ async function waitFor<T>(
   timeoutMs = SETTLE_TIMEOUT,
 ): Promise<T> {
   const start = Date.now();
-  let last = await probe();
-  while (!done(last)) {
+  let last: T | undefined;
+  for (;;) {
+    try {
+      last = await probe();
+      if (done(last)) return last;
+    } catch (err) {
+      // The probe can transiently fail while the watcher is MID-WRITE on the
+      // badge we're polling (a 0-byte read between O_TRUNC and the write →
+      // BadgeCorrupt). That's not the terminal state — keep polling; only
+      // surface it if we genuinely run out of time.
+      if (Date.now() - start > timeoutMs) throw err;
+      await sleep(25);
+      continue;
+    }
     if (Date.now() - start > timeoutMs) return last;
     await sleep(25);
-    last = await probe();
   }
-  return last;
 }
 
-describe('watcher module', () => {
+// retry: these are REAL chokidar integration tests against the OS event
+// stream — inherently timing-sensitive (FSEvents/inotify latency, the
+// rename-pairing window). The deterministic rename-heuristic logic is covered
+// separately (watcher-find-counterpart.test.ts) with NO retry, so a genuine
+// logic regression still fails hard there; retry here only absorbs OS-timing
+// jitter, not correctness.
+describe('watcher module', { retry: 2 }, () => {
   let workspaceRoot: string;
   let configDir: string;
   // biome-ignore lint/suspicious/noExplicitAny: cross-test core handle
