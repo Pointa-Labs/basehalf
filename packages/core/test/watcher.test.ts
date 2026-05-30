@@ -18,9 +18,39 @@ import type { WatcherEvent } from '../src/modules/watcher/types.js';
 // the rename heuristic; markOrphan / materialize only fire after that
 // timer expires (or earlier when a paired counterpart arrives).
 const DEBOUNCE = 900;
+// Hard cap for waitFor. macOS FSEvents latency spikes to ~500ms+ under heavy
+// parallel load (CI / a busy dev box running other suites), which a fixed
+// sleep(DEBOUNCE) then-assert would miss → flaky. waitFor returns the instant
+// the expected reconcile lands and only burns wall-clock when the box is slow.
+// Kept UNDER vitest's 5000ms default per-test timeout so a genuinely-stalled
+// FSEvents stream (an over-saturated box) fails fast with the real terminal
+// state rather than hanging until vitest kills the test. On a healthy machine
+// events land in well under 1.5s, so this ceiling is never approached.
+const SETTLE_TIMEOUT = 4500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Poll `probe` until `done` holds (or SETTLE_TIMEOUT elapses), then return the
+ * last value so the test's own expect() reports the real terminal state on
+ * timeout. Replaces fixed-sleep-then-assert so the watcher tests don't flake
+ * on FSEvents latency under load — fast when quick, tolerant when slow.
+ */
+async function waitFor<T>(
+  probe: () => Promise<T>,
+  done: (v: T) => boolean,
+  timeoutMs = SETTLE_TIMEOUT,
+): Promise<T> {
+  const start = Date.now();
+  let last = await probe();
+  while (!done(last)) {
+    if (Date.now() - start > timeoutMs) return last;
+    await sleep(25);
+    last = await probe();
+  }
+  return last;
 }
 
 describe('watcher module', () => {
@@ -67,8 +97,10 @@ describe('watcher module', () => {
   it('reacts to file add: materializes a default badge', async () => {
     await core.run('watcher.start', {});
     await writeFile(join(workspaceRoot, 'note.md'), 'hi');
-    await sleep(DEBOUNCE);
-    const badge = (await core.run('badge.get', { file: 'note.md' })) as BadgeFile | null;
+    const badge = (await waitFor(
+      () => core.run('badge.get', { file: 'note.md' }),
+      (b) => b !== null,
+    )) as BadgeFile | null;
     expect(badge).not.toBeNull();
     expect(badge?.file).toBe('note.md');
     expect(badge?.kind).toBe('file');
@@ -77,11 +109,10 @@ describe('watcher module', () => {
   it('reacts to dir add: materializes a folder badge', async () => {
     await core.run('watcher.start', {});
     await mkdir(join(workspaceRoot, 'images'));
-    await sleep(DEBOUNCE);
-    const badge = (await core.run('badge.get', {
-      file: 'images',
-      kind: 'folder',
-    })) as BadgeFile | null;
+    const badge = (await waitFor(
+      () => core.run('badge.get', { file: 'images', kind: 'folder' }),
+      (b) => b !== null,
+    )) as BadgeFile | null;
     expect(badge?.kind).toBe('folder');
   });
 
@@ -92,8 +123,10 @@ describe('watcher module', () => {
     await core.run('badge.addRef', { file: 'note.md', to: 'other.md' });
     await core.run('watcher.start', {});
     await unlink(join(workspaceRoot, 'note.md'));
-    await sleep(DEBOUNCE);
-    const badge = (await core.run('badge.get', { file: 'note.md' })) as BadgeFile | null;
+    const badge = (await waitFor(
+      () => core.run('badge.get', { file: 'note.md' }),
+      (b) => (b as BadgeFile | null)?.orphan === true,
+    )) as BadgeFile | null;
     expect(badge?.orphan).toBe(true);
     expect(badge?.prompt).toBe('matters');
     expect(badge?.references).toEqual([{ to: 'other.md' }]);
@@ -122,12 +155,16 @@ describe('watcher module', () => {
     await core.run('watcher.start', {});
     // Perform an OS rename (chokidar fires unlink + add in quick succession).
     await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
-    await sleep(DEBOUNCE);
 
+    // Wait for the rename to finalize: new badge present with the inherited
+    // prompt (the terminal signal that badge.rename ran, not orphan+add).
+    const newBadge = (await waitFor(
+      () => core.run('badge.get', { file: 'new.md' }),
+      (b) => (b as BadgeFile | null)?.prompt === 'load-bearing',
+    )) as BadgeFile | null;
     // Old badge gone; new badge inherits prompt + references.
     const oldBadge = await core.run('badge.get', { file: 'old.md' });
     expect(oldBadge).toBeNull();
-    const newBadge = (await core.run('badge.get', { file: 'new.md' })) as BadgeFile | null;
     expect(newBadge?.prompt).toBe('load-bearing');
     expect(newBadge?.references).toEqual([{ to: 'sibling.md' }]);
     expect(newBadge?.orphan).toBeUndefined();
@@ -145,12 +182,18 @@ describe('watcher module', () => {
     // Unlink doc.md; create doc.txt — different extension, NOT a rename.
     await unlink(join(workspaceRoot, 'doc.md'));
     await writeFile(join(workspaceRoot, 'doc.txt'), 'hello');
-    await sleep(DEBOUNCE);
-    // Old badge is orphan; new badge is empty (fresh materialize).
-    const oldBadge = (await core.run('badge.get', { file: 'doc.md' })) as BadgeFile;
+    // Different extension → NOT a rename: wait for the orphan (old) AND the
+    // fresh materialize (new) to both land after the rename window expires.
+    const oldBadge = (await waitFor(
+      () => core.run('badge.get', { file: 'doc.md' }),
+      (b) => (b as BadgeFile | null)?.orphan === true,
+    )) as BadgeFile;
+    const newBadge = (await waitFor(
+      () => core.run('badge.get', { file: 'doc.txt' }),
+      (b) => b !== null,
+    )) as BadgeFile;
     expect(oldBadge.orphan).toBe(true);
     expect(oldBadge.prompt).toBe('keep me'); // preserved on orphan
-    const newBadge = (await core.run('badge.get', { file: 'doc.txt' })) as BadgeFile;
     expect(newBadge.prompt).toBeUndefined();
   });
 
@@ -163,12 +206,17 @@ describe('watcher module', () => {
     await core.run('watcher.start', {});
     await unlink(join(workspaceRoot, 'a', 'x.md'));
     await writeFile(join(workspaceRoot, 'b', 'x.md'), 'hi');
-    await sleep(DEBOUNCE);
     // Different parent dir → orphan + fresh materialize, not rename.
-    const oldBadge = (await core.run('badge.get', { file: 'a/x.md' })) as BadgeFile;
+    const oldBadge = (await waitFor(
+      () => core.run('badge.get', { file: 'a/x.md' }),
+      (b) => (b as BadgeFile | null)?.orphan === true,
+    )) as BadgeFile;
+    const newBadge = (await waitFor(
+      () => core.run('badge.get', { file: 'b/x.md' }),
+      (b) => b !== null,
+    )) as BadgeFile;
     expect(oldBadge.orphan).toBe(true);
     expect(oldBadge.prompt).toBe('A-bound');
-    const newBadge = (await core.run('badge.get', { file: 'b/x.md' })) as BadgeFile;
     expect(newBadge.prompt).toBeUndefined();
   });
 
@@ -184,7 +232,10 @@ describe('watcher module', () => {
     watcherEvents.on('event', listener);
     try {
       await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
-      await sleep(DEBOUNCE);
+      await waitFor(
+        async () => events.find((e) => e.type === 'rename'),
+        (e) => e !== undefined,
+      );
     } finally {
       watcherEvents.off('event', listener);
     }
