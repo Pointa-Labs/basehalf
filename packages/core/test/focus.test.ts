@@ -415,4 +415,19 @@ describe('focus source-view provenance', () => {
     expect(self.cleared).toBe(true);
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
   });
+
+  it('focus.toggleActiveFile adds/removes a file while PRESERVING intent + provenance', async () => {
+    await ctx.core.run('focus.set', { viewId: 'v' }); // active [a.md], intent vp, source v
+    const added = await ctx.core.run('focus.toggleActiveFile', { file: 'b.md' });
+    expect([...added.active].sort()).toEqual(['a.md', 'b.md']);
+    let md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('# source-view: v'); // provenance kept
+    expect(md).toContain('intent: vp'); // intent kept
+
+    const removed = await ctx.core.run('focus.toggleActiveFile', { file: 'a.md' });
+    expect(removed.active).toEqual(['b.md']);
+    md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('# source-view: v');
+    expect(md).toContain('intent: vp');
+  });
 });

@@ -312,6 +312,21 @@ describe('view.update', () => {
     expect(brief).toContain('intent: fresh');
     expect(brief).toContain('- a2.md');
   });
+
+  it('keeps the view refresh link after a shift+click toggle (focus.toggleActiveFile)', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'old' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    // Shift+click adds another file to the focus set (the canvas path).
+    await ctx.core.run('focus.toggleActiveFile', { file: 'b.md' });
+    // Editing the source view's prompt must STILL refresh — the toggle kept the
+    // provenance + intent (a bare focus.set({files}) would have severed it).
+    await ctx.core.run('view.update', { id: 'v', patch: { prompt: 'new' } });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('intent: new');
+    expect(brief).toContain('- a.md');
+    expect(brief).toContain('- b.md');
+  });
 });
 
 describe('view.delete', () => {

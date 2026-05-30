@@ -374,21 +374,26 @@ export const Canvas = (): JSX.Element => {
       // focus viz visible while you assemble a focus set by clicking badges.
       void (async () => {
         try {
+          let after: { active: readonly string[] };
           if (additive) {
-            const cur = (await window.bh.run('focus.get', {})) as { active: string[] };
             // Shift+click TOGGLES membership — add if absent, remove if present —
             // so curating a multi-file set never forces a Clear-and-rebuild
-            // (matches Finder / browser / spreadsheet multi-select).
-            const next = cur.active.includes(node.id)
-              ? cur.active.filter((f) => f !== node.id)
-              : [...cur.active, node.id];
-            await window.bh.run('focus.set', { files: next });
+            // (matches Finder / browser / spreadsheet multi-select). Routed
+            // through focus.toggleActiveFile so REFINING a view-sourced focus
+            // keeps the turn intent + `# source-view:` provenance (a bare
+            // focus.set({files}) would silently drop both — severing the
+            // view→brief refresh link and losing the curated intent).
+            after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
+              active: string[];
+            };
           } else {
+            // Plain click = focus JUST this file: a fresh files-focus that
+            // intentionally starts clean (no prior intent / view provenance).
             await window.bh.run('focus.set', { files: [node.id] });
+            after = (await window.bh.run('focus.get', {})) as { active: string[] };
           }
-          // Re-read the authoritative focus set and reflect it on the canvas so
-          // the human SEES exactly what the agent now reads.
-          const after = (await window.bh.run('focus.get', {})) as { active: string[] };
+          // Reflect the authoritative focus set on the canvas so the human SEES
+          // exactly what the agent now reads.
           setFocusActive(after.active); // keep the chip's full-set count live on click
           const set = new Set(after.active);
           setNodes((prev) =>

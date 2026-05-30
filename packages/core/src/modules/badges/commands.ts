@@ -350,7 +350,14 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     );
     focusUpdated = res.renamed;
   } catch (err) {
-    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+    // Best-effort, exactly like reconcileFocus for badge.set/addRef/removeRef:
+    // tolerate a missing module AND a hostile/symlinked focus.md (PathEscape).
+    // Otherwise a workspace-escaping focus.md symlink would abort badge.rename
+    // AFTER steps 1-3 committed but BEFORE step 5 (view membership), leaving
+    // badge + inbound pointing at `to` while views still point at `from`.
+    if (!(err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape'))) {
+      throw err;
+    }
   }
 
   // 5. Update view memberships that include `from`. view.removeMember
