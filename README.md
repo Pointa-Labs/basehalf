@@ -18,6 +18,7 @@ work from the same materials you see.
 [![QQ Group][badge-qq-group]][qq-group]
 
 [![Web Version][badge-website]][website]
+[![GitCGR][badge-gitcgr]][gitcgr]
 [![Apache-2.0][badge-license]][license]
 
 </div>
@@ -251,9 +252,10 @@ Replace only the URLs below when the public community links are ready.
 -->
 
 [website]: https://basehalf.com
+[gitcgr]: https://gitcgr.com/Pointa-Labs/basehalf
 [discussions]: https://github.com/Pointa-Labs/basehalf/discussions
-[twitter]: https://x.com/REPLACE_ME
-[discord]: https://discord.gg/REPLACE_ME
+[twitter]: https://x.com/JustJerry121
+[discord]: https://discord.gg/55wqkN9tPg
 [qq-group]: https://qm.qq.com/q/REPLACE_ME
 [contributing]: CONTRIBUTING.md
 [cla]: CLA.md
@@ -262,6 +264,7 @@ Replace only the URLs below when the public community links are ready.
 [trademark-policy]: docs/trademark-policy.md
 
 [badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-111827?style=flat-square
+[badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-111827?style=flat-square
 [badge-discussions]: https://img.shields.io/badge/Discussions-GitHub-24292F?style=flat-square&logo=github&logoColor=white
 [badge-twitter]: https://img.shields.io/badge/Twitter%20%2F%20X-Follow-111111?style=flat-square&logo=x&logoColor=white
 [badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white
