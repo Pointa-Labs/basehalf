@@ -1145,7 +1145,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    setFlushEditor(() => flushRef.current());
+    // force=true: navigating away is a USER action — preserve their pending
+    // edits (keep-mine) even when a conflict banner is up, rather than the gated
+    // auto-save no-op which would silently discard them on the editor's remount.
+    setFlushEditor(() => flushRef.current(true));
     return () => setFlushEditor(null);
   }, [setFlushEditor]);
 
@@ -1161,7 +1164,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // quit the IPC write may not finish, but the debounce window is short.
   useEffect(() => {
     const onLeave = (): void => {
-      void flushRef.current();
+      void flushRef.current(true); // user is leaving → keep-mine (don't drop edits)
     };
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('blur', onLeave);
@@ -1245,7 +1248,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void flushRef.current();
+        void flushRef.current(true); // explicit "save now" = keep-mine
       }
     };
     window.addEventListener('keydown', onKey);

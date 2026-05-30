@@ -261,7 +261,7 @@ export const Canvas = (): JSX.Element => {
       // Cancel the deferred single-click focus collapse — opening a badge must
       // not first wipe the curated focus set.
       if (clickTimer.current) {
-        clearTimeout(clickTimer.current);
+        clearTimeout(clickTimer.current.timeout);
         clickTimer.current = null;
       }
       const data = node.data as unknown as BadgeNodeData;
@@ -372,8 +372,13 @@ export const Canvas = (): JSX.Element => {
     [currentView],
   );
 
-  // Pending single-click focus change, deferred so a double-click can cancel it.
-  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pending deferred single-click focus: the badge id, its timer, and the apply
+  // closure (so a click on a DIFFERENT badge can commit it before proceeding).
+  const clickTimer = useRef<{
+    id: string;
+    timeout: ReturnType<typeof setTimeout>;
+    apply: () => void;
+  } | null>(null);
 
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
@@ -417,22 +422,40 @@ export const Canvas = (): JSX.Element => {
           }
         })();
       };
+      // Resolve a still-pending deferred plain-click before handling this one:
+      //  - SAME badge re-clicked → it's a double-click; DROP the pending single
+      //    so opening the editor never collapses focus.
+      //  - DIFFERENT badge → the prior plain-click wasn't a double-click, so
+      //    COMMIT it first (e.g. plain-click A then shift-click B → {A, B}, and
+      //    A's stale timer can't fire later to drop B).
+      const pending = clickTimer.current;
+      if (pending) {
+        clearTimeout(pending.timeout);
+        clickTimer.current = null;
+        if (pending.id !== node.id) pending.apply();
+      }
       // Shift+click is unambiguous (no shift+double-click gesture) → apply now.
-      // A PLAIN click is DEFERRED: a double-click fires this plain onNodeClick
-      // FIRST (DOM click before dblclick), and the plain branch REPLACES focus
-      // with just this file — so double-clicking a badge to OPEN it would wipe a
-      // curated multi-file focus set (+ its intent/provenance) before the editor
-      // opens. onNodeDoubleClick cancels this timer, so opening never collapses
-      // focus.
       if (additive) {
         apply();
         return;
       }
-      if (clickTimer.current) clearTimeout(clickTimer.current);
-      clickTimer.current = setTimeout(() => {
-        clickTimer.current = null;
-        apply();
-      }, 200);
+      // The SECOND click of a double-click carries detail>=2 and fires before
+      // onNodeDoubleClick — bail so a double-click never runs the plain-click
+      // focus replace, and let onNodeDoubleClick open the editor.
+      if (event.detail >= 2) return;
+      // First plain click: DEFER the focus replace. A double-click would
+      // otherwise run it first (DOM click before dblclick), collapsing a curated
+      // multi-file focus set (+ its intent/provenance) before the editor opens.
+      // 320ms comfortably spans a normal double-click interval; the same-badge
+      // cancel + detail guard + onNodeDoubleClick make it robust regardless.
+      clickTimer.current = {
+        id: node.id,
+        apply,
+        timeout: setTimeout(() => {
+          clickTimer.current = null;
+          apply();
+        }, 320),
+      };
     },
     // setNodes / setFocusActive / setError are stable; nothing else external.
     [],
@@ -441,7 +464,7 @@ export const Canvas = (): JSX.Element => {
   // Drop a pending single-click focus change on unmount.
   useEffect(() => {
     return () => {
-      if (clickTimer.current) clearTimeout(clickTimer.current);
+      if (clickTimer.current) clearTimeout(clickTimer.current.timeout);
     };
   }, []);
 
