@@ -1,4 +1,9 @@
-import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
+import {
+  type Handler,
+  assertReadContained,
+  createKeyedMutex,
+  readMaybeNoFollow,
+} from '../../kernel/index.js';
 import type { BadgeListResult } from '../badges/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { inboundPath, readInbound, writeInbound } from './store.js';
@@ -132,7 +137,8 @@ export const init: Handler<InboundInitArgs, InboundInitResult> = async (_args, c
   // index, and init's empty `{entries:{}}` would then clobber it. Doing the
   // check-then-write inside the lock closes that window.
   return withIndexLock(root, async () => {
-    const existing = await ctx.fs.readFile(
+    const existing = await readMaybeNoFollow(
+      ctx.fs,
       await assertReadContained(ctx.fs, root, inboundPath(root)),
     );
     if (existing !== null) return { created: false };

@@ -31,15 +31,17 @@ import type { FsLike } from './types.js';
  * dir, dangling, cyclic) planted in a workspace you open/clone/sync. A
  * stronger, live attacker — a concurrent process racing the filesystem during
  * your read/write — meets two layers: (1) the leaf TOCTOU (swap the final
- * component for a symlink between this check and the op) is closed for the
- * user-file path by O_NOFOLLOW reads/writes (`FsLike.readFileNoFollow` /
- * `writeFileNoFollow`), which refuse a symlink leaf at OPEN time rather than
- * re-following a re-resolved path string; (2) an INTERMEDIATE-component swap
- * (race a directory in the path into an escaping symlink) remains an accepted
- * residual for v0 — closing it needs `openat2(RESOLVE_BENEATH)` / per-component
- * `O_NOFOLLOW` traversal, which Node's stdlib doesn't expose. It requires an
- * active local attacker process with write access inside the workspace and
- * precise timing; the `.bh/` JSON stores share that intermediate-swap residual.
+ * component for a symlink between this check and the op) is closed across
+ * EVERY contained read/write — user files AND the `.bh/` JSON stores — by
+ * O_NOFOLLOW reads/writes (`readMaybeNoFollow` / `writeMaybeNoFollow` over
+ * `FsLike.readFileNoFollow` / `writeFileNoFollow`), which refuse a symlink leaf
+ * at OPEN time rather than re-following a re-resolved path string; (2) an
+ * INTERMEDIATE-component swap (race a DIRECTORY in the path into an escaping
+ * symlink) remains an accepted residual for v0 — closing it needs
+ * `openat2(RESOLVE_BENEATH)` / per-component `O_NOFOLLOW` traversal, which
+ * Node's stdlib doesn't expose. It requires an active local attacker process
+ * with write access inside the workspace and precise timing, and is uniform
+ * across all paths.
  */
 
 /** Thrown when a canonicalized path escapes (or routes through a symlink out
@@ -170,6 +172,22 @@ export async function assertWriteContained(
     }
   }
   return leaf;
+}
+
+/**
+ * Read `abs` with O_NOFOLLOW when the fs supports it (production), else plain
+ * read (legacy mocks). Pair with `assertReadContained` so EVERY contained read
+ * — user files AND the `.bh/` JSON stores — gets the same leaf-swing TOCTOU
+ * close, not just workspace.readFile.
+ */
+export async function readMaybeNoFollow(fs: FsLike, abs: string): Promise<string | null> {
+  return fs.readFileNoFollow ? fs.readFileNoFollow(abs) : fs.readFile(abs);
+}
+
+/** Write `abs` with O_NOFOLLOW when supported, else plain write. */
+export async function writeMaybeNoFollow(fs: FsLike, abs: string, content: string): Promise<void> {
+  if (fs.writeFileNoFollow) await fs.writeFileNoFollow(abs, content);
+  else await fs.writeFile(abs, content);
 }
 
 /** Best-effort short label for error messages (the rel part under root). */

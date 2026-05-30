@@ -1,5 +1,11 @@
 import { dirname, join } from 'node:path';
-import { type FsLike, assertReadContained, assertWriteContained } from '../../kernel/index.js';
+import {
+  type FsLike,
+  assertReadContained,
+  assertWriteContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
+} from '../../kernel/index.js';
 import type { InboundIndex } from './types.js';
 
 const INDEX_FILE = '.bh/index/inbound.json';
@@ -18,7 +24,8 @@ export function inboundPath(workspaceRoot: string): string {
 }
 
 export async function readInbound(fs: FsLike, workspaceRoot: string): Promise<InboundIndex> {
-  const raw = await fs.readFile(
+  const raw = await readMaybeNoFollow(
+    fs,
     await assertReadContained(fs, workspaceRoot, inboundPath(workspaceRoot)),
   );
   if (raw === null) return EMPTY();
@@ -37,5 +44,5 @@ export async function writeInbound(
 ): Promise<void> {
   const path = await assertWriteContained(fs, workspaceRoot, inboundPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, `${JSON.stringify(index, null, 2)}\n`);
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify(index, null, 2)}\n`);
 }

@@ -6,6 +6,8 @@ import {
   assertWriteContained,
   canonicalize,
   isContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import { BadgeCorrupt, type BadgeFile, type BadgeKind } from './types.js';
 
@@ -37,7 +39,7 @@ export async function readBadge(
   kind: BadgeKind,
 ): Promise<BadgeFile | null> {
   const path = await assertReadContained(fs, workspaceRoot, badgePath(workspaceRoot, file, kind));
-  const raw = await fs.readFile(path);
+  const raw = await readMaybeNoFollow(fs, path);
   if (raw === null) return null;
   try {
     return JSON.parse(raw) as BadgeFile;
@@ -57,7 +59,7 @@ export async function writeBadge(
     badgePath(workspaceRoot, badge.file, badge.kind),
   );
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, `${JSON.stringify(badge, null, 2)}\n`);
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify(badge, null, 2)}\n`);
 }
 
 export async function removeBadge(
@@ -104,7 +106,7 @@ export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<rea
   const visited = new Set<string>();
   await walk(fs, realRoot, badgesDir, realBadgesDir, visited, async (absPath) => {
     if (!absPath.endsWith('.json')) return;
-    const raw = await fs.readFile(absPath);
+    const raw = await readMaybeNoFollow(fs, absPath);
     if (raw === null) return;
     try {
       out.push(JSON.parse(raw) as BadgeFile);

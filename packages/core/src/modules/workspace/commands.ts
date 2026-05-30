@@ -9,6 +9,8 @@ import {
   canonicalize,
   createKeyedMutex,
   isContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
 import { materializeWorkspace } from './materialize.js';
@@ -344,9 +346,7 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // rather than re-following. (Residual: an intermediate-component swap still
   // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
   // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
-  const content = ctx.fs.readFileNoFollow
-    ? await ctx.fs.readFileNoFollow(abs)
-    : await ctx.fs.readFile(abs);
+  const content = await readMaybeNoFollow(ctx.fs, abs);
   if (content === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
@@ -391,11 +391,7 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   }
   // O_NOFOLLOW write closes the check-then-write TOCTOU at the leaf: a symlink
   // raced onto `abs` after the guard is refused, not written through.
-  if (ctx.fs.writeFileNoFollow) {
-    await ctx.fs.writeFileNoFollow(abs, args.content);
-  } else {
-    await ctx.fs.writeFile(abs, args.content);
-  }
+  await writeMaybeNoFollow(ctx.fs, abs, args.content);
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
 };
 
@@ -478,7 +474,10 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     let existing: string | null;
     let writeAbs: string;
     try {
-      existing = await ctx.fs.readFile(await assertReadContained(ctx.fs, absPath, fileAbs));
+      existing = await readMaybeNoFollow(
+        ctx.fs,
+        await assertReadContained(ctx.fs, absPath, fileAbs),
+      );
       if (existing !== null) continue;
       writeAbs = await assertWriteContained(ctx.fs, absPath, fileAbs);
     } catch (err) {
@@ -488,7 +487,7 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     await ctx.fs.mkdir(join(absPath, file.path.split('/').slice(0, -1).join('/') || '.'), {
       recursive: true,
     });
-    await ctx.fs.writeFile(writeAbs, file.content);
+    await writeMaybeNoFollow(ctx.fs, writeAbs, file.content);
     filesCreated.push(file.path);
   }
 

@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { type FsLike, assertReadContained, assertWriteContained } from '../../kernel/index.js';
+import {
+  type FsLike,
+  assertReadContained,
+  assertWriteContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
+} from '../../kernel/index.js';
 import type { SetupReport } from './types.js';
 
 /**
@@ -111,7 +117,10 @@ async function updateGitignore(
   // realpath guards so node:fs never follows it; refuse (skip the step)
   // rather than clobber/plant outside.
   try {
-    const current = await fs.readFile(await assertReadContained(fs, workspaceRoot, lexical));
+    const current = await readMaybeNoFollow(
+      fs,
+      await assertReadContained(fs, workspaceRoot, lexical),
+    );
     if (current === null) {
       return { gitignoreUpdated: false, gitignoreSkipped: false, gitignoreAbsent: true };
     }
@@ -124,7 +133,8 @@ async function updateGitignore(
       return { gitignoreUpdated: false, gitignoreSkipped: true, gitignoreAbsent: false };
     }
     const trailingNewline = current.endsWith('\n') ? '' : '\n';
-    await fs.writeFile(
+    await writeMaybeNoFollow(
+      fs,
       await assertWriteContained(fs, workspaceRoot, lexical),
       `${current}${trailingNewline}\n# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git)\n.bh/cache/\n`,
     );
@@ -143,13 +153,17 @@ async function updateClaudeMd(
 ): Promise<Pick<SetupReport, 'claudeMdUpdated' | 'claudeMdSkipped'>> {
   const lexical = join(workspaceRoot, 'CLAUDE.md');
   try {
-    const current = await fs.readFile(await assertReadContained(fs, workspaceRoot, lexical));
+    const current = await readMaybeNoFollow(
+      fs,
+      await assertReadContained(fs, workspaceRoot, lexical),
+    );
     if (current?.includes(CLAUDE_HINT_MARKER) || current?.includes(LEGACY_CLAUDE_HINT_MARKER)) {
       return { claudeMdUpdated: false, claudeMdSkipped: true };
     }
     const base = current ?? '# CLAUDE.md\n';
     const trailingNewline = base.endsWith('\n') ? '' : '\n';
-    await fs.writeFile(
+    await writeMaybeNoFollow(
+      fs,
       await assertWriteContained(fs, workspaceRoot, lexical),
       `${base}${trailingNewline}${CLAUDE_HINT_SECTION}`,
     );

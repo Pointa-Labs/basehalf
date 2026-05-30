@@ -7,6 +7,8 @@ export {
   isContained,
   assertReadContained,
   assertWriteContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
 } from './contain.js';
 export { createKeyedMutex } from './mutex.js';
 export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './types.js';

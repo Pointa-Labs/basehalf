@@ -1,4 +1,4 @@
-import { type Handler, assertReadContained } from '../../kernel/index.js';
+import { type Handler, assertReadContained, readMaybeNoFollow } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { focusPath, readFocusBrief, writeFocus } from './store.js';
 import type {
@@ -104,7 +104,10 @@ export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ct
  */
 export const init: Handler<FocusInitArgs, FocusInitResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const existing = await ctx.fs.readFile(await assertReadContained(ctx.fs, root, focusPath(root)));
+  const existing = await readMaybeNoFollow(
+    ctx.fs,
+    await assertReadContained(ctx.fs, root, focusPath(root)),
+  );
   if (existing !== null) return { created: false };
   await writeFocus(ctx.fs, root, []);
   return { created: true };

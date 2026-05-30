@@ -1,5 +1,11 @@
 import { dirname, join } from 'node:path';
-import { type FsLike, assertReadContained, assertWriteContained } from '../../kernel/index.js';
+import {
+  type FsLike,
+  assertReadContained,
+  assertWriteContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
+} from '../../kernel/index.js';
 import type { FocusItem } from './types.js';
 
 const FOCUS_FILE = '.bh/focus.md';
@@ -113,7 +119,8 @@ export function parseFocus(content: string): readonly string[] {
 }
 
 export async function readFocus(fs: FsLike, workspaceRoot: string): Promise<readonly string[]> {
-  const raw = await fs.readFile(
+  const raw = await readMaybeNoFollow(
+    fs,
     await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
   );
   if (raw === null) return [];
@@ -140,7 +147,8 @@ export async function readFocusBrief(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<{ active: readonly string[]; intent?: string }> {
-  const raw = await fs.readFile(
+  const raw = await readMaybeNoFollow(
+    fs,
     await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
   );
   if (raw === null) return { active: [] };
@@ -157,5 +165,5 @@ export async function writeFocus(
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, renderFocus(active, intent));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent));
 }

@@ -6,6 +6,8 @@ import {
   assertWriteContained,
   canonicalize,
   isContained,
+  readMaybeNoFollow,
+  writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import type { SavedView } from './types.js';
 
@@ -25,7 +27,8 @@ export async function readView(
   workspaceRoot: string,
   id: string,
 ): Promise<SavedView | null> {
-  const raw = await fs.readFile(
+  const raw = await readMaybeNoFollow(
+    fs,
     await assertReadContained(fs, workspaceRoot, viewPath(workspaceRoot, id)),
   );
   if (raw === null) return null;
@@ -39,7 +42,7 @@ export async function readView(
 export async function writeView(fs: FsLike, workspaceRoot: string, view: SavedView): Promise<void> {
   const path = await assertWriteContained(fs, workspaceRoot, viewPath(workspaceRoot, view.id));
   await fs.mkdir(dirname(path), { recursive: true });
-  await fs.writeFile(path, `${JSON.stringify(view, null, 2)}\n`);
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify(view, null, 2)}\n`);
 }
 
 export async function removeView(fs: FsLike, workspaceRoot: string, id: string): Promise<boolean> {
@@ -85,7 +88,7 @@ export async function listViews(fs: FsLike, workspaceRoot: string): Promise<read
       continue;
     }
     if (!isContained(realRoot, realChild)) continue;
-    const raw = await fs.readFile(realChild);
+    const raw = await readMaybeNoFollow(fs, realChild);
     if (raw === null) continue;
     try {
       views.push(JSON.parse(raw) as SavedView);
