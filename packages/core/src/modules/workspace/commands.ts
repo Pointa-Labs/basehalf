@@ -2,7 +2,9 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Context,
   type Handler,
+  assertReadContained,
   assertWorkspaceRelative,
+  assertWriteContained,
   createKeyedMutex,
 } from '../../kernel/index.js';
 import { DEMO_FILES } from './demo-content.js';
@@ -289,7 +291,11 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   if (data.current === null) throw new Error('No current workspace');
   const entry = data.workspaces[data.current];
   if (!entry) throw new Error('Current workspace pointer is stale');
-  const abs = join(entry.path, args.path);
+  // Realpath-contain: assertWorkspaceRelative (above) rejects ../absolute in
+  // the request string, but a planted symlink whose NAME is innocuous still
+  // escapes once node:fs follows it. Canonicalize and require containment, then
+  // read the canonical path so check and open agree. (See kernel/contain.ts.)
+  const abs = await assertReadContained(ctx.fs, entry.path, join(entry.path, args.path));
   const content = await ctx.fs.readFile(abs);
   if (content === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
@@ -318,7 +324,13 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   if (data.current === null) throw new Error('No current workspace');
   const entry = data.workspaces[data.current];
   if (!entry) throw new Error('Current workspace pointer is stale');
-  const abs = join(entry.path, args.path);
+  // Realpath-contain the WRITE: this is bh's only user-file write path, so a
+  // planted symlink (a `config.md -> ~/.ssh/authorized_keys` leaf, or a
+  // `drafts -> ~/Library/LaunchAgents` parent dir for a brand-new note) must
+  // not let an editor save / New-Note clobber or plant a file outside the
+  // workspace. assertWriteContained proves the real parent is inside and
+  // refuses a symlink leaf. (See kernel/contain.ts.)
+  const abs = await assertWriteContained(ctx.fs, entry.path, join(entry.path, args.path));
   // Honor the desktop new-note dialog's "folders auto-created" promise:
   // mkdir -p the parent so a path like `subdir/new/note.md` succeeds even
   // when `subdir/new` doesn't exist yet. Top-level paths have an empty
@@ -649,18 +661,23 @@ async function materializeWithFallback(ctx: Context, workspaceRoot: string): Pro
     await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
   try {
     await ctx.run('focus.init', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    // A planted symlink at .bh/focus.md escapes — skip seeding rather than
+    // abort the whole workspace open (the hostile surface is neutralized).
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
   try {
     await ctx.run('inbound.init', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
+    if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
 }

@@ -1,4 +1,13 @@
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import type { Context, FsLike, Run } from './types.js';
@@ -57,6 +66,21 @@ function defaultFs(): FsLike {
         await unlink(path);
       } catch (err) {
         if (isENOENT(err)) return;
+        throw err;
+      }
+    },
+    async realpath(path) {
+      // No ENOENT swallowing here: kernel/contain.ts relies on realpath
+      // THROWING ENOENT to know it must walk up to the deepest existing
+      // ancestor. Returns the fully symlink-resolved canonical path.
+      return await realpath(path);
+    },
+    async lstat(path) {
+      try {
+        const s = await lstat(path);
+        return { isSymbolicLink: s.isSymbolicLink() };
+      } catch (err) {
+        if (isENOENT(err)) return null;
         throw err;
       }
     },

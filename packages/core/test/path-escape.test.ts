@@ -1,0 +1,204 @@
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createCore } from '../src/index.js';
+import { isContained } from '../src/kernel/contain.js';
+
+/**
+ * Symlink / path-traversal workspace-escape suite — the CLASS audited after
+ * the `shell:open-path` finding. A BaseHalf workspace is "a folder you drop
+ * in" (cloned / synced / attacker-crafted), and the whole `.bh/` tree travels
+ * with it in git. A planted symlink whose NAME is innocuous (no `..`, not
+ * absolute) escapes once `node:fs` follows it. The string guard
+ * (`assertWorkspaceRelative`) can't see the `..` in the symlink's on-disk
+ * TARGET; only realpath containment (`kernel/contain.ts`) catches it.
+ *
+ * These run against the REAL `node:fs` (no mock) with REAL symlinks, end to
+ * end through `createCore()`, so the actual realpath/lstat code paths execute.
+ * Every escape case asserts BOTH that the op is refused AND that the outside
+ * file did not leak / was not written. Positive cases prove no false
+ * rejections — including the macOS reality that the temp root itself sits
+ * behind a symlink (/var -> /private/var).
+ */
+
+let base: string;
+let ws: string;
+let outside: string;
+// biome-ignore lint/suspicious/noExplicitAny: test-local core handle
+let core: any;
+
+async function setup(): Promise<void> {
+  base = await mkdtemp(join(tmpdir(), 'bh-escape-'));
+  ws = join(base, 'workspace');
+  outside = join(base, 'outside');
+  await mkdir(ws, { recursive: true });
+  await mkdir(outside, { recursive: true });
+  const cfg = join(base, 'cfg');
+  await mkdir(cfg, { recursive: true });
+  core = createCore({ configDir: cfg });
+  // Registers ws as current + materializes (empty) + seeds focus.md + inbound.json.
+  await core.run('workspace.add', { path: ws, name: 'ws' });
+}
+
+beforeEach(setup);
+afterEach(async () => {
+  await rm(base, { recursive: true, force: true });
+});
+
+describe('isContained (pure)', () => {
+  it('accepts the root itself and strict descendants, rejects siblings/escapes', () => {
+    expect(isContained('/a/b', '/a/b')).toBe(true);
+    expect(isContained('/a/b', '/a/b/c')).toBe(true);
+    expect(isContained('/a/b', '/a/bc')).toBe(false); // prefix-but-not-child
+    expect(isContained('/a/b', '/a')).toBe(false);
+    expect(isContained('/a/b', '/x')).toBe(false);
+  });
+});
+
+describe('workspace.readFile', () => {
+  it('refuses to read THROUGH a file-symlink that points outside the workspace', async () => {
+    await writeFile(join(outside, 'secret.txt'), 'TOP-SECRET outside contents');
+    await symlink(join(outside, 'secret.txt'), join(ws, 'notes.md'));
+    await expect(core.run('workspace.readFile', { path: 'notes.md' })).rejects.toThrow(
+      /outside the workspace/,
+    );
+  });
+
+  it('still reads a legitimate in-workspace file (no false rejection, symlinked root)', async () => {
+    await writeFile(join(ws, 'real.md'), 'hello world');
+    const res = await core.run('workspace.readFile', { path: 'real.md' });
+    expect(res.content).toBe('hello world');
+  });
+});
+
+describe('workspace.writeFile', () => {
+  it('refuses to overwrite an outside file through an existing symlink leaf (editor save)', async () => {
+    await writeFile(join(outside, 'victim.txt'), 'IMPORTANT USER DATA DO NOT TOUCH');
+    await symlink(join(outside, 'victim.txt'), join(ws, 'config.md'));
+    await expect(
+      core.run('workspace.writeFile', { path: 'config.md', content: 'EVIL' }),
+    ).rejects.toThrow(/outside the workspace/);
+    expect(await readFile(join(outside, 'victim.txt'), 'utf8')).toBe(
+      'IMPORTANT USER DATA DO NOT TOUCH',
+    );
+  });
+
+  it('refuses to PLANT a new file under a symlinked directory (New Note)', async () => {
+    await symlink(outside, join(ws, 'drafts')); // drafts -> outside (dir symlink)
+    await expect(
+      core.run('workspace.writeFile', { path: 'drafts/evil.plist', content: 'x' }),
+    ).rejects.toThrow(/outside the workspace/);
+    expect(existsSync(join(outside, 'evil.plist'))).toBe(false);
+  });
+
+  it('still writes a legitimate new note, auto-creating folders (no false rejection)', async () => {
+    const res = await core.run('workspace.writeFile', { path: 'sub/new/note.md', content: 'hi' });
+    expect(res.bytes).toBe(2);
+    expect(await readFile(join(ws, 'sub/new/note.md'), 'utf8')).toBe('hi');
+  });
+});
+
+describe('badges store', () => {
+  it('refuses badge.get through a symlinked badge JSON pointing outside', async () => {
+    await mkdir(join(ws, '.bh/badges'), { recursive: true });
+    await writeFile(
+      join(outside, 'leak.json'),
+      JSON.stringify({ file: 'intro.md', kind: 'file', prompt: 'LEAKED' }),
+    );
+    await symlink(join(outside, 'leak.json'), join(ws, '.bh/badges/intro.md.json'));
+    await expect(core.run('badge.get', { file: 'intro.md' })).rejects.toThrow(
+      /outside the workspace/,
+    );
+  });
+
+  it('badge.list does NOT descend a directory-symlink planted in .bh/badges/', async () => {
+    await mkdir(join(ws, '.bh/badges'), { recursive: true });
+    await mkdir(join(outside, 'sub'), { recursive: true });
+    await writeFile(
+      join(outside, 'sub', 'ext.json'),
+      JSON.stringify({ file: 'ext', kind: 'file' }),
+    );
+    await symlink(outside, join(ws, '.bh/badges/escape')); // dir symlink inside badges
+    const { badges } = await core.run('badge.list', {});
+    expect(badges.find((b: { file: string }) => b.file === 'ext')).toBeUndefined();
+  });
+
+  it('refuses badge.set whose JSON path routes through a symlinked dir in .bh/badges/', async () => {
+    await mkdir(join(ws, '.bh/badges'), { recursive: true });
+    await symlink(outside, join(ws, '.bh/badges/out')); // out -> outside
+    await expect(core.run('badge.set', { file: 'out/pwned', patch: {} })).rejects.toThrow(
+      /outside the workspace/,
+    );
+    expect(existsSync(join(outside, 'pwned.json'))).toBe(false);
+  });
+
+  it('still lists legitimately materialized badges (no false rejection)', async () => {
+    await writeFile(join(ws, 'doc.md'), '# doc');
+    await core.run('workspace.use', { name: 'ws' }); // re-materialize
+    const { badges } = await core.run('badge.list', {});
+    expect(badges.find((b: { file: string }) => b.file === 'doc.md')).toBeDefined();
+  });
+});
+
+describe('focus store', () => {
+  it('refuses read AND write through a symlinked .bh/focus.md, never clobbering the target', async () => {
+    await rm(join(ws, '.bh/focus.md'));
+    await writeFile(join(outside, 'ftarget.md'), 'EXTERNAL FOCUS DATA');
+    await symlink(join(outside, 'ftarget.md'), join(ws, '.bh/focus.md'));
+    await expect(core.run('focus.set', { files: ['a.md'] })).rejects.toThrow(
+      /outside the workspace/,
+    );
+    expect(await readFile(join(outside, 'ftarget.md'), 'utf8')).toBe('EXTERNAL FOCUS DATA');
+    await expect(core.run('focus.get', {})).rejects.toThrow(/outside the workspace/);
+  });
+});
+
+describe('inbound store', () => {
+  it('refuses to write through a symlinked .bh/index/inbound.json (no outside clobber)', async () => {
+    await rm(join(ws, '.bh/index/inbound.json'));
+    await writeFile(join(outside, 'idx.json'), 'EXTERNAL INDEX');
+    await symlink(join(outside, 'idx.json'), join(ws, '.bh/index/inbound.json'));
+    await expect(core.run('inbound.addRef', { from: 'a.md', to: 'b.md' })).rejects.toThrow(
+      /outside the workspace/,
+    );
+    expect(await readFile(join(outside, 'idx.json'), 'utf8')).toBe('EXTERNAL INDEX');
+  });
+});
+
+describe('views store', () => {
+  it('rejects an embedded traversal id (no symlink needed) before any fs op', async () => {
+    await expect(core.run('view.get', { id: '../../../etc/passwd' })).rejects.toThrow();
+  });
+
+  it('refuses to read through a symlinked view JSON pointing outside', async () => {
+    await mkdir(join(ws, '.bh/views'), { recursive: true });
+    await writeFile(join(outside, 'evil.json'), JSON.stringify({ id: 'evil', members: [] }));
+    await symlink(join(outside, 'evil.json'), join(ws, '.bh/views/evil.json'));
+    await expect(core.run('view.get', { id: 'evil' })).rejects.toThrow(/outside the workspace/);
+  });
+});
+
+describe('materialize walk', () => {
+  it('does NOT materialize badges for files under a symlinked directory to outside', async () => {
+    await writeFile(join(outside, 'secret.md'), 'SECRET');
+    const fresh = join(base, 'ws2');
+    await mkdir(fresh, { recursive: true });
+    await symlink(outside, join(fresh, 'innocent')); // innocent -> outside
+    await core.run('workspace.add', { path: fresh, name: 'ws2' });
+    const { badges } = await core.run('badge.list', {});
+    // No badge whose path descends into the symlinked-out directory.
+    expect(badges.some((b: { file: string }) => b.file.startsWith('innocent/'))).toBe(false);
+  });
+
+  it('opens a workspace containing a self-symlink loop without ELOOP (DoS) — and a mutual cycle', async () => {
+    const fresh = join(base, 'ws3');
+    await mkdir(join(fresh, 'd'), { recursive: true });
+    await symlink(fresh, join(fresh, 'd', 'selfroot')); // d/selfroot -> root (self loop)
+    await symlink(join(fresh, 'mb'), join(fresh, 'ma')); // ma -> mb
+    await symlink(join(fresh, 'ma'), join(fresh, 'mb')); // mb -> ma (mutual cycle → realpath ELOOP)
+    // Must resolve, not hang/throw.
+    await expect(core.run('workspace.add', { path: fresh, name: 'ws3' })).resolves.toBeDefined();
+  });
+});

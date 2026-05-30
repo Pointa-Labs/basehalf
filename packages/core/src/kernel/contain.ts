@@ -1,0 +1,148 @@
+import { basename, dirname, join, normalize, sep } from 'node:path';
+import type { FsLike } from './types.js';
+
+/**
+ * Realpath-based workspace containment — the guard a *string* check
+ * (`assertWorkspaceRelative`) structurally cannot provide.
+ *
+ * Threat model: a BaseHalf workspace is "a folder you drop in" — it may be
+ * cloned, synced, or attacker-crafted, and the whole `.bh/` tree travels with
+ * it in git. A planted symlink whose NAME is innocuous (no `..`, not absolute)
+ * still escapes the workspace root once `node:fs` follows it: a read leaks an
+ * outside file, a write clobbers/plants one, a directory walk enumerates (or
+ * loops over) the filesystem. `assertWorkspaceRelative` only inspects the
+ * request string; the `..` lives in the symlink's on-disk TARGET, which it
+ * never sees.
+ *
+ * So every core file op that joins a path under a workspace root canonicalizes
+ * with `fs.realpath` and requires the real target to be the real root or
+ * strictly beneath it. This mirrors `desktop/src/main/workspacePath.ts`
+ * `resolveInsideWorkspace` (the fix already shipped for `shell:open-path`),
+ * lifted into the kernel so badges / focus / views / inbound / workspace
+ * read+write+walk all enforce one identical rule.
+ *
+ * `realpath`/`lstat` are OPTIONAL on `FsLike`: production `defaultFs` always
+ * provides them (the real security boundary), while legacy in-memory test
+ * mocks may omit them — in which case the guards fall back to the lexical
+ * (already string-guarded) path, preserving today's behavior with no symlinks
+ * in play.
+ */
+
+/** Thrown when a canonicalized path escapes (or routes through a symlink out
+ *  of) the workspace root. Carries `name='PathEscape'` so robust callers
+ *  (workspace-open materialize, list walks) can skip-and-continue by name
+ *  without importing this class. */
+export class PathEscape extends Error {
+  override readonly name = 'PathEscape';
+  constructor(public readonly rel: string) {
+    super(`Refusing to access a path outside the workspace: ${rel}`);
+  }
+}
+
+function isENOENT(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    (err as { code: unknown }).code === 'ENOENT'
+  );
+}
+
+/**
+ * Canonicalize `p` by `realpath`-resolving its DEEPEST EXISTING ANCESTOR and
+ * recomposing the not-yet-existing remainder. Returns a normalized absolute
+ * path even when `p` (or all of it) is missing — so it works for write targets
+ * that don't exist yet. Any symlink in an existing component is collapsed to
+ * its true on-disk location (the whole point: a planted symlink resolves to
+ * where it really points, which the caller's containment check then rejects).
+ *
+ * Only ENOENT is swallowed (keep walking up); other realpath errors propagate.
+ * Falls back to a lexical `normalize(p)` when the fs has no `realpath`.
+ */
+export async function canonicalize(fs: FsLike, p: string): Promise<string> {
+  const norm = normalize(p);
+  if (!fs.realpath) return norm;
+  const suffix: string[] = [];
+  let cur = norm;
+  for (;;) {
+    try {
+      const real = await fs.realpath(cur);
+      return suffix.length > 0 ? join(real, ...suffix) : real;
+    } catch (err) {
+      if (!isENOENT(err)) throw err;
+      const parent = dirname(cur);
+      if (parent === cur) {
+        // Walked to the filesystem root and it still ENOENTs — nothing on this
+        // path exists, so there is no symlink to follow. Lexical is safe
+        // because the caller already string-guarded the relative part.
+        return suffix.length > 0 ? join(cur, ...suffix) : cur;
+      }
+      suffix.unshift(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/** True if `real` is `realRoot` itself or strictly beneath it. */
+export function isContained(realRoot: string, real: string): boolean {
+  return real === realRoot || real.startsWith(realRoot + sep);
+}
+
+/**
+ * READ policy: canonicalize the full target and require it inside `root`.
+ * Returns the canonical path to read (so the check and the open agree — no
+ * lexical-vs-real gap). A symlink pointing at an existing outside file is
+ * rejected here; a symlink whose target is MISSING canonicalizes to a
+ * contained-looking path and then simply reads as "not found" (null) — no leak.
+ */
+export async function assertReadContained(
+  fs: FsLike,
+  root: string,
+  lexicalPath: string,
+): Promise<string> {
+  if (!fs.realpath) return lexicalPath;
+  const realRoot = await canonicalize(fs, root);
+  const real = await canonicalize(fs, lexicalPath);
+  if (!isContained(realRoot, real)) {
+    throw new PathEscape(relLabel(root, lexicalPath));
+  }
+  return real;
+}
+
+/**
+ * WRITE/DELETE policy: contain the PARENT directory (catches a symlinked
+ * directory component, e.g. `drafts -> /outside`), then REFUSE if the final
+ * component is itself a symlink — writing/unlinking THROUGH a symlink leaf is
+ * never something bh legitimately does, and refusing it closes both the
+ * existing-symlink-to-outside and the dangling-symlink-to-outside holes that a
+ * realpath-of-the-leaf check cannot (a dangling link ENOENTs and would look
+ * contained). Returns the canonical leaf path (under the real parent) to
+ * operate on.
+ */
+export async function assertWriteContained(
+  fs: FsLike,
+  root: string,
+  lexicalPath: string,
+): Promise<string> {
+  if (!fs.realpath) return lexicalPath;
+  const realRoot = await canonicalize(fs, root);
+  const realParent = await canonicalize(fs, dirname(lexicalPath));
+  if (!isContained(realRoot, realParent)) {
+    throw new PathEscape(relLabel(root, lexicalPath));
+  }
+  const leaf = join(realParent, basename(lexicalPath));
+  if (fs.lstat) {
+    const ls = await fs.lstat(leaf);
+    if (ls?.isSymbolicLink) {
+      throw new PathEscape(relLabel(root, lexicalPath));
+    }
+  }
+  return leaf;
+}
+
+/** Best-effort short label for error messages (the rel part under root). */
+function relLabel(root: string, lexicalPath: string): string {
+  const r = normalize(root);
+  const p = normalize(lexicalPath);
+  return p.startsWith(r + sep) ? p.slice(r.length + 1) : p;
+}
