@@ -7,6 +7,7 @@ export {
   isContained,
   assertReadContained,
   assertWriteContained,
+  readBytesMaybeNoFollow,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from './contain.js';

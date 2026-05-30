@@ -19,6 +19,12 @@
  */
 export interface FsLike {
   readFile(path: string): Promise<string | null>;
+  /**
+   * Raw-byte read, used when callers must distinguish invalid UTF-8 from text
+   * that has already been decoded with replacement characters. Returns null if
+   * missing. OPTIONAL so older mocks can fall back through `readFile`.
+   */
+  readFileBytes?(path: string): Promise<Uint8Array | null>;
   writeFile(path: string, content: string): Promise<void>;
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
   stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | null>;
@@ -51,6 +57,12 @@ export interface FsLike {
    * OPTIONAL (legacy mocks fall back to plain readFile — no symlinks in play).
    */
   readFileNoFollow?(path: string): Promise<string | null>;
+  /**
+   * Raw-byte variant of `readFileNoFollow`. Production provides this so
+   * content sniffing can validate bytes without losing the O_NOFOLLOW leaf
+   * race protection.
+   */
+  readFileBytesNoFollow?(path: string): Promise<Uint8Array | null>;
   /**
    * Write a file with O_NOFOLLOW on the final component — refuses (PathEscape)
    * if the leaf is a symlink at OPEN time. The symmetric write-side close of

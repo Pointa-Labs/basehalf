@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { FsLike } from '../../src/index.js';
 
 /**
@@ -12,9 +13,11 @@ import type { FsLike } from '../../src/index.js';
 export function mockFs(): {
   fs: FsLike;
   files: Map<string, string>;
+  fileBytes: Map<string, Uint8Array>;
   dirs: Set<string>;
 } {
   const files = new Map<string, string>();
+  const fileBytes = new Map<string, Uint8Array>();
   const dirs = new Set<string>();
 
   function addAncestors(path: string): void {
@@ -27,10 +30,17 @@ export function mockFs(): {
 
   const fs: FsLike = {
     async readFile(path) {
+      if (fileBytes.has(path))
+        return Buffer.from(fileBytes.get(path) as Uint8Array).toString('utf8');
       return files.has(path) ? (files.get(path) as string) : null;
+    },
+    async readFileBytes(path) {
+      if (fileBytes.has(path)) return Buffer.from(fileBytes.get(path) as Uint8Array);
+      return files.has(path) ? Buffer.from(files.get(path) as string, 'utf8') : null;
     },
     async writeFile(path, content) {
       files.set(path, content);
+      fileBytes.delete(path);
       addAncestors(path);
     },
     async mkdir(path, opts) {
@@ -38,7 +48,7 @@ export function mockFs(): {
       if (opts?.recursive) addAncestors(path);
     },
     async stat(path) {
-      if (files.has(path)) return { isFile: true, isDirectory: false };
+      if (files.has(path) || fileBytes.has(path)) return { isFile: true, isDirectory: false };
       if (dirs.has(path)) return { isFile: false, isDirectory: true };
       return null;
     },
@@ -58,6 +68,13 @@ export function mockFs(): {
           childNames.add(slashIdx === -1 ? rest : rest.slice(0, slashIdx));
         }
       }
+      for (const f of fileBytes.keys()) {
+        if (f.startsWith(prefix)) {
+          const rest = f.slice(prefix.length);
+          const slashIdx = rest.indexOf('/');
+          childNames.add(slashIdx === -1 ? rest : rest.slice(0, slashIdx));
+        }
+      }
       for (const d of dirs) {
         if (d.startsWith(prefix)) {
           const rest = d.slice(prefix.length);
@@ -69,6 +86,7 @@ export function mockFs(): {
     },
     async unlink(path) {
       files.delete(path);
+      fileBytes.delete(path);
     },
     // This in-memory fs has no symlinks, so realpath is identity for an
     // existing path and ENOENT otherwise — exactly what kernel/contain.ts
@@ -76,25 +94,29 @@ export function mockFs(): {
     // containment guards therefore pass through cleanly under mockFs; real
     // symlink-escape behavior is covered by tests that use the actual fs.
     async realpath(path) {
-      if (files.has(path) || dirs.has(path)) return path;
+      if (files.has(path) || fileBytes.has(path) || dirs.has(path)) return path;
       throw Object.assign(new Error(`ENOENT: no such file, realpath '${path}'`), {
         code: 'ENOENT',
       });
     },
     async lstat(path) {
-      if (files.has(path)) return { isSymbolicLink: false };
+      if (files.has(path) || fileBytes.has(path)) return { isSymbolicLink: false };
       if (dirs.has(path)) return { isSymbolicLink: false };
       return null;
     },
     // No symlinks in-memory, so O_NOFOLLOW reads/writes are just the plain ops.
     async readFileNoFollow(path) {
-      return files.has(path) ? (files.get(path) as string) : null;
+      return fs.readFile(path);
+    },
+    async readFileBytesNoFollow(path) {
+      return fs.readFileBytes ? fs.readFileBytes(path) : null;
     },
     async writeFileNoFollow(path, content) {
       files.set(path, content);
+      fileBytes.delete(path);
       addAncestors(path);
     },
   };
 
-  return { fs, files, dirs };
+  return { fs, files, fileBytes, dirs };
 }
