@@ -22,6 +22,10 @@ interface WorkspaceState {
    * Set by Canvas onNodeClick + Sidebar NavTree onClick. Drives the
    * FilePreview right-panel slot. */
   currentFile: string | null;
+  /** When a file is opened FROM a content-search hit, the query to scroll to +
+   *  flash inside the viewer (MD editor). null on a normal open. Consumed +
+   *  cleared by FilePreview once it lands on the match (or gives up). */
+  openMatchQuery: string | null;
   /** Saved views in the current workspace. Empty until refresh. */
   views: readonly SavedView[];
   /** Currently active view; null = the workspace's full canvas (all badges). */
@@ -50,7 +54,13 @@ interface WorkspaceState {
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
   repath: (name: string) => Promise<void>;
   renameWorkspace: (from: string, to: string) => Promise<void>;
-  setCurrentFile: (file: string | null) => void;
+  /** Open a file in the preview. `matchQuery` (set when opening from a content
+   *  -search hit) is stashed in `openMatchQuery` so the viewer can jump to the
+   *  passage; a normal open passes nothing and clears any stale target. */
+  setCurrentFile: (file: string | null, matchQuery?: string | null) => void;
+  /** Clear the pending search-match target (FilePreview calls this once it has
+   *  landed on the match or given up retrying). */
+  clearOpenMatchQuery: () => void;
   refreshViews: () => Promise<void>;
   setCurrentView: (id: string | null) => void;
   setFolderScope: (path: string | null) => void;
@@ -94,6 +104,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   current: null,
   currentReachable: null,
   currentFile: null,
+  openMatchQuery: null,
   views: [],
   currentView: null,
   folderScope: null,
@@ -110,6 +121,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         current: result.current,
         currentReachable: null,
         currentFile: null,
+        openMatchQuery: null,
         views: [],
         currentView: null,
         folderScope: null,
@@ -234,6 +246,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         current: cur.current ? cur.current.name : result.current.name,
         currentReachable: null,
         currentFile: null,
+        openMatchQuery: null,
         views: [],
         currentView: null,
         folderScope: null,
@@ -312,10 +325,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  setCurrentFile: (file: string | null) => {
+  setCurrentFile: (file: string | null, matchQuery: string | null = null) => {
     const { currentFile, flushEditor, current } = get();
     const finish = (): void => {
-      set({ currentFile: file });
+      // openMatchQuery only rides along when actually opening a file; a normal
+      // open (no matchQuery) clears any stale target so it can't fire later.
+      set({ currentFile: file, openMatchQuery: file !== null ? matchQuery : null });
       // Track opens per workspace so the palette can surface recents first.
       // Null = closing the preview; nothing to record.
       if (file !== null && current !== null) noteOpenedFile(current, file);
@@ -330,6 +345,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       finish();
     }
   },
+
+  clearOpenMatchQuery: () => set({ openMatchQuery: null }),
 
   refreshViews: async () => {
     try {

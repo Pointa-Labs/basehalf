@@ -27,6 +27,7 @@ import {
   buildLoadProjection,
   spliceSave,
 } from '../lib/mdSegment.js';
+import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
@@ -79,9 +80,14 @@ function splitPath(rel: string): { dirname: string; basename: string } {
 export const FilePreview = (): JSX.Element | null => {
   const currentFile = useWorkspaceStore((s) => s.currentFile);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
+  const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const current = useWorkspaceStore((s) => s.current);
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
+  // The scrollable content area; jump-to-match (below) searches its rendered
+  // text for a content-search hit.
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Esc / Cmd-W close the preview. Cmd-W matches macOS muscle memory for
   // closing a panel/tab. setCurrentFile(null) flushes the editor before
@@ -108,6 +114,41 @@ export const FilePreview = (): JSX.Element | null => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [currentFile, setCurrentFile]);
+
+  // Jump-to-match: when a file is opened FROM a content-search hit, land on the
+  // passage. Scoped to the MD editor — its block-per-element layout makes a
+  // matched text node resolve to a single block (a clean scroll target);
+  // anything else (the single-<pre> text viewer, media) just opens at the top,
+  // so we consume the target without scrolling. The content renders async, so
+  // we retry on a short cadence until the match appears or we give up.
+  useEffect(() => {
+    if (!currentFile || openMatchQuery === null) return;
+    if (modeOf(currentFile) !== 'md') {
+      clearOpenMatchQuery();
+      return;
+    }
+    let cancelled = false;
+    let attempts = 0;
+    let timer = 0;
+    const tick = (): void => {
+      if (cancelled) return;
+      const root = contentRef.current;
+      if (root !== null && scrollToFirstMatch(root, openMatchQuery)) {
+        clearOpenMatchQuery();
+        return;
+      }
+      if (++attempts >= 20) {
+        clearOpenMatchQuery();
+        return;
+      }
+      timer = window.setTimeout(tick, 150);
+    };
+    timer = window.setTimeout(tick, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [currentFile, openMatchQuery, clearOpenMatchQuery]);
 
   if (!currentFile) return null;
   const mode = modeOf(currentFile);
@@ -212,7 +253,7 @@ export const FilePreview = (): JSX.Element | null => {
           </Button>
         </header>
         <BadgeProperties file={currentFile} />
-        <div style={{ flex: 1, overflow: 'auto' }}>
+        <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
           {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
           {mode === 'text' && <TextViewer key={currentFile} file={currentFile} />}
           {mode === 'pdf' && <PdfViewer absPath={absPath} />}
