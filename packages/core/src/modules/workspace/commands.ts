@@ -355,10 +355,22 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // the renderer. (FsLike has no partial read yet, so we still read the file in
   // this process; capping here at least bounds what crosses the boundary. A
   // true streamed/partial read is a deeper FsLike change tracked for v0.x.)
-  if (typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars) {
-    return { path: args.path, content: content.slice(0, args.maxChars), truncated: true };
-  }
-  return { path: args.path, content };
+  const capped =
+    typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars;
+  const slice = capped ? content.slice(0, args.maxChars) : content;
+  // Content sniff: a NUL byte never occurs in real text, so its presence in the
+  // (capped) prefix means the file is binary. The text viewer shows a message
+  // instead of rendering mojibake — this is what lets extension-less files be
+  // viewable WITHOUT an ever-growing extension allowlist. `content` is still
+  // returned verbatim (never blanked) so a full read for editing can't lose
+  // data; consumers decide what to do with the flag.
+  const binary = slice.includes('\u0000');
+  return {
+    path: args.path,
+    content: slice,
+    ...(capped && { truncated: true }),
+    ...(binary && { binary: true }),
+  };
 };
 
 /** `workspace.writeFile({ path, content })` — write a user file inside the

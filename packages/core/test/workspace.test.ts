@@ -65,6 +65,40 @@ describe('workspace module (mock FS)', () => {
     expect(under.truncated).toBeUndefined();
   });
 
+  it('readFile: flags a binary file (NUL byte) but still returns its content', async () => {
+    const NUL = String.fromCharCode(0);
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/data.bin', `PK${NUL}${NUL}binary-ish`);
+    files.set('/v/note.txt', 'plain text, no nulls here');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const bin = await core.run<{ path: string }, R>('workspace.readFile', { path: 'data.bin' });
+    expect(bin.binary).toBe(true);
+    expect(bin.content).toContain('PK'); // content NOT blanked — no data loss for editors
+    const txt = await core.run<{ path: string }, R>('workspace.readFile', { path: 'note.txt' });
+    expect(txt.binary).toBeUndefined();
+  });
+
+  it('readFile: binary sniff only inspects the capped prefix (what the viewer renders)', async () => {
+    const NUL = String.fromCharCode(0);
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    // The NUL is past the first 100 chars -> a maxChars:100 read sees only text.
+    files.set('/v/late.bin', `${'A'.repeat(200)}${NUL}tail`);
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const capped = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'late.bin',
+      maxChars: 100,
+    });
+    expect(capped.binary).toBeUndefined();
+    const full = await core.run<{ path: string }, R>('workspace.readFile', { path: 'late.bin' });
+    expect(full.binary).toBe(true);
+  });
+
   it('add: second workspace does NOT become current', async () => {
     const { fs, dirs } = mockFs();
     dirs.add('/a');

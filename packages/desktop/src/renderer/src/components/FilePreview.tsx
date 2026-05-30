@@ -1349,7 +1349,9 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
 // Huge files are capped to keep a <pre> from janking the UI.
 const TEXT_VIEW_CAP = 200_000;
 const TextViewer = ({ file }: { file: string }): JSX.Element => {
-  const [state, setState] = useState<{ text: string; truncated: boolean } | null>(null);
+  const [state, setState] = useState<{ text: string; truncated: boolean; binary: boolean } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1366,7 +1368,11 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
           maxChars: TEXT_VIEW_CAP,
         })) as WorkspaceReadFileResult;
         if (!cancelled) {
-          setState({ text: res.content ?? '', truncated: res.truncated === true });
+          setState({
+            text: res.content ?? '',
+            truncated: res.truncated === true,
+            binary: res.binary === true,
+          });
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -1418,7 +1424,23 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
           </div>
         ) : (
           <>
-            {state.text === '' ? (
+            {state.binary ? (
+              // Content-sniff found a NUL byte → this is a binary file that an
+              // extension heuristic misrouted to the text viewer. Show a clean
+              // message instead of rendering mojibake.
+              <div
+                style={{
+                  padding: space[4],
+                  fontFamily: font.sans,
+                  fontSize: font.size.caption,
+                  color: color.textTertiary,
+                  lineHeight: 1.5,
+                }}
+              >
+                This looks like a binary file, so it can’t be shown as text. Open it with the right
+                app for its type.
+              </div>
+            ) : state.text === '' ? (
               <div
                 style={{
                   padding: space[4],
@@ -1432,7 +1454,7 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
             ) : (
               <CodeBody text={state.text} />
             )}
-            {state.truncated && (
+            {!state.binary && state.truncated && (
               <div
                 style={{
                   padding: `${space[2]}px ${space[4]}px ${space[4]}px`,
