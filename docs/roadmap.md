@@ -121,6 +121,40 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   and writes it back via `badge.set({ kind: 'folder' })`. Discoverable from the
   one place you're already looking at the folder, no canvas clutter.
 
+**2026-05-31 — retrieval + agent-handoff arc (#105–#110, all merged).** A
+first-principles pass strengthening the two ends of the daily loop, then a
+cross-feature composition review to confirm it all holds together:
+
+- **Full-text content search.** ✅ _shipped (#105)._ A `search` core module
+  (`search.query`) + `bh search` + a debounced "Search" section in the ⌘K
+  palette. The missing retrieval leg: before this, the palette matched only file
+  paths + the badge prompt, never the file BODY. Drives the already-hardened
+  `workspace.listFiles` + `workspace.readFile` via `ctx.run`, so all path-escape
+  / capped-read / binary-sniff guards are inherited (zero new path code); ranks
+  by match count before the file cap.
+- **Copy agent brief.** ✅ _shipped (#106, #108)._ A one-click "Copy brief" on
+  the focus chip + `bh focus brief` + a `focus.brief` core command hand the
+  curated `.bh/focus.md` turn brief to ANY chat — making the curate→agent payoff
+  tangible beyond the Claude-Code-auto-read-in-repo path. The clipboard copy
+  strips bh-internal noise (the `# source-view:` marker + the `.bh/`-pointing
+  footer) so the pasted brief is self-contained.
+- **View-prompt → brief-intent freshness.** ✅ _shipped (#107)._ Editing a
+  focused saved view's prompt now refreshes the brief's `intent:`, matched by an
+  exact `# source-view:` provenance marker (not inferred from members/text), with
+  all focus.md writers (set / resync / refreshViewIntent / clearProvenanceIfView
+  / renameActiveFile / toggleActiveFile) threading it consistently.
+- **Palette match highlighting.** ✅ _shipped (#109)._ The matched query run is
+  marked (accent) in both row labels and content snippets — scannable results.
+- **Cross-feature composition review.** ✅ _shipped (#110)._ A holistic seam
+  review of the merged arc caught two P2s per-PR review structurally couldn't:
+  an error-handling asymmetry (`badge.rename` not tolerating a hostile
+  symlinked focus.md like its siblings) and a state-preservation gap (canvas
+  shift+click dropping intent + provenance). Both fixed. The core agent-protocol
+  aha loop was re-validated end-to-end with a fresh `claude -p` afterward.
+
+Note: code-viewer **syntax highlighting** (first bullet above) remains the open
+v0.x item, still gated on the dependency-policy weighing of a highlighter dep.
+
 ## What we are deliberately NOT doing yet
 
 - **No agent orchestration in bh.** Claude Code / Codex / Cursor are the
