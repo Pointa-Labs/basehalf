@@ -1425,9 +1425,9 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
         ) : (
           <>
             {state.binary ? (
-              // Content-sniff found a NUL byte → this is a binary file that an
-              // extension heuristic misrouted to the text viewer. Show a clean
-              // message instead of rendering mojibake.
+              // Content-sniff found binary bytes that an extension heuristic
+              // misrouted to the text viewer. Show a clean message instead of
+              // rendering mojibake.
               <div
                 style={{
                   padding: space[4],

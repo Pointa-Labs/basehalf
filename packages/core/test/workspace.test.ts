@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -79,6 +80,18 @@ describe('workspace module (mock FS)', () => {
     expect(bin.content).toContain('PK'); // content NOT blanked — no data loss for editors
     const txt = await core.run<{ path: string }, R>('workspace.readFile', { path: 'note.txt' });
     expect(txt.binary).toBeUndefined();
+  });
+
+  it('readFile: flags invalid UTF-8 bytes even when there is no NUL byte', async () => {
+    const { fs, fileBytes, dirs } = mockFs();
+    dirs.add('/v');
+    fileBytes.set('/v/bad.log', Buffer.from([0x50, 0x4b, 0xff, 0xfe, 0x20, 0x6c, 0x6f, 0x67]));
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+    type R = { content: string; binary?: boolean };
+    const bad = await core.run<{ path: string }, R>('workspace.readFile', { path: 'bad.log' });
+    expect(bad.binary).toBe(true);
+    expect(bad.content).toContain('\uFFFD');
   });
 
   it('readFile: binary sniff only inspects the capped prefix (what the viewer renders)', async () => {
@@ -534,6 +547,21 @@ describe('workspace module (integration, real FS)', () => {
       name: 'pre-existing',
     });
     expect(r.bhDirCreated).toBe(false);
+  });
+
+  it('readFile: real FS flags invalid UTF-8 bytes even when there is no NUL byte', async () => {
+    await writeFile(join(tmpWs, 'bad.log'), Buffer.from([0x50, 0x4b, 0xff, 0xfe, 0x20, 0x6c]));
+    const core = createCore({ configDir: tmpCfg });
+    await core.run('workspace.add', { path: tmpWs, name: 'rw-test' });
+
+    type R = { content: string; binary?: boolean };
+    const bad = await core.run<{ path: string; maxChars: number }, R>('workspace.readFile', {
+      path: 'bad.log',
+      maxChars: 200_000,
+    });
+
+    expect(bad.binary).toBe(true);
+    expect(bad.content).toContain('\uFFFD');
   });
 });
 

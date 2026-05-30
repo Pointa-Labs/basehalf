@@ -162,11 +162,11 @@ export interface WorkspaceReadFileResult {
   /** True when `maxChars` was set and the file was longer — i.e. `content` is a
    *  prefix. Lets the caller show a "… N more" affordance honestly. */
   readonly truncated?: boolean;
-  /** True when the (capped) content contains a NUL byte — i.e. the file is
-   *  binary, not text. `content` is still returned verbatim (never blanked);
-   *  the text viewer uses this to show a "binary file" message instead of
-   *  rendering mojibake, which is what lets extension-less files be viewable
-   *  without an ever-growing extension allowlist. */
+  /** True when the rendered prefix contains NUL bytes or invalid UTF-8 — i.e.
+   *  the file is binary, not text. `content` is still returned verbatim (never
+   *  blanked); the text viewer uses this to show a "binary file" message
+   *  instead of rendering mojibake, which is what lets extension-less files be
+   *  viewable without an ever-growing extension allowlist. */
   readonly binary?: boolean;
 }
 

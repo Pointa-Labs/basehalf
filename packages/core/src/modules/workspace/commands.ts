@@ -1,3 +1,4 @@
+import { Buffer, isUtf8 } from 'node:buffer';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Context,
@@ -9,6 +10,7 @@ import {
   canonicalize,
   createKeyedMutex,
   isContained,
+  readBytesMaybeNoFollow,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
@@ -346,10 +348,12 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // rather than re-following. (Residual: an intermediate-component swap still
   // needs openat2/RESOLVE_BENEATH, which Node doesn't expose — see
   // kernel/contain.ts. Falls back to plain readFile under the legacy mock.)
-  const content = await readMaybeNoFollow(ctx.fs, abs);
-  if (content === null) {
+  const raw = await readBytesMaybeNoFollow(ctx.fs, abs);
+  if (raw === null) {
     throw Object.assign(new Error(`Path does not exist: ${abs}`), { code: 'PATH_NOT_FOUND' });
   }
+  const bytes = Buffer.from(raw);
+  const content = bytes.toString('utf8');
   // Optional cap: a preview/viewer that only renders a slice can ask for just
   // that slice so a multi-MB file isn't serialized across IPC and held whole in
   // the renderer. (FsLike has no partial read yet, so we still read the file in
@@ -358,13 +362,14 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   const capped =
     typeof args.maxChars === 'number' && args.maxChars >= 0 && content.length > args.maxChars;
   const slice = capped ? content.slice(0, args.maxChars) : content;
-  // Content sniff: a NUL byte never occurs in real text, so its presence in the
-  // (capped) prefix means the file is binary. The text viewer shows a message
-  // instead of rendering mojibake — this is what lets extension-less files be
-  // viewable WITHOUT an ever-growing extension allowlist. `content` is still
-  // returned verbatim (never blanked) so a full read for editing can't lose
-  // data; consumers decide what to do with the flag.
-  const binary = slice.includes('\u0000');
+  // Content sniff: NUL bytes and invalid UTF-8 are not renderable text. Sniff
+  // the same prefix the viewer asked for, but do it on raw bytes before UTF-8
+  // decoding has a chance to replace invalid sequences with mojibake.
+  const sniffBytes =
+    typeof args.maxChars === 'number' && args.maxChars >= 0
+      ? bytes.subarray(0, args.maxChars)
+      : bytes;
+  const binary = sniffBytes.includes(0) || !isUtf8(sniffBytes);
   return {
     path: args.path,
     content: slice,

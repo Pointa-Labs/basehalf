@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { basename, dirname, join, normalize, sep } from 'node:path';
 import type { FsLike } from './types.js';
 
@@ -182,6 +183,22 @@ export async function assertWriteContained(
  */
 export async function readMaybeNoFollow(fs: FsLike, abs: string): Promise<string | null> {
   return fs.readFileNoFollow ? fs.readFileNoFollow(abs) : fs.readFile(abs);
+}
+
+/**
+ * Raw-byte read with the same leaf-symlink policy as `readMaybeNoFollow`.
+ * Prefer no-follow variants over raw-byte variants so a custom FsLike does
+ * not trade containment for sniffing fidelity.
+ */
+export async function readBytesMaybeNoFollow(fs: FsLike, abs: string): Promise<Uint8Array | null> {
+  if (fs.readFileBytesNoFollow) return fs.readFileBytesNoFollow(abs);
+  if (fs.readFileNoFollow) {
+    const content = await fs.readFileNoFollow(abs);
+    return content === null ? null : Buffer.from(content, 'utf8');
+  }
+  if (fs.readFileBytes) return fs.readFileBytes(abs);
+  const content = await fs.readFile(abs);
+  return content === null ? null : Buffer.from(content, 'utf8');
 }
 
 /** Write `abs` with O_NOFOLLOW when supported, else plain write. */
