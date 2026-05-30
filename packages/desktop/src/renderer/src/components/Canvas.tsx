@@ -26,6 +26,7 @@ import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
+import { briefForClipboard } from '../lib/focusBrief.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -432,10 +433,13 @@ export const Canvas = (): JSX.Element => {
     void (async () => {
       try {
         const { brief } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        // Strip bh-internal noise (provenance marker + the .bh/-pointing footer)
+        // so what lands in a chat is just the self-contained brief.
+        const clean = briefForClipboard(brief);
         // Nothing to copy (focus.md absent under a still-visible chip) — don't
         // write an empty string or flash a misleading "Copied ✓".
-        if (brief.length === 0) return;
-        await navigator.clipboard.writeText(brief);
+        if (clean.length === 0) return;
+        await navigator.clipboard.writeText(clean);
         setBriefCopied(true);
         // Reset the confirmation; clear any prior timer so a rapid re-click
         // doesn't let an earlier timer flip the label back early.
