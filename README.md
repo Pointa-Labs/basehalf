@@ -15,8 +15,7 @@ work from the same materials you see.
 [![Discussions][badge-discussions]][discussions]
 [![Twitter / X][badge-twitter]][twitter]
 [![Discord][badge-discord]][discord]
-[![QQ Users][badge-qq-users]][qq-users]
-[![QQ Dev][badge-qq-developers]][qq-developers]
+[![QQ Community][badge-qq-community]][community]
 
 [![Web Version][badge-website]][website]
 [![GitCGR][badge-gitcgr]][gitcgr]
@@ -253,6 +252,7 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [discussions]: https://github.com/Pointa-Labs/basehalf/discussions
 [twitter]: https://x.com/JustJerry121
 [discord]: https://discord.gg/55wqkN9tPg
+[community]: #community
 [qq-users]: https://qm.qq.com/q/hNq8D39YPe
 [qq-developers]: https://qm.qq.com/q/LTidm8fKCc
 [contributing]: CONTRIBUTING.md
@@ -266,6 +266,5 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
 [badge-twitter]: https://img.shields.io/badge/X-Follow-2A2B2B?style=flat&logo=x&logoColor=DBE7FB&labelColor=1A1A17
 [badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=DBE7FB&labelColor=1A1A17
-[badge-qq-users]: https://img.shields.io/badge/QQ-Users-7EB8CD?style=flat&labelColor=1A1A17
-[badge-qq-developers]: https://img.shields.io/badge/QQ-Dev-9FBBE0?style=flat&labelColor=1A1A17
+[badge-qq-community]: https://img.shields.io/badge/QQ-Community-7EB8CD?style=flat&labelColor=1A1A17
 [badge-license]: https://img.shields.io/badge/License-Apache--2.0-2A2B2B?style=flat&labelColor=1A1A17
