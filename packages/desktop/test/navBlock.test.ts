@@ -76,4 +76,13 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().busy).toBe(false);
     expect(store.getState().error).toMatch(/disk conflict/i);
   });
+
+  it('createNote gates BEFORE writing the stub (no orphan note on a conflict)', async () => {
+    // The gate is the first statement, so it returns before any window.bh.run
+    // (workspace.writeFile) — proving no stub is written. If it fell through,
+    // window.bh would be undefined here and throw a different error.
+    store.setState({ flushEditor: async () => false });
+    await store.getState().createNote('fresh-note.md');
+    expect(store.getState().error).toMatch(/disk conflict/i);
+  });
 });

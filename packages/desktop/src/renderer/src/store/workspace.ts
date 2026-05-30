@@ -399,6 +399,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   createNote: async (relPath: string) => {
     try {
+      // Flush + gate the OPEN editor FIRST. If it's blocked on an unresolved
+      // disk-conflict banner the switch below can't proceed — so creating the
+      // stub now would leave an orphan empty note on disk that we never open.
+      // (A clean flush also lands the current note's pending edits before we
+      // navigate away.)
+      if ((await get().flushEditor?.()) === false) {
+        set({
+          error: "Resolve this file's disk conflict (Keep or Reload) before creating a note.",
+        });
+        return;
+      }
       // Refuse to clobber an existing file. The New-note UX promises a
       // fresh note; without this guard, typing an existing path
       // (intro.md, etc.) silently overwrites the user's content with
