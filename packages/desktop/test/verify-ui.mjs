@@ -95,6 +95,9 @@ writeFileSync(
 // An EMPTY note — the editor must seed one editable paragraph so a blank/new note
 // has a cursor target you can type the first content into (§7e3).
 writeFileSync(join(WORKSPACE_DIR, 'blank.md'), '');
+// A TIGHT bullet list — editing one item must keep the list tight (single
+// newlines), not inject blank lines that flip it to a loose list (§7e4).
+writeFileSync(join(WORKSPACE_DIR, 'list.md'), '- alpha\n- bravo\n- charlie\n');
 // An unsupported file type (no inline viewer) — the preview should offer
 // "Open in default app" rather than a dead end (§7j).
 writeFileSync(join(WORKSPACE_DIR, 'report.docx'), 'PK fake docx');
@@ -1435,6 +1438,34 @@ const blankAfter = readFileSync(join(WORKSPACE_DIR, 'blank.md'), 'utf-8');
 assert(
   blankAfter.includes('First content in a blank note.'),
   `typing into a blank note saves to disk (got ${JSON.stringify(blankAfter.slice(0, 80))})`,
+);
+await win.waitForTimeout(150);
+
+// --- 7e4. Editing one item of a TIGHT list keeps it tight — the localized edit
+// reuses the item's original single-newline separators instead of injecting
+// blank lines that would flip the whole list to loose. ---
+console.log('\n[7e4] Editing a tight-list item keeps the list tight');
+await sidebar.locator('button', { hasText: 'list.md' }).first().click();
+await win.waitForTimeout(700);
+// Click into the middle item ("bravo") and append text.
+await win.locator('.ProseMirror').getByText('bravo', { exact: false }).first().click();
+await win.keyboard.press('End');
+await win.keyboard.type(' EDIT');
+await win.waitForTimeout(900); // past the autosave debounce
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+const listMdAfter = readFileSync(join(WORKSPACE_DIR, 'list.md'), 'utf-8');
+assert(
+  listMdAfter.includes('bravo EDIT'),
+  `the list-item edit landed (got ${JSON.stringify(listMdAfter)})`,
+);
+assert(
+  !listMdAfter.includes('\n\n'),
+  `editing one item keeps the list tight — no blank lines injected (got ${JSON.stringify(listMdAfter)})`,
+);
+assert(
+  listMdAfter.includes('alpha') && listMdAfter.includes('charlie'),
+  `the untouched list items survive (got ${JSON.stringify(listMdAfter)})`,
 );
 await win.waitForTimeout(150);
 

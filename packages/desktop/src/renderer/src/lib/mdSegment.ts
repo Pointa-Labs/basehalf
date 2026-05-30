@@ -20,11 +20,13 @@
  *     read-only `rawPassthrough` block carrying its verbatim `raw`. A segment that
  *     yields exactly one block is recorded in `byId` keyed by that block's stable
  *     id → { its normalized form, its verbatim `raw` }.
- *  3. `spliceSave` walks the edited document; a block still carrying a known id
- *     whose normalized form still matches emits that block's verbatim `raw`; an
- *     edited/new block emits its own (normalized) Markdown. Untouched content is
- *     byte-identical; normalization is confined to blocks the user actually
- *     changed.
+ *  3. `spliceSave` walks the edited document; each block emits ITSELF plus its
+ *     own trailing separator, so concatenation alone rebuilds the document.
+ *     Unchanged block → its verbatim tile; edited block → its new Markdown wrapped
+ *     in its ORIGINAL surrounding whitespace (so editing one item of a tight list
+ *     can't turn it loose); new block → its Markdown + a type-appropriate
+ *     separator. Untouched content is byte-identical; normalization is confined to
+ *     blocks the user actually changed.
  *
  * Why identity, not content: BlockNote preserves a block's id across edits and
  * through `replaceBlocks`, so keying by id (not by content) means two
@@ -52,9 +54,16 @@ export const RAW_PASSTHROUGH = 'rawPassthrough';
 export interface Segment {
   /** Exact node bytes (no surrounding whitespace) — used to compute the content key. */
   source: string;
-  /** The full source tile: node bytes plus surrounding whitespace, so that
-   *  concatenating every segment's `raw` reproduces the body verbatim. */
+  /** The full source tile (`prefix + source + sep`) — concatenating every
+   *  segment's `raw` reproduces the body verbatim. */
   raw: string;
+  /** Leading whitespace owned by this tile (only the first segment carries the
+   *  document's leading gap; otherwise ''). */
+  prefix: string;
+  /** Trailing whitespace after the node up to the next segment — the EXACT
+   *  separator to its neighbour. Reused verbatim even when the node is edited,
+   *  so a localized edit can't turn a tight list loose or change spacing. */
+  sep: string;
 }
 
 /** Minimal structural view of the BlockNote editor we depend on. The real methods
@@ -66,10 +75,14 @@ export interface MdEditorApi {
 
 /** A reusable source tile keyed by the block that owns it: `key` is the block's
  *  BlockNote-normalized Markdown at load (to detect later edits), `raw` is the
- *  verbatim source tile to re-emit while the block is unchanged. */
+ *  verbatim tile to re-emit while the block is unchanged, and `prefix`/`sep` are
+ *  its exact original surrounding whitespace — reused even when the node is
+ *  edited so an edit keeps the original separators (no tight→loose list churn). */
 export interface ReuseEntry {
   key: string;
   raw: string;
+  prefix: string;
+  sep: string;
 }
 
 export interface LoadProjection {
@@ -130,7 +143,7 @@ export function segmentBody(body: string): Segment[] {
   const units = collectUnits(body);
   if (units.length === 0) {
     // Whitespace-only / wholly unparseable body — preserve verbatim as one tile.
-    return [{ source: body, raw: body }];
+    return [{ source: body, raw: body, prefix: '', sep: '' }];
   }
   const segs: Segment[] = [];
   for (let i = 0; i < units.length; i++) {
@@ -139,7 +152,12 @@ export function segmentBody(body: string): Segment[] {
     const next = units[i + 1];
     const tileStart = i === 0 ? 0 : u.start;
     const tileEnd = next ? next.start : body.length;
-    segs.push({ source: body.slice(u.start, u.end), raw: body.slice(tileStart, tileEnd) });
+    segs.push({
+      source: body.slice(u.start, u.end),
+      raw: body.slice(tileStart, tileEnd),
+      prefix: body.slice(tileStart, u.start), // doc leading gap (first segment only)
+      sep: body.slice(u.end, tileEnd), // exact separator to the next segment
+    });
   }
   return segs;
 }
@@ -211,7 +229,14 @@ export async function buildLoadProjection(
     // (no content loss); see the header note.
     if (parsed.length === 1) {
       const id = idOf(parsed[0]);
-      if (id) byId.set(id, { key: await normalize(editor, parsed), raw: seg.raw });
+      if (id) {
+        byId.set(id, {
+          key: await normalize(editor, parsed),
+          raw: seg.raw,
+          prefix: seg.prefix,
+          sep: seg.sep,
+        });
+      }
     }
     for (const b of parsed) blocks.push(b);
   }
@@ -222,61 +247,60 @@ export async function buildLoadProjection(
   return { blocks, byId };
 }
 
-interface Piece {
-  verbatim: boolean;
-  text: string;
+const LIST_ITEM_TYPES = new Set(['bulletListItem', 'numberedListItem', 'checkListItem']);
+
+/** Default trailing separator for a brand-new block (no original tile to reuse):
+ *  a single newline keeps list items tight; a blank line separates other blocks. */
+function defaultSep(block: unknown): string {
+  return LIST_ITEM_TYPES.has((block as { type?: string }).type ?? '') ? '\n' : '\n\n';
 }
 
-function joinPieces(pieces: Piece[]): string {
-  let out = '';
-  let lastFresh = false;
-  for (const p of pieces) {
-    if (p.verbatim) {
-      out += p.text;
-      lastFresh = false;
-      continue;
-    }
-    if (out.length > 0 && !out.endsWith('\n\n')) {
-      out += out.endsWith('\n') ? '\n' : '\n\n';
-    }
-    out += p.text;
-    out += '\n\n';
-    lastFresh = true;
-  }
-  // A verbatim-terminated document keeps its exact original trailing bytes. Only
-  // when a fresh (edited/new) block ended the document do we normalize the tail
-  // to a single newline.
-  if (lastFresh) out = out.replace(/\n+$/, '\n');
-  return out;
-}
-
-/** Serialize the edited document back to Markdown, re-emitting verbatim source
- *  for every block the user didn't change (matched by block id, so duplicate
- *  content can't cross-pollinate). `byId` is read, never mutated. */
+/** Serialize the edited document back to Markdown. Each block emits itself plus
+ *  its OWN trailing separator, so concatenation alone reconstructs the document —
+ *  no separators are synthesized between blocks:
+ *   - unchanged block (id known, content matches) → its exact original tile;
+ *   - edited block (id known, content changed) → original prefix + new Markdown +
+ *     original separator, so spacing/list tightness is preserved around the edit;
+ *   - new block (no id) → its Markdown + a type-appropriate default separator.
+ *  Matching is by block id, so duplicate content can't cross-pollinate. `byId`
+ *  is read, never mutated. */
 export async function spliceSave(
   editor: MdEditorApi,
   document: unknown[],
   frontmatter: string,
   byId: Map<string, ReuseEntry>,
 ): Promise<string> {
-  const pieces: Piece[] = [];
+  let out = '';
+  let lastSynthesized = false;
   for (const block of document) {
     const b = block as { type?: string; props?: { raw?: string } };
     if (b.type === RAW_PASSTHROUGH) {
-      pieces.push({ verbatim: true, text: b.props?.raw ?? '' });
+      out += b.props?.raw ?? '';
+      lastSynthesized = false;
       continue;
     }
     const id = idOf(block);
     const entry = id ? byId.get(id) : undefined;
     if (entry && (await normalize(editor, [block])) === entry.key) {
-      // Same block, unchanged content → re-emit its exact original bytes.
-      pieces.push({ verbatim: true, text: entry.raw });
+      // Unchanged → re-emit the exact original bytes (prefix + source + sep).
+      out += entry.raw;
+      lastSynthesized = false;
     } else {
-      pieces.push({
-        verbatim: false,
-        text: (await editor.blocksToMarkdownLossy([block])).trimEnd(),
-      });
+      const fresh = (await editor.blocksToMarkdownLossy([block])).trimEnd();
+      if (entry) {
+        // Edited in place → keep the node's ORIGINAL surrounding whitespace.
+        out += entry.prefix + fresh + entry.sep;
+        lastSynthesized = false;
+      } else {
+        // Brand-new block → no original tile; pick a separator from its type.
+        out += fresh + defaultSep(block);
+        lastSynthesized = true;
+      }
     }
   }
-  return frontmatter + joinPieces(pieces);
+  // If the document ends on a brand-new block we picked the trailing whitespace
+  // ourselves; normalize it to a single newline. A verbatim/edited tail keeps its
+  // exact original trailing bytes.
+  if (lastSynthesized) out = out.replace(/\n+$/, '\n');
+  return frontmatter + out;
 }

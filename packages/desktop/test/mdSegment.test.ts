@@ -11,6 +11,9 @@ describe('segmentBody — byte-exact tiling of the body', () => {
   const tiles = (body: string): Segment[] => {
     const segs = segmentBody(body);
     expect(segs.map((s) => s.raw).join('')).toBe(body); // Σ raw === body
+    // Each tile decomposes exactly into prefix + source + sep — the separator is
+    // what the splice reuses verbatim around an edited node.
+    for (const s of segs) expect(s.prefix + s.source + s.sep).toBe(s.raw);
     return segs;
   };
 
