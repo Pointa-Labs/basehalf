@@ -6,6 +6,11 @@
  *   - Saved views (switch active view; main-canvas option)
  *   - Files (open any file in the current workspace by basename)
  *   - Chrome actions (Add folder, New note)
+ *   - Search (files whose CONTENT matches — full-text, async + debounced)
+ *
+ * The name/prompt matches above are instant + local; the Search section is
+ * the retrieval leg that lets you find a note by a phrase you remember from
+ * INSIDE it, not just its filename. So ⌘K is "find anything."
  *
  * Arrow keys navigate, Enter executes, Esc closes, click-outside
  * closes. The whole component is a modal backdrop + a centered card
@@ -13,6 +18,7 @@
  * Select, etc.) so it doesn't read as a separate sub-product.
  */
 
+import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
@@ -50,8 +56,11 @@ interface Action {
   label: string;
   /** Optional secondary text shown on the right (path, count, etc.). */
   hint?: string;
-  /** Short category prefix (Workspace, View, File, Action) shown left. */
-  category: 'Workspace' | 'View' | 'File' | 'Action';
+  /** Short category prefix (Workspace, View, File, Action, Search) shown left. */
+  category: 'Workspace' | 'View' | 'File' | 'Action' | 'Search';
+  /** Optional dimmer second line under the label — used by Search rows to
+   *  show the matching snippet so you can see WHY a file matched. */
+  sub?: string;
   /** Optional keyboard shortcut hint (e.g. "⌘N") rendered as a small
    *  pill on the right so users discover the global shortcuts by
    *  browsing the palette. */
@@ -143,13 +152,27 @@ export const CommandPalette = (): JSX.Element | null => {
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
 
-  // Files in the current workspace — fetched lazily when the palette
-  // opens so we don't pay the cost on every render of the host App.
-  // Cached for the lifetime of the open session; closes & reopens
-  // refresh in case the user added files via Finder in between.
+  // Files in the current workspace — fetched lazily when the palette opens (so
+  // we don't pay the cost on every render of the host App) AND whenever the
+  // active workspace changes. Re-fetching on `current` is load-bearing: a
+  // workspace switch is reachable WITH the palette still open (dropping a folder
+  // onto the window bubbles to App's onDrop → workspace.use, and the palette
+  // isn't closed). `files` carries the workspace it was fetched for; the File
+  // rows are gated on `filesWorkspace === current` in the actions memo, exactly
+  // like the Search rows — so a stale (previous-workspace) File row is never
+  // rendered, not even for the single commit between `current` flipping and this
+  // effect re-fetching. Clicking a File row could otherwise open a missing/wrong
+  // path in the now-active workspace (the same class as the gated Search bug).
   const [files, setFiles] = useState<readonly FileEntry[]>([]);
+  const [filesWorkspace, setFilesWorkspace] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
+    setFiles([]);
+    setFilesWorkspace(null);
+    // No active workspace → no files to list (badge.list would have nothing to
+    // resolve against). Referencing `current` here also makes it the explicit
+    // re-fetch trigger it's meant to be.
+    if (current === null) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -163,6 +186,7 @@ export const CommandPalette = (): JSX.Element | null => {
             ...(b.prompt !== undefined && { prompt: b.prompt }),
           })),
         );
+        setFilesWorkspace(current);
       } catch {
         // Don't block the palette on a transient core error — just show
         // workspaces / views / chrome actions until the user retries.
@@ -171,9 +195,58 @@ export const CommandPalette = (): JSX.Element | null => {
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, current]);
 
   const [query, setQuery] = useState('');
+  // Debounced full-text content search. Fires only once the user pauses (180ms)
+  // on a query of ≥2 chars in a real workspace — so we don't read every file's
+  // bytes on each keystroke. Stale results are guarded by the `cancelled` flag
+  // plus the `hitsQuery` gate where the rows are built.
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (current === null || q.length < 2) {
+      setContentHits([]);
+      setHitsQuery('');
+      setHitsWorkspace(null);
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = (await window.bh.run('search.query', {
+            query: q,
+            maxFiles: 8,
+            maxMatchesPerFile: 1,
+          })) as SearchQueryResult;
+          if (cancelled) return;
+          setContentHits(res.hits);
+          setHitsQuery(q);
+          setHitsWorkspace(current);
+        } catch {
+          if (!cancelled) {
+            setContentHits([]);
+            setHitsQuery('');
+            setHitsWorkspace(null);
+          }
+        }
+      })();
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [open, query, current]);
+  // Content-search results (async, debounced). The hits belong to a specific
+  // (workspace, query) pair: `hitsQuery` guards a slower search returning after
+  // the user typed more, and `hitsWorkspace` guards reopening the palette in a
+  // DIFFERENT workspace with the same query — without it, stale rows from the
+  // previous workspace would show (and open a wrong/missing path) until the new
+  // debounced search returns.
+  const [contentHits, setContentHits] = useState<SearchQueryResult['hits']>([]);
+  const [hitsQuery, setHitsQuery] = useState('');
+  const [hitsWorkspace, setHitsWorkspace] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Whether the user is currently steering with the mouse. Linear /
   // VS Code-style palettes ignore hover-driven selection until the mouse
@@ -228,33 +301,39 @@ export const CommandPalette = (): JSX.Element | null => {
       }
     }
 
-    // Files — open in preview. Sort by recency-then-alphabetical so the
-    // file the user opened 30 seconds ago is the FIRST file row even
-    // when their workspace has 100+ alphabetically-earlier files.
-    const recent = current !== null ? recentFilesFor(current) : [];
-    const recentRank = new Map<string, number>();
-    recent.forEach((path, idx) => recentRank.set(path, idx));
-    const sortedFiles = [...files].sort((a, b) => {
-      const ra = recentRank.get(a.file);
-      const rb = recentRank.get(b.file);
-      if (ra !== undefined && rb !== undefined) return ra - rb; // both recent → by recency
-      if (ra !== undefined) return -1; // a recent, b not → a first
-      if (rb !== undefined) return 1; // b recent, a not → b first
-      return a.file.localeCompare(b.file); // neither recent → alphabetical
-    });
-    for (const f of sortedFiles) {
-      const basename = f.file.includes('/') ? (f.file.split('/').pop() ?? f.file) : f.file;
-      out.push({
-        id: `file:${f.file}`,
-        label: basename,
-        hint: f.file.includes('/') ? f.file : undefined,
-        category: 'File',
-        // Searchable-but-not-displayed: match the user's prompt for this
-        // file so they can find it by typing words from their own
-        // description. Empty when the user hasn't written a prompt yet.
-        ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
-        run: () => setCurrentFile(f.file),
+    // Files — open in preview. Only when `files` was fetched for the CURRENTLY
+    // active workspace: on a workspace switch with the palette open, `current`
+    // flips a commit before the re-fetch effect runs, and emitting rows from the
+    // old workspace's `files` here would render stale paths that open the wrong
+    // file. This synchronous (files,current) gate mirrors the Search-row gate.
+    // Sort by recency-then-alphabetical so the file the user opened 30 seconds
+    // ago is the FIRST file row even in a 100+-file workspace.
+    if (filesWorkspace === current && current !== null) {
+      const recent = recentFilesFor(current);
+      const recentRank = new Map<string, number>();
+      recent.forEach((path, idx) => recentRank.set(path, idx));
+      const sortedFiles = [...files].sort((a, b) => {
+        const ra = recentRank.get(a.file);
+        const rb = recentRank.get(b.file);
+        if (ra !== undefined && rb !== undefined) return ra - rb; // both recent → by recency
+        if (ra !== undefined) return -1; // a recent, b not → a first
+        if (rb !== undefined) return 1; // b recent, a not → b first
+        return a.file.localeCompare(b.file); // neither recent → alphabetical
       });
+      for (const f of sortedFiles) {
+        const basename = f.file.includes('/') ? (f.file.split('/').pop() ?? f.file) : f.file;
+        out.push({
+          id: `file:${f.file}`,
+          label: basename,
+          hint: f.file.includes('/') ? f.file : undefined,
+          category: 'File',
+          // Searchable-but-not-displayed: match the user's prompt for this
+          // file so they can find it by typing words from their own
+          // description. Empty when the user hasn't written a prompt yet.
+          ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
+          run: () => setCurrentFile(f.file),
+        });
+      }
     }
 
     // Chrome actions — always available.
@@ -294,6 +373,7 @@ export const CommandPalette = (): JSX.Element | null => {
     current,
     views,
     files,
+    filesWorkspace,
     use,
     setCurrentView,
     setFolderScope,
@@ -313,6 +393,37 @@ export const CommandPalette = (): JSX.Element | null => {
     });
   }, [actions, query]);
 
+  // Content matches → Search rows, appended below the instant name/prompt
+  // matches. Gated on hitsQuery === current query so we never show snippets for
+  // a stale query, and deduped against files already shown above (a file that
+  // matched by NAME shouldn't appear twice).
+  const contentActions = useMemo<Action[]>(() => {
+    const q = query.trim();
+    // Only show hits that belong to the CURRENT (workspace, query) pair.
+    if (q.length < 2 || hitsQuery !== q || hitsWorkspace !== current) return [];
+    const shownFiles = new Set(
+      filtered.filter((a) => a.category === 'File').map((a) => a.id.slice('file:'.length)),
+    );
+    const out: Action[] = [];
+    for (const hit of contentHits) {
+      if (shownFiles.has(hit.file)) continue;
+      const basename = hit.file.includes('/') ? (hit.file.split('/').pop() ?? hit.file) : hit.file;
+      const snippet = hit.matches[0]?.text;
+      out.push({
+        id: `search:${hit.file}`,
+        label: basename,
+        category: 'Search',
+        ...(hit.file.includes('/') && { hint: hit.file }),
+        ...(snippet !== undefined && snippet.length > 0 && { sub: snippet }),
+        run: () => setCurrentFile(hit.file),
+      });
+    }
+    return out;
+  }, [contentHits, hitsQuery, hitsWorkspace, current, query, filtered, setCurrentFile]);
+
+  // The full navigable list: instant matches first, then content matches.
+  const rows = useMemo(() => [...filtered, ...contentActions], [filtered, contentActions]);
+
   // Reset state each time we open. Also focus the input so the user
   // can type immediately.
   useEffect(() => {
@@ -324,12 +435,12 @@ export const CommandPalette = (): JSX.Element | null => {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  // Keep selectedIdx in bounds as the filtered list shrinks.
+  // Keep selectedIdx in bounds as the row list shrinks.
   useEffect(() => {
-    if (selectedIdx >= filtered.length) {
-      setSelectedIdx(Math.max(0, filtered.length - 1));
+    if (selectedIdx >= rows.length) {
+      setSelectedIdx(Math.max(0, rows.length - 1));
     }
-  }, [filtered, selectedIdx]);
+  }, [rows, selectedIdx]);
 
   // Scroll the selected row into view on arrow-nav.
   useEffect(() => {
@@ -349,14 +460,14 @@ export const CommandPalette = (): JSX.Element | null => {
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setMouseActive(false);
-      setSelectedIdx((i) => Math.min(filtered.length - 1, i + 1));
+      setSelectedIdx((i) => Math.min(rows.length - 1, i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setMouseActive(false);
       setSelectedIdx((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const picked = filtered[selectedIdx];
+      const picked = rows[selectedIdx];
       if (picked) {
         setOpen(false);
         // Run after close so the palette is gone before the action
@@ -402,10 +513,10 @@ export const CommandPalette = (): JSX.Element | null => {
           data-testid="command-palette-input"
         />
         <div ref={listRef} style={listStyle} role="listbox">
-          {filtered.length === 0 ? (
+          {rows.length === 0 ? (
             <div style={emptyStyle}>No matches for "{query}"</div>
           ) : (
-            filtered.map((a, idx) => (
+            rows.map((a, idx) => (
               <PaletteRow
                 key={a.id}
                 action={a}
@@ -476,17 +587,34 @@ const PaletteRow = ({
     >
       {action.category}
     </span>
-    <span
-      style={{
-        flex: 1,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        color: selected ? color.accent : color.textPrimary,
-        fontWeight: selected ? font.weight.medium : font.weight.regular,
-      }}
-    >
-      {action.label}
+    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: selected ? color.accent : color.textPrimary,
+          fontWeight: selected ? font.weight.medium : font.weight.regular,
+        }}
+      >
+        {action.label}
+      </span>
+      {action.sub && (
+        // Search rows: the matching snippet, so you can see WHY the file
+        // matched. Mono because it's a slice of file content.
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: color.textTertiary,
+            fontSize: font.size.micro,
+            fontFamily: font.mono,
+          }}
+        >
+          {action.sub}
+        </span>
+      )}
     </span>
     {action.hint && (
       <span

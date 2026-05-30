@@ -130,6 +130,20 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'view.delete':
       renderViewDelete(result as { deleted: boolean });
       return;
+    case 'search.query':
+      renderSearch(
+        result as {
+          query: string;
+          hits: {
+            file: string;
+            total: number;
+            truncated?: boolean;
+            matches: { line: number; text: string }[];
+          }[];
+          truncated?: boolean;
+        },
+      );
+      return;
     default:
       // Fallback: pretty-print whatever we got.
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -280,6 +294,43 @@ function renderBadgeList(r: { badges: Badge[] }): void {
     const prompt = b.prompt ? `  ${b.prompt.slice(0, 60)}${b.prompt.length > 60 ? '…' : ''}` : '';
     const refs = b.references.length > 0 ? ` (${b.references.length} refs)` : '';
     process.stdout.write(`${kindMark} ${b.file}${refs}${prompt}\n`);
+  }
+}
+
+// ── search ──────────────────────────────────────────────────────────────────
+
+function renderSearch(r: {
+  query: string;
+  hits: {
+    file: string;
+    total: number;
+    truncated?: boolean;
+    matches: { line: number; text: string }[];
+  }[];
+  truncated?: boolean;
+}): void {
+  // `truncated` means the search was incomplete — either more files matched
+  // than the cap, or a file larger than the read cap was only partially scanned
+  // (a match could lie beyond it). Surface it in BOTH the no-match and the
+  // has-matches case so "No matches" never hides an incomplete search.
+  if (r.hits.length === 0) {
+    const warn = r.truncated
+      ? ' (search incomplete — some large files were only partially scanned; a match may lie beyond the cap)'
+      : '';
+    process.stdout.write(`No matches for "${r.query}".${warn}\n`);
+    return;
+  }
+  const fileCount = r.hits.length;
+  process.stdout.write(
+    `${fileCount} file${fileCount === 1 ? '' : 's'} match "${r.query}"${r.truncated ? ' (results may be incomplete — capped)' : ''}\n`,
+  );
+  for (const hit of r.hits) {
+    const more = hit.total > hit.matches.length ? ` (+${hit.total - hit.matches.length} more)` : '';
+    const cut = hit.truncated ? ' [searched start of file]' : '';
+    process.stdout.write(`\n${hit.file}${more}${cut}\n`);
+    for (const m of hit.matches) {
+      process.stdout.write(`  ${m.line}: ${m.text}\n`);
+    }
   }
 }
 

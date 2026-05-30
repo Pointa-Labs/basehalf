@@ -1,7 +1,7 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` ships five modules: `workspace`, `badge`, `inbound`,
-> `focus`, `view`. The desktop app (v0) has shipped (PRs 9–16; see
+> **Status:** `bh` ships six modules: `workspace`, `badge`, `inbound`,
+> `focus`, `view`, `search`. The desktop app (v0) has shipped (PRs 9–16; see
 > [docs/roadmap.md](docs/roadmap.md)); `bh init` now installs the full
 > **agent protocol** hint pointing agents at `.bh/focus.md` +
 > `.bh/badges/<file>.json` + `.bh/index/inbound.json` (see
@@ -102,6 +102,18 @@ bh view update <id> [--name <name>] [--prompt <text>]      # rename and/or set a
 bh view addMember <id> <file> [--x <n>] [--y <n>]
 bh view removeMember <id> <file>
 bh view delete <id>                 # member badges + user files untouched
+```
+
+Full-text **content search** across the current workspace's text files — the
+"find the note where I wrote about X" retrieval leg (badge/file matching is by
+path + prompt only). Case-insensitive substring; skips binary files and tooling
+dirs (`.bh/`, `node_modules`, …); reads each file under a bounded cap. In the
+desktop it's wired into the ⌘K palette (debounced, below the name matches).
+Read-only — it walks via the already-hardened `workspace.listFiles` +
+`workspace.readFile`, so path containment is inherited, not re-implemented.
+
+```bash
+bh search <query> [--maxFiles <n>] [--maxPerFile <n>] [--json]
 ```
 
 ## Recording why decisions were made (internal team workflow)
