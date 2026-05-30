@@ -6,6 +6,11 @@
  *   - Saved views (switch active view; main-canvas option)
  *   - Files (open any file in the current workspace by basename)
  *   - Chrome actions (Add folder, New note)
+ *   - Search (files whose CONTENT matches — full-text, async + debounced)
+ *
+ * The name/prompt matches above are instant + local; the Search section is
+ * the retrieval leg that lets you find a note by a phrase you remember from
+ * INSIDE it, not just its filename. So ⌘K is "find anything."
  *
  * Arrow keys navigate, Enter executes, Esc closes, click-outside
  * closes. The whole component is a modal backdrop + a centered card
@@ -13,6 +18,7 @@
  * Select, etc.) so it doesn't read as a separate sub-product.
  */
 
+import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
@@ -50,8 +56,11 @@ interface Action {
   label: string;
   /** Optional secondary text shown on the right (path, count, etc.). */
   hint?: string;
-  /** Short category prefix (Workspace, View, File, Action) shown left. */
-  category: 'Workspace' | 'View' | 'File' | 'Action';
+  /** Short category prefix (Workspace, View, File, Action, Search) shown left. */
+  category: 'Workspace' | 'View' | 'File' | 'Action' | 'Search';
+  /** Optional dimmer second line under the label — used by Search rows to
+   *  show the matching snippet so you can see WHY a file matched. */
+  sub?: string;
   /** Optional keyboard shortcut hint (e.g. "⌘N") rendered as a small
    *  pill on the right so users discover the global shortcuts by
    *  browsing the palette. */
@@ -174,6 +183,48 @@ export const CommandPalette = (): JSX.Element | null => {
   }, [open]);
 
   const [query, setQuery] = useState('');
+  // Debounced full-text content search. Fires only once the user pauses (180ms)
+  // on a query of ≥2 chars in a real workspace — so we don't read every file's
+  // bytes on each keystroke. Stale results are guarded by the `cancelled` flag
+  // plus the `hitsQuery` gate where the rows are built.
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (current === null || q.length < 2) {
+      setContentHits([]);
+      setHitsQuery('');
+      return;
+    }
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      void (async () => {
+        try {
+          const res = (await window.bh.run('search.query', {
+            query: q,
+            maxFiles: 8,
+            maxMatchesPerFile: 1,
+          })) as SearchQueryResult;
+          if (cancelled) return;
+          setContentHits(res.hits);
+          setHitsQuery(q);
+        } catch {
+          if (!cancelled) {
+            setContentHits([]);
+            setHitsQuery('');
+          }
+        }
+      })();
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [open, query, current]);
+  // Content-search results (async, debounced). `hitsQuery` is the trimmed query
+  // these hits belong to, so a slower search returning after the user typed
+  // more never renders snippets under a mismatched query.
+  const [contentHits, setContentHits] = useState<SearchQueryResult['hits']>([]);
+  const [hitsQuery, setHitsQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Whether the user is currently steering with the mouse. Linear /
   // VS Code-style palettes ignore hover-driven selection until the mouse
@@ -313,6 +364,36 @@ export const CommandPalette = (): JSX.Element | null => {
     });
   }, [actions, query]);
 
+  // Content matches → Search rows, appended below the instant name/prompt
+  // matches. Gated on hitsQuery === current query so we never show snippets for
+  // a stale query, and deduped against files already shown above (a file that
+  // matched by NAME shouldn't appear twice).
+  const contentActions = useMemo<Action[]>(() => {
+    const q = query.trim();
+    if (q.length < 2 || hitsQuery !== q) return [];
+    const shownFiles = new Set(
+      filtered.filter((a) => a.category === 'File').map((a) => a.id.slice('file:'.length)),
+    );
+    const out: Action[] = [];
+    for (const hit of contentHits) {
+      if (shownFiles.has(hit.file)) continue;
+      const basename = hit.file.includes('/') ? (hit.file.split('/').pop() ?? hit.file) : hit.file;
+      const snippet = hit.matches[0]?.text;
+      out.push({
+        id: `search:${hit.file}`,
+        label: basename,
+        category: 'Search',
+        ...(hit.file.includes('/') && { hint: hit.file }),
+        ...(snippet !== undefined && snippet.length > 0 && { sub: snippet }),
+        run: () => setCurrentFile(hit.file),
+      });
+    }
+    return out;
+  }, [contentHits, hitsQuery, query, filtered, setCurrentFile]);
+
+  // The full navigable list: instant matches first, then content matches.
+  const rows = useMemo(() => [...filtered, ...contentActions], [filtered, contentActions]);
+
   // Reset state each time we open. Also focus the input so the user
   // can type immediately.
   useEffect(() => {
@@ -324,12 +405,12 @@ export const CommandPalette = (): JSX.Element | null => {
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  // Keep selectedIdx in bounds as the filtered list shrinks.
+  // Keep selectedIdx in bounds as the row list shrinks.
   useEffect(() => {
-    if (selectedIdx >= filtered.length) {
-      setSelectedIdx(Math.max(0, filtered.length - 1));
+    if (selectedIdx >= rows.length) {
+      setSelectedIdx(Math.max(0, rows.length - 1));
     }
-  }, [filtered, selectedIdx]);
+  }, [rows, selectedIdx]);
 
   // Scroll the selected row into view on arrow-nav.
   useEffect(() => {
@@ -349,14 +430,14 @@ export const CommandPalette = (): JSX.Element | null => {
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setMouseActive(false);
-      setSelectedIdx((i) => Math.min(filtered.length - 1, i + 1));
+      setSelectedIdx((i) => Math.min(rows.length - 1, i + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setMouseActive(false);
       setSelectedIdx((i) => Math.max(0, i - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      const picked = filtered[selectedIdx];
+      const picked = rows[selectedIdx];
       if (picked) {
         setOpen(false);
         // Run after close so the palette is gone before the action
@@ -402,10 +483,10 @@ export const CommandPalette = (): JSX.Element | null => {
           data-testid="command-palette-input"
         />
         <div ref={listRef} style={listStyle} role="listbox">
-          {filtered.length === 0 ? (
+          {rows.length === 0 ? (
             <div style={emptyStyle}>No matches for "{query}"</div>
           ) : (
-            filtered.map((a, idx) => (
+            rows.map((a, idx) => (
               <PaletteRow
                 key={a.id}
                 action={a}
@@ -476,17 +557,34 @@ const PaletteRow = ({
     >
       {action.category}
     </span>
-    <span
-      style={{
-        flex: 1,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-        color: selected ? color.accent : color.textPrimary,
-        fontWeight: selected ? font.weight.medium : font.weight.regular,
-      }}
-    >
-      {action.label}
+    <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <span
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: selected ? color.accent : color.textPrimary,
+          fontWeight: selected ? font.weight.medium : font.weight.regular,
+        }}
+      >
+        {action.label}
+      </span>
+      {action.sub && (
+        // Search rows: the matching snippet, so you can see WHY the file
+        // matched. Mono because it's a slice of file content.
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: color.textTertiary,
+            fontSize: font.size.micro,
+            fontFamily: font.mono,
+          }}
+        >
+          {action.sub}
+        </span>
+      )}
     </span>
     {action.hint && (
       <span

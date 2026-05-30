@@ -499,6 +499,31 @@ const view = defineCommand({
   },
 });
 
+// ── search ───────────────────────────────────────────────────────────────────
+
+const search = defineCommand({
+  meta: {
+    name: 'search',
+    description: 'Full-text search the current workspace (find a note by its content)',
+  },
+  args: {
+    query: { type: 'positional', description: 'Text to search for', required: true },
+    maxFiles: { type: 'string', description: 'Max files to return (default 50)' },
+    maxPerFile: { type: 'string', description: 'Max snippet lines per file (default 5)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const maxFiles = Number.parseInt(String(args.maxFiles ?? ''), 10);
+    const maxPerFile = Number.parseInt(String(args.maxPerFile ?? ''), 10);
+    const result = await core.run('search.query', {
+      query: args.query,
+      ...(Number.isFinite(maxFiles) && maxFiles > 0 && { maxFiles }),
+      ...(Number.isFinite(maxPerFile) && maxPerFile > 0 && { maxMatchesPerFile: maxPerFile }),
+    });
+    render('search.query', result, Boolean(args.json));
+  },
+});
+
 // ── init ───────────────────────────────────────────────────────────────────
 
 const init = defineCommand({
@@ -530,7 +555,7 @@ const main = defineCommand({
     version: '0.0.1',
     description: 'BaseHalf — local-first compound thinking workspace (pre-alpha CLI)',
   },
-  subCommands: { init, workspace, badge, inbound, focus, view },
+  subCommands: { init, workspace, badge, inbound, focus, view, search },
 });
 
 // citty's runMain handles --help/--version/argv parsing. We wrap to translate
