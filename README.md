@@ -15,7 +15,8 @@ work from the same materials you see.
 [![Discussions][badge-discussions]][discussions]
 [![Twitter / X][badge-twitter]][twitter]
 [![Discord][badge-discord]][discord]
-[![QQ Group][badge-qq-group]][qq-group]
+[![QQ Users][badge-qq-users]][qq-users]
+[![QQ Dev][badge-qq-developers]][qq-developers]
 
 [![Web Version][badge-website]][website]
 [![GitCGR][badge-gitcgr]][gitcgr]
@@ -219,7 +220,8 @@ Community links are intentionally lightweight while BaseHalf is early:
   updates.
 - [Twitter / X][twitter] - short public progress notes.
 - [Discord][discord] - async community chat.
-- [QQ Group][qq-group] - Chinese community entry.
+- [QQ Users][qq-users] - Chinese user community.
+- [QQ Developers][qq-developers] - Chinese developer community.
 
 If you are trying BaseHalf with Codex, Claude Code, OpenClaw, Hermes Agent, or
 another local-file agent, we would love to hear what you build.
@@ -246,17 +248,13 @@ By participating you agree to our [Code of Conduct][code-of-conduct].
 The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [trademark policy][trademark-policy].
 
-<!--
-Community link placeholders:
-Replace only the URLs below when the public community links are ready.
--->
-
 [website]: https://basehalf.com
 [gitcgr]: https://gitcgr.com/Pointa-Labs/basehalf
 [discussions]: https://github.com/Pointa-Labs/basehalf/discussions
 [twitter]: https://x.com/JustJerry121
 [discord]: https://discord.gg/55wqkN9tPg
-[qq-group]: https://qm.qq.com/q/REPLACE_ME
+[qq-users]: https://qm.qq.com/q/hNq8D39YPe
+[qq-developers]: https://qm.qq.com/q/LTidm8fKCc
 [contributing]: CONTRIBUTING.md
 [cla]: CLA.md
 [code-of-conduct]: CODE_OF_CONDUCT.md
@@ -268,5 +266,6 @@ Replace only the URLs below when the public community links are ready.
 [badge-discussions]: https://img.shields.io/badge/Discussions-GitHub-24292F?style=flat-square&logo=github&logoColor=white
 [badge-twitter]: https://img.shields.io/badge/Twitter%20%2F%20X-Follow-111111?style=flat-square&logo=x&logoColor=white
 [badge-discord]: https://img.shields.io/badge/Discord-Join-5865F2?style=flat-square&logo=discord&logoColor=white
-[badge-qq-group]: https://img.shields.io/badge/QQ%20Group-Join-12B7F5?style=flat-square
+[badge-qq-users]: https://img.shields.io/badge/QQ%20Users-Join-12B7F5?style=flat-square
+[badge-qq-developers]: https://img.shields.io/badge/QQ%20Dev-Join-12B7F5?style=flat-square
 [badge-license]: https://img.shields.io/badge/License-Apache--2.0-2F855A?style=flat-square
