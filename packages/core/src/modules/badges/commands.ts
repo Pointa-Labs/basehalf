@@ -81,6 +81,24 @@ async function reconcileFolderIntent(ctx: Parameters<Handler>[1], folder: string
   }
 }
 
+/**
+ * After a brand-NEW file badge is materialized, pull it into a folder-sourced
+ * brief when it landed under the focused folder — so "Focus this folder" keeps
+ * meaning "read all its files" as files appear mid-session. focus.reconcileNewFile
+ * no-ops unless a containing folder is the active focus source, so this is cheap.
+ * Same best-effort tolerance as reconcileFocus.
+ */
+async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Promise<void> {
+  try {
+    await ctx.run('focus.reconcileNewFile', { file });
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
+      return;
+    }
+    console.warn('[bh:badges] focus.reconcileNewFile after new-file materialize failed:', err);
+  }
+}
+
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return readBadge(ctx.fs, root, args.file, args.kind ?? 'file');
@@ -129,8 +147,14 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
     // A folder badge's prompt is the intent of a folder-sourced focus; its
     // refs/canvas don't feed the brief. Refresh only on a prompt change.
     if (patch.prompt !== undefined) await reconcileFolderIntent(ctx, args.file);
-  } else if (patch.prompt !== undefined || patch.references !== undefined) {
-    await reconcileFocus(ctx, args.file);
+  } else {
+    if (patch.prompt !== undefined || patch.references !== undefined) {
+      await reconcileFocus(ctx, args.file);
+    }
+    // A brand-NEW file may have appeared under a focused folder — pull it into
+    // the brief. Gated on creation so the idempotent re-materialize on re-open
+    // (badges already exist) stays off the focus.md path.
+    if (!existing) await reconcileNewFile(ctx, args.file);
   }
   return next;
 };
@@ -359,17 +383,19 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // 4. Update focus.md if `from` is in the active list. focus.renameActiveFile
-  // remaps the path in place UNDER the focus lock, preserving BOTH the turn
-  // intent and the `# source-folder:` provenance — a bare focus.set({files})
-  // would drop the intent block AND strip provenance (so editing the source
-  // folder's prompt would stop refreshing the brief after a rename).
+  // 4. Update focus.md if `from` is focused. A FILE rename remaps the exact
+  // active path; a FOLDER rename remaps every active CHILD path under it AND
+  // re-stamps the `# source-folder:` provenance (else editing the renamed
+  // folder's prompt would stop refreshing the brief). Both preserve the turn
+  // intent + provenance UNDER the focus lock — a bare focus.set({files}) would
+  // drop the intent block AND strip provenance.
   let focusUpdated = false;
   try {
-    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(
-      'focus.renameActiveFile',
-      { from: args.from, to: args.to },
-    );
+    const cmd = kind === 'folder' ? 'focus.renameActiveFolder' : 'focus.renameActiveFile';
+    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(cmd, {
+      from: args.from,
+      to: args.to,
+    });
     focusUpdated = res.renamed;
   } catch (err) {
     // Best-effort, exactly like reconcileFocus for badge.set/addRef/removeRef:

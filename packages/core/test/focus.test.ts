@@ -459,6 +459,52 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
     expect(Object.keys(got)).not.toContain('source');
     expect(Object.keys(got)).not.toContain('sourceView');
   });
+
+  // A folder focus must keep meaning "read ALL its files" as files appear.
+  it('a NEW file under a focused folder joins the brief automatically', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
+    // The watcher materializes a new file as a kind-only badge.set.
+    await ctx.core.run('badge.set', { file: 'notes/d.md' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- notes/d.md'); // pulled in, not stale
+    expect(md).toContain('# source-folder: notes'); // provenance kept
+    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
+  });
+
+  it('a new file OUTSIDE the focused folder is left out of the brief', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.set', { file: 'other/d.md' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('other/d.md');
+  });
+
+  it('a new file does NOT touch a files-sourced (non-folder) focus', async () => {
+    await ctx.core.run('focus.set', { files: ['notes/a.md'] });
+    await ctx.core.run('badge.set', { file: 'notes/d.md' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
+  });
+
+  // Renaming a focused folder must keep the brief live-linked to it.
+  it('renaming a focused folder remaps active child paths AND the source-folder provenance', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- docs/a.md');
+    expect(md).toContain('- docs/b.md');
+    expect(md).not.toContain('notes/a.md');
+    expect(md).toContain('# source-folder: docs'); // re-stamped to the new name
+    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
+  });
+
+  it('after a folder rename, editing the renamed folder prompt still refreshes the brief', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
+    await ctx.core.run('badge.set', {
+      file: 'docs',
+      patch: { kind: 'folder', prompt: 'renamed-folder intent' },
+    });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: renamed-folder intent');
+  });
 });
 
 describe('focus.setIntent (author the turn intent without touching the active set)', () => {

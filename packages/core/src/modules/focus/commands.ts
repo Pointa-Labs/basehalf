@@ -16,10 +16,14 @@ import type {
   FocusInitArgs,
   FocusInitResult,
   FocusItem,
+  FocusReconcileNewFileArgs,
+  FocusReconcileNewFileResult,
   FocusRefreshFolderIntentArgs,
   FocusRefreshFolderIntentResult,
   FocusRenameActiveFileArgs,
   FocusRenameActiveFileResult,
+  FocusRenameActiveFolderArgs,
+  FocusRenameActiveFolderResult,
   FocusResyncArgs,
   FocusResyncResult,
   FocusSetArgs,
@@ -199,6 +203,64 @@ export const renameActiveFile: Handler<
 };
 
 /**
+ * Pull a newly-appeared file into a FOLDER-sourced brief. A folder focus's
+ * active list is derived once at focus.set({folder}); a file added later would
+ * stay out of the brief — breaking "Focus this folder = read all its files" —
+ * until a manual refocus. Re-derives the folder's files (so the new one joins)
+ * ONLY when focus.md is folder-sourced and `file` is under that folder and not
+ * already listed. Intent + provenance preserved. Atomic under the focus lock.
+ */
+export const reconcileNewFile: Handler<
+  FocusReconcileNewFileArgs,
+  FocusReconcileNewFileResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
+    if (source?.kind !== 'folder') return { added: false };
+    const prefix = source.id.endsWith('/') ? source.id : `${source.id}/`;
+    if (!args.file.startsWith(prefix) || active.includes(args.file)) return { added: false };
+    const files = await filesUnderFolder(ctx, source.id);
+    const items = await assembleItems(ctx, files);
+    await writeFocus(ctx.fs, root, items, intent, source);
+    return { added: true };
+  });
+};
+
+/**
+ * Remap a renamed FOLDER across the active brief: every active child path under
+ * `from/` shifts to `to/`, and a `# source-folder:` provenance equal to `from`
+ * re-stamps to `to`. Without this, renaming a focused folder leaves focus.md
+ * pointing at the old name — so editing the (now-renamed) folder's prompt stops
+ * refreshing the brief, and the active paths dangle at the vanished location.
+ * Atomic under the focus lock; no-op when nothing references `from`.
+ */
+export const renameActiveFolder: Handler<
+  FocusRenameActiveFolderArgs,
+  FocusRenameActiveFolderResult
+> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
+    const fromPrefix = args.from.endsWith('/') ? args.from : `${args.from}/`;
+    const toPrefix = args.to.endsWith('/') ? args.to : `${args.to}/`;
+    const nextActive = active.map((f) =>
+      f.startsWith(fromPrefix) ? toPrefix + f.slice(fromPrefix.length) : f,
+    );
+    const nextSource: FocusSource | undefined =
+      source?.kind === 'folder' && source.id === args.from
+        ? { kind: 'folder', id: args.to }
+        : source;
+    if (!nextActive.some((f, i) => f !== active[i]) && nextSource === source) {
+      return { renamed: false };
+    }
+    const items = await assembleItems(ctx, nextActive);
+    await writeFocus(ctx.fs, root, items, intent, nextSource);
+    return { renamed: true };
+  });
+};
+
+/**
  * Add (if absent) or remove (if present) one file from the active set,
  * PRESERVING the intent + `# source-folder:` provenance. Shift+click on the canvas
  * refines an existing focus set; routing that through focus.set({files}) would
@@ -339,6 +401,8 @@ export function commands(): ReadonlyArray<
     ['focus.brief', brief as unknown as Handler<never, unknown>],
     ['focus.refreshFolderIntent', refreshFolderIntent as unknown as Handler<never, unknown>],
     ['focus.renameActiveFile', renameActiveFile as unknown as Handler<never, unknown>],
+    ['focus.renameActiveFolder', renameActiveFolder as unknown as Handler<never, unknown>],
+    ['focus.reconcileNewFile', reconcileNewFile as unknown as Handler<never, unknown>],
     ['focus.toggleActiveFile', toggleActiveFile as unknown as Handler<never, unknown>],
     ['focus.setIntent', setIntent as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],

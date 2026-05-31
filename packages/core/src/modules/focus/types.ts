@@ -145,3 +145,29 @@ export interface FocusResyncResult {
    *  active list was empty or didn't include `file`. */
   readonly resynced: boolean;
 }
+
+export interface FocusReconcileNewFileArgs {
+  /** A newly-materialized file (workspace-relative). When the active focus is
+   *  folder-SOURCED and this file is under that folder, it's pulled into the
+   *  brief (so "Focus this folder = read all its files" stays true for files
+   *  added after focusing). No-op otherwise. */
+  readonly file: string;
+}
+export interface FocusReconcileNewFileResult {
+  /** True when the file was under the active focus's source folder and added. */
+  readonly added: boolean;
+}
+
+export interface FocusRenameActiveFolderArgs {
+  /** Old folder path (workspace-relative) being renamed. */
+  readonly from: string;
+  /** New folder path. */
+  readonly to: string;
+}
+export interface FocusRenameActiveFolderResult {
+  /** True when focus.md was rewritten — either active child paths under `from`
+   *  were remapped to `to`, or the `# source-folder:` provenance pointed at
+   *  `from` and was re-stamped to `to` (so the folder→brief refresh link
+   *  survives the rename). False when nothing referenced `from`. */
+  readonly renamed: boolean;
+}
