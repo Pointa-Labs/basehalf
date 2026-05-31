@@ -7,12 +7,15 @@
  * over"). It closes the loop the whole product is built around: click badges →
  * SEE the brief assemble → copy / let your in-repo agent read it.
  *
- * Read-only and self-contained: it re-reads the EXISTING `focus.brief` core
- * command each time it opens (so badge/focus edits are reflected) and renders the
- * EXISTING cleaned brief — no new core command, no write path, no `.bh/` writes.
+ * Mostly a read surface: it re-reads `focus.brief` each time it opens (so
+ * badge/focus edits are reflected) and renders the cleaned brief. The ONE thing
+ * it lets you author is the turn `intent:` — the user's question, the only brief
+ * line you can't set by clicking badges — via `focus.setIntent` (which preserves
+ * the active set). So the panel is "see what your agent reads AND set your ask",
+ * in one place.
  */
 
-import { type JSX, useEffect, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space } from '../design.js';
 import { type BriefDisplay, briefForClipboard, parseBriefForDisplay } from '../lib/focusBrief.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
@@ -40,26 +43,48 @@ export const BriefPreview = ({
   const [brief, setBrief] = useState<BriefDisplay | null>(null);
   const [raw, setRaw] = useState('');
   const [error, setError] = useState('');
+  // The editable turn-intent. Seeded from the loaded brief; the user types their
+  // question here so the most load-bearing brief line is theirs, not empty.
+  const [intentDraft, setIntentDraft] = useState('');
+  const savedIntentRef = useRef(''); // last value we persisted (skip no-op writes)
+
+  const load = useCallback(async (): Promise<void> => {
+    try {
+      const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
+      setRaw(briefForClipboard(text));
+      const parsed = parseBriefForDisplay(text);
+      setBrief(parsed);
+      const current = parsed.intent ?? '';
+      savedIntentRef.current = current;
+      setIntentDraft(current);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
     setError('');
+    void load();
+  }, [open, load]);
+
+  // Persist the typed intent (focus.setIntent preserves the active set + clears
+  // view provenance) when it actually changed, then refresh so the brief shows
+  // the saved line. Fires on blur / Enter so it survives the popover closing.
+  const saveIntent = useCallback((): void => {
+    const next = intentDraft.trim();
+    if (next === savedIntentRef.current.trim()) return; // no change → no write
+    savedIntentRef.current = next;
     void (async () => {
       try {
-        const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
-        if (cancelled) return;
-        setRaw(briefForClipboard(text));
-        setBrief(parseBriefForDisplay(text));
+        await window.bh.run('focus.setIntent', { intent: next });
+        await load();
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        setError(err instanceof Error ? err.message : String(err));
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  }, [intentDraft, load]);
 
   if (!open) return null;
 
@@ -127,29 +152,51 @@ export const BriefPreview = ({
               gap: space[3],
             }}
           >
-            {/* Intent — the turn's question. The most load-bearing line; show it
-                first, or nudge if it's empty. */}
-            {brief.intent ? (
-              <div
+            {/* Intent — the turn's QUESTION, and the only line the user can't set
+                by clicking badges. Editable so the agent gets context AND the
+                ask in one place ("右屏点哪个, 左屏 agent 立刻懂"). Saves on
+                blur / Enter via focus.setIntent. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: space[1] }}>
+              <span
                 style={{
+                  color: color.accent,
+                  fontWeight: font.weight.semibold,
+                  fontSize: 11,
+                  letterSpacing: 0.3,
+                  textTransform: 'uppercase',
+                }}
+              >
+                Intent
+              </span>
+              <textarea
+                value={intentDraft}
+                onChange={(e) => setIntentDraft(e.target.value)}
+                onBlur={saveIntent}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur(); // commit via onBlur → saveIntent
+                  }
+                }}
+                rows={2}
+                placeholder="What do you want to ask this turn? (optional)"
+                data-testid="brief-intent-input"
+                style={{
+                  width: '100%',
+                  resize: 'none',
+                  boxSizing: 'border-box',
                   background: color.accentSofter,
                   border: `1px solid ${color.accentSoft}`,
                   borderRadius: radius.md,
                   padding: `${space[2]}px ${space[3]}px`,
                   color: color.textPrimary,
+                  fontFamily: font.sans,
+                  fontSize: font.size.caption,
                   lineHeight: 1.5,
+                  outline: 'none',
                 }}
-              >
-                <span style={{ color: color.accent, fontWeight: font.weight.semibold }}>
-                  Intent
-                </span>{' '}
-                {brief.intent}
-              </div>
-            ) : (
-              <div style={{ color: color.textTertiary, fontStyle: 'italic' }}>
-                No turn intent set.
-              </div>
-            )}
+              />
+            </div>
 
             {brief.items.length === 0 ? (
               <div style={{ color: color.textTertiary }}>No files in focus.</div>

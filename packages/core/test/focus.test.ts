@@ -431,3 +431,40 @@ describe('focus source-view provenance', () => {
     expect(md).toContain('intent: vp');
   });
 });
+
+describe('focus.setIntent (author the turn intent without touching the active set)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('writes the intent line and preserves the active set', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    const res = await ctx.core.run('focus.setIntent', { intent: 'compare the two approaches' });
+    expect(res.intent).toBe('compare the two approaches');
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('intent: compare the two approaches');
+    expect(md).toContain('- a.md');
+    expect(md).toContain('- b.md'); // active untouched
+  });
+
+  it('an empty / whitespace intent clears the line (returns null)', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'], intent: 'old question' });
+    const res = await ctx.core.run('focus.setIntent', { intent: '   ' });
+    expect(res.intent).toBeNull();
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('intent:');
+    expect(md).toContain('- a.md'); // still focused, just no intent
+  });
+
+  it('a manually-typed intent CLEARS view provenance (no longer view-derived)', async () => {
+    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'vp' });
+    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('focus.set', { viewId: 'v' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
+    await ctx.core.run('focus.setIntent', { intent: 'my own question' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('intent: my own question');
+    expect(md).not.toContain('# source-view'); // provenance dropped on manual override
+  });
+});

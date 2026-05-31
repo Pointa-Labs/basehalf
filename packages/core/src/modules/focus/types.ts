@@ -93,6 +93,19 @@ export interface FocusToggleActiveFileResult {
   readonly active: readonly string[];
 }
 
+export interface FocusSetIntentArgs {
+  /** The turn intent — "what I'm trying to do/ask this turn" — to write into the
+   *  `intent:` line. Empty/whitespace clears it. The active set + per-file
+   *  prompts/refs are PRESERVED; a manually-typed intent is the user's own, so
+   *  it CLEARS any `# source-view:` provenance (the intent is no longer
+   *  view-derived — editing that view's prompt should no longer overwrite it). */
+  readonly intent?: string;
+}
+export interface FocusSetIntentResult {
+  /** The intent after the write (null when cleared). */
+  readonly intent: string | null;
+}
+
 export type FocusBriefArgs = Record<string, never>;
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
