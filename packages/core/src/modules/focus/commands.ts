@@ -25,6 +25,8 @@ import type {
   FocusResyncArgs,
   FocusResyncResult,
   FocusSetArgs,
+  FocusSetIntentArgs,
+  FocusSetIntentResult,
   FocusSetResult,
   FocusToggleActiveFileArgs,
   FocusToggleActiveFileResult,
@@ -229,6 +231,40 @@ export const toggleActiveFile: Handler<
 };
 
 /**
+ * Set (or clear) the turn intent — the user's question for this focus — WITHOUT
+ * touching the active set or its per-file prompts/refs. The dominant ad-hoc flow
+ * (click a few badges, then ask) had no way to author the most load-bearing line
+ * of the brief; this is it. A manually-typed intent is the user's OWN, so it
+ * CLEARS the `# source-view:` provenance (the intent is no longer view-derived —
+ * editing that view's prompt must not overwrite the user's question). An
+ * empty/whitespace intent clears the line. Atomic under the focus lock; reads the
+ * authoritative active set from focus.md (never trusts a caller-supplied list).
+ */
+export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent: currentIntent } = await readFocusBrief(ctx.fs, root);
+    // Focus changed underneath this edit (e.g. the editor was dismissed by a
+    // click that selected another file or cleared focus) — don't write the old
+    // question into the new focus; leave it untouched.
+    if (
+      args.expectedActive !== undefined &&
+      !(
+        args.expectedActive.length === active.length &&
+        args.expectedActive.every((f, i) => f === active[i])
+      )
+    ) {
+      return { intent: currentIntent ?? null, skipped: true };
+    }
+    const items = await assembleItems(ctx, active);
+    const trimmed = args.intent?.trim();
+    const intent = trimmed ? trimmed : undefined;
+    await writeFocus(ctx.fs, root, items, intent); // manual intent → no sourceView
+    return { intent: intent ?? null };
+  });
+};
+
+/**
  * Re-render focus.md from its CURRENT active list with FRESH badge data,
  * preserving the `intent:` line. This is the core reconcile the renderer used
  * to fake in `resyncFocusForFile`: an in-app / CLI / agent edit to a badge's
@@ -312,6 +348,7 @@ export function commands(): ReadonlyArray<
     ['focus.clearProvenanceIfView', clearProvenanceIfView as unknown as Handler<never, unknown>],
     ['focus.renameActiveFile', renameActiveFile as unknown as Handler<never, unknown>],
     ['focus.toggleActiveFile', toggleActiveFile as unknown as Handler<never, unknown>],
+    ['focus.setIntent', setIntent as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],
