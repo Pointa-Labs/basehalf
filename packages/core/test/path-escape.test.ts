@@ -167,19 +167,6 @@ describe('inbound store', () => {
   });
 });
 
-describe('views store', () => {
-  it('rejects an embedded traversal id (no symlink needed) before any fs op', async () => {
-    await expect(core.run('view.get', { id: '../../../etc/passwd' })).rejects.toThrow();
-  });
-
-  it('refuses to read through a symlinked view JSON pointing outside', async () => {
-    await mkdir(join(ws, '.bh/views'), { recursive: true });
-    await writeFile(join(outside, 'evil.json'), JSON.stringify({ id: 'evil', members: [] }));
-    await symlink(join(outside, 'evil.json'), join(ws, '.bh/views/evil.json'));
-    await expect(core.run('view.get', { id: 'evil' })).rejects.toThrow(/outside the workspace/);
-  });
-});
-
 describe('materialize walk', () => {
   it('does NOT materialize badges for files under a symlinked directory to outside', async () => {
     await writeFile(join(outside, 'secret.md'), 'SECRET');
@@ -305,27 +292,11 @@ describe('workspace.listFiles metadata oracle', () => {
   });
 });
 
-describe('listViews symlink cycle (DoS)', () => {
-  it('view.list does not throw on a mutual symlink cycle in .bh/views/', async () => {
-    await mkdir(join(ws, '.bh/views'), { recursive: true });
-    await symlink(join(ws, '.bh/views/b.json'), join(ws, '.bh/views/a.json')); // a -> b
-    await symlink(join(ws, '.bh/views/a.json'), join(ws, '.bh/views/b.json')); // b -> a (ELOOP)
-    await expect(core.run('view.list', {})).resolves.toBeDefined();
-  });
-});
-
 describe('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCLE', () => {
   it('badge.list returns gracefully (no PathEscape throw) when .bh/badges is a symlink cycle', async () => {
     await mkdir(join(ws, '.bh'), { recursive: true });
     await symlink(join(ws, '.bh/b2'), join(ws, '.bh/badges')); // badges -> b2
     await symlink(join(ws, '.bh/badges'), join(ws, '.bh/b2')); // b2 -> badges (ELOOP)
     await expect(core.run('badge.list', {})).resolves.toBeDefined();
-  });
-
-  it('view.list returns gracefully when .bh/views is a symlink cycle', async () => {
-    await mkdir(join(ws, '.bh'), { recursive: true });
-    await symlink(join(ws, '.bh/v2'), join(ws, '.bh/views')); // views -> v2
-    await symlink(join(ws, '.bh/views'), join(ws, '.bh/v2')); // v2 -> views (ELOOP)
-    await expect(core.run('view.list', {})).resolves.toBeDefined();
   });
 });

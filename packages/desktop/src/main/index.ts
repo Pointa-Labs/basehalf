@@ -1,12 +1,13 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
-import { BrowserWindow, app, screen } from 'electron';
+import { BrowserWindow, Menu, app, screen } from 'electron';
 import {
   registerBhRunHandler,
   registerShellOpenHandler,
   registerWorkspacePickHandler,
 } from './ipc.js';
+import { buildAppMenu, installContextMenu } from './menu.js';
 import {
   clampToDisplays,
   debounce,
@@ -63,6 +64,10 @@ async function createWindow(): Promise<void> {
 
   if (state.isMaximized) mainWindow.maximize();
 
+  // Native right-click menu (Open Folder… everywhere; clipboard roles in the
+  // block editor). Per-window because it binds to this webContents.
+  installContextMenu(mainWindow);
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -97,6 +102,9 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) while
+  // keeping the standard Edit/View/Window roles the editor relies on.
+  Menu.setApplicationMenu(buildAppMenu());
   void createWindow();
 
   app.on('activate', () => {

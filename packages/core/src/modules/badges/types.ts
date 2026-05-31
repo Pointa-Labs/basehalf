@@ -105,8 +105,6 @@ export interface BadgeRenameResult {
   readonly updatedRefs: readonly string[];
   /** True if focus.md had `from` in its active list and was rewritten. */
   readonly focusUpdated: boolean;
-  /** View IDs whose member list included `from` and were updated. */
-  readonly updatedViews: readonly string[];
 }
 
 /**

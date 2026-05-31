@@ -1,11 +1,10 @@
 /**
  * Shared dialog-driven action flows.
  *
- * The "new note" + "new view" prompts are reachable from TWO places now:
- * the TopBar buttons and the global keyboard shortcuts (Cmd+N / Cmd+Shift+N
- * registered in App.tsx). Centralising them here means the dialog copy,
- * validation, and post-prompt store call all stay in one spot — clicking
- * the button and typing the shortcut produce the same UX.
+ * The "new note" prompt is reachable from TWO places: the TopBar button and
+ * the global Cmd+N shortcut (registered in App.tsx). Centralising it here means
+ * the dialog copy, validation, and post-prompt store call all stay in one spot
+ * — clicking the button and typing the shortcut produce the same UX.
  */
 
 import { prompt } from '../components/Dialog.js';
@@ -55,18 +54,4 @@ export async function promptForNewNote(): Promise<void> {
   let name = raw.trim();
   if (!/\.[a-z0-9]+$/i.test(name)) name += '.md';
   void state.createNote(name);
-}
-
-/** Prompt for a name and create a new saved view. */
-export async function promptForNewView(): Promise<void> {
-  const state = useWorkspaceStore.getState();
-  if (state.current === null) return;
-  const name = await prompt({
-    title: 'Create a saved view',
-    body: 'Saved views are named groupings of badges across folders — references, not copies.',
-    label: 'Name',
-    placeholder: 'e.g. Chapter 3 reading list',
-    validate: (v) => (v.trim().length === 0 ? 'A name is required.' : null),
-  });
-  if (name?.trim()) void state.createView(name.trim());
 }

@@ -8,7 +8,7 @@ import { FilePreview } from './components/FilePreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TopBar } from './components/TopBar.js';
 import { color, font, motion, radius, space } from './design.js';
-import { promptForNewNote, promptForNewView } from './lib/actions.js';
+import { promptForNewNote } from './lib/actions.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
 export const App = (): JSX.Element => {
@@ -47,9 +47,8 @@ export const App = (): JSX.Element => {
   }, []);
 
   // Global keyboard shortcuts:
-  //  - Cmd/Ctrl+K        — open the command palette
-  //  - Cmd/Ctrl+N        — new note prompt (no-op without a current workspace)
-  //  - Cmd/Ctrl+Shift+N  — new saved view prompt (same gating)
+  //  - Cmd/Ctrl+K  — open the command palette
+  //  - Cmd/Ctrl+N  — new note prompt (no-op without a current workspace)
   // Esc / click-outside close the palette via the palette itself.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -61,13 +60,20 @@ export const App = (): JSX.Element => {
       }
       if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
-        if (e.shiftKey) void promptForNewView();
-        else void promptForNewNote();
+        void promptForNewNote();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // File ▸ Open Folder… (⌘O) and the right-click "Open Folder…" both fire this
+  // from the main process. Route it through the same pickAndAdd the in-app
+  // flows use so the folder-open UX is identical everywhere (one door).
+  useEffect(
+    () => window.bh.onMenuOpenFolder(() => void useWorkspaceStore.getState().pickAndAdd()),
+    [],
+  );
 
   return (
     <div

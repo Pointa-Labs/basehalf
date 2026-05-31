@@ -3,7 +3,6 @@
  *
  * Cmd/Ctrl+K opens; users type to filter across:
  *   - Workspaces (switch active workspace)
- *   - Saved views (switch active view; main-canvas option)
  *   - Files (open any file in the current workspace by basename)
  *   - Chrome actions (Add folder, New note)
  *   - Search (files whose CONTENT matches — full-text, async + debounced)
@@ -22,12 +21,7 @@ import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import {
-  createDemoAtDefault,
-  promptForNewNote,
-  promptForNewView,
-  tildifyPath,
-} from '../lib/actions.js';
+import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actions.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -57,8 +51,8 @@ interface Action {
   label: string;
   /** Optional secondary text shown on the right (path, count, etc.). */
   hint?: string;
-  /** Short category prefix (Workspace, View, File, Action, Search) shown left. */
-  category: 'Workspace' | 'View' | 'File' | 'Action' | 'Search';
+  /** Short category prefix (Workspace, File, Action, Search) shown left. */
+  category: 'Workspace' | 'File' | 'Action' | 'Search';
   /** Optional dimmer second line under the label — used by Search rows to
    *  show the matching snippet so you can see WHY a file matched. */
   sub?: string;
@@ -77,7 +71,6 @@ interface Action {
 // Mac uses ⌘ / ⇧; everything else uses Ctrl / Shift to match what
 // App.tsx actually listens for.
 const MOD = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
-const SHIFT = navigator.platform.includes('Mac') ? '⇧' : 'Shift+';
 
 const backdropStyle: CSSProperties = {
   position: 'fixed',
@@ -146,10 +139,7 @@ export const CommandPalette = (): JSX.Element | null => {
 
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const current = useWorkspaceStore((s) => s.current);
-  const views = useWorkspaceStore((s) => s.views);
   const use = useWorkspaceStore((s) => s.use);
-  const setCurrentView = useWorkspaceStore((s) => s.setCurrentView);
-  const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
 
@@ -277,31 +267,6 @@ export const CommandPalette = (): JSX.Element | null => {
       });
     }
 
-    // Views — switch.
-    if (current !== null) {
-      out.push({
-        id: 'view:__main__',
-        label: 'Main canvas',
-        category: 'View',
-        run: () => {
-          setCurrentView(null);
-          setFolderScope(null);
-        },
-      });
-      for (const v of views) {
-        out.push({
-          id: `view:${v.id}`,
-          label: v.name,
-          hint: `${v.members.length} badge${v.members.length === 1 ? '' : 's'}`,
-          category: 'View',
-          run: () => {
-            setCurrentView(v.id);
-            setFolderScope(null);
-          },
-        });
-      }
-    }
-
     // Files — open in preview. Only when `files` was fetched for the CURRENTLY
     // active workspace: on a workspace switch with the palette open, `current`
     // flips a commit before the re-fetch effect runs, and emitting rows from the
@@ -359,28 +324,10 @@ export const CommandPalette = (): JSX.Element | null => {
         shortcut: `${MOD}N`,
         run: () => void promptForNewNote(),
       });
-      out.push({
-        id: 'action:new-view',
-        label: 'New view…',
-        category: 'Action',
-        shortcut: `${MOD}${SHIFT}N`,
-        run: () => void promptForNewView(),
-      });
     }
 
     return out;
-  }, [
-    workspaces,
-    current,
-    views,
-    files,
-    filesWorkspace,
-    use,
-    setCurrentView,
-    setFolderScope,
-    setCurrentFile,
-    pickAndAdd,
-  ]);
+  }, [workspaces, current, files, filesWorkspace, use, setCurrentFile, pickAndAdd]);
 
   // Filter actions by query (case-insensitive substring match on label,
   // hint, or category). Keeps it dead simple — no fuzzy distance yet.

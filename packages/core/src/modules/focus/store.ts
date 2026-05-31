@@ -6,7 +6,7 @@ import {
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
-import type { FocusItem } from './types.js';
+import type { FocusItem, FocusSource } from './types.js';
 
 const FOCUS_FILE = '.bh/focus.md';
 
@@ -56,7 +56,7 @@ export function assertFocusablePath(path: string): void {
 export function renderFocus(
   active: readonly (FocusItem | string)[],
   intent?: string,
-  sourceView?: string,
+  source?: FocusSource,
 ): string {
   const items: FocusItem[] = active.map((a) => (typeof a === 'string' ? { file: a } : a));
   const lines: string[] = ['# bh focus', ''];
@@ -86,12 +86,12 @@ export function renderFocus(
     }
   }
   lines.push('');
-  // bh-internal PROVENANCE (a `#` comment the agent ignores): which saved view
-  // sourced this focus, so editing that view's prompt can refresh the `intent:`
-  // by exact identity — never by guessing from members/text. Written only when
-  // the intent is view-DERIVED (no manual override); cleared otherwise.
-  const sv = sourceView ? oneLine(sourceView) : '';
-  if (sv) lines.push(`# source-view: ${sv}`);
+  // bh-internal PROVENANCE (a `#` comment the agent ignores): which folder
+  // sourced this focus, so editing that folder's prompt can refresh the
+  // `intent:` by exact identity — never by guessing from members/text. Written
+  // only when the intent is folder-DERIVED (no manual override).
+  const sid = source ? oneLine(source.id) : '';
+  if (sid) lines.push(`# source-folder: ${sid}`);
   lines.push(TEMPLATE_FOOTER);
   return lines.join('\n');
 }
@@ -153,35 +153,37 @@ export function parseIntent(content: string): string | undefined {
 }
 
 /**
- * Parse the bh-internal `# source-view: <id>` provenance comment (the saved view
- * this focus was published from). Used so editing that view's prompt can refresh
- * the brief's intent by exact identity. Returns undefined when absent (a
- * files-sourced focus, or a view focus with a manual intent override).
+ * Parse the bh-internal `# source-folder: <path>` provenance comment (the folder
+ * this focus was published from). Used so editing that folder's prompt can
+ * refresh the brief's intent by exact identity. Returns undefined when absent (a
+ * files-sourced focus, or a manual intent override).
  */
-export function parseSourceView(content: string): string | undefined {
+export function parseSource(content: string): FocusSource | undefined {
   for (const line of content.split(/\r?\n/)) {
-    const m = /^#\s*source-view:\s?(.*)$/.exec(line.trim());
-    if (m?.[1] && m[1].trim() !== '') return m[1].trim();
+    const m = /^#\s*source-folder:\s?(.*)$/.exec(line.trim());
+    if (m?.[1] && m[1].trim() !== '') {
+      return { kind: 'folder', id: m[1].trim() };
+    }
   }
   return undefined;
 }
 
-/** Read focus.md as the active list + intent + source-view provenance, in one read. */
+/** Read focus.md as the active list + intent + source provenance, in one read. */
 export async function readFocusBrief(
   fs: FsLike,
   workspaceRoot: string,
-): Promise<{ active: readonly string[]; intent?: string; sourceView?: string }> {
+): Promise<{ active: readonly string[]; intent?: string; source?: FocusSource }> {
   const raw = await readMaybeNoFollow(
     fs,
     await assertReadContained(fs, workspaceRoot, focusPath(workspaceRoot)),
   );
   if (raw === null) return { active: [] };
   const intent = parseIntent(raw);
-  const sourceView = parseSourceView(raw);
+  const source = parseSource(raw);
   return {
     active: parseFocus(raw),
     ...(intent !== undefined && { intent }),
-    ...(sourceView !== undefined && { sourceView }),
+    ...(source !== undefined && { source }),
   };
 }
 
@@ -190,10 +192,10 @@ export async function writeFocus(
   workspaceRoot: string,
   active: readonly (FocusItem | string)[],
   intent?: string,
-  sourceView?: string,
+  source?: FocusSource,
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, sourceView));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source));
 }

@@ -16,6 +16,9 @@ interface Window {
     /** OS home directory (frozen at preload). Used to suggest defaults
      *  like `~/BaseHalf-Demo` for the demo workspace generator. */
     homeDir: string;
+    /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
+     *  main). Returns an unsubscribe function. */
+    onMenuOpenFolder(handler: () => void): () => void;
     /** Subscribe to file events from the core watcher (relayed by main).
      * Returns an unsubscribe function. */
     onFileEvent(
