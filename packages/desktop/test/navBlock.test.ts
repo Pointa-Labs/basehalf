@@ -109,6 +109,15 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().currentFile).toBe('b.md'); // not blocked, no flush
   });
 
+  // The write-failed escape hatch routes through bypassFlush-close: even when the
+  // gatekeeper would block (a persistently-unwritable file), Discard-&-close must
+  // force the editor shut so the user is never trapped.
+  it('setCurrentFile(null, bypassFlush) force-closes past a blocking gate', () => {
+    store.setState({ currentFile: 'a.md', flushEditor: async () => false });
+    store.getState().setCurrentFile(null, null, { bypassFlush: true });
+    expect(store.getState().currentFile).toBe(null); // escaped
+  });
+
   // B — the refresh()-based workspace actions also honor the gate (each returns
   // before its window.bh.run, so a `false` flush blocks with busy reset).
   for (const action of ['remove', 'renameWorkspace', 'createDemo'] as const) {

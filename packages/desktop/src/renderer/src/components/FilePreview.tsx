@@ -984,6 +984,7 @@ const AUTOSAVE_MS = 400;
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote({ schema: bhSchema });
   const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -996,6 +997,14 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // the latest state) can refuse to write behind the conflict banner. Set
   // alongside every setReloadPrompt so it's accurate the instant flush checks.
   const reloadPromptRef = useRef(false);
+  /** Write-failed banner: the LAST flush attempted a disk write that FAILED
+   *  (read-only folder, ENOSPC, vanished path…), so the edits are still
+   *  unpersisted. Blocks navigation (the gatekeeper reads the ref) so a
+   *  switch/close can't silently drop them — paired with an explicit
+   *  Retry / Discard-&-close escape so the user is never trapped. `writeFailed`
+   *  drives the banner; `writeFailedRef` is the synchronous truth flush reads. */
+  const [writeFailed, setWriteFailed] = useState(false);
+  const writeFailedRef = useRef(false);
   const [loadKey, setLoadKey] = useState(0);
   const initialLoad = useRef(true);
   // What we believe is on disk — lets us ignore our own write echoes from the
@@ -1076,6 +1085,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       // switching files — must never rewrite the file, even when the projection
       // would normalize a multi-block region it can't index verbatim.
       if (!pendingRef.current) {
+        writeFailedRef.current = false; // nothing pending → nothing unpersisted
+        setWriteFailed(false);
         setSaving(false);
         return;
       }
@@ -1094,6 +1105,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       }
       if (md === lastDiskRef.current) {
         pendingRef.current = false;
+        writeFailedRef.current = false; // content matches disk → nothing unpersisted
+        setWriteFailed(false);
         setSaving(false);
         return;
       }
@@ -1125,7 +1138,14 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         // nothing to rebuild here.
         lastDiskRef.current = md;
         pendingRef.current = false;
+        writeFailedRef.current = false;
+        setWriteFailed(false);
       } catch (err) {
+        // The write didn't land — edits remain in memory only. Flag it so the
+        // navigation gatekeeper blocks a switch/close that would drop them, and
+        // the write-failed banner offers Retry / Discard-&-close.
+        writeFailedRef.current = true;
+        setWriteFailed(true);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setSaving(false);
@@ -1154,7 +1174,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     setFlushEditor(async () => {
       if (reloadPromptRef.current) return false;
       await flushRef.current(false);
-      return !reloadPromptRef.current;
+      // Block if a conflict surfaced mid-flush OR the write failed (edits still
+      // unpersisted) — either way leaving now would lose data. The write-failed
+      // banner gives an explicit Discard-&-close escape so this never traps.
+      return !reloadPromptRef.current && !writeFailedRef.current;
     });
     return () => setFlushEditor(null);
   }, [setFlushEditor]);
@@ -1243,6 +1266,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     reloadPromptRef.current = false;
     setReloadPrompt(false);
     pendingRef.current = false;
+    writeFailedRef.current = false; // reloading disk = nothing unpersisted
+    setWriteFailed(false);
     setLoadKey((k) => k + 1); // discard local, load the disk version
   }, []);
 
@@ -1251,6 +1276,20 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     setReloadPrompt(false);
     void flushRef.current(true); // force-overwrite disk with the local version
   }, []);
+
+  // Write-failed escape hatch. A persistently-unwritable file (read-only folder,
+  // ENOSPC, vanished path) would otherwise trap the editor — the gatekeeper
+  // blocks every switch/close. "Retry" re-attempts the save; "Discard & close"
+  // drops the unsaved edits and force-closes (bypassFlush skips the gate).
+  const retryWrite = useCallback(() => {
+    void flushRef.current(false);
+  }, []);
+  const discardAndClose = useCallback(() => {
+    writeFailedRef.current = false;
+    setWriteFailed(false);
+    pendingRef.current = false;
+    setCurrentFile(null, null, { bypassFlush: true });
+  }, [setCurrentFile]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1339,7 +1378,33 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           </Button>
         </div>
       )}
-      {error && (
+      {writeFailed && !reloadPrompt && (
+        <div
+          style={{
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.dangerSoft,
+            borderBottom: `1px solid ${color.danger}33`,
+            color: color.danger,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            animation: `bh-banner-in ${motion.normal}`,
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            Couldn't save this file{error ? ` — ${error}` : ''}. Your edits are still here.
+          </span>
+          <Button variant="primary" size="sm" onClick={retryWrite}>
+            Retry
+          </Button>
+          <Button variant="ghost" size="sm" onClick={discardAndClose}>
+            Discard &amp; close
+          </Button>
+        </div>
+      )}
+      {error && !writeFailed && (
         <div
           style={{
             padding: `${space[2]}px ${space[4]}px`,
