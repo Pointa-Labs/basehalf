@@ -55,10 +55,11 @@ export const BriefPreview = ({
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
   // RESET to a loading state first, so a reopen never shows (or lets you type
-  // over) the PREVIOUS open's stale brief while the fetch is in flight. Seeds the
-  // intent draft ONLY when the user hasn't started typing. We deliberately do NOT
-  // reload after a save: only the intent line changes and the draft already holds
-  // it — reloading would race the next keystroke.
+  // over) the PREVIOUS open's stale brief. Crucially we AWAIT any in-flight save
+  // (fired on the previous dismiss) BEFORE fetching, so the brief we read is
+  // consistent with it — and we do NOT reset savePromiseRef, so a Copy right
+  // after a reopen still awaits that real pending write. Seeds the draft only
+  // when the user hasn't started typing.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -66,11 +67,11 @@ export const BriefPreview = ({
     setSaveError('');
     setBrief(null); // → "Loading…"; hides the (stale) textarea until fresh data lands
     setRaw('');
-    setIntentDraft('');
     dirtyRef.current = false;
-    savePromiseRef.current = Promise.resolve(true); // clean slate for this open
     void (async () => {
       try {
+        await savePromiseRef.current.catch(() => {}); // let a pending save land first
+        if (cancelled) return;
         const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
         if (cancelled) return;
         setRaw(briefForClipboard(text));
@@ -95,6 +96,9 @@ export const BriefPreview = ({
   // an edit must see the new intent) and skip copying if the save failed. A
   // failed save leaves savedIntentRef unchanged, so the next blur/Copy RETRIES.
   const flushIntent = useCallback((): Promise<boolean> => {
+    // Not loaded yet: the draft isn't authoritative (brief fetch pending), so a
+    // save here could clear/overwrite the real intent. Skip until loaded.
+    if (brief === null) return savePromiseRef.current;
     const next = intentDraft.trim();
     // Compare to the LAST REQUESTED value, not the last SAVED one: if a save is
     // in flight and the user reverts the draft back to the persisted value, that
@@ -116,15 +120,30 @@ export const BriefPreview = ({
       },
     );
     return savePromiseRef.current;
-  }, [intentDraft]);
+  }, [intentDraft, brief]);
+
+  // Flush a dirty draft when the popover is DISMISSED. usePopover closes on an
+  // outside mousedown / Esc, which unmounts the textarea — and React does NOT
+  // fire onBlur on unmount, so a typed-but-unblurred intent would be lost. This
+  // effect (BriefPreview stays mounted, returns null) catches the open→false
+  // transition and persists it. flushRef holds the latest closure so it sees the
+  // final draft. The lastRequestedRef guard makes a double-fire (onBlur + this) a
+  // no-op.
+  const flushRef = useRef(flushIntent);
+  flushRef.current = flushIntent;
+  useEffect(() => {
+    if (open) return;
+    void flushRef.current();
+  }, [open]);
 
   // Copy must reflect the latest intent: commit any pending edit, and only copy
   // once it actually persisted (a failed save shows its error instead).
   const copyAfterSave = useCallback((): void => {
+    if (brief === null) return; // not loaded — nothing meaningful to copy yet
     void flushIntent().then((ok) => {
       if (ok) onCopy();
     });
-  }, [flushIntent, onCopy]);
+  }, [flushIntent, onCopy, brief]);
 
   if (!open) return null;
 
@@ -321,6 +340,7 @@ export const BriefPreview = ({
             variant="primary"
             size="sm"
             onClick={copyAfterSave}
+            disabled={brief === null}
             data-testid="brief-preview-copy"
           >
             {copied ? 'Copied ✓' : 'Copy brief'}
