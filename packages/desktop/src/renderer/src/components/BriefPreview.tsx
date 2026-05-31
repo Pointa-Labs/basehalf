@@ -128,6 +128,11 @@ export const BriefPreview = ({
         // Inline (not the full-view error) so the textarea STAYS — the user can
         // fix the problem and retry; savedIntentRef is unchanged, so they will.
         setSaveError(err instanceof Error ? err.message : String(err));
+        // The write failed → this value was never persisted. Revert the request
+        // marker (if still the latest) so the next blur/Copy with the SAME draft
+        // is treated as a new request and RETRIES, instead of hitting the
+        // no-change guard and returning this failed promise.
+        if (lastRequestedRef.current === next) lastRequestedRef.current = savedIntentRef.current;
         return false;
       },
     );
