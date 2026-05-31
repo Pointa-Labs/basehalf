@@ -721,28 +721,9 @@ export const Canvas = (): JSX.Element => {
               ▾
             </span>
           </button>
-          <button
-            type="button"
-            onClick={copyBrief}
-            title="Copy the brief your agent reads — paste it into any AI chat"
-            aria-live="polite"
-            data-testid="focus-copy-brief"
-            style={{
-              border: 'none',
-              background: briefCopied ? color.accentSofter : 'transparent',
-              color: briefCopied ? color.accent : color.textSecondary,
-              fontFamily: font.sans,
-              fontSize: font.size.caption,
-              fontWeight: font.weight.medium,
-              cursor: 'pointer',
-              padding: `${space[0.5]}px ${space[2]}px`,
-              borderRadius: radius.pill,
-              whiteSpace: 'nowrap',
-              transition: transition(['background', 'color']),
-            }}
-          >
-            {briefCopied ? 'Copied ✓' : 'Copy brief'}
-          </button>
+          {/* Copy lives INSIDE the preview panel ("look, then send") — so a copy
+              always reflects the brief you're looking at, including a just-typed
+              intent. The chip is summary + open + clear. */}
           <button
             type="button"
             onClick={clearFocus}

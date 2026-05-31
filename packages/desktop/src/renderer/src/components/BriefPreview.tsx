@@ -47,7 +47,8 @@ export const BriefPreview = ({
   // The editable turn-intent. Seeded from the loaded brief; the user types their
   // question here so the most load-bearing brief line is theirs, not empty.
   const [intentDraft, setIntentDraft] = useState('');
-  const savedIntentRef = useRef(''); // last value we persisted (skip no-op writes)
+  const savedIntentRef = useRef(''); // last value successfully persisted
+  const lastRequestedRef = useRef(''); // the value the in-flight/last save targets
   const dirtyRef = useRef(false); // the user has typed since this open
   // In-flight save → resolves true once persisted, false if the write failed.
   const savePromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -67,6 +68,7 @@ export const BriefPreview = ({
     setRaw('');
     setIntentDraft('');
     dirtyRef.current = false;
+    savePromiseRef.current = Promise.resolve(true); // clean slate for this open
     void (async () => {
       try {
         const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
@@ -76,6 +78,7 @@ export const BriefPreview = ({
         setBrief(parsed);
         const current = parsed.intent ?? '';
         savedIntentRef.current = current;
+        lastRequestedRef.current = current;
         if (!dirtyRef.current) setIntentDraft(current);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -93,7 +96,12 @@ export const BriefPreview = ({
   // failed save leaves savedIntentRef unchanged, so the next blur/Copy RETRIES.
   const flushIntent = useCallback((): Promise<boolean> => {
     const next = intentDraft.trim();
-    if (next === savedIntentRef.current.trim()) return savePromiseRef.current; // no change
+    // Compare to the LAST REQUESTED value, not the last SAVED one: if a save is
+    // in flight and the user reverts the draft back to the persisted value, that
+    // is a genuinely NEW request (undo the in-flight write) — returning the
+    // in-flight promise would let Copy reflect the wrong, superseded value.
+    if (next === lastRequestedRef.current.trim()) return savePromiseRef.current;
+    lastRequestedRef.current = next;
     savePromiseRef.current = window.bh.run('focus.setIntent', { intent: next }).then(
       () => {
         savedIntentRef.current = next; // mark saved ONLY on success
