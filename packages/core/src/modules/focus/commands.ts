@@ -243,7 +243,19 @@ export const toggleActiveFile: Handler<
 export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
-    const { active } = await readFocusBrief(ctx.fs, root);
+    const { active, intent: currentIntent } = await readFocusBrief(ctx.fs, root);
+    // Focus changed underneath this edit (e.g. the editor was dismissed by a
+    // click that selected another file or cleared focus) — don't write the old
+    // question into the new focus; leave it untouched.
+    if (
+      args.expectedActive !== undefined &&
+      !(
+        args.expectedActive.length === active.length &&
+        args.expectedActive.every((f, i) => f === active[i])
+      )
+    ) {
+      return { intent: currentIntent ?? null, skipped: true };
+    }
     const items = await assembleItems(ctx, active);
     const trimmed = args.intent?.trim();
     const intent = trimmed ? trimmed : undefined;

@@ -467,4 +467,26 @@ describe('focus.setIntent (author the turn intent without touching the active se
     expect(md).toContain('intent: my own question');
     expect(md).not.toContain('# source-view'); // provenance dropped on manual override
   });
+
+  it('SKIPS the write when expectedActive no longer matches (focus changed underneath)', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const res = await ctx.core.run('focus.setIntent', {
+      intent: 'late question for the old focus',
+      expectedActive: ['x.md'], // != current ['a.md']
+    });
+    expect(res.skipped).toBe(true);
+    // The old question is NOT stamped onto the changed focus.
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('late question');
+  });
+
+  it('WRITES when expectedActive still matches the current focus', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    const res = await ctx.core.run('focus.setIntent', {
+      intent: 'matched question',
+      expectedActive: ['a.md', 'b.md'],
+    });
+    expect(res.skipped).toBeUndefined();
+    expect(res.intent).toBe('matched question');
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: matched question');
+  });
 });

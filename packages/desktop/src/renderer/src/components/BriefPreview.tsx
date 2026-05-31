@@ -49,6 +49,7 @@ export const BriefPreview = ({
   const [intentDraft, setIntentDraft] = useState('');
   const savedIntentRef = useRef(''); // last value successfully persisted
   const lastRequestedRef = useRef(''); // the value the in-flight/last save targets
+  const loadedActiveRef = useRef<string[]>([]); // the focus set this preview loaded
   const dirtyRef = useRef(false); // the user has typed since this open
   // In-flight save → resolves true once persisted, false if the write failed.
   const savePromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -77,6 +78,7 @@ export const BriefPreview = ({
         setRaw(briefForClipboard(text));
         const parsed = parseBriefForDisplay(text);
         setBrief(parsed);
+        loadedActiveRef.current = parsed.items.map((i) => i.file); // bind saves to this focus
         const current = parsed.intent ?? '';
         savedIntentRef.current = current;
         lastRequestedRef.current = current;
@@ -106,9 +108,19 @@ export const BriefPreview = ({
     // in-flight promise would let Copy reflect the wrong, superseded value.
     if (next === lastRequestedRef.current.trim()) return savePromiseRef.current;
     lastRequestedRef.current = next;
-    savePromiseRef.current = window.bh.run('focus.setIntent', { intent: next }).then(
-      () => {
-        savedIntentRef.current = next; // mark saved ONLY on success
+    // expectedActive binds this write to the focus the preview loaded — so if the
+    // dismiss that triggered it also CHANGED focus (a badge/Clear click), core
+    // skips the write instead of stamping the old question onto the new focus.
+    savePromiseRef.current = (
+      window.bh.run('focus.setIntent', {
+        intent: next,
+        expectedActive: loadedActiveRef.current,
+      }) as Promise<{ intent: string | null; skipped?: boolean }>
+    ).then(
+      (res) => {
+        // Mark saved only when the write actually landed (not when core skipped
+        // it because focus changed).
+        if (!res.skipped) savedIntentRef.current = next;
         setSaveError('');
         return true;
       },
