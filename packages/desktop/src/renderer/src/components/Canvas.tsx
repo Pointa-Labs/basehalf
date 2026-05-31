@@ -1,7 +1,6 @@
 import type {
   BadgeFile,
   BadgeListResult,
-  SavedView,
   ViewportState,
   WorkspaceGetViewportResult,
 } from '@basehalf/core';
@@ -31,9 +30,9 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
+import { prompt } from './Dialog.js';
 import { Onboarding } from './Onboarding.js';
 import { ReferenceEdge } from './ReferenceEdge.js';
-import { ViewFilePicker } from './ViewFilePicker.js';
 import { Button } from './primitives/Button.js';
 import { usePopover } from './primitives/Popover.js';
 
@@ -109,22 +108,18 @@ export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
-  const currentView = useWorkspaceStore((s) => s.currentView);
-  const views = useWorkspaceStore((s) => s.views);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
   // The FULL workspace focus set (from focus.md / focus.get), independent of the
-  // current view/folder scope. The focus chip reports from THIS — node-derived
-  // counts under-report inside a scope (focused files outside the view/folder
-  // aren't rendered), which would break the "see exactly what the agent reads"
+  // current folder scope. The focus chip reports from THIS — node-derived counts
+  // under-report inside a scope (focused files outside the scoped folder aren't
+  // rendered), which would break the "see exactly what the agent reads"
   // contract. The per-node `data.focused` flag still drives the on-canvas rings
   // (you can only ring a badge that's actually on screen).
   const [focusActive, setFocusActive] = useState<readonly string[]>([]);
-  // Add-files-to-view picker (the missing "door" into a saved view).
-  const [pickerOpen, setPickerOpen] = useState(false);
   // Persisted viewport for the current workspace, lifted into state so
   // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
   // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
@@ -149,23 +144,8 @@ export const Canvas = (): JSX.Element => {
     try {
       const result = (await window.bh.run('badge.list')) as BadgeListResult;
       let badges = result.badges;
-      const memberPositions = new Map<string, { x?: number; y?: number }>();
 
-      if (currentView !== null) {
-        const view = (await window.bh.run('view.get', { id: currentView })) as SavedView | null;
-        if (view) {
-          const memberFiles = new Set(view.members.map((m) => m.file));
-          badges = badges.filter((b) => memberFiles.has(b.file));
-          for (const m of view.members) {
-            memberPositions.set(m.file, {
-              ...(m.x !== undefined && { x: m.x }),
-              ...(m.y !== undefined && { y: m.y }),
-            });
-          }
-        } else {
-          badges = [];
-        }
-      } else if (folderScope !== null) {
+      if (folderScope !== null) {
         // Scoping INTO a folder shows its CONTENTS — not the folder's own badge
         // (which would read as a sibling of its children, and would suppress the
         // "this folder is empty" hint for a folder with no children). The
@@ -180,27 +160,25 @@ export const Canvas = (): JSX.Element => {
       const focusedSet = new Set(focusResult.active);
       setNodes(
         badges.map((b, i) => {
-          const override = memberPositions.get(b.file);
-          const node = badgeToNode(b, i, badges.length, override);
+          const node = badgeToNode(b, i, badges.length);
           node.data.focused = focusedSet.has(b.file);
           return node;
         }),
       );
       setEdges(badgesToEdges(badges));
-      // Inside a view or folder scope, the per-workspace saved viewport doesn't
-      // frame this filtered subset (view members carry their own coordinates;
-      // a folder's badges may sit anywhere) — fit instead (vp:null). On the
-      // main canvas, restore the saved viewport.
-      const scoped = currentView !== null || folderScope !== null;
-      const vp = scoped
-        ? null
-        : ((await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult);
-      setFrame({ key: `${current}|${currentView ?? ''}|${folderScope ?? ''}`, vp });
+      // Inside a folder scope, the per-workspace saved viewport doesn't frame
+      // this filtered subset (the folder's badges may sit anywhere) — fit
+      // instead (vp:null). On the main canvas, restore the saved viewport.
+      const vp =
+        folderScope !== null
+          ? null
+          : ((await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult);
+      setFrame({ key: `${current}|${folderScope ?? ''}`, vp });
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [current, currentView, folderScope]);
+  }, [current, folderScope]);
 
   useEffect(() => {
     if (current && currentReachable) {
@@ -268,11 +246,8 @@ export const Canvas = (): JSX.Element => {
       }
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
-        // Folder scoping is a main-canvas concept. Inside a saved view it
-        // would create an inconsistent state — the toolbar shows "/folder"
-        // scope chrome while the canvas still renders the view (currentView
-        // wins in refresh) — so a folder badge double-click is a no-op there.
-        if (currentView !== null) return;
+        // Double-clicking a folder badge scopes INTO it — the canvas shows just
+        // that folder's contents, and the toolbar offers "Focus this folder".
         setFolderScope(node.id);
         return;
       }
@@ -282,27 +257,19 @@ export const Canvas = (): JSX.Element => {
       // deliberate double-click, matching the desktop select-vs-open idiom.
       setCurrentFile(node.id);
     },
-    [currentView, setFolderScope, setCurrentFile],
+    [setFolderScope, setCurrentFile],
   );
 
   const persistPosition = useMemo(
     () =>
       debounce((file: string, x: number, y: number) => {
-        // In view mode, position is per-view (view.addMember stores per-file
-        // x/y on the SavedView, leaving the main-canvas badge.canvas alone).
-        // In main canvas / folder scope, drag updates the badge's canonical
-        // position via badge.set.
-        if (currentView !== null) {
-          void window.bh
-            .run('view.addMember', { id: currentView, file, position: { x, y } })
-            .catch(() => undefined);
-        } else {
-          void window.bh
-            .run('badge.set', { file, patch: { canvas: { x, y, collapsed: false } } })
-            .catch(() => undefined);
-        }
+        // A drag updates the badge's canonical canvas position via badge.set
+        // (on the main canvas and inside a folder scope alike).
+        void window.bh
+          .run('badge.set', { file, patch: { canvas: { x, y, collapsed: false } } })
+          .catch(() => undefined);
       }, DRAG_DEBOUNCE),
-    [currentView],
+    [],
   );
 
   const persistViewport = useMemo(
@@ -355,25 +322,6 @@ export const Canvas = (): JSX.Element => {
     }
   }, []);
 
-  // Node deletion: in view mode, Delete removes the badge from the *view*
-  // (not from disk — that would lose the file). On the main canvas, Delete
-  // is a no-op for safety: a v0 user shouldn't be able to delete a file via
-  // an accidental keystroke, and removing the badge JSON alone would just
-  // get re-materialized on next refresh.
-  const onNodesDelete = useCallback(
-    async (deleted: Node[]) => {
-      if (currentView === null) return;
-      try {
-        for (const n of deleted) {
-          await window.bh.run('view.removeMember', { id: currentView, file: n.id });
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [currentView],
-  );
-
   // Pending deferred single-click focus: the badge id, its timer, and the apply
   // closure (so a click on a DIFFERENT badge can commit it before proceeding).
   const clickTimer = useRef<{
@@ -420,10 +368,10 @@ export const Canvas = (): JSX.Element => {
               // Shift+click TOGGLES membership — add if absent, remove if present
               // — so curating a multi-file set never forces a Clear-and-rebuild
               // (matches Finder / browser / spreadsheet multi-select). Routed
-              // through focus.toggleActiveFile so REFINING a view-sourced focus
-              // keeps the turn intent + `# source-view:` provenance (a bare
+              // through focus.toggleActiveFile so REFINING a folder-sourced focus
+              // keeps the turn intent + `# source-folder:` provenance (a bare
               // focus.set({files}) would silently drop both — severing the
-              // view→brief refresh link and losing the curated intent).
+              // folder→brief refresh link and losing the curated intent).
               after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
                 active: string[];
               };
@@ -582,29 +530,23 @@ export const Canvas = (): JSX.Element => {
     );
   }
 
-  // Pick the empty-canvas hint based on why nothing's showing:
-  // a freshly-opened workspace with no supported files vs an active
-  // saved view with no members yet vs a folder scope with no children.
+  // Pick the empty-canvas hint based on why nothing's showing: a folder scope
+  // with no children vs a freshly-opened workspace with no supported files.
   // (We don't show the hint if a badge exists; the canvas speaks for itself.)
   // The main-canvas case also surfaces a "Create a note" CTA so the user
   // has a single-click path out of the empty state instead of having to
   // discover Cmd+N or the topbar.
-  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' | 'add-to-view' };
+  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' };
   const emptyHint: EmptyHint | null =
     nodes.length === 0
-      ? currentView !== null
+      ? folderScope !== null
         ? {
-            text: 'This view is empty. Add files to gather them here — their positions are saved per-view, so a view can pull together files from different folders.',
-            cta: 'add-to-view',
+            text: `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`,
           }
-        : folderScope !== null
-          ? {
-              text: `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`,
-            }
-          : {
-              text: "This workspace has no files yet. Drop files in the folder and they'll appear as badges — or create one now:",
-              cta: 'new-note',
-            }
+        : {
+            text: "This workspace has no files yet. Drop files in the folder and they'll appear as badges — or create one now:",
+            cta: 'new-note',
+          }
       : null;
 
   // Derived from the FULL focus set (focusActive), NOT the rendered nodes —
@@ -623,17 +565,82 @@ export const Canvas = (): JSX.Element => {
           focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
         }`;
 
-  // A saved view's prompt IS its agent-facing intent — it becomes focus.md's
-  // `intent:` line when the view is focused. It was settable (TopBar ⋯ → Edit
-  // view prompt) but invisible while viewing, so the view's whole reason for
-  // existing was hidden. Surface it as a quiet banner. The focus chip (the live
-  // payoff) wins the top-center slot when a file is actually focused; otherwise
-  // the view's intent stands there so the user can see what they curated.
-  const activeViewPrompt =
-    currentView !== null ? (views.find((v) => v.id === currentView)?.prompt ?? '').trim() : '';
+  // Folder-scope actions live on the canvas now (the top bar was removed).
+  const handleFocusFolder = async (): Promise<void> => {
+    if (!folderScope) return;
+    try {
+      await window.bh.run('focus.set', { folder: folderScope });
+      void refresh(); // re-read focus.get → rings + chip
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleEditFolderPrompt = async (): Promise<void> => {
+    if (!folderScope) return;
+    const existing = (await window.bh.run('badge.get', {
+      file: folderScope,
+      kind: 'folder',
+    })) as { prompt?: string } | null;
+    const next = await prompt({
+      title: `Folder prompt — /${folderScope}`,
+      body: "What the AI agent should know about this folder — it's read as the turn intent when you focus the folder. Leave blank to clear.",
+      label: 'Prompt',
+      defaultValue: existing?.prompt ?? '',
+      placeholder: 'e.g. Chapter 3 supporting material — read first',
+    });
+    if (next === null) return;
+    try {
+      await window.bh.run('badge.set', {
+        file: folderScope,
+        patch: { kind: 'folder', prompt: next.trim() },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <div style={{ width: '100%', height: '100%' }}>
+      {/* New note — top-right of the canvas (the top bar was removed). */}
+      <div style={{ position: 'absolute', top: space[3], right: space[3], zIndex: 8 }}>
+        <Button onClick={() => void promptForNewNote()} title="Create a new note (⌘N)">
+          New note
+        </Button>
+      </div>
+      {/* Folder-scope chrome — top-left, only while scoped into a folder. On
+          its own row (below the New-note / focus-chip row) so the actions never
+          collide with the centered focus chip. */}
+      {folderScope && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 56,
+            left: space[3],
+            zIndex: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+          }}
+        >
+          <Button variant="ghost" onClick={() => setFolderScope(null)} title="Exit folder scope">
+            ← /{folderScope}
+          </Button>
+          <Button
+            onClick={() => void handleFocusFolder()}
+            title="Focus this folder — your agent reads all its files, with the folder prompt as the turn intent"
+          >
+            Focus this folder
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void handleEditFolderPrompt()}
+            title="Edit this folder's badge prompt (read as the intent when you focus the folder)"
+          >
+            Edit folder prompt
+          </Button>
+        </div>
+      )}
       {focusedCount > 0 && (
         // Witnessed payoff: name the context the human handed the agent. The
         // focus set was previously a write-only side effect with no visible
@@ -749,7 +756,8 @@ export const Canvas = (): JSX.Element => {
         <div
           style={{
             position: 'absolute',
-            top: space[3],
+            // Stacks below the top-right "New note" button rather than over it.
+            top: 56,
             right: space[3],
             background: color.surface,
             border: `1px solid ${color.danger}33`,
@@ -799,84 +807,7 @@ export const Canvas = (): JSX.Element => {
               </Button>
             </div>
           )}
-          {emptyHint.cta === 'add-to-view' && (
-            <div style={{ marginTop: space[3] }}>
-              <Button
-                variant="primary"
-                onClick={() => setPickerOpen(true)}
-                data-testid="view-add-files-cta"
-              >
-                Add files
-              </Button>
-            </div>
-          )}
         </div>
-      )}
-      {/* A view's prompt is its agent-facing intent — show it while viewing so
-          the curated purpose isn't invisible. Yields the top-center slot to the
-          focus chip when a file is actually focused. */}
-      {currentView !== null && activeViewPrompt !== '' && focusedCount === 0 && (
-        <div
-          data-testid="view-intent"
-          style={{
-            position: 'absolute',
-            top: space[3],
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 7,
-            maxWidth: 520,
-            display: 'flex',
-            alignItems: 'center',
-            gap: space[2],
-            background: color.surface,
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.pill,
-            padding: `${space[1]}px ${space[3]}px`,
-            boxShadow: shadow.card,
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            color: color.textSecondary,
-            animation: `bh-banner-in ${motion.normal}`,
-          }}
-          title={activeViewPrompt}
-        >
-          <span
-            style={{
-              fontSize: font.size.micro,
-              fontWeight: font.weight.semibold,
-              letterSpacing: font.trackedCaps,
-              textTransform: 'uppercase',
-              color: color.textTertiary,
-              flexShrink: 0,
-            }}
-          >
-            Intent
-          </span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {activeViewPrompt}
-          </span>
-        </div>
-      )}
-      {/* In a non-empty view, a quiet affordance to add more files (the
-          empty-view card is gone once members exist). */}
-      {currentView !== null && nodes.length > 0 && (
-        <div style={{ position: 'absolute', top: space[3], left: space[3], zIndex: 6 }}>
-          <Button
-            variant="default"
-            onClick={() => setPickerOpen(true)}
-            data-testid="view-add-files"
-          >
-            + Add files
-          </Button>
-        </div>
-      )}
-      {pickerOpen && currentView !== null && (
-        <ViewFilePicker
-          viewId={currentView}
-          existing={new Set(nodes.map((n) => n.id))}
-          onClose={() => setPickerOpen(false)}
-          onAdded={() => void refresh()}
-        />
       )}
       <ReactFlow
         nodes={nodes}
@@ -886,7 +817,6 @@ export const Canvas = (): JSX.Element => {
         onNodesChange={onNodesChange}
         onConnect={onConnect}
         onEdgesDelete={onEdgesDelete}
-        onNodesDelete={onNodesDelete}
         deleteKeyCode={['Delete', 'Backspace']}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}

@@ -5,7 +5,8 @@
  * agent that auto-reads focus.md and for `bh focus brief` inspection. But the
  * desktop "Copy brief" hands the brief to ANY chat (ChatGPT / Claude.ai), where
  * two parts are noise or actively misleading:
- *   - the bh-internal `# source-view: <id>` provenance marker, and
+ *   - the bh-internal `# source-folder:` / `# source-view:` provenance
+ *     markers, and
  *   - the footer comment, which tells "the agent" to follow refs deeper in
  *     `.bh/badges/` + `.bh/index/inbound.json` — files a pasted-into chat can't
  *     open.
@@ -18,7 +19,7 @@ export function briefForClipboard(raw: string): string {
   for (const line of raw.split('\n')) {
     const trimmed = line.trimStart();
     // bh-internal provenance — never useful in a pasted brief.
-    if (trimmed.startsWith('# source-view:')) continue;
+    if (trimmed.startsWith('# source-folder:') || trimmed.startsWith('# source-view:')) continue;
     // The footer is a `# (…)` comment block; it's the last thing in the file, so
     // dropping from its first line removes the whole footer.
     if (trimmed.startsWith('# (')) break;

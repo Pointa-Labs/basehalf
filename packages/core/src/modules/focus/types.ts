@@ -9,12 +9,27 @@
 export interface FocusSetArgs {
   /** Explicit file list. Empty array clears focus. */
   readonly files?: readonly string[];
-  /** Or, point at a saved view; its members become the active list. */
-  readonly viewId?: string;
+  /** Or, point at a FOLDER (workspace-relative path): all supported files under
+   *  it become the active list and the folder badge's prompt becomes the intent
+   *  (unless `intent` overrides). The folder IS the grouping — its files are
+   *  gathered automatically, no manual selection. A folder's path encodes its
+   *  parent/child structure, which the agent reads straight from the paths. */
+  readonly folder?: string;
   /** Optional turn intent — "what I'm trying to do this turn". Inlined into
-   *  focus.md as an `intent:` block. When a viewId is given, the view's own
+   *  focus.md as an `intent:` block. When a folder is given, the folder badge's
    *  prompt is used as the intent unless this overrides it. */
   readonly intent?: string;
+}
+
+/**
+ * Where a focus's `intent:` was DERIVED from — a folder's prompt. Recorded as a
+ * `# source-folder:` provenance comment in focus.md so editing that folder's
+ * prompt can refresh the brief by EXACT identity (never inferred from
+ * members/text). Absent for a files-sourced focus or a manual intent override.
+ */
+export interface FocusSource {
+  readonly kind: 'folder';
+  readonly id: string;
 }
 export interface FocusSetResult {
   readonly active: readonly string[];
@@ -45,28 +60,16 @@ export interface FocusClearResult {
   readonly cleared: true;
 }
 
-export interface FocusRefreshViewIntentArgs {
-  /** The view whose prompt just changed. focus.md is refreshed ONLY when its
-   *  `# source-view:` provenance equals this id — i.e. the focus was published
-   *  FROM this view with a view-derived (not manually overridden) intent. Exact
-   *  identity, so same-members / same-prompt / files-sourced focuses are never
-   *  clobbered, independent of prompt text. */
-  readonly viewId: string;
+export interface FocusRefreshFolderIntentArgs {
+  /** The folder whose badge prompt just changed. focus.md's `intent:` is
+   *  refreshed ONLY when its `# source-folder:` provenance equals this path —
+   *  exact identity, never inferred from members/text. */
+  readonly folder: string;
 }
-export interface FocusRefreshViewIntentResult {
-  /** True when focus.md was re-rendered (the view is the unmodified source of
-   *  the current brief); false when left untouched. */
+export interface FocusRefreshFolderIntentResult {
+  /** True when focus.md was re-rendered (this folder is the unmodified source
+   *  of the current brief); false when left untouched. */
   readonly refreshed: boolean;
-}
-
-export interface FocusClearProvenanceIfViewArgs {
-  /** The view being deleted. If it's the recorded source of the current focus,
-   *  the `# source-view:` marker is dropped so a future view that REUSES this id
-   *  can't be mistaken for the source. Active list + intent are kept. */
-  readonly viewId: string;
-}
-export interface FocusClearProvenanceIfViewResult {
-  readonly cleared: boolean;
 }
 
 export interface FocusRenameActiveFileArgs {
@@ -76,15 +79,15 @@ export interface FocusRenameActiveFileArgs {
   readonly to: string;
 }
 export interface FocusRenameActiveFileResult {
-  /** True when `from` was active and got remapped to `to` (intent + source-view
+  /** True when `from` was active and got remapped to `to` (intent + source-folder
    *  provenance preserved); false when `from` wasn't focused. */
   readonly renamed: boolean;
 }
 
 export interface FocusToggleActiveFileArgs {
   /** File to add (if absent) or remove (if present) from the active set. The
-   *  turn intent + source-view provenance are PRESERVED — so refining a
-   *  view-sourced focus by shift+click doesn't sever the view→brief refresh
+   *  turn intent + source-folder provenance are PRESERVED — so refining a
+   *  folder-sourced focus by shift+click doesn't sever the folder→brief refresh
    *  link or drop the curated intent (which a bare focus.set({files}) would). */
   readonly file: string;
 }
@@ -97,8 +100,8 @@ export interface FocusSetIntentArgs {
   /** The turn intent — "what I'm trying to do/ask this turn" — to write into the
    *  `intent:` line. Empty/whitespace clears it. The active set + per-file
    *  prompts/refs are PRESERVED; a manually-typed intent is the user's own, so
-   *  it CLEARS any `# source-view:` provenance (the intent is no longer
-   *  view-derived — editing that view's prompt should no longer overwrite it). */
+   *  it CLEARS any `# source-folder:` provenance (the intent is no longer
+   *  folder-derived — editing that folder's prompt should no longer overwrite it). */
   readonly intent?: string;
   /** If given, the write is SKIPPED unless the current active set still equals
    *  this (exact order). Binds an intent to the focus it was authored for, so a
@@ -141,4 +144,30 @@ export interface FocusResyncResult {
   /** True when focus.md was re-rendered (the file was active); false when the
    *  active list was empty or didn't include `file`. */
   readonly resynced: boolean;
+}
+
+export interface FocusReconcileNewFileArgs {
+  /** A newly-materialized file (workspace-relative). When the active focus is
+   *  folder-SOURCED and this file is under that folder, it's pulled into the
+   *  brief (so "Focus this folder = read all its files" stays true for files
+   *  added after focusing). No-op otherwise. */
+  readonly file: string;
+}
+export interface FocusReconcileNewFileResult {
+  /** True when the file was under the active focus's source folder and added. */
+  readonly added: boolean;
+}
+
+export interface FocusRenameActiveFolderArgs {
+  /** Old folder path (workspace-relative) being renamed. */
+  readonly from: string;
+  /** New folder path. */
+  readonly to: string;
+}
+export interface FocusRenameActiveFolderResult {
+  /** True when focus.md was rewritten — either active child paths under `from`
+   *  were remapped to `to`, or the `# source-folder:` provenance pointed at
+   *  `from` and was re-stamped to `to` (so the folder→brief refresh link
+   *  survives the rename). False when nothing referenced `from`. */
+  readonly renamed: boolean;
 }

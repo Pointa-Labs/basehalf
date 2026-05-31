@@ -74,8 +74,6 @@ reference outward or pull in context the user connected from elsewhere:
 
 - \`.bh/index/inbound.json\` — who points AT a given file. Use it to surface
   related context the user has connected from elsewhere.
-- \`.bh/views/<id>.json\` — named cross-folder groupings. If the user
-  mentions a view by name, read its members to scope your context.
 
 ### Constraints
 

@@ -68,7 +68,7 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   // With NO current workspace there is no containment boundary — refuse rather
   // than fall through to enumerating an arbitrary absolute path (a planted
   // `listFiles({path:'/etc'})` would otherwise leak external dir structure).
-  // Sibling reads (badge.list/view.list) already require a current workspace;
+  // Sibling reads (badge.list) already require a current workspace;
   // listFiles must not be the outlier.
   if (root === undefined) {
     throw new Error('No current workspace; call workspace.use first');

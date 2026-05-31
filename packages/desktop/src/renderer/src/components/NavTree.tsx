@@ -38,7 +38,7 @@ const relativeTo = (root: string, abs: string): string => {
   return abs.startsWith(trimmedRoot) ? abs.slice(trimmedRoot.length) : abs;
 };
 
-const ROW_HEIGHT = 26;
+const ROW_HEIGHT = 22; // matches the editor's compact tree-row height
 
 interface RowProps {
   depth: number;

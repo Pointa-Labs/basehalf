@@ -29,6 +29,7 @@ import {
 } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
+import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
@@ -84,6 +85,11 @@ export const FilePreview = (): JSX.Element | null => {
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const current = useWorkspaceStore((s) => s.current);
+  // The Sidebar is a left-docked overlay; keep the editor card clear of it so
+  // the sidebar never covers the editor's left column (and stays usable while
+  // a file is open). The card recenters in the space right of the sidebar.
+  const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
+  const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
   // The scrollable content area; jump-to-match (below) searches its rendered
   // text for a content-search hit.
@@ -179,7 +185,12 @@ export const FilePreview = (): JSX.Element | null => {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: space[6],
+        paddingTop: space[6],
+        paddingRight: space[6],
+        paddingBottom: space[6],
+        // Inset the centering box past the sidebar overlay so the editor card
+        // lands to its RIGHT, never behind it (normal padding when hidden).
+        paddingLeft: sidebarOpen ? sidebarWidth + space[6] : space[6],
         animation: `bh-fade-in ${motion.fast}`,
       }}
     >
@@ -1426,6 +1437,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           <BlockNoteView
             editor={editor}
             editable={!viewOnly}
+            theme="dark"
             onChange={() => {
               if (!initialLoad.current && !viewOnly) {
                 pendingRef.current = true;
@@ -1759,7 +1771,7 @@ const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => {
             fontFamily: font.mono,
             fontSize: font.size.micro,
             color: color.textSecondary,
-            background: 'rgba(255, 255, 255, 0.9)',
+            background: 'rgba(0, 0, 0, 0.6)',
             border: `1px solid ${color.border}`,
             borderRadius: radius.pill,
             padding: `2px ${space[2]}px`,

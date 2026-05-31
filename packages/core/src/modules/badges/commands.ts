@@ -1,6 +1,5 @@
 import type { Handler } from '../../kernel/index.js';
 import type { InboundGetResult } from '../inbound/types.js';
-import type { SavedView, ViewListResult } from '../views/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
@@ -60,6 +59,46 @@ async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promis
   }
 }
 
+/**
+ * The FOLDER analog: a folder badge's prompt IS its agent-facing intent, so a
+ * folder-sourced focus's brief must refresh when that prompt changes. focus.md's
+ * active list is per-FILE, so focus.resync (keyed on the folder path) would
+ * no-op — refreshFolderIntent re-reads the folder prompt by `# source-folder:`
+ * identity instead. Same best-effort tolerance as reconcileFocus: a derived-.bh/
+ * failure must never fail the badge write.
+ */
+async function reconcileFolderIntent(ctx: Parameters<Handler>[1], folder: string): Promise<void> {
+  try {
+    await ctx.run('focus.refreshFolderIntent', { folder });
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
+      return;
+    }
+    console.warn(
+      '[bh:badges] focus.refreshFolderIntent after folder-badge edit failed (non-fatal):',
+      err,
+    );
+  }
+}
+
+/**
+ * After a brand-NEW file badge is materialized, pull it into a folder-sourced
+ * brief when it landed under the focused folder — so "Focus this folder" keeps
+ * meaning "read all its files" as files appear mid-session. focus.reconcileNewFile
+ * no-ops unless a containing folder is the active focus source, so this is cheap.
+ * Same best-effort tolerance as reconcileFocus.
+ */
+async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Promise<void> {
+  try {
+    await ctx.run('focus.reconcileNewFile', { file });
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
+      return;
+    }
+    console.warn('[bh:badges] focus.reconcileNewFile after new-file materialize failed:', err);
+  }
+}
+
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return readBadge(ctx.fs, root, args.file, args.kind ?? 'file');
@@ -104,8 +143,18 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   // materialize badge.set on workspace open, or a canvas drag of a focused
   // badge — leaves the brief identical, so skip the focus.md read+rewrite
   // entirely (no churn, no added latency on the hot open path).
-  if (patch.prompt !== undefined || patch.references !== undefined) {
-    await reconcileFocus(ctx, args.file);
+  if (kind === 'folder') {
+    // A folder badge's prompt is the intent of a folder-sourced focus; its
+    // refs/canvas don't feed the brief. Refresh only on a prompt change.
+    if (patch.prompt !== undefined) await reconcileFolderIntent(ctx, args.file);
+  } else {
+    if (patch.prompt !== undefined || patch.references !== undefined) {
+      await reconcileFocus(ctx, args.file);
+    }
+    // A brand-NEW file may have appeared under a focused folder — pull it into
+    // the brief. Gated on creation so the idempotent re-materialize on re-open
+    // (badges already exist) stays off the focus.md path.
+    if (!existing) await reconcileNewFile(ctx, args.file);
   }
   return next;
 };
@@ -225,17 +274,14 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
 /**
  * Atomic rename: move the badge from `from` to `to`, rewrite every
  * inbound reference (other badges pointing at `from` get rewritten to
- * point at `to`), update focus.md if `from` was in the active list, and
- * patch view memberships that included `from`.
+ * point at `to`), and update focus.md if `from` was in the active list.
  *
- * Why all four updates in one command:
+ * Why all three updates in one command:
  *  - Leaving inbound refs stale would silently break the agent's
  *    neighbourhood walk: links to a missing badge are dead-ends.
  *  - Leaving focus.md stale points the agent at a badge that no longer
  *    exists.
- *  - Leaving view membership stale shows broken member badges in saved
- *    views.
- * Anything less than all four would make rename an attractive nuisance.
+ * Anything less would make rename an attractive nuisance.
  *
  * Used by the watcher's rename heuristic (Stage 2) but also exposable as
  * a deliberate user action ("rename this file via bh") if we ever want
@@ -337,58 +383,32 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // 4. Update focus.md if `from` is in the active list. focus.renameActiveFile
-  // remaps the path in place UNDER the focus lock, preserving BOTH the turn
-  // intent and the `# source-view:` provenance — a bare focus.set({files})
-  // would drop the intent block AND strip provenance (so editing the source
-  // view's prompt would stop refreshing the brief after a member rename).
+  // 4. Update focus.md if `from` is focused. A FILE rename remaps the exact
+  // active path; a FOLDER rename remaps every active CHILD path under it AND
+  // re-stamps the `# source-folder:` provenance (else editing the renamed
+  // folder's prompt would stop refreshing the brief). Both preserve the turn
+  // intent + provenance UNDER the focus lock — a bare focus.set({files}) would
+  // drop the intent block AND strip provenance.
   let focusUpdated = false;
   try {
-    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(
-      'focus.renameActiveFile',
-      { from: args.from, to: args.to },
-    );
+    const cmd = kind === 'folder' ? 'focus.renameActiveFolder' : 'focus.renameActiveFile';
+    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(cmd, {
+      from: args.from,
+      to: args.to,
+    });
     focusUpdated = res.renamed;
   } catch (err) {
     // Best-effort, exactly like reconcileFocus for badge.set/addRef/removeRef:
     // tolerate a missing module AND a hostile/symlinked focus.md (PathEscape).
     // Otherwise a workspace-escaping focus.md symlink would abort badge.rename
-    // AFTER steps 1-3 committed but BEFORE step 5 (view membership), leaving
-    // badge + inbound pointing at `to` while views still point at `from`.
+    // AFTER steps 1-3 committed, leaving badge + inbound pointing at `to` while
+    // focus.md still points at `from`.
     if (!(err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape'))) {
       throw err;
     }
   }
 
-  // 5. Update view memberships that include `from`. view.removeMember
-  // followed by view.addMember preserves the per-view position (we read
-  // it off the member first, then re-add with the same coords).
-  const updatedViews: string[] = [];
-  try {
-    const viewList = await ctx.run<Record<string, never>, ViewListResult>('view.list', {});
-    for (const view of viewList.views) {
-      const member = view.members.find((m) => m.file === args.from);
-      if (!member) continue;
-      try {
-        await ctx.run('view.removeMember', { id: view.id, file: args.from });
-        await ctx.run('view.addMember', {
-          id: view.id,
-          file: args.to,
-          ...(member.x !== undefined &&
-            member.y !== undefined && { position: { x: member.x, y: member.y } }),
-          ...(member.collapsed !== undefined && { collapsed: member.collapsed }),
-        });
-        updatedViews.push(view.id);
-      } catch (err) {
-        if (!(err instanceof Error)) throw err;
-        console.warn(`[bh:badges] rename: failed to update view ${view.id}:`, err.message);
-      }
-    }
-  } catch (err) {
-    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
-  }
-
-  return { badge: moved, updatedRefs, focusUpdated, updatedViews };
+  return { badge: moved, updatedRefs, focusUpdated };
 };
 
 export function commands(): ReadonlyArray<

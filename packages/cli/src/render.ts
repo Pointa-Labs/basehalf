@@ -27,16 +27,6 @@ type Badge = {
   modifiedAt: string;
 };
 
-type SavedView = {
-  bhVersion: 1;
-  id: string;
-  name: string;
-  prompt?: string;
-  members: { file: string; x?: number; y?: number; collapsed?: boolean }[];
-  createdAt: string;
-  modifiedAt: string;
-};
-
 export function render(commandName: string, result: unknown, asJson: boolean): void {
   if (asJson) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -100,7 +90,6 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
           badge: Badge;
           updatedRefs: readonly string[];
           focusUpdated: boolean;
-          updatedViews: readonly string[];
         },
       );
       return;
@@ -123,19 +112,6 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
       process.stdout.write(brief.length > 0 ? `${brief}\n` : '(no focus brief yet)\n');
       return;
     }
-    case 'view.create':
-    case 'view.get':
-    case 'view.update':
-    case 'view.addMember':
-    case 'view.removeMember':
-      renderView(result as SavedView | null);
-      return;
-    case 'view.list':
-      renderViewList(result as { views: SavedView[] });
-      return;
-    case 'view.delete':
-      renderViewDelete(result as { deleted: boolean });
-      return;
     case 'search.query':
       renderSearch(
         result as {
@@ -278,16 +254,12 @@ function renderBadgeRename(r: {
   badge: Badge;
   updatedRefs: readonly string[];
   focusUpdated: boolean;
-  updatedViews: readonly string[];
 }): void {
   process.stdout.write(`Renamed badge → ${r.badge.file}\n`);
   if (r.updatedRefs.length > 0) {
     process.stdout.write(`  refs:    ${r.updatedRefs.length} neighbour(s) rewritten\n`);
   }
   if (r.focusUpdated) process.stdout.write('  focus:   updated (was in active list)\n');
-  if (r.updatedViews.length > 0) {
-    process.stdout.write(`  views:   ${r.updatedViews.length} membership(s) updated\n`);
-  }
 }
 
 function renderBadgeList(r: { badges: Badge[] }): void {
@@ -367,36 +339,4 @@ function renderFocusActive(r: { active: string[] }): void {
   for (const f of r.active) {
     process.stdout.write(`* ${f}\n`);
   }
-}
-
-// ── view ────────────────────────────────────────────────────────────────────
-
-function renderView(view: SavedView | null): void {
-  if (!view) {
-    process.stdout.write('(no view)\n');
-    return;
-  }
-  process.stdout.write(`${view.id}: ${view.name}\n`);
-  if (view.prompt) process.stdout.write(`  prompt:  ${view.prompt}\n`);
-  if (view.members.length > 0) {
-    process.stdout.write(`  members: (${view.members.length})\n`);
-    for (const m of view.members) {
-      const pos = m.x !== undefined && m.y !== undefined ? `  (${m.x}, ${m.y})` : '';
-      process.stdout.write(`    - ${m.file}${pos}\n`);
-    }
-  }
-}
-
-function renderViewList(r: { views: SavedView[] }): void {
-  if (r.views.length === 0) {
-    process.stdout.write('No saved views in this workspace.\n');
-    return;
-  }
-  for (const v of r.views) {
-    process.stdout.write(`${v.id.padEnd(20)} ${v.name}  (${v.members.length} members)\n`);
-  }
-}
-
-function renderViewDelete(r: { deleted: boolean }): void {
-  process.stdout.write(r.deleted ? 'View deleted.\n' : 'No such view.\n');
 }

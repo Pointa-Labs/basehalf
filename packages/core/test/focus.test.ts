@@ -38,23 +38,9 @@ describe('focus.set', () => {
     expect(written).toContain('(none)');
   });
 
-  it('omitting both files and viewId is treated as clear (active=[])', async () => {
+  it('omitting both files and folder is treated as clear (active=[])', async () => {
     const result = await ctx.core.run('focus.set', {});
     expect(result.active).toEqual([]);
-  });
-
-  it('throws "View not found" when viewId does not match any view', async () => {
-    await expect(ctx.core.run('focus.set', { viewId: 'missing' })).rejects.toThrow(
-      /View not found/,
-    );
-  });
-
-  it('expands viewId via the views module → members[].file', async () => {
-    await ctx.core.run('view.create', { name: 'exam' });
-    await ctx.core.run('view.addMember', { id: 'exam', file: 'chapter-03.md' });
-    await ctx.core.run('view.addMember', { id: 'exam', file: 'supply.md' });
-    const result = await ctx.core.run('focus.set', { viewId: 'exam' });
-    expect(result.active).toEqual(['chapter-03.md', 'supply.md']);
   });
 });
 
@@ -248,17 +234,6 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
     expect(got.active).toEqual(['chapter-03.md']);
   });
 
-  it('carries the view prompt into focus.md as intent (regression: was silently dropped)', async () => {
-    await ctx.core.run('view.create', { name: 'exam', prompt: 'derive theorem 2 for the exam' });
-    await ctx.core.run('view.addMember', { id: 'exam', file: 'chapter-03.md' });
-    await ctx.core.run('focus.set', { viewId: 'exam' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    // Before the fix, focus.set({viewId}) mapped only members[].file and the
-    // view's prompt — the strongest intent artifact — never reached focus.md.
-    expect(md).toContain('intent: derive theorem 2 for the exam');
-    expect(md).toContain('- chapter-03.md');
-  });
-
   it('a file with no badge contributes just its bare path (no empty prompt/refs)', async () => {
     await ctx.core.run('focus.set', { files: ['no-badge.md'] });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
@@ -361,74 +336,174 @@ describe('focus.brief', () => {
   });
 });
 
-describe('focus source-view provenance', () => {
+describe('focus provenance preservation through rename / toggle', () => {
   let ctx: TestContext;
   beforeEach(async () => {
     ctx = await seed();
-    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'vp' });
-    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
+    await ctx.core.run('badge.set', {
+      file: 'notes',
+      patch: { kind: 'folder', prompt: 'folder intent' },
+    });
   });
 
-  it('focus.set({viewId}) writes the marker; focus.get does NOT leak sourceView', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
-    const got = (await ctx.core.run('focus.get', {})) as Record<string, unknown>;
-    expect(Object.keys(got)).not.toContain('sourceView');
-  });
-
-  it('focus.set({files}) and focus.clear STRIP a previously-written marker', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    await ctx.core.run('focus.clear', {});
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
-  });
-
-  it('a manual intent override records NO provenance', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v', intent: 'override' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
-  });
-
-  it('focus.renameActiveFile remaps the path AND preserves the marker', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    const res = await ctx.core.run('focus.renameActiveFile', { from: 'a.md', to: 'a2.md' });
+  it('focus.renameActiveFile remaps the path AND preserves the source-folder marker', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' }); // active [notes/a.md], source notes
+    const res = await ctx.core.run('focus.renameActiveFile', {
+      from: 'notes/a.md',
+      to: 'notes/a2.md',
+    });
     expect(res.renamed).toBe(true);
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- a2.md');
-    expect(md).not.toContain('- a.md');
-    expect(md).toContain('# source-view: v'); // provenance survives the rename
+    expect(md).toContain('- notes/a2.md');
+    expect(md).not.toContain('- notes/a.md');
+    expect(md).toContain('# source-folder: notes'); // provenance survives the rename
   });
 
   it('focus.renameActiveFile is a no-op when the file is not focused', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' });
+    await ctx.core.run('focus.set', { folder: 'notes' });
     const res = await ctx.core.run('focus.renameActiveFile', { from: 'nope.md', to: 'x.md' });
     expect(res.renamed).toBe(false);
   });
 
-  it('focus.clearProvenanceIfView only clears when it is the source', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    const other = await ctx.core.run('focus.clearProvenanceIfView', { viewId: 'someone-else' });
-    expect(other.cleared).toBe(false);
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
-    const self = await ctx.core.run('focus.clearProvenanceIfView', { viewId: 'v' });
-    expect(self.cleared).toBe(true);
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-view');
-  });
-
   it('focus.toggleActiveFile adds/removes a file while PRESERVING intent + provenance', async () => {
-    await ctx.core.run('focus.set', { viewId: 'v' }); // active [a.md], intent vp, source v
+    await ctx.core.run('focus.set', { folder: 'notes' }); // active [notes/a.md], intent + source
     const added = await ctx.core.run('focus.toggleActiveFile', { file: 'b.md' });
-    expect([...added.active].sort()).toEqual(['a.md', 'b.md']);
+    expect([...added.active].sort()).toEqual(['b.md', 'notes/a.md']);
     let md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('# source-view: v'); // provenance kept
-    expect(md).toContain('intent: vp'); // intent kept
+    expect(md).toContain('# source-folder: notes'); // provenance kept
+    expect(md).toContain('intent: folder intent'); // intent kept
 
-    const removed = await ctx.core.run('focus.toggleActiveFile', { file: 'a.md' });
+    const removed = await ctx.core.run('focus.toggleActiveFile', { file: 'notes/a.md' });
     expect(removed.active).toEqual(['b.md']);
     md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('# source-view: v');
-    expect(md).toContain('intent: vp');
+    expect(md).toContain('# source-folder: notes');
+    expect(md).toContain('intent: folder intent');
+  });
+});
+
+describe('focus source-folder provenance (folder = the grouping)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+    // Two file badges under notes/, one outside. badge.set materializes the
+    // badge JSON without needing the file on disk — enough for badge.list to
+    // enumerate the folder's members.
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
+    await ctx.core.run('badge.set', { file: 'notes/b.md', patch: { prompt: 'B' } });
+    await ctx.core.run('badge.set', { file: 'other/c.md', patch: { prompt: 'C' } });
+    // The folder badge with a prompt — its agent-facing intent.
+    await ctx.core.run('badge.set', {
+      file: 'notes',
+      patch: { kind: 'folder', prompt: 'Chapter 3 notes' },
+    });
+  });
+
+  it('focus.set({folder}) gathers supported files under it + uses the folder prompt as intent', async () => {
+    const res = await ctx.core.run('focus.set', { folder: 'notes' });
+    expect(res.active).toEqual(['notes/a.md', 'notes/b.md']); // sorted; other/c.md excluded
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- notes/a.md');
+    expect(md).toContain('- notes/b.md');
+    expect(md).not.toContain('other/c.md');
+    expect(md).toContain('intent: Chapter 3 notes');
+    expect(md).toContain('# source-folder: notes');
+  });
+
+  it('editing the folder badge prompt refreshes a folder-sourced brief (by identity)', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.set', {
+      file: 'notes',
+      patch: { kind: 'folder', prompt: 'Chapter 3 — proof focus' },
+    });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('intent: Chapter 3 — proof focus');
+    expect(md).not.toContain('Chapter 3 notes');
+    expect(md).toContain('# source-folder: notes'); // provenance kept
+  });
+
+  it('editing a DIFFERENT folder prompt does NOT refresh (exact identity, no inference)', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.set', {
+      file: 'other',
+      patch: { kind: 'folder', prompt: 'unrelated' },
+    });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: Chapter 3 notes');
+  });
+
+  it('a per-file badge edit under the folder resyncs AND preserves the source-folder marker', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A revised' } });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('prompt: A revised'); // re-inlined
+    expect(md).toContain('# source-folder: notes'); // provenance survived
+    expect(md).toContain('intent: Chapter 3 notes'); // intent survived
+  });
+
+  it('focus.set({files}) strips a previously-written source-folder marker', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('focus.set', { files: ['notes/a.md'] });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-folder');
+  });
+
+  it('a manual intent override on a folder focus records NO provenance', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes', intent: 'my own question' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('intent: my own question');
+    expect(md).not.toContain('# source-folder');
+  });
+
+  it('focus.get does NOT leak the source provenance', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    const got = (await ctx.core.run('focus.get', {})) as Record<string, unknown>;
+    expect(Object.keys(got)).not.toContain('source');
+    expect(Object.keys(got)).not.toContain('sourceView');
+  });
+
+  // A folder focus must keep meaning "read ALL its files" as files appear.
+  it('a NEW file under a focused folder joins the brief automatically', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
+    // The watcher materializes a new file as a kind-only badge.set.
+    await ctx.core.run('badge.set', { file: 'notes/d.md' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- notes/d.md'); // pulled in, not stale
+    expect(md).toContain('# source-folder: notes'); // provenance kept
+    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
+  });
+
+  it('a new file OUTSIDE the focused folder is left out of the brief', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.set', { file: 'other/d.md' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('other/d.md');
+  });
+
+  it('a new file does NOT touch a files-sourced (non-folder) focus', async () => {
+    await ctx.core.run('focus.set', { files: ['notes/a.md'] });
+    await ctx.core.run('badge.set', { file: 'notes/d.md' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
+  });
+
+  // Renaming a focused folder must keep the brief live-linked to it.
+  it('renaming a focused folder remaps active child paths AND the source-folder provenance', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('- docs/a.md');
+    expect(md).toContain('- docs/b.md');
+    expect(md).not.toContain('notes/a.md');
+    expect(md).toContain('# source-folder: docs'); // re-stamped to the new name
+    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
+  });
+
+  it('after a folder rename, editing the renamed folder prompt still refreshes the brief', async () => {
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
+    await ctx.core.run('badge.set', {
+      file: 'docs',
+      patch: { kind: 'folder', prompt: 'renamed-folder intent' },
+    });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: renamed-folder intent');
   });
 });
 
@@ -457,15 +532,18 @@ describe('focus.setIntent (author the turn intent without touching the active se
     expect(md).toContain('- a.md'); // still focused, just no intent
   });
 
-  it('a manually-typed intent CLEARS view provenance (no longer view-derived)', async () => {
-    await ctx.core.run('view.create', { name: 'V', id: 'v', prompt: 'vp' });
-    await ctx.core.run('view.addMember', { id: 'v', file: 'a.md' });
-    await ctx.core.run('focus.set', { viewId: 'v' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-view: v');
+  it('a manually-typed intent CLEARS folder provenance (no longer folder-derived)', async () => {
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
+    await ctx.core.run('badge.set', {
+      file: 'notes',
+      patch: { kind: 'folder', prompt: 'folder intent' },
+    });
+    await ctx.core.run('focus.set', { folder: 'notes' });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-folder: notes');
     await ctx.core.run('focus.setIntent', { intent: 'my own question' });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('intent: my own question');
-    expect(md).not.toContain('# source-view'); // provenance dropped on manual override
+    expect(md).not.toContain('# source-folder'); // provenance dropped on manual override
   });
 
   it('SKIPS the write when expectedActive no longer matches (focus changed underneath)', async () => {

@@ -27,5 +27,9 @@ out/
 # internal/strategy docs — never commit (kept locally only)
 private-docs/
 
+# local reference checkouts for UI study (third-party source, kept local only,
+# never committed — IP hygiene + keeps the repo small)
+reference/
+
 # Claude Code runtime state (scheduled task locks, etc.)
 .claude/

@@ -7,8 +7,8 @@
  */
 
 :root {
-  --bh-accent: #2864c8;
-  --bh-text-ghost: #b0b0b0;
+  --bh-accent: #0078d4;
+  --bh-text-ghost: #6e6e6e;
 }
 
 html,
@@ -16,8 +16,8 @@ body,
 #root {
   margin: 0;
   height: 100%;
-  background: #f8f8f7;
-  color: #1a1a1a;
+  background: #1e1e1e;
+  color: #cccccc;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
@@ -27,23 +27,26 @@ body,
   box-sizing: border-box;
 }
 
-/* Subtle, native-feeling scrollbars. macOS hides them on idle. */
+/* Scrollbars modelled on the editor's: a flat (un-rounded) grey slider over a
+ * transparent track, brightening on hover / drag. No always-on track. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  background: rgba(121, 121, 121, 0.4);
+  border-radius: 0;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.32);
-  background-clip: padding-box;
-  border: 2px solid transparent;
+  background: rgba(100, 100, 100, 0.7);
+}
+::-webkit-scrollbar-thumb:active {
+  background: rgba(191, 191, 191, 0.4);
 }
 ::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
@@ -153,7 +156,7 @@ header::-webkit-scrollbar {
 .bh-md-preview {
   font-size: 11px;
   line-height: 1.5;
-  color: #6b6b6b;
+  color: #9d9d9d;
 }
 .bh-md-preview > :first-child {
   margin-top: 0;
@@ -167,7 +170,7 @@ header::-webkit-scrollbar {
   margin: 7px 0 3px;
   font-weight: 600;
   line-height: 1.25;
-  color: #1a1a1a;
+  color: #cccccc;
   letter-spacing: -0.2px;
 }
 .bh-md-preview h1 {
@@ -197,7 +200,7 @@ header::-webkit-scrollbar {
 }
 .bh-md-preview strong {
   font-weight: 600;
-  color: #1a1a1a;
+  color: #cccccc;
 }
 .bh-md-preview em {
   font-style: italic;
@@ -209,12 +212,12 @@ header::-webkit-scrollbar {
 .bh-md-preview code {
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 10px;
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.08);
   padding: 0 3px;
   border-radius: 3px;
 }
 .bh-md-preview pre {
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.08);
   padding: 6px 8px;
   border-radius: 4px;
   overflow: hidden;
@@ -226,12 +229,12 @@ header::-webkit-scrollbar {
 .bh-md-preview blockquote {
   margin: 3px 0;
   padding-left: 8px;
-  border-left: 2px solid #e3e3e0;
-  color: #9a9a9a;
+  border-left: 2px solid #454545;
+  color: #808080;
 }
 .bh-md-preview hr {
   border: none;
-  border-top: 1px solid #ececec;
+  border-top: 1px solid #2b2b2b;
   margin: 6px 0;
 }
 .bh-md-preview img {

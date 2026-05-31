@@ -446,32 +446,6 @@ describe('badge.rename', () => {
     expect(focus.active).toEqual(['unrelated.md']);
   });
 
-  it('updates view memberships that included `from` (preserves per-view position)', async () => {
-    await ctx.core.run('badge.set', { file: 'foo.md' });
-    await ctx.core.run('view.create', { name: 'V1', id: 'v1' });
-    await ctx.core.run('view.create', { name: 'V2', id: 'v2' });
-    await ctx.core.run('view.addMember', {
-      id: 'v1',
-      file: 'foo.md',
-      position: { x: 100, y: 200 },
-    });
-    // v2 does NOT contain foo.md — should not be touched.
-    await ctx.core.run('view.addMember', { id: 'v2', file: 'other.md' });
-    const result = (await ctx.core.run('badge.rename', {
-      from: 'foo.md',
-      to: 'foo-v2.md',
-    })) as { updatedViews: string[] };
-    expect(result.updatedViews).toEqual(['v1']);
-    const v1 = (await ctx.core.run('view.get', { id: 'v1' })) as {
-      members: { file: string; x?: number; y?: number }[];
-    };
-    expect(v1.members).toEqual([{ file: 'foo-v2.md', x: 100, y: 200 }]);
-    const v2 = (await ctx.core.run('view.get', { id: 'v2' })) as {
-      members: { file: string }[];
-    };
-    expect(v2.members.map((m) => m.file)).toEqual(['other.md']);
-  });
-
   it('throws when source badge does not exist', async () => {
     await expect(
       ctx.core.run('badge.rename', { from: 'never.md', to: 'whatever.md' }),

@@ -338,7 +338,7 @@ const TextPreview = ({
         if (markdown) {
           // Strip a leading YAML frontmatter block so the tile previews the
           // note's BODY (matching the editor, which also peels it off) instead
-          // of leading with raw `title:`/`tags:` lines — Obsidian/Jekyll notes
+          // of leading with raw `title:`/`tags:` lines — front-matter notes
           // would otherwise show YAML noise on every canvas tile. Then drop HTML
           // comments (e.g. the bh:workspace-hint marker) before slicing: they
           // don't render in a preview and, adjacent to a heading, break parsing.

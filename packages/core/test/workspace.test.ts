@@ -738,7 +738,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(hint).toMatch(/\.bh\/focus\.md/);
     expect(hint).toMatch(/\.bh\/badges\//);
     expect(hint).toMatch(/\.bh\/index\/inbound\.json/);
-    expect(hint).toMatch(/\.bh\/views\//);
+    // (saved views were removed — a folder is the grouping unit now)
     // Constraints that prevent agents from corrupting bh's state.
     expect(hint).toMatch(/\.bh\/cache\//);
     expect(hint).toMatch(/MD is the truth/i);

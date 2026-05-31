@@ -1,12 +1,13 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
-import { BrowserWindow, app, screen } from 'electron';
+import { BrowserWindow, Menu, app, screen } from 'electron';
 import {
   registerBhRunHandler,
   registerShellOpenHandler,
   registerWorkspacePickHandler,
 } from './ipc.js';
+import { buildAppMenu, installContextMenu } from './menu.js';
 import {
   clampToDisplays,
   debounce,
@@ -53,6 +54,14 @@ async function createWindow(): Promise<void> {
     height: state.height,
     ...(state.x !== undefined && { x: state.x }),
     ...(state.y !== undefined && { y: state.y }),
+    // Frameless custom title bar: hide the native bar but keep the macOS
+    // traffic lights, centered in our 36px title strip (BAR_HEIGHT in
+    // TitleBar.tsx): ~14px lights → top ≈ (36-14)/2 = 11. We NEVER hide them, so
+    // in fullscreen macOS reveals them on top-hover (you can still exit).
+    ...(process.platform === 'darwin' && {
+      titleBarStyle: 'hidden' as const,
+      trafficLightPosition: { x: 19, y: 11 },
+    }),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       contextIsolation: true,
@@ -62,6 +71,25 @@ async function createWindow(): Promise<void> {
   });
 
   if (state.isMaximized) mainWindow.maximize();
+
+  // Native right-click menu (Open Folder… everywhere; clipboard roles in the
+  // block editor). Per-window because it binds to this webContents.
+  installContextMenu(mainWindow);
+
+  // Relay fullscreen state to the renderer so the title bar reclaims the
+  // traffic-light reserve. We do NOT hide the window buttons: in fullscreen
+  // macOS reveals them (traffic lights + window title) on top-hover so the user
+  // can exit fullscreen — keep that. The earlier "leak" was just the ugly
+  // package-name title, now fixed by setting a real window title (workspace).
+  const onFullscreenChange = (isFs: boolean): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send('window:fullscreen', isFs);
+  };
+  mainWindow.on('enter-full-screen', () => onFullscreenChange(true));
+  mainWindow.on('leave-full-screen', () => onFullscreenChange(false));
+  mainWindow.webContents.on('did-finish-load', () =>
+    onFullscreenChange(mainWindow?.isFullScreen() ?? false),
+  );
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -97,6 +125,9 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) while
+  // keeping the standard Edit/View/Window roles the editor relies on.
+  Menu.setApplicationMenu(buildAppMenu());
   void createWindow();
 
   app.on('activate', () => {

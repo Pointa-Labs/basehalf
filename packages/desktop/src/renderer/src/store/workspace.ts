@@ -1,6 +1,4 @@
 import type {
-  SavedView,
-  ViewListResult,
   WorkspaceCurrentResult,
   WorkspaceEntry,
   WorkspaceListResult,
@@ -26,10 +24,6 @@ interface WorkspaceState {
    *  flash inside the viewer (MD editor). null on a normal open. Consumed +
    *  cleared by FilePreview once it lands on the match (or gives up). */
   openMatchQuery: string | null;
-  /** Saved views in the current workspace. Empty until refresh. */
-  views: readonly SavedView[];
-  /** Currently active view; null = the workspace's full canvas (all badges). */
-  currentView: string | null;
   /** Active scope = a folder relative path that limits which badges Canvas shows.
    * null = the whole workspace. Set by double-clicking a folder badge. */
   folderScope: string | null;
@@ -69,13 +63,7 @@ interface WorkspaceState {
   /** Clear the pending search-match target (FilePreview calls this once it has
    *  landed on the match or given up retrying). */
   clearOpenMatchQuery: () => void;
-  refreshViews: () => Promise<void>;
-  setCurrentView: (id: string | null) => void;
   setFolderScope: (path: string | null) => void;
-  createView: (name: string) => Promise<void>;
-  renameView: (id: string, name: string) => Promise<void>;
-  setViewPrompt: (id: string, prompt: string) => Promise<void>;
-  deleteView: (id: string) => Promise<void>;
   /** Create an empty MD note (writes a workspace-relative file) and open it
    * in the preview. The watcher picks it up and badge.list materializes a
    * badge on the next refresh — no extra step needed. */
@@ -113,8 +101,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   currentReachable: null,
   currentFile: null,
   openMatchQuery: null,
-  views: [],
-  currentView: null,
+  // (saved-view state removed — a folder is the grouping unit now)
   folderScope: null,
   flushEditor: null,
   setFlushEditor: (fn: (() => Promise<boolean>) | null) => set({ flushEditor: fn }),
@@ -130,8 +117,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         currentReachable: null,
         currentFile: null,
         openMatchQuery: null,
-        views: [],
-        currentView: null,
         folderScope: null,
         flushEditor: null,
         error: '',
@@ -144,7 +129,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           await window.bh.run('workspace.listFiles', { path: currentWs.path });
           set({ currentReachable: true });
           await startWatcher();
-          await get().refreshViews();
         } catch (err) {
           if (isPathNotFound(err)) {
             set({ currentReachable: false });
@@ -305,21 +289,18 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         currentReachable: null,
         currentFile: null,
         openMatchQuery: null,
-        views: [],
-        currentView: null,
         folderScope: null,
         flushEditor: null,
         error: '',
       });
       await startWatcher();
-      // Re-fetch reachable + views for the new workspace.
+      // Re-fetch reachable state for the new workspace.
       const wsList = (await window.bh.run('workspace.list')) as WorkspaceListResult;
       const currentWs = wsList.workspaces.find((w) => w.name === wsList.current);
       if (currentWs) {
         try {
           await window.bh.run('workspace.listFiles', { path: currentWs.path });
           set({ currentReachable: true });
-          await get().refreshViews();
         } catch (err) {
           if (isPathNotFound(err)) {
             set({ currentReachable: false });
@@ -443,27 +424,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   clearOpenMatchQuery: () => set({ openMatchQuery: null }),
 
-  refreshViews: async () => {
-    try {
-      const result = (await window.bh.run('view.list', {})) as ViewListResult;
-      set({ views: result.views });
-    } catch (err) {
-      set({ error: formatError(err) });
-    }
-  },
-
-  setCurrentView: (id: string | null) => set({ currentView: id }),
-
   setFolderScope: (path: string | null) => set({ folderScope: path }),
-
-  createView: async (name: string) => {
-    try {
-      await window.bh.run('view.create', { name });
-      await get().refreshViews();
-    } catch (err) {
-      set({ error: formatError(err) });
-    }
-  },
 
   createNote: async (relPath: string) => {
     try {
@@ -506,35 +467,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // MdEditor, which deliberately does NOT flush on unmount, silently dropping
       // the prior note's last keystrokes.
       get().setCurrentFile(relPath);
-    } catch (err) {
-      set({ error: formatError(err) });
-    }
-  },
-
-  renameView: async (id: string, name: string) => {
-    try {
-      await window.bh.run('view.update', { id, patch: { name } });
-      await get().refreshViews();
-    } catch (err) {
-      set({ error: formatError(err) });
-    }
-  },
-
-  setViewPrompt: async (id: string, prompt: string) => {
-    try {
-      await window.bh.run('view.update', { id, patch: { prompt } });
-      await get().refreshViews();
-    } catch (err) {
-      set({ error: formatError(err) });
-    }
-  },
-
-  deleteView: async (id: string) => {
-    try {
-      await window.bh.run('view.delete', { id });
-      // If the deleted view was active, drop back to main canvas.
-      if (get().currentView === id) set({ currentView: null });
-      await get().refreshViews();
     } catch (err) {
       set({ error: formatError(err) });
     }

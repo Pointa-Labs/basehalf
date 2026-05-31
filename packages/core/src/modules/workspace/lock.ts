@@ -23,7 +23,7 @@ export const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 // in-process — both read the pre-write config and the second write clobbers
 // the first (lost workspace, or a reverted `current` pointer silently undoing
 // the switch). Reproduced by test/workspace-config-concurrency.test.ts.
-// Single-process scope like inbound/views — see kernel/mutex.ts. The lock
+// Single-process scope like the inbound index — see kernel/mutex.ts. The lock
 // wraps only the config read-modify-write; slow materialization stays
 // outside it. No config handler calls another while holding the lock, so
 // there is no re-entrancy/deadlock (createDemo delegates to add/use, which

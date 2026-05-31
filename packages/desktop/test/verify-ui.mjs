@@ -280,25 +280,79 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
-const topbarText = await win.locator('header').first().innerText();
-assert(topbarText.includes('BaseHalf'), 'TopBar shows the BaseHalf wordmark');
+// The top NAV BAR was removed entirely — only the sidebar remains. There must
+// be NO <header> element. Workspace switching moved into the sidebar header;
+// "New note" floats on the canvas top-right; folder-open lives in the native
+// menu / right-click / ⌘K.
+const headerCount = await win.locator('header').count();
+assert(headerCount === 0, 'No top nav bar — the <header> is gone (only the sidebar remains)');
+// Workspace switcher now lives in the sidebar.
 assert(
-  topbarText.includes('Add folder'),
-  'TopBar shows "+ Add folder" button (renamed from "+ Pick folder")',
+  (await win.locator('[data-testid="sidebar-workspace-select"]').count()) === 1,
+  'Sidebar carries the workspace switcher',
 );
-assert(topbarText.includes('New note'), 'TopBar shows "+ New note" button (new entry)');
-assert(topbarText.includes('New view'), 'TopBar shows "+ New view" button');
-assert(/view/i.test(topbarText), 'TopBar shows the View label (case-insensitive)');
-assert(!topbarText.includes('Delete view'), 'No Delete-view action until a view is active');
+// "New note" floats on the canvas, not a top bar.
+const mainText = await win.locator('main').first().innerText();
+assert(mainText.includes('New note'), 'Canvas shows the floating "New note" button');
 
-// --- 3. Sidebar shows workspace + collapse button ---
+// --- 3. Sidebar: workspace header + resize sash + title-bar toggle ---
 console.log('\n[3] Sidebar');
 const sidebar = win.locator('aside').first();
 const sidebarText = await sidebar.innerText();
 assert(sidebarText.includes('bh-verify-ws'), 'Sidebar shows workspace name');
 assert(sidebarText.includes('/tmp/bh-verify-ws'), 'Sidebar shows workspace path');
-const collapseBtn = sidebar.locator('button[title="Hide file tree"]');
-assert((await collapseBtn.count()) === 1, 'Sidebar collapse button (◂) present');
+// The old in-sidebar collapse chevron is gone — the title-bar toggle owns
+// show/hide now (the primary-side-panel model; no thin leftover strip).
+assert(
+  (await win.locator('button[title="Hide file tree"]').count()) === 0,
+  'Old in-sidebar collapse chevron removed',
+);
+const sidebarToggle = win.locator('[data-testid="sidebar-toggle"]');
+assert((await sidebarToggle.count()) === 1, 'Title bar carries the sidebar toggle button');
+
+// Resizable width: drag the right-edge sash and assert the width tracks the
+// pointer. The handler is delta-based, so a +80px pointer move
+// must widen the sidebar by ~80px. Grab the sash center, move by exactly +80.
+const widthBefore = (await sidebar.boundingBox()).width;
+const sash = win.locator('[data-testid="sidebar-sash"]');
+assert((await sash.count()) === 1, 'Sidebar has a resize sash');
+const sashBox = await sash.boundingBox();
+const grabX = sashBox.x + sashBox.width / 2;
+const grabY = sashBox.y + sashBox.height / 2;
+await win.mouse.move(grabX, grabY);
+await win.mouse.down();
+await win.mouse.move(grabX + 80, grabY, { steps: 8 });
+await win.mouse.up();
+await win.waitForTimeout(150);
+const widthAfter = (await sidebar.boundingBox()).width;
+assert(
+  Math.abs(widthAfter - widthBefore - 80) <= 4,
+  `Drag-sash widened the sidebar (${Math.round(widthBefore)} → ${Math.round(widthAfter)}, expected ~+80)`,
+);
+// Pull it back to the starting width so later geometry-sensitive steps are stable.
+const grabX2 = (await sash.boundingBox()).x + sashBox.width / 2;
+await win.mouse.move(grabX2, grabY);
+await win.mouse.down();
+await win.mouse.move(grabX2 - 80, grabY, { steps: 8 });
+await win.mouse.up();
+await win.waitForTimeout(150);
+
+// Toggle fully HIDES the sidebar (no leftover strip) and brings it back.
+await sidebarToggle.click();
+await win.waitForTimeout(200);
+assert(
+  (await win.locator('aside').count()) === 0,
+  'Toggle fully hides the sidebar (no aside left)',
+);
+await sidebarToggle.click();
+await win.waitForTimeout(200);
+assert((await win.locator('aside').count()) === 1, 'Toggle brings the sidebar back');
+// `sidebar` is a lazy locator (aside.first()), so it re-resolves to the
+// restored element — the rest of the suite keeps using it unchanged.
+assert(
+  (await sidebar.innerText()).includes('bh-verify-ws'),
+  'Restored sidebar still shows the workspace',
+);
 
 // --- 4. NavTree renders files + hover state ---
 console.log('\n[4] NavTree');
@@ -403,6 +457,17 @@ assert(
 
 // --- 5. Canvas renders badges ---
 console.log('\n[5] Canvas badges');
+// The sidebar is a floating OVERLAY over the canvas now (toggling it never
+// reflows the canvas — see [3]/[8]), so left-edge badges sit BEHIND it. The
+// canvas-interaction tests below grab badges by absolute position, so hide the
+// sidebar for this block to expose the full canvas; [6] re-shows it before the
+// first file-row click. The hidden state persists across the reloads here.
+await win.locator('[data-testid="sidebar-toggle"]').click();
+await win.waitForTimeout(200);
+assert(
+  (await win.locator('aside').count()) === 0,
+  'Sidebar hidden to expose the full canvas for badge-interaction tests',
+);
 const canvasProbe = await win.evaluate(() => {
   const main = document.querySelector('main');
   const rf = document.querySelector('.react-flow');
@@ -788,11 +853,11 @@ assert(
 );
 
 // --- 5d-brief. focus.md is a self-contained TURN BRIEF: it inlines each
-// active file's prompt + reference notes, and carries a view's prompt as an
+// active file's prompt + reference notes, and carries a folder's prompt as an
 // `intent:` block. This is the compound-thinking payload — one read gives the
 // agent the human's curated MEANING, not a bare path list it would re-derive.
 // Set up + tear down via bhRun so downstream sections see a clean slate.
-console.log('\n[5d-brief] focus.md inlines prompts + ref notes + view intent');
+console.log('\n[5d-brief] focus.md inlines prompts + ref notes + folder intent');
 const briefPrompt = `pm-brief prompt ${Date.now()}`;
 const briefNote = `pm-brief note ${Date.now()}`;
 await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: briefPrompt } });
@@ -816,23 +881,21 @@ assert(
   `focus.get still parses the active path list under the brief (got ${JSON.stringify(focusActiveAfterBrief.active)})`,
 );
 
-// view.prompt → focus.md intent (regression for the silently-dropped prompt
-// at focus/commands.ts: previously focus.set({viewId}) mapped only members[].file).
-const briefViewPrompt = `exam: derive theorem 2 ${Date.now()}`;
-await bhRun('view.create', { name: 'Brief View', prompt: briefViewPrompt });
-const briefViewId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Brief View')?.id;
-await bhRun('view.addMember', { id: briefViewId, file: 'intro.md' });
-await bhRun('focus.set', { viewId: briefViewId });
+// folder prompt → focus.md intent: a folder IS the grouping, so focusing it
+// carries the folder badge's prompt into focus.md's `intent:` line.
+const briefFolderPrompt = `notes folder intent ${Date.now()}`;
+await bhRun('badge.set', { file: 'notes', patch: { kind: 'folder', prompt: briefFolderPrompt } });
+await bhRun('focus.set', { folder: 'notes' });
 const focusMdIntent = readFileSync(focusMdPath, 'utf-8');
 assert(
-  focusMdIntent.includes(`intent: ${briefViewPrompt}`),
-  `view.prompt reaches focus.md as intent — no longer dropped (file: ${JSON.stringify(focusMdIntent.slice(0, 200))})`,
+  focusMdIntent.includes(`intent: ${briefFolderPrompt}`),
+  `folder prompt reaches focus.md as intent (file: ${JSON.stringify(focusMdIntent.slice(0, 200))})`,
 );
 
 // Tear down so [5c]/[7g] etc. start from a clean intro.md + empty focus.
 await bhRun('badge.removeRef', { file: 'intro.md', to: 'overview.md' });
 await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' } });
-await bhRun('view.delete', { id: briefViewId }).catch(() => undefined);
+await bhRun('badge.set', { file: 'notes', patch: { kind: 'folder', prompt: '' } });
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 
@@ -1080,6 +1143,9 @@ assert(
 
 // --- 6. Open a file via NavTree → FilePreview should render ---
 console.log('\n[6] Open intro.md → FilePreview');
+// Re-show the sidebar (hidden in [5] to expose the canvas) for the file-row click.
+await win.locator('[data-testid="sidebar-toggle"]').click();
+await win.waitForTimeout(200);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 await win.screenshot({ path: `${SCREENS_DIR}/04-preview-open.png` });
@@ -1480,7 +1546,11 @@ await sidebar.locator('button', { hasText: 'blank.md' }).first().click();
 await win.waitForTimeout(700);
 const blankParas = await win.locator('.ProseMirror p').count();
 assert(blankParas >= 1, `an empty note seeds an editable paragraph (found ${blankParas})`);
-await win.locator('.ProseMirror p').first().click();
+// Click the editor CONTAINER (not the empty <p>): an empty paragraph is a
+// zero-content box that both trips Playwright's actionability check AND can be
+// obscured by the sidebar overlay. The container's center is stable, visible,
+// and clear of the sidebar — [7b] focuses the editor the same way and passes.
+await win.locator('.ProseMirror').first().click();
 await win.keyboard.type('First content in a blank note.');
 await win.waitForTimeout(900); // past autosave debounce
 await win.keyboard.press('Escape');
@@ -1527,6 +1597,10 @@ await sidebar.locator('button', { hasText: 'rawonly.md' }).first().click();
 await win.waitForTimeout(700);
 const rawParas = await win.locator('.ProseMirror p').count();
 assert(rawParas >= 1, `a raw-only note seeds an editable paragraph (found ${rawParas})`);
+// Click the seeded empty <p> itself (it's the only paragraph — the comment is a
+// raw-passthrough block, not a <p>). The editor card is now clear of the
+// sidebar, so the paragraph is reachable; clicking the container center would
+// instead land on the comment block above it.
 await win.locator('.ProseMirror p').first().click();
 await win.keyboard.type('added below the comment');
 await win.waitForTimeout(900);
@@ -1687,189 +1761,61 @@ await win.screenshot({ path: `${SCREENS_DIR}/10-image-viewer.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
-// --- 8. Sidebar collapse → 22px rail ---
-console.log('\n[8] Sidebar collapse');
-await collapseBtn.click();
+// --- 8. Sidebar toggle fully hides / shows the panel (primary side panel) ---
+console.log('\n[8] Sidebar show/hide toggle');
+const toggle = win.locator('[data-testid="sidebar-toggle"]');
+await toggle.click();
 await win.waitForTimeout(200);
-await win.screenshot({ path: `${SCREENS_DIR}/05-sidebar-collapsed.png` });
-const railWidth = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
-assert(railWidth < 30, `Sidebar collapsed to narrow rail (${railWidth}px, expected <30)`);
-const expandBtn = win.locator('aside button[title="Show file tree"]');
-assert((await expandBtn.count()) === 1, 'Expand button (▸) visible on the rail');
-await expandBtn.click();
-await win.waitForTimeout(200);
-const expandedWidth = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
-assert(expandedWidth > 200, `Sidebar re-expanded (${expandedWidth}px, expected >200)`);
-
-// --- 8b. Sidebar collapse state persists across reload (localStorage-
-// backed via bh:sidebar-collapsed). §8 verified the toggle but not the
-// persistence — a broken localStorage write key would silently reset
-// the UI preference on every reload.
-console.log('\n[8b] Sidebar collapse persists across reload');
-await collapseBtn.click();
-await win.waitForTimeout(200);
-const widthCollapsedBeforeReload = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
+await win.screenshot({ path: `${SCREENS_DIR}/05-sidebar-hidden.png` });
 assert(
-  widthCollapsedBeforeReload < 30,
-  `Sidebar collapsed before reload (${widthCollapsedBeforeReload}px)`,
+  (await win.locator('aside').count()) === 0,
+  'Toggle fully hides the sidebar — no leftover rail (aside count 0)',
 );
+await toggle.click();
+await win.waitForTimeout(200);
+const reopenedWidth = await win
+  .locator('aside')
+  .first()
+  .evaluate((el) => el.getBoundingClientRect().width);
+assert(reopenedWidth > 200, `Toggle re-shows the sidebar at full width (${reopenedWidth}px)`);
+
+// --- 8b. Hidden state persists across reload (localStorage bh:sidebar-open).
+// §8 verified the toggle but not persistence — a broken write key would
+// silently reset the preference on every reload.
+console.log('\n[8b] Sidebar hidden state persists across reload');
+await toggle.click();
+await win.waitForTimeout(200);
+assert((await win.locator('aside').count()) === 0, 'Sidebar hidden before reload');
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
-const widthCollapsedAfterReload = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
 assert(
-  widthCollapsedAfterReload < 30,
-  `Sidebar still collapsed after reload — preference persisted (${widthCollapsedAfterReload}px)`,
+  (await win.locator('aside').count()) === 0,
+  'Sidebar still hidden after reload — preference persisted',
 );
-// Re-expand so downstream tests start from the wider sidebar layout
-// they expect (file rows, badge properties panel coordinates, etc.).
-await win.locator('aside button[title="Show file tree"]').click();
+// Re-show so downstream tests start from the sidebar layout they expect
+// (file rows, badge properties panel, etc.).
+await win.locator('[data-testid="sidebar-toggle"]').click();
 await win.waitForTimeout(200);
-const widthAfterReExpand = await win
+const widthAfterReshow = await win
   .locator('aside')
   .first()
   .evaluate((el) => el.getBoundingClientRect().width);
-assert(widthAfterReExpand > 200, `Re-expanded for downstream tests (${widthAfterReExpand}px)`);
+assert(widthAfterReshow > 200, `Re-shown for downstream tests (${widthAfterReshow}px)`);
 
-// --- 9. Create view + Delete-view button appears ---
-console.log('\n[9] Saved-view CRUD');
-await bhRun('view.create', { name: 'Test View' });
+// (Saved-view CRUD removed — the View feature was deleted; a folder is the
+// grouping unit now. Reset to a clean main canvas for the folder tests below.)
+console.log('\n[9] (saved views removed — reset to main canvas)');
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
-// Probe what's actually in the TopBar after reload.
-const probeTopbar = await win
-  .locator('header')
-  .first()
-  .innerText()
-  .catch(() => '<no header>');
-console.log('     topbar after reload:', JSON.stringify(probeTopbar.slice(0, 200)));
-// Wait for the topbar's view select to actually render.
-await win.locator('[data-testid="topbar-view-select"]').waitFor({ timeout: 5000 });
-await win.waitForTimeout(300);
-// Pick "Test View" from the custom view dropdown.
-await selectByTestId('topbar-view-select', 'Test View');
-// View actions moved into a "⋯" menu next to the View select once a view
-// is active. The menu trigger should appear, offering Rename + Delete.
-const viewMenuPresent = await win.locator('[data-testid="topbar-view-menu"]').count();
-assert(viewMenuPresent === 1, 'View-actions ⋯ menu appears once a view is active');
-assert(
-  await menuHasItem('topbar-view-menu', 'Delete view'),
-  'View menu offers "Delete view" once a view is active',
-);
-assert(
-  await menuHasItem('topbar-view-menu', 'Rename view'),
-  'View menu offers "Rename view" once a view is active',
-);
-await win.screenshot({ path: `${SCREENS_DIR}/06-view-active.png` });
-
-// --- 9-add. Add files to the view via the picker. This is the only UI path
-// INTO a saved view — before it existed, views were a dead end (you could
-// create one but had no affordance to put files in it; the only addMember
-// call was in-canvas repositioning). The empty view must offer an "Add
-// files" CTA that opens a multi-select picker.
-const addFilesCta = win.locator('[data-testid="view-add-files-cta"]');
-assert(
-  (await addFilesCta.count()) === 1,
-  'Empty view offers an "Add files" CTA (views are no longer a dead end)',
-);
-await addFilesCta.click();
-await win.locator('[data-testid="view-picker-input"]').waitFor({ timeout: 3000 });
-assert((await dialogIsOpen()) === 1, 'Add-files picker opens as a modal dialog');
-await win
-  .locator('[role=dialog] button', { hasText: /^intro\.md/ })
-  .first()
-  .click();
-await win
-  .locator('[role=dialog] button', { hasText: /Add \d+ file/ })
-  .first()
-  .click();
-await win.waitForTimeout(800);
-const testViewId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Test View')?.id;
-const testViewAfterAdd = testViewId ? await bhRun('view.get', { id: testViewId }) : null;
-assert(
-  testViewAfterAdd?.members?.some((m) => m.file === 'intro.md'),
-  `Picker added intro.md to the view (members: ${JSON.stringify(testViewAfterAdd?.members?.map((m) => m.file))})`,
-);
-const introInViewCount = await win.locator('.react-flow__node[data-id="intro.md"]').count();
-assert(
-  introInViewCount === 1,
-  `Canvas renders the added badge inside the view (count=${introInViewCount})`,
-);
-
-// Rename the view via the menu → custom prompt dialog → submit.
-await clickMenuItem('topbar-view-menu', 'Rename view');
-await waitForDialog('Rename view');
-await fillDialogInput('Test View Renamed');
-await clickDialogButton('OK');
-await win.waitForTimeout(500);
-const viewListAfterRename = await bhRun('view.list', {});
-const renamedView = viewListAfterRename.views.find((v) => v.name === 'Test View Renamed');
-assert(
-  renamedView !== undefined,
-  `view.update reflected in store after Rename view dialog (views: ${viewListAfterRename.views.map((v) => v.name).join(', ')})`,
-);
-
-// Edit the view's prompt via the menu's "Edit view prompt…" item.
-assert(
-  await menuHasItem('topbar-view-menu', 'Edit view prompt'),
-  'View menu offers "Edit view prompt" alongside Rename + Delete',
-);
-await clickMenuItem('topbar-view-menu', 'Edit view prompt');
-await waitForDialog('View prompt');
-await fillDialogInput('Resources for theorem-2 proof attempt');
-await clickDialogButton('OK');
-await win.waitForTimeout(500);
-const viewListAfterPrompt = await bhRun('view.list', {});
-const promptedView = viewListAfterPrompt.views.find((v) => v.name === 'Test View Renamed');
-assert(
-  promptedView?.prompt === 'Resources for theorem-2 proof attempt',
-  `view.update with prompt patch persisted (got prompt: ${JSON.stringify(promptedView?.prompt)})`,
-);
-
-// Switch back to main canvas → the view-actions ⋯ menu should disappear.
-await selectByTestId('topbar-view-select', 'Main canvas');
-await win.waitForTimeout(200);
-const viewMenuOnMain = await win.locator('[data-testid="topbar-view-menu"]').count();
-assert(viewMenuOnMain === 0, 'View-actions ⋯ menu hidden when back on main canvas');
-
-// --- 9c. Folder badge double-click INSIDE a view must be a no-op. Folder
-// scoping is a main-canvas concept; firing it in a view left the toolbar
-// showing "/folder" scope chrome while the canvas still rendered the view
-// (currentView wins in refresh) — an inconsistent half-state.
-console.log('\n[9c] Folder dblclick inside a view does not enter folder scope');
-await bhRun('view.create', { name: 'Folder In View' });
-const fivId = (await bhRun('view.list', {})).views.find((v) => v.name === 'Folder In View')?.id;
-await bhRun('view.addMember', { id: fivId, file: 'notes', position: { x: 80, y: 80 } });
-await win.reload();
-await win.waitForLoadState('domcontentloaded');
-await win.waitForTimeout(1000);
-await selectByTestId('topbar-view-select', 'Folder In View');
-await win.waitForTimeout(700);
-const fivFolderBadge = win.locator('.react-flow__node[data-id="notes"]');
-assert((await fivFolderBadge.count()) === 1, 'Folder badge renders inside the view');
-await fivFolderBadge.dblclick().catch(() => undefined);
-await win.waitForTimeout(500);
-const fivTopbar = await win.locator('header').first().innerText();
-assert(
-  !/←\s*\/notes/.test(fivTopbar) && !fivTopbar.includes('Edit folder prompt'),
-  `Folder dblclick in a view stays in the view, no folder scope (topbar: ${JSON.stringify(fivTopbar.slice(0, 90))})`,
-);
-await selectByTestId('topbar-view-select', 'Main canvas');
-await win.waitForTimeout(200);
-await bhRun('view.delete', { id: fivId }).catch(() => undefined);
+// [9b]/[10] click the "notes" folder badge on the canvas; hide the overlay
+// sidebar so the badge isn't behind it (re-shown at [11b] for the workspace
+// switch, which uses the sidebar's Select).
+if ((await win.locator('aside').count()) > 0) {
+  await win.locator('[data-testid="sidebar-toggle"]').click();
+  await win.waitForTimeout(200);
+}
 
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
 // folder, not a previewable file). Single click sets focus only;
@@ -1906,7 +1852,8 @@ assert(
 // wrapper). Try wrapper, inner, raw mouse, and native dispatchEvent.
 let dblClickWorked = false;
 const checkScoped = async () => {
-  const t = await win.locator('header').first().innerText();
+  // Folder-scope chrome floats on the canvas (top bar removed).
+  const t = await win.locator('main').first().innerText();
   return t.includes('← /notes');
 };
 const attempts = [
@@ -1949,14 +1896,18 @@ assert(
 );
 if (dblClickWorked) {
   await win.screenshot({ path: `${SCREENS_DIR}/07-folder-scope.png` });
-  // Edit folder prompt: button only visible inside folder scope. Exercise
-  // it before exiting.
-  const folderTopbarText = await win.locator('header').first().innerText();
+  // Folder-scope chrome (now floating on the canvas): "Focus this folder" +
+  // "Edit folder prompt", only visible inside folder scope.
+  const folderChromeText = await win.locator('main').first().innerText();
   assert(
-    folderTopbarText.includes('Edit folder prompt'),
+    folderChromeText.includes('Focus this folder'),
+    'Canvas folder-scope chrome offers "Focus this folder"',
+  );
+  assert(
+    folderChromeText.includes('Edit folder prompt'),
     'Edit-folder-prompt button appears when scoped into a folder',
   );
-  await win.locator('header button', { hasText: 'Edit folder prompt' }).click();
+  await win.locator('main button', { hasText: 'Edit folder prompt' }).click();
   await waitForDialog('Folder prompt');
   await fillDialogInput('Chapter 3 supporting material — read first');
   await clickDialogButton('OK');
@@ -1964,15 +1915,15 @@ if (dblClickWorked) {
   const folderBadge = await bhRun('badge.get', { file: 'notes', kind: 'folder' });
   assert(
     folderBadge?.prompt === 'Chapter 3 supporting material — read first',
-    `Folder badge prompt persisted via TopBar dialog (got: ${JSON.stringify(folderBadge?.prompt)})`,
+    `Folder badge prompt persisted via the canvas folder-scope dialog (got: ${JSON.stringify(folderBadge?.prompt)})`,
   );
-  await win.locator('header button', { hasText: '← /notes' }).click();
+  await win.locator('main button', { hasText: '← /notes' }).click();
   await win.waitForTimeout(300);
-  // After exiting scope, the Edit-folder-prompt button must be hidden.
-  const topbarAfterExit = await win.locator('header').first().innerText();
+  // After exiting scope, the folder-scope chrome must be hidden.
+  const canvasAfterExit = await win.locator('main').first().innerText();
   assert(
-    !topbarAfterExit.includes('Edit folder prompt'),
-    'Edit-folder-prompt button hidden after exiting folder scope',
+    !canvasAfterExit.includes('Edit folder prompt'),
+    'Folder-scope chrome hidden after exiting folder scope',
   );
 }
 // Independently exercise the store path so we know setFolderScope itself
@@ -1987,69 +1938,8 @@ const folderScopeProbe = await win.evaluate(() => {
 });
 assert(folderScopeProbe.ok, 'store-path probe placeholder (skip if dblclick already passed)');
 
-// --- 10b. View-mode drag-persist: in view mode the per-view position
-// (view.addMember x/y) should update on drag, and the badge's canonical
-// canvas position should NOT. §5b covered main-canvas drag; the view
-// branch of Canvas.persistPosition was untested.
-console.log('\n[10b] View-mode drag → per-view position, badge.canvas untouched');
-// Seed: add intro.md to "Test View Renamed" at a known position so the
-// drag target is unambiguous. view.addMember is upsert-by-(view,file).
-const viewListBeforeDrag = await bhRun('view.list', {});
-const dragTestView = viewListBeforeDrag.views.find((v) => v.name === 'Test View Renamed');
-assert(
-  dragTestView !== undefined,
-  `"Test View Renamed" available for view-drag test (views: ${viewListBeforeDrag.views.map((v) => v.name).join(', ')})`,
-);
-await bhRun('view.addMember', {
-  id: dragTestView.id,
-  file: 'intro.md',
-  position: { x: 60, y: 60 },
-});
-// Snapshot badge.canvas BEFORE view-mode drag so we can confirm it
-// doesn't bleed when the per-view position updates.
-const badgeCanvasBefore = (await bhRun('badge.get', { file: 'intro.md', kind: 'file' }))?.canvas;
-assert(
-  badgeCanvasBefore && Number.isFinite(badgeCanvasBefore.x),
-  `intro.md has a canonical canvas pos before view drag (${JSON.stringify(badgeCanvasBefore)})`,
-);
-// Switch to the view via the topbar selector.
-await selectByTestId('topbar-view-select', 'Test View Renamed');
-await win.waitForTimeout(500);
-const viewBadge = win.locator('.react-flow__node[data-id="intro.md"]');
-const viewBox0 = await viewBadge.boundingBox();
-assert(viewBox0 !== null, 'intro.md badge has a bounding box in view mode');
-// Drag the badge with the same pattern as §5b.
-const vStart = { x: viewBox0.x + viewBox0.width / 2, y: viewBox0.y + viewBox0.height / 2 };
-const vTarget = { x: vStart.x + 180, y: vStart.y + 90 };
-await win.mouse.move(vStart.x, vStart.y);
-await win.mouse.down();
-await win.mouse.move(vTarget.x, vTarget.y, { steps: 12 });
-await win.mouse.up();
-await win.waitForTimeout(800); // debounce
-// view.get should reflect the new per-view position.
-const viewAfterDrag = await bhRun('view.get', { id: dragTestView.id });
-const memberAfterDrag = viewAfterDrag?.members.find((m) => m.file === 'intro.md');
-assert(
-  memberAfterDrag &&
-    Number.isFinite(memberAfterDrag.x) &&
-    Number.isFinite(memberAfterDrag.y) &&
-    (Math.abs(memberAfterDrag.x - 60) > 30 || Math.abs(memberAfterDrag.y - 60) > 30),
-  `view member position updated on view-mode drag (was (60,60), now ${JSON.stringify({ x: memberAfterDrag?.x, y: memberAfterDrag?.y })})`,
-);
-// Crucially, the canonical badge.canvas should NOT have moved — view
-// positions are per-view overrides and don't bleed into main canvas.
-const badgeCanvasAfter = (await bhRun('badge.get', { file: 'intro.md', kind: 'file' }))?.canvas;
-assert(
-  badgeCanvasAfter &&
-    badgeCanvasAfter.x === badgeCanvasBefore.x &&
-    badgeCanvasAfter.y === badgeCanvasBefore.y,
-  `View-mode drag didn't mutate canonical badge.canvas (before ${JSON.stringify(badgeCanvasBefore)}, after ${JSON.stringify(badgeCanvasAfter)})`,
-);
-// Switch back to main canvas so downstream tests start from a known state.
-await selectByTestId('topbar-view-select', 'Main canvas');
-await win.waitForTimeout(400);
-// Remove intro.md from the view so subsequent runs are deterministic.
-await bhRun('view.removeMember', { id: dragTestView.id, file: 'intro.md' });
+// (View-mode drag-persist test removed with the View feature. Main-canvas
+// drag-persist is still covered by §5b.)
 
 // --- 11. New-note: exercise workspace.writeFile (the action TopBar's
 // "+ New note" button ultimately calls). The window.prompt UI itself is
@@ -2090,6 +1980,12 @@ await win.screenshot({ path: `${SCREENS_DIR}/08-after-new-note.png` });
 // state reset would let stale React Flow nodes persist briefly OR
 // permanently — either is data-displayed-out-of-context.
 console.log('\n[11b] Workspace switch — canvas badges fully replaced');
+// Re-show the sidebar (hidden in [9] for the folder-badge clicks) — the
+// workspace switch below uses the sidebar's workspace Select.
+if ((await win.locator('aside').count()) === 0) {
+  await win.locator('[data-testid="sidebar-toggle"]').click();
+  await win.waitForTimeout(200);
+}
 const isoSecondWs = '/tmp/bh-verify-ws-iso';
 if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
 mkdirSync(isoSecondWs, { recursive: true });
@@ -2103,7 +1999,7 @@ assert(
   badgesInOriginal >= 3,
   `Original workspace has multiple badges as baseline (${badgesInOriginal})`,
 );
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-iso');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-iso');
 await win.waitForTimeout(1200);
 const badgesInIso = await win.locator('.react-flow__node-badge').count();
 assert(
@@ -2115,7 +2011,7 @@ assert(
   `ws-iso canvas shows only its own file count (${badgesInIso}; expected ≤2 for lone.md)`,
 );
 // Return to the original workspace; cleanup the iso ws.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(1000);
 await bhRun('workspace.remove', { name: 'bh-verify-ws-iso' });
 if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
@@ -2143,7 +2039,7 @@ await win.keyboard.press('End');
 const switchStamp = `pre-switch-${Date.now()}`;
 await win.keyboard.type(` ${switchStamp}`, { delay: 10 });
 // Switch workspaces — NO "unsaved edits" dialog (auto-save flushes silently).
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(1000);
 const sidebarAfterSwitch = await win.locator('aside').first().innerText();
 assert(
@@ -2157,7 +2053,7 @@ assert(
   `Edit auto-saved to the original workspace on switch (stamp on intro.md: ${introContent.includes(switchStamp)})`,
 );
 // Switch back: the edit is there — persisted, not silently dropped.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(1000);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(900);
@@ -2454,11 +2350,10 @@ await win.waitForTimeout(200);
 assert((await paletteInput.count()) === 0, 'Palette closed after arrow-nav test');
 
 // --- 12d-actions. Palette action-row invocation: filter to a Workspace
-// row + Enter switches the active workspace; filter to a View row +
-// Enter switches the active view; "Main canvas" row clears it. §12d
-// covered filter + Enter on File rows; the Workspace and View action
-// branches in CommandPalette.actions[] were untested.
-console.log('\n[12d-actions] Palette → Workspace switch + View switch');
+// row + Enter switches the active workspace. §12d covered filter + Enter on
+// File rows; the Workspace action branch in CommandPalette.actions[] was
+// untested.
+console.log('\n[12d-actions] Palette → Workspace switch');
 // Workspace switch: filter to ws-2 and Enter.
 await win.keyboard.press(cmdK);
 await win.waitForTimeout(200);
@@ -2487,31 +2382,7 @@ assert(
   `Switched back to bh-verify-ws via palette (current: ${JSON.stringify(wsCurrentRestored?.current?.name)})`,
 );
 
-// View switch: filter to the existing "Test View Renamed" → Enter
-// activates it (Delete view button appears).
-await win.keyboard.press(cmdK);
-await win.waitForTimeout(200);
-await paletteInput.fill('Renamed');
-await win.waitForTimeout(200);
-await win.keyboard.press('Enter');
-await win.waitForTimeout(500);
-const viewMenuAfterPick = await win.locator('[data-testid="topbar-view-menu"]').count();
-assert(
-  viewMenuAfterPick === 1,
-  'Palette → View row activated a saved view (view-actions ⋯ menu present)',
-);
-// Now back to main canvas via palette → "Main canvas".
-await win.keyboard.press(cmdK);
-await win.waitForTimeout(200);
-await paletteInput.fill('Main canvas');
-await win.waitForTimeout(200);
-await win.keyboard.press('Enter');
-await win.waitForTimeout(500);
-const viewMenuAfterMain = await win.locator('[data-testid="topbar-view-menu"]').count();
-assert(
-  viewMenuAfterMain === 0,
-  'Palette → "Main canvas" cleared the active view (view-actions ⋯ menu hidden)',
-);
+// (Palette View-switch test removed with the View feature.)
 
 // --- 12d-recent. The palette orders File rows by recency (recentFilesFor),
 // then alphabetical for never-opened files. So whichever file the user
@@ -2554,19 +2425,12 @@ await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
 // --- 12e. Global Cmd+N opens the new-note dialog (same flow as the
-// TopBar "New note" button). Cmd+Shift+N opens the new-view dialog.
-console.log('\n[12e] Cmd+N / Cmd+Shift+N global shortcuts');
+// TopBar "New note" button). (Cmd+Shift+N / new-view was removed with views.)
+console.log('\n[12e] Cmd+N global shortcut');
 const cmdN = process.platform === 'darwin' ? 'Meta+n' : 'Control+n';
 await win.keyboard.press(cmdN);
 await waitForDialog('New note');
 assert((await dialogIsOpen()) === 1, 'Cmd+N opens the New-note dialog');
-await clickDialogButton('Cancel');
-await win.waitForTimeout(200);
-
-const cmdShiftN = process.platform === 'darwin' ? 'Meta+Shift+n' : 'Control+Shift+n';
-await win.keyboard.press(cmdShiftN);
-await waitForDialog('Create a saved view');
-assert((await dialogIsOpen()) === 1, 'Cmd+Shift+N opens the Create-view dialog');
 await clickDialogButton('Cancel');
 await win.waitForTimeout(200);
 
@@ -2639,7 +2503,7 @@ console.log('\n[12f] Workspace rename — validation + happy path');
 // Pre-condition: bh-verify-ws and bh-verify-ws-2 both registered, with
 // bh-verify-ws active (§12 added ws-2, §13 will remove it).
 // 1) Empty name → validation error, dialog stays open.
-await clickMenuItem('topbar-ws-menu', 'Rename workspace');
+await clickMenuItem('sidebar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('   ');
 await clickDialogButton('OK');
@@ -2674,7 +2538,7 @@ assert(
 );
 // 4) Happy path → rename, then rename back so downstream tests still
 // find bh-verify-ws by name (§14 selects it).
-await clickMenuItem('topbar-ws-menu', 'Rename workspace');
+await clickMenuItem('sidebar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('renamed-verify-ws');
 await clickDialogButton('OK');
@@ -2696,61 +2560,20 @@ assert(
   `Restored to bh-verify-ws so downstream tests work (workspaces: ${JSON.stringify(wsListAfterRestore)})`,
 );
 
-// --- 12g. View create dialog (Cmd+Shift+N): validation + happy create
-// → switch to new view → Delete view (destructive confirm) → verify
-// gone. §9 covered create via bhRun and rename via UI; the create UI
-// flow and the delete-via-UI flow were both untested.
-console.log('\n[12g] View create dialog + Delete view UI flow');
-await win.keyboard.press(cmdShiftN);
-await waitForDialog('Create a saved view');
-// Validation: empty name rejected with inline error.
-await fillDialogInput('   ');
-await clickDialogButton('OK');
-await win.waitForTimeout(200);
-const viewDialogEmptyText = await win.locator('[role=dialog]').innerText();
-assert(
-  /name is required/i.test(viewDialogEmptyText),
-  `Empty view-name rejected (dialog: ${JSON.stringify(viewDialogEmptyText.slice(0, 120))})`,
-);
-assert((await dialogIsOpen()) === 1, 'Create-view dialog stays open after empty-name validation');
-// Happy path: type a name and submit.
-const ephemeralViewName = `Ephemeral ${Date.now()}`;
-await fillDialogInput(ephemeralViewName);
-await clickDialogButton('OK');
-await win.waitForTimeout(600);
-const viewListAfterCreate = await bhRun('view.list', {});
-const ephemeralView = viewListAfterCreate.views.find((v) => v.name === ephemeralViewName);
-assert(
-  ephemeralView !== undefined,
-  `New view created via UI dialog (views: ${viewListAfterCreate.views.map((v) => v.name).join(', ')})`,
-);
-// Switch to the new view so the view-actions menu (Rename / Edit / Delete) shows.
-await selectByTestId('topbar-view-select', ephemeralViewName);
-await win.waitForTimeout(400);
-// Delete view → confirm dialog → confirm → view dropped.
-await clickMenuItem('topbar-view-menu', 'Delete view');
-await waitForDialog('Delete view');
-assert((await dialogIsOpen()) === 1, 'Delete view opens the destructive confirm dialog');
-await clickDialogButton('Delete');
-await win.waitForTimeout(700);
-const viewListAfterDelete = await bhRun('view.list', {});
-assert(
-  !viewListAfterDelete.views.some((v) => v.name === ephemeralViewName),
-  `Confirmed Delete view dropped "${ephemeralViewName}" (remaining: ${viewListAfterDelete.views.map((v) => v.name).join(', ')})`,
-);
+// (§12g View create/delete UI flow removed with the View feature.)
 
 // --- 13. Workspace.remove via custom Dialog — clicking the destructive
 // confirm in the modal should actually unregister; Cancel must NOT. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
 // Switch to ws-2 so we can safely remove it.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(700);
 // Cancel-path safety check first: open Remove, click Cancel, confirm
 // the workspace is STILL registered. A regression where Cancel calls
 // remove() anyway would silently destroy user state — high blast
 // radius for a button labeled "Cancel".
 const ws2CountBeforeCancel = (await bhRun('workspace.list', {})).workspaces.length;
-await clickMenuItem('topbar-ws-menu', 'Remove workspace');
+await clickMenuItem('sidebar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 await clickDialogButton('Cancel');
 await win.waitForTimeout(400);
@@ -2762,7 +2585,7 @@ assert(
 );
 
 const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
-await clickMenuItem('topbar-ws-menu', 'Remove workspace');
+await clickMenuItem('sidebar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 assert((await dialogIsOpen()) === 1, 'Remove opens the custom Dialog (no native popup)');
 // Wait for the fade-in animation to finish before capturing (otherwise the
@@ -2823,7 +2646,7 @@ await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 // Make it active via the UI selector — the store's use() runs listFiles
 // and flips currentReachable to true (folder exists, no surprise yet).
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-ghost');
 await win.waitForTimeout(700);
 const sidebarBeforeMove = await win.locator('aside').first().innerText();
 assert(
@@ -2835,9 +2658,9 @@ renameSync(GHOST_WS, GHOST_WS_MOVED);
 // Round-trip through a different workspace so use() re-runs against the
 // now-missing path. Picking the same option in the selector wouldn't
 // fire onChange, so the listFiles call wouldn't be re-issued.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(700);
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-ghost');
 await win.waitForTimeout(1500);
 const unreachableText = await win.locator('aside').first().innerText();
 assert(

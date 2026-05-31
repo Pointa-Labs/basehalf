@@ -324,16 +324,20 @@ const inbound = defineCommand({
 const focusSet = defineCommand({
   meta: {
     name: 'set',
-    description: 'Publish the focus signal (.bh/focus.md) — either file list or view id',
+    description: 'Publish the focus signal (.bh/focus.md) — a file list or a folder',
   },
   args: {
     files: { type: 'string', description: 'Comma-separated list of relative file paths' },
-    view: { type: 'string', description: 'A saved view id (alternative to --files)' },
+    folder: {
+      type: 'string',
+      description:
+        'A folder path: focus all supported files under it, with the folder prompt as the intent',
+    },
     json: { type: 'boolean', description: 'JSON output' },
   },
   async run({ args }) {
-    if (typeof args.view === 'string' && args.view.length > 0) {
-      const result = await core.run('focus.set', { viewId: args.view });
+    if (typeof args.folder === 'string' && args.folder.length > 0) {
+      const result = await core.run('focus.set', { folder: args.folder });
       render('focus.set', result, Boolean(args.json));
       return;
     }
@@ -382,133 +386,6 @@ const focusBrief = defineCommand({
 const focus = defineCommand({
   meta: { name: 'focus', description: 'Read / write the agent focus signal' },
   subCommands: { set: focusSet, get: focusGet, brief: focusBrief, clear: focusClear },
-});
-
-// ── view.* ─────────────────────────────────────────────────────────────────
-
-const viewCreate = defineCommand({
-  meta: { name: 'create', description: 'Create a new saved view' },
-  args: {
-    name: { type: 'positional', description: 'View display name', required: true },
-    id: { type: 'string', description: 'Explicit id (default: slug of name)' },
-    prompt: { type: 'string', description: 'View-level prompt' },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const result = await core.run('view.create', {
-      name: args.name,
-      ...(typeof args.id === 'string' && args.id.length > 0 && { id: args.id }),
-      ...(typeof args.prompt === 'string' && { prompt: args.prompt }),
-    });
-    render('view.create', result, Boolean(args.json));
-  },
-});
-
-const viewList = defineCommand({
-  meta: { name: 'list', description: 'List saved views in current workspace' },
-  args: { json: { type: 'boolean', description: 'JSON output' } },
-  async run({ args }) {
-    const result = await core.run('view.list', {});
-    render('view.list', result, Boolean(args.json));
-  },
-});
-
-const viewGet = defineCommand({
-  meta: { name: 'get', description: 'Show one saved view' },
-  args: {
-    id: { type: 'positional', description: 'View id', required: true },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const result = await core.run('view.get', { id: args.id });
-    render('view.get', result, Boolean(args.json));
-  },
-});
-
-const viewDelete = defineCommand({
-  meta: { name: 'delete', description: 'Delete a saved view (member badges untouched)' },
-  args: {
-    id: { type: 'positional', description: 'View id', required: true },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const result = await core.run('view.delete', { id: args.id });
-    render('view.delete', result, Boolean(args.json));
-  },
-});
-
-const viewAddMember = defineCommand({
-  meta: { name: 'addMember', description: 'Add a badge to a view (reference, not copy)' },
-  args: {
-    id: { type: 'positional', description: 'View id', required: true },
-    file: { type: 'positional', description: 'Relative path of the badge to add', required: true },
-    x: { type: 'string', description: 'Canvas x position in this view' },
-    y: { type: 'string', description: 'Canvas y position in this view' },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const x = typeof args.x === 'string' ? Number(args.x) : Number.NaN;
-    const y = typeof args.y === 'string' ? Number(args.y) : Number.NaN;
-    const position = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
-    const result = await core.run('view.addMember', {
-      id: args.id,
-      file: args.file,
-      ...(position !== undefined && { position }),
-    });
-    render('view.addMember', result, Boolean(args.json));
-  },
-});
-
-const viewRemoveMember = defineCommand({
-  meta: { name: 'removeMember', description: 'Drop a badge from a view' },
-  args: {
-    id: { type: 'positional', description: 'View id', required: true },
-    file: { type: 'positional', description: 'Relative path of the badge to drop', required: true },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const result = await core.run('view.removeMember', { id: args.id, file: args.file });
-    render('view.removeMember', result, Boolean(args.json));
-  },
-});
-
-const viewUpdate = defineCommand({
-  meta: {
-    name: 'update',
-    description: 'Rename a view and/or set its agent-facing prompt',
-  },
-  args: {
-    id: { type: 'positional', description: 'View id', required: true },
-    name: { type: 'string', description: 'New name (omit to leave unchanged)' },
-    prompt: {
-      type: 'string',
-      description: 'New prompt for the AI agent reading this view (empty string clears)',
-    },
-    json: { type: 'boolean', description: 'JSON output' },
-  },
-  async run({ args }) {
-    const patch: { name?: string; prompt?: string } = {};
-    if (typeof args.name === 'string') patch.name = args.name;
-    if (typeof args.prompt === 'string') patch.prompt = args.prompt;
-    if (Object.keys(patch).length === 0) {
-      throw new Error('view update: pass --name and/or --prompt');
-    }
-    const result = await core.run('view.update', { id: args.id, patch });
-    render('view.update', result, Boolean(args.json));
-  },
-});
-
-const view = defineCommand({
-  meta: { name: 'view', description: 'Saved views — compound groupings of badges' },
-  subCommands: {
-    create: viewCreate,
-    list: viewList,
-    get: viewGet,
-    update: viewUpdate,
-    delete: viewDelete,
-    addMember: viewAddMember,
-    removeMember: viewRemoveMember,
-  },
 });
 
 // ── search ───────────────────────────────────────────────────────────────────
@@ -567,7 +444,7 @@ const main = defineCommand({
     version: '0.0.1',
     description: 'BaseHalf — local-first compound thinking workspace (pre-alpha CLI)',
   },
-  subCommands: { init, workspace, badge, inbound, focus, view, search },
+  subCommands: { init, workspace, badge, inbound, focus, search },
 });
 
 // citty's runMain handles --help/--version/argv parsing. We wrap to translate
