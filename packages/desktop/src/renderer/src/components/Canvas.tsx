@@ -379,15 +379,39 @@ export const Canvas = (): JSX.Element => {
     timeout: ReturnType<typeof setTimeout>;
     apply: () => void;
   } | null>(null);
+  // Serialize focus mutations: each apply() chains onto the previous one's
+  // promise so they land in click order. Without this, committing a pending
+  // plain-click (focus.set([A])) and then a shift-toggle (toggleActiveFile(B))
+  // would race two IPC round-trips and could drop A or B non-deterministically.
+  const focusChain = useRef<Promise<void>>(Promise.resolve());
 
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
+      // The workspace this click was issued against. A deferred timer or a
+      // committed-but-in-flight chain link can outlive a workspace switch; focus
+      // mutations resolve their target workspace LAZILY at execution time, so a
+      // stale apply would otherwise write THIS workspace's badge into whatever
+      // workspace is current when its IPC finally runs. We snapshot it here and
+      // bail if it no longer matches.
+      const issuedFor = useWorkspaceStore.getState().current;
       // Single-click manages FOCUS only — it never opens the editor. Opening is
       // the double-click (onNodeDoubleClick). This keeps the canvas + focus viz
       // visible while you assemble a focus set by clicking badges.
       const apply = (): void => {
-        void (async () => {
+        // Enqueue onto the focus-mutation chain so this apply runs only AFTER any
+        // previously-committed one resolves (committed-pending-A then toggle-B
+        // can't interleave). Each link catches internally, so the chain never
+        // rejects and a failed mutation doesn't stall later clicks.
+        focusChain.current = focusChain.current.then(async () => {
+          // Workspace switched out from under this click → drop it (no IPC, no
+          // repaint). This closes the common window (a deferred timer/chain link
+          // that runs AFTER the switch settled). NOTE: a residual race remains
+          // when the link runs DURING a switch — the main-process config flips to
+          // the new root before the renderer's `current` does, and focus.set
+          // resolves its workspace lazily; the full fix is an explicit
+          // target-workspace arg on focus.set (tracked for a follow-up).
+          if (useWorkspaceStore.getState().current !== issuedFor) return;
           try {
             let after: { active: readonly string[] };
             if (additive) {
@@ -420,14 +444,15 @@ export const Canvas = (): JSX.Element => {
             // surface it rather than swallow it.
             setError(err instanceof Error ? err.message : String(err));
           }
-        })();
+        });
       };
       // Resolve a still-pending deferred plain-click before handling this one:
       //  - SAME badge re-clicked → it's a double-click; DROP the pending single
       //    so opening the editor never collapses focus.
       //  - DIFFERENT badge → the prior plain-click wasn't a double-click, so
-      //    COMMIT it first (e.g. plain-click A then shift-click B → {A, B}, and
-      //    A's stale timer can't fire later to drop B).
+      //    COMMIT it first (e.g. plain-click A then shift-click B → {A, B}).
+      //    Both go through focusChain, so A's focus.set lands before B's toggle
+      //    (no IPC race), and A's stale timer can't fire later to drop B.
       const pending = clickTimer.current;
       if (pending) {
         clearTimeout(pending.timeout);
@@ -481,10 +506,14 @@ export const Canvas = (): JSX.Element => {
 
   const clearFocus = useCallback(() => {
     cancelPendingClick(); // an explicit clear must win over a still-deferred click
-    // Persist the clear FIRST, then reflect it; on failure surface the error
-    // instead of leaving the canvas showing "empty focus" while .bh/focus.md
-    // still feeds the agent stale files (the desync reappears on reload).
-    void (async () => {
+    const issuedFor = useWorkspaceStore.getState().current;
+    // Route the clear through the SAME focusChain as the clicks, so a committed
+    // apply() that's still in flight can't repaint the rings AFTER the clear
+    // (the clear's setNodes runs strictly after it). Persist FIRST, then reflect;
+    // on failure surface the error instead of leaving the canvas showing "empty
+    // focus" while .bh/focus.md still feeds the agent stale files.
+    focusChain.current = focusChain.current.then(async () => {
+      if (useWorkspaceStore.getState().current !== issuedFor) return; // workspace switched away
       try {
         await window.bh.run('focus.clear', {});
         setFocusActive([]);
@@ -494,7 +523,7 @@ export const Canvas = (): JSX.Element => {
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
-    })();
+    });
   }, [cancelPendingClick]);
 
   // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can

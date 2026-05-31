@@ -41,7 +41,7 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     await tick();
     // Stayed on the conflicted file — no silent drop/clobber — and nudged the user.
     expect(store.getState().currentFile).toBe('a.md');
-    expect(store.getState().error).toMatch(/disk conflict/i);
+    expect(store.getState().error).toMatch(/save or resolve/i);
   });
 
   it('setCurrentFile still switches when no editor is mounted (flushEditor null)', async () => {
@@ -67,14 +67,14 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     await store.getState().use('other-ws');
     expect(store.getState().current).toBe('ws'); // unchanged — no window.bh.run reached
     expect(store.getState().busy).toBe(false);
-    expect(store.getState().error).toMatch(/disk conflict/i);
+    expect(store.getState().error).toMatch(/save or resolve/i);
   });
 
   it('addDroppedPaths refuses to proceed while a conflict is open', async () => {
     store.setState({ flushEditor: async () => false });
     await store.getState().addDroppedPaths(['/some/dropped/folder']);
     expect(store.getState().busy).toBe(false);
-    expect(store.getState().error).toMatch(/disk conflict/i);
+    expect(store.getState().error).toMatch(/save or resolve/i);
   });
 
   it('createNote gates BEFORE writing the stub (no orphan note on a conflict)', async () => {
@@ -83,6 +83,29 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     // window.bh would be undefined here and throw a different error.
     store.setState({ flushEditor: async () => false });
     await store.getState().createNote('fresh-note.md');
-    expect(store.getState().error).toMatch(/disk conflict/i);
+    expect(store.getState().error).toMatch(/save or resolve/i);
   });
+
+  // C — rename rebind: a renamed-away file's old path is gone, so the rebind
+  // must NOT be gated (else the editor is trapped on a vanished path and
+  // keepMine would resurrect it). bypassFlush switches straight through.
+  it('setCurrentFile(bypassFlush) rebinds even while a conflict is open', () => {
+    store.setState({ currentFile: 'a.md', flushEditor: async () => false });
+    store.getState().setCurrentFile('b.md', null, { bypassFlush: true });
+    expect(store.getState().currentFile).toBe('b.md'); // not blocked, no flush
+  });
+
+  // B — the refresh()-based workspace actions also honor the gate (each returns
+  // before its window.bh.run, so a `false` flush blocks with busy reset).
+  for (const action of ['remove', 'renameWorkspace', 'createDemo'] as const) {
+    it(`${action}() refuses while a conflict is open`, async () => {
+      store.setState({ current: 'ws', flushEditor: async () => false });
+      // Each takes different args; the gate fires first regardless.
+      if (action === 'remove') await store.getState().remove('ws');
+      else if (action === 'renameWorkspace') await store.getState().renameWorkspace('ws', 'ws2');
+      else await store.getState().createDemo('/some/demo/path');
+      expect(store.getState().busy).toBe(false);
+      expect(store.getState().error).toMatch(/save or resolve/i);
+    });
+  }
 });
