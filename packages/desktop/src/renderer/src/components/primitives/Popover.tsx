@@ -133,7 +133,8 @@ export const usePopover = ({
 interface PopoverSurfaceProps {
   readonly coords: PopoverCoords | null;
   readonly floatingRef: RefObject<HTMLDivElement | null>;
-  readonly role: 'listbox' | 'menu';
+  // 'dialog' = a content panel (e.g. the brief preview), not a list of options.
+  readonly role: 'listbox' | 'menu' | 'dialog';
   /** Panel-specific style (min-width, max-height, overflow). */
   readonly style?: CSSProperties;
   readonly children: ReactNode;

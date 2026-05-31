@@ -29,11 +29,13 @@ import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { briefForClipboard } from '../lib/focusBrief.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
+import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
 import { Onboarding } from './Onboarding.js';
 import { ReferenceEdge } from './ReferenceEdge.js';
 import { ViewFilePicker } from './ViewFilePicker.js';
 import { Button } from './primitives/Button.js';
+import { usePopover } from './primitives/Popover.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
@@ -531,6 +533,10 @@ export const Canvas = (): JSX.Element => {
   // invisible payoff of curation tangible and portable (not just the
   // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
   const [briefCopied, setBriefCopied] = useState(false);
+  // The focus chip's text expands into a read-only preview of the assembled
+  // brief (BriefPreview) — so "your agent reads …" is something you can actually
+  // SEE, not just a file count.
+  const briefPopover = usePopover({ align: 'left', gap: 6 });
   const copyResetTimer = useRef<number | null>(null);
   const copyBrief = useCallback(() => {
     void (async () => {
@@ -654,15 +660,29 @@ export const Canvas = (): JSX.Element => {
             animation: `bh-banner-in ${motion.normal}`,
           }}
         >
-          <span
+          <button
+            type="button"
+            ref={briefPopover.triggerRef}
+            onClick={briefPopover.toggle}
+            title="See exactly what your agent reads"
+            aria-expanded={briefPopover.open}
+            data-testid="focus-chip-trigger"
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: space[1.5],
               minWidth: 0,
               maxWidth: 460,
+              border: 'none',
+              background: 'transparent',
+              padding: 0,
+              margin: 0,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              fontSize: 'inherit',
+              color: 'inherit',
+              textAlign: 'left',
             }}
-            title={focusedFiles.join('\n')}
           >
             <span
               aria-hidden
@@ -688,7 +708,19 @@ export const Canvas = (): JSX.Element => {
               {focusedCount === 1 ? 'file' : 'files'} in focus — your agent reads{' '}
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
             </span>
-          </span>
+            <span
+              aria-hidden
+              style={{
+                flexShrink: 0,
+                color: color.textTertiary,
+                fontSize: 10,
+                transform: briefPopover.open ? 'rotate(180deg)' : 'none',
+                transition: transition(['transform']),
+              }}
+            >
+              ▾
+            </span>
+          </button>
           <button
             type="button"
             onClick={copyBrief}
@@ -729,6 +761,7 @@ export const Canvas = (): JSX.Element => {
           >
             Clear
           </button>
+          <BriefPreview controller={briefPopover} onCopy={copyBrief} copied={briefCopied} />
         </div>
       )}
       {error && (
