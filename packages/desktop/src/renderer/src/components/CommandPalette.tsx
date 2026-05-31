@@ -1,5 +1,5 @@
 /**
- * CommandPalette — Linear-style fuzzy launcher.
+ * CommandPalette — a fuzzy command launcher.
  *
  * Cmd/Ctrl+K opens; users type to filter across:
  *   - Workspaces (switch active workspace)
@@ -25,6 +25,7 @@ import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actio
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { confirm, prompt } from './Dialog.js';
 
 interface CommandPaletteStore {
   open: boolean;
@@ -42,6 +43,43 @@ export function openCommandPalette(): void {
 
 export function closeCommandPalette(): void {
   usePaletteStore.getState().setOpen(false);
+}
+
+// Workspace management lives in the palette (the sidebar header is just the
+// location label now). These read live state via getState() so the palette's
+// action list doesn't have to depend on them. The palette closes BEFORE the
+// action runs, so the dialog opens cleanly over the dimmed canvas.
+async function renameActiveWorkspace(): Promise<void> {
+  const { current, workspaces, renameWorkspace } = useWorkspaceStore.getState();
+  if (!current) return;
+  const next = await prompt({
+    title: `Rename workspace "${current}"`,
+    body: 'Changes the display name only — the folder path and its .bh/ are untouched.',
+    label: 'New name',
+    defaultValue: current,
+    placeholder: 'e.g. school-spring-2026',
+    validate: (v) => {
+      const t = v.trim();
+      if (t.length === 0) return 'A name is required.';
+      if (t === current) return null;
+      if (workspaces.some((w) => w.name === t)) return `Name "${t}" is already in use.`;
+      return null;
+    },
+  });
+  const trimmed = next?.trim();
+  if (trimmed && trimmed !== current) void renameWorkspace(current, trimmed);
+}
+
+async function removeActiveWorkspace(): Promise<void> {
+  const { current, remove } = useWorkspaceStore.getState();
+  if (!current) return;
+  const ok = await confirm({
+    title: `Remove workspace "${current}"?`,
+    body: 'The folder and its files stay on disk; only the registration is removed.',
+    confirmText: 'Remove',
+    destructive: true,
+  });
+  if (ok) void remove(current);
 }
 
 interface Action {
@@ -239,9 +277,9 @@ export const CommandPalette = (): JSX.Element | null => {
   const [hitsQuery, setHitsQuery] = useState('');
   const [hitsWorkspace, setHitsWorkspace] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  // Whether the user is currently steering with the mouse. Linear /
-  // VS Code-style palettes ignore hover-driven selection until the mouse
-  // actually moves, so opening the palette while the pointer happens to
+  // Whether the user is currently steering with the mouse. A good command
+  // palette ignores hover-driven selection until the mouse actually moves,
+  // so opening the palette while the pointer happens to
   // overlap a row doesn't yank selection away from row 0. Flipped true
   // by onMouseMove inside the card; flipped back to false on any nav
   // keystroke (and on each open).
@@ -323,6 +361,18 @@ export const CommandPalette = (): JSX.Element | null => {
         category: 'Action',
         shortcut: `${MOD}N`,
         run: () => void promptForNewNote(),
+      });
+      out.push({
+        id: 'action:rename-workspace',
+        label: 'Rename workspace…',
+        category: 'Action',
+        run: () => void renameActiveWorkspace(),
+      });
+      out.push({
+        id: 'action:remove-workspace',
+        label: 'Remove workspace…',
+        category: 'Action',
+        run: () => void removeActiveWorkspace(),
       });
     }
 

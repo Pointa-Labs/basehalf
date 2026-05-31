@@ -46,7 +46,7 @@ export function buildAppMenu(): Menu {
  * Native right-click menu, popped per webContents. Editable targets get the
  * standard clipboard roles (so the block editor gains a real context menu it
  * otherwise lacks); everywhere offers "Open Folder…" so a second workspace is
- * one right-click away without going to the menu bar — the VS Code pattern.
+ * one right-click away without going to the menu bar.
  */
 export function installContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {

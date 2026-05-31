@@ -280,28 +280,79 @@ await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
 await win.screenshot({ path: `${SCREENS_DIR}/02-workspace-loaded.png` });
-const topbarText = await win.locator('header').first().innerText();
-// "Add folder" is no longer a TopBar button — opening a folder now lives in
-// the welcome screen, the native File ▸ Open Folder… menu (⌘O), the
-// right-click menu, and ⌘K. The bar must NOT carry it anymore.
-assert(!topbarText.includes('Add folder'), 'TopBar no longer carries an Add-folder button');
-assert(topbarText.includes('New note'), 'TopBar shows "+ New note" button (new entry)');
-// The saved-view feature was removed — a folder is the grouping unit now. The
-// TopBar must NOT carry any View switcher / New-view / Delete-view affordance.
+// The top NAV BAR was removed entirely — only the sidebar remains. There must
+// be NO <header> element. Workspace switching moved into the sidebar header;
+// "New note" floats on the canvas top-right; folder-open lives in the native
+// menu / right-click / ⌘K.
+const headerCount = await win.locator('header').count();
+assert(headerCount === 0, 'No top nav bar — the <header> is gone (only the sidebar remains)');
+// Workspace switcher now lives in the sidebar.
 assert(
-  !topbarText.includes('New view'),
-  'TopBar no longer carries a "New view" button (views removed)',
+  (await win.locator('[data-testid="sidebar-workspace-select"]').count()) === 1,
+  'Sidebar carries the workspace switcher',
 );
-assert(!topbarText.includes('Delete view'), 'No view actions in the TopBar (views removed)');
+// "New note" floats on the canvas, not a top bar.
+const mainText = await win.locator('main').first().innerText();
+assert(mainText.includes('New note'), 'Canvas shows the floating "New note" button');
 
-// --- 3. Sidebar shows workspace + collapse button ---
+// --- 3. Sidebar: workspace header + resize sash + title-bar toggle ---
 console.log('\n[3] Sidebar');
 const sidebar = win.locator('aside').first();
 const sidebarText = await sidebar.innerText();
 assert(sidebarText.includes('bh-verify-ws'), 'Sidebar shows workspace name');
 assert(sidebarText.includes('/tmp/bh-verify-ws'), 'Sidebar shows workspace path');
-const collapseBtn = sidebar.locator('button[title="Hide file tree"]');
-assert((await collapseBtn.count()) === 1, 'Sidebar collapse button (◂) present');
+// The old in-sidebar collapse chevron is gone — the title-bar toggle owns
+// show/hide now (the primary-side-panel model; no thin leftover strip).
+assert(
+  (await win.locator('button[title="Hide file tree"]').count()) === 0,
+  'Old in-sidebar collapse chevron removed',
+);
+const sidebarToggle = win.locator('[data-testid="sidebar-toggle"]');
+assert((await sidebarToggle.count()) === 1, 'Title bar carries the sidebar toggle button');
+
+// Resizable width: drag the right-edge sash and assert the width tracks the
+// pointer. The handler is delta-based, so a +80px pointer move
+// must widen the sidebar by ~80px. Grab the sash center, move by exactly +80.
+const widthBefore = (await sidebar.boundingBox()).width;
+const sash = win.locator('[data-testid="sidebar-sash"]');
+assert((await sash.count()) === 1, 'Sidebar has a resize sash');
+const sashBox = await sash.boundingBox();
+const grabX = sashBox.x + sashBox.width / 2;
+const grabY = sashBox.y + sashBox.height / 2;
+await win.mouse.move(grabX, grabY);
+await win.mouse.down();
+await win.mouse.move(grabX + 80, grabY, { steps: 8 });
+await win.mouse.up();
+await win.waitForTimeout(150);
+const widthAfter = (await sidebar.boundingBox()).width;
+assert(
+  Math.abs(widthAfter - widthBefore - 80) <= 4,
+  `Drag-sash widened the sidebar (${Math.round(widthBefore)} → ${Math.round(widthAfter)}, expected ~+80)`,
+);
+// Pull it back to the starting width so later geometry-sensitive steps are stable.
+const grabX2 = (await sash.boundingBox()).x + sashBox.width / 2;
+await win.mouse.move(grabX2, grabY);
+await win.mouse.down();
+await win.mouse.move(grabX2 - 80, grabY, { steps: 8 });
+await win.mouse.up();
+await win.waitForTimeout(150);
+
+// Toggle fully HIDES the sidebar (no leftover strip) and brings it back.
+await sidebarToggle.click();
+await win.waitForTimeout(200);
+assert(
+  (await win.locator('aside').count()) === 0,
+  'Toggle fully hides the sidebar (no aside left)',
+);
+await sidebarToggle.click();
+await win.waitForTimeout(200);
+assert((await win.locator('aside').count()) === 1, 'Toggle brings the sidebar back');
+// `sidebar` is a lazy locator (aside.first()), so it re-resolves to the
+// restored element — the rest of the suite keeps using it unchanged.
+assert(
+  (await sidebar.innerText()).includes('bh-verify-ws'),
+  'Restored sidebar still shows the workspace',
+);
 
 // --- 4. NavTree renders files + hover state ---
 console.log('\n[4] NavTree');
@@ -406,6 +457,17 @@ assert(
 
 // --- 5. Canvas renders badges ---
 console.log('\n[5] Canvas badges');
+// The sidebar is a floating OVERLAY over the canvas now (toggling it never
+// reflows the canvas — see [3]/[8]), so left-edge badges sit BEHIND it. The
+// canvas-interaction tests below grab badges by absolute position, so hide the
+// sidebar for this block to expose the full canvas; [6] re-shows it before the
+// first file-row click. The hidden state persists across the reloads here.
+await win.locator('[data-testid="sidebar-toggle"]').click();
+await win.waitForTimeout(200);
+assert(
+  (await win.locator('aside').count()) === 0,
+  'Sidebar hidden to expose the full canvas for badge-interaction tests',
+);
 const canvasProbe = await win.evaluate(() => {
   const main = document.querySelector('main');
   const rf = document.querySelector('.react-flow');
@@ -1081,6 +1143,9 @@ assert(
 
 // --- 6. Open a file via NavTree → FilePreview should render ---
 console.log('\n[6] Open intro.md → FilePreview');
+// Re-show the sidebar (hidden in [5] to expose the canvas) for the file-row click.
+await win.locator('[data-testid="sidebar-toggle"]').click();
+await win.waitForTimeout(200);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(800);
 await win.screenshot({ path: `${SCREENS_DIR}/04-preview-open.png` });
@@ -1481,7 +1546,11 @@ await sidebar.locator('button', { hasText: 'blank.md' }).first().click();
 await win.waitForTimeout(700);
 const blankParas = await win.locator('.ProseMirror p').count();
 assert(blankParas >= 1, `an empty note seeds an editable paragraph (found ${blankParas})`);
-await win.locator('.ProseMirror p').first().click();
+// Click the editor CONTAINER (not the empty <p>): an empty paragraph is a
+// zero-content box that both trips Playwright's actionability check AND can be
+// obscured by the sidebar overlay. The container's center is stable, visible,
+// and clear of the sidebar — [7b] focuses the editor the same way and passes.
+await win.locator('.ProseMirror').first().click();
 await win.keyboard.type('First content in a blank note.');
 await win.waitForTimeout(900); // past autosave debounce
 await win.keyboard.press('Escape');
@@ -1528,6 +1597,10 @@ await sidebar.locator('button', { hasText: 'rawonly.md' }).first().click();
 await win.waitForTimeout(700);
 const rawParas = await win.locator('.ProseMirror p').count();
 assert(rawParas >= 1, `a raw-only note seeds an editable paragraph (found ${rawParas})`);
+// Click the seeded empty <p> itself (it's the only paragraph — the comment is a
+// raw-passthrough block, not a <p>). The editor card is now clear of the
+// sidebar, so the paragraph is reachable; clicking the container center would
+// instead land on the comment block above it.
 await win.locator('.ProseMirror p').first().click();
 await win.keyboard.type('added below the comment');
 await win.waitForTimeout(900);
@@ -1688,61 +1761,47 @@ await win.screenshot({ path: `${SCREENS_DIR}/10-image-viewer.png` });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
-// --- 8. Sidebar collapse → 22px rail ---
-console.log('\n[8] Sidebar collapse');
-await collapseBtn.click();
+// --- 8. Sidebar toggle fully hides / shows the panel (primary side panel) ---
+console.log('\n[8] Sidebar show/hide toggle');
+const toggle = win.locator('[data-testid="sidebar-toggle"]');
+await toggle.click();
 await win.waitForTimeout(200);
-await win.screenshot({ path: `${SCREENS_DIR}/05-sidebar-collapsed.png` });
-const railWidth = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
-assert(railWidth < 30, `Sidebar collapsed to narrow rail (${railWidth}px, expected <30)`);
-const expandBtn = win.locator('aside button[title="Show file tree"]');
-assert((await expandBtn.count()) === 1, 'Expand button (▸) visible on the rail');
-await expandBtn.click();
-await win.waitForTimeout(200);
-const expandedWidth = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
-assert(expandedWidth > 200, `Sidebar re-expanded (${expandedWidth}px, expected >200)`);
-
-// --- 8b. Sidebar collapse state persists across reload (localStorage-
-// backed via bh:sidebar-collapsed). §8 verified the toggle but not the
-// persistence — a broken localStorage write key would silently reset
-// the UI preference on every reload.
-console.log('\n[8b] Sidebar collapse persists across reload');
-await collapseBtn.click();
-await win.waitForTimeout(200);
-const widthCollapsedBeforeReload = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
+await win.screenshot({ path: `${SCREENS_DIR}/05-sidebar-hidden.png` });
 assert(
-  widthCollapsedBeforeReload < 30,
-  `Sidebar collapsed before reload (${widthCollapsedBeforeReload}px)`,
+  (await win.locator('aside').count()) === 0,
+  'Toggle fully hides the sidebar — no leftover rail (aside count 0)',
 );
+await toggle.click();
+await win.waitForTimeout(200);
+const reopenedWidth = await win
+  .locator('aside')
+  .first()
+  .evaluate((el) => el.getBoundingClientRect().width);
+assert(reopenedWidth > 200, `Toggle re-shows the sidebar at full width (${reopenedWidth}px)`);
+
+// --- 8b. Hidden state persists across reload (localStorage bh:sidebar-open).
+// §8 verified the toggle but not persistence — a broken write key would
+// silently reset the preference on every reload.
+console.log('\n[8b] Sidebar hidden state persists across reload');
+await toggle.click();
+await win.waitForTimeout(200);
+assert((await win.locator('aside').count()) === 0, 'Sidebar hidden before reload');
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
-const widthCollapsedAfterReload = await win
-  .locator('aside')
-  .first()
-  .evaluate((el) => el.getBoundingClientRect().width);
 assert(
-  widthCollapsedAfterReload < 30,
-  `Sidebar still collapsed after reload — preference persisted (${widthCollapsedAfterReload}px)`,
+  (await win.locator('aside').count()) === 0,
+  'Sidebar still hidden after reload — preference persisted',
 );
-// Re-expand so downstream tests start from the wider sidebar layout
-// they expect (file rows, badge properties panel coordinates, etc.).
-await win.locator('aside button[title="Show file tree"]').click();
+// Re-show so downstream tests start from the sidebar layout they expect
+// (file rows, badge properties panel, etc.).
+await win.locator('[data-testid="sidebar-toggle"]').click();
 await win.waitForTimeout(200);
-const widthAfterReExpand = await win
+const widthAfterReshow = await win
   .locator('aside')
   .first()
   .evaluate((el) => el.getBoundingClientRect().width);
-assert(widthAfterReExpand > 200, `Re-expanded for downstream tests (${widthAfterReExpand}px)`);
+assert(widthAfterReshow > 200, `Re-shown for downstream tests (${widthAfterReshow}px)`);
 
 // (Saved-view CRUD removed — the View feature was deleted; a folder is the
 // grouping unit now. Reset to a clean main canvas for the folder tests below.)
@@ -1750,6 +1809,13 @@ console.log('\n[9] (saved views removed — reset to main canvas)');
 await win.reload();
 await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1500);
+// [9b]/[10] click the "notes" folder badge on the canvas; hide the overlay
+// sidebar so the badge isn't behind it (re-shown at [11b] for the workspace
+// switch, which uses the sidebar's Select).
+if ((await win.locator('aside').count()) > 0) {
+  await win.locator('[data-testid="sidebar-toggle"]').click();
+  await win.waitForTimeout(200);
+}
 
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
 // folder, not a previewable file). Single click sets focus only;
@@ -1786,7 +1852,8 @@ assert(
 // wrapper). Try wrapper, inner, raw mouse, and native dispatchEvent.
 let dblClickWorked = false;
 const checkScoped = async () => {
-  const t = await win.locator('header').first().innerText();
+  // Folder-scope chrome floats on the canvas (top bar removed).
+  const t = await win.locator('main').first().innerText();
   return t.includes('← /notes');
 };
 const attempts = [
@@ -1829,14 +1896,18 @@ assert(
 );
 if (dblClickWorked) {
   await win.screenshot({ path: `${SCREENS_DIR}/07-folder-scope.png` });
-  // Edit folder prompt: button only visible inside folder scope. Exercise
-  // it before exiting.
-  const folderTopbarText = await win.locator('header').first().innerText();
+  // Folder-scope chrome (now floating on the canvas): "Focus this folder" +
+  // "Edit folder prompt", only visible inside folder scope.
+  const folderChromeText = await win.locator('main').first().innerText();
   assert(
-    folderTopbarText.includes('Edit folder prompt'),
+    folderChromeText.includes('Focus this folder'),
+    'Canvas folder-scope chrome offers "Focus this folder"',
+  );
+  assert(
+    folderChromeText.includes('Edit folder prompt'),
     'Edit-folder-prompt button appears when scoped into a folder',
   );
-  await win.locator('header button', { hasText: 'Edit folder prompt' }).click();
+  await win.locator('main button', { hasText: 'Edit folder prompt' }).click();
   await waitForDialog('Folder prompt');
   await fillDialogInput('Chapter 3 supporting material — read first');
   await clickDialogButton('OK');
@@ -1844,15 +1915,15 @@ if (dblClickWorked) {
   const folderBadge = await bhRun('badge.get', { file: 'notes', kind: 'folder' });
   assert(
     folderBadge?.prompt === 'Chapter 3 supporting material — read first',
-    `Folder badge prompt persisted via TopBar dialog (got: ${JSON.stringify(folderBadge?.prompt)})`,
+    `Folder badge prompt persisted via the canvas folder-scope dialog (got: ${JSON.stringify(folderBadge?.prompt)})`,
   );
-  await win.locator('header button', { hasText: '← /notes' }).click();
+  await win.locator('main button', { hasText: '← /notes' }).click();
   await win.waitForTimeout(300);
-  // After exiting scope, the Edit-folder-prompt button must be hidden.
-  const topbarAfterExit = await win.locator('header').first().innerText();
+  // After exiting scope, the folder-scope chrome must be hidden.
+  const canvasAfterExit = await win.locator('main').first().innerText();
   assert(
-    !topbarAfterExit.includes('Edit folder prompt'),
-    'Edit-folder-prompt button hidden after exiting folder scope',
+    !canvasAfterExit.includes('Edit folder prompt'),
+    'Folder-scope chrome hidden after exiting folder scope',
   );
 }
 // Independently exercise the store path so we know setFolderScope itself
@@ -1909,6 +1980,12 @@ await win.screenshot({ path: `${SCREENS_DIR}/08-after-new-note.png` });
 // state reset would let stale React Flow nodes persist briefly OR
 // permanently — either is data-displayed-out-of-context.
 console.log('\n[11b] Workspace switch — canvas badges fully replaced');
+// Re-show the sidebar (hidden in [9] for the folder-badge clicks) — the
+// workspace switch below uses the sidebar's workspace Select.
+if ((await win.locator('aside').count()) === 0) {
+  await win.locator('[data-testid="sidebar-toggle"]').click();
+  await win.waitForTimeout(200);
+}
 const isoSecondWs = '/tmp/bh-verify-ws-iso';
 if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
 mkdirSync(isoSecondWs, { recursive: true });
@@ -1922,7 +1999,7 @@ assert(
   badgesInOriginal >= 3,
   `Original workspace has multiple badges as baseline (${badgesInOriginal})`,
 );
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-iso');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-iso');
 await win.waitForTimeout(1200);
 const badgesInIso = await win.locator('.react-flow__node-badge').count();
 assert(
@@ -1934,7 +2011,7 @@ assert(
   `ws-iso canvas shows only its own file count (${badgesInIso}; expected ≤2 for lone.md)`,
 );
 // Return to the original workspace; cleanup the iso ws.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(1000);
 await bhRun('workspace.remove', { name: 'bh-verify-ws-iso' });
 if (existsSync(isoSecondWs)) rmSync(isoSecondWs, { recursive: true, force: true });
@@ -1962,7 +2039,7 @@ await win.keyboard.press('End');
 const switchStamp = `pre-switch-${Date.now()}`;
 await win.keyboard.type(` ${switchStamp}`, { delay: 10 });
 // Switch workspaces — NO "unsaved edits" dialog (auto-save flushes silently).
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(1000);
 const sidebarAfterSwitch = await win.locator('aside').first().innerText();
 assert(
@@ -1976,7 +2053,7 @@ assert(
   `Edit auto-saved to the original workspace on switch (stamp on intro.md: ${introContent.includes(switchStamp)})`,
 );
 // Switch back: the edit is there — persisted, not silently dropped.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(1000);
 await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
 await win.waitForTimeout(900);
@@ -2426,7 +2503,7 @@ console.log('\n[12f] Workspace rename — validation + happy path');
 // Pre-condition: bh-verify-ws and bh-verify-ws-2 both registered, with
 // bh-verify-ws active (§12 added ws-2, §13 will remove it).
 // 1) Empty name → validation error, dialog stays open.
-await clickMenuItem('topbar-ws-menu', 'Rename workspace');
+await clickMenuItem('sidebar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('   ');
 await clickDialogButton('OK');
@@ -2461,7 +2538,7 @@ assert(
 );
 // 4) Happy path → rename, then rename back so downstream tests still
 // find bh-verify-ws by name (§14 selects it).
-await clickMenuItem('topbar-ws-menu', 'Rename workspace');
+await clickMenuItem('sidebar-ws-menu', 'Rename workspace');
 await waitForDialog('Rename workspace');
 await fillDialogInput('renamed-verify-ws');
 await clickDialogButton('OK');
@@ -2489,14 +2566,14 @@ assert(
 // confirm in the modal should actually unregister; Cancel must NOT. ---
 console.log('\n[13] Workspace.remove via custom Dialog');
 // Switch to ws-2 so we can safely remove it.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-2');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-2');
 await win.waitForTimeout(700);
 // Cancel-path safety check first: open Remove, click Cancel, confirm
 // the workspace is STILL registered. A regression where Cancel calls
 // remove() anyway would silently destroy user state — high blast
 // radius for a button labeled "Cancel".
 const ws2CountBeforeCancel = (await bhRun('workspace.list', {})).workspaces.length;
-await clickMenuItem('topbar-ws-menu', 'Remove workspace');
+await clickMenuItem('sidebar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 await clickDialogButton('Cancel');
 await win.waitForTimeout(400);
@@ -2508,7 +2585,7 @@ assert(
 );
 
 const beforeRemoveCount = (await bhRun('workspace.list', {})).workspaces.length;
-await clickMenuItem('topbar-ws-menu', 'Remove workspace');
+await clickMenuItem('sidebar-ws-menu', 'Remove workspace');
 await waitForDialog('Remove workspace');
 assert((await dialogIsOpen()) === 1, 'Remove opens the custom Dialog (no native popup)');
 // Wait for the fade-in animation to finish before capturing (otherwise the
@@ -2569,7 +2646,7 @@ await win.waitForLoadState('domcontentloaded');
 await win.waitForTimeout(1200);
 // Make it active via the UI selector — the store's use() runs listFiles
 // and flips currentReachable to true (folder exists, no surprise yet).
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-ghost');
 await win.waitForTimeout(700);
 const sidebarBeforeMove = await win.locator('aside').first().innerText();
 assert(
@@ -2581,9 +2658,9 @@ renameSync(GHOST_WS, GHOST_WS_MOVED);
 // Round-trip through a different workspace so use() re-runs against the
 // now-missing path. Picking the same option in the selector wouldn't
 // fire onChange, so the listFiles call wouldn't be re-issued.
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws');
 await win.waitForTimeout(700);
-await selectByTestId('topbar-workspace-select', 'bh-verify-ws-ghost');
+await selectByTestId('sidebar-workspace-select', 'bh-verify-ws-ghost');
 await win.waitForTimeout(1500);
 const unreachableText = await win.locator('aside').first().innerText();
 assert(

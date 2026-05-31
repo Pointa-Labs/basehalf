@@ -2,53 +2,53 @@
  * BaseHalf design tokens — single source of truth for the renderer.
  *
  * Centralizing these here so the UI feels like one product instead of
- * eleven components each picking their own greys. Inspired by the
- * restraint of Linear / Things / Arc: one accent, generous whitespace,
- * subtle motion. Numbers, not arbitrary px sprinkled inline.
+ * eleven components each picking their own greys. Aiming for the restraint
+ * of well-made desktop tools: one accent, generous whitespace, subtle
+ * motion. Numbers, not arbitrary px sprinkled inline.
  */
 
 export const color = {
-  // Surfaces — top to bottom: app shell, panels, raised elements.
-  bg: '#f8f8f7',
-  surface: '#ffffff',
-  surfaceMuted: '#fbfbfa',
+  // Dark palette modelled on the editor's "Dark Modern" theme. Chrome (side
+  // bar / title bar) is the deepest tone; the canvas/editor base is one step
+  // up; raised panels (dialogs, badges, the editor card) one more.
+  bg: '#1e1e1e', // canvas / app base (≈ editor.background)
+  surface: '#252526', // raised: dialogs, badges, editor card
+  surfaceMuted: '#181818', // deepest chrome: side bar + title bar
 
-  // Text — high-contrast headings down to ghost captions.
-  textPrimary: '#1a1a1a',
-  textSecondary: '#5a5a5a',
-  textTertiary: '#8a8a8a',
-  textGhost: '#b0b0b0',
+  // Text — bright primary down to ghost captions (≈ foreground / description).
+  textPrimary: '#cccccc',
+  textSecondary: '#9d9d9d',
+  textTertiary: '#808080',
+  textGhost: '#6e6e6e',
 
-  // Borders / dividers — almost invisible by default.
-  border: '#ececea',
-  borderStrong: '#dcdcd8',
-  divider: '#f0f0ee',
+  // Borders / dividers — quiet seams on a dark ground.
+  border: '#2b2b2b',
+  borderStrong: '#454545',
+  // Doubles as the list-row HOVER tone (a hair above the chrome).
+  divider: '#2a2d2e',
 
-  // The one accent. Used sparingly: selected file, active connection,
-  // primary CTA in modals. Picked a slightly desaturated blue that
-  // reads "considered" rather than "default React blue".
-  accent: '#2864c8',
-  accentSoft: '#e8effa',
-  accentSofter: '#f3f7fd',
-  accentHover: '#1f54ad',
+  // The one accent. Used sparingly: selected file, active connection, primary
+  // CTA. The editor's signature blue; selection tints are its list colors.
+  accent: '#0078d4',
+  accentSoft: '#04395e', // active-selection background
+  accentSofter: '#37373d', // inactive-selection background
+  accentHover: '#1177bb',
 
-  // Semantic — used for state, not chrome.
-  warning: '#a86b00',
-  warningSoft: '#fff8e3',
-  danger: '#a83232',
-  dangerSoft: '#fdf0ee',
-  success: '#3a7050',
-  successSoft: '#eef5ef',
+  // Semantic — used for state, not chrome (dark-theme variants).
+  warning: '#cca700',
+  warningSoft: '#3a2f00',
+  danger: '#f14c4c',
+  dangerSoft: '#5a1d1d',
+  success: '#4ec9b0',
+  successSoft: '#16352c',
 
-  // Folder badge — warm tone distinguishes the kind on the canvas.
-  folder: '#faf3d8',
-  folderBorder: '#e8d77a',
-  // Folder glyph — the deepest amber in the family, for the icon on the tint.
-  folderGlyph: '#9a7d12',
+  // Folder badge — warm amber tint distinguishes the kind on the dark canvas.
+  folder: '#332b00',
+  folderBorder: '#5c4f1f',
+  folderGlyph: '#d6b656',
 
-  // Modal backdrop. Slightly darker than v0 to give the dialog real
-  // separation from the chrome behind it (it was washing out at 0.32).
-  backdrop: 'rgba(15, 17, 20, 0.45)',
+  // Modal backdrop — deep dim so the dialog separates from the dark chrome.
+  backdrop: 'rgba(0, 0, 0, 0.6)',
 } as const;
 
 export const space = {
@@ -101,14 +101,14 @@ export const font = {
 } as const;
 
 export const shadow = {
-  // Subtle elevation — borders do most of the work; shadows are punctuation.
-  card: '0 1px 2px rgba(0, 0, 0, 0.04)',
-  raised: '0 4px 12px rgba(0, 0, 0, 0.08)',
-  floating: '0 8px 24px rgba(0, 0, 0, 0.12)',
-  // Focus ring used for the one accent.
-  focus: '0 0 0 3px rgba(40, 100, 200, 0.18)',
+  // Elevation on a dark ground — deeper than a light theme so cards still read.
+  card: '0 1px 2px rgba(0, 0, 0, 0.4)',
+  raised: '0 4px 12px rgba(0, 0, 0, 0.5)',
+  floating: '0 10px 28px rgba(0, 0, 0, 0.6)',
+  // Focus ring — a 1px accent border, the editor's focus style.
+  focus: '0 0 0 1px #0078d4',
   // Selected node on canvas.
-  selectedNode: '0 0 0 2px rgba(40, 100, 200, 0.35), 0 2px 6px rgba(0, 0, 0, 0.05)',
+  selectedNode: '0 0 0 2px rgba(0, 120, 212, 0.6), 0 2px 8px rgba(0, 0, 0, 0.5)',
 } as const;
 
 export const motion = {

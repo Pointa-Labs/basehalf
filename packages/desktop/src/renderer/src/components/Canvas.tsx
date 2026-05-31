@@ -30,6 +30,7 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
+import { prompt } from './Dialog.js';
 import { Onboarding } from './Onboarding.js';
 import { ReferenceEdge } from './ReferenceEdge.js';
 import { Button } from './primitives/Button.js';
@@ -564,8 +565,82 @@ export const Canvas = (): JSX.Element => {
           focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
         }`;
 
+  // Folder-scope actions live on the canvas now (the top bar was removed).
+  const handleFocusFolder = async (): Promise<void> => {
+    if (!folderScope) return;
+    try {
+      await window.bh.run('focus.set', { folder: folderScope });
+      void refresh(); // re-read focus.get → rings + chip
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleEditFolderPrompt = async (): Promise<void> => {
+    if (!folderScope) return;
+    const existing = (await window.bh.run('badge.get', {
+      file: folderScope,
+      kind: 'folder',
+    })) as { prompt?: string } | null;
+    const next = await prompt({
+      title: `Folder prompt — /${folderScope}`,
+      body: "What the AI agent should know about this folder — it's read as the turn intent when you focus the folder. Leave blank to clear.",
+      label: 'Prompt',
+      defaultValue: existing?.prompt ?? '',
+      placeholder: 'e.g. Chapter 3 supporting material — read first',
+    });
+    if (next === null) return;
+    try {
+      await window.bh.run('badge.set', {
+        file: folderScope,
+        patch: { kind: 'folder', prompt: next.trim() },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   return (
     <div style={{ width: '100%', height: '100%' }}>
+      {/* New note — top-right of the canvas (the top bar was removed). */}
+      <div style={{ position: 'absolute', top: space[3], right: space[3], zIndex: 8 }}>
+        <Button onClick={() => void promptForNewNote()} title="Create a new note (⌘N)">
+          New note
+        </Button>
+      </div>
+      {/* Folder-scope chrome — top-left, only while scoped into a folder. On
+          its own row (below the New-note / focus-chip row) so the actions never
+          collide with the centered focus chip. */}
+      {folderScope && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 56,
+            left: space[3],
+            zIndex: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+          }}
+        >
+          <Button variant="ghost" onClick={() => setFolderScope(null)} title="Exit folder scope">
+            ← /{folderScope}
+          </Button>
+          <Button
+            onClick={() => void handleFocusFolder()}
+            title="Focus this folder — your agent reads all its files, with the folder prompt as the turn intent"
+          >
+            Focus this folder
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => void handleEditFolderPrompt()}
+            title="Edit this folder's badge prompt (read as the intent when you focus the folder)"
+          >
+            Edit folder prompt
+          </Button>
+        </div>
+      )}
       {focusedCount > 0 && (
         // Witnessed payoff: name the context the human handed the agent. The
         // focus set was previously a write-only side effect with no visible
@@ -681,7 +756,8 @@ export const Canvas = (): JSX.Element => {
         <div
           style={{
             position: 'absolute',
-            top: space[3],
+            // Stacks below the top-right "New note" button rather than over it.
+            top: 56,
             right: space[3],
             background: color.surface,
             border: `1px solid ${color.danger}33`,

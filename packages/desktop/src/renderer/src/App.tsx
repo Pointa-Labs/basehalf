@@ -6,9 +6,10 @@ import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { FilePreview } from './components/FilePreview.js';
 import { Sidebar } from './components/Sidebar.js';
-import { TopBar } from './components/TopBar.js';
+import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
 import { promptForNewNote } from './lib/actions.js';
+import { useLayoutStore } from './store/layout.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
 export const App = (): JSX.Element => {
@@ -47,15 +48,35 @@ export const App = (): JSX.Element => {
   }, []);
 
   // Global keyboard shortcuts:
-  //  - Cmd/Ctrl+K  — open the command palette
+  //  - Cmd/Ctrl+S  — open search (the primary shortcut; ⌘K is an alias)
+  //  - Cmd/Ctrl+K  — open the command palette (alias of ⌘S)
   //  - Cmd/Ctrl+N  — new note prompt (no-op without a current workspace)
-  // Esc / click-outside close the palette via the palette itself.
+  //  - Cmd/Ctrl+B  — toggle the sidebar (the conventional side-panel shortcut)
+  // Esc / click-outside close the palette via the palette itself. Lives here
+  // (not in TitleBar) so ⌘B keeps working in fullscreen, where the title bar —
+  // and its toggle button — unmount.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === 'k') {
+      if (e.key === 's' || e.key === 'S' || e.key === 'k') {
+        // ⌘S is the primary search shortcut (⌘K kept as an alias). The app
+        // auto-saves, so ⌘S isn't "save" — and preventDefault also stops the
+        // browser's save-page dialog from firing while a note is focused.
         e.preventDefault();
         openCommandPalette();
+        return;
+      }
+      if (e.key === 'b' || e.key === 'B') {
+        // ⌘B is "bold" inside any editable surface (the BlockNote note editor,
+        // inputs, the ⌘K palette field). Yield to it there; only toggle the
+        // sidebar when focus is on inert chrome — as well-behaved editors do.
+        const ae = document.activeElement;
+        const editable =
+          ae instanceof HTMLElement &&
+          (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+        if (editable) return;
+        e.preventDefault();
+        useLayoutStore.getState().toggleSidebar();
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
@@ -121,17 +142,23 @@ export const App = (): JSX.Element => {
         void useWorkspaceStore.getState().addDroppedPaths(paths);
       }}
     >
+      <TitleBar />
       <FdaTip />
-      <TopBar />
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
+        {/* The Sidebar FLOATS on top of the canvas (it positions itself
+            absolutely with a higher z-index). Showing / hiding it is pure
+            appear / disappear — the canvas behind it never shifts or resizes.
+            It's first in the DOM (so it stays aside-index 0, with the editor
+            aside last) but paints ON TOP via z-index, not DOM order. */}
         <Sidebar />
-        <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* The canvas fills the whole body and never reflows. */}
+        <main style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
           <Canvas />
           {/* The editor opens as a centered overlay scoped to the canvas
               area (position:absolute within this relative <main>), so the
-              canvas dims behind it but the Sidebar + TopBar stay lit and
-              interactive — you can switch files / workspaces without first
-              closing the editor, the way every file-based editor works. */}
+              canvas dims behind it but the Sidebar (a higher-z overlay) stays
+              lit and interactive — you can switch files / workspaces without
+              first closing the editor, the way every file-based editor works. */}
           <FilePreview />
         </main>
       </div>

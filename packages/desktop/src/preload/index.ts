@@ -50,6 +50,15 @@ const bh = {
    *  Reads process.env directly (not node:os) so this stays compatible with
    *  sandboxed preload contexts where Node built-ins aren't available. */
   homeDir: process.env.HOME ?? process.env.USERPROFILE ?? '',
+  /** Subscribe to window fullscreen changes (relayed by main). macOS hides the
+   *  traffic lights in fullscreen, so the title bar reclaims their reserved
+   *  space. Returns an unsubscribe function; the main process pushes the
+   *  current state once the page loads. */
+  onFullscreenChange: (handler: (isFullscreen: boolean) => void): (() => void) => {
+    const wrapped = (_e: unknown, isFullscreen: boolean): void => handler(isFullscreen);
+    ipcRenderer.on('window:fullscreen', wrapped);
+    return () => ipcRenderer.off('window:fullscreen', wrapped);
+  },
   /** Subscribe to the menu/right-click "Open Folder…" action (relayed by main).
    * Returns an unsubscribe function. The renderer responds by running its
    * own pickAndAdd flow, so the folder-open UX is identical to the in-app

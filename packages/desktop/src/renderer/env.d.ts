@@ -19,6 +19,9 @@ interface Window {
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
      *  main). Returns an unsubscribe function. */
     onMenuOpenFolder(handler: () => void): () => void;
+    /** Subscribe to window fullscreen changes (relayed by main). Returns an
+     *  unsubscribe function. */
+    onFullscreenChange(handler: (isFullscreen: boolean) => void): () => void;
     /** Subscribe to file events from the core watcher (relayed by main).
      * Returns an unsubscribe function. */
     onFileEvent(

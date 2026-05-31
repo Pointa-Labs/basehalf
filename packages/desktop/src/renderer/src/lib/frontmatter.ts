@@ -1,8 +1,8 @@
 // Split a leading YAML frontmatter block off a markdown document so the editor
 // can round-trip the BODY through BlockNote while preserving the frontmatter
 // VERBATIM (never sent through BlockNote, which can't round-trip YAML and would
-// otherwise force the whole note view-only — the common case for Obsidian /
-// Jekyll notes).
+// otherwise force the whole note view-only — the common case for notes that
+// lead with a YAML front-matter block).
 //
 // The split is byte-exact and reversible: `frontmatter + body === content`
 // always. Detection is STRICT and fails safe — if the leading `---` isn't a
