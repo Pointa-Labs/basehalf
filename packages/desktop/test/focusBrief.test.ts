@@ -33,6 +33,14 @@ describe('briefForClipboard', () => {
     expect(briefForClipboard(RAW)).not.toContain('# source-view');
   });
 
+  it('strips the folder-source provenance marker (the current grouping unit)', () => {
+    const out = briefForClipboard(
+      '# bh focus\n\nintent: chapter 3\n\nactive:\n  - notes/a.md\n\n# source-folder: notes\n# (footer)\n',
+    );
+    expect(out).not.toContain('# source-folder');
+    expect(out).toContain('- notes/a.md');
+  });
+
   it('strips the .bh/-pointing footer comment block', () => {
     const out = briefForClipboard(RAW);
     expect(out).not.toContain('Updated automatically');

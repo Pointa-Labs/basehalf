@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title></title>
+    <title>BaseHalf</title>
     <style>
       html, body, #root { margin: 0; height: 100%; }
-      body { color: #222; }
+      /* Dark fallback so there's no white flash before globals.css loads. */
+      body { color: #cccccc; background: #1e1e1e; }
       * { box-sizing: border-box; }
     </style>
   </head>
