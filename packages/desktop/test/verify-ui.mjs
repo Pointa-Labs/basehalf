@@ -725,7 +725,10 @@ await bhRun('focus.clear', {});
 const asidesBeforeFocus = await win.locator('aside').count();
 const introBadgeForFocus = win.locator('.react-flow__node[data-id="intro.md"]');
 await introBadgeForFocus.click();
-await win.waitForTimeout(300);
+// A plain single-click DEFERS focus.set by 320ms (so a double-click to open the
+// editor can't first collapse a curated focus set — see Canvas onNodeClick).
+// Wait past that window before reading the applied focus.
+await win.waitForTimeout(500);
 const focusAfterFirst = await bhRun('focus.get', {});
 assert(
   Array.isArray(focusAfterFirst.active) &&
@@ -839,7 +842,7 @@ await win.waitForTimeout(150);
 // read stale curation every turn. ---
 console.log("\n[5d-resync] editing a focused file's prompt refreshes focus.md");
 await win.locator('.react-flow__node[data-id="intro.md"]').click(); // focus it
-await win.waitForTimeout(300);
+await win.waitForTimeout(450); // > the 320ms single-click defer, so focus lands first
 await win.locator('.react-flow__node-badge[data-id="intro.md"]').first().dblclick(); // open editor
 await win.waitForTimeout(700);
 const resyncPrompt = `resync-prompt-${Date.now()}`;
@@ -869,7 +872,7 @@ console.log('\n[5d-focusviz] focus is visible on the canvas (dot + chip + clear)
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 await win.locator('.react-flow__node[data-id="intro.md"]').click();
-await win.waitForTimeout(350);
+await win.waitForTimeout(450); // > the 320ms single-click defer (+ chip/dot render)
 const focusChip = win.locator('[data-testid="focus-chip"]');
 assert((await focusChip.count()) === 1, 'Focus chip appears when a file is focused');
 assert(

@@ -38,7 +38,6 @@ export const TopBar = (): JSX.Element => {
   const renameView = useWorkspaceStore((s) => s.renameView);
   const setViewPrompt = useWorkspaceStore((s) => s.setViewPrompt);
   const deleteView = useWorkspaceStore((s) => s.deleteView);
-  const flushEditor = useWorkspaceStore((s) => s.flushEditor);
 
   const handleRemove = async (): Promise<void> => {
     if (!current) return;
@@ -153,11 +152,11 @@ export const TopBar = (): JSX.Element => {
     setFolderScope(null);
   };
 
-  const handleWorkspaceChange = async (next: string): Promise<void> => {
+  const handleWorkspaceChange = (next: string): void => {
     if (!next || next === current) return;
-    // Auto-save: persist any pending edit to the CURRENT workspace's file
-    // BEFORE switching, so it lands in the right place (no prompt, no loss).
-    await flushEditor?.();
+    // `use` owns the flush: it persists any pending edit to the CURRENT
+    // workspace's file before switching (so it lands in the right place), and
+    // refuses to switch while a disk-conflict banner is unresolved.
     void use(next);
   };
 

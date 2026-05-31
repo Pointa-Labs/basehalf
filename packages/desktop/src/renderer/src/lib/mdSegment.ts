@@ -337,5 +337,14 @@ export async function spliceSave(
   // ourselves; normalize it to a single newline. A verbatim/edited tail keeps its
   // exact original trailing bytes.
   if (lastSynthesized) out = out.replace(/\n+$/, '\n');
+  // Preserved frontmatter from a file whose closing `---` sat at EOF with NO
+  // trailing newline (a supported shape agents emit) would otherwise glue the
+  // body straight onto the fence (`---hello`), breaking the YAML block + losing
+  // the user's metadata. Insert the file's prevailing EOL between a
+  // non-newline-terminated frontmatter and a non-empty body.
+  if (frontmatter !== '' && out !== '' && !/\n$/.test(frontmatter)) {
+    const eol = frontmatter.includes('\r\n') ? '\r\n' : '\n';
+    return frontmatter + eol + out;
+  }
   return frontmatter + out;
 }

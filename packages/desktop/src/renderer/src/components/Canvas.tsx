@@ -258,6 +258,12 @@ export const Canvas = (): JSX.Element => {
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
+      // Cancel the deferred single-click focus collapse — opening a badge must
+      // not first wipe the curated focus set.
+      if (clickTimer.current) {
+        clearTimeout(clickTimer.current.timeout);
+        clickTimer.current = null;
+      }
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
         // Folder scoping is a main-canvas concept. Inside a saved view it
@@ -366,56 +372,148 @@ export const Canvas = (): JSX.Element => {
     [currentView],
   );
 
+  // Pending deferred single-click focus: the badge id, its timer, and the apply
+  // closure (so a click on a DIFFERENT badge can commit it before proceeding).
+  const clickTimer = useRef<{
+    id: string;
+    timeout: ReturnType<typeof setTimeout>;
+    apply: () => void;
+  } | null>(null);
+  // Serialize focus mutations: each apply() chains onto the previous one's
+  // promise so they land in click order. Without this, committing a pending
+  // plain-click (focus.set([A])) and then a shift-toggle (toggleActiveFile(B))
+  // would race two IPC round-trips and could drop A or B non-deterministically.
+  const focusChain = useRef<Promise<void>>(Promise.resolve());
+
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
       const additive = event.shiftKey;
-      // Single-click manages FOCUS only — it never opens the editor. Opening
-      // is the double-click (onNodeDoubleClick). This keeps the canvas and the
-      // focus viz visible while you assemble a focus set by clicking badges.
-      void (async () => {
-        try {
-          let after: { active: readonly string[] };
-          if (additive) {
-            // Shift+click TOGGLES membership — add if absent, remove if present —
-            // so curating a multi-file set never forces a Clear-and-rebuild
-            // (matches Finder / browser / spreadsheet multi-select). Routed
-            // through focus.toggleActiveFile so REFINING a view-sourced focus
-            // keeps the turn intent + `# source-view:` provenance (a bare
-            // focus.set({files}) would silently drop both — severing the
-            // view→brief refresh link and losing the curated intent).
-            after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
-              active: string[];
-            };
-          } else {
-            // Plain click = focus JUST this file: a fresh files-focus that
-            // intentionally starts clean (no prior intent / view provenance).
-            await window.bh.run('focus.set', { files: [node.id] });
-            after = (await window.bh.run('focus.get', {})) as { active: string[] };
+      // The workspace this click was issued against. A deferred timer or a
+      // committed-but-in-flight chain link can outlive a workspace switch; focus
+      // mutations resolve their target workspace LAZILY at execution time, so a
+      // stale apply would otherwise write THIS workspace's badge into whatever
+      // workspace is current when its IPC finally runs. We snapshot it here and
+      // bail if it no longer matches.
+      const issuedFor = useWorkspaceStore.getState().current;
+      // Single-click manages FOCUS only — it never opens the editor. Opening is
+      // the double-click (onNodeDoubleClick). This keeps the canvas + focus viz
+      // visible while you assemble a focus set by clicking badges.
+      const apply = (): void => {
+        // Enqueue onto the focus-mutation chain so this apply runs only AFTER any
+        // previously-committed one resolves (committed-pending-A then toggle-B
+        // can't interleave). Each link catches internally, so the chain never
+        // rejects and a failed mutation doesn't stall later clicks.
+        focusChain.current = focusChain.current.then(async () => {
+          // Workspace switched out from under this click → drop it (no IPC, no
+          // repaint). This closes the common window (a deferred timer/chain link
+          // that runs AFTER the switch settled). NOTE: a residual race remains
+          // when the link runs DURING a switch — the main-process config flips to
+          // the new root before the renderer's `current` does, and focus.set
+          // resolves its workspace lazily; the full fix is an explicit
+          // target-workspace arg on focus.set (tracked for a follow-up).
+          if (useWorkspaceStore.getState().current !== issuedFor) return;
+          try {
+            let after: { active: readonly string[] };
+            if (additive) {
+              // Shift+click TOGGLES membership — add if absent, remove if present
+              // — so curating a multi-file set never forces a Clear-and-rebuild
+              // (matches Finder / browser / spreadsheet multi-select). Routed
+              // through focus.toggleActiveFile so REFINING a view-sourced focus
+              // keeps the turn intent + `# source-view:` provenance (a bare
+              // focus.set({files}) would silently drop both — severing the
+              // view→brief refresh link and losing the curated intent).
+              after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
+                active: string[];
+              };
+            } else {
+              // Plain click = focus JUST this file: a fresh files-focus that
+              // intentionally starts clean (no prior intent / view provenance).
+              await window.bh.run('focus.set', { files: [node.id] });
+              after = (await window.bh.run('focus.get', {})) as { active: string[] };
+            }
+            // Reflect the authoritative focus set on the canvas so the human SEES
+            // exactly what the agent now reads.
+            setFocusActive(after.active); // keep the chip's full-set count live on click
+            const set = new Set(after.active);
+            setNodes((prev) =>
+              prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
+            );
+          } catch (err) {
+            // The focus set is the trust contract ("I see what the agent reads").
+            // A silent failure would desync the canvas from .bh/focus.md, so
+            // surface it rather than swallow it.
+            setError(err instanceof Error ? err.message : String(err));
           }
-          // Reflect the authoritative focus set on the canvas so the human SEES
-          // exactly what the agent now reads.
-          setFocusActive(after.active); // keep the chip's full-set count live on click
-          const set = new Set(after.active);
-          setNodes((prev) =>
-            prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
-          );
-        } catch (err) {
-          // The focus set is the trust contract ("I see what the agent reads").
-          // A silent failure would desync the canvas from .bh/focus.md, so
-          // surface it rather than swallow it.
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })();
+        });
+      };
+      // Resolve a still-pending deferred plain-click before handling this one:
+      //  - SAME badge re-clicked → it's a double-click; DROP the pending single
+      //    so opening the editor never collapses focus.
+      //  - DIFFERENT badge → the prior plain-click wasn't a double-click, so
+      //    COMMIT it first (e.g. plain-click A then shift-click B → {A, B}).
+      //    Both go through focusChain, so A's focus.set lands before B's toggle
+      //    (no IPC race), and A's stale timer can't fire later to drop B.
+      const pending = clickTimer.current;
+      if (pending) {
+        clearTimeout(pending.timeout);
+        clickTimer.current = null;
+        if (pending.id !== node.id) pending.apply();
+      }
+      // Shift+click is unambiguous (no shift+double-click gesture) → apply now.
+      if (additive) {
+        apply();
+        return;
+      }
+      // The SECOND click of a double-click carries detail>=2 and fires before
+      // onNodeDoubleClick — bail so a double-click never runs the plain-click
+      // focus replace, and let onNodeDoubleClick open the editor.
+      if (event.detail >= 2) return;
+      // First plain click: DEFER the focus replace. A double-click would
+      // otherwise run it first (DOM click before dblclick), collapsing a curated
+      // multi-file focus set (+ its intent/provenance) before the editor opens.
+      // 320ms comfortably spans a normal double-click interval; the same-badge
+      // cancel + detail guard + onNodeDoubleClick make it robust regardless.
+      clickTimer.current = {
+        id: node.id,
+        apply,
+        timeout: setTimeout(() => {
+          clickTimer.current = null;
+          apply();
+        }, 320),
+      };
     },
-    // setNodes / setError are stable; nothing else external is referenced.
+    // setNodes / setFocusActive / setError are stable; nothing else external.
     [],
   );
 
+  // Drop a pending deferred single-click focus — used by anything that should
+  // SUPERSEDE the click (Clear-focus, a workspace switch, unmount), so a stale
+  // timer can't fire afterward and undo the explicit action / write into the
+  // wrong workspace.
+  const cancelPendingClick = useCallback(() => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current.timeout);
+      clickTimer.current = null;
+    }
+  }, []);
+
+  // Drop a pending deferred click on unmount AND whenever the active workspace
+  // changes: Canvas stays mounted across a switch but window.bh re-points at the
+  // new root, so a stale timer could otherwise fire and write the old
+  // workspace's badge into the new one's focus brief (or undo an explicit Clear).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is a trigger — re-run (cleanup cancels) when the workspace changes.
+  useEffect(() => () => cancelPendingClick(), [current, cancelPendingClick]);
+
   const clearFocus = useCallback(() => {
-    // Persist the clear FIRST, then reflect it; on failure surface the error
-    // instead of leaving the canvas showing "empty focus" while .bh/focus.md
-    // still feeds the agent stale files (the desync reappears on reload).
-    void (async () => {
+    cancelPendingClick(); // an explicit clear must win over a still-deferred click
+    const issuedFor = useWorkspaceStore.getState().current;
+    // Route the clear through the SAME focusChain as the clicks, so a committed
+    // apply() that's still in flight can't repaint the rings AFTER the clear
+    // (the clear's setNodes runs strictly after it). Persist FIRST, then reflect;
+    // on failure surface the error instead of leaving the canvas showing "empty
+    // focus" while .bh/focus.md still feeds the agent stale files.
+    focusChain.current = focusChain.current.then(async () => {
+      if (useWorkspaceStore.getState().current !== issuedFor) return; // workspace switched away
       try {
         await window.bh.run('focus.clear', {});
         setFocusActive([]);
@@ -425,8 +523,8 @@ export const Canvas = (): JSX.Element => {
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
-    })();
-  }, []);
+    });
+  }, [cancelPendingClick]);
 
   // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
   // paste exactly what their agent reads into ANY chat — making the otherwise

@@ -37,8 +37,12 @@ interface WorkspaceState {
    * MdEditor while mounted; awaited by TopBar before a workspace switch and by
    * FilePreview before closing, so auto-saved edits always land in the CURRENT
    * workspace before the context changes. null when no editor is open. */
-  flushEditor: (() => Promise<void>) | null;
-  setFlushEditor: (fn: (() => Promise<void>) | null) => void;
+  // Resolves `false` when an unresolved disk-conflict banner is up (or one
+  // surfaces mid-flush) — navigation MUST NOT proceed, so the user is forced to
+  // pick Keep/Reload rather than silently clobbering either side. `true` = the
+  // editor flushed (or had nothing pending) and it's safe to switch/close.
+  flushEditor: (() => Promise<boolean>) | null;
+  setFlushEditor: (fn: (() => Promise<boolean>) | null) => void;
   error: string;
   busy: boolean;
   refresh: () => Promise<void>;
@@ -57,7 +61,11 @@ interface WorkspaceState {
   /** Open a file in the preview. `matchQuery` (set when opening from a content
    *  -search hit) is stashed in `openMatchQuery` so the viewer can jump to the
    *  passage; a normal open passes nothing and clears any stale target. */
-  setCurrentFile: (file: string | null, matchQuery?: string | null) => void;
+  setCurrentFile: (
+    file: string | null,
+    matchQuery?: string | null,
+    opts?: { bypassFlush?: boolean },
+  ) => void;
   /** Clear the pending search-match target (FilePreview calls this once it has
    *  landed on the match or given up retrying). */
   clearOpenMatchQuery: () => void;
@@ -109,7 +117,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   currentView: null,
   folderScope: null,
   flushEditor: null,
-  setFlushEditor: (fn: (() => Promise<void>) | null) => set({ flushEditor: fn }),
+  setFlushEditor: (fn: (() => Promise<boolean>) | null) => set({ flushEditor: fn }),
   error: '',
   busy: false,
 
@@ -156,6 +164,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const path = await window.bh.pickWorkspace();
       if (!path) return;
+      // Flush+gate the open editor BEFORE refresh() unmounts it (nulls
+      // currentFile): persist its edits to the CURRENT workspace, and block on
+      // an unresolved conflict / failed save rather than dropping them silently.
+      // (After the picker, so cancelling it never surfaces a spurious error.)
+      if ((await get().flushEditor?.()) === false) {
+        set({ error: "Save or resolve this file's changes before adding a workspace." });
+        return;
+      }
       // setup: true installs the agent-protocol hint into CLAUDE.md and adds
       // .bh/cache/ to .gitignore. Both are non-destructive + idempotent (the
       // hint marker means re-adding the same folder is safe). Without this,
@@ -173,11 +189,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   addDroppedPaths: async (paths: readonly string[]) => {
     if (get().busy || paths.length === 0) return;
+    // Claim the busy lock BEFORE the async flush below (an IPC round-trip), so a
+    // second drop can't race in during it.
+    set({ busy: true });
     // A dropped folder may switch the active workspace (workspace.use below).
     // Flush the open editor to the CURRENT workspace first, so a pending
     // auto-save can't land in the newly-active workspace's same-named file.
-    await get().flushEditor?.();
-    set({ busy: true });
+    // A `false` flush = an unresolved conflict is open: block the switch so the
+    // user resolves it against THIS workspace's file before we re-point roots.
+    // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
+    // setCurrentFile — and the `.catch` keeps it from escaping past this `await`
+    // and leaking busy=true (the await is outside the try/finally below).
+    if (
+      (await get()
+        .flushEditor?.()
+        .catch(() => undefined)) === false
+    ) {
+      set({
+        busy: false,
+        error: "Save or resolve this file's changes before changing workspace.",
+      });
+      return;
+    }
     const failures: string[] = [];
     // Snapshot the current workspace list once so we can detect drops
     // of already-registered paths in O(1) and switch instead of erroring.
@@ -215,6 +248,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().busy) return;
     set({ busy: true });
     try {
+      // Flush+gate the open editor before refresh() unmounts it (see pickAndAdd).
+      if ((await get().flushEditor?.()) === false) {
+        set({ error: "Save or resolve this file's changes before creating the demo workspace." });
+        return;
+      }
       // workspace.createDemo creates the folder + seeds the interconnected
       // demo content + registers via workspace.add(setup:true). Idempotent
       // on re-run: existing files aren't overwritten, the workspace add
@@ -232,7 +270,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   use: async (name: string) => {
     if (get().busy) return;
+    // Claim the busy lock BEFORE the async flush below: that flush is an IPC
+    // round-trip, and leaving busy=false during it would let a second switch
+    // (or any busy-gated action) race in on top of this one.
     set({ busy: true });
+    // Flush the open editor to the CURRENT workspace before re-pointing roots,
+    // so its pending edits land in the right file. A `false` flush = an
+    // unresolved conflict: block the switch and send the user to Keep/Reload.
+    // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
+    // setCurrentFile — and the `.catch` keeps it from escaping past this `await`
+    // and leaking busy=true (the await is outside the try/finally below).
+    if (
+      (await get()
+        .flushEditor?.()
+        .catch(() => undefined)) === false
+    ) {
+      set({
+        busy: false,
+        error: "Save or resolve this file's changes before changing workspace.",
+      });
+      return;
+    }
     try {
       const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
       const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
@@ -281,6 +339,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().busy) return;
     set({ busy: true });
     try {
+      // Flush+gate the open editor before refresh() unmounts it (see pickAndAdd).
+      if ((await get().flushEditor?.()) === false) {
+        set({ error: "Save or resolve this file's changes before removing a workspace." });
+        return;
+      }
       await window.bh.run('workspace.remove', { name });
       await get().refresh();
     } catch (err) {
@@ -296,6 +359,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (!newPath) return;
     set({ busy: true });
     try {
+      // Flush+gate the open editor before refresh() unmounts it (see pickAndAdd).
+      if ((await get().flushEditor?.()) === false) {
+        set({ error: "Save or resolve this file's changes before relocating a workspace." });
+        return;
+      }
       // Atomic rebind — previously this was workspace.remove +
       // workspace.add + workspace.use, which left the user with no
       // registration if the add failed (invalid path, etc.).
@@ -314,6 +382,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().busy) return;
     set({ busy: true });
     try {
+      // Flush+gate the open editor before refresh() unmounts it (see pickAndAdd).
+      // rename keeps the same folder/files, so a clean flush persists; only an
+      // unresolved conflict / failed save blocks.
+      if ((await get().flushEditor?.()) === false) {
+        set({ error: "Save or resolve this file's changes before renaming a workspace." });
+        return;
+      }
       await window.bh.run('workspace.rename', { from, to });
       // Refresh pulls the new name into `current` if it was the renamed one
       // (core's workspace.rename already updated the config pointer).
@@ -325,7 +400,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  setCurrentFile: (file: string | null, matchQuery: string | null = null) => {
+  setCurrentFile: (
+    file: string | null,
+    matchQuery: string | null = null,
+    opts: { bypassFlush?: boolean } = {},
+  ) => {
     const { currentFile, flushEditor, current } = get();
     const finish = (): void => {
       // openMatchQuery only rides along when actually opening a file; a normal
@@ -335,12 +414,28 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       // Null = closing the preview; nothing to record.
       if (file !== null && current !== null) noteOpenedFile(current, file);
     };
+    // bypassFlush: the file we're leaving was renamed/moved out from under the
+    // editor (App.tsx rename rebind). Its OLD path is gone on disk, so flushing
+    // to it would RESURRECT a deleted file, and the conflict gate would trap the
+    // editor on a path that no longer exists. Rebind straight through — the fresh
+    // MdEditor mount loads the new path's current bytes (any unsaved local edits
+    // to the vanished path are intentionally discarded, not written to a ghost).
+    if (opts.bypassFlush) {
+      finish();
+      return;
+    }
     // Flush the editor we're leaving (while it's still mounted/alive) BEFORE
     // switching or closing — so the last keystrokes always persist. This is the
     // single safe flush point; MdEditor no longer flushes on unmount (which
     // could serialize a torn-down editor as empty and clobber the file).
     if (flushEditor && currentFile !== null && currentFile !== file) {
-      void flushEditor().then(finish, finish);
+      // A `false` resolution means an unresolved disk conflict is open — don't
+      // switch/close (that would silently drop local OR clobber the external
+      // edit); keep the editor up and nudge the user to the Keep/Reload buttons.
+      void flushEditor().then((ok) => {
+        if (ok) finish();
+        else set({ error: "Save or resolve this file's changes before leaving it." });
+      }, finish);
     } else {
       finish();
     }
@@ -372,6 +467,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   createNote: async (relPath: string) => {
     try {
+      // Flush + gate the OPEN editor FIRST. If it's blocked on an unresolved
+      // disk-conflict banner the switch below can't proceed — so creating the
+      // stub now would leave an orphan empty note on disk that we never open.
+      // (A clean flush also lands the current note's pending edits before we
+      // navigate away.)
+      if ((await get().flushEditor?.()) === false) {
+        set({
+          error: "Save or resolve this file's changes before creating a note.",
+        });
+        return;
+      }
       // Refuse to clobber an existing file. The New-note UX promises a
       // fresh note; without this guard, typing an existing path
       // (intro.md, etc.) silently overwrites the user's content with
@@ -395,7 +501,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const title = baseName.replace(/\.md$/i, '');
       const body = `# ${title}\n\n`;
       await window.bh.run('workspace.writeFile', { path: relPath, content: body });
-      set({ currentFile: relPath });
+      // Route through setCurrentFile (not a bare set) so the editor we're leaving
+      // FLUSHES its pending auto-save first — a bare currentFile swap remounts
+      // MdEditor, which deliberately does NOT flush on unmount, silently dropping
+      // the prior note's last keystrokes.
+      get().setCurrentFile(relPath);
     } catch (err) {
       set({ error: formatError(err) });
     }

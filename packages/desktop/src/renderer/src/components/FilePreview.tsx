@@ -984,6 +984,7 @@ const AUTOSAVE_MS = 400;
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote({ schema: bhSchema });
   const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
+  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -992,6 +993,18 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   /** Conflict banner: the file changed on disk while the user had un-flushed
    *  local edits — we don't silently clobber either side. */
   const [reloadPrompt, setReloadPrompt] = useState(false);
+  // Synchronous mirror of reloadPrompt so flush() (a useCallback that can't read
+  // the latest state) can refuse to write behind the conflict banner. Set
+  // alongside every setReloadPrompt so it's accurate the instant flush checks.
+  const reloadPromptRef = useRef(false);
+  /** Write-failed banner: the LAST flush attempted a disk write that FAILED
+   *  (read-only folder, ENOSPC, vanished path…), so the edits are still
+   *  unpersisted. Blocks navigation (the gatekeeper reads the ref) so a
+   *  switch/close can't silently drop them — paired with an explicit
+   *  Retry / Discard-&-close escape so the user is never trapped. `writeFailed`
+   *  drives the banner; `writeFailedRef` is the synchronous truth flush reads. */
+  const [writeFailed, setWriteFailed] = useState(false);
+  const writeFailedRef = useRef(false);
   const [loadKey, setLoadKey] = useState(0);
   const initialLoad = useRef(true);
   // What we believe is on disk — lets us ignore our own write echoes from the
@@ -1060,48 +1073,86 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // The actual save: serialize and write only when content changed. Safe to
   // call anytime (no-op when nothing's pending). Sets lastDiskRef BEFORE the
   // write so the watcher echo of our own write compares equal and is ignored.
-  const flush = useCallback(async (): Promise<void> => {
-    if (viewOnlyRef.current) return;
-    // Only the user's own edits write back. A mere open/close — or a flush before
-    // switching files — must never rewrite the file, even when the projection
-    // would normalize a multi-block region it can't index verbatim.
-    if (!pendingRef.current) {
-      setSaving(false);
-      return;
-    }
-    let md: string;
-    try {
-      // Splice: untouched blocks re-emit their verbatim source; only edited/new
-      // blocks are re-serialized. Frontmatter is re-prepended inside spliceSave.
-      md = await spliceSave(
-        editor as unknown as MdEditorApi,
-        editor.document,
-        frontmatterRef.current,
-        byIdRef.current,
-      );
-    } catch {
-      return; // editor torn down mid-flush — nothing safe to write
-    }
-    if (md === lastDiskRef.current) {
-      pendingRef.current = false;
-      setSaving(false);
-      return;
-    }
-    try {
-      await window.bh.run('workspace.writeFile', { path: file, content: md });
-      // Only AFTER a successful write: mark synced to the EXACT bytes written (so
-      // the watcher echo compares equal) and clear pending (kept true during the
-      // write so a mid-write external change still conflicts rather than being
-      // silently overwritten). The reuse index is keyed by block id and stays
-      // valid for the live document, so there's nothing to rebuild here.
-      lastDiskRef.current = md;
-      pendingRef.current = false;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSaving(false);
-    }
-  }, [editor, file]);
+  const flush = useCallback(
+    async (force = false): Promise<void> => {
+      if (viewOnlyRef.current) return;
+      // A conflict banner is up: the user's explicit Keep/Reload choice is
+      // authoritative. Don't let an auto-save / Cmd-S / blur / file-switch write
+      // behind it and silently clobber the external edit. keepMine() passes
+      // force=true (it has cleared the ref) to honor the explicit overwrite.
+      if (reloadPromptRef.current && !force) return;
+      // Only the user's own edits write back. A mere open/close — or a flush before
+      // switching files — must never rewrite the file, even when the projection
+      // would normalize a multi-block region it can't index verbatim.
+      if (!pendingRef.current) {
+        writeFailedRef.current = false; // nothing pending → nothing unpersisted
+        setWriteFailed(false);
+        setSaving(false);
+        return;
+      }
+      let md: string;
+      try {
+        // Splice: untouched blocks re-emit their verbatim source; only edited/new
+        // blocks are re-serialized. Frontmatter is re-prepended inside spliceSave.
+        md = await spliceSave(
+          editor as unknown as MdEditorApi,
+          editor.document,
+          frontmatterRef.current,
+          byIdRef.current,
+        );
+      } catch {
+        return; // editor torn down mid-flush — nothing safe to write
+      }
+      if (md === lastDiskRef.current) {
+        pendingRef.current = false;
+        writeFailedRef.current = false; // content matches disk → nothing unpersisted
+        setWriteFailed(false);
+        setSaving(false);
+        return;
+      }
+      // Last-line interlock against the in-flight race: an external edit can land
+      // between the last keystroke and here (or during the spliceSave await). Unless
+      // the user explicitly chose Keep-mine, re-read disk and, if it drifted from
+      // what we last synced, raise the conflict instead of overwriting it.
+      if (!force) {
+        try {
+          const disk = (
+            (await window.bh.run('workspace.readFile', { path: file })) as WorkspaceReadFileResult
+          ).content;
+          if (disk !== lastDiskRef.current) {
+            reloadPromptRef.current = true;
+            setReloadPrompt(true);
+            setSaving(false);
+            return;
+          }
+        } catch {
+          // Couldn't read (vanished/race) — fall through; the write itself will
+          // surface any hard error.
+        }
+      }
+      try {
+        await window.bh.run('workspace.writeFile', { path: file, content: md });
+        // Only AFTER a successful write: mark synced to the EXACT bytes written (so
+        // the watcher echo compares equal) and clear pending. The reuse index is
+        // keyed by block id and stays valid for the live document, so there's
+        // nothing to rebuild here.
+        lastDiskRef.current = md;
+        pendingRef.current = false;
+        writeFailedRef.current = false;
+        setWriteFailed(false);
+      } catch (err) {
+        // The write didn't land — edits remain in memory only. Flag it so the
+        // navigation gatekeeper blocks a switch/close that would drop them, and
+        // the write-failed banner offers Retry / Discard-&-close.
+        writeFailedRef.current = true;
+        setWriteFailed(true);
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [editor, file],
+  );
   const flushRef = useRef(flush);
   flushRef.current = flush;
 
@@ -1114,7 +1165,20 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    setFlushEditor(() => flushRef.current());
+    // The navigation gatekeeper. An unresolved conflict banner is a decision
+    // point — return `false` so setCurrentFile / the workspace switch DON'T
+    // proceed (forcing the user to pick Keep/Reload) rather than silently
+    // dropping local edits OR clobbering the external write. With no conflict,
+    // flush normally (the re-read guard may itself surface one mid-flush, which
+    // we also report as blocked).
+    setFlushEditor(async () => {
+      if (reloadPromptRef.current) return false;
+      await flushRef.current(false);
+      // Block if a conflict surfaced mid-flush OR the write failed (edits still
+      // unpersisted) — either way leaving now would lose data. The write-failed
+      // banner gives an explicit Discard-&-close escape so this never traps.
+      return !reloadPromptRef.current && !writeFailedRef.current;
+    });
     return () => setFlushEditor(null);
   }, [setFlushEditor]);
 
@@ -1130,7 +1194,10 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // quit the IPC write may not finish, but the debounce window is short.
   useEffect(() => {
     const onLeave = (): void => {
-      void flushRef.current();
+      // Gated flush: persists pending edits when there's no conflict, and
+      // no-ops while a banner is up (the editor stays mounted across blur, so
+      // nothing is lost — the user still resolves Keep/Reload on return).
+      void flushRef.current(false);
     };
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('blur', onLeave);
@@ -1169,7 +1236,13 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           // Our own auto-save echoes back as a change event — ignore it.
           if (disk === lastDiskRef.current) return;
           if (pendingRef.current) {
-            setReloadPrompt(true); // genuine external edit collides with local edits
+            // Genuine external edit collides with local edits → conflict banner.
+            // CANCEL the armed auto-save + set the sync ref so the debounced
+            // flush (or a Cmd-S / blur) can't fire and clobber the external edit
+            // before the user picks Keep / Reload.
+            reloadPromptRef.current = true;
+            setReloadPrompt(true);
+            scheduleSave.cancel();
           } else {
             lastDiskRef.current = disk;
             setLoadKey((k) => k + 1); // adopt the external change
@@ -1187,18 +1260,36 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
       unsub();
     };
-  }, [file]);
+  }, [file, scheduleSave]);
 
   const acceptReload = useCallback(() => {
+    reloadPromptRef.current = false;
     setReloadPrompt(false);
     pendingRef.current = false;
+    writeFailedRef.current = false; // reloading disk = nothing unpersisted
+    setWriteFailed(false);
     setLoadKey((k) => k + 1); // discard local, load the disk version
   }, []);
 
   const keepMine = useCallback(() => {
+    reloadPromptRef.current = false;
     setReloadPrompt(false);
-    void flushRef.current(); // overwrite disk with the local version
+    void flushRef.current(true); // force-overwrite disk with the local version
   }, []);
+
+  // Write-failed escape hatch. A persistently-unwritable file (read-only folder,
+  // ENOSPC, vanished path) would otherwise trap the editor — the gatekeeper
+  // blocks every switch/close. "Retry" re-attempts the save; "Discard & close"
+  // drops the unsaved edits and force-closes (bypassFlush skips the gate).
+  const retryWrite = useCallback(() => {
+    void flushRef.current(false);
+  }, []);
+  const discardAndClose = useCallback(() => {
+    writeFailedRef.current = false;
+    setWriteFailed(false);
+    pendingRef.current = false;
+    setCurrentFile(null, null, { bypassFlush: true });
+  }, [setCurrentFile]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1206,7 +1297,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void flushRef.current();
+        // Gated: saves normally, but no-ops while a conflict banner is up so
+        // Cmd-S can't bypass the explicit Keep/Reload decision and clobber disk.
+        void flushRef.current(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -1285,7 +1378,33 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           </Button>
         </div>
       )}
-      {error && (
+      {writeFailed && !reloadPrompt && (
+        <div
+          style={{
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.dangerSoft,
+            borderBottom: `1px solid ${color.danger}33`,
+            color: color.danger,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            animation: `bh-banner-in ${motion.normal}`,
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            Couldn't save this file{error ? ` — ${error}` : ''}. Your edits are still here.
+          </span>
+          <Button variant="primary" size="sm" onClick={retryWrite}>
+            Retry
+          </Button>
+          <Button variant="ghost" size="sm" onClick={discardAndClose}>
+            Discard &amp; close
+          </Button>
+        </div>
+      )}
+      {error && !writeFailed && (
         <div
           style={{
             padding: `${space[2]}px ${space[4]}px`,

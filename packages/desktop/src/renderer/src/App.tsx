@@ -36,7 +36,11 @@ export const App = (): JSX.Element => {
       if (event.type !== 'rename') return;
       const state = useWorkspaceStore.getState();
       if (state.currentFile === event.fromRelPath) {
-        state.setCurrentFile(event.toRelPath);
+        // bypassFlush: the open file was renamed/moved on disk, so its OLD path
+        // is gone. Flushing to it would resurrect a deleted file, and the
+        // conflict gate would trap the editor on a vanished path — so rebind
+        // straight to the new path (fresh editor on the moved file's bytes).
+        state.setCurrentFile(event.toRelPath, null, { bypassFlush: true });
       }
     });
     return unsub;
