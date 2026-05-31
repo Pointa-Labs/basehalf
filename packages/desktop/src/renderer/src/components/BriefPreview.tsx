@@ -47,44 +47,58 @@ export const BriefPreview = ({
   // question here so the most load-bearing brief line is theirs, not empty.
   const [intentDraft, setIntentDraft] = useState('');
   const savedIntentRef = useRef(''); // last value we persisted (skip no-op writes)
-
-  const load = useCallback(async (): Promise<void> => {
-    try {
-      const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
-      setRaw(briefForClipboard(text));
-      const parsed = parseBriefForDisplay(text);
-      setBrief(parsed);
-      const current = parsed.intent ?? '';
-      savedIntentRef.current = current;
-      setIntentDraft(current);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
+  const dirtyRef = useRef(false); // the user has typed since this open
+  const savePromiseRef = useRef<Promise<void>>(Promise.resolve()); // in-flight save
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
+  // Seeds the intent draft ONLY when the user hasn't started typing (a slow open
+  // fetch must not clobber an in-progress edit). We deliberately do NOT reload
+  // after a save: nothing but the intent line changes, and the draft already
+  // holds it — reloading would race the next keystroke.
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     setError('');
-    void load();
-  }, [open, load]);
-
-  // Persist the typed intent (focus.setIntent preserves the active set + clears
-  // view provenance) when it actually changed, then refresh so the brief shows
-  // the saved line. Fires on blur / Enter so it survives the popover closing.
-  const saveIntent = useCallback((): void => {
-    const next = intentDraft.trim();
-    if (next === savedIntentRef.current.trim()) return; // no change → no write
-    savedIntentRef.current = next;
+    dirtyRef.current = false;
     void (async () => {
       try {
-        await window.bh.run('focus.setIntent', { intent: next });
-        await load();
+        const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        if (cancelled) return;
+        setRaw(briefForClipboard(text));
+        const parsed = parseBriefForDisplay(text);
+        setBrief(parsed);
+        const current = parsed.intent ?? '';
+        savedIntentRef.current = current;
+        if (!dirtyRef.current) setIntentDraft(current);
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [intentDraft, load]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Persist the typed intent (focus.setIntent preserves the active set + clears
+  // view provenance) when it actually changed. Returns the in-flight save promise
+  // so callers (Copy) can AWAIT it — a copy issued right after an edit must see
+  // the new intent, not the pre-save brief. Fires on blur / Enter too, so it
+  // survives the popover closing.
+  const flushIntent = useCallback((): Promise<void> => {
+    const next = intentDraft.trim();
+    if (next === savedIntentRef.current.trim()) return savePromiseRef.current; // no change
+    savedIntentRef.current = next;
+    savePromiseRef.current = window.bh.run('focus.setIntent', { intent: next }).then(
+      () => {},
+      (err) => setError(err instanceof Error ? err.message : String(err)),
+    );
+    return savePromiseRef.current;
+  }, [intentDraft]);
+
+  // Copy must reflect the latest intent: commit any pending edit first.
+  const copyAfterSave = useCallback((): void => {
+    void flushIntent().then(onCopy);
+  }, [flushIntent, onCopy]);
 
   if (!open) return null;
 
@@ -170,12 +184,15 @@ export const BriefPreview = ({
               </span>
               <textarea
                 value={intentDraft}
-                onChange={(e) => setIntentDraft(e.target.value)}
-                onBlur={saveIntent}
+                onChange={(e) => {
+                  dirtyRef.current = true;
+                  setIntentDraft(e.target.value);
+                }}
+                onBlur={() => void flushIntent()}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    e.currentTarget.blur(); // commit via onBlur → saveIntent
+                    e.currentTarget.blur(); // commit via onBlur → flushIntent
                   }
                 }}
                 rows={2}
@@ -269,7 +286,12 @@ export const BriefPreview = ({
             justifyContent: 'flex-end',
           }}
         >
-          <Button variant="primary" size="sm" onClick={onCopy} data-testid="brief-preview-copy">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={copyAfterSave}
+            data-testid="brief-preview-copy"
+          >
             {copied ? 'Copied ✓' : 'Copy brief'}
           </Button>
         </div>
