@@ -42,23 +42,30 @@ export const BriefPreview = ({
   const { open, coords, floatingRef } = controller;
   const [brief, setBrief] = useState<BriefDisplay | null>(null);
   const [raw, setRaw] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); // LOAD error (can't show the brief)
+  const [saveError, setSaveError] = useState(''); // INTENT save error (shown inline; textarea stays)
   // The editable turn-intent. Seeded from the loaded brief; the user types their
   // question here so the most load-bearing brief line is theirs, not empty.
   const [intentDraft, setIntentDraft] = useState('');
   const savedIntentRef = useRef(''); // last value we persisted (skip no-op writes)
   const dirtyRef = useRef(false); // the user has typed since this open
-  const savePromiseRef = useRef<Promise<void>>(Promise.resolve()); // in-flight save
+  // In-flight save → resolves true once persisted, false if the write failed.
+  const savePromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
-  // Seeds the intent draft ONLY when the user hasn't started typing (a slow open
-  // fetch must not clobber an in-progress edit). We deliberately do NOT reload
-  // after a save: nothing but the intent line changes, and the draft already
-  // holds it — reloading would race the next keystroke.
+  // RESET to a loading state first, so a reopen never shows (or lets you type
+  // over) the PREVIOUS open's stale brief while the fetch is in flight. Seeds the
+  // intent draft ONLY when the user hasn't started typing. We deliberately do NOT
+  // reload after a save: only the intent line changes and the draft already holds
+  // it — reloading would race the next keystroke.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setError('');
+    setSaveError('');
+    setBrief(null); // → "Loading…"; hides the (stale) textarea until fresh data lands
+    setRaw('');
+    setIntentDraft('');
     dirtyRef.current = false;
     void (async () => {
       try {
@@ -80,24 +87,35 @@ export const BriefPreview = ({
   }, [open]);
 
   // Persist the typed intent (focus.setIntent preserves the active set + clears
-  // view provenance) when it actually changed. Returns the in-flight save promise
-  // so callers (Copy) can AWAIT it — a copy issued right after an edit must see
-  // the new intent, not the pre-save brief. Fires on blur / Enter too, so it
-  // survives the popover closing.
-  const flushIntent = useCallback((): Promise<void> => {
+  // view provenance) when it actually changed. Returns a promise that resolves
+  // true only once the write SUCCEEDS — so Copy can await it (a copy right after
+  // an edit must see the new intent) and skip copying if the save failed. A
+  // failed save leaves savedIntentRef unchanged, so the next blur/Copy RETRIES.
+  const flushIntent = useCallback((): Promise<boolean> => {
     const next = intentDraft.trim();
     if (next === savedIntentRef.current.trim()) return savePromiseRef.current; // no change
-    savedIntentRef.current = next;
     savePromiseRef.current = window.bh.run('focus.setIntent', { intent: next }).then(
-      () => {},
-      (err) => setError(err instanceof Error ? err.message : String(err)),
+      () => {
+        savedIntentRef.current = next; // mark saved ONLY on success
+        setSaveError('');
+        return true;
+      },
+      (err) => {
+        // Inline (not the full-view error) so the textarea STAYS — the user can
+        // fix the problem and retry; savedIntentRef is unchanged, so they will.
+        setSaveError(err instanceof Error ? err.message : String(err));
+        return false;
+      },
     );
     return savePromiseRef.current;
   }, [intentDraft]);
 
-  // Copy must reflect the latest intent: commit any pending edit first.
+  // Copy must reflect the latest intent: commit any pending edit, and only copy
+  // once it actually persisted (a failed save shows its error instead).
   const copyAfterSave = useCallback((): void => {
-    void flushIntent().then(onCopy);
+    void flushIntent().then((ok) => {
+      if (ok) onCopy();
+    });
   }, [flushIntent, onCopy]);
 
   if (!open) return null;
@@ -213,6 +231,11 @@ export const BriefPreview = ({
                   outline: 'none',
                 }}
               />
+              {saveError && (
+                <span style={{ color: color.warning, fontSize: 11 }}>
+                  Couldn't save — {saveError}
+                </span>
+              )}
             </div>
 
             {brief.items.length === 0 ? (
