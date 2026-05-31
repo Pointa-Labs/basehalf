@@ -197,7 +197,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // auto-save can't land in the newly-active workspace's same-named file.
     // A `false` flush = an unresolved conflict is open: block the switch so the
     // user resolves it against THIS workspace's file before we re-point roots.
-    if ((await get().flushEditor?.()) === false) {
+    // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
+    // setCurrentFile — and the `.catch` keeps it from escaping past this `await`
+    // and leaking busy=true (the await is outside the try/finally below).
+    if (
+      (await get()
+        .flushEditor?.()
+        .catch(() => undefined)) === false
+    ) {
       set({
         busy: false,
         error: "Save or resolve this file's changes before changing workspace.",
@@ -270,7 +277,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Flush the open editor to the CURRENT workspace before re-pointing roots,
     // so its pending edits land in the right file. A `false` flush = an
     // unresolved conflict: block the switch and send the user to Keep/Reload.
-    if ((await get().flushEditor?.()) === false) {
+    // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
+    // setCurrentFile — and the `.catch` keeps it from escaping past this `await`
+    // and leaking busy=true (the await is outside the try/finally below).
+    if (
+      (await get()
+        .flushEditor?.()
+        .catch(() => undefined)) === false
+    ) {
       set({
         busy: false,
         error: "Save or resolve this file's changes before changing workspace.",

@@ -70,6 +70,20 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().error).toMatch(/save or resolve/i);
   });
 
+  it('use() does not leak busy when the pre-switch flush REJECTS (torn-down editor)', async () => {
+    // A rejecting flush is non-blocking: use() proceeds (the `.catch` keeps the
+    // rejection from escaping the await and stranding busy=true), reaches the
+    // try/finally, and resets busy even though window.bh.run isn't available here.
+    store.setState({
+      current: 'ws',
+      flushEditor: async () => {
+        throw new Error('editor torn down');
+      },
+    });
+    await store.getState().use('other-ws');
+    expect(store.getState().busy).toBe(false); // NOT stranded
+  });
+
   it('addDroppedPaths refuses to proceed while a conflict is open', async () => {
     store.setState({ flushEditor: async () => false });
     await store.getState().addDroppedPaths(['/some/dropped/folder']);
