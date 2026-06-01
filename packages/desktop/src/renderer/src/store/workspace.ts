@@ -160,6 +160,10 @@ interface WorkspaceState {
    * in the preview. The watcher picks it up and badge.list materializes a
    * badge on the next refresh — no extra step needed. */
   createNote: (relPath: string) => Promise<void>;
+  /** Create a blank untitled note and open it (pinned) in a pane — the
+   *  double-click-empty-tab-strip gesture. (A code editor's "new untitled"
+   *  adapted to our file=truth model: it's a real `untitled-N.md`.) */
+  newNote: (paneId?: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -715,6 +719,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // remounts MdEditor, which deliberately does NOT flush on unmount, silently
         // dropping the prior note's last keystrokes.
         get().openInPanel(relPath, { pinned: true });
+      } catch (err) {
+        set({ error: formatError(err) });
+      }
+    },
+
+    newNote: async (paneId) => {
+      const target = paneId ?? get().activePaneId;
+      // Persist the target pane's editor before it switches to the new note (and
+      // gate on an unresolved conflict, so we don't create an orphan stub we can't
+      // open). openInPanel below also flushes — a no-op after this clean flush.
+      if ((await flushPane(target)) === false) {
+        set({ error: "Save or resolve this file's changes before opening a new note." });
+        return;
+      }
+      try {
+        // Find a free untitled name (readFile throws PATH_NOT_FOUND when free).
+        let name = 'untitled.md';
+        for (let i = 1; i < 1000; i++) {
+          let taken = false;
+          try {
+            await window.bh.run('workspace.readFile', { path: name });
+            taken = true;
+          } catch (err) {
+            if (!isPathNotFound(err)) throw err;
+          }
+          if (!taken) break;
+          name = `untitled-${i}.md`;
+        }
+        // Blank file — MdEditor seeds an editable paragraph for an empty note.
+        await window.bh.run('workspace.writeFile', { path: name, content: '' });
+        get().openInPanel(name, { pinned: true, paneId: target });
       } catch (err) {
         set({ error: formatError(err) });
       }

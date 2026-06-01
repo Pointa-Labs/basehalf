@@ -26,6 +26,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const moveTab = useWorkspaceStore((s) => s.moveTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const setTabDrag = useWorkspaceStore((s) => s.setTabDrag);
+  const newNote = useWorkspaceStore((s) => s.newNote);
 
   const paneId = pane.id;
   const draggedFile = useRef<string | null>(null);
@@ -43,6 +44,13 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   return (
     <div
       role="tablist"
+      // Double-click the EMPTY strip area (not a tab) → a new blank note in this
+      // pane, like a code editor's empty-tab-bar gesture. The target===currentTarget
+      // guard keeps a double-click ON a tab (which pins it) from also firing this.
+      onDoubleClick={(e) => {
+        if (e.target === e.currentTarget) void newNote(paneId);
+      }}
+      title="Double-click for a new note"
       style={{
         flexShrink: 0,
         display: 'flex',
