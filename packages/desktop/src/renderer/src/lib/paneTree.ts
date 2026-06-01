@@ -217,14 +217,20 @@ export const moveInLeaf = (leaf: LeafPane, file: string, toIndex: number): LeafP
  *  identical tabs (and duplicate React keys; closeInLeaf would later remove both). */
 export const renameInLeaf = (leaf: LeafPane, fromPath: string, toPath: string): LeafPane => {
   if (!leaf.tabs.includes(fromPath)) return leaf;
+  const alreadyOpen = leaf.tabs.includes(toPath);
   const mapped = leaf.tabs.map((t) => (t === fromPath ? toPath : t));
-  const tabs = leaf.tabs.includes(toPath)
+  const tabs = alreadyOpen
     ? mapped.filter((t, i) => mapped.indexOf(t) === i) // dedup the merged duplicate
     : mapped;
+  // On a MERGE (toPath pre-existed), the surviving toPath tab keeps its own state —
+  // don't transfer fromPath's preview slot onto it (it may have been pinned), or the
+  // next preview-open would replace that tab. Clear the slot instead.
+  const previewFile =
+    leaf.previewFile === fromPath ? (alreadyOpen ? null : toPath) : leaf.previewFile;
   return {
     ...leaf,
     tabs,
     activeFile: leaf.activeFile === fromPath ? toPath : leaf.activeFile,
-    previewFile: leaf.previewFile === fromPath ? toPath : leaf.previewFile,
+    previewFile,
   };
 };

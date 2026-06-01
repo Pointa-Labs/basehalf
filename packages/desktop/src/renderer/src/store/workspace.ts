@@ -663,7 +663,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     splitPane: (sourcePaneId, direction, file, opts = {}) => {
       const ws = get().current;
       const finish = (): void => {
-        if (get().current !== ws) return; // workspace switched during the flush — abort
+        // Abort if the workspace switched OR the source pane was closed/collapsed
+        // during the flush — else splitLeaf no-ops but we'd set activePaneId to a
+        // newLeaf that isn't in the tree.
+        if (get().current !== ws || !findLeaf(get().paneTree, sourcePaneId)) return;
         const newLeaf = openInLeaf(emptyLeaf(), file, { pinned: true });
         set((s) => ({
           paneTree: splitLeaf(s.paneTree, sourcePaneId, direction, newLeaf, opts.before === true),
@@ -836,9 +839,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
       // Hiding the panel unmounts every panel editor (EditorSpace renders null), and
       // an unmount cancels the debounced autosave — so flush first, or the last
-      // keystrokes are lost. An unresolved conflict keeps the panel open to resolve.
-      void flushAll().then((ok) => {
-        if (ok) set({ rightPanelOpen: false });
+      // keystrokes are lost. Flush ONLY the pane-tree editors, not the canvas float
+      // (which stays mounted) — else an unrelated float conflict would wrongly block
+      // the toggle. An unresolved conflict keeps the panel open to resolve.
+      const panes = allLeaves(get().paneTree).map((l) => l.id);
+      void Promise.all(panes.map((p) => flushPane(p))).then((oks) => {
+        if (oks.every(Boolean)) set({ rightPanelOpen: false });
         else set({ error: "Save or resolve this file's changes before hiding the panel." });
       });
     },
@@ -980,6 +986,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         if (get().current !== ws) return;
         // Blank file — MdEditor seeds an editable paragraph for an empty note.
         await window.bh.run('workspace.writeFile', { path: name, content: '' });
+        // And again after the write IPC: a switch here would otherwise open the same
+        // relative name in the NEW root, hiding the note we just created in the old one.
+        if (get().current !== ws) return;
         get().openInPanel(name, { pinned: true, paneId: target });
       } catch (err) {
         set({ error: formatError(err) });

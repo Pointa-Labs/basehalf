@@ -172,6 +172,30 @@ describe('paneTree — renameInLeaf', () => {
     const l = leaf(['a.md'], 'a.md');
     expect(renameInLeaf(l, 'z.md', 'y.md')).toBe(l);
   });
+  it('clears the preview slot when a preview tab merges onto an existing tab', () => {
+    // a.md is the preview; renamed → b.md which is already open (pinned). The merge
+    // must not leave previewFile pointing at the surviving b.md tab.
+    const l: LeafPane = {
+      type: 'leaf',
+      id: 'p',
+      tabs: ['a.md', 'b.md'],
+      activeFile: 'b.md',
+      previewFile: 'a.md',
+    };
+    const out = renameInLeaf(l, 'a.md', 'b.md');
+    expect(out.tabs).toEqual(['b.md']);
+    expect(out.previewFile).toBeNull();
+  });
+  it('rebinds the preview slot on a normal (non-merge) rename', () => {
+    const l: LeafPane = {
+      type: 'leaf',
+      id: 'p',
+      tabs: ['a.md'],
+      activeFile: 'a.md',
+      previewFile: 'a.md',
+    };
+    expect(renameInLeaf(l, 'a.md', 'c.md').previewFile).toBe('c.md');
+  });
 });
 
 describe('paneTree — adoptPaneIds (restore-safe id counter)', () => {
