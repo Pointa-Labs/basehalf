@@ -133,7 +133,9 @@ export const FloatingPreview = (): JSX.Element | null => {
         </button>
       </header>
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <FilePreview file={floatingFile} paneId={FLOAT_PANE_ID} isActive />
+        {/* The float is the canvas-side surface, so it keeps the badge backpack
+            panel (prompt + references); the right panel doesn't. */}
+        <FilePreview file={floatingFile} paneId={FLOAT_PANE_ID} isActive showBadge />
       </div>
     </div>
   );

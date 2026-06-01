@@ -80,12 +80,16 @@ function splitPath(rel: string): { dirname: string; basename: string } {
 
 /** The editor body for ONE pane's active file. The pane (EditorSpace) supplies
  *  `file`, the pane `paneId` (for the flush registry + close), and whether the
- *  pane is the active one (only it consumes the search jump-to-match). */
+ *  pane is the active one (only it consumes the search jump-to-match).
+ *  `showBadge` renders the badge backpack panel (prompt + references) above the
+ *  content — the right panel leaves it OFF (the badge lives on the canvas); the
+ *  canvas floating preview turns it ON. */
 export const FilePreview = ({
   file,
   paneId,
   isActive,
-}: { file: string; paneId: string; isActive: boolean }): JSX.Element => {
+  showBadge = false,
+}: { file: string; paneId: string; isActive: boolean; showBadge?: boolean }): JSX.Element => {
   const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -151,7 +155,7 @@ export const FilePreview = ({
         fontFamily: font.sans,
       }}
     >
-      <BadgeProperties file={file} paneId={paneId} />
+      {showBadge && <BadgeProperties file={file} paneId={paneId} />}
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
         {mode === 'md' && <MdEditor key={file} file={file} paneId={paneId} />}
         {mode === 'text' && <TextViewer key={file} file={file} />}
