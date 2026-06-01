@@ -28,6 +28,8 @@ import {
   claimSeed,
   docKeyFor,
   ensureDoc,
+  markReady,
+  onReady,
   releaseDoc,
 } from '../lib/liveDoc.js';
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
@@ -949,6 +951,10 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   const [isOwner, setIsOwner] = useState(false);
   const isOwnerRef = useRef(false);
   isOwnerRef.current = isOwner;
+  // False until the file's shared doc has its seed content APPLIED — gates
+  // editability so a fast joiner can't type into the still-empty doc and have its
+  // edits overwritten when the async seed lands (see lib/liveDoc markReady/onReady).
+  const [seedReady, setSeedReady] = useState(false);
   // This editor's handle in the shared-doc registry (built below).
   const viewRef = useRef<LiveDocView | null>(null);
   const initialLoad = useRef(true);
@@ -1131,6 +1137,9 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   useEffect(() => {
     const self = view;
     acquireDoc(self);
+    // Every view stays non-editable until the seed content is actually applied, so a
+    // joiner can't type into the empty doc and lose it to the incoming seed.
+    const offReady = onReady(self, () => setSeedReady(true));
     let joinTimer: ReturnType<typeof setTimeout> | undefined;
     if (claimSeed(self)) {
       void (async () => {
@@ -1141,6 +1150,10 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
           await applyContent(content);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          // Mark applied even on a read error (the doc is then empty + editable) so
+          // joiners are never stuck waiting; onReady fires → seedReady true.
+          markReady(self);
         }
       })();
     } else {
@@ -1156,6 +1169,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       }, 50);
     }
     return () => {
+      offReady();
       if (joinTimer) clearTimeout(joinTimer);
       releaseDoc(self);
     };
@@ -1430,8 +1444,9 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
           <BlockNoteView
             editor={editor}
             // Every view of the file is editable — they share one Yjs document, so
-            // edits merge char-level and never diverge.
-            editable={!viewOnly}
+            // edits merge char-level and never diverge. Held non-editable until the
+            // seed is applied (seedReady), so a fast joiner can't lose typing to it.
+            editable={!viewOnly && seedReady}
             theme="dark"
             onChange={() => {
               if (initialLoad.current || viewOnly) return;

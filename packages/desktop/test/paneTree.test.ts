@@ -149,6 +149,31 @@ describe('paneTree — tree structure', () => {
   });
 });
 
+describe('paneTree — renameInLeaf', () => {
+  const leaf = (tabs: string[], active: string): LeafPane => ({
+    type: 'leaf',
+    id: 'p',
+    tabs,
+    activeFile: active,
+    previewFile: null,
+  });
+  it('rebinds a path across tabs/active when the target is NEW', () => {
+    const out = renameInLeaf(leaf(['a.md', 'b.md'], 'a.md'), 'a.md', 'c.md');
+    expect(out.tabs).toEqual(['c.md', 'b.md']);
+    expect(out.activeFile).toBe('c.md');
+  });
+  it('MERGES (dedups) when the rename targets an already-open path', () => {
+    // a.md → b.md, but b.md is already a tab → one b.md tab, not two.
+    const out = renameInLeaf(leaf(['a.md', 'b.md'], 'a.md'), 'a.md', 'b.md');
+    expect(out.tabs).toEqual(['b.md']);
+    expect(out.activeFile).toBe('b.md');
+  });
+  it('is a no-op when the from-path is not open', () => {
+    const l = leaf(['a.md'], 'a.md');
+    expect(renameInLeaf(l, 'z.md', 'y.md')).toBe(l);
+  });
+});
+
 describe('paneTree — adoptPaneIds (restore-safe id counter)', () => {
   it('advances the counter past every id in a restored tree (no later collision)', () => {
     __resetPaneIds();

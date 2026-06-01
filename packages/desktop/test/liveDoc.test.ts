@@ -7,6 +7,8 @@ import {
   docKeyFor,
   ensureDoc,
   isOwner,
+  markReady,
+  onReady,
   releaseDoc,
 } from '../src/renderer/src/lib/liveDoc.js';
 
@@ -103,6 +105,24 @@ describe('liveDoc — per-file shared Y.Doc registry', () => {
     vi.runAllTimers();
     expect(doc2).toBe(doc1); // same doc — not destroyed
     expect(acquireDoc(a.view).doc).toBe(doc1);
+  });
+
+  it('onReady waits for markReady (then fires immediately for late subscribers)', () => {
+    const a = fakeView('x.md');
+    acquireDoc(a.view);
+    let fired = 0;
+    onReady(a.view, () => {
+      fired++;
+    });
+    expect(fired).toBe(0); // seed not applied yet → editor stays non-editable
+    markReady(a.view);
+    expect(fired).toBe(1); // applied → waiter fires
+    // a view that joins AFTER the seed is ready becomes editable immediately
+    let late = 0;
+    onReady(a.view, () => {
+      late++;
+    });
+    expect(late).toBe(1);
   });
 
   it('the last real release destroys the doc after the grace tick', () => {

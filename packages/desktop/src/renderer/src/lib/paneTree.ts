@@ -211,12 +211,19 @@ export const moveInLeaf = (leaf: LeafPane, file: string, toIndex: number): LeafP
   return { ...leaf, tabs };
 };
 
-/** Rebind a path (the open file was renamed on disk) across tabs/active/preview. */
+/** Rebind a path (the open file was renamed on disk) across tabs/active/preview.
+ *  If `toPath` is ALREADY open in this pane (a rename ONTO an open destination),
+ *  MERGE — map `fromPath` over and drop the duplicate, or the pane would carry two
+ *  identical tabs (and duplicate React keys; closeInLeaf would later remove both). */
 export const renameInLeaf = (leaf: LeafPane, fromPath: string, toPath: string): LeafPane => {
   if (!leaf.tabs.includes(fromPath)) return leaf;
+  const mapped = leaf.tabs.map((t) => (t === fromPath ? toPath : t));
+  const tabs = leaf.tabs.includes(toPath)
+    ? mapped.filter((t, i) => mapped.indexOf(t) === i) // dedup the merged duplicate
+    : mapped;
   return {
     ...leaf,
-    tabs: leaf.tabs.map((t) => (t === fromPath ? toPath : t)),
+    tabs,
     activeFile: leaf.activeFile === fromPath ? toPath : leaf.activeFile,
     previewFile: leaf.previewFile === fromPath ? toPath : leaf.previewFile,
   };

@@ -45,6 +45,12 @@ export interface SharedDoc {
   /** Has a view seeded this doc from disk yet? Claimed synchronously (claimSeed)
    *  so a concurrent mount — e.g. StrictMode's double effect — can't double-seed. */
   seeded: boolean;
+  /** True once the seeder's disk content has actually been APPLIED to the doc (not
+   *  merely claimed). Views stay non-editable until then, so a fast joiner can't
+   *  type into the still-empty doc and have its edits overwritten when the async
+   *  seed lands. */
+  ready: boolean;
+  readyWaiters: Set<() => void>;
   /** Per-file save state, shared across views. */
   frontmatter: string;
   byId: Map<string, ReuseEntry>;
@@ -70,6 +76,8 @@ export function ensureDoc(key: string): SharedDoc {
       views: new Set(),
       owner: null,
       seeded: false,
+      ready: false,
+      readyWaiters: new Set(),
       frontmatter: '',
       byId: new Map(),
       lastDisk: '',
@@ -128,6 +136,30 @@ export function claimSeed(view: LiveDocView): boolean {
 
 export function isOwner(view: LiveDocView): boolean {
   return docs.get(view.key)?.owner === view;
+}
+
+/** Mark a doc's seed as APPLIED → wake every view waiting to become editable. The
+ *  seeder calls this after its disk read + applyContent completes. */
+export function markReady(view: LiveDocView): void {
+  const shared = docs.get(view.key);
+  if (!shared || shared.ready) return;
+  shared.ready = true;
+  for (const w of shared.readyWaiters) w();
+  shared.readyWaiters.clear();
+}
+
+/** Run `cb` once the doc's seed is applied (immediately if it already is). Returns
+ *  an unsubscribe to drop the waiter on unmount. */
+export function onReady(view: LiveDocView, cb: () => void): () => void {
+  const shared = docs.get(view.key);
+  if (!shared || shared.ready) {
+    cb();
+    return () => {};
+  }
+  shared.readyWaiters.add(cb);
+  return () => {
+    shared.readyWaiters.delete(cb);
+  };
 }
 
 /** Build the workspace-scoped registry key for a file. The NUL separator can't

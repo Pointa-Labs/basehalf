@@ -235,20 +235,34 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refresh: async () => {
       try {
         const result = (await window.bh.run('workspace.list')) as WorkspaceListResult;
-        const panes = paneResetFor(result.current);
-        set({
-          workspaces: result.workspaces,
-          current: result.current,
-          currentReachable: null,
-          currentFile: deriveCurrent(panes.paneTree, panes.activePaneId),
-          paneTree: panes.paneTree,
-          activePaneId: panes.activePaneId,
-          rightPanelOpen: panes.rightPanelOpen,
-          floatingFile: null,
-          openMatchQuery: null,
-          folderScope: null,
-          error: '',
-        });
+        // A SAME-workspace refresh (e.g. after adding/removing ANOTHER workspace)
+        // must KEEP the live UI context — reloading panes from localStorage would
+        // clobber tab/split changes still inside the 400ms save debounce, and the
+        // layout subscriber would then write that stale tree back. Only a workspace
+        // CHANGE resets panes (+ float / folder scope / search jump).
+        if (get().current !== null && result.current === get().current) {
+          set({
+            workspaces: result.workspaces,
+            current: result.current,
+            currentReachable: null,
+            error: '',
+          });
+        } else {
+          const panes = paneResetFor(result.current);
+          set({
+            workspaces: result.workspaces,
+            current: result.current,
+            currentReachable: null,
+            currentFile: deriveCurrent(panes.paneTree, panes.activePaneId),
+            paneTree: panes.paneTree,
+            activePaneId: panes.activePaneId,
+            rightPanelOpen: panes.rightPanelOpen,
+            floatingFile: null,
+            openMatchQuery: null,
+            folderScope: null,
+            error: '',
+          });
+        }
         const currentWs = result.current
           ? result.workspaces.find((w) => w.name === result.current)
           : null;
