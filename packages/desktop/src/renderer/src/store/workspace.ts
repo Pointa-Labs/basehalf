@@ -23,11 +23,28 @@ interface WorkspaceState {
   /** Files open as tabs in the right panel, in tab order. The active one is
    * `currentFile`; only the active tab has a live (mounted) editor. */
   tabs: string[];
+  /** The single PREVIEW tab (rendered italic). A preview open replaces this slot
+   * in place rather than stacking a new tab; opening it pinned, double-clicking
+   * its tab, or editing it promotes it (clears this). null = no preview tab. */
+  previewFile: string | null;
   /** Whether the right panel is shown — the top-right toggle. Tabs persist while
    * hidden, so toggling back restores them. */
   rightPanelOpen: boolean;
   /** Show/hide the right panel without losing its tabs (the top-right toggle). */
   toggleRightPanel: () => void;
+  /** Open a file in the right panel (and activate it, flush-gated). Default is a
+   * PREVIEW open (replaces the preview slot); `pinned` opens/keeps a permanent
+   * tab. Re-opening an already-open file just activates it (and promotes it if
+   * `pinned`). Reveals the panel. */
+  openInPanel: (file: string, opts?: { pinned?: boolean; matchQuery?: string | null }) => void;
+  /** Promote the preview tab to a permanent (pinned) tab. No-op if not preview. */
+  pinTab: (file: string) => void;
+  /** Reorder: move `file`'s tab to `toIndex` (drag-to-reorder). */
+  moveTab: (file: string, toIndex: number) => void;
+  /** Rebind an open tab's path (the watcher saw the open file renamed on disk).
+   * Swaps the path in tabs / preview / active without flushing (the old path is
+   * gone), so the editor remounts on the new path's bytes. */
+  renameTab: (from: string, to: string) => void;
   /** Close a right-panel tab. Closing the ACTIVE tab flushes its editor first
    * (same gate as a file switch) and activates a neighbor; a non-active tab
    * isn't mounted, so it just drops. */
@@ -64,14 +81,6 @@ interface WorkspaceState {
   /** Rebind an existing workspace name to a new path (remove + re-add with same name). */
   repath: (name: string) => Promise<void>;
   renameWorkspace: (from: string, to: string) => Promise<void>;
-  /** Open a file in the preview. `matchQuery` (set when opening from a content
-   *  -search hit) is stashed in `openMatchQuery` so the viewer can jump to the
-   *  passage; a normal open passes nothing and clears any stale target. */
-  setCurrentFile: (
-    file: string | null,
-    matchQuery?: string | null,
-    opts?: { bypassFlush?: boolean },
-  ) => void;
   /** Clear the pending search-match target (FilePreview calls this once it has
    *  landed on the match or given up retrying). */
   clearOpenMatchQuery: () => void;
@@ -113,6 +122,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   currentReachable: null,
   currentFile: null,
   tabs: [],
+  previewFile: null,
   // Default closed — the canvas owns the full width until you open a file (which
   // reveals the panel) or click the top-right toggle (which opens it to its empty
   // state). Keeps the canvas the home surface.
@@ -134,6 +144,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         currentReachable: null,
         currentFile: null,
         tabs: [],
+        previewFile: null,
         openMatchQuery: null,
         folderScope: null,
         flushEditor: null,
@@ -307,6 +318,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         currentReachable: null,
         currentFile: null,
         tabs: [],
+        previewFile: null,
         openMatchQuery: null,
         folderScope: null,
         flushEditor: null,
@@ -400,46 +412,46 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  setCurrentFile: (
-    file: string | null,
-    matchQuery: string | null = null,
-    opts: { bypassFlush?: boolean } = {},
-  ) => {
+  openInPanel: (file, opts = {}) => {
     const { currentFile, flushEditor, current } = get();
+    const wantPinned = opts.pinned === true;
+    const matchQuery = opts.matchQuery ?? null;
     const finish = (): void => {
-      // openMatchQuery only rides along when actually opening a file; a normal
-      // open (no matchQuery) clears any stale target so it can't fire later.
-      set((s) => ({
-        currentFile: file,
-        // Opening a file makes it the active tab (appending it if new) and reveals
-        // the panel. A null (clear, e.g. workspace reset path) leaves tabs +
-        // the panel-open flag untouched.
-        tabs: file !== null && !s.tabs.includes(file) ? [...s.tabs, file] : s.tabs,
-        rightPanelOpen: file !== null ? true : s.rightPanelOpen,
-        openMatchQuery: file !== null ? matchQuery : null,
-      }));
-      // Track opens per workspace so the palette can surface recents first.
-      // Null = closing the preview; nothing to record.
-      if (file !== null && current !== null) noteOpenedFile(current, file);
+      set((s) => {
+        let nextTabs = s.tabs;
+        let nextPreview = s.previewFile;
+        if (s.tabs.includes(file)) {
+          // Already open: opening it pinned promotes it out of the preview slot.
+          if (wantPinned && s.previewFile === file) nextPreview = null;
+        } else if (wantPinned) {
+          // New pinned tab — append; the preview slot is untouched.
+          nextTabs = [...s.tabs, file];
+        } else if (s.previewFile && s.tabs.includes(s.previewFile)) {
+          // New preview — REPLACE the existing preview tab in place (the
+          // single-preview-slot rule), so casual browsing doesn't stack tabs.
+          const i = s.tabs.indexOf(s.previewFile);
+          nextTabs = s.tabs.map((t, idx) => (idx === i ? file : t));
+          nextPreview = file;
+        } else {
+          // New preview, no existing preview slot — append + claim the slot.
+          nextTabs = [...s.tabs, file];
+          nextPreview = file;
+        }
+        return {
+          tabs: nextTabs,
+          previewFile: nextPreview,
+          currentFile: file,
+          rightPanelOpen: true,
+          openMatchQuery: matchQuery,
+        };
+      });
+      if (current !== null) noteOpenedFile(current, file);
     };
-    // bypassFlush: the file we're leaving was renamed/moved out from under the
-    // editor (App.tsx rename rebind). Its OLD path is gone on disk, so flushing
-    // to it would RESURRECT a deleted file, and the conflict gate would trap the
-    // editor on a path that no longer exists. Rebind straight through — the fresh
-    // MdEditor mount loads the new path's current bytes (any unsaved local edits
-    // to the vanished path are intentionally discarded, not written to a ghost).
-    if (opts.bypassFlush) {
-      finish();
-      return;
-    }
     // Flush the editor we're leaving (while it's still mounted/alive) BEFORE
-    // switching or closing — so the last keystrokes always persist. This is the
-    // single safe flush point; MdEditor no longer flushes on unmount (which
-    // could serialize a torn-down editor as empty and clobber the file).
+    // switching — so the last keystrokes always persist. The single safe flush
+    // point; MdEditor no longer flushes on unmount. A `false` resolution means an
+    // unresolved disk conflict — don't switch; nudge the user to Keep/Reload.
     if (flushEditor && currentFile !== null && currentFile !== file) {
-      // A `false` resolution means an unresolved disk conflict is open — don't
-      // switch/close (that would silently drop local OR clobber the external
-      // edit); keep the editor up and nudge the user to the Keep/Reload buttons.
       void flushEditor().then((ok) => {
         if (ok) finish();
         else set({ error: "Save or resolve this file's changes before leaving it." });
@@ -449,6 +461,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  pinTab: (file) => set((s) => (s.previewFile === file ? { previewFile: null } : {})),
+
+  moveTab: (file, toIndex) =>
+    set((s) => {
+      const from = s.tabs.indexOf(file);
+      if (from === -1) return {};
+      const next = [...s.tabs];
+      next.splice(from, 1);
+      // Removing an item before the target shifts the target left by one.
+      const dest = Math.max(0, Math.min(next.length, from < toIndex ? toIndex - 1 : toIndex));
+      next.splice(dest, 0, file);
+      return { tabs: next };
+    }),
+
+  renameTab: (from, to) =>
+    set((s) => {
+      if (!s.tabs.includes(from)) return {};
+      // Rebind path in place (no flush — the old path is gone on disk). If `from`
+      // was active, the editor remounts on `to` and loads its bytes.
+      return {
+        tabs: s.tabs.map((t) => (t === from ? to : t)),
+        previewFile: s.previewFile === from ? to : s.previewFile,
+        currentFile: s.currentFile === from ? to : s.currentFile,
+      };
+    }),
+
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
 
   closeTab: (file, opts = {}) => {
@@ -457,14 +495,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (idx === -1) return;
     const nextTabs = tabs.filter((t) => t !== file);
     const finish = (): void => {
-      if (currentFile === file) {
-        // Activate the tab that slid into this slot (the right neighbor), else the
-        // left neighbor, else nothing — the panel goes empty when the last closes.
-        const nextActive = nextTabs[idx] ?? nextTabs[idx - 1] ?? null;
-        set({ tabs: nextTabs, currentFile: nextActive, openMatchQuery: null });
-      } else {
-        set({ tabs: nextTabs });
-      }
+      set((s) => {
+        // Closing the preview tab frees the slot.
+        const previewFile = s.previewFile === file ? null : s.previewFile;
+        if (currentFile === file) {
+          // Activate the tab that slid into this slot (the right neighbor), else
+          // the left neighbor, else nothing — the panel empties on the last close.
+          const nextActive = nextTabs[idx] ?? nextTabs[idx - 1] ?? null;
+          return { tabs: nextTabs, previewFile, currentFile: nextActive, openMatchQuery: null };
+        }
+        return { tabs: nextTabs, previewFile };
+      });
     };
     // Only the ACTIVE tab has a live editor. Closing it follows the same
     // flush-before-leave gate as a file switch — a `false` (unresolved conflict /
@@ -520,11 +561,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       const title = baseName.replace(/\.md$/i, '');
       const body = `# ${title}\n\n`;
       await window.bh.run('workspace.writeFile', { path: relPath, content: body });
-      // Route through setCurrentFile (not a bare set) so the editor we're leaving
-      // FLUSHES its pending auto-save first — a bare currentFile swap remounts
-      // MdEditor, which deliberately does NOT flush on unmount, silently dropping
-      // the prior note's last keystrokes.
-      get().setCurrentFile(relPath);
+      // Open pinned (you just made it to work on it) via openInPanel so the editor
+      // we're leaving FLUSHES its pending auto-save first — a bare currentFile swap
+      // remounts MdEditor, which deliberately does NOT flush on unmount, silently
+      // dropping the prior note's last keystrokes.
+      get().openInPanel(relPath, { pinned: true });
     } catch (err) {
       set({ error: formatError(err) });
     }

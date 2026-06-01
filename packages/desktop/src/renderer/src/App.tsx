@@ -35,14 +35,11 @@ export const App = (): JSX.Element => {
   useEffect(() => {
     const unsub = window.bh.onFileEvent((event) => {
       if (event.type !== 'rename') return;
-      const state = useWorkspaceStore.getState();
-      if (state.currentFile === event.fromRelPath) {
-        // bypassFlush: the open file was renamed/moved on disk, so its OLD path
-        // is gone. Flushing to it would resurrect a deleted file, and the
-        // conflict gate would trap the editor on a vanished path — so rebind
-        // straight to the new path (fresh editor on the moved file's bytes).
-        state.setCurrentFile(event.toRelPath, null, { bypassFlush: true });
-      }
+      // If the renamed file is open in any tab, rebind its path in place (no
+      // flush — the OLD path is gone on disk; flushing would resurrect a deleted
+      // file and trap the editor on a vanished path). renameTab no-ops if the
+      // file isn't open. The active tab remounts on the new path's bytes.
+      useWorkspaceStore.getState().renameTab(event.fromRelPath, event.toRelPath);
     });
     return unsub;
   }, []);

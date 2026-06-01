@@ -682,7 +682,7 @@ const InboundList = ({
 }: {
   readonly entries: readonly { from: string; note?: string }[];
 }): JSX.Element => {
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   return (
     <div style={{ marginTop: space[3] }}>
       <div
@@ -726,7 +726,7 @@ const InboundList = ({
             </span>
             <button
               type="button"
-              onClick={() => setCurrentFile(e.from)}
+              onClick={() => openInPanel(e.from)}
               title={`Open ${e.from}`}
               style={{
                 flex: 1,
@@ -903,6 +903,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote({ schema: bhSchema });
   const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -1350,6 +1351,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
                 pendingRef.current = true;
                 setSaving(true);
                 scheduleSave();
+                // Editing a preview tab promotes it to a permanent (pinned) tab —
+                // idempotent (no-op once pinned), like a mature editor.
+                pinTab(file);
               }
             }}
           />

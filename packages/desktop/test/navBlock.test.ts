@@ -3,10 +3,10 @@ import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
 
 // The editor's flush is the navigation gatekeeper: it resolves `false` while a
 // disk-conflict banner is unresolved. These tests pin the STORE half of that
-// contract — that setCurrentFile / use / addDroppedPaths refuse to leave the
+// contract — that openInPanel / use / addDroppedPaths refuse to leave the
 // conflicted file (and surface a hint) instead of silently dropping the local
 // edit OR clobbering the external write. This is the exact decision point codex
-// flagged P1 (workspace.ts setCurrentFile + the two workspace switches).
+// flagged P1 (workspace.ts open/switch path + the two workspace switches).
 //
 // Runs in the node env: the store reaches `window.bh` only inside actions, and
 // every blocked path returns BEFORE any window access, so no DOM stub is needed.
@@ -20,6 +20,8 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
   beforeEach(() => {
     store.setState({
       currentFile: 'a.md',
+      tabs: ['a.md'],
+      previewFile: null,
       current: 'ws',
       busy: false,
       error: '',
@@ -27,26 +29,26 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     });
   });
 
-  it('setCurrentFile switches when the flush resolves true (flushed/clean)', async () => {
+  it('openInPanel switches when the flush resolves true (flushed/clean)', async () => {
     store.setState({ flushEditor: async () => true });
-    store.getState().setCurrentFile('b.md');
+    store.getState().openInPanel('b.md');
     await tick();
     expect(store.getState().currentFile).toBe('b.md');
     expect(store.getState().error).toBe('');
   });
 
-  it('setCurrentFile does NOT switch when the flush resolves false (conflict open)', async () => {
+  it('openInPanel does NOT switch when the flush resolves false (conflict open)', async () => {
     store.setState({ flushEditor: async () => false });
-    store.getState().setCurrentFile('b.md');
+    store.getState().openInPanel('b.md');
     await tick();
     // Stayed on the conflicted file — no silent drop/clobber — and nudged the user.
     expect(store.getState().currentFile).toBe('a.md');
     expect(store.getState().error).toMatch(/save or resolve/i);
   });
 
-  it('setCurrentFile still switches when no editor is mounted (flushEditor null)', async () => {
+  it('openInPanel still switches when no editor is mounted (flushEditor null)', async () => {
     store.setState({ flushEditor: null });
-    store.getState().setCurrentFile('b.md');
+    store.getState().openInPanel('b.md');
     await tick();
     expect(store.getState().currentFile).toBe('b.md');
   });
@@ -57,7 +59,7 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
         throw new Error('editor torn down');
       },
     });
-    store.getState().setCurrentFile('b.md');
+    store.getState().openInPanel('b.md');
     await tick();
     expect(store.getState().currentFile).toBe('b.md');
   });
@@ -102,19 +104,20 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
 
   // C — rename rebind: a renamed-away file's old path is gone, so the rebind
   // must NOT be gated (else the editor is trapped on a vanished path and
-  // keepMine would resurrect it). bypassFlush switches straight through.
-  it('setCurrentFile(bypassFlush) rebinds even while a conflict is open', () => {
-    store.setState({ currentFile: 'a.md', flushEditor: async () => false });
-    store.getState().setCurrentFile('b.md', null, { bypassFlush: true });
+  // keepMine would resurrect it). renameTab swaps the path straight through.
+  it('renameTab rebinds even while a conflict is open', () => {
+    store.setState({ currentFile: 'a.md', tabs: ['a.md'], flushEditor: async () => false });
+    store.getState().renameTab('a.md', 'b.md');
     expect(store.getState().currentFile).toBe('b.md'); // not blocked, no flush
+    expect(store.getState().tabs).toEqual(['b.md']);
   });
 
   // The write-failed escape hatch routes through bypassFlush-close: even when the
   // gatekeeper would block (a persistently-unwritable file), Discard-&-close must
-  // force the editor shut so the user is never trapped.
-  it('setCurrentFile(null, bypassFlush) force-closes past a blocking gate', () => {
-    store.setState({ currentFile: 'a.md', flushEditor: async () => false });
-    store.getState().setCurrentFile(null, null, { bypassFlush: true });
+  // force the tab shut so the user is never trapped.
+  it('closeTab(bypassFlush) force-closes past a blocking gate', () => {
+    store.setState({ currentFile: 'a.md', tabs: ['a.md'], flushEditor: async () => false });
+    store.getState().closeTab('a.md', { bypassFlush: true });
     expect(store.getState().currentFile).toBe(null); // escaped
   });
 
