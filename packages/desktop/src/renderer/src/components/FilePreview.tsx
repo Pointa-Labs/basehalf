@@ -28,11 +28,48 @@ import {
   spliceSave,
 } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
-import { modeOf } from '../lib/viewerMode.js';
+import { extOf, modeOf } from '../lib/viewerMode.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
+
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css';
+
+// Load key language parsers
+import 'prismjs/components/prism-typescript.js';
+import 'prismjs/components/prism-jsx.js';
+import 'prismjs/components/prism-tsx.js';
+import 'prismjs/components/prism-python.js';
+import 'prismjs/components/prism-rust.js';
+import 'prismjs/components/prism-go.js';
+import 'prismjs/components/prism-yaml.js';
+import 'prismjs/components/prism-toml.js';
+import 'prismjs/components/prism-bash.js';
+import 'prismjs/components/prism-json.js';
+import 'prismjs/components/prism-sql.js';
+
+const EXT_TO_LANG: Record<string, string> = {
+  '.js': 'javascript',
+  '.jsx': 'jsx',
+  '.ts': 'typescript',
+  '.tsx': 'tsx',
+  '.json': 'json',
+  '.css': 'css',
+  '.html': 'markup',
+  '.xml': 'markup',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.sh': 'bash',
+  '.bash': 'bash',
+  '.zsh': 'bash',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.toml': 'toml',
+  '.sql': 'sql',
+};
 
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
@@ -1461,10 +1498,23 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
 // stray \r on every line, which a white-space:pre block can render as an extra
 // segment break (double-spacing) and pollutes any copy of the code. Normalizing
 // keeps the rendered lines matching the gutter. (Display-only; we never write.)
-const CodeBody = ({ text }: { text: string }): JSX.Element => {
+const CodeBody = ({ text, file }: { text: string; file: string }): JSX.Element => {
   const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
   const lineCount = body === '' ? 1 : body.split('\n').length;
   const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
+
+  const ext = extOf(file);
+  const langName = EXT_TO_LANG[ext] || 'clike';
+  const grammar = Prism.languages[langName] || Prism.languages.clike;
+
+  const highlighted = useMemo(() => {
+    try {
+      return Prism.highlight(body, grammar, langName);
+    } catch (e) {
+      return body;
+    }
+  }, [body, grammar, langName]);
+
   const lineStyle: CSSProperties = {
     margin: 0,
     fontFamily: font.mono,
@@ -1474,7 +1524,7 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
     tabSize: 2,
   };
   return (
-    <div style={{ display: 'flex', minHeight: '100%' }}>
+    <div style={{ display: 'flex', minHeight: '100%', background: color.surface }}>
       <pre
         aria-hidden
         style={{
@@ -1497,9 +1547,15 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
           ...lineStyle,
           padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
           color: color.textPrimary,
+          flexGrow: 1,
+          overflowX: 'auto',
         }}
       >
-        {body}
+        <code
+          className={`language-${langName}`}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: PrismJS output is safe HTML tokens
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
       </pre>
     </div>
   );
@@ -1634,7 +1690,7 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
                 empty file
               </div>
             ) : (
-              <CodeBody text={state.text} />
+              <CodeBody text={state.text} file={file} />
             )}
             {!state.binary && state.truncated && (
               <div
