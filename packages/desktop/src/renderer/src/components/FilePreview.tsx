@@ -1511,7 +1511,9 @@ const CodeBody = ({ text, file }: { text: string; file: string }): JSX.Element =
     try {
       return Prism.highlight(body, grammar, langName);
     } catch (e) {
-      return body;
+      return body.replace(/[&<>"']/g, (m) => {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m] as string;
+      });
     }
   }, [body, grammar, langName]);
 

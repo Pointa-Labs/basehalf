@@ -8,8 +8,8 @@
   "main": "./out/main/index.cjs",
   "scripts": {
     "build": "electron-vite build",
-    "dev": "electron-vite dev",
-    "preview": "electron-vite preview",
+    "dev": "node scripts/run-vite.mjs dev",
+    "preview": "node scripts/run-vite.mjs preview",
     "typecheck": "tsc -b",
     "lint": "biome check src test",
     "test": "vitest run"
