@@ -145,10 +145,13 @@ export function isOwner(view: LiveDocView): boolean {
 }
 
 /** Mark a doc's seed as APPLIED → wake every view waiting to become editable. The
- *  seeder calls this after its disk read + applyContent completes. */
+ *  seeder calls this after its disk read + applyContent completes. Ignored if the
+ *  view no longer belongs to this doc: the doc may have been destroyed + recreated
+ *  under the same key (file closed then reopened) while a STALE seeder's read was
+ *  still in flight — it must not mark the fresh doc ready before its own seed lands. */
 export function markReady(view: LiveDocView): void {
   const shared = docs.get(view.key);
-  if (!shared || shared.ready) return;
+  if (!shared || shared.ready || !shared.views.has(view)) return;
   shared.ready = true;
   for (const w of shared.readyWaiters) w();
   shared.readyWaiters.clear();

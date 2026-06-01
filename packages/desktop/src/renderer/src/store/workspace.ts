@@ -546,7 +546,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // relative path into the new workspace would show the wrong file (restored
         // layouts reuse pane ids). (The in-flight write itself can still land in the
         // wrong root — that needs an explicit-workspace core API, tracked separately.)
-        if (get().current !== current) return;
+        // Also abort if the target pane was closed/collapsed during the flush — else
+        // updateLeaf is a no-op but we'd still point activePane/currentFile at a pane
+        // no rendered leaf owns.
+        if (get().current !== current || !findLeaf(get().paneTree, paneId)) return;
         set((s) => {
           const tree = updateLeaf(s.paneTree, paneId, (l) =>
             openInLeaf(l, file, { pinned: opts.pinned }),
@@ -808,16 +811,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     closeFloat: () => {
-      if (get().floatingFile === null) return;
+      const closing = get().floatingFile;
+      if (closing === null) return;
       // Flush the float's editor before unmounting it — edits persist. A `false`
       // (unresolved conflict) keeps it open so the user resolves it; a rejection
-      // (torn-down editor) is non-blocking.
+      // (torn-down editor) is non-blocking. Only act if the SAME float is still up:
+      // the user may have opened a different badge into the float during the flush.
       void flushPane(FLOAT_PANE_ID).then(
         (ok) => {
+          if (get().floatingFile !== closing) return;
           if (ok) set({ floatingFile: null });
           else set({ error: "Save or resolve this file's changes before closing it." });
         },
-        () => set({ floatingFile: null }),
+        () => {
+          if (get().floatingFile === closing) set({ floatingFile: null });
+        },
       );
     },
 
@@ -966,6 +974,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           set({ error: 'Too many untitled notes — name one before creating another.' });
           return;
         }
+        // Re-check RIGHT before writing: the free-name search above awaits one or
+        // more readFile calls, during which the workspace could switch — without this
+        // the note would be created + opened in the wrong root.
+        if (get().current !== ws) return;
         // Blank file — MdEditor seeds an editable paragraph for an empty note.
         await window.bh.run('workspace.writeFile', { path: name, content: '' });
         get().openInPanel(name, { pinned: true, paneId: target });
