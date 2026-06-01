@@ -919,6 +919,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     },
   });
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const closeFloatStore = useWorkspaceStore((s) => s.closeFloat);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -1299,8 +1300,12 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
-    closeTab(paneId, file, { bypassFlush: true });
-  }, [closeTab, paneId, file]);
+    // In the canvas float, closeTab(FLOAT_PANE_ID, …) is a no-op (it isn't a real
+    // pane) — it would leave the failed-save editor open. Close the float instead;
+    // pendingRef is already cleared, so its flush is a no-op (the edits are discarded).
+    if (paneId === FLOAT_PANE_ID) closeFloatStore();
+    else closeTab(paneId, file, { bypassFlush: true });
+  }, [closeTab, closeFloatStore, paneId, file]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.

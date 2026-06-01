@@ -125,8 +125,10 @@ export const FloatingPreview = (): JSX.Element | null => {
       </header>
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {/* The float is the canvas-side surface, so it keeps the badge backpack
-            panel (prompt + references); the right panel doesn't. */}
-        <FilePreview file={floatingFile} paneId={FLOAT_PANE_ID} isActive showBadge />
+            panel (prompt + references); the right panel doesn't. isActive is FALSE:
+            search-jump (openMatchQuery) targets the right panel, and an always-active
+            float would consume + clear the query before the intended pane scrolls. */}
+        <FilePreview file={floatingFile} paneId={FLOAT_PANE_ID} isActive={false} showBadge />
       </div>
     </div>
   );

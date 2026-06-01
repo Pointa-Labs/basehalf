@@ -629,15 +629,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set((s) => ({ activePaneId: paneId, currentFile: deriveCurrent(s.paneTree, paneId) })),
 
     splitPane: (sourcePaneId, direction, file, opts = {}) => {
-      const newLeaf = openInLeaf(emptyLeaf(), file, { pinned: true });
-      set((s) => ({
-        paneTree: splitLeaf(s.paneTree, sourcePaneId, direction, newLeaf, opts.before === true),
-        activePaneId: newLeaf.id,
-        currentFile: file,
-        rightPanelOpen: true,
-      }));
-      const cur = get().current;
-      if (cur !== null) noteOpenedFile(cur, file);
+      const finish = (): void => {
+        const newLeaf = openInLeaf(emptyLeaf(), file, { pinned: true });
+        set((s) => ({
+          paneTree: splitLeaf(s.paneTree, sourcePaneId, direction, newLeaf, opts.before === true),
+          activePaneId: newLeaf.id,
+          currentFile: file,
+          rightPanelOpen: true,
+        }));
+        const cur = get().current;
+        if (cur !== null) noteOpenedFile(cur, file);
+      };
+      // Restructuring the tree unmounts + remounts the source pane's editor, which
+      // cancels its debounced autosave — flush it first or its last edits are
+      // stranded in the in-memory Yjs doc, never written to disk. An unresolved
+      // conflict blocks the split. (⌘\, an edge-dock, and a programmatic split all
+      // land here.)
+      void flushPane(sourcePaneId).then((ok) => {
+        if (ok) finish();
+        else set({ error: "Save or resolve this file's changes before splitting." });
+      }, finish);
     },
 
     setPaneFraction: (splitId, fraction) =>
