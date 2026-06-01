@@ -887,7 +887,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   const editor = useCreateBlockNote({ schema: bhSchema });
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
-  const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
   // stay view-only so editing can't overwrite the original. Inferred at load.
@@ -960,7 +959,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         // splice-save preserves anything the user doesn't touch (incl. constructs
         // BlockNote can't model, kept as read-only passthrough blocks).
         setViewOnly(/\.txt$/i.test(file));
-        setSaving(false);
         setReloadPrompt(false);
         setError('');
         setTimeout(() => {
@@ -989,7 +987,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       if (!pendingRef.current) {
         writeFailedRef.current = false; // nothing pending → nothing unpersisted
         setWriteFailed(false);
-        setSaving(false);
         return;
       }
       let md: string;
@@ -1009,7 +1006,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         pendingRef.current = false;
         writeFailedRef.current = false; // content matches disk → nothing unpersisted
         setWriteFailed(false);
-        setSaving(false);
         return;
       }
       // Last-line interlock against the in-flight race: an external edit can land
@@ -1024,7 +1020,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
           if (disk !== lastDiskRef.current) {
             reloadPromptRef.current = true;
             setReloadPrompt(true);
-            setSaving(false);
             return;
           }
         } catch {
@@ -1050,7 +1045,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         setWriteFailed(true);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setSaving(false);
       }
     },
     [editor, file],
@@ -1209,54 +1203,42 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const status: { label: string; dot: string; fg: string } = viewOnly
-    ? {
-        label: 'View only — plain-text files are read-only here; edit them with your own tools',
-        dot: color.warning,
-        fg: color.warning,
-      }
-    : saving
-      ? { label: 'Saving…', dot: color.textTertiary, fg: color.textTertiary }
-      : { label: 'Saved', dot: color.success, fg: color.textTertiary };
-
-  const statusBarStyle: CSSProperties = {
-    padding: `${space[2]}px ${space[4]}px`,
-    background: color.surfaceMuted,
-    borderBottom: `1px solid ${color.border}`,
-    fontSize: font.size.caption,
-    fontFamily: font.sans,
-    display: 'flex',
-    alignItems: 'center',
-    gap: space[2],
-  };
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={statusBarStyle}>
-        <span
-          aria-hidden
+      {/* No save-status line — auto-save runs silently (debounced + flushed on
+          close/switch/workspace-change). The only status row kept is the
+          read-only notice for plain-text files, so a non-editable .txt isn't a
+          mystery. The disk-conflict / write-failed banners below stay — those
+          are data-loss decision points, not status noise. */}
+      {viewOnly && (
+        <div
           style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: status.dot,
-            flexShrink: 0,
-            transition: transition(['background']),
-          }}
-        />
-        <span
-          style={{
-            flex: 1,
-            color: status.fg,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: viewOnly ? 'normal' : 'nowrap',
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.surfaceMuted,
+            borderBottom: `1px solid ${color.border}`,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            color: color.warning,
           }}
         >
-          {status.label}
-        </span>
-        {/* No Save button — edits auto-save (debounced + flushed on close/switch). */}
-      </div>
+          <span
+            aria-hidden
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: color.warning,
+              flexShrink: 0,
+            }}
+          />
+          <span>
+            View only — plain-text files are read-only here; edit them with your own tools
+          </span>
+        </div>
+      )}
       {reloadPrompt && (
         <div
           style={{
@@ -1333,7 +1315,6 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
             onChange={() => {
               if (!initialLoad.current && !viewOnly) {
                 pendingRef.current = true;
-                setSaving(true);
                 scheduleSave();
                 // Editing a preview tab promotes it to a permanent (pinned) tab —
                 // idempotent (no-op once pinned), like a mature editor.
