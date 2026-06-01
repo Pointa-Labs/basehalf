@@ -33,7 +33,7 @@ import {
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { FLOAT_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
 
@@ -283,8 +283,11 @@ const BadgeProperties = ({
   // on the next successful write.
   const [saveError, setSaveError] = useState<string | null>(null);
   // For the prompt textarea's own Escape-to-close (the global handler skips
-  // form fields, so the field closes the active tab itself).
+  // form fields, so the field closes the surface itself). The badge panel only
+  // renders in the canvas FLOAT, so Escape there must close the float — closeTab
+  // with FLOAT_PANE_ID is a no-op (it isn't a real pane).
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const closeFloat = useWorkspaceStore((s) => s.closeFloat);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -545,12 +548,14 @@ const BadgeProperties = ({
                 savePrompt(e.target.value);
               }}
               onKeyDown={(e) => {
-                // Escape closes the active tab in one press from here too (the
-                // global handler skips form fields). Persist first.
+                // Escape closes the surface in one press from here too (the global
+                // handler skips form fields). Persist first, then close — the float
+                // if this is the canvas badge panel, else the active tab.
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   savePrompt.flush();
-                  closeTab(paneId, file);
+                  if (paneId === FLOAT_PANE_ID) closeFloat();
+                  else closeTab(paneId, file);
                 }
               }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"

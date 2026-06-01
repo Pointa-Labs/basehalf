@@ -6,7 +6,7 @@ import type {
 } from '@basehalf/core';
 import { create } from 'zustand';
 import { flushAll, flushPane } from '../lib/editorFlush.js';
-import { loadPanes, savePanes } from '../lib/layoutPersist.js';
+import { loadPanes, renamePanes, savePanes } from '../lib/layoutPersist.js';
 import {
   type PaneNode,
   adoptPaneIds,
@@ -496,6 +496,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           return;
         }
         await window.bh.run('workspace.rename', { from, to });
+        // Migrate the saved pane layout to the new name BEFORE refresh() loads from
+        // it — otherwise the renamed workspace's tabs/splits vanish (the layout is
+        // orphaned under the old key). For the ACTIVE workspace, pass the live
+        // layout so a rearrange still inside the save debounce isn't lost.
+        const s = get();
+        renamePanes(
+          from,
+          to,
+          s.current === from ? { paneTree: s.paneTree, activePaneId: s.activePaneId } : undefined,
+        );
         // Refresh pulls the new name into `current` if it was the renamed one
         // (core's workspace.rename already updated the config pointer).
         await get().refresh();

@@ -55,3 +55,21 @@ export const savePanes = (ws: string | null, panes: PersistedPanes): void => {
     }, 400),
   );
 };
+
+/** Migrate a workspace's saved layout to a new name (on rename), so its tabs +
+ *  splits survive — otherwise `bh:panes:<old>` is orphaned and the renamed
+ *  workspace loads an empty layout. Stops any pending save under the old name (it
+ *  would re-create the orphan), and prefers `currentLayout` when given (the live
+ *  layout of the active workspace — captures a rearrange still in the debounce). */
+export const renamePanes = (from: string, to: string, currentLayout?: PersistedPanes): void => {
+  const pending = saveTimers.get(from);
+  if (pending) clearTimeout(pending);
+  saveTimers.delete(from);
+  try {
+    const data = currentLayout ? JSON.stringify(currentLayout) : localStorage.getItem(keyFor(from));
+    if (data != null) localStorage.setItem(keyFor(to), data);
+    localStorage.removeItem(keyFor(from));
+  } catch {
+    // localStorage unavailable — nothing to migrate.
+  }
+};
