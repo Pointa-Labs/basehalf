@@ -1,5 +1,6 @@
 import { type JSX, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import type { LeafPane } from '../lib/paneTree.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 
@@ -11,24 +12,21 @@ const basenameOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1);
 const TAB_DND_TYPE = 'application/bh-tab';
 
 /**
- * The right panel's tab strip, modeled on a mature code editor's editor-group
- * tabs:
+ * One pane's tab strip, modeled on a mature code editor's editor-group tabs:
  *  - opens on MOUSEDOWN (not click) for snappiness;
  *  - the PREVIEW tab is italic and gets replaced in place — double-click (or
  *    editing) pins it;
  *  - middle-click closes; the × shows on the active tab and on hover;
  *  - drag-to-reorder with a left/right insertion bar.
- * Horizontally scrollable when tabs overflow.
+ * Scoped to `pane` (the leaf) — every action targets `pane.id`.
  */
-export const TabStrip = (): JSX.Element => {
-  const tabs = useWorkspaceStore((s) => s.tabs);
-  const currentFile = useWorkspaceStore((s) => s.currentFile);
-  const previewFile = useWorkspaceStore((s) => s.previewFile);
+export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const moveTab = useWorkspaceStore((s) => s.moveTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
 
+  const paneId = pane.id;
   const draggedFile = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ index: number; side: 'left' | 'right' } | null>(
     null,
@@ -54,9 +52,9 @@ export const TabStrip = (): JSX.Element => {
         overflowY: 'hidden',
       }}
     >
-      {tabs.map((file, index) => {
-        const active = file === currentFile;
-        const isPreview = file === previewFile;
+      {pane.tabs.map((file, index) => {
+        const active = file === pane.activeFile;
+        const isPreview = file === pane.previewFile;
         const showClose = active || hoveredFile === file;
         const indicate = dropTarget?.index === index ? dropTarget.side : null;
         return (
@@ -71,16 +69,16 @@ export const TabStrip = (): JSX.Element => {
             draggable
             onMouseDown={(e) => {
               if (e.button === 0) {
-                // Open on mousedown (not click) — the editor activates the instant
-                // the button goes down. A subsequent drag still reorders.
-                openInPanel(file);
+                // Open on mousedown (not click) — activates the tab + focuses this
+                // pane the instant the button goes down. A drag still reorders.
+                openInPanel(file, { paneId });
               } else if (e.button === 1) {
                 // Middle-click closes — preventDefault stops the autoscroll cursor.
                 e.preventDefault();
-                closeTab(file);
+                closeTab(paneId, file);
               }
             }}
-            onDoubleClick={() => pinTab(file)}
+            onDoubleClick={() => pinTab(paneId, file)}
             onMouseEnter={() => setHoveredFile(file)}
             onMouseLeave={() => setHoveredFile((f) => (f === file ? null : f))}
             onDragStart={(e) => {
@@ -93,7 +91,8 @@ export const TabStrip = (): JSX.Element => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
               const rect = e.currentTarget.getBoundingClientRect();
-              const side = e.clientX - rect.left < rect.width / 2 ? 'left' : 'right';
+              const side: 'left' | 'right' =
+                e.clientX - rect.left < rect.width / 2 ? 'left' : 'right';
               setDropTarget((p) => (p?.index === index && p.side === side ? p : { index, side }));
             }}
             onDrop={(e) => {
@@ -102,7 +101,7 @@ export const TabStrip = (): JSX.Element => {
               if (dragged !== null) {
                 const target = e.currentTarget.getBoundingClientRect();
                 const after = e.clientX - target.left >= target.width / 2;
-                moveTab(dragged, after ? index + 1 : index);
+                moveTab(paneId, dragged, after ? index + 1 : index);
               }
               clearDrag();
             }}
@@ -165,7 +164,7 @@ export const TabStrip = (): JSX.Element => {
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                closeTab(file);
+                closeTab(paneId, file);
               }}
               style={{
                 flexShrink: 0,

@@ -20,6 +20,7 @@ import {
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
+import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
   type MdEditorApi,
@@ -77,9 +78,14 @@ function splitPath(rel: string): { dirname: string; basename: string } {
     : { dirname: rel.slice(0, i), basename: rel.slice(i + 1) };
 }
 
-export const FilePreview = (): JSX.Element | null => {
-  const currentFile = useWorkspaceStore((s) => s.currentFile);
-  const closeTab = useWorkspaceStore((s) => s.closeTab);
+/** The editor body for ONE pane's active file. The pane (EditorSpace) supplies
+ *  `file`, the pane `paneId` (for the flush registry + close), and whether the
+ *  pane is the active one (only it consumes the search jump-to-match). */
+export const FilePreview = ({
+  file,
+  paneId,
+  isActive,
+}: { file: string; paneId: string; isActive: boolean }): JSX.Element => {
   const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -89,45 +95,17 @@ export const FilePreview = (): JSX.Element | null => {
   // text for a content-search hit.
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Esc / Cmd-W close the ACTIVE tab. Cmd-W matches macOS muscle memory for
-  // closing a tab. closeTab flushes the editor first (see store), so closing
-  // always persists pending edits (or holds on an unresolved conflict).
-  useEffect(() => {
-    if (!currentFile) return;
-    const active = currentFile; // narrowed to string for the closure below
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        // Close from the document body and the media viewers (DIV targets).
-        // Skip when a form field has focus: both BlockNote (a contentEditable
-        // DIV — not matched here, so the editor body DOES close) and form
-        // fields can preventDefault Escape, so a `defaultPrevented` check is
-        // unreliable. Form fields handle their own Escape — the badge-prompt
-        // textarea closes on Escape via its scoped onKeyDown below — so a stray
-        // Escape mid-typing in another field doesn't yank the panel shut.
-        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        closeTab(active);
-      } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        closeTab(active);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [currentFile, closeTab]);
-
   // Jump-to-match: when a file is opened FROM a content-search hit, land on the
-  // passage. Scoped to the MD editor — its block-per-element layout makes a
-  // matched text node resolve to a single block (a clean scroll target);
-  // anything else (the single-<pre> text viewer, media) just opens at the top,
-  // so we consume the target without scrolling. We search ONLY the BlockNote
-  // editable body (`[contenteditable]`), never the editor chrome — otherwise a
-  // query like "saved" would match the status bar that renders first. The
-  // editable renders async, so we retry on a short cadence until it appears +
-  // the match is found, or we give up.
+  // passage. Only the ACTIVE pane consumes it (the search-open targets the active
+  // pane). Scoped to the MD editor — its block-per-element layout makes a matched
+  // text node resolve to a single block (a clean scroll target); anything else
+  // (the single-<pre> text viewer, media) just opens at the top, so we consume
+  // the target without scrolling. We search ONLY the BlockNote editable body
+  // (`[contenteditable]`), never the editor chrome. The editable renders async,
+  // so we retry on a short cadence until it appears + the match is found.
   useEffect(() => {
-    if (!currentFile || openMatchQuery === null) return;
-    if (modeOf(currentFile) !== 'md') {
+    if (!isActive || openMatchQuery === null) return;
+    if (modeOf(file) !== 'md') {
       clearOpenMatchQuery();
       return;
     }
@@ -152,12 +130,11 @@ export const FilePreview = (): JSX.Element | null => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentFile, openMatchQuery, clearOpenMatchQuery]);
+  }, [isActive, file, openMatchQuery, clearOpenMatchQuery]);
 
-  if (!currentFile) return null;
-  const mode = modeOf(currentFile);
-  const absPath = `${wsPath}/${currentFile}`;
-  const { basename } = splitPath(currentFile);
+  const mode = modeOf(file);
+  const absPath = `${wsPath}/${file}`;
+  const { basename } = splitPath(file);
 
   return (
     // The editor PANEL — the body of the active right-panel tab. Its width + left
@@ -174,10 +151,10 @@ export const FilePreview = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      <BadgeProperties file={currentFile} />
+      <BadgeProperties file={file} paneId={paneId} />
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
-        {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
-        {mode === 'text' && <TextViewer key={currentFile} file={currentFile} />}
+        {mode === 'md' && <MdEditor key={file} file={file} paneId={paneId} />}
+        {mode === 'text' && <TextViewer key={file} file={file} />}
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
         {mode === 'image' && <ImageViewer absPath={absPath} />}
         {mode === 'audio' && (
@@ -266,7 +243,7 @@ export const FilePreview = (): JSX.Element | null => {
             </video>
           </div>
         )}
-        {mode === 'other' && <UnsupportedFileViewer file={currentFile} absPath={absPath} />}
+        {mode === 'other' && <UnsupportedFileViewer file={file} absPath={absPath} />}
       </div>
     </div>
   );
@@ -276,7 +253,10 @@ export const FilePreview = (): JSX.Element | null => {
 // Per IR-v2-04, every badge has a prompt + references + position; users need
 // to edit prompt/references here (canvas only handles position via drag).
 // Without this UI, badge.prompt was effectively write-only-by-CLI.
-const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
+const BadgeProperties = ({
+  file,
+  paneId,
+}: { file: string; paneId: string }): JSX.Element | null => {
   const [badge, setBadge] = useState<BadgeFile | null>(null);
   const [prompt, setPrompt] = useState('');
   const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
@@ -553,7 +533,7 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   savePrompt.flush();
-                  closeTab(file);
+                  closeTab(paneId, file);
                 }
               }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
@@ -899,9 +879,8 @@ const ReferenceRow = ({
 
 const AUTOSAVE_MS = 400;
 
-const MdEditor = ({ file }: { file: string }): JSX.Element => {
+const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
   const editor = useCreateBlockNote({ schema: bhSchema });
-  const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
@@ -1084,22 +1063,23 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    // The navigation gatekeeper. An unresolved conflict banner is a decision
-    // point — return `false` so setCurrentFile / the workspace switch DON'T
-    // proceed (forcing the user to pick Keep/Reload) rather than silently
-    // dropping local edits OR clobbering the external write. With no conflict,
-    // flush normally (the re-read guard may itself surface one mid-flush, which
-    // we also report as blocked).
-    setFlushEditor(async () => {
+    // The navigation gatekeeper, registered per pane. An unresolved conflict
+    // banner is a decision point — return `false` so a tab/file switch or
+    // workspace switch DON'T proceed (forcing the user to pick Keep/Reload)
+    // rather than silently dropping local edits OR clobbering the external write.
+    // With no conflict, flush normally (the re-read guard may itself surface one
+    // mid-flush, which we also report as blocked).
+    const flusher = async (): Promise<boolean> => {
       if (reloadPromptRef.current) return false;
       await flushRef.current(false);
       // Block if a conflict surfaced mid-flush OR the write failed (edits still
       // unpersisted) — either way leaving now would lose data. The write-failed
       // banner gives an explicit Discard-&-close escape so this never traps.
       return !reloadPromptRef.current && !writeFailedRef.current;
-    });
-    return () => setFlushEditor(null);
-  }, [setFlushEditor]);
+    };
+    registerFlusher(paneId, flusher);
+    return () => unregisterFlusher(paneId, flusher);
+  }, [paneId]);
 
   // Cancel any queued auto-save when this editor unmounts (file/workspace
   // switch), so it can't fire against a stale closure after the context
@@ -1207,8 +1187,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
-    closeTab(file, { bypassFlush: true });
-  }, [closeTab, file]);
+    closeTab(paneId, file, { bypassFlush: true });
+  }, [closeTab, paneId, file]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1353,7 +1333,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
                 scheduleSave();
                 // Editing a preview tab promotes it to a permanent (pinned) tab —
                 // idempotent (no-op once pinned), like a mature editor.
-                pinTab(file);
+                pinTab(paneId, file);
               }
             }}
           />
