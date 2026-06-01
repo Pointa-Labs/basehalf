@@ -123,6 +123,18 @@ interface WorkspaceState {
    *  SPLITS that pane in that direction and moves it into the new pane. Removes
    *  it from the source pane (collapsing the source if it empties). */
   dropTab: (file: string, fromPaneId: string, targetPaneId: string, region: DropRegion) => void;
+  /** A badge being dragged from the CANVAS over the right panel — its live dock
+   *  target (which pane + which drop region). null when the cursor is over the
+   *  canvas (normal reposition / autopan) or no badge drag is in flight. Drives
+   *  the panel's dock highlight AND suppresses canvas auto-pan, so the gesture can
+   *  settle onto the panel instead of the map sliding out from under it. */
+  canvasDockDrag: { paneId: string; region: DropRegion } | null;
+  setCanvasDockDrag: (target: { paneId: string; region: DropRegion } | null) => void;
+  /** Open a canvas badge in the right panel at a drop region (the canvas→panel
+   *  drag-dock lands here): 'center' adds it as a tab in `paneId`; an edge splits
+   *  that pane and opens it in the new pane. A reference open (like the sidebar) —
+   *  the badge stays on the canvas. */
+  dockBadge: (file: string, paneId: string, region: DropRegion) => void;
   /** The file shown in the canvas FLOATING preview (double-click a badge), or
    *  null. Independent of the right panel — an editable peek that nearly fills the
    *  canvas. The canvas is "held" (pan/zoom disabled) while it's open. */
@@ -207,6 +219,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     // state). Keeps the canvas the home surface.
     rightPanelOpen: false,
     tabDrag: null,
+    canvasDockDrag: null,
     floatingFile: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
@@ -603,6 +616,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set((s) => ({ paneTree: setFraction(s.paneTree, splitId, fraction) })),
 
     setTabDrag: (drag) => set({ tabDrag: drag }),
+
+    setCanvasDockDrag: (target) =>
+      set((s) => {
+        // Skip no-op sets (same pane + region) so a per-mousemove drag handler
+        // doesn't churn renders across the whole panel.
+        const cur = s.canvasDockDrag;
+        if (cur === target) return {};
+        if (cur && target && cur.paneId === target.paneId && cur.region === target.region) {
+          return {};
+        }
+        return { canvasDockDrag: target };
+      }),
+
+    dockBadge: (file, paneId, region) => {
+      // Reuse the flush-gated open paths: 'center' adds a tab to the target pane;
+      // an edge splits it. (The badge itself stays on the canvas — Canvas snaps it
+      // back; this is a reference open, not a move.)
+      if (region === 'center') {
+        get().openInPanel(file, { pinned: true, paneId });
+      } else {
+        const direction = region === 'left' || region === 'right' ? 'row' : 'column';
+        const before = region === 'left' || region === 'up';
+        get().splitPane(paneId, direction, file, { before });
+      }
+      set({ canvasDockDrag: null });
+    },
 
     dropTab: (file, fromPaneId, targetPaneId, region) => {
       const srcLeaf = findLeaf(get().paneTree, fromPaneId);

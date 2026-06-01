@@ -6,6 +6,7 @@ import {
   useState,
 } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { regionFor } from '../lib/paneDrop.js';
 import type { LeafPane, PaneNode, SplitPane } from '../lib/paneTree.js';
 import { EDITOR_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
@@ -151,9 +152,15 @@ const Pane = ({
   // Render the drop overlay only while a tab is being dragged (so it never blocks
   // the editor otherwise).
   const dragging = useWorkspaceStore((s) => s.tabDrag !== null);
+  // A canvas badge being dragged over the panel targets at most one pane — show a
+  // (non-interactive) region highlight here when it's us. The drop itself is
+  // handled by the canvas (react-flow drag), not an HTML5 drop on the panel.
+  const canvasDock = useWorkspaceStore((s) => s.canvasDockDrag);
+  const dockRegion = canvasDock?.paneId === leaf.id ? canvasDock.region : null;
   const hasTabs = leaf.tabs.length > 0;
   return (
     <div
+      data-pane-id={leaf.id}
       // Capture-phase mousedown so focusing the pane wins even when the inner
       // editor stops propagation.
       onMouseDownCapture={() => {
@@ -179,6 +186,7 @@ const Pane = ({
           <EmptyPanel />
         )}
         {dragging && <DropOverlay paneId={leaf.id} />}
+        {dockRegion && <RegionBox region={dockRegion} zIndex={25} />}
       </div>
     </div>
   );
@@ -196,18 +204,23 @@ const REGION_RECT: Record<DropRegion, CSSProperties> = {
   down: { left: 0, right: 0, bottom: 0, height: '50%' },
 };
 
-const regionFor = (x: number, y: number, w: number, h: number): DropRegion => {
-  const left = x / w;
-  const right = 1 - left;
-  const top = y / h;
-  const bottom = 1 - top;
-  const m = Math.min(left, right, top, bottom);
-  if (m > 0.25) return 'center'; // inner 50% box
-  if (m === left) return 'left';
-  if (m === right) return 'right';
-  if (m === top) return 'up';
-  return 'down';
-};
+// The translucent accent region drawn over a pane to telegraph where a drop will
+// land. Shared by the tab DropOverlay and the canvas badge-dock highlight.
+const RegionBox = ({ region, zIndex }: { region: DropRegion; zIndex?: number }): JSX.Element => (
+  <div
+    aria-hidden
+    style={{
+      position: 'absolute',
+      ...REGION_RECT[region],
+      ...(zIndex !== undefined && { zIndex }),
+      background: `${color.accent}22`,
+      border: `1.5px solid ${color.accent}`,
+      borderRadius: radius.sm,
+      pointerEvents: 'none',
+      transition: transition(['top', 'left', 'right', 'bottom', 'width', 'height']),
+    }}
+  />
+);
 
 const DropOverlay = ({ paneId }: { paneId: string }): JSX.Element => {
   const dropTab = useWorkspaceStore((s) => s.dropTab);
@@ -233,20 +246,7 @@ const DropOverlay = ({ paneId }: { paneId: string }): JSX.Element => {
       }}
       style={{ position: 'absolute', inset: 0, zIndex: 20 }}
     >
-      {region && (
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            ...REGION_RECT[region],
-            background: `${color.accent}22`,
-            border: `1.5px solid ${color.accent}`,
-            borderRadius: radius.sm,
-            pointerEvents: 'none',
-            transition: transition(['top', 'left', 'right', 'bottom', 'width', 'height']),
-          }}
-        />
-      )}
+      {region && <RegionBox region={region} />}
     </div>
   );
 };
