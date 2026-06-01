@@ -86,17 +86,26 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       const open = !get().sidebarOpen;
       persist(OPEN_KEY, open ? '1' : '0');
       // Re-clamp the editor against the new reserve (opening the sidebar may shrink it).
-      set({ sidebarOpen: open, editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0) });
+      set({
+        sidebarOpen: open,
+        editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0),
+      });
     },
     setSidebarOpen: (open) => {
       persist(OPEN_KEY, open ? '1' : '0');
-      set({ sidebarOpen: open, editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0) });
+      set({
+        sidebarOpen: open,
+        editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0),
+      });
     },
     setSidebarWidth: (width) => {
       const w = clampWidth(width);
       persist(WIDTH_KEY, String(w));
       // Widening the sidebar must not squeeze the canvas away — re-clamp the editor.
-      set({ sidebarWidth: w, editorWidth: clampEditorWidth(get().editorWidth, get().sidebarOpen ? w : 0) });
+      set({
+        sidebarWidth: w,
+        editorWidth: clampEditorWidth(get().editorWidth, get().sidebarOpen ? w : 0),
+      });
     },
     editorWidth: clampEditorWidth(
       readNum(EDITOR_WIDTH_KEY, EDITOR_DEFAULT_WIDTH),
