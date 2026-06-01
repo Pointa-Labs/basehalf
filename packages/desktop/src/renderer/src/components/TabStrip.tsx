@@ -6,10 +6,10 @@ import { FileGlyph, badgeType } from './FileGlyph.js';
 
 const basenameOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1);
 
-// The DnD type marker for an in-strip tab drag. A CUSTOM type (not 'Files') so
-// the App-level folder-drop overlay — which keys off the 'Files' type — ignores
-// it.
-const TAB_DND_TYPE = 'application/bh-tab';
+// The DnD type marker for a tab drag. A CUSTOM type (not 'Files') so the
+// App-level folder-drop overlay — which keys off the 'Files' type — ignores it.
+// Shared with the pane DropOverlay so it can recognise a tab drag on dragover.
+export const TAB_DND_TYPE = 'application/bh-tab';
 
 /**
  * One pane's tab strip, modeled on a mature code editor's editor-group tabs:
@@ -25,6 +25,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const moveTab = useWorkspaceStore((s) => s.moveTab);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const setTabDrag = useWorkspaceStore((s) => s.setTabDrag);
 
   const paneId = pane.id;
   const draggedFile = useRef<string | null>(null);
@@ -36,6 +37,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const clearDrag = (): void => {
     draggedFile.current = null;
     setDropTarget(null);
+    setTabDrag(null);
   };
 
   return (
@@ -85,6 +87,9 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               draggedFile.current = file;
               e.dataTransfer.effectAllowed = 'move';
               e.dataTransfer.setData(TAB_DND_TYPE, file);
+              // Publish to the store so the pane DropOverlay (a different
+              // component) can pick up which tab + source pane on drop.
+              setTabDrag({ file, sourcePaneId: paneId });
             }}
             onDragOver={(e) => {
               if (draggedFile.current === null) return; // not an in-strip tab drag

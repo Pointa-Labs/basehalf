@@ -25,6 +25,10 @@ import {
 } from '../lib/paneTree.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
 
+/** Where a dragged tab lands on a pane: the center (move in as a tab) or one of
+ *  the four edges (split that way). */
+export type DropRegion = 'center' | 'left' | 'right' | 'up' | 'down';
+
 /** The active pane's active file — the derived `currentFile` convenience. */
 const deriveCurrent = (tree: PaneNode, activePaneId: string): string | null =>
   findLeaf(tree, activePaneId)?.activeFile ?? null;
@@ -84,6 +88,19 @@ interface WorkspaceState {
   ) => void;
   /** Set a split node's divider fraction (0..1 for child `a`). */
   setPaneFraction: (splitId: string, fraction: number) => void;
+  /** A tab currently being dragged — drives the cross-pane drop overlay. null
+   *  when no tab drag is in flight. */
+  tabDrag: { file: string; sourcePaneId: string } | null;
+  setTabDrag: (drag: { file: string; sourcePaneId: string } | null) => void;
+  /** Drop a dragged tab onto a pane: 'center' MOVES it in as a tab; an edge
+   *  SPLITS that pane in that direction and moves it into the new pane. Removes
+   *  it from the source pane (collapsing the source if it empties). */
+  dropTab: (
+    file: string,
+    fromPaneId: string,
+    targetPaneId: string,
+    region: DropRegion,
+  ) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
    *  flash inside the viewer (MD editor). null on a normal open. Consumed +
    *  cleared by FilePreview once it lands on the match (or gives up). */
@@ -154,6 +171,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     // reveals the panel) or click the top-right toggle (which opens it to its empty
     // state). Keeps the canvas the home surface.
     rightPanelOpen: false,
+    tabDrag: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
     folderScope: null,
@@ -499,6 +517,57 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     setPaneFraction: (splitId, fraction) =>
       set((s) => ({ paneTree: setFraction(s.paneTree, splitId, fraction) })),
+
+    setTabDrag: (drag) => set({ tabDrag: drag }),
+
+    dropTab: (file, fromPaneId, targetPaneId, region) => {
+      const srcLeaf = findLeaf(get().paneTree, fromPaneId);
+      // Moving the source's ACTIVE editor — flush it first so its last keystrokes
+      // persist before it unmounts here and remounts in the destination.
+      const needFlush = srcLeaf?.activeFile === file;
+      const finish = (): void => {
+        set((s) => {
+          let tree = s.paneTree;
+          let activePaneId = s.activePaneId;
+          if (region === 'center') {
+            // Already in this pane → nothing to move (the strip handles reorder).
+            if (fromPaneId === targetPaneId) return { tabDrag: null };
+            tree = updateLeaf(tree, targetPaneId, (l) => openInLeaf(l, file, { pinned: true }));
+            tree = updateLeaf(tree, fromPaneId, (l) => closeInLeaf(l, file));
+            activePaneId = targetPaneId;
+          } else {
+            const direction = region === 'left' || region === 'right' ? 'row' : 'column';
+            const before = region === 'left' || region === 'up';
+            const newLeaf = openInLeaf(emptyLeaf(), file, { pinned: true });
+            tree = splitLeaf(tree, targetPaneId, direction, newLeaf, before);
+            tree = updateLeaf(tree, fromPaneId, (l) => closeInLeaf(l, file));
+            activePaneId = newLeaf.id;
+          }
+          // Collapse the source pane if the move emptied it (and it isn't the only
+          // pane left).
+          const src = findLeaf(tree, fromPaneId);
+          if (src && src.tabs.length === 0 && leafCount(tree) > 1) {
+            tree = removeLeaf(tree, fromPaneId) ?? tree;
+            if (!findLeaf(tree, activePaneId)) activePaneId = firstLeaf(tree).id;
+          }
+          return {
+            paneTree: tree,
+            activePaneId,
+            currentFile: deriveCurrent(tree, activePaneId),
+            rightPanelOpen: true,
+            tabDrag: null,
+          };
+        });
+      };
+      if (needFlush) {
+        void flushPane(fromPaneId).then((ok) => {
+          if (ok) finish();
+          else set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
+        }, finish);
+      } else {
+        finish();
+      }
+    },
 
     toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
 

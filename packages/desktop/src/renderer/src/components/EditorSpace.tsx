@@ -1,10 +1,16 @@
-import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useState } from 'react';
-import { color, font, space, transition } from '../design.js';
+import {
+  type CSSProperties,
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useState,
+} from 'react';
+import { color, font, radius, space, transition } from '../design.js';
 import type { LeafPane, PaneNode, SplitPane } from '../lib/paneTree.js';
 import { EDITOR_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
 import { FilePreview } from './FilePreview.js';
-import { TabStrip } from './TabStrip.js';
+import { TAB_DND_TYPE, TabStrip } from './TabStrip.js';
 
 /**
  * The RIGHT region — the right panel: a VS-Code-style editor area. Renders the
@@ -140,6 +146,9 @@ const Pane = ({
   singlePane,
 }: { leaf: LeafPane; isActive: boolean; singlePane: boolean }): JSX.Element => {
   const setActivePane = useWorkspaceStore((s) => s.setActivePane);
+  // Render the drop overlay only while a tab is being dragged (so it never blocks
+  // the editor otherwise).
+  const dragging = useWorkspaceStore((s) => s.tabDrag !== null);
   const hasTabs = leaf.tabs.length > 0;
   return (
     <div
@@ -160,17 +169,81 @@ const Pane = ({
         boxShadow: !singlePane && isActive ? `inset 0 0 0 1px ${color.accentSoft}` : 'none',
       }}
     >
-      {hasTabs ? (
-        <>
-          <TabStrip pane={leaf} />
-          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-            {leaf.activeFile !== null && (
-              <FilePreview file={leaf.activeFile} paneId={leaf.id} isActive={isActive} />
-            )}
-          </div>
-        </>
-      ) : (
-        <EmptyPanel />
+      {hasTabs && <TabStrip pane={leaf} />}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex' }}>
+        {hasTabs && leaf.activeFile !== null ? (
+          <FilePreview file={leaf.activeFile} paneId={leaf.id} isActive={isActive} />
+        ) : (
+          <EmptyPanel />
+        )}
+        {dragging && <DropOverlay paneId={leaf.id} />}
+      </div>
+    </div>
+  );
+};
+
+// The drop target over a pane's body (only mounted while a tab is being dragged).
+// Cursor position → a region: the inner ~50% box is the CENTER (move the tab in
+// here), the outer frame is the nearest EDGE (split that way). Shows a translucent
+// accent region for the target; on drop, performs the move/split.
+const REGION_RECT: Record<DropRegion, CSSProperties> = {
+  center: { inset: 0 },
+  left: { top: 0, bottom: 0, left: 0, width: '50%' },
+  right: { top: 0, bottom: 0, right: 0, width: '50%' },
+  up: { left: 0, right: 0, top: 0, height: '50%' },
+  down: { left: 0, right: 0, bottom: 0, height: '50%' },
+};
+
+const regionFor = (x: number, y: number, w: number, h: number): DropRegion => {
+  const left = x / w;
+  const right = 1 - left;
+  const top = y / h;
+  const bottom = 1 - top;
+  const m = Math.min(left, right, top, bottom);
+  if (m > 0.25) return 'center'; // inner 50% box
+  if (m === left) return 'left';
+  if (m === right) return 'right';
+  if (m === top) return 'up';
+  return 'down';
+};
+
+const DropOverlay = ({ paneId }: { paneId: string }): JSX.Element => {
+  const dropTab = useWorkspaceStore((s) => s.dropTab);
+  const [region, setRegion] = useState<DropRegion | null>(null);
+  return (
+    <div
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes(TAB_DND_TYPE)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const r = e.currentTarget.getBoundingClientRect();
+        setRegion(regionFor(e.clientX - r.left, e.clientY - r.top, r.width, r.height));
+      }}
+      onDragLeave={(e) => {
+        // The overlay has no children, so target === currentTarget on a real leave.
+        if (e.currentTarget === e.target) setRegion(null);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const drag = useWorkspaceStore.getState().tabDrag;
+        if (drag && region) dropTab(drag.file, drag.sourcePaneId, paneId, region);
+        setRegion(null);
+      }}
+      style={{ position: 'absolute', inset: 0, zIndex: 20 }}
+    >
+      {region && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            ...REGION_RECT[region],
+            background: `${color.accent}22`,
+            border: `1.5px solid ${color.accent}`,
+            borderRadius: radius.sm,
+            pointerEvents: 'none',
+            transition: transition(['top', 'left', 'right', 'bottom', 'width', 'height']),
+          }}
+        />
       )}
     </div>
   );
