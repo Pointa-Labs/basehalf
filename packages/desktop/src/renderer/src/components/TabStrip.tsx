@@ -83,6 +83,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
         const showClose = active || hoveredFile === file;
         const indicate = dropTarget?.index === index ? dropTarget.side : null;
         return (
+          // biome-ignore lint/a11y/useKeyWithClickEvents: the tab strip isn't keyboard-focusable yet (no roving tabindex); activation is a pointer affordance — keyboard tab nav is a separate concern.
           <div
             key={file}
             role="tab"
@@ -93,15 +94,18 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
             data-preview={isPreview ? 'true' : 'false'}
             draggable
             onMouseDown={(e) => {
-              if (e.button === 0) {
-                // Open on mousedown (not click) — activates the tab + focuses this
-                // pane the instant the button goes down. A drag still reorders.
-                openInPanel(file, { paneId });
-              } else if (e.button === 1) {
-                // Middle-click closes — preventDefault stops the autoscroll cursor.
+              // Middle-click closes — preventDefault stops the autoscroll cursor.
+              if (e.button === 1) {
                 e.preventDefault();
                 closeTab(paneId, file);
               }
+              // Left-click activation is on CLICK, not mousedown: a drag fires no
+              // click, so dragging a tab can't leave an async openInPanel (flush →
+              // activate) in flight that would re-open it in the source pane after a
+              // drop. The pane still focuses on mousedown via Pane's capture handler.
+            }}
+            onClick={(e) => {
+              if (e.button === 0) openInPanel(file, { paneId });
             }}
             onDoubleClick={() => pinTab(paneId, file)}
             onMouseEnter={() => setHoveredFile(file)}

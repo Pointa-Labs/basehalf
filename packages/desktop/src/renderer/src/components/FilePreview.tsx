@@ -142,6 +142,11 @@ export const FilePreview = ({
   const mode = modeOf(file);
   const absPath = `${wsPath}/${file}`;
   const { basename } = splitPath(file);
+  // Key the text/MD views by WORKSPACE + path: a workspace switch whose restored
+  // layout has the same relative file in the same pane would otherwise keep the
+  // component mounted, leaving the editor bound to the previous workspace's Yjs doc
+  // while reads/writes use the new one. The scoped key forces a clean remount.
+  const viewKey = docKeyFor(current, file);
 
   return (
     // The editor PANEL — the body of the active right-panel tab. Its width + left
@@ -165,8 +170,8 @@ export const FilePreview = ({
     >
       {showBadge && <BadgeProperties file={file} paneId={paneId} />}
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
-        {mode === 'md' && <MdEditor key={file} file={file} paneId={paneId} />}
-        {mode === 'text' && <TextViewer key={file} file={file} />}
+        {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} />}
+        {mode === 'text' && <TextViewer key={viewKey} file={file} />}
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
         {mode === 'image' && <ImageViewer absPath={absPath} />}
         {mode === 'audio' && (

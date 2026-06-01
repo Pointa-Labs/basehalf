@@ -33,17 +33,25 @@ export const loadPanes = (ws: string | null): PersistedPanes | null => {
   }
 };
 
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
+// PER-WORKSPACE debounce timers. A single shared timer let a save for workspace B
+// (e.g. the restored layout right after a switch) cancel workspace A's still-pending
+// save — so A's last layout was lost on reload. Keyed timers isolate them.
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** Debounced write of the pane layout for a workspace (no-op without a workspace). */
 export const savePanes = (ws: string | null, panes: PersistedPanes): void => {
   if (!ws) return;
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(keyFor(ws), JSON.stringify(panes));
-    } catch {
-      // localStorage unavailable / over quota — layout just won't persist.
-    }
-  }, 400);
+  const existing = saveTimers.get(ws);
+  if (existing) clearTimeout(existing);
+  saveTimers.set(
+    ws,
+    setTimeout(() => {
+      saveTimers.delete(ws);
+      try {
+        localStorage.setItem(keyFor(ws), JSON.stringify(panes));
+      } catch {
+        // localStorage unavailable / over quota — layout just won't persist.
+      }
+    }, 400),
+  );
 };

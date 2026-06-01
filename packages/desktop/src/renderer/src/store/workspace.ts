@@ -549,8 +549,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const { file, sourcePaneId } = drag;
       const crossPane = sourcePaneId !== toPaneId;
       const srcLeaf = findLeaf(get().paneTree, sourcePaneId);
+      const tgtLeaf = findLeaf(get().paneTree, toPaneId);
       // Moving the source's ACTIVE editor across panes — flush it first.
       const needFlush = crossPane && srcLeaf?.activeFile === file;
+      // The move activates `file` in the target, unmounting whatever was active
+      // there — flush that editor too, or its debounce-window edits are lost.
+      const needTgtFlush = crossPane && tgtLeaf?.activeFile != null && tgtLeaf.activeFile !== file;
       const finish = (): void => {
         set((s) => {
           let tree = s.paneTree;
@@ -580,9 +584,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           };
         });
       };
-      if (needFlush) {
-        void flushPane(sourcePaneId).then((ok) => {
-          if (ok) finish();
+      if (needFlush || needTgtFlush) {
+        void Promise.all([
+          needFlush ? flushPane(sourcePaneId) : Promise.resolve(true),
+          needTgtFlush ? flushPane(toPaneId) : Promise.resolve(true),
+        ]).then(([a, b]) => {
+          if (a && b) finish();
           else
             set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
         }, finish);
@@ -656,9 +663,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     dropTab: (file, fromPaneId, targetPaneId, region) => {
       const srcLeaf = findLeaf(get().paneTree, fromPaneId);
-      // Moving the source's ACTIVE editor — flush it first so its last keystrokes
-      // persist before it unmounts here and remounts in the destination.
+      const tgtLeaf = findLeaf(get().paneTree, targetPaneId);
+      // Flush the SOURCE's active editor (it unmounts here, remounts in the dest).
       const needFlush = srcLeaf?.activeFile === file;
+      // A CENTER drop into a DIFFERENT pane activates `file` there, replacing (and
+      // unmounting) the target's active editor — flush it too, or its debounce-window
+      // edits are lost. (An edge drop opens a fresh split pane, so nothing's replaced.)
+      const needTgtFlush =
+        region === 'center' &&
+        fromPaneId !== targetPaneId &&
+        tgtLeaf?.activeFile != null &&
+        tgtLeaf.activeFile !== file;
       const finish = (): void => {
         set((s) => {
           let tree = s.paneTree;
@@ -693,9 +708,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           };
         });
       };
-      if (needFlush) {
-        void flushPane(fromPaneId).then((ok) => {
-          if (ok) finish();
+      if (needFlush || needTgtFlush) {
+        void Promise.all([
+          needFlush ? flushPane(fromPaneId) : Promise.resolve(true),
+          needTgtFlush ? flushPane(targetPaneId) : Promise.resolve(true),
+        ]).then(([a, b]) => {
+          if (a && b) finish();
           else
             set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
         }, finish);
