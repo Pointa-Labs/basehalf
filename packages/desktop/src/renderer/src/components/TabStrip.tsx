@@ -1,4 +1,4 @@
-import { type JSX, useRef, useState } from 'react';
+import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import type { LeafPane } from '../lib/paneTree.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -23,20 +23,22 @@ export const TAB_DND_TYPE = 'application/bh-tab';
 export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
-  const moveTab = useWorkspaceStore((s) => s.moveTab);
+  const dropTabOnStrip = useWorkspaceStore((s) => s.dropTabOnStrip);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const setTabDrag = useWorkspaceStore((s) => s.setTabDrag);
   const newNote = useWorkspaceStore((s) => s.newNote);
 
   const paneId = pane.id;
-  const draggedFile = useRef<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ index: number; side: 'left' | 'right' } | null>(
     null,
   );
   const [hoveredFile, setHoveredFile] = useState<string | null>(null);
 
+  // Whether ANY tab is being dragged (from this pane or another) — read off the
+  // shared store so a tab from a different pane can drop onto this strip.
+  const dragActive = (): boolean => useWorkspaceStore.getState().tabDrag !== null;
+
   const clearDrag = (): void => {
-    draggedFile.current = null;
     setDropTarget(null);
     setTabDrag(null);
   };
@@ -49,6 +51,19 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
       // guard keeps a double-click ON a tab (which pins it) from also firing this.
       onDoubleClick={(e) => {
         if (e.target === e.currentTarget) void newNote(paneId);
+      }}
+      // Accept a tab dropped on the strip's EMPTY area (past the last tab) →
+      // append it to this pane. (Drops ON a tab are handled per-tab below; they
+      // stopPropagation so they don't also bubble here.)
+      onDragOver={(e) => {
+        if (dragActive()) e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (e.target === e.currentTarget && dragActive()) {
+          e.preventDefault();
+          dropTabOnStrip(paneId, pane.tabs.length);
+          clearDrag();
+        }
       }}
       title="Double-click for a new note"
       style={{
@@ -92,15 +107,14 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
             onMouseEnter={() => setHoveredFile(file)}
             onMouseLeave={() => setHoveredFile((f) => (f === file ? null : f))}
             onDragStart={(e) => {
-              draggedFile.current = file;
               e.dataTransfer.effectAllowed = 'move';
               e.dataTransfer.setData(TAB_DND_TYPE, file);
-              // Publish to the store so the pane DropOverlay (a different
-              // component) can pick up which tab + source pane on drop.
+              // Publish to the store so OTHER panes' strips + the pane DropOverlay
+              // can pick up which tab + source pane on drop (cross-pane drag).
               setTabDrag({ file, sourcePaneId: paneId });
             }}
             onDragOver={(e) => {
-              if (draggedFile.current === null) return; // not an in-strip tab drag
+              if (!dragActive()) return; // not a tab drag
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
               const rect = e.currentTarget.getBoundingClientRect();
@@ -109,13 +123,12 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               setDropTarget((p) => (p?.index === index && p.side === side ? p : { index, side }));
             }}
             onDrop={(e) => {
+              if (!dragActive()) return;
               e.preventDefault();
-              const dragged = draggedFile.current;
-              if (dragged !== null) {
-                const target = e.currentTarget.getBoundingClientRect();
-                const after = e.clientX - target.left >= target.width / 2;
-                moveTab(paneId, dragged, after ? index + 1 : index);
-              }
+              e.stopPropagation(); // don't also fire the container's end-drop
+              const target = e.currentTarget.getBoundingClientRect();
+              const after = e.clientX - target.left >= target.width / 2;
+              dropTabOnStrip(paneId, after ? index + 1 : index);
               clearDrag();
             }}
             onDragEnd={clearDrag}

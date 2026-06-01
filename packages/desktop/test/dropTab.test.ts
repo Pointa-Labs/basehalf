@@ -93,3 +93,45 @@ describe('store.dropTab', () => {
     );
   });
 });
+
+describe('store.dropTabOnStrip (drop a tab onto a pane’s tab bar)', () => {
+  const split = (a: LeafPane, b: LeafPane): PaneNode => ({
+    type: 'split',
+    id: 's1',
+    direction: 'row',
+    a,
+    b,
+    fraction: 0.5,
+  });
+
+  it('same pane → reorders to the drop index', async () => {
+    setTree(leaf('p1', ['a.md', 'b.md', 'c.md'], 'b.md'), 'p1');
+    store.setState({ tabDrag: { file: 'c.md', sourcePaneId: 'p1' } });
+    store.getState().dropTabOnStrip('p1', 0);
+    await tick();
+    expect(findLeaf(store.getState().paneTree, 'p1')?.tabs).toEqual(['c.md', 'a.md', 'b.md']);
+    expect(store.getState().tabDrag).toBeNull();
+  });
+
+  it('different pane → moves the tab in at the drop index', async () => {
+    setTree(split(leaf('A', ['a.md', 'b.md'], 'b.md'), leaf('B', ['c.md'], 'c.md')), 'A');
+    store.setState({ tabDrag: { file: 'a.md', sourcePaneId: 'A' } });
+    store.getState().dropTabOnStrip('B', 0); // drop a.md at the FRONT of B's strip
+    await tick();
+    const out = store.getState().paneTree;
+    expect(findLeaf(out, 'A')?.tabs).toEqual(['b.md']); // moved out of A
+    expect(findLeaf(out, 'B')?.tabs).toEqual(['a.md', 'c.md']); // inserted at index 0
+    expect(store.getState().activePaneId).toBe('B');
+  });
+
+  it('moving the last tab onto another strip collapses the emptied pane', async () => {
+    setTree(split(leaf('A', ['a.md'], 'a.md'), leaf('B', ['b.md'], 'b.md')), 'A');
+    store.setState({ tabDrag: { file: 'a.md', sourcePaneId: 'A' } });
+    store.getState().dropTabOnStrip('B', 1); // append a.md after b.md
+    await tick();
+    const out = store.getState().paneTree;
+    expect(out.type).toBe('leaf'); // A collapsed → single pane B
+    expect((out as LeafPane).id).toBe('B');
+    expect((out as LeafPane).tabs).toEqual(['b.md', 'a.md']);
+  });
+});

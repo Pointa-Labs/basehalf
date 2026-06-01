@@ -92,8 +92,10 @@ interface WorkspaceState {
   ) => void;
   /** Promote a pane's preview tab to a permanent (pinned) tab. */
   pinTab: (paneId: string, file: string) => void;
-  /** Reorder a tab within its pane (drag-to-reorder). */
-  moveTab: (paneId: string, file: string, toIndex: number) => void;
+  /** Drop the currently-dragged tab (store.tabDrag) onto a pane's TAB STRIP at
+   *  `toIndex`. Same pane → reorder; a DIFFERENT pane → move it in at that
+   *  position (collapsing the source pane if it empties). */
+  dropTabOnStrip: (toPaneId: string, toIndex: number) => void;
   /** Rebind an open tab's path across ALL panes (the watcher saw it renamed on
    * disk). No flush — the old path is gone; the editor remounts on the new bytes. */
   renameTab: (from: string, to: string) => void;
@@ -523,10 +525,53 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     pinTab: (paneId, file) =>
       set((s) => ({ paneTree: updateLeaf(s.paneTree, paneId, (l) => pinInLeaf(l, file)) })),
 
-    moveTab: (paneId, file, toIndex) =>
-      set((s) => ({
-        paneTree: updateLeaf(s.paneTree, paneId, (l) => moveInLeaf(l, file, toIndex)),
-      })),
+    dropTabOnStrip: (toPaneId, toIndex) => {
+      const drag = get().tabDrag;
+      if (!drag) return;
+      const { file, sourcePaneId } = drag;
+      const crossPane = sourcePaneId !== toPaneId;
+      const srcLeaf = findLeaf(get().paneTree, sourcePaneId);
+      // Moving the source's ACTIVE editor across panes — flush it first.
+      const needFlush = crossPane && srcLeaf?.activeFile === file;
+      const finish = (): void => {
+        set((s) => {
+          let tree = s.paneTree;
+          if (!crossPane) {
+            tree = updateLeaf(tree, toPaneId, (l) => moveInLeaf(l, file, toIndex));
+          } else {
+            tree = updateLeaf(tree, sourcePaneId, (l) => closeInLeaf(l, file));
+            // Add to the target (pinned, appends), then slot it to toIndex.
+            tree = updateLeaf(tree, toPaneId, (l) =>
+              moveInLeaf(openInLeaf(l, file, { pinned: true }), file, toIndex),
+            );
+          }
+          let activePaneId = toPaneId;
+          if (crossPane) {
+            const src = findLeaf(tree, sourcePaneId);
+            if (src && src.tabs.length === 0 && leafCount(tree) > 1) {
+              tree = removeLeaf(tree, sourcePaneId) ?? tree;
+              if (!findLeaf(tree, activePaneId)) activePaneId = firstLeaf(tree).id;
+            }
+          }
+          return {
+            paneTree: tree,
+            activePaneId,
+            currentFile: deriveCurrent(tree, activePaneId),
+            rightPanelOpen: true,
+            tabDrag: null,
+          };
+        });
+      };
+      if (needFlush) {
+        void flushPane(sourcePaneId).then((ok) => {
+          if (ok) finish();
+          else
+            set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
+        }, finish);
+      } else {
+        finish();
+      }
+    },
 
     renameTab: (from, to) =>
       set((s) => {
