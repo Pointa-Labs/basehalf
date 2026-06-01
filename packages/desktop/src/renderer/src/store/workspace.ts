@@ -113,7 +113,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   currentReachable: null,
   currentFile: null,
   tabs: [],
-  rightPanelOpen: true,
+  // Default closed — the canvas owns the full width until you open a file (which
+  // reveals the panel) or click the top-right toggle (which opens it to its empty
+  // state). Keeps the canvas the home surface.
+  rightPanelOpen: false,
   openMatchQuery: null,
   // (saved-view state removed — a folder is the grouping unit now)
   folderScope: null,

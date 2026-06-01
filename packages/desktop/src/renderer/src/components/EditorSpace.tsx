@@ -1,5 +1,5 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useState } from 'react';
-import { color, transition } from '../design.js';
+import { color, font, space, transition } from '../design.js';
 import { EDITOR_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FilePreview } from './FilePreview.js';
@@ -18,8 +18,11 @@ export const EditorSpace = (): JSX.Element | null => {
   const rightPanelOpen = useWorkspaceStore((s) => s.rightPanelOpen);
   const editorWidth = useLayoutStore((s) => s.editorWidth);
 
-  // No tabs, or toggled closed → no region; the canvas takes the full middle.
-  if (tabs.length === 0 || !rightPanelOpen) return null;
+  // Toggled closed → no region; the canvas takes the full middle. Open but with
+  // NO tabs still shows the panel (at its empty state), so the top-right toggle
+  // always produces a visible panel and there's a home / drop target.
+  if (!rightPanelOpen) return null;
+  const hasTabs = tabs.length > 0;
 
   return (
     <aside
@@ -36,13 +39,61 @@ export const EditorSpace = (): JSX.Element | null => {
       }}
     >
       <EditorSash />
-      <TabStrip />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        <FilePreview />
-      </div>
+      {hasTabs ? (
+        <>
+          <TabStrip />
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            <FilePreview />
+          </div>
+        </>
+      ) : (
+        <EmptyPanel />
+      )}
     </aside>
   );
 };
+
+// Shown when the panel is open but has no tabs — so the toggle always yields a
+// visible panel and there's a quiet home. The wordmark stays (BaseHalf's
+// identity); one line points at how files land here.
+const EmptyPanel = (): JSX.Element => (
+  <div
+    style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space[2],
+      padding: space[6],
+      textAlign: 'center',
+      userSelect: 'none',
+    }}
+  >
+    <div
+      style={{
+        fontFamily: font.sans,
+        fontSize: 22,
+        fontWeight: font.weight.semibold,
+        letterSpacing: -0.5,
+        color: color.textTertiary,
+      }}
+    >
+      BaseHalf
+    </div>
+    <div
+      style={{
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+        color: color.textGhost,
+        lineHeight: 1.5,
+        maxWidth: 280,
+      }}
+    >
+      Open a file from the sidebar to edit it here — or drag a card in from the canvas.
+    </div>
+  </div>
+);
 
 // The outer divider's grab strip, on the editor's LEFT edge: drag left to widen
 // the editor (narrower canvas), drag right to narrow it. Mirrors SidebarSash —
