@@ -241,3 +241,12 @@ header::-webkit-scrollbar {
   max-width: 100%;
   border-radius: 4px;
 }
+
+/* The MD editor (BlockNote / Mantine) inherits the pane surface instead of its
+   own darker background, so the editor area never reads as an inset "card" with
+   a frame. It already fills the pane width (FilePreview is a flex item that
+   grows); this just removes the bg seam around the gutter. */
+.bn-container,
+.bn-editor {
+  background-color: transparent !important;
+}

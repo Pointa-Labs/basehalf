@@ -147,6 +147,11 @@ export const FilePreview = ({
     // while the spatial map stays in view.
     <div
       style={{
+        // flex:1 + minWidth:0 so we FILL the pane / float (both are flex-row
+        // parents). Without this the editor shrink-wraps to its content width,
+        // leaving the text in a small left block with big empty space.
+        flex: 1,
+        minWidth: 0,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
