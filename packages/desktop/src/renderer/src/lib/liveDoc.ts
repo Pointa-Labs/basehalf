@@ -168,10 +168,12 @@ export function onReady(view: LiveDocView, cb: () => void): () => void {
   };
 }
 
-/** Build the workspace-scoped registry key for a file. The NUL separator can't
- *  appear in a workspace name or a relative path, so keys never collide. */
-export function docKeyFor(workspace: string | null, file: string): string {
-  return `${workspace ?? ''}${String.fromCharCode(0)}${file}`;
+/** Build the registry key for a file, scoped by the workspace ROOT PATH (not its
+ *  name): `repath()` keeps a workspace's name but points it at a new folder, so
+ *  keying by name would reuse the OLD folder's doc. The NUL separator can't appear
+ *  in a path, so keys never collide. */
+export function docKeyFor(workspaceRoot: string | null, file: string): string {
+  return `${workspaceRoot ?? ''}${String.fromCharCode(0)}${file}`;
 }
 
 /** Test-only: drop all docs + timers. */

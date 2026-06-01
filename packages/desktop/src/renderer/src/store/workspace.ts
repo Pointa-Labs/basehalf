@@ -239,8 +239,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // must KEEP the live UI context — reloading panes from localStorage would
         // clobber tab/split changes still inside the 400ms save debounce, and the
         // layout subscriber would then write that stale tree back. Only a workspace
-        // CHANGE resets panes (+ float / folder scope / search jump).
-        if (get().current !== null && result.current === get().current) {
+        // CHANGE resets panes (+ float / folder scope / search jump). "Same" means
+        // same NAME *and* same PATH — `repath()` keeps the name but points at a new
+        // folder, which must reset (else stale editors write the old folder's content
+        // into the new root).
+        const oldPath = get().workspaces.find((w) => w.name === get().current)?.path;
+        const newPath = result.workspaces.find((w) => w.name === result.current)?.path;
+        if (get().current !== null && result.current === get().current && oldPath === newPath) {
           set({
             workspaces: result.workspaces,
             current: result.current,
@@ -576,6 +581,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       const drag = get().tabDrag;
       if (!drag) return;
       const { file, sourcePaneId } = drag;
+      const ws = get().current;
       const crossPane = sourcePaneId !== toPaneId;
       const srcLeaf = findLeaf(get().paneTree, sourcePaneId);
       const tgtLeaf = findLeaf(get().paneTree, toPaneId);
@@ -585,6 +591,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // there — flush that editor too, or its debounce-window edits are lost.
       const needTgtFlush = crossPane && tgtLeaf?.activeFile != null && tgtLeaf.activeFile !== file;
       const finish = (): void => {
+        if (get().current !== ws) {
+          set({ tabDrag: null }); // workspace switched mid-flush — abort the move
+          return;
+        }
         set((s) => {
           let tree = s.paneTree;
           if (!crossPane) {
@@ -704,6 +714,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     dropTab: (file, fromPaneId, targetPaneId, region) => {
+      const ws = get().current;
       const srcLeaf = findLeaf(get().paneTree, fromPaneId);
       const tgtLeaf = findLeaf(get().paneTree, targetPaneId);
       // Every pane whose ACTIVE editor unmounts during this drop must flush first
@@ -725,6 +736,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         toFlush.add(targetPaneId);
       }
       const finish = (): void => {
+        if (get().current !== ws) {
+          set({ tabDrag: null }); // workspace switched mid-flush — abort the move
+          return;
+        }
         set((s) => {
           let tree = s.paneTree;
           let activePaneId = s.activePaneId;
@@ -821,11 +836,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     closeTab: (paneId, file, opts = {}) => {
-      const { paneTree } = get();
+      const { paneTree, current: ws } = get();
       const leaf = findLeaf(paneTree, paneId);
       if (!leaf || !leaf.tabs.includes(file)) return;
       const isActiveTab = leaf.activeFile === file;
       const finish = (): void => {
+        // Workspace switched during the flush → abort: restored layouts reuse pane
+        // ids, so finishing now could close the same relative file in the new workspace.
+        if (get().current !== ws) return;
         set((s) => {
           let tree = updateLeaf(s.paneTree, paneId, (l) => closeInLeaf(l, file));
           let activePaneId = s.activePaneId;

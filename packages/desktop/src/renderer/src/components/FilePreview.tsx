@@ -144,11 +144,12 @@ export const FilePreview = ({
   const mode = modeOf(file);
   const absPath = `${wsPath}/${file}`;
   const { basename } = splitPath(file);
-  // Key the text/MD views by WORKSPACE + path: a workspace switch whose restored
-  // layout has the same relative file in the same pane would otherwise keep the
-  // component mounted, leaving the editor bound to the previous workspace's Yjs doc
-  // while reads/writes use the new one. The scoped key forces a clean remount.
-  const viewKey = docKeyFor(current, file);
+  // Key the text/MD views by the workspace ROOT PATH + relative path: a workspace
+  // switch (or a repath to a new folder) whose layout has the same relative file in
+  // the same pane would otherwise keep the component mounted, leaving the editor
+  // bound to the previous folder's Yjs doc while reads/writes use the new one. The
+  // path-scoped key forces a clean remount + a fresh shared doc.
+  const viewKey = docKeyFor(wsPath, file);
 
   return (
     // The editor PANEL — the body of the active right-panel tab. Its width + left
@@ -172,7 +173,7 @@ export const FilePreview = ({
     >
       {showBadge && <BadgeProperties file={file} paneId={paneId} />}
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
-        {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} />}
+        {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} docKey={viewKey} />}
         {mode === 'text' && <TextViewer key={viewKey} file={file} />}
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
         {mode === 'image' && <ImageViewer absPath={absPath} />}
@@ -903,15 +904,16 @@ const ReferenceRow = ({
 
 const AUTOSAVE_MS = 400;
 
-const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
+const MdEditor = ({
+  file,
+  paneId,
+  docKey,
+}: { file: string; paneId: string; docKey: string }): JSX.Element => {
   // The file's shared in-memory document (created on first open, disposed on last
-  // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every
-  // view of this file ONE live document — both editable, char-level synced. Keyed
-  // by WORKSPACE + relative path so two workspaces sharing a relative path don't
-  // collide on one doc. (MdEditor is keyed by `file` in the parent and the panes
-  // reset on a workspace switch, so `current` is stable for this mount.)
-  const current = useWorkspaceStore((s) => s.current);
-  const docKey = docKeyFor(current, file);
+  // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every view
+  // of this file ONE live document — both editable, char-level synced. `docKey` is
+  // workspace-ROOT-scoped by the parent (keyed by it too), so two folders sharing a
+  // relative path — or a repath — never collide on one doc.
   const shared = ensureDoc(docKey);
   const editor = useCreateBlockNote({
     schema: bhSchema,
