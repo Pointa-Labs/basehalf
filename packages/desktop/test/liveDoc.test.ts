@@ -1,120 +1,105 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type LiveDocView,
-  __resetLiveDoc,
-  broadcast,
-  claimWriter,
-  currentWriter,
-  hasLiveDoc,
-  registerView,
+  __resetSharedDocs,
+  acquireDoc,
+  claimSeed,
+  ensureDoc,
+  isOwner,
+  releaseDoc,
 } from '../src/renderer/src/lib/liveDoc.js';
 
-// A fake view that records the bus's calls into it.
-function fakeView(file: string, content = 'DISK') {
-  const log: string[] = [];
-  let writer = false;
+// A fake view recording owner-role changes.
+function fakeView(file: string) {
+  let owner = false;
   const view: LiveDocView = {
     file,
-    setWriter: (w) => {
-      writer = w;
-      log.push(`setWriter:${w}`);
-    },
-    getContent: async () => content,
-    adopt: async (md) => {
-      log.push(`adopt:${md}`);
-    },
-    flush: async () => {
-      log.push('flush');
+    setOwner: (o) => {
+      owner = o;
     },
   };
-  return { view, log, isWriter: () => writer };
+  return { view, isOwner: () => owner };
 }
 
-afterEach(() => __resetLiveDoc());
+afterEach(() => {
+  __resetSharedDocs();
+  vi.useRealTimers();
+});
 
-describe('liveDoc bus', () => {
-  it('the first view that claims becomes the sole writer', () => {
-    const a = fakeView('x.md');
-    registerView(a.view);
-    claimWriter(a.view);
-    expect(a.isWriter()).toBe(true);
-    expect(currentWriter('x.md')).toBe(a.view);
-    expect(hasLiveDoc('x.md')).toBe(true);
+describe('liveDoc — per-file shared Y.Doc registry', () => {
+  it('ensureDoc returns the SAME doc for a file (one shared document)', () => {
+    const a = ensureDoc('x.md');
+    const b = ensureDoc('x.md');
+    expect(b).toBe(a);
+    expect(ensureDoc('y.md')).not.toBe(a); // different file → different doc
   });
 
-  it('a newer writer takes the role; the old one goes read-only and flushes first', () => {
-    const a = fakeView('x.md');
-    registerView(a.view);
-    claimWriter(a.view);
-    a.log.length = 0;
-
-    const b = fakeView('x.md');
-    registerView(b.view);
-    claimWriter(b.view);
-
-    expect(b.isWriter()).toBe(true);
-    expect(a.isWriter()).toBe(false);
-    expect(currentWriter('x.md')).toBe(b.view);
-    // The outgoing writer (a) was told to go read-only AND to flush its edits.
-    expect(a.log).toContain('setWriter:false');
-    expect(a.log).toContain('flush');
-  });
-
-  it('claimWriter is a no-op when the view is already the writer (no spurious flush)', () => {
-    const a = fakeView('x.md');
-    registerView(a.view);
-    claimWriter(a.view);
-    a.log.length = 0;
-    claimWriter(a.view); // already writer
-    expect(a.log).toEqual([]); // no setWriter / flush churn
-  });
-
-  it('broadcast reaches every OTHER view, not the writer itself', () => {
+  it('the first acquirer becomes the owner; later views bind but do not steal it', () => {
     const a = fakeView('x.md');
     const b = fakeView('x.md');
-    const c = fakeView('x.md');
-    for (const v of [a, b, c]) registerView(v.view);
-    claimWriter(a.view);
-    a.log.length = 0;
-    b.log.length = 0;
-    c.log.length = 0;
-    broadcast(a.view, 'NEW BODY');
-    expect(a.log).toEqual([]); // writer doesn't adopt its own broadcast
-    expect(b.log).toEqual(['adopt:NEW BODY']);
-    expect(c.log).toEqual(['adopt:NEW BODY']);
+    const sharedA = acquireDoc(a.view);
+    const sharedB = acquireDoc(b.view);
+    expect(sharedB).toBe(sharedA); // same shared doc
+    expect(a.isOwner()).toBe(true);
+    expect(b.isOwner()).toBe(false);
+    expect(isOwner(a.view)).toBe(true);
+    expect(sharedA.views.size).toBe(2);
   });
 
-  it('unregistering the writer hands the role to a surviving view', () => {
+  it('claimSeed returns true exactly once (no double-seed across concurrent mounts)', () => {
     const a = fakeView('x.md');
     const b = fakeView('x.md');
-    const unregA = registerView(a.view);
-    registerView(b.view);
-    claimWriter(a.view);
-    expect(currentWriter('x.md')).toBe(a.view);
-
-    b.log.length = 0;
-    unregA(); // the writer leaves
-    expect(currentWriter('x.md')).toBe(b.view); // role handed off
-    expect(b.isWriter()).toBe(true);
+    acquireDoc(a.view);
+    acquireDoc(b.view);
+    expect(claimSeed(a.view)).toBe(true);
+    expect(claimSeed(b.view)).toBe(false);
+    expect(claimSeed(a.view)).toBe(false);
   });
 
-  it('unregistering the last view clears the file from the bus', () => {
+  it('releasing the owner hands the role to a surviving view', () => {
     const a = fakeView('x.md');
-    const unreg = registerView(a.view);
-    claimWriter(a.view);
-    unreg();
-    expect(hasLiveDoc('x.md')).toBe(false);
-    expect(currentWriter('x.md')).toBeUndefined();
+    const b = fakeView('x.md');
+    acquireDoc(a.view);
+    acquireDoc(b.view);
+    releaseDoc(a.view); // owner leaves
+    expect(isOwner(b.view)).toBe(true);
+    expect(b.isOwner()).toBe(true);
   });
 
-  it('views of different files are independent', () => {
-    const a = fakeView('a.md');
-    const b = fakeView('b.md');
-    registerView(a.view);
-    registerView(b.view);
-    claimWriter(a.view);
-    claimWriter(b.view);
-    expect(a.isWriter()).toBe(true);
-    expect(b.isWriter()).toBe(true); // separate files → separate writers
+  it('shared save state survives an owner handoff (byId/frontmatter/lastDisk)', () => {
+    const a = fakeView('x.md');
+    const b = fakeView('x.md');
+    const shared = acquireDoc(a.view);
+    acquireDoc(b.view);
+    // The seeder populates the shared state…
+    shared.frontmatter = '---\nt: 1\n---\n';
+    shared.byId.set('blk1', { key: 'k', raw: 'r', prefix: '', sep: '\n\n' });
+    shared.lastDisk = 'DISK';
+    releaseDoc(a.view); // …then the seeder leaves — state must remain for the new owner.
+    const still = ensureDoc('x.md');
+    expect(still.frontmatter).toBe('---\nt: 1\n---\n');
+    expect(still.byId.get('blk1')?.raw).toBe('r');
+    expect(still.lastDisk).toBe('DISK');
+  });
+
+  it('a synchronous release→acquire (StrictMode remount) keeps the doc alive', () => {
+    vi.useFakeTimers();
+    const a = fakeView('x.md');
+    const doc1 = acquireDoc(a.view).doc;
+    releaseDoc(a.view); // schedules grace-destroy (setTimeout 0)
+    const doc2 = acquireDoc(a.view).doc; // re-acquire BEFORE the timer fires
+    vi.runAllTimers();
+    expect(doc2).toBe(doc1); // same doc — not destroyed
+    expect(acquireDoc(a.view).doc).toBe(doc1);
+  });
+
+  it('the last real release destroys the doc after the grace tick', () => {
+    vi.useFakeTimers();
+    const a = fakeView('x.md');
+    const doc1 = acquireDoc(a.view).doc;
+    releaseDoc(a.view);
+    vi.runAllTimers(); // grace elapses, no re-acquire
+    const doc2 = ensureDoc('x.md').doc; // a fresh doc (the old was disposed + dropped)
+    expect(doc2).not.toBe(doc1);
   });
 });

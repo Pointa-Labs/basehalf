@@ -1,103 +1,134 @@
+import { type XmlFragment, Doc as YDoc } from 'yjs';
+import type { ReuseEntry } from './mdSegment.js';
+
 /**
- * Live shared document across views of the SAME file.
+ * Per-file shared document registry — the in-memory "document model".
  *
- * The same file can be open in more than one editor at once — the canvas float
- * plus a right-panel tab, or two panel splits. Without coordination those are
- * independent editors that only reconcile through disk + the watcher (a ~1s lag,
- * and a conflict if both are edited at once). This bus makes them ONE logical
- * document instead:
+ * The same file open in several views (canvas float + panel tabs/splits) binds to
+ * ONE shared Yjs document, so edits sync live + character-level across every view:
+ * both editable, no divergence, never a self-conflict. The Y.Doc is purely
+ * in-memory — seeded from disk on first open, saved back via the byte-verbatim
+ * splice-save, disposed on last close — so the FILE stays the source of truth. (It
+ * is also collaboration-ready: this Y.Doc is exactly the unit a future sync layer
+ * would share between devices/users.)
  *
- *   - one WRITER per file (the most-recently-focused view) is editable and
- *     autosaves; every other view is a live, read-only MIRROR;
- *   - the writer BROADCASTS each save to the mirrors, which adopt it instantly
- *     (no disk round-trip) — so the views never drift apart;
- *   - a newly-joining view ADOPTS the current writer's live content (including
- *     unsaved edits), so opening a second view never shows a stale copy.
- *
- * Single-writer is deliberate: it means two views of one file can never be edited
- * at the same instant, so they can never self-conflict — and the editable view
- * stays a plain BlockNote editor, leaving the byte-verbatim splice-save untouched
- * (the reason we don't route the document through a CRDT). Clicking a mirror makes
- * it the writer (see claimWriter), so "read-only" is never a dead end.
+ * Why the per-file SAVE state (frontmatter, the id-keyed reuse index, last-known
+ * disk bytes) lives HERE and not per-view: the reuse index is keyed by the seeded
+ * block ids — which only the shared doc knows — so a second view couldn't rebuild
+ * it from disk. One view is the OWNER (runs autosave + the watcher + the conflict
+ * gate); ownership hands off when the owner unmounts. All views stay editable.
  */
 
 export interface LiveDocView {
   readonly file: string;
-  /** Become (true) / stop being (false) the writer — toggles this view's editor
-   *  editability. The bus calls this when the writer changes. */
-  setWriter(isWriter: boolean): void;
-  /** This view's CURRENT content as markdown (the live document serialized,
-   *  including unsaved edits) — a joining view adopts this instead of stale disk.
-   *  Must never reject; fall back to the last-known disk bytes on failure. */
-  getContent(): Promise<string>;
-  /** Adopt content the writer broadcast (or that was fetched on join): replace the
-   *  body + reset the disk baseline, with no disk read. */
-  adopt(md: string): Promise<void>;
-  /** Persist pending edits now — used before this view yields the writer role so
-   *  an edit isn't stranded in a view about to go read-only. */
-  flush(): Promise<void>;
+  /** Become (true) the OWNER — the single view that runs autosave + the file
+   *  watcher + the conflict gate. (All views are editable; the owner just owns
+   *  persistence.) Only ever called with `true`: a leaving owner is unmounting, and
+   *  ownership only moves on unmount. */
+  setOwner(isOwner: boolean): void;
 }
 
-const viewsByFile = new Map<string, Set<LiveDocView>>();
-const writerByFile = new Map<string, LiveDocView>();
+export interface SharedDoc {
+  readonly file: string;
+  readonly doc: YDoc;
+  readonly fragment: XmlFragment;
+  /** Live views bound to this doc. */
+  views: Set<LiveDocView>;
+  /** The single owner (saver / watcher), or null between owners. */
+  owner: LiveDocView | null;
+  /** Has a view seeded this doc from disk yet? Claimed synchronously (claimSeed)
+   *  so a concurrent mount — e.g. StrictMode's double effect — can't double-seed. */
+  seeded: boolean;
+  /** Per-file save state, shared across views. */
+  frontmatter: string;
+  byId: Map<string, ReuseEntry>;
+  lastDisk: string;
+  /** Pending grace-destroy timer — tolerates StrictMode's synchronous
+   *  unmount→remount (the remount's acquire cancels it). */
+  destroyTimer: ReturnType<typeof setTimeout> | null;
+}
 
-/** Add a view to its file's set (does NOT change the writer — call claimWriter
- *  once the view has loaded). Returns an unregister fn that removes it and, if it
- *  was the writer, hands the role to a remaining view. */
-export function registerView(view: LiveDocView): () => void {
-  let set = viewsByFile.get(view.file);
-  if (!set) {
-    set = new Set();
-    viewsByFile.set(view.file, set);
+const docs = new Map<string, SharedDoc>();
+
+/** Get-or-create a file's shared doc WITHOUT taking a hold — render-safe (idempotent
+ *  across StrictMode's double render). `useCreateBlockNote` binds to `.fragment`;
+ *  the hold (acquire/release) is taken in the mount effect. */
+export function ensureDoc(file: string): SharedDoc {
+  let shared = docs.get(file);
+  if (!shared) {
+    const doc = new YDoc();
+    shared = {
+      file,
+      doc,
+      fragment: doc.getXmlFragment('bn'),
+      views: new Set(),
+      owner: null,
+      seeded: false,
+      frontmatter: '',
+      byId: new Map(),
+      lastDisk: '',
+      destroyTimer: null,
+    };
+    docs.set(file, shared);
   }
-  set.add(view);
-  return () => {
-    const s = viewsByFile.get(view.file);
-    if (!s) return;
-    s.delete(view);
-    if (writerByFile.get(view.file) === view) {
-      writerByFile.delete(view.file);
-      const next = s.values().next().value as LiveDocView | undefined;
-      if (next) claimWriter(next); // hand the writer role to a survivor
-    }
-    if (s.size === 0) viewsByFile.delete(view.file);
-  };
+  return shared;
 }
 
-/** Make `view` the sole writer for its file; every other view of that file goes
- *  read-only. The outgoing writer flushes first so no pending edit is stranded. */
-export function claimWriter(view: LiveDocView): void {
-  const set = viewsByFile.get(view.file);
-  if (!set || !set.has(view)) return;
-  const prev = writerByFile.get(view.file);
-  if (prev === view) return; // already the writer → nothing to do
-  writerByFile.set(view.file, view);
-  for (const v of set) v.setWriter(v === view);
-  if (prev) void prev.flush(); // persist the outgoing writer's edits before it locks
+/** Take a hold (mount): add the view, claim the owner role if it's vacant, and
+ *  cancel any pending grace-destroy. Pair with releaseDoc in the effect cleanup. */
+export function acquireDoc(view: LiveDocView): SharedDoc {
+  const shared = ensureDoc(view.file);
+  if (shared.destroyTimer) {
+    clearTimeout(shared.destroyTimer);
+    shared.destroyTimer = null;
+  }
+  shared.views.add(view);
+  if (!shared.owner) {
+    shared.owner = view;
+    view.setOwner(true);
+  }
+  return shared;
 }
 
-/** The current writer for a file (a joining view adopts its live content). */
-export function currentWriter(file: string): LiveDocView | undefined {
-  return writerByFile.get(file);
-}
-
-/** Is any view of this file already live? (The first view loads from disk; a
- *  later one adopts the writer's live content instead.) */
-export function hasLiveDoc(file: string): boolean {
-  return (viewsByFile.get(file)?.size ?? 0) > 0;
-}
-
-/** The writer broadcasts content it just saved → every OTHER view adopts it. */
-export function broadcast(writer: LiveDocView, md: string): void {
-  const set = viewsByFile.get(writer.file);
-  if (!set) return;
-  for (const v of set) {
-    if (v !== writer) void v.adopt(md);
+/** Drop a hold (unmount): hand the owner role to a survivor, and schedule a
+ *  grace-destroy when the last view leaves (a synchronous re-acquire — StrictMode's
+ *  remount — cancels it before it fires). */
+export function releaseDoc(view: LiveDocView): void {
+  const shared = docs.get(view.file);
+  if (!shared) return;
+  shared.views.delete(view);
+  if (shared.owner === view) {
+    const next = shared.views.values().next().value as LiveDocView | undefined;
+    shared.owner = next ?? null;
+    if (next) next.setOwner(true);
+  }
+  if (shared.views.size === 0 && !shared.destroyTimer) {
+    shared.destroyTimer = setTimeout(() => {
+      docs.delete(view.file);
+      shared.doc.destroy();
+    }, 0);
   }
 }
 
-/** Test-only: drop all registered views + writers. */
-export function __resetLiveDoc(): void {
-  viewsByFile.clear();
-  writerByFile.clear();
+/** Atomically claim the right to seed this file's doc from disk — returns true for
+ *  exactly ONE caller (the first), false thereafter, so concurrent mounts of the
+ *  same file never double-seed. */
+export function claimSeed(view: LiveDocView): boolean {
+  const shared = docs.get(view.file);
+  if (!shared || shared.seeded) return false;
+  shared.seeded = true;
+  return true;
+}
+
+export function isOwner(view: LiveDocView): boolean {
+  return docs.get(view.file)?.owner === view;
+}
+
+/** Test-only: drop all docs + timers. */
+export function __resetSharedDocs(): void {
+  for (const s of docs.values()) {
+    if (s.destroyTimer) clearTimeout(s.destroyTimer);
+    s.doc.destroy();
+  }
+  docs.clear();
 }

@@ -22,19 +22,8 @@ import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
 import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
-import {
-  type LiveDocView,
-  broadcast,
-  claimWriter,
-  currentWriter,
-  registerView,
-} from '../lib/liveDoc.js';
-import {
-  type MdEditorApi,
-  type ReuseEntry,
-  buildLoadProjection,
-  spliceSave,
-} from '../lib/mdSegment.js';
+import { type LiveDocView, acquireDoc, claimSeed, ensureDoc, releaseDoc } from '../lib/liveDoc.js';
+import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -896,7 +885,17 @@ const ReferenceRow = ({
 const AUTOSAVE_MS = 400;
 
 const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
-  const editor = useCreateBlockNote({ schema: bhSchema });
+  // The file's shared in-memory document (created on first open, disposed on last
+  // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every
+  // view of this file ONE live document — both editable, char-level synced.
+  const shared = ensureDoc(file);
+  const editor = useCreateBlockNote({
+    schema: bhSchema,
+    collaboration: {
+      fragment: shared.fragment,
+      user: { name: 'me', color: color.accent },
+    },
+  });
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [error, setError] = useState<string>('');
@@ -919,49 +918,44 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   const [writeFailed, setWriteFailed] = useState(false);
   const writeFailedRef = useRef(false);
   const [loadKey, setLoadKey] = useState(0);
-  // Shared-document state: is THIS view the WRITER for its file (editable +
-  // autosaves)? A fresh view defaults to writer; the live-doc bus flips siblings
-  // read-only when one claims the role (see lib/liveDoc). isWriterRef is the
-  // synchronous truth the mousedown handler reads.
-  const [isWriter, setIsWriter] = useState(true);
-  const isWriterRef = useRef(true);
-  isWriterRef.current = isWriter;
-  // This editor's handle in the live-doc bus — declared early (built below, once
-  // flush + applyContent exist) so flush()'s broadcast can reach it.
+  // Shared-document ownership: is THIS view the OWNER for its file — the single
+  // view that runs autosave + the watcher + the conflict gate? All views are
+  // editable; the owner just owns persistence (see lib/liveDoc). Claimed on mount
+  // by the first view; hands off when the owner unmounts. isOwnerRef is the
+  // synchronous truth the save/watch paths read.
+  const [isOwner, setIsOwner] = useState(false);
+  const isOwnerRef = useRef(false);
+  isOwnerRef.current = isOwner;
+  // This editor's handle in the shared-doc registry (built below).
   const viewRef = useRef<LiveDocView | null>(null);
   const initialLoad = useRef(true);
-  // What we believe is on disk — lets us ignore our own write echoes from the
-  // watcher and detect genuine external edits.
-  const lastDiskRef = useRef('');
-  // A leading YAML frontmatter block, kept VERBATIM and re-prepended on save so
-  // BlockNote only ever round-trips the body. Without this, a note that opens
-  // with a YAML block would be forced view-only because YAML can't round-trip.
-  // Empty string when the file has no frontmatter.
-  const frontmatterRef = useRef('');
-  // Identity-addressed verbatim-reuse index (block id → its original source tile)
-  // built from the body on load, so the splice-save can re-emit untouched blocks
-  // byte-for-byte. Keyed by block id (preserved across edits) so duplicate content
-  // can't cross-pollinate; stays valid for the live document without rebuilding.
-  const byIdRef = useRef<Map<string, ReuseEntry>>(new Map());
-  // True once the user typed but the debounced save hasn't flushed yet.
+  // The per-file save state — frontmatter (kept verbatim, re-prepended on save),
+  // the id-keyed verbatim-reuse index, and the last-known disk bytes — lives on the
+  // SHARED doc, not here: the reuse index is keyed by the seeded block ids (which
+  // only the shared doc knows), so it can't be rebuilt per-view, and it must
+  // survive an owner handoff. (See shared.frontmatter / shared.byId / shared.lastDisk.)
+  //
+  // `pendingRef` stays per-view: only the OWNER's matters (its editor receives every
+  // view's edits via Yjs, so its onChange drives the single save), and navigation
+  // always flushes before an owner unmounts, so it's clear at handoff.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
   viewOnlyRef.current = viewOnly;
 
-  // Apply file content (from disk OR from a live sibling view's broadcast) to the
-  // editor: peel any leading YAML frontmatter and keep it byte-verbatim (BlockNote
+  // Apply disk content to the SHARED doc (replaceBlocks → syncs to every view via
+  // Yjs): peel any leading YAML frontmatter and keep it byte-verbatim (BlockNote
   // only ever sees the body, which is the source of truth — the projection tiles
   // it into source-exact segments so the splice-save can reuse untouched bytes,
   // see mdSegment.ts), project the body into reuse-indexed blocks, swap them in,
-  // and reset the disk baseline. Shared by the initial load and the live-doc adopt
-  // (shared model) so both follow the exact same path.
+  // and reset the shared disk baseline. Used by the SEEDER (first open) and the
+  // OWNER's external-change reload — both the only callers that touch disk.
   const applyContent = useCallback(
     async (original: string): Promise<void> => {
       initialLoad.current = true;
       const { frontmatter, body } = splitFrontmatter(original);
-      frontmatterRef.current = frontmatter;
+      shared.frontmatter = frontmatter;
       const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
-      byIdRef.current = byId;
+      shared.byId = byId;
       editor.replaceBlocks(
         editor.document,
         blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
@@ -969,7 +963,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       // File = truth: the echo baseline is the EXACT disk bytes. A save only
       // happens on a real edit (the pendingRef guard in flush), and our own
       // write echoes back equal to this — so merely viewing never rewrites.
-      lastDiskRef.current = original;
+      shared.lastDisk = original;
       pendingRef.current = false;
       // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
       // reinterpret its structure. Every Markdown file is now editable; the
@@ -982,13 +976,14 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         initialLoad.current = false;
       }, 50);
     },
-    [editor, file],
+    [editor, file, shared],
   );
 
-  // Reload on an EXTERNAL change: the watcher / acceptReload bump loadKey. Always
-  // from DISK — an external edit lives on disk, not in a sibling view. Skipped on
-  // first render (loadKey 0); the join effect below does the initial load (which
-  // may instead adopt a live sibling's content).
+  // Reload on an EXTERNAL change: the OWNER's watcher / acceptReload bump loadKey.
+  // Always from DISK — an external edit lives on disk. Re-seeding the shared doc
+  // (replaceBlocks) syncs every view via Yjs. Skipped on first render (loadKey 0);
+  // the join effect below does the initial load. Only the owner's loadKey ever
+  // changes (non-owners don't watch), so this is implicitly owner-only.
   useEffect(() => {
     if (loadKey === 0) return;
     void (async () => {
@@ -1003,12 +998,17 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     })();
   }, [file, loadKey, applyContent]);
 
-  // The actual save: serialize and write only when content changed. Safe to
-  // call anytime (no-op when nothing's pending). Sets lastDiskRef BEFORE the
-  // write so the watcher echo of our own write compares equal and is ignored.
+  // The actual save (OWNER only): serialize and write only when content changed.
+  // Safe to call anytime (no-op when nothing's pending). Updates shared.lastDisk
+  // after the write so the watcher echo of our own write compares equal + a new
+  // owner inherits the right baseline.
   const flush = useCallback(
     async (force = false): Promise<void> => {
       if (viewOnlyRef.current) return;
+      // Only the OWNER persists. A non-owner view's edits sync to the owner's editor
+      // via Yjs, whose onChange drives the single save — so a non-owner flush (e.g.
+      // a navigation flush of a non-owner pane) is a no-op.
+      if (!isOwnerRef.current) return;
       // A conflict banner is up: the user's explicit Keep/Reload choice is
       // authoritative. Don't let an auto-save / Cmd-S / blur / file-switch write
       // behind it and silently clobber the external edit. keepMine() passes
@@ -1029,13 +1029,13 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         md = await spliceSave(
           editor as unknown as MdEditorApi,
           editor.document,
-          frontmatterRef.current,
-          byIdRef.current,
+          shared.frontmatter,
+          shared.byId,
         );
       } catch {
         return; // editor torn down mid-flush — nothing safe to write
       }
-      if (md === lastDiskRef.current) {
+      if (md === shared.lastDisk) {
         pendingRef.current = false;
         writeFailedRef.current = false; // content matches disk → nothing unpersisted
         setWriteFailed(false);
@@ -1050,7 +1050,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
           const disk = (
             (await window.bh.run('workspace.readFile', { path: file })) as WorkspaceReadFileResult
           ).content;
-          if (disk !== lastDiskRef.current) {
+          if (disk !== shared.lastDisk) {
             reloadPromptRef.current = true;
             setReloadPrompt(true);
             return;
@@ -1062,17 +1062,14 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       }
       try {
         await window.bh.run('workspace.writeFile', { path: file, content: md });
-        // Only AFTER a successful write: mark synced to the EXACT bytes written (so
-        // the watcher echo compares equal) and clear pending. The reuse index is
-        // keyed by block id and stays valid for the live document, so there's
-        // nothing to rebuild here.
-        lastDiskRef.current = md;
+        // Only AFTER a successful write: mark the shared baseline to the EXACT bytes
+        // written (so the watcher echo compares equal + a new owner inherits the
+        // right baseline) and clear pending. The reuse index is keyed by block id
+        // and stays valid for the live document, so there's nothing to rebuild.
+        shared.lastDisk = md;
         pendingRef.current = false;
         writeFailedRef.current = false;
         setWriteFailed(false);
-        // Shared document: push the just-saved content to any sibling views of this
-        // file so they update INSTANTLY (no disk round-trip / watcher lag).
-        if (viewRef.current) broadcast(viewRef.current, md);
       } catch (err) {
         // The write didn't land — edits remain in memory only. Flag it so the
         // navigation gatekeeper blocks a switch/close that would drop them, and
@@ -1083,64 +1080,62 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       } finally {
       }
     },
-    [editor, file],
+    [editor, file, shared],
   );
   const flushRef = useRef(flush);
   flushRef.current = flush;
 
-  // This view's handle in the live-doc bus. Stable per file; its closures read the
-  // latest editor/refs, so the bus holds one handle per open editor of the file.
+  // This view's handle in the shared-doc registry. setOwner toggles the (single)
+  // persistence-owner role; isOwnerRef is set synchronously so flush/onChange see
+  // it the instant ownership changes.
   const view = useMemo<LiveDocView>(
     () => ({
       file,
-      setWriter: (w) => setIsWriter(w),
-      // The live document serialized (incl. unsaved edits) — a joining sibling
-      // adopts THIS instead of stale disk. Never rejects: falls back to the
-      // last-known disk bytes if the editor can't serialize right now.
-      getContent: async () => {
-        try {
-          return await spliceSave(
-            editor as unknown as MdEditorApi,
-            editor.document,
-            frontmatterRef.current,
-            byIdRef.current,
-          );
-        } catch {
-          return lastDiskRef.current;
-        }
+      setOwner: (o) => {
+        isOwnerRef.current = o;
+        setIsOwner(o);
       },
-      adopt: (md) => applyContent(md),
-      flush: () => flushRef.current(false),
     }),
-    [file, editor, applyContent],
+    [file],
   );
   viewRef.current = view;
 
-  // Join this file's live document on mount. If a sibling view is already open,
-  // ADOPT its live content (incl. unsaved edits) so a second view of the same file
-  // never shows a stale copy; otherwise load from disk. Then register + claim the
-  // writer role (a freshly-opened view edits; the sibling goes read-only).
-  // Unregister on unmount, which hands the writer role to a surviving view.
+  // Join this file's shared document on mount: take a hold (claims the owner role
+  // if vacant), and — as the FIRST view — SEED the doc from disk. Later views bind
+  // to the already-seeded content (Yjs syncs them), so they don't re-read disk and
+  // can't double-seed (claimSeed is atomic). Releasing on unmount hands the owner
+  // role to a surviving view (see lib/liveDoc).
   useEffect(() => {
     const self = view;
-    const sibling = currentWriter(file); // resolve BEFORE register → a sibling, not us
-    const unregister = registerView(self);
-    void (async () => {
-      try {
-        const md = sibling
-          ? await sibling.getContent()
-          : (
-              (await window.bh.run('workspace.readFile', {
-                path: file,
-              })) as WorkspaceReadFileResult
-            ).content;
-        await applyContent(md);
-        claimWriter(self); // loaded → become the writer (newest edits win)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return unregister;
+    acquireDoc(self);
+    let joinTimer: ReturnType<typeof setTimeout> | undefined;
+    if (claimSeed(self)) {
+      void (async () => {
+        try {
+          const { content } = (await window.bh.run('workspace.readFile', {
+            path: file,
+          })) as WorkspaceReadFileResult;
+          await applyContent(content);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })();
+    } else {
+      // Joining an already-seeded doc: the content arrives via Yjs. Set the per-view
+      // flags the seeder's applyContent would have (view-only by extension, cleared
+      // banners) and lift the initial-load guard once the sync has settled.
+      setViewOnly(/\.txt$/i.test(file));
+      setReloadPrompt(false);
+      setError('');
+      initialLoad.current = true;
+      joinTimer = setTimeout(() => {
+        initialLoad.current = false;
+      }, 50);
+    }
+    return () => {
+      if (joinTimer) clearTimeout(joinTimer);
+      releaseDoc(self);
+    };
   }, [file, view, applyContent]);
 
   // Debounced auto-save trigger — stable across renders, delegates via the ref.
@@ -1159,6 +1154,9 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     // With no conflict, flush normally (the re-read guard may itself surface one
     // mid-flush, which we also report as blocked).
     const flusher = async (): Promise<boolean> => {
+      // A non-owner view has nothing to persist (the owner's autosave does) — allow
+      // navigation. (Its edits already synced to the owner via Yjs.)
+      if (!isOwnerRef.current) return true;
       if (reloadPromptRef.current) return false;
       await flushRef.current(false);
       // Block if a conflict surfaced mid-flush OR the write failed (edits still
@@ -1201,6 +1199,9 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   useEffect(() => {
     let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = window.bh.onFileEvent((event) => {
+      // Only the OWNER reacts to disk events — it reloads into the shared doc, which
+      // syncs every other view via Yjs. (A non-owner reacting too would double-handle.)
+      if (!isOwnerRef.current) return;
       if (event.type === 'rename') {
         if (event.fromRelPath === file && pendingDeleteTimer) {
           clearTimeout(pendingDeleteTimer);
@@ -1222,7 +1223,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
             return;
           }
           // Our own auto-save echoes back as a change event — ignore it.
-          if (disk === lastDiskRef.current) return;
+          if (disk === shared.lastDisk) return;
           if (pendingRef.current) {
             // Genuine external edit collides with local edits → conflict banner.
             // CANCEL the armed auto-save + set the sync ref so the debounced
@@ -1232,7 +1233,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
             setReloadPrompt(true);
             scheduleSave.cancel();
           } else {
-            lastDiskRef.current = disk;
+            shared.lastDisk = disk;
             setLoadKey((k) => k + 1); // adopt the external change
           }
         })();
@@ -1248,7 +1249,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
       unsub();
     };
-  }, [file, scheduleSave]);
+  }, [file, scheduleSave, shared]);
 
   const acceptReload = useCallback(() => {
     reloadPromptRef.current = false;
@@ -1295,15 +1296,7 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   }, []);
 
   return (
-    <div
-      // Clicking into a read-only MIRROR takes over the writer role for this file
-      // (so it becomes editable). No-op when already the writer. Capture-phase so it
-      // wins before the click lands inside the editor.
-      onMouseDownCapture={() => {
-        if (viewRef.current && !isWriterRef.current) claimWriter(viewRef.current);
-      }}
-      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-    >
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* No save-status line — auto-save runs silently (debounced + flushed on
           close/switch/workspace-change). The only status row kept is the
           read-only notice for plain-text files, so a non-editable .txt isn't a
@@ -1409,17 +1402,21 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         <div style={{ padding: `${space[5]}px ${space[5]}px` }}>
           <BlockNoteView
             editor={editor}
-            // Only the WRITER view is editable; sibling views of the same file are
-            // live read-only mirrors (single-writer → they can never self-conflict).
-            editable={!viewOnly && isWriter}
+            // Every view of the file is editable — they share one Yjs document, so
+            // edits merge char-level and never diverge.
+            editable={!viewOnly}
             theme="dark"
             onChange={() => {
-              if (!initialLoad.current && !viewOnly && isWriterRef.current) {
+              if (initialLoad.current || viewOnly) return;
+              // Editing a preview tab promotes it to a permanent (pinned) tab —
+              // idempotent (no-op once pinned), like a mature editor.
+              pinTab(paneId, file);
+              // Only the OWNER schedules the save. onChange fires here for THIS
+              // view's own edits AND (on the owner) for edits synced in from other
+              // views via Yjs — so the owner's autosave covers every view.
+              if (isOwnerRef.current) {
                 pendingRef.current = true;
                 scheduleSave();
-                // Editing a preview tab promotes it to a permanent (pinned) tab —
-                // idempotent (no-op once pinned), like a mature editor.
-                pinTab(paneId, file);
               }
             }}
           />

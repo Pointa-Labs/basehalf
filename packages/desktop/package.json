@@ -25,6 +25,7 @@
     "micromark-extension-gfm": "^3.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "yjs": "13.6.30",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
