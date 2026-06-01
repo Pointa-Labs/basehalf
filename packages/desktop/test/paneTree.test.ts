@@ -3,6 +3,7 @@ import {
   type LeafPane,
   type PaneNode,
   __resetPaneIds,
+  adoptPaneIds,
   allLeaves,
   closeInLeaf,
   emptyLeaf,
@@ -10,6 +11,7 @@ import {
   firstLeaf,
   leafCount,
   moveInLeaf,
+  nextPaneId,
   openInLeaf,
   pinInLeaf,
   removeLeaf,
@@ -144,5 +146,30 @@ describe('paneTree — tree structure', () => {
     expect(sized.type === 'split' && sized.fraction).toBe(0.7);
     // clamps out-of-range
     expect((setFraction(opened, 's1', 0.99) as { fraction: number }).fraction).toBe(0.9);
+  });
+});
+
+describe('paneTree — adoptPaneIds (restore-safe id counter)', () => {
+  it('advances the counter past every id in a restored tree (no later collision)', () => {
+    __resetPaneIds();
+    // A persisted tree whose ids predate this session's counter (still at 0).
+    const restored: PaneNode = {
+      type: 'split',
+      id: 'pane-3',
+      direction: 'row',
+      a: { type: 'leaf', id: 'pane-1', tabs: ['a.md'], activeFile: 'a.md', previewFile: null },
+      b: { type: 'leaf', id: 'pane-5', tabs: ['b.md'], activeFile: 'b.md', previewFile: null },
+      fraction: 0.5,
+    };
+    adoptPaneIds(restored);
+    // The next id must be PAST the max restored id (pane-5), not pane-1 again.
+    expect(nextPaneId()).toBe('pane-6');
+  });
+
+  it('is a no-op (keeps counting up) when the tree has no higher ids', () => {
+    __resetPaneIds();
+    nextPaneId(); // pane-1
+    adoptPaneIds({ type: 'leaf', id: 'pane-1', tabs: [], activeFile: null, previewFile: null });
+    expect(nextPaneId()).toBe('pane-2');
   });
 });

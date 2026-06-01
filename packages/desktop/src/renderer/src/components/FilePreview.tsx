@@ -22,7 +22,14 @@ import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
 import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
-import { type LiveDocView, acquireDoc, claimSeed, ensureDoc, releaseDoc } from '../lib/liveDoc.js';
+import {
+  type LiveDocView,
+  acquireDoc,
+  claimSeed,
+  docKeyFor,
+  ensureDoc,
+  releaseDoc,
+} from '../lib/liveDoc.js';
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
@@ -887,8 +894,13 @@ const AUTOSAVE_MS = 400;
 const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
   // The file's shared in-memory document (created on first open, disposed on last
   // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every
-  // view of this file ONE live document — both editable, char-level synced.
-  const shared = ensureDoc(file);
+  // view of this file ONE live document — both editable, char-level synced. Keyed
+  // by WORKSPACE + relative path so two workspaces sharing a relative path don't
+  // collide on one doc. (MdEditor is keyed by `file` in the parent and the panes
+  // reset on a workspace switch, so `current` is stable for this mount.)
+  const current = useWorkspaceStore((s) => s.current);
+  const docKey = docKeyFor(current, file);
+  const shared = ensureDoc(docKey);
   const editor = useCreateBlockNote({
     schema: bhSchema,
     collaboration: {
@@ -1090,13 +1102,13 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   // it the instant ownership changes.
   const view = useMemo<LiveDocView>(
     () => ({
-      file,
+      key: docKey,
       setOwner: (o) => {
         isOwnerRef.current = o;
         setIsOwner(o);
       },
     }),
-    [file],
+    [docKey],
   );
   viewRef.current = view;
 

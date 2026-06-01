@@ -42,6 +42,23 @@ export const __resetPaneIds = (): void => {
   idCounter = 0;
 };
 
+/** Advance the id counter past every id in a tree — call after restoring a
+ *  persisted layout (whose ids like `pane-2` predate this session's counter, which
+ *  is still near 0). Without it the next split / new pane could reuse a restored
+ *  id, and findLeaf / updateLeaf / `[data-pane-id]` would then hit the wrong pane
+ *  (or several). */
+export const adoptPaneIds = (tree: PaneNode): void => {
+  const visit = (n: PaneNode): void => {
+    const m = /^pane-(\d+)$/.exec(n.id);
+    if (m) idCounter = Math.max(idCounter, Number(m[1]));
+    if (n.type === 'split') {
+      visit(n.a);
+      visit(n.b);
+    }
+  };
+  visit(tree);
+};
+
 export const emptyLeaf = (id = nextPaneId()): LeafPane => ({
   type: 'leaf',
   id,

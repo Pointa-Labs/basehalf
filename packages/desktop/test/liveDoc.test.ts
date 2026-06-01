@@ -4,16 +4,17 @@ import {
   __resetSharedDocs,
   acquireDoc,
   claimSeed,
+  docKeyFor,
   ensureDoc,
   isOwner,
   releaseDoc,
 } from '../src/renderer/src/lib/liveDoc.js';
 
-// A fake view recording owner-role changes.
-function fakeView(file: string) {
+// A fake view recording owner-role changes. `key` is the (workspace-scoped) doc key.
+function fakeView(key: string) {
   let owner = false;
   const view: LiveDocView = {
-    file,
+    key,
     setOwner: (o) => {
       owner = o;
     },
@@ -80,6 +81,17 @@ describe('liveDoc — per-file shared Y.Doc registry', () => {
     expect(still.frontmatter).toBe('---\nt: 1\n---\n');
     expect(still.byId.get('blk1')?.raw).toBe('r');
     expect(still.lastDisk).toBe('DISK');
+  });
+
+  it('the same relative path in DIFFERENT workspaces is two separate docs', () => {
+    const kA = docKeyFor('workspaceA', 'notes.md');
+    const kB = docKeyFor('workspaceB', 'notes.md');
+    expect(kA).not.toBe(kB);
+    const a = ensureDoc(kA);
+    const b = ensureDoc(kB);
+    expect(b).not.toBe(a); // no cross-workspace leak onto one shared doc
+    // …and the same key resolves to the same doc.
+    expect(ensureDoc(docKeyFor('workspaceA', 'notes.md'))).toBe(a);
   });
 
   it('a synchronous release→acquire (StrictMode remount) keeps the doc alive', () => {

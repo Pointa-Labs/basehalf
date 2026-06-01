@@ -12,6 +12,11 @@ import type { ReuseEntry } from './mdSegment.js';
  * is also collaboration-ready: this Y.Doc is exactly the unit a future sync layer
  * would share between devices/users.)
  *
+ * Keyed by a WORKSPACE-SCOPED key (`<workspace>\0<relpath>`), not the bare relative
+ * path: two workspaces can hold the same relative path (`notes.md`), and keying by
+ * path alone would share ONE doc between them — leaking one root's content into the
+ * other and writing edits to the wrong file.
+ *
  * Why the per-file SAVE state (frontmatter, the id-keyed reuse index, last-known
  * disk bytes) lives HERE and not per-view: the reuse index is keyed by the seeded
  * block ids — which only the shared doc knows — so a second view couldn't rebuild
@@ -20,7 +25,8 @@ import type { ReuseEntry } from './mdSegment.js';
  */
 
 export interface LiveDocView {
-  readonly file: string;
+  /** The workspace-scoped registry key (NOT the relative path) — see module note. */
+  readonly key: string;
   /** Become (true) the OWNER — the single view that runs autosave + the file
    *  watcher + the conflict gate. (All views are editable; the owner just owns
    *  persistence.) Only ever called with `true`: a leaving owner is unmounting, and
@@ -29,7 +35,7 @@ export interface LiveDocView {
 }
 
 export interface SharedDoc {
-  readonly file: string;
+  readonly key: string;
   readonly doc: YDoc;
   readonly fragment: XmlFragment;
   /** Live views bound to this doc. */
@@ -50,15 +56,15 @@ export interface SharedDoc {
 
 const docs = new Map<string, SharedDoc>();
 
-/** Get-or-create a file's shared doc WITHOUT taking a hold — render-safe (idempotent
- *  across StrictMode's double render). `useCreateBlockNote` binds to `.fragment`;
- *  the hold (acquire/release) is taken in the mount effect. */
-export function ensureDoc(file: string): SharedDoc {
-  let shared = docs.get(file);
+/** Get-or-create a shared doc for a (scoped) key WITHOUT taking a hold — render-safe
+ *  (idempotent across StrictMode's double render). `useCreateBlockNote` binds to
+ *  `.fragment`; the hold (acquire/release) is taken in the mount effect. */
+export function ensureDoc(key: string): SharedDoc {
+  let shared = docs.get(key);
   if (!shared) {
     const doc = new YDoc();
     shared = {
-      file,
+      key,
       doc,
       fragment: doc.getXmlFragment('bn'),
       views: new Set(),
@@ -69,7 +75,7 @@ export function ensureDoc(file: string): SharedDoc {
       lastDisk: '',
       destroyTimer: null,
     };
-    docs.set(file, shared);
+    docs.set(key, shared);
   }
   return shared;
 }
@@ -77,7 +83,7 @@ export function ensureDoc(file: string): SharedDoc {
 /** Take a hold (mount): add the view, claim the owner role if it's vacant, and
  *  cancel any pending grace-destroy. Pair with releaseDoc in the effect cleanup. */
 export function acquireDoc(view: LiveDocView): SharedDoc {
-  const shared = ensureDoc(view.file);
+  const shared = ensureDoc(view.key);
   if (shared.destroyTimer) {
     clearTimeout(shared.destroyTimer);
     shared.destroyTimer = null;
@@ -94,7 +100,7 @@ export function acquireDoc(view: LiveDocView): SharedDoc {
  *  grace-destroy when the last view leaves (a synchronous re-acquire — StrictMode's
  *  remount — cancels it before it fires). */
 export function releaseDoc(view: LiveDocView): void {
-  const shared = docs.get(view.file);
+  const shared = docs.get(view.key);
   if (!shared) return;
   shared.views.delete(view);
   if (shared.owner === view) {
@@ -104,24 +110,30 @@ export function releaseDoc(view: LiveDocView): void {
   }
   if (shared.views.size === 0 && !shared.destroyTimer) {
     shared.destroyTimer = setTimeout(() => {
-      docs.delete(view.file);
+      docs.delete(view.key);
       shared.doc.destroy();
     }, 0);
   }
 }
 
-/** Atomically claim the right to seed this file's doc from disk — returns true for
- *  exactly ONE caller (the first), false thereafter, so concurrent mounts of the
- *  same file never double-seed. */
+/** Atomically claim the right to seed this doc from disk — returns true for exactly
+ *  ONE caller (the first), false thereafter, so concurrent mounts of the same key
+ *  never double-seed. */
 export function claimSeed(view: LiveDocView): boolean {
-  const shared = docs.get(view.file);
+  const shared = docs.get(view.key);
   if (!shared || shared.seeded) return false;
   shared.seeded = true;
   return true;
 }
 
 export function isOwner(view: LiveDocView): boolean {
-  return docs.get(view.file)?.owner === view;
+  return docs.get(view.key)?.owner === view;
+}
+
+/** Build the workspace-scoped registry key for a file. The NUL separator can't
+ *  appear in a workspace name or a relative path, so keys never collide. */
+export function docKeyFor(workspace: string | null, file: string): string {
+  return `${workspace ?? ''}${String.fromCharCode(0)}${file}`;
 }
 
 /** Test-only: drop all docs + timers. */

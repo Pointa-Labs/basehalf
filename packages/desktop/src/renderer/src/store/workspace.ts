@@ -9,6 +9,7 @@ import { flushAll, flushPane } from '../lib/editorFlush.js';
 import { loadPanes, savePanes } from '../lib/layoutPersist.js';
 import {
   type PaneNode,
+  adoptPaneIds,
   allLeaves,
   closeInLeaf,
   emptyLeaf,
@@ -48,6 +49,9 @@ const paneResetFor = (
   const restored = loadPanes(ws);
   if (restored) {
     const tree = restored.paneTree;
+    // Advance the pane-id counter past the restored ids so a later split / new pane
+    // can't collide with one of them (which would corrupt findLeaf / tab moves).
+    adoptPaneIds(tree);
     const activePaneId = findLeaf(tree, restored.activePaneId)
       ? restored.activePaneId
       : firstLeaf(tree).id;
@@ -589,13 +593,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     renameTab: (from, to) =>
       set((s) => {
-        // Rebind the path across EVERY pane (the file may be open in several). No
-        // flush — the old path is gone on disk; affected editors remount on `to`.
+        // Rebind the path across EVERY view (it may be open in several panes AND the
+        // canvas float). No flush — the old path is gone on disk; affected editors
+        // remount on `to`. Without the floatingFile rebind, a renamed file left
+        // floating would keep editing/flushing the vanished path.
         let tree = s.paneTree;
         for (const leaf of allLeaves(tree)) {
           tree = updateLeaf(tree, leaf.id, (l) => renameInLeaf(l, from, to));
         }
-        return { paneTree: tree, currentFile: s.currentFile === from ? to : s.currentFile };
+        return {
+          paneTree: tree,
+          currentFile: s.currentFile === from ? to : s.currentFile,
+          floatingFile: s.floatingFile === from ? to : s.floatingFile,
+        };
       }),
 
     setActivePane: (paneId) =>
@@ -695,12 +705,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     openFloat: (file) => {
+      const cur = get().floatingFile;
+      if (cur === file) return; // already floating this file
       // Always float on a canvas double-click — a consistent canvas-side peek,
-      // independent of the right panel. The live-doc bus (lib/liveDoc) makes a
-      // float + a panel tab of the SAME file ONE shared document (single writer +
-      // instant mirror), so this never forks into two divergent copies — which is
-      // why double-click can float unconditionally instead of re-focusing a tab.
-      set({ floatingFile: file });
+      // independent of the right panel. The shared Yjs doc (lib/liveDoc) makes a
+      // float + a panel tab of the same file ONE live document, so this never forks
+      // — which is why double-click can float unconditionally.
+      if (cur === null) {
+        set({ floatingFile: file });
+        return;
+      }
+      // A DIFFERENT float is already open: flush its editor before swapping it out,
+      // so edits still inside the autosave debounce window aren't dropped when the
+      // old MdEditor unmounts. An unresolved conflict keeps the current float up.
+      void flushPane(FLOAT_PANE_ID).then(
+        (ok) => {
+          if (ok) set({ floatingFile: file });
+          else set({ error: "Save or resolve this file's changes before switching." });
+        },
+        () => set({ floatingFile: file }),
+      );
     },
 
     closeFloat: () => {
@@ -717,7 +741,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       );
     },
 
-    toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+    toggleRightPanel: () => {
+      if (!get().rightPanelOpen) {
+        set({ rightPanelOpen: true });
+        return;
+      }
+      // Hiding the panel unmounts every panel editor (EditorSpace renders null), and
+      // an unmount cancels the debounced autosave — so flush first, or the last
+      // keystrokes are lost. An unresolved conflict keeps the panel open to resolve.
+      void flushAll().then((ok) => {
+        if (ok) set({ rightPanelOpen: false });
+        else set({ error: "Save or resolve this file's changes before hiding the panel." });
+      });
+    },
 
     closeTab: (paneId, file, opts = {}) => {
       const { paneTree } = get();
@@ -817,18 +853,26 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return;
       }
       try {
-        // Find a free untitled name (readFile throws PATH_NOT_FOUND when free).
-        let name = 'untitled.md';
-        for (let i = 1; i < 1000; i++) {
+        // Find a free untitled name — CHECK each candidate (incl. the last) so we
+        // never overwrite an existing note. readFile throws PATH_NOT_FOUND when free.
+        let name = '';
+        for (let i = 0; i < 1000; i++) {
+          const candidate = i === 0 ? 'untitled.md' : `untitled-${i}.md`;
           let taken = false;
           try {
-            await window.bh.run('workspace.readFile', { path: name });
+            await window.bh.run('workspace.readFile', { path: candidate });
             taken = true;
           } catch (err) {
             if (!isPathNotFound(err)) throw err;
           }
-          if (!taken) break;
-          name = `untitled-${i}.md`;
+          if (!taken) {
+            name = candidate;
+            break;
+          }
+        }
+        if (name === '') {
+          set({ error: 'Too many untitled notes — name one before creating another.' });
+          return;
         }
         // Blank file — MdEditor seeds an editable paragraph for an empty note.
         await window.bh.run('workspace.writeFile', { path: name, content: '' });
