@@ -79,7 +79,7 @@ function splitPath(rel: string): { dirname: string; basename: string } {
 
 export const FilePreview = (): JSX.Element | null => {
   const currentFile = useWorkspaceStore((s) => s.currentFile);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
   const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -89,11 +89,12 @@ export const FilePreview = (): JSX.Element | null => {
   // text for a content-search hit.
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Esc / Cmd-W close the preview. Cmd-W matches macOS muscle memory for
-  // closing a panel/tab. setCurrentFile(null) flushes the editor before
-  // clearing (see store), so closing always persists pending edits.
+  // Esc / Cmd-W close the ACTIVE tab. Cmd-W matches macOS muscle memory for
+  // closing a tab. closeTab flushes the editor first (see store), so closing
+  // always persists pending edits (or holds on an unresolved conflict).
   useEffect(() => {
     if (!currentFile) return;
+    const active = currentFile; // narrowed to string for the closure below
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         // Close from the document body and the media viewers (DIV targets).
@@ -105,15 +106,15 @@ export const FilePreview = (): JSX.Element | null => {
         // Escape mid-typing in another field doesn't yank the panel shut.
         const tag = (e.target as HTMLElement | null)?.tagName ?? '';
         if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        setCurrentFile(null);
+        closeTab(active);
       } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        setCurrentFile(null);
+        closeTab(active);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentFile, setCurrentFile]);
+  }, [currentFile, closeTab]);
 
   // Jump-to-match: when a file is opened FROM a content-search hit, land on the
   // passage. Scoped to the MD editor — its block-per-element layout makes a
@@ -156,13 +157,13 @@ export const FilePreview = (): JSX.Element | null => {
   if (!currentFile) return null;
   const mode = modeOf(currentFile);
   const absPath = `${wsPath}/${currentFile}`;
-  const { dirname, basename } = splitPath(currentFile);
+  const { basename } = splitPath(currentFile);
 
   return (
-    // The editor PANEL — fills the right-docked editor space (its width + left
-    // resize sash live in EditorSpace). No dim backdrop / centering: the canvas
-    // sits to its left, lit and interactive, so you read/edit on the right while
-    // the spatial map stays in view. Close via the header button / Esc / Cmd-W.
+    // The editor PANEL — the body of the active right-panel tab. Its width + left
+    // resize sash + the tab strip (file identity + close) live in EditorSpace; the
+    // canvas sits to its left, lit and interactive, so you read/edit on the right
+    // while the spatial map stays in view.
     <div
       style={{
         height: '100%',
@@ -173,60 +174,6 @@ export const FilePreview = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      <header
-        style={{
-          padding: `${space[3]}px ${space[4]}px`,
-          borderBottom: `1px solid ${color.border}`,
-          background: color.surface,
-          fontFamily: font.sans,
-          display: 'flex',
-          alignItems: 'center',
-          gap: space[2],
-        }}
-        title={currentFile}
-      >
-        <div
-          style={{
-            flex: 1,
-            minWidth: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-          }}
-        >
-          <strong
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              color: color.textPrimary,
-              fontSize: font.size.body,
-              fontWeight: font.weight.semibold,
-              letterSpacing: -0.1,
-            }}
-          >
-            {basename}
-          </strong>
-          {dirname && (
-            <span
-              style={{
-                fontSize: font.size.micro,
-                color: color.textTertiary,
-                fontFamily: font.mono,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                letterSpacing: -0.2,
-              }}
-            >
-              {dirname}/
-            </span>
-          )}
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => setCurrentFile(null)} title="Close (Esc)">
-          Close
-        </Button>
-      </header>
       <BadgeProperties file={currentFile} />
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
         {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
@@ -339,8 +286,8 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   // on the next successful write.
   const [saveError, setSaveError] = useState<string | null>(null);
   // For the prompt textarea's own Escape-to-close (the global handler skips
-  // form fields, so the field closes the panel itself).
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  // form fields, so the field closes the active tab itself).
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -601,12 +548,12 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 savePrompt(e.target.value);
               }}
               onKeyDown={(e) => {
-                // Escape leaves the editor in one press from here too (the
+                // Escape closes the active tab in one press from here too (the
                 // global handler skips form fields). Persist first.
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   savePrompt.flush();
-                  setCurrentFile(null);
+                  closeTab(file);
                 }
               }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
@@ -955,7 +902,7 @@ const AUTOSAVE_MS = 400;
 const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const editor = useCreateBlockNote({ schema: bhSchema });
   const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
   const [saving, setSaving] = useState(false); // a save is pending or in flight
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -1259,8 +1206,8 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
-    setCurrentFile(null, null, { bypassFlush: true });
-  }, [setCurrentFile]);
+    closeTab(file, { bypassFlush: true });
+  }, [closeTab, file]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.

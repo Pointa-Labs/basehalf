@@ -3,20 +3,23 @@ import { color, transition } from '../design.js';
 import { EDITOR_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FilePreview } from './FilePreview.js';
+import { TabStrip } from './TabStrip.js';
 
 /**
- * The RIGHT region — the editor space. A real flex column docked to the right
- * edge; the canvas keeps the middle and reflows when this resizes / closes.
- * Present only while a file is open (Stage 1 hosts the single-file editor; the
- * tab + split model lands in later stages). Drag the LEFT sash to rebalance
- * canvas ⇄ editor (the "outer" divider).
+ * The RIGHT region — the right panel: a VS-Code-style tabbed editor docked to
+ * the right edge. The canvas keeps the middle and reflows when this resizes /
+ * closes. Shown when there are open tabs AND the top-right toggle hasn't hidden
+ * it (tabs persist while hidden). Drag the LEFT sash to rebalance canvas ⇄ panel
+ * (the "outer" divider); the tab strip switches files; only the active tab's
+ * editor is mounted.
  */
 export const EditorSpace = (): JSX.Element | null => {
-  const currentFile = useWorkspaceStore((s) => s.currentFile);
+  const tabs = useWorkspaceStore((s) => s.tabs);
+  const rightPanelOpen = useWorkspaceStore((s) => s.rightPanelOpen);
   const editorWidth = useLayoutStore((s) => s.editorWidth);
 
-  // No file open → no region; the canvas takes the full middle width.
-  if (!currentFile) return null;
+  // No tabs, or toggled closed → no region; the canvas takes the full middle.
+  if (tabs.length === 0 || !rightPanelOpen) return null;
 
   return (
     <aside
@@ -33,7 +36,10 @@ export const EditorSpace = (): JSX.Element | null => {
       }}
     >
       <EditorSash />
-      <FilePreview />
+      <TabStrip />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+        <FilePreview />
+      </div>
     </aside>
   );
 };

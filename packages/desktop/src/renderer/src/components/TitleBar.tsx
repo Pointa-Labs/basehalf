@@ -25,8 +25,12 @@ export const TitleBar = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
   const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
   const toggleSidebar = useLayoutStore((s) => s.toggleSidebar);
+  // The right panel's show/hide lives in the workspace store (alongside its tabs).
+  const rightPanelOpen = useWorkspaceStore((s) => s.rightPanelOpen);
+  const toggleRightPanel = useWorkspaceStore((s) => s.toggleRightPanel);
   const [boxHover, setBoxHover] = useState(false);
   const [toggleHover, setToggleHover] = useState(false);
+  const [rightToggleHover, setRightToggleHover] = useState(false);
 
   // The OS window title — shown in the macOS fullscreen title-bar reveal and the
   // ⌘-Tab / Window list. The PRODUCT name, not the workspace folder name (which
@@ -68,6 +72,9 @@ export const TitleBar = (): JSX.Element | null => {
   const rightZone: DraggableCSS = {
     flex: 1,
     minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
     paddingRight: reserve,
     WebkitAppRegion: 'drag',
   };
@@ -93,6 +100,24 @@ export const TitleBar = (): JSX.Element | null => {
     borderRadius: radius.md,
     background: toggleHover ? color.border : 'transparent',
     color: sidebarOpen ? color.textSecondary : color.textTertiary,
+    cursor: 'pointer',
+    transition: transition(['background', 'color']),
+  };
+
+  // Mirror of the sidebar toggle, on the right: shows/hides the editor panel.
+  const rightToggleStyle: DraggableCSS = {
+    WebkitAppRegion: 'no-drag',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space[3],
+    width: 32,
+    height: 28,
+    padding: 0,
+    border: 'none',
+    borderRadius: radius.md,
+    background: rightToggleHover ? color.border : 'transparent',
+    color: rightPanelOpen ? color.textSecondary : color.textTertiary,
     cursor: 'pointer',
     transition: transition(['background', 'color']),
   };
@@ -208,7 +233,38 @@ export const TitleBar = (): JSX.Element | null => {
           </kbd>
         </button>
       </div>
-      <div style={rightZone} />
+      <div style={rightZone}>
+        <button
+          type="button"
+          onClick={() => toggleRightPanel()}
+          onMouseEnter={() => setRightToggleHover(true)}
+          onMouseLeave={() => setRightToggleHover(false)}
+          title={`${rightPanelOpen ? 'Hide' : 'Show'} editor panel`}
+          aria-label={`${rightPanelOpen ? 'Hide' : 'Show'} editor panel`}
+          aria-pressed={rightPanelOpen}
+          data-testid="right-panel-toggle"
+          style={rightToggleStyle}
+        >
+          {/* "layout panel-right" glyph: a window with the RIGHT panel filled when
+              the editor panel is showing, hollow when hidden (mirrors the sidebar
+              toggle on the left). */}
+          <svg width={18} height={18} viewBox="0 0 16 16" fill="none" aria-hidden>
+            <rect
+              x={1.75}
+              y={3}
+              width={12.5}
+              height={10}
+              rx={1.5}
+              stroke="currentColor"
+              strokeWidth={1.1}
+            />
+            <line x1={10} y1={3} x2={10} y2={13} stroke="currentColor" strokeWidth={1.1} />
+            {rightPanelOpen && (
+              <rect x={10.6} y={3.6} width={3} height={8.8} rx={0.5} fill="currentColor" />
+            )}
+          </svg>
+        </button>
+      </div>
     </div>
   );
 };

@@ -16,10 +16,22 @@ interface WorkspaceState {
    * Sidebar uses this to swap NavTree for the WorkspaceUnreachable UI.
    */
   currentReachable: boolean | null;
-  /** POSIX-relative path of the file the user is currently previewing.
-   * Set by Canvas onNodeClick + Sidebar NavTree onClick. Drives the
-   * FilePreview right-panel slot. */
+  /** POSIX-relative path of the ACTIVE right-panel tab (the file whose editor is
+   * mounted). Opened from the sidebar / palette / inbound list. null = no active
+   * tab. (Canvas double-click opens a floating preview instead — separate path.) */
   currentFile: string | null;
+  /** Files open as tabs in the right panel, in tab order. The active one is
+   * `currentFile`; only the active tab has a live (mounted) editor. */
+  tabs: string[];
+  /** Whether the right panel is shown — the top-right toggle. Tabs persist while
+   * hidden, so toggling back restores them. */
+  rightPanelOpen: boolean;
+  /** Show/hide the right panel without losing its tabs (the top-right toggle). */
+  toggleRightPanel: () => void;
+  /** Close a right-panel tab. Closing the ACTIVE tab flushes its editor first
+   * (same gate as a file switch) and activates a neighbor; a non-active tab
+   * isn't mounted, so it just drops. */
+  closeTab: (file: string, opts?: { bypassFlush?: boolean }) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
    *  flash inside the viewer (MD editor). null on a normal open. Consumed +
    *  cleared by FilePreview once it lands on the match (or gives up). */
@@ -100,6 +112,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   current: null,
   currentReachable: null,
   currentFile: null,
+  tabs: [],
+  rightPanelOpen: true,
   openMatchQuery: null,
   // (saved-view state removed — a folder is the grouping unit now)
   folderScope: null,
@@ -116,6 +130,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         current: result.current,
         currentReachable: null,
         currentFile: null,
+        tabs: [],
         openMatchQuery: null,
         folderScope: null,
         flushEditor: null,
@@ -288,6 +303,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         current: cur.current ? cur.current.name : result.current.name,
         currentReachable: null,
         currentFile: null,
+        tabs: [],
         openMatchQuery: null,
         folderScope: null,
         flushEditor: null,
@@ -390,7 +406,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const finish = (): void => {
       // openMatchQuery only rides along when actually opening a file; a normal
       // open (no matchQuery) clears any stale target so it can't fire later.
-      set({ currentFile: file, openMatchQuery: file !== null ? matchQuery : null });
+      set((s) => ({
+        currentFile: file,
+        // Opening a file makes it the active tab (appending it if new) and reveals
+        // the panel. A null (clear, e.g. workspace reset path) leaves tabs +
+        // the panel-open flag untouched.
+        tabs: file !== null && !s.tabs.includes(file) ? [...s.tabs, file] : s.tabs,
+        rightPanelOpen: file !== null ? true : s.rightPanelOpen,
+        openMatchQuery: file !== null ? matchQuery : null,
+      }));
       // Track opens per workspace so the palette can surface recents first.
       // Null = closing the preview; nothing to record.
       if (file !== null && current !== null) noteOpenedFile(current, file);
@@ -416,6 +440,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       void flushEditor().then((ok) => {
         if (ok) finish();
         else set({ error: "Save or resolve this file's changes before leaving it." });
+      }, finish);
+    } else {
+      finish();
+    }
+  },
+
+  toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+
+  closeTab: (file, opts = {}) => {
+    const { tabs, currentFile, flushEditor } = get();
+    const idx = tabs.indexOf(file);
+    if (idx === -1) return;
+    const nextTabs = tabs.filter((t) => t !== file);
+    const finish = (): void => {
+      if (currentFile === file) {
+        // Activate the tab that slid into this slot (the right neighbor), else the
+        // left neighbor, else nothing — the panel goes empty when the last closes.
+        const nextActive = nextTabs[idx] ?? nextTabs[idx - 1] ?? null;
+        set({ tabs: nextTabs, currentFile: nextActive, openMatchQuery: null });
+      } else {
+        set({ tabs: nextTabs });
+      }
+    };
+    // Only the ACTIVE tab has a live editor. Closing it follows the same
+    // flush-before-leave gate as a file switch — a `false` (unresolved conflict /
+    // failed write) keeps the tab so the user resolves it. A non-active tab isn't
+    // mounted, so there's nothing to flush — just drop it.
+    if (currentFile === file && flushEditor && opts.bypassFlush !== true) {
+      void flushEditor().then((ok) => {
+        if (ok) finish();
+        else set({ error: "Save or resolve this file's changes before closing it." });
       }, finish);
     } else {
       finish();

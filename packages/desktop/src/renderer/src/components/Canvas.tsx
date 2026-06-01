@@ -107,7 +107,6 @@ function debounce<TArgs extends unknown[]>(
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
@@ -251,13 +250,12 @@ export const Canvas = (): JSX.Element => {
         setFolderScope(node.id);
         return;
       }
-      // File badge → open the full editor overlay. Single-click only sets
-      // focus (keeps the canvas + focus viz visible so you can assemble a
-      // focus set by clicking around); opening the big editor is the
-      // deliberate double-click, matching the desktop select-vs-open idiom.
-      setCurrentFile(node.id);
+      // File badge → (Stage 3) opens a FLOATING, editable preview on the canvas.
+      // The right panel is fed by the sidebar / palette, NOT by canvas
+      // double-click — these are two distinct concepts (float vs docked tabs).
+      // Inert until the floating preview lands in the next stage.
     },
-    [setFolderScope, setCurrentFile],
+    [setFolderScope],
   );
 
   const persistPosition = useMemo(
