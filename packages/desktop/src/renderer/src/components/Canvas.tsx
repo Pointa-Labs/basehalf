@@ -283,8 +283,9 @@ export const Canvas = (): JSX.Element => {
       }
       // File badge → a FLOATING, editable preview that nearly fills the canvas.
       // Distinct from the right panel (fed by the sidebar / palette): the float is
-      // an in-place peek on the canvas. Single-location is handled in openFloat
-      // (focuses an existing tab instead of floating a duplicate).
+      // an in-place peek on the canvas. ALWAYS floats — even if the file is also a
+      // panel tab — because the live-doc bus makes the two views one shared document
+      // (instant sync, single writer), so there's never a divergent second copy.
       openFloat(node.id);
     },
     [setFolderScope, openFloat],

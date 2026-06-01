@@ -139,8 +139,9 @@ interface WorkspaceState {
    *  null. Independent of the right panel — an editable peek that nearly fills the
    *  canvas. The canvas is "held" (pan/zoom disabled) while it's open. */
   floatingFile: string | null;
-  /** Open the floating preview for `file`. Single-location: if the file is already
-   *  a tab in some pane, focus that tab instead of floating it. */
+  /** Open the floating preview for `file` — ALWAYS floats (a consistent canvas
+   *  gesture). A float + a panel tab of the same file are one shared document via
+   *  the live-doc bus, so floating a second view never forks the content. */
   openFloat: (file: string) => void;
   /** Close the floating preview (flushing its editor first — edits persist). */
   closeFloat: () => void;
@@ -694,13 +695,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     },
 
     openFloat: (file) => {
-      // Single location: if the file is already a tab in some pane, focus that
-      // tab instead of floating a second copy.
-      const host = allLeaves(get().paneTree).find((l) => l.tabs.includes(file));
-      if (host) {
-        get().openInPanel(file, { paneId: host.id });
-        return;
-      }
+      // Always float on a canvas double-click — a consistent canvas-side peek,
+      // independent of the right panel. The live-doc bus (lib/liveDoc) makes a
+      // float + a panel tab of the SAME file ONE shared document (single writer +
+      // instant mirror), so this never forks into two divergent copies — which is
+      // why double-click can float unconditionally instead of re-focusing a tab.
       set({ floatingFile: file });
     },
 

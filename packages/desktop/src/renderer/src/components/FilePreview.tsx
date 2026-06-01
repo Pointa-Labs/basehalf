@@ -23,6 +23,13 @@ import { bhSchema } from '../lib/blocknoteSchema.js';
 import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
+  type LiveDocView,
+  broadcast,
+  claimWriter,
+  currentWriter,
+  registerView,
+} from '../lib/liveDoc.js';
+import {
   type MdEditorApi,
   type ReuseEntry,
   buildLoadProjection,
@@ -912,6 +919,16 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   const [writeFailed, setWriteFailed] = useState(false);
   const writeFailedRef = useRef(false);
   const [loadKey, setLoadKey] = useState(0);
+  // Shared-document state: is THIS view the WRITER for its file (editable +
+  // autosaves)? A fresh view defaults to writer; the live-doc bus flips siblings
+  // read-only when one claims the role (see lib/liveDoc). isWriterRef is the
+  // synchronous truth the mousedown handler reads.
+  const [isWriter, setIsWriter] = useState(true);
+  const isWriterRef = useRef(true);
+  isWriterRef.current = isWriter;
+  // This editor's handle in the live-doc bus — declared early (built below, once
+  // flush + applyContent exist) so flush()'s broadcast can reach it.
+  const viewRef = useRef<LiveDocView | null>(null);
   const initialLoad = useRef(true);
   // What we believe is on disk — lets us ignore our own write echoes from the
   // watcher and detect genuine external edits.
@@ -931,49 +948,60 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   const viewOnlyRef = useRef(false);
   viewOnlyRef.current = viewOnly;
 
-  // Load on mount / explicit reload. MdEditor is keyed by `file` in the parent,
-  // so switching files remounts it and this always loads fresh.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loadKey is a reload trigger — bumping it re-runs this effect to re-read the file from disk
+  // Apply file content (from disk OR from a live sibling view's broadcast) to the
+  // editor: peel any leading YAML frontmatter and keep it byte-verbatim (BlockNote
+  // only ever sees the body, which is the source of truth — the projection tiles
+  // it into source-exact segments so the splice-save can reuse untouched bytes,
+  // see mdSegment.ts), project the body into reuse-indexed blocks, swap them in,
+  // and reset the disk baseline. Shared by the initial load and the live-doc adopt
+  // (shared model) so both follow the exact same path.
+  const applyContent = useCallback(
+    async (original: string): Promise<void> => {
+      initialLoad.current = true;
+      const { frontmatter, body } = splitFrontmatter(original);
+      frontmatterRef.current = frontmatter;
+      const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
+      byIdRef.current = byId;
+      editor.replaceBlocks(
+        editor.document,
+        blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
+      );
+      // File = truth: the echo baseline is the EXACT disk bytes. A save only
+      // happens on a real edit (the pendingRef guard in flush), and our own
+      // write echoes back equal to this — so merely viewing never rewrites.
+      lastDiskRef.current = original;
+      pendingRef.current = false;
+      // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
+      // reinterpret its structure. Every Markdown file is now editable; the
+      // splice-save preserves anything the user doesn't touch (incl. constructs
+      // BlockNote can't model, kept as read-only passthrough blocks).
+      setViewOnly(/\.txt$/i.test(file));
+      setReloadPrompt(false);
+      setError('');
+      setTimeout(() => {
+        initialLoad.current = false;
+      }, 50);
+    },
+    [editor, file],
+  );
+
+  // Reload on an EXTERNAL change: the watcher / acceptReload bump loadKey. Always
+  // from DISK — an external edit lives on disk, not in a sibling view. Skipped on
+  // first render (loadKey 0); the join effect below does the initial load (which
+  // may instead adopt a live sibling's content).
   useEffect(() => {
-    initialLoad.current = true;
+    if (loadKey === 0) return;
     void (async () => {
       try {
         const result = (await window.bh.run('workspace.readFile', {
           path: file,
         })) as WorkspaceReadFileResult;
-        const original = result.content;
-        // Peel any leading YAML frontmatter and keep it byte-verbatim; BlockNote
-        // only ever sees the body, which is the source of truth. The projection
-        // tiles the body into source-exact segments so the splice-save can reuse
-        // untouched bytes (see mdSegment.ts).
-        const { frontmatter, body } = splitFrontmatter(original);
-        frontmatterRef.current = frontmatter;
-        const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
-        byIdRef.current = byId;
-        editor.replaceBlocks(
-          editor.document,
-          blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
-        );
-        // File = truth: the echo baseline is the EXACT disk bytes. A save only
-        // happens on a real edit (the pendingRef guard in flush), and our own
-        // write echoes back equal to this — so merely viewing never rewrites.
-        lastDiskRef.current = original;
-        pendingRef.current = false;
-        // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
-        // reinterpret its structure. Every Markdown file is now editable; the
-        // splice-save preserves anything the user doesn't touch (incl. constructs
-        // BlockNote can't model, kept as read-only passthrough blocks).
-        setViewOnly(/\.txt$/i.test(file));
-        setReloadPrompt(false);
-        setError('');
-        setTimeout(() => {
-          initialLoad.current = false;
-        }, 50);
+        await applyContent(result.content);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [file, editor, loadKey]);
+  }, [file, loadKey, applyContent]);
 
   // The actual save: serialize and write only when content changed. Safe to
   // call anytime (no-op when nothing's pending). Sets lastDiskRef BEFORE the
@@ -1042,6 +1070,9 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         pendingRef.current = false;
         writeFailedRef.current = false;
         setWriteFailed(false);
+        // Shared document: push the just-saved content to any sibling views of this
+        // file so they update INSTANTLY (no disk round-trip / watcher lag).
+        if (viewRef.current) broadcast(viewRef.current, md);
       } catch (err) {
         // The write didn't land — edits remain in memory only. Flag it so the
         // navigation gatekeeper blocks a switch/close that would drop them, and
@@ -1056,6 +1087,61 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   );
   const flushRef = useRef(flush);
   flushRef.current = flush;
+
+  // This view's handle in the live-doc bus. Stable per file; its closures read the
+  // latest editor/refs, so the bus holds one handle per open editor of the file.
+  const view = useMemo<LiveDocView>(
+    () => ({
+      file,
+      setWriter: (w) => setIsWriter(w),
+      // The live document serialized (incl. unsaved edits) — a joining sibling
+      // adopts THIS instead of stale disk. Never rejects: falls back to the
+      // last-known disk bytes if the editor can't serialize right now.
+      getContent: async () => {
+        try {
+          return await spliceSave(
+            editor as unknown as MdEditorApi,
+            editor.document,
+            frontmatterRef.current,
+            byIdRef.current,
+          );
+        } catch {
+          return lastDiskRef.current;
+        }
+      },
+      adopt: (md) => applyContent(md),
+      flush: () => flushRef.current(false),
+    }),
+    [file, editor, applyContent],
+  );
+  viewRef.current = view;
+
+  // Join this file's live document on mount. If a sibling view is already open,
+  // ADOPT its live content (incl. unsaved edits) so a second view of the same file
+  // never shows a stale copy; otherwise load from disk. Then register + claim the
+  // writer role (a freshly-opened view edits; the sibling goes read-only).
+  // Unregister on unmount, which hands the writer role to a surviving view.
+  useEffect(() => {
+    const self = view;
+    const sibling = currentWriter(file); // resolve BEFORE register → a sibling, not us
+    const unregister = registerView(self);
+    void (async () => {
+      try {
+        const md = sibling
+          ? await sibling.getContent()
+          : (
+              (await window.bh.run('workspace.readFile', {
+                path: file,
+              })) as WorkspaceReadFileResult
+            ).content;
+        await applyContent(md);
+        claimWriter(self); // loaded → become the writer (newest edits win)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return unregister;
+  }, [file, view, applyContent]);
 
   // Debounced auto-save trigger — stable across renders, delegates via the ref.
   const scheduleSave = useMemo(() => debounce(() => void flushRef.current(), AUTOSAVE_MS), []);
@@ -1209,7 +1295,15 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
   }, []);
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      // Clicking into a read-only MIRROR takes over the writer role for this file
+      // (so it becomes editable). No-op when already the writer. Capture-phase so it
+      // wins before the click lands inside the editor.
+      onMouseDownCapture={() => {
+        if (viewRef.current && !isWriterRef.current) claimWriter(viewRef.current);
+      }}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       {/* No save-status line — auto-save runs silently (debounced + flushed on
           close/switch/workspace-change). The only status row kept is the
           read-only notice for plain-text files, so a non-editable .txt isn't a
@@ -1315,10 +1409,12 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         <div style={{ padding: `${space[5]}px ${space[5]}px` }}>
           <BlockNoteView
             editor={editor}
-            editable={!viewOnly}
+            // Only the WRITER view is editable; sibling views of the same file are
+            // live read-only mirrors (single-writer → they can never self-conflict).
+            editable={!viewOnly && isWriter}
             theme="dark"
             onChange={() => {
-              if (!initialLoad.current && !viewOnly) {
+              if (!initialLoad.current && !viewOnly && isWriterRef.current) {
                 pendingRef.current = true;
                 scheduleSave();
                 // Editing a preview tab promotes it to a permanent (pinned) tab —
