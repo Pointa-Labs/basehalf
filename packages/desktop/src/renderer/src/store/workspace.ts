@@ -29,6 +29,10 @@ import { noteOpenedFile } from '../lib/recent-files.js';
  *  the four edges (split that way). */
 export type DropRegion = 'center' | 'left' | 'right' | 'up' | 'down';
 
+/** The flush-registry key for the canvas floating preview's editor (it's not a
+ *  pane, but registers a flusher like one so its edits persist on close/switch). */
+export const FLOAT_PANE_ID = 'float';
+
 /** The active pane's active file — the derived `currentFile` convenience. */
 const deriveCurrent = (tree: PaneNode, activePaneId: string): string | null =>
   findLeaf(tree, activePaneId)?.activeFile ?? null;
@@ -95,12 +99,18 @@ interface WorkspaceState {
   /** Drop a dragged tab onto a pane: 'center' MOVES it in as a tab; an edge
    *  SPLITS that pane in that direction and moves it into the new pane. Removes
    *  it from the source pane (collapsing the source if it empties). */
-  dropTab: (
-    file: string,
-    fromPaneId: string,
-    targetPaneId: string,
-    region: DropRegion,
-  ) => void;
+  dropTab: (file: string, fromPaneId: string, targetPaneId: string, region: DropRegion) => void;
+  /** The file shown in the canvas FLOATING preview (double-click a badge), or
+   *  null. Independent of the right panel — a lightweight editable peek on the
+   *  canvas. The canvas is "held" (pan/zoom disabled) while it's open. */
+  floatingFile: string | null;
+  /** Screen position to anchor the floating preview near (the double-click). */
+  floatingAnchor: { x: number; y: number } | null;
+  /** Open the floating preview for `file` near `anchor`. Single-location: if the
+   *  file is already a tab in some pane, focus that tab instead of floating it. */
+  openFloat: (file: string, anchor: { x: number; y: number }) => void;
+  /** Close the floating preview (flushing its editor first — edits persist). */
+  closeFloat: () => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
    *  flash inside the viewer (MD editor). null on a normal open. Consumed +
    *  cleared by FilePreview once it lands on the match (or gives up). */
@@ -172,6 +182,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     // state). Keeps the canvas the home surface.
     rightPanelOpen: false,
     tabDrag: null,
+    floatingFile: null,
+    floatingAnchor: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
     folderScope: null,
@@ -189,6 +201,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           currentFile: null,
           paneTree: fresh,
           activePaneId: fresh.id,
+          floatingFile: null,
+          floatingAnchor: null,
           openMatchQuery: null,
           folderScope: null,
           error: '',
@@ -355,6 +369,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           currentFile: null,
           paneTree: fresh,
           activePaneId: fresh.id,
+          floatingFile: null,
+          floatingAnchor: null,
           openMatchQuery: null,
           folderScope: null,
           error: '',
@@ -562,11 +578,37 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (needFlush) {
         void flushPane(fromPaneId).then((ok) => {
           if (ok) finish();
-          else set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
+          else
+            set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
         }, finish);
       } else {
         finish();
       }
+    },
+
+    openFloat: (file, anchor) => {
+      // Single location: if the file is already a tab in some pane, focus that
+      // tab instead of floating a second copy.
+      const host = allLeaves(get().paneTree).find((l) => l.tabs.includes(file));
+      if (host) {
+        get().openInPanel(file, { paneId: host.id });
+        return;
+      }
+      set({ floatingFile: file, floatingAnchor: anchor });
+    },
+
+    closeFloat: () => {
+      if (get().floatingFile === null) return;
+      // Flush the float's editor before unmounting it — edits persist. A `false`
+      // (unresolved conflict) keeps it open so the user resolves it; a rejection
+      // (torn-down editor) is non-blocking.
+      void flushPane(FLOAT_PANE_ID).then(
+        (ok) => {
+          if (ok) set({ floatingFile: null, floatingAnchor: null });
+          else set({ error: "Save or resolve this file's changes before closing it." });
+        },
+        () => set({ floatingFile: null, floatingAnchor: null }),
+      );
     },
 
     toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),

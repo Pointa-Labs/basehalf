@@ -5,6 +5,7 @@ import { DialogHost } from './components/Dialog.js';
 import { EditorSpace } from './components/EditorSpace.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
+import { FloatingPreview } from './components/FloatingPreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
@@ -164,6 +165,9 @@ export const App = (): JSX.Element => {
         </main>
         <EditorSpace />
       </div>
+      {/* The canvas floating preview (double-click a badge) — fixed-positioned
+          over everything, light-dismissed by a click outside / Esc. */}
+      <FloatingPreview />
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />
       <CommandPalette />

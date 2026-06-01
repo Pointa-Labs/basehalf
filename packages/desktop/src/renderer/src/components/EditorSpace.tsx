@@ -42,6 +42,8 @@ export const EditorSpace = (): JSX.Element | null => {
       }
       const isClose = e.key === 'Escape' || (e.key === 'w' && mod);
       if (!isClose) return;
+      // A floating preview owns Esc/⌘W while it's open — don't also close a tab.
+      if (s.floatingFile !== null) return;
       const tag = (e.target as HTMLElement | null)?.tagName ?? '';
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (!s.rightPanelOpen || s.currentFile === null) return;

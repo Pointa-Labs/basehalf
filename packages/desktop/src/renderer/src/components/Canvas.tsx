@@ -109,6 +109,9 @@ export const Canvas = (): JSX.Element => {
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
+  const openFloat = useWorkspaceStore((s) => s.openFloat);
+  const closeFloat = useWorkspaceStore((s) => s.closeFloat);
+  const floating = useWorkspaceStore((s) => s.floatingFile !== null);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [error, setError] = useState<string>('');
@@ -236,7 +239,7 @@ export const Canvas = (): JSX.Element => {
   }, [refresh]);
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
-    (_event, node) => {
+    (event, node) => {
       // Cancel the deferred single-click focus collapse — opening a badge must
       // not first wipe the curated focus set.
       if (clickTimer.current) {
@@ -250,12 +253,13 @@ export const Canvas = (): JSX.Element => {
         setFolderScope(node.id);
         return;
       }
-      // File badge → (Stage 3) opens a FLOATING, editable preview on the canvas.
-      // The right panel is fed by the sidebar / palette, NOT by canvas
-      // double-click — these are two distinct concepts (float vs docked tabs).
-      // Inert until the floating preview lands in the next stage.
+      // File badge → a FLOATING, editable preview on the canvas, anchored near the
+      // click. Distinct from the right panel (fed by the sidebar / palette): the
+      // float is a lightweight in-place peek. Single-location is handled in
+      // openFloat (focuses an existing tab instead of floating a duplicate).
+      openFloat(node.id, { x: event.clientX, y: event.clientY });
     },
-    [setFolderScope],
+    [setFolderScope, openFloat],
   );
 
   const persistPosition = useMemo(
@@ -819,6 +823,15 @@ export const Canvas = (): JSX.Element => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveEnd={onMoveEnd}
+        // While a floating preview is open the canvas is "held": a click on the
+        // blank pane closes it (the light-dismiss), and pan / zoom are disabled so
+        // the gesture can't drag the map out from under the float. After it closes
+        // the canvas is live again.
+        onPaneClick={floating ? () => closeFloat() : undefined}
+        panOnDrag={!floating}
+        zoomOnScroll={!floating}
+        zoomOnPinch={!floating}
+        zoomOnDoubleClick={!floating}
         // All edges render through ReferenceEdge (see EDGE_TYPES): the line is
         // always visible, the note reveals on hover/selection — no colliding
         // always-on midpoint labels. Animation off; the custom edge owns its
