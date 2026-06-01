@@ -6,6 +6,7 @@ import type {
 } from '@basehalf/core';
 import { create } from 'zustand';
 import { flushAll, flushPane } from '../lib/editorFlush.js';
+import { loadPanes, savePanes } from '../lib/layoutPersist.js';
 import {
   type PaneNode,
   allLeaves,
@@ -36,6 +37,26 @@ export const FLOAT_PANE_ID = 'float';
 /** The active pane's active file — the derived `currentFile` convenience. */
 const deriveCurrent = (tree: PaneNode, activePaneId: string): string | null =>
   findLeaf(tree, activePaneId)?.activeFile ?? null;
+
+/** The pane state to load when a workspace opens: its saved layout (tabs +
+ *  splits) if any, else a fresh empty pane. Reveals the panel when it restores
+ *  open tabs. (Stale tabs for deleted files degrade gracefully — the editor
+ *  surfaces a not-found error you can close.) */
+const paneResetFor = (
+  ws: string | null,
+): { paneTree: PaneNode; activePaneId: string; rightPanelOpen: boolean } => {
+  const restored = loadPanes(ws);
+  if (restored) {
+    const tree = restored.paneTree;
+    const activePaneId = findLeaf(tree, restored.activePaneId)
+      ? restored.activePaneId
+      : firstLeaf(tree).id;
+    const rightPanelOpen = allLeaves(tree).some((l) => l.tabs.length > 0);
+    return { paneTree: tree, activePaneId, rightPanelOpen };
+  }
+  const fresh = emptyLeaf();
+  return { paneTree: fresh, activePaneId: fresh.id, rightPanelOpen: false };
+};
 
 interface WorkspaceState {
   workspaces: readonly WorkspaceEntry[];
@@ -193,14 +214,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refresh: async () => {
       try {
         const result = (await window.bh.run('workspace.list')) as WorkspaceListResult;
-        const fresh = emptyLeaf();
+        const panes = paneResetFor(result.current);
         set({
           workspaces: result.workspaces,
           current: result.current,
           currentReachable: null,
-          currentFile: null,
-          paneTree: fresh,
-          activePaneId: fresh.id,
+          currentFile: deriveCurrent(panes.paneTree, panes.activePaneId),
+          paneTree: panes.paneTree,
+          activePaneId: panes.activePaneId,
+          rightPanelOpen: panes.rightPanelOpen,
           floatingFile: null,
           floatingAnchor: null,
           openMatchQuery: null,
@@ -362,13 +384,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // editor would keep its in-memory contents and write them back into
         // whatever file in the *new* workspace happens to share the same
         // relative path.
-        const fresh = emptyLeaf();
+        const nextName = cur.current ? cur.current.name : result.current.name;
+        const panes = paneResetFor(nextName);
         set({
-          current: cur.current ? cur.current.name : result.current.name,
+          current: nextName,
           currentReachable: null,
-          currentFile: null,
-          paneTree: fresh,
-          activePaneId: fresh.id,
+          currentFile: deriveCurrent(panes.paneTree, panes.activePaneId),
+          paneTree: panes.paneTree,
+          activePaneId: panes.activePaneId,
+          rightPanelOpen: panes.rightPanelOpen,
           floatingFile: null,
           floatingAnchor: null,
           openMatchQuery: null,
@@ -703,4 +727,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     clearError: () => set({ error: '' }),
   };
+});
+
+// Persist the right-panel layout (open tabs + splits + active pane) per workspace
+// whenever it changes, so it's restored on the next reload / re-open. Debounced
+// inside savePanes; keyed by the current workspace (no-op when there's none).
+useWorkspaceStore.subscribe((s, prev) => {
+  if (s.paneTree !== prev.paneTree || s.activePaneId !== prev.activePaneId) {
+    savePanes(s.current, { paneTree: s.paneTree, activePaneId: s.activePaneId });
+  }
 });
