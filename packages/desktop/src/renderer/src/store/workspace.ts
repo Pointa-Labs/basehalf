@@ -523,6 +523,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // We only need a flush when the TARGET pane's active editor is being replaced.
       const willSwitch = targetLeaf.activeFile !== null && targetLeaf.activeFile !== file;
       const finish = (): void => {
+        // Workspace switched during the async flush → abort: opening the old root's
+        // relative path into the new workspace would show the wrong file (restored
+        // layouts reuse pane ids). (The in-flight write itself can still land in the
+        // wrong root — that needs an explicit-workspace core API, tracked separately.)
+        if (get().current !== current) return;
         set((s) => {
           const tree = updateLeaf(s.paneTree, paneId, (l) =>
             openInLeaf(l, file, { pinned: opts.pinned }),
@@ -629,7 +634,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set((s) => ({ activePaneId: paneId, currentFile: deriveCurrent(s.paneTree, paneId) })),
 
     splitPane: (sourcePaneId, direction, file, opts = {}) => {
+      const ws = get().current;
       const finish = (): void => {
+        if (get().current !== ws) return; // workspace switched during the flush — abort
         const newLeaf = openInLeaf(emptyLeaf(), file, { pinned: true });
         set((s) => ({
           paneTree: splitLeaf(s.paneTree, sourcePaneId, direction, newLeaf, opts.before === true),
@@ -685,16 +692,24 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     dropTab: (file, fromPaneId, targetPaneId, region) => {
       const srcLeaf = findLeaf(get().paneTree, fromPaneId);
       const tgtLeaf = findLeaf(get().paneTree, targetPaneId);
-      // Flush the SOURCE's active editor (it unmounts here, remounts in the dest).
-      const needFlush = srcLeaf?.activeFile === file;
-      // A CENTER drop into a DIFFERENT pane activates `file` there, replacing (and
-      // unmounting) the target's active editor — flush it too, or its debounce-window
-      // edits are lost. (An edge drop opens a fresh split pane, so nothing's replaced.)
-      const needTgtFlush =
-        region === 'center' &&
-        fromPaneId !== targetPaneId &&
-        tgtLeaf?.activeFile != null &&
-        tgtLeaf.activeFile !== file;
+      // Every pane whose ACTIVE editor unmounts during this drop must flush first
+      // (an unmount cancels the autosave). The SOURCE flushes when `file` is its
+      // active editor (it moves out). A CENTER drop replaces the target's active
+      // editor; an EDGE drop SPLITS the target, remounting its active editor too
+      // (same as splitPane). A Set dedups the same-pane case.
+      const toFlush = new Set<string>();
+      if (srcLeaf?.activeFile === file) toFlush.add(fromPaneId);
+      if (region === 'center') {
+        if (
+          fromPaneId !== targetPaneId &&
+          tgtLeaf?.activeFile != null &&
+          tgtLeaf.activeFile !== file
+        ) {
+          toFlush.add(targetPaneId);
+        }
+      } else if (tgtLeaf?.activeFile != null && tgtLeaf.activeFile !== file) {
+        toFlush.add(targetPaneId);
+      }
       const finish = (): void => {
         set((s) => {
           let tree = s.paneTree;
@@ -729,12 +744,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           };
         });
       };
-      if (needFlush || needTgtFlush) {
-        void Promise.all([
-          needFlush ? flushPane(fromPaneId) : Promise.resolve(true),
-          needTgtFlush ? flushPane(targetPaneId) : Promise.resolve(true),
-        ]).then(([a, b]) => {
-          if (a && b) finish();
+      if (toFlush.size > 0) {
+        void Promise.all([...toFlush].map((p) => flushPane(p))).then((oks) => {
+          if (oks.every(Boolean)) finish();
           else
             set({ error: "Save or resolve this file's changes before moving it.", tabDrag: null });
         }, finish);
@@ -884,6 +896,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     newNote: async (paneId) => {
       const target = paneId ?? get().activePaneId;
+      const ws = get().current;
       // Persist the target pane's editor before it switches to the new note (and
       // gate on an unresolved conflict, so we don't create an orphan stub we can't
       // open). openInPanel below also flushes — a no-op after this clean flush.
@@ -891,6 +904,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({ error: "Save or resolve this file's changes before opening a new note." });
         return;
       }
+      // Workspace switched during the flush → abort, so we don't create the untitled
+      // note in the wrong root.
+      if (get().current !== ws) return;
       try {
         // Find a free untitled name — CHECK each candidate (incl. the last) so we
         // never overwrite an existing note. readFile throws PATH_NOT_FOUND when free.
