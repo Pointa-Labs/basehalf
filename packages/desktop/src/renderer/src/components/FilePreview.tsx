@@ -1123,6 +1123,13 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
       setOwner: (o) => {
         isOwnerRef.current = o;
         setIsOwner(o);
+        // Inherited ownership after a sibling's "Discard & close" on a write-failure:
+        // reload from disk to drop the failed edits that still live in the shared doc.
+        if (o && ensureDoc(docKey).discardRequested) {
+          ensureDoc(docKey).discardRequested = false;
+          pendingRef.current = false;
+          setLoadKey((k) => k + 1);
+        }
       },
     }),
     [docKey],
@@ -1314,12 +1321,18 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
+    // If the same file is open in OTHER views, the failed edits live in the shared
+    // doc — closing just this view would leave a sibling showing them (and a later
+    // no-op flush would silently drop them). Flag the doc so the next owner reloads
+    // disk and drops them everywhere.
+    const shared = ensureDoc(docKey);
+    if (shared.views.size > 1) shared.discardRequested = true;
     // In the canvas float, closeTab(FLOAT_PANE_ID, …) is a no-op (it isn't a real
     // pane) — it would leave the failed-save editor open. Close the float instead;
     // pendingRef is already cleared, so its flush is a no-op (the edits are discarded).
     if (paneId === FLOAT_PANE_ID) closeFloatStore();
     else closeTab(paneId, file, { bypassFlush: true });
-  }, [closeTab, closeFloatStore, paneId, file]);
+  }, [closeTab, closeFloatStore, paneId, file, docKey]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1449,7 +1462,11 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
             editable={!viewOnly && seedReady}
             theme="dark"
             onChange={() => {
-              if (initialLoad.current || viewOnly) return;
+              // Gate on seedReady too: a joiner that mounts before the first disk
+              // read finishes clears initialLoad after 50ms, but the seed then
+              // arrives via Yjs as an onChange — without this it would pin the
+              // preview tab (and the owner would "save") on a non-user update.
+              if (initialLoad.current || viewOnly || !seedReady) return;
               // Editing a preview tab promotes it to a permanent (pinned) tab —
               // idempotent (no-op once pinned), like a mature editor.
               pinTab(paneId, file);

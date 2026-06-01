@@ -24,15 +24,17 @@ const clampWidth = (n: number): number =>
 const EDITOR_WIDTH_KEY = 'bh:editor-width';
 export const EDITOR_DEFAULT_WIDTH = 760;
 export const EDITOR_MIN_WIDTH = 420; // narrow enough to pair with the canvas, wide enough to read
-// Keep at least this much for the sidebar + canvas so the editor can never eat
-// the whole window. The cap is dynamic (window width − reserve), clamped here.
-const EDITOR_VIEWPORT_RESERVE = 360;
+// Keep at least this much CANVAS visible behind the editor (the layout's promise).
+const MIN_CANVAS_WIDTH = 240;
 
-const clampEditorWidth = (n: number): number => {
+// Cap the editor so the OPEN sidebar (a real flex sibling, up to 640px) + a minimum
+// canvas always fit: viewport − sidebarReserve − MIN_CANVAS. A fixed reserve let a
+// widened sidebar + a wide editor squeeze the canvas to zero / overflow.
+const clampEditorWidth = (n: number, sidebarReserve: number): number => {
   // window may be unavailable at module init in some test envs — fall back to a
   // generous static ceiling so the clamp never returns NaN.
   const viewport = typeof window !== 'undefined' ? window.innerWidth : 1440;
-  const max = Math.max(EDITOR_MIN_WIDTH, viewport - EDITOR_VIEWPORT_RESERVE);
+  const max = Math.max(EDITOR_MIN_WIDTH, viewport - sidebarReserve - MIN_CANVAS_WIDTH);
   return Math.max(EDITOR_MIN_WIDTH, Math.min(max, Math.round(n)));
 };
 
@@ -72,28 +74,38 @@ interface LayoutState {
   setEditorWidth: (width: number) => void;
 }
 
-export const useLayoutStore = create<LayoutState>((set) => ({
-  sidebarOpen: readBool(OPEN_KEY, true),
-  sidebarWidth: clampWidth(readNum(WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH)),
-  toggleSidebar: () =>
-    set((s) => {
-      const open = !s.sidebarOpen;
+export const useLayoutStore = create<LayoutState>((set, get) => {
+  const sidebarOpen0 = readBool(OPEN_KEY, true);
+  const sidebarWidth0 = clampWidth(readNum(WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH));
+  // The space an OPEN sidebar reserves (0 when hidden) — the editor clamp subtracts it.
+  const reserve = (): number => (get().sidebarOpen ? get().sidebarWidth : 0);
+  return {
+    sidebarOpen: sidebarOpen0,
+    sidebarWidth: sidebarWidth0,
+    toggleSidebar: () => {
+      const open = !get().sidebarOpen;
       persist(OPEN_KEY, open ? '1' : '0');
-      return { sidebarOpen: open };
-    }),
-  setSidebarOpen: (open) => {
-    persist(OPEN_KEY, open ? '1' : '0');
-    set({ sidebarOpen: open });
-  },
-  setSidebarWidth: (width) => {
-    const w = clampWidth(width);
-    persist(WIDTH_KEY, String(w));
-    set({ sidebarWidth: w });
-  },
-  editorWidth: clampEditorWidth(readNum(EDITOR_WIDTH_KEY, EDITOR_DEFAULT_WIDTH)),
-  setEditorWidth: (width) => {
-    const w = clampEditorWidth(width);
-    persist(EDITOR_WIDTH_KEY, String(w));
-    set({ editorWidth: w });
-  },
-}));
+      // Re-clamp the editor against the new reserve (opening the sidebar may shrink it).
+      set({ sidebarOpen: open, editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0) });
+    },
+    setSidebarOpen: (open) => {
+      persist(OPEN_KEY, open ? '1' : '0');
+      set({ sidebarOpen: open, editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0) });
+    },
+    setSidebarWidth: (width) => {
+      const w = clampWidth(width);
+      persist(WIDTH_KEY, String(w));
+      // Widening the sidebar must not squeeze the canvas away — re-clamp the editor.
+      set({ sidebarWidth: w, editorWidth: clampEditorWidth(get().editorWidth, get().sidebarOpen ? w : 0) });
+    },
+    editorWidth: clampEditorWidth(
+      readNum(EDITOR_WIDTH_KEY, EDITOR_DEFAULT_WIDTH),
+      sidebarOpen0 ? sidebarWidth0 : 0,
+    ),
+    setEditorWidth: (width) => {
+      const w = clampEditorWidth(width, reserve());
+      persist(EDITOR_WIDTH_KEY, String(w));
+      set({ editorWidth: w });
+    },
+  };
+});

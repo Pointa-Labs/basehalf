@@ -51,6 +51,11 @@ export interface SharedDoc {
    *  seed lands. */
   ready: boolean;
   readyWaiters: Set<() => void>;
+  /** Set by a "Discard & close" on a write-failure when OTHER views are open: the
+   *  failed edits live in this shared doc, so the next owner reloads from disk to
+   *  drop them everywhere (else a sibling would keep showing unsaved content that a
+   *  later no-op flush silently loses). */
+  discardRequested: boolean;
   /** Per-file save state, shared across views. */
   frontmatter: string;
   byId: Map<string, ReuseEntry>;
@@ -78,6 +83,7 @@ export function ensureDoc(key: string): SharedDoc {
       seeded: false,
       ready: false,
       readyWaiters: new Set(),
+      discardRequested: false,
       frontmatter: '',
       byId: new Map(),
       lastDisk: '',
