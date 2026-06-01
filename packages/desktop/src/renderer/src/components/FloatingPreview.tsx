@@ -5,19 +5,16 @@ import { FilePreview } from './FilePreview.js';
 
 const basenameOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1);
 
-const CARD_W = 560;
-const CARD_H = 460;
-
 /**
- * The canvas FLOATING preview — double-click a badge opens an editable peek that
- * floats over the canvas near the click. Light-dismiss: a click outside (incl. the
- * blank canvas) or Esc closes it, flushing its edits first. Distinct from the
- * right panel (its editor registers under the FLOAT_PANE_ID flush slot, so a
- * workspace switch also persists it).
+ * The canvas FLOATING preview — double-click a badge opens an editable peek. It
+ * lives INSIDE the canvas region (rendered in <main>) and nearly fills it
+ * (absolute inset), clipped to the canvas so it never spills over the sidebar /
+ * right panel. Light-dismiss: a click outside (incl. the canvas margin) or Esc
+ * closes it, flushing its edits first. Distinct from the right panel (its editor
+ * registers under the FLOAT_PANE_ID flush slot, so a workspace switch persists it).
  */
 export const FloatingPreview = (): JSX.Element | null => {
   const floatingFile = useWorkspaceStore((s) => s.floatingFile);
-  const anchor = useWorkspaceStore((s) => s.floatingAnchor);
   const closeFloat = useWorkspaceStore((s) => s.closeFloat);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -44,23 +41,17 @@ export const FloatingPreview = (): JSX.Element | null => {
     };
   }, [floatingFile, closeFloat]);
 
-  if (floatingFile === null || anchor === null) return null;
-
-  // Anchor near the click, clamped to the viewport.
-  const left = Math.min(Math.max(8, anchor.x), window.innerWidth - CARD_W - 8);
-  const top = Math.min(Math.max(44, anchor.y), window.innerHeight - CARD_H - 8);
+  if (floatingFile === null) return null;
 
   return (
     <div
       ref={cardRef}
       data-testid="floating-preview"
       style={{
-        position: 'fixed',
-        left,
-        top,
-        width: CARD_W,
-        height: CARD_H,
-        zIndex: 60,
+        // Nearly fill the canvas region (a small inset margin), clipped to it.
+        position: 'absolute',
+        inset: 16,
+        zIndex: 50,
         background: color.surface,
         borderRadius: radius.xl,
         border: `1px solid ${color.border}`,

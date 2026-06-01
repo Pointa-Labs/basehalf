@@ -122,14 +122,12 @@ interface WorkspaceState {
    *  it from the source pane (collapsing the source if it empties). */
   dropTab: (file: string, fromPaneId: string, targetPaneId: string, region: DropRegion) => void;
   /** The file shown in the canvas FLOATING preview (double-click a badge), or
-   *  null. Independent of the right panel — a lightweight editable peek on the
+   *  null. Independent of the right panel — an editable peek that nearly fills the
    *  canvas. The canvas is "held" (pan/zoom disabled) while it's open. */
   floatingFile: string | null;
-  /** Screen position to anchor the floating preview near (the double-click). */
-  floatingAnchor: { x: number; y: number } | null;
-  /** Open the floating preview for `file` near `anchor`. Single-location: if the
-   *  file is already a tab in some pane, focus that tab instead of floating it. */
-  openFloat: (file: string, anchor: { x: number; y: number }) => void;
+  /** Open the floating preview for `file`. Single-location: if the file is already
+   *  a tab in some pane, focus that tab instead of floating it. */
+  openFloat: (file: string) => void;
   /** Close the floating preview (flushing its editor first — edits persist). */
   closeFloat: () => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
@@ -204,7 +202,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     rightPanelOpen: false,
     tabDrag: null,
     floatingFile: null,
-    floatingAnchor: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
     folderScope: null,
@@ -224,7 +221,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activePaneId: panes.activePaneId,
           rightPanelOpen: panes.rightPanelOpen,
           floatingFile: null,
-          floatingAnchor: null,
           openMatchQuery: null,
           folderScope: null,
           error: '',
@@ -394,7 +390,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           activePaneId: panes.activePaneId,
           rightPanelOpen: panes.rightPanelOpen,
           floatingFile: null,
-          floatingAnchor: null,
           openMatchQuery: null,
           folderScope: null,
           error: '',
@@ -610,7 +605,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    openFloat: (file, anchor) => {
+    openFloat: (file) => {
       // Single location: if the file is already a tab in some pane, focus that
       // tab instead of floating a second copy.
       const host = allLeaves(get().paneTree).find((l) => l.tabs.includes(file));
@@ -618,7 +613,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         get().openInPanel(file, { paneId: host.id });
         return;
       }
-      set({ floatingFile: file, floatingAnchor: anchor });
+      set({ floatingFile: file });
     },
 
     closeFloat: () => {
@@ -628,10 +623,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // (torn-down editor) is non-blocking.
       void flushPane(FLOAT_PANE_ID).then(
         (ok) => {
-          if (ok) set({ floatingFile: null, floatingAnchor: null });
+          if (ok) set({ floatingFile: null });
           else set({ error: "Save or resolve this file's changes before closing it." });
         },
-        () => set({ floatingFile: null, floatingAnchor: null }),
+        () => set({ floatingFile: null }),
       );
     },
 

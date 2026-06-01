@@ -162,12 +162,14 @@ export const App = (): JSX.Element => {
             (New-note button, focus chip, empty hint). */}
         <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
+          {/* The canvas floating preview (double-click a badge) lives INSIDE the
+              canvas region, so it nearly fills the canvas and is clipped to it —
+              never spilling over the sidebar / right panel. Light-dismissed by a
+              click outside / Esc. */}
+          <FloatingPreview />
         </main>
         <EditorSpace />
       </div>
-      {/* The canvas floating preview (double-click a badge) — fixed-positioned
-          over everything, light-dismissed by a click outside / Esc. */}
-      <FloatingPreview />
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />
       <CommandPalette />

@@ -1304,10 +1304,10 @@ const MdEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Eleme
         </div>
       )}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {/* Cap the writing column. The overlay card is wide (room for media
-            viewers), but prose past ~740px is hard to read and write — so the
-            editor sits in a centered measure, like every serious text app. */}
-        <div style={{ maxWidth: 760, margin: '0 auto', padding: `${space[5]}px 0` }}>
+        {/* The editor FILLS the pane (like a code editor) — just a vertical
+            rhythm + a modest horizontal gutter, no narrow centered column. The
+            pane's own width is the measure; widen the pane for a wider editor. */}
+        <div style={{ padding: `${space[5]}px ${space[5]}px` }}>
           <BlockNoteView
             editor={editor}
             editable={!viewOnly}

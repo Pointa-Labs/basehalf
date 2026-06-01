@@ -239,7 +239,7 @@ export const Canvas = (): JSX.Element => {
   }, [refresh]);
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
-    (event, node) => {
+    (_event, node) => {
       // Cancel the deferred single-click focus collapse — opening a badge must
       // not first wipe the curated focus set.
       if (clickTimer.current) {
@@ -253,11 +253,11 @@ export const Canvas = (): JSX.Element => {
         setFolderScope(node.id);
         return;
       }
-      // File badge → a FLOATING, editable preview on the canvas, anchored near the
-      // click. Distinct from the right panel (fed by the sidebar / palette): the
-      // float is a lightweight in-place peek. Single-location is handled in
-      // openFloat (focuses an existing tab instead of floating a duplicate).
-      openFloat(node.id, { x: event.clientX, y: event.clientY });
+      // File badge → a FLOATING, editable preview that nearly fills the canvas.
+      // Distinct from the right panel (fed by the sidebar / palette): the float is
+      // an in-place peek on the canvas. Single-location is handled in openFloat
+      // (focuses an existing tab instead of floating a duplicate).
+      openFloat(node.id);
     },
     [setFolderScope, openFloat],
   );
