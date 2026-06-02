@@ -13,6 +13,9 @@ export interface WindowState {
   width: number;
   height: number;
   isMaximized?: boolean;
+  /** Window UI zoom level (Electron zoomFactor = 1.2^level), remembered across
+   *  restarts like a mature editor's window zoom. 0 = 100%. */
+  zoomLevel?: number;
 }
 
 const defaults = (): WindowState => ({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
@@ -30,6 +33,8 @@ export async function readWindowState(configDir: string): Promise<WindowState> {
       width: parsed.width,
       height: parsed.height,
       ...(typeof parsed.isMaximized === 'boolean' && { isMaximized: parsed.isMaximized }),
+      ...(typeof parsed.zoomLevel === 'number' &&
+        Number.isFinite(parsed.zoomLevel) && { zoomLevel: parsed.zoomLevel }),
     };
   } catch {
     return defaults();

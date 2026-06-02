@@ -17,6 +17,7 @@ import {
   firstLeaf,
   leafCount,
   moveInLeaf,
+  normalizeTree,
   openInLeaf,
   pinInLeaf,
   removeLeaf,
@@ -48,7 +49,11 @@ const paneResetFor = (
 ): { paneTree: PaneNode; activePaneId: string; rightPanelOpen: boolean } => {
   const restored = loadPanes(ws);
   if (restored) {
-    const tree = restored.paneTree;
+    // Heal a degenerate persisted layout (empty NON-sole panes — e.g. two empty
+    // panes side by side saved by an earlier build) instead of resurrecting it
+    // verbatim. loadPanes only checks "≥1 leaf", so without this an empty split
+    // survives forever across reloads.
+    const tree = normalizeTree(restored.paneTree);
     // Advance the pane-id counter past the restored ids so a later split / new pane
     // can't collide with one of them (which would corrupt findLeaf / tab moves).
     adoptPaneIds(tree);
@@ -999,11 +1004,34 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   };
 });
 
-// Persist the right-panel layout (open tabs + splits + active pane) per workspace
-// whenever it changes, so it's restored on the next reload / re-open. Debounced
-// inside savePanes; keyed by the current workspace (no-op when there's none).
+/** A stray empty pane: an empty leaf that ISN'T the sole pane. The layout invariant
+ *  forbids these — an empty pane may exist only as the single quiet home. */
+const hasStrayEmpty = (tree: PaneNode): boolean =>
+  leafCount(tree) > 1 && allLeaves(tree).some((l) => l.tabs.length === 0);
+
+// Maintain the layout invariant in ONE place, then persist. The invariant — "an
+// empty pane may exist only as the SOLE pane" — mirrors a mature code editor's
+// model: an empty editor group auto-closes unless it's the last one, and the big
+// empty watermark means the *whole* area is empty (never two of them). Rather than
+// guard every op (split / dock / drop / restore) against leaving a stray empty
+// pane, we heal it here whenever the tree changes — so any current or future path
+// is covered at a single choke point. The re-entrant setState re-runs this
+// subscriber on the healed tree (now stray-free, since normalizeTree is
+// idempotent), which then falls through to persist.
 useWorkspaceStore.subscribe((s, prev) => {
-  if (s.paneTree !== prev.paneTree || s.activePaneId !== prev.activePaneId) {
-    savePanes(s.current, { paneTree: s.paneTree, activePaneId: s.activePaneId });
+  if (s.paneTree === prev.paneTree && s.activePaneId === prev.activePaneId) return;
+  if (hasStrayEmpty(s.paneTree)) {
+    const tree = normalizeTree(s.paneTree);
+    const activePaneId = findLeaf(tree, s.activePaneId) ? s.activePaneId : firstLeaf(tree).id;
+    useWorkspaceStore.setState({
+      paneTree: tree,
+      activePaneId,
+      currentFile: deriveCurrent(tree, activePaneId),
+    });
+    return;
   }
+  // Persist the right-panel layout (open tabs + splits + active pane) per workspace
+  // so it's restored on the next reload. Debounced inside savePanes; no-op without
+  // a workspace.
+  savePanes(s.current, { paneTree: s.paneTree, activePaneId: s.activePaneId });
 });

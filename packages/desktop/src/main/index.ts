@@ -45,8 +45,50 @@ watcherEvents.on('event', (event: unknown) => {
 
 let mainWindow: BrowserWindow | null = null;
 
+// Window UI zoom (like a mature editor's window zoom): the level is owned here so
+// menu steps don't drift on Electron's factor↔level rounding, clamped to a sane
+// range, applied to the window on every load, and persisted across restarts.
+const MIN_ZOOM_LEVEL = -8;
+const MAX_ZOOM_LEVEL = 8;
+let currentZoomLevel = 0;
+
+// Persist window bounds + zoom together (debounced; bounds-change and zoom-step
+// events both flow through here). Module-scoped so the menu's zoom hooks can reach
+// it (the menu is built at app-ready, before the window exists).
+const persistWindowState = debounce(() => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const bounds = mainWindow.getBounds();
+  void writeWindowState(configDir, {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    isMaximized: mainWindow.isMaximized(),
+    zoomLevel: currentZoomLevel,
+  });
+}, 500);
+
+/** Push the current zoom level onto the window AND tell the renderer the resulting
+ *  factor, so the title bar can counter-zoom — staying aligned with the native
+ *  macOS traffic lights, which do NOT scale with page zoom. */
+function applyZoomToWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  wc.setZoomLevel(currentZoomLevel);
+  wc.send('window:zoom-factor', wc.getZoomFactor());
+}
+
+/** Apply an absolute zoom level to the window (clamped) and persist it. Called by
+ *  the View menu's Zoom In/Out/Actual-Size items. */
+function applyZoomLevel(level: number): void {
+  currentZoomLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, level));
+  applyZoomToWindow();
+  persistWindowState();
+}
+
 async function createWindow(): Promise<void> {
   const saved = await readWindowState(configDir);
+  currentZoomLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, saved.zoomLevel ?? 0));
   const state = clampToDisplays(saved, screen.getAllDisplays());
 
   mainWindow = new BrowserWindow({
@@ -87,9 +129,13 @@ async function createWindow(): Promise<void> {
   };
   mainWindow.on('enter-full-screen', () => onFullscreenChange(true));
   mainWindow.on('leave-full-screen', () => onFullscreenChange(false));
-  mainWindow.webContents.on('did-finish-load', () =>
-    onFullscreenChange(mainWindow?.isFullScreen() ?? false),
-  );
+  mainWindow.webContents.on('did-finish-load', () => {
+    onFullscreenChange(mainWindow?.isFullScreen() ?? false);
+    // webContents zoom resets on every (re)load — reapply the remembered level (and
+    // broadcast the factor so the title bar counter-zooms) so window zoom survives
+    // reloads + restarts, like a mature editor.
+    applyZoomToWindow();
+  });
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -97,22 +143,10 @@ async function createWindow(): Promise<void> {
     void mainWindow.loadFile(join(here, '../renderer/index.html'));
   }
 
-  const persist = debounce(() => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    const bounds = mainWindow.getBounds();
-    void writeWindowState(configDir, {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      isMaximized: mainWindow.isMaximized(),
-    });
-  }, 500);
-
-  mainWindow.on('move', persist);
-  mainWindow.on('resize', persist);
-  mainWindow.on('maximize', persist);
-  mainWindow.on('unmaximize', persist);
+  mainWindow.on('move', persistWindowState);
+  mainWindow.on('resize', persistWindowState);
+  mainWindow.on('maximize', persistWindowState);
+  mainWindow.on('unmaximize', persistWindowState);
 
   // Drop the reference when the window is destroyed. On macOS the app keeps
   // running with no window (window-all-closed doesn't quit), so without this
@@ -125,9 +159,10 @@ async function createWindow(): Promise<void> {
 }
 
 app.whenReady().then(() => {
-  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) while
-  // keeping the standard Edit/View/Window roles the editor relies on.
-  Menu.setApplicationMenu(buildAppMenu());
+  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) and a custom
+  // View menu whose zoom matches a mature editor (±1 level/⌘0), while keeping the
+  // standard Edit/Window roles the editor relies on.
+  Menu.setApplicationMenu(buildAppMenu({ getZoomLevel: () => currentZoomLevel, applyZoomLevel }));
   void createWindow();
 
   app.on('activate', () => {
@@ -146,6 +181,7 @@ app.on('before-quit', () => {
       width: bounds.width,
       height: bounds.height,
       isMaximized: mainWindow.isMaximized(),
+      zoomLevel: currentZoomLevel,
     });
   } catch {
     // Best-effort; never block quit on persistence failures.

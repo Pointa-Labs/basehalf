@@ -31,12 +31,27 @@ export const TitleBar = (): JSX.Element | null => {
   const [boxHover, setBoxHover] = useState(false);
   const [toggleHover, setToggleHover] = useState(false);
   const [rightToggleHover, setRightToggleHover] = useState(false);
+  // Window zoom factor (1 = 100%). The native macOS traffic lights do NOT scale
+  // with the window's page zoom, so the title bar must stay native-sized or its
+  // buttons collide with the lights. We counter-zoom the whole strip by 1/factor
+  // (mirrors a mature editor's `counter-zoom` on its title bar).
+  const [zoomFactor, setZoomFactor] = useState(1);
 
   // The OS window title — shown in the macOS fullscreen title-bar reveal and the
   // ⌘-Tab / Window list. The PRODUCT name, not the workspace folder name (which
   // reads like a stray file name in the reveal).
   useEffect(() => {
     document.title = 'BaseHalf';
+  }, []);
+
+  // Track the window zoom factor for the counter-zoom above. Subscribe to changes
+  // (main broadcasts on every View-menu zoom + on load), and read the current
+  // value once on mount so we don't miss a factor applied before we subscribed.
+  useEffect(() => {
+    const unsub = window.bh?.onZoomFactor?.((f) => setZoomFactor(f > 0 ? f : 1));
+    const now = window.bh?.getZoomFactor?.();
+    if (typeof now === 'number' && now > 0) setZoomFactor(now);
+    return unsub;
   }, []);
 
   // Reserve the traffic-light gutter on macOS, CONSTANT across windowed /
@@ -56,6 +71,9 @@ export const TitleBar = (): JSX.Element | null => {
     background: color.surfaceMuted,
     borderBottom: `1px solid ${color.border}`,
     WebkitAppRegion: 'drag',
+    // Counter the window's page zoom so the strip renders at its native size —
+    // keeping every button clear of the (unscaled) native traffic lights.
+    zoom: 1 / zoomFactor,
   };
 
   // Left + right zones are equal-weight (flex:1) so the center box is truly

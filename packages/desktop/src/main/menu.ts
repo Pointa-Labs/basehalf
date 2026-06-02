@@ -14,17 +14,44 @@ function emitOpenFolder(win?: BrowserWindow | null): void {
   target?.webContents.send('menu:open-folder');
 }
 
+/** Hooks the View menu's zoom items call. The caller owns the authoritative zoom
+ *  level (so repeated steps don't drift on Electron's factor↔level rounding) and
+ *  is responsible for clamping, applying it to the window, and persisting it. */
+export interface ZoomMenuHooks {
+  getZoomLevel: () => number;
+  applyZoomLevel: (level: number) => void;
+}
+
 /**
  * The application menu. Replacing Electron's default menu means we own the
  * whole bar — so we keep the standard Edit/View/Window roles (Electron expands
  * them with cut/copy/paste/selectAll, reload, minimize, …). Forgetting the
  * Edit role would silently break ⌘C/⌘V inside the block editor.
  *
- * The one addition over the defaults is File ▸ Open Folder… (⌘O) — the
- * primary "open another workspace" path now that the top bar no longer carries
- * an Add-folder button.
+ * Additions over the defaults:
+ *  - File ▸ Open Folder… (⌘O) — the primary "open another workspace" path.
+ *  - A custom View submenu whose zoom steps by ±1 zoom level per press (≈20%,
+ *    matching a mature code editor) instead of Electron's smaller ±0.5 default,
+ *    with ⌘0 = Actual Size. The level is owned + persisted by the caller.
  */
-export function buildAppMenu(): Menu {
+export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
+  const zoomIn = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() + 1);
+  const zoomOut = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() - 1);
+  const resetZoom = (): void => zoom.applyZoomLevel(0);
+  // A menu item can hold only ONE accelerator, so each extra key (the bare ⌘= and
+  // the numpad keys, matching a mature editor) rides a hidden twin item.
+  // `acceleratorWorksWhenHidden` keeps its key live even though it isn't shown.
+  const altAccel = (
+    label: string,
+    accelerator: string,
+    click: () => void,
+  ): MenuItemConstructorOptions => ({
+    label,
+    accelerator,
+    click,
+    visible: false,
+    acceleratorWorksWhenHidden: true,
+  });
   const template: MenuItemConstructorOptions[] = [
     ...(isMac ? [{ role: 'appMenu' } as MenuItemConstructorOptions] : []),
     {
@@ -36,7 +63,29 @@ export function buildAppMenu(): Menu {
       ],
     },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    {
+      // Custom View menu: same items as Electron's `viewMenu` role, but the zoom
+      // commands step the window zoom like a mature editor (±1 level / ⌘0 reset).
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        // Zoom: ±1 level (≈20%) per press, ⌘0 = Actual Size. The visible items show
+        // the conventional ⌘0 / ⌘+ / ⌘- ; hidden twins add the bare ⌘= and the
+        // numpad keys (numpad +/−/0), matching a mature editor's full key set.
+        { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: resetZoom },
+        altAccel('Actual Size', 'CmdOrCtrl+num0', resetZoom),
+        { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: zoomIn },
+        altAccel('Zoom In', 'CmdOrCtrl+=', zoomIn),
+        altAccel('Zoom In', 'CmdOrCtrl+numadd', zoomIn),
+        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: zoomOut },
+        altAccel('Zoom Out', 'CmdOrCtrl+numsub', zoomOut),
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
     { role: 'windowMenu' },
   ];
   return Menu.buildFromTemplate(template);
