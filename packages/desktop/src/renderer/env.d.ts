@@ -22,6 +22,13 @@ interface Window {
     /** Subscribe to window fullscreen changes (relayed by main). Returns an
      *  unsubscribe function. */
     onFullscreenChange(handler: (isFullscreen: boolean) => void): () => void;
+    /** Current window zoom factor (1.2^level); read synchronously from this frame.
+     *  The title bar counter-zooms by 1/factor to stay aligned with the native
+     *  traffic lights (which don't scale with page zoom). */
+    getZoomFactor(): number;
+    /** Subscribe to window zoom-factor changes (relayed by main). Returns an
+     *  unsubscribe function. */
+    onZoomFactor(handler: (factor: number) => void): () => void;
     /** Subscribe to file events from the core watcher (relayed by main).
      * Returns an unsubscribe function. */
     onFileEvent(

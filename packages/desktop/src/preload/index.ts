@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
 
 interface SerializedError {
   name: string;
@@ -58,6 +58,18 @@ const bh = {
     const wrapped = (_e: unknown, isFullscreen: boolean): void => handler(isFullscreen);
     ipcRenderer.on('window:fullscreen', wrapped);
     return () => ipcRenderer.off('window:fullscreen', wrapped);
+  },
+  /** The current window zoom factor (Electron zoomFactor = 1.2^level), read
+   *  synchronously from this frame. The title bar counter-zooms by 1/factor so it
+   *  (and the native traffic lights, which DON'T scale with page zoom) stay
+   *  aligned at any zoom — read once on mount to avoid a missed-broadcast race. */
+  getZoomFactor: (): number => webFrame.getZoomFactor(),
+  /** Subscribe to window zoom-factor changes (relayed by main when the View-menu
+   *  zoom commands fire / on load). Returns an unsubscribe function. */
+  onZoomFactor: (handler: (factor: number) => void): (() => void) => {
+    const wrapped = (_e: unknown, factor: number): void => handler(factor);
+    ipcRenderer.on('window:zoom-factor', wrapped);
+    return () => ipcRenderer.off('window:zoom-factor', wrapped);
   },
   /** Subscribe to the menu/right-click "Open Folder…" action (relayed by main).
    * Returns an unsubscribe function. The renderer responds by running its
