@@ -980,6 +980,8 @@ const loadPrism = async (lang: string) => {
     await import('prismjs/components/prism-bash.js');
   } else if (lang === 'sql') {
     await import('prismjs/components/prism-sql.js');
+  } else if (lang === 'json') {
+    await import('prismjs/components/prism-json.js');
   }
 
   return Prism;
