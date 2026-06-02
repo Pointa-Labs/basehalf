@@ -35,8 +35,9 @@ import {
 } from '../lib/liveDoc.js';
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
-import { modeOf } from '../lib/viewerMode.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { extOf, modeOf } from '../lib/viewerMode.js';
+import { FLOAT_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
+import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -934,8 +935,100 @@ export const MdEditor = ({
 // stray \r on every line, which a white-space:pre block can render as an extra
 // segment break (double-spacing) and pollutes any copy of the code. Normalizing
 // keeps the rendered lines matching the gutter. (Display-only; we never write.)
-const CodeBody = ({ text }: { text: string }): JSX.Element => {
-  const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+const EXT_TO_LANG: Record<string, string> = {
+  '.js': 'javascript',
+  '.jsx': 'jsx',
+  '.ts': 'typescript',
+  '.tsx': 'tsx',
+  '.json': 'json',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.yaml': 'yaml',
+  '.yml': 'yaml',
+  '.toml': 'toml',
+  '.sh': 'bash',
+  '.bash': 'bash',
+  '.sql': 'sql',
+};
+
+const loadPrism = async (lang: string) => {
+  const [{ default: Prism }] = await Promise.all([
+    import('prismjs'),
+    import('prismjs/themes/prism-tomorrow.css'),
+  ]);
+
+  if (lang === 'typescript') {
+    await import('prismjs/components/prism-typescript.js');
+  } else if (lang === 'jsx') {
+    await import('prismjs/components/prism-jsx.js');
+  } else if (lang === 'tsx') {
+    await import('prismjs/components/prism-jsx.js');
+    await import('prismjs/components/prism-typescript.js');
+    await import('prismjs/components/prism-tsx.js');
+  } else if (lang === 'python') {
+    await import('prismjs/components/prism-python.js');
+  } else if (lang === 'rust') {
+    await import('prismjs/components/prism-rust.js');
+  } else if (lang === 'go') {
+    await import('prismjs/components/prism-go.js');
+  } else if (lang === 'yaml') {
+    await import('prismjs/components/prism-yaml.js');
+  } else if (lang === 'toml') {
+    await import('prismjs/components/prism-toml.js');
+  } else if (lang === 'bash') {
+    await import('prismjs/components/prism-bash.js');
+  } else if (lang === 'sql') {
+    await import('prismjs/components/prism-sql.js');
+  }
+
+  return Prism;
+};
+
+const escapeHtml = (unsafe: string): string => {
+  return unsafe.replace(/[&<>"']/g, (m) => {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m] as string;
+  });
+};
+
+const CodeBody = ({ text, file }: { text: string; file: string }): JSX.Element => {
+  const body = useMemo(() => text.replace(/\r\n?/g, '\n').replace(/\n+$/, ''), [text]);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setHighlightedHtml(null);
+
+    const ext = extOf(file);
+    const langName = EXT_TO_LANG[ext] || '';
+
+    if (!langName) {
+      setHighlightedHtml(escapeHtml(body));
+      return;
+    }
+
+    void (async () => {
+      try {
+        const Prism = await loadPrism(langName);
+        if (!active) return;
+        const grammar = Prism.languages[langName];
+        if (grammar) {
+          const html = Prism.highlight(body, grammar, langName);
+          setHighlightedHtml(html);
+        } else {
+          setHighlightedHtml(escapeHtml(body));
+        }
+      } catch (e) {
+        if (!active) return;
+        setHighlightedHtml(escapeHtml(body));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [body, file]);
+
   const lineCount = body === '' ? 1 : body.split('\n').length;
   const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
   const lineStyle: CSSProperties = {
@@ -946,6 +1039,7 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
     whiteSpace: 'pre',
     tabSize: 2,
   };
+
   return (
     <div style={{ display: 'flex', minHeight: '100%' }}>
       <pre
@@ -965,15 +1059,27 @@ const CodeBody = ({ text }: { text: string }): JSX.Element => {
       >
         {gutter}
       </pre>
-      <pre
-        style={{
-          ...lineStyle,
-          padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
-          color: color.textPrimary,
-        }}
-      >
-        {body}
-      </pre>
+      {highlightedHtml !== null ? (
+        <pre
+          style={{
+            ...lineStyle,
+            padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
+            color: color.textPrimary,
+          }}
+          /* biome-ignore lint/security/noDangerouslySetInnerHtml: highlightedHtml is safely escaped */
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
+      ) : (
+        <pre
+          style={{
+            ...lineStyle,
+            padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
+            color: color.textPrimary,
+          }}
+        >
+          {body}
+        </pre>
+      )}
     </div>
   );
 };
@@ -1107,7 +1213,7 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
                 empty file
               </div>
             ) : (
-              <CodeBody text={state.text} />
+              <CodeBody text={state.text} file={file} />
             )}
             {!state.binary && state.truncated && (
               <div
