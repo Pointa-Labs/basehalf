@@ -67,6 +67,31 @@ export const emptyLeaf = (id = nextPaneId()): LeafPane => ({
   previewFile: null,
 });
 
+// ── Normalization (self-heal degenerate trees) ───────────────────────────────
+
+/** Prune every EMPTY leaf (no tabs), collapsing the splits they leave behind —
+ *  returns null when the whole tree is empty. An empty pane carries no state, so a
+ *  split that holds one is degenerate (e.g. two empty panes side by side, or an
+ *  empty pane left beside a real one after splitting an empty source). This is the
+ *  pure core; callers use `normalizeTree` to keep a single empty home. */
+export const pruneEmptyLeaves = (node: PaneNode): PaneNode | null => {
+  if (node.type === 'leaf') return node.tabs.length === 0 ? null : node;
+  const a = pruneEmptyLeaves(node.a);
+  const b = pruneEmptyLeaves(node.b);
+  if (a && b) return { ...node, a, b };
+  // One (or both) sides pruned away → collapse to the survivor (null if both gone).
+  return a ?? b;
+};
+
+/** A tree with no empty NON-sole panes: prune empties, falling back to one fresh
+ *  empty pane when everything was empty (the panel's quiet home). Used on restore
+ *  so a degenerate persisted layout — e.g. `split(empty, empty)` saved by a prior
+ *  build — self-heals on load instead of resurrecting forever. A sole leaf (empty or
+ *  filled) is already valid and returned untouched, so the panel's empty home keeps
+ *  its identity (only an all-empty SPLIT collapses to a fresh empty pane). */
+export const normalizeTree = (node: PaneNode): PaneNode =>
+  node.type === 'leaf' ? node : (pruneEmptyLeaves(node) ?? emptyLeaf());
+
 // ── Tree traversal ───────────────────────────────────────────────────────────
 
 /** The leftmost / topmost leaf — the default target when none is specified. */

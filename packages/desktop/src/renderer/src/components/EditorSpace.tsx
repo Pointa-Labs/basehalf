@@ -182,9 +182,13 @@ const Pane = ({
       <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex' }}>
         {hasTabs && leaf.activeFile !== null ? (
           <FilePreview file={leaf.activeFile} paneId={leaf.id} isActive={isActive} />
-        ) : (
+        ) : singlePane ? (
+          // The big empty watermark is a PANEL-level state: shown only when the panel
+          // is a single empty pane (mirrors a mature editor, where the watermark means
+          // the whole editor area is empty — never one per group). A non-sole empty
+          // pane renders nothing; the store invariant prunes it so this is just a guard.
           <EmptyPanel />
-        )}
+        ) : null}
         {dragging && <DropOverlay paneId={leaf.id} />}
         {dockRegion && <RegionBox region={dockRegion} zIndex={25} />}
       </div>
