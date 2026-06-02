@@ -178,7 +178,7 @@ export const CommandPalette = (): JSX.Element | null => {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const current = useWorkspaceStore((s) => s.current);
   const use = useWorkspaceStore((s) => s.use);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
 
   // Files in the current workspace — fetched lazily when the palette opens (so
@@ -335,7 +335,7 @@ export const CommandPalette = (): JSX.Element | null => {
           // file so they can find it by typing words from their own
           // description. Empty when the user hasn't written a prompt yet.
           ...(f.prompt !== undefined && f.prompt.length > 0 && { searchAlso: f.prompt }),
-          run: () => setCurrentFile(f.file),
+          run: () => openInPanel(f.file, { pinned: true }),
         });
       }
     }
@@ -377,7 +377,7 @@ export const CommandPalette = (): JSX.Element | null => {
     }
 
     return out;
-  }, [workspaces, current, files, filesWorkspace, use, setCurrentFile, pickAndAdd]);
+  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
 
   // Filter actions by query (case-insensitive substring match on label,
   // hint, or category). Keeps it dead simple — no fuzzy distance yet.
@@ -415,11 +415,11 @@ export const CommandPalette = (): JSX.Element | null => {
         ...(snippet !== undefined && snippet.length > 0 && { sub: snippet }),
         // Open AT the match: pass the query so the MD editor jumps to + flashes
         // the passage instead of landing at the top.
-        run: () => setCurrentFile(hit.file, q),
+        run: () => openInPanel(hit.file, { pinned: true, matchQuery: q }),
       });
     }
     return out;
-  }, [contentHits, hitsQuery, hitsWorkspace, current, query, filtered, setCurrentFile]);
+  }, [contentHits, hitsQuery, hitsWorkspace, current, query, filtered, openInPanel]);
 
   // The full navigable list: instant matches first, then content matches.
   const rows = useMemo(() => [...filtered, ...contentActions], [filtered, contentActions]);

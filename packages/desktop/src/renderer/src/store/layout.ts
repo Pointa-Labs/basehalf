@@ -16,6 +16,28 @@ export const SIDEBAR_SNAP_WIDTH = Math.floor(SIDEBAR_MIN_WIDTH / 2);
 const clampWidth = (n: number): number =>
   Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(n)));
 
+// Editor-space width — the RIGHT region (canvas ⇄ editor outer divider). The
+// canvas keeps the rest of the middle; drag the editor's left sash to rebalance.
+// Default ≈ a comfortable document reading column (the editor caps its prose at
+// ~760 too). Persisted like the sidebar; remembered across reloads. (Stage 5
+// moves this to per-workspace .bh/cache — for now a single remembered width.)
+const EDITOR_WIDTH_KEY = 'bh:editor-width';
+export const EDITOR_DEFAULT_WIDTH = 760;
+export const EDITOR_MIN_WIDTH = 420; // narrow enough to pair with the canvas, wide enough to read
+// Keep at least this much CANVAS visible behind the editor (the layout's promise).
+const MIN_CANVAS_WIDTH = 240;
+
+// Cap the editor so the OPEN sidebar (a real flex sibling, up to 640px) + a minimum
+// canvas always fit: viewport − sidebarReserve − MIN_CANVAS. A fixed reserve let a
+// widened sidebar + a wide editor squeeze the canvas to zero / overflow.
+const clampEditorWidth = (n: number, sidebarReserve: number): number => {
+  // window may be unavailable at module init in some test envs — fall back to a
+  // generous static ceiling so the clamp never returns NaN.
+  const viewport = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const max = Math.max(EDITOR_MIN_WIDTH, viewport - sidebarReserve - MIN_CANVAS_WIDTH);
+  return Math.max(EDITOR_MIN_WIDTH, Math.min(max, Math.round(n)));
+};
+
 function readBool(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key);
@@ -47,24 +69,52 @@ interface LayoutState {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (width: number) => void;
+  /** Width of the right-docked editor space (canvas keeps the rest). */
+  editorWidth: number;
+  setEditorWidth: (width: number) => void;
 }
 
-export const useLayoutStore = create<LayoutState>((set) => ({
-  sidebarOpen: readBool(OPEN_KEY, true),
-  sidebarWidth: clampWidth(readNum(WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH)),
-  toggleSidebar: () =>
-    set((s) => {
-      const open = !s.sidebarOpen;
+export const useLayoutStore = create<LayoutState>((set, get) => {
+  const sidebarOpen0 = readBool(OPEN_KEY, true);
+  const sidebarWidth0 = clampWidth(readNum(WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH));
+  // The space an OPEN sidebar reserves (0 when hidden) — the editor clamp subtracts it.
+  const reserve = (): number => (get().sidebarOpen ? get().sidebarWidth : 0);
+  return {
+    sidebarOpen: sidebarOpen0,
+    sidebarWidth: sidebarWidth0,
+    toggleSidebar: () => {
+      const open = !get().sidebarOpen;
       persist(OPEN_KEY, open ? '1' : '0');
-      return { sidebarOpen: open };
-    }),
-  setSidebarOpen: (open) => {
-    persist(OPEN_KEY, open ? '1' : '0');
-    set({ sidebarOpen: open });
-  },
-  setSidebarWidth: (width) => {
-    const w = clampWidth(width);
-    persist(WIDTH_KEY, String(w));
-    set({ sidebarWidth: w });
-  },
-}));
+      // Re-clamp the editor against the new reserve (opening the sidebar may shrink it).
+      set({
+        sidebarOpen: open,
+        editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0),
+      });
+    },
+    setSidebarOpen: (open) => {
+      persist(OPEN_KEY, open ? '1' : '0');
+      set({
+        sidebarOpen: open,
+        editorWidth: clampEditorWidth(get().editorWidth, open ? get().sidebarWidth : 0),
+      });
+    },
+    setSidebarWidth: (width) => {
+      const w = clampWidth(width);
+      persist(WIDTH_KEY, String(w));
+      // Widening the sidebar must not squeeze the canvas away — re-clamp the editor.
+      set({
+        sidebarWidth: w,
+        editorWidth: clampEditorWidth(get().editorWidth, get().sidebarOpen ? w : 0),
+      });
+    },
+    editorWidth: clampEditorWidth(
+      readNum(EDITOR_WIDTH_KEY, EDITOR_DEFAULT_WIDTH),
+      sidebarOpen0 ? sidebarWidth0 : 0,
+    ),
+    setEditorWidth: (width) => {
+      const w = clampEditorWidth(width, reserve());
+      persist(EDITOR_WIDTH_KEY, String(w));
+      set({ editorWidth: w });
+    },
+  };
+});

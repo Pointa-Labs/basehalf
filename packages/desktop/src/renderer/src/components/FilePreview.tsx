@@ -20,17 +20,22 @@ import {
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
+import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
-  type MdEditorApi,
-  type ReuseEntry,
-  buildLoadProjection,
-  spliceSave,
-} from '../lib/mdSegment.js';
+  type LiveDocView,
+  acquireDoc,
+  claimSeed,
+  docKeyFor,
+  ensureDoc,
+  markReady,
+  onReady,
+  releaseDoc,
+} from '../lib/liveDoc.js';
+import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
-import { useLayoutStore } from '../store/layout.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { FLOAT_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
 
@@ -78,61 +83,38 @@ function splitPath(rel: string): { dirname: string; basename: string } {
     : { dirname: rel.slice(0, i), basename: rel.slice(i + 1) };
 }
 
-export const FilePreview = (): JSX.Element | null => {
-  const currentFile = useWorkspaceStore((s) => s.currentFile);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+/** The editor body for ONE pane's active file. The pane (EditorSpace) supplies
+ *  `file`, the pane `paneId` (for the flush registry + close), and whether the
+ *  pane is the active one (only it consumes the search jump-to-match).
+ *  `showBadge` renders the badge backpack panel (prompt + references) above the
+ *  content — the right panel leaves it OFF (the badge lives on the canvas); the
+ *  canvas floating preview turns it ON. */
+export const FilePreview = ({
+  file,
+  paneId,
+  isActive,
+  showBadge = false,
+}: { file: string; paneId: string; isActive: boolean; showBadge?: boolean }): JSX.Element => {
   const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const current = useWorkspaceStore((s) => s.current);
-  // The Sidebar is a left-docked overlay; keep the editor card clear of it so
-  // the sidebar never covers the editor's left column (and stays usable while
-  // a file is open). The card recenters in the space right of the sidebar.
-  const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
-  const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
   const wsPath = workspaces.find((w) => w.name === current)?.path ?? '';
   // The scrollable content area; jump-to-match (below) searches its rendered
   // text for a content-search hit.
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Esc / Cmd-W close the preview. Cmd-W matches macOS muscle memory for
-  // closing a panel/tab. setCurrentFile(null) flushes the editor before
-  // clearing (see store), so closing always persists pending edits.
-  useEffect(() => {
-    if (!currentFile) return;
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        // Close from the document body and the media viewers (DIV targets).
-        // Skip when a form field has focus: both BlockNote (a contentEditable
-        // DIV — not matched here, so the editor body DOES close) and form
-        // fields can preventDefault Escape, so a `defaultPrevented` check is
-        // unreliable. Form fields handle their own Escape — the badge-prompt
-        // textarea closes on Escape via its scoped onKeyDown below — so a stray
-        // Escape mid-typing in another field doesn't yank the panel shut.
-        const tag = (e.target as HTMLElement | null)?.tagName ?? '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-        setCurrentFile(null);
-      } else if (e.key === 'w' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setCurrentFile(null);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [currentFile, setCurrentFile]);
-
   // Jump-to-match: when a file is opened FROM a content-search hit, land on the
-  // passage. Scoped to the MD editor — its block-per-element layout makes a
-  // matched text node resolve to a single block (a clean scroll target);
-  // anything else (the single-<pre> text viewer, media) just opens at the top,
-  // so we consume the target without scrolling. We search ONLY the BlockNote
-  // editable body (`[contenteditable]`), never the editor chrome — otherwise a
-  // query like "saved" would match the status bar that renders first. The
-  // editable renders async, so we retry on a short cadence until it appears +
-  // the match is found, or we give up.
+  // passage. Only the ACTIVE pane consumes it (the search-open targets the active
+  // pane). Scoped to the MD editor — its block-per-element layout makes a matched
+  // text node resolve to a single block (a clean scroll target); anything else
+  // (the single-<pre> text viewer, media) just opens at the top, so we consume
+  // the target without scrolling. We search ONLY the BlockNote editable body
+  // (`[contenteditable]`), never the editor chrome. The editable renders async,
+  // so we retry on a short cadence until it appears + the match is found.
   useEffect(() => {
-    if (!currentFile || openMatchQuery === null) return;
-    if (modeOf(currentFile) !== 'md') {
+    if (!isActive || openMatchQuery === null) return;
+    if (modeOf(file) !== 'md') {
       clearOpenMatchQuery();
       return;
     }
@@ -157,210 +139,132 @@ export const FilePreview = (): JSX.Element | null => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentFile, openMatchQuery, clearOpenMatchQuery]);
+  }, [isActive, file, openMatchQuery, clearOpenMatchQuery]);
 
-  if (!currentFile) return null;
-  const mode = modeOf(currentFile);
-  const absPath = `${wsPath}/${currentFile}`;
-  const { dirname, basename } = splitPath(currentFile);
+  const mode = modeOf(file);
+  const absPath = `${wsPath}/${file}`;
+  const { basename } = splitPath(file);
+  // Key the text/MD views by the workspace ROOT PATH + relative path: a workspace
+  // switch (or a repath to a new folder) whose layout has the same relative file in
+  // the same pane would otherwise keep the component mounted, leaving the editor
+  // bound to the previous folder's Yjs doc while reads/writes use the new one. The
+  // path-scoped key forces a clean remount + a fresh shared doc.
+  const viewKey = docKeyFor(wsPath, file);
 
   return (
-    // Centered overlay (not a side drawer): the file opens BIG so there's
-    // real room to read and write, while the canvas dims behind it — you never
-    // lose the sense of "I'm still in my space, looking closely at one thing."
-    // position:absolute scopes the dim to the canvas area (its containing
-    // block is the relative <main>), so the Sidebar + TopBar stay lit: you can
-    // switch files without closing the editor. mousedown-on-backdrop (not
-    // click) dismisses, so a text selection that drags out of the card doesn't
-    // accidentally close it. The card stays an <aside> (driver counts asides).
+    // The editor PANEL — the body of the active right-panel tab. Its width + left
+    // resize sash + the tab strip (file identity + close) live in EditorSpace; the
+    // canvas sits to its left, lit and interactive, so you read/edit on the right
+    // while the spatial map stays in view.
     <div
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) setCurrentFile(null);
-      }}
       style={{
-        position: 'absolute',
-        inset: 0,
-        zIndex: 40,
-        background: 'rgba(24, 26, 32, 0.34)',
+        // flex:1 + minWidth:0 so we FILL the pane / float (both are flex-row
+        // parents). Without this the editor shrink-wraps to its content width,
+        // leaving the text in a small left block with big empty space.
+        flex: 1,
+        minWidth: 0,
+        height: '100%',
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingTop: space[6],
-        paddingRight: space[6],
-        paddingBottom: space[6],
-        // Inset the centering box past the sidebar overlay so the editor card
-        // lands to its RIGHT, never behind it (normal padding when hidden).
-        paddingLeft: sidebarOpen ? sidebarWidth + space[6] : space[6],
-        animation: `bh-fade-in ${motion.fast}`,
+        flexDirection: 'column',
+        overflow: 'hidden',
+        background: color.surface,
+        fontFamily: font.sans,
       }}
     >
-      <aside
-        style={{
-          width: 'min(1040px, 100%)',
-          height: 'min(900px, 100%)',
-          background: color.surface,
-          borderRadius: radius.xl,
-          boxShadow: shadow.floating,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          animation: `bh-dialog-in ${motion.normal}`,
-        }}
-      >
-        <header
-          style={{
-            padding: `${space[3]}px ${space[4]}px`,
-            borderBottom: `1px solid ${color.border}`,
-            background: color.surface,
-            fontFamily: font.sans,
-            display: 'flex',
-            alignItems: 'center',
-            gap: space[2],
-          }}
-          title={currentFile}
-        >
+      {showBadge && <BadgeProperties file={file} paneId={paneId} />}
+      <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
+        {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} docKey={viewKey} />}
+        {mode === 'text' && <TextViewer key={viewKey} file={file} />}
+        {mode === 'pdf' && <PdfViewer absPath={absPath} />}
+        {mode === 'image' && <ImageViewer absPath={absPath} />}
+        {mode === 'audio' && (
+          // Center the player with a glyph + filename so a lone audio bar
+          // doesn't look stranded in a tall panel.
           <div
             style={{
-              flex: 1,
-              minWidth: 0,
+              height: '100%',
               display: 'flex',
               flexDirection: 'column',
-              gap: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: space[4],
+              padding: space[6],
+              background: color.surfaceMuted,
             }}
           >
-            <strong
+            <div
               style={{
+                width: 56,
+                height: 56,
+                borderRadius: radius.xl,
+                background: color.surface,
+                border: `1px solid ${color.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: color.textTertiary,
+              }}
+            >
+              <svg
+                width={26}
+                height={26}
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.25}
+                strokeLinecap="round"
+                aria-hidden
+              >
+                <path d="M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8" />
+              </svg>
+            </div>
+            <div
+              style={{
+                fontSize: font.size.body,
+                fontWeight: font.weight.medium,
+                color: color.textPrimary,
+                maxWidth: '100%',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                color: color.textPrimary,
-                fontSize: font.size.body,
-                fontWeight: font.weight.semibold,
-                letterSpacing: -0.1,
               }}
             >
               {basename}
-            </strong>
-            {dirname && (
-              <span
-                style={{
-                  fontSize: font.size.micro,
-                  color: color.textTertiary,
-                  fontFamily: font.mono,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  letterSpacing: -0.2,
-                }}
-              >
-                {dirname}/
-              </span>
-            )}
+            </div>
+            <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
+              <track kind="captions" />
+            </audio>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCurrentFile(null)}
-            title="Close (Esc)"
+        )}
+        {mode === 'video' && (
+          // Dark backing + rounded frame so video reads as a player, not a
+          // raw element on white.
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: space[4],
+              background: '#1b1b1d',
+            }}
           >
-            Close
-          </Button>
-        </header>
-        <BadgeProperties file={currentFile} />
-        <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
-          {mode === 'md' && <MdEditor key={currentFile} file={currentFile} />}
-          {mode === 'text' && <TextViewer key={currentFile} file={currentFile} />}
-          {mode === 'pdf' && <PdfViewer absPath={absPath} />}
-          {mode === 'image' && <ImageViewer absPath={absPath} />}
-          {mode === 'audio' && (
-            // Center the player with a glyph + filename so a lone audio bar
-            // doesn't look stranded in a tall panel.
-            <div
+            <video
+              controls
+              src={`file://${absPath}`}
               style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: space[4],
-                padding: space[6],
-                background: color.surfaceMuted,
+                width: '100%',
+                maxHeight: '100%',
+                borderRadius: radius.lg,
+                boxShadow: shadow.raised,
               }}
             >
-              <div
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: radius.xl,
-                  background: color.surface,
-                  border: `1px solid ${color.border}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: color.textTertiary,
-                }}
-              >
-                <svg
-                  width={26}
-                  height={26}
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={1.25}
-                  strokeLinecap="round"
-                  aria-hidden
-                >
-                  <path d="M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8" />
-                </svg>
-              </div>
-              <div
-                style={{
-                  fontSize: font.size.body,
-                  fontWeight: font.weight.medium,
-                  color: color.textPrimary,
-                  maxWidth: '100%',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {basename}
-              </div>
-              <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
-                <track kind="captions" />
-              </audio>
-            </div>
-          )}
-          {mode === 'video' && (
-            // Dark backing + rounded frame so video reads as a player, not a
-            // raw element on white.
-            <div
-              style={{
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: space[4],
-                background: '#1b1b1d',
-              }}
-            >
-              <video
-                controls
-                src={`file://${absPath}`}
-                style={{
-                  width: '100%',
-                  maxHeight: '100%',
-                  borderRadius: radius.lg,
-                  boxShadow: shadow.raised,
-                }}
-              >
-                <track kind="captions" />
-              </video>
-            </div>
-          )}
-          {mode === 'other' && <UnsupportedFileViewer file={currentFile} absPath={absPath} />}
-        </div>
-      </aside>
+              <track kind="captions" />
+            </video>
+          </div>
+        )}
+        {mode === 'other' && <UnsupportedFileViewer file={file} absPath={absPath} />}
+      </div>
     </div>
   );
 };
@@ -369,7 +273,10 @@ export const FilePreview = (): JSX.Element | null => {
 // Per IR-v2-04, every badge has a prompt + references + position; users need
 // to edit prompt/references here (canvas only handles position via drag).
 // Without this UI, badge.prompt was effectively write-only-by-CLI.
-const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
+const BadgeProperties = ({
+  file,
+  paneId,
+}: { file: string; paneId: string }): JSX.Element | null => {
   const [badge, setBadge] = useState<BadgeFile | null>(null);
   const [prompt, setPrompt] = useState('');
   const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
@@ -379,8 +286,11 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
   // on the next successful write.
   const [saveError, setSaveError] = useState<string | null>(null);
   // For the prompt textarea's own Escape-to-close (the global handler skips
-  // form fields, so the field closes the panel itself).
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  // form fields, so the field closes the surface itself). The badge panel only
+  // renders in the canvas FLOAT, so Escape there must close the float — closeTab
+  // with FLOAT_PANE_ID is a no-op (it isn't a real pane).
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const closeFloat = useWorkspaceStore((s) => s.closeFloat);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try {
       return localStorage.getItem('bh:badge-props-collapsed') === '1';
@@ -641,12 +551,14 @@ const BadgeProperties = ({ file }: { file: string }): JSX.Element | null => {
                 savePrompt(e.target.value);
               }}
               onKeyDown={(e) => {
-                // Escape leaves the editor in one press from here too (the
-                // global handler skips form fields). Persist first.
+                // Escape closes the surface in one press from here too (the global
+                // handler skips form fields). Persist first, then close — the float
+                // if this is the canvas badge panel, else the active tab.
                 if (e.key === 'Escape') {
                   e.preventDefault();
                   savePrompt.flush();
-                  setCurrentFile(null);
+                  if (paneId === FLOAT_PANE_ID) closeFloat();
+                  else closeTab(paneId, file);
                 }
               }}
               placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
@@ -775,7 +687,7 @@ const InboundList = ({
 }: {
   readonly entries: readonly { from: string; note?: string }[];
 }): JSX.Element => {
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   return (
     <div style={{ marginTop: space[3] }}>
       <div
@@ -819,7 +731,7 @@ const InboundList = ({
             </span>
             <button
               type="button"
-              onClick={() => setCurrentFile(e.from)}
+              onClick={() => openInPanel(e.from)}
               title={`Open ${e.from}`}
               style={{
                 flex: 1,
@@ -992,11 +904,27 @@ const ReferenceRow = ({
 
 const AUTOSAVE_MS = 400;
 
-const MdEditor = ({ file }: { file: string }): JSX.Element => {
-  const editor = useCreateBlockNote({ schema: bhSchema });
-  const setFlushEditor = useWorkspaceStore((s) => s.setFlushEditor);
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
-  const [saving, setSaving] = useState(false); // a save is pending or in flight
+const MdEditor = ({
+  file,
+  paneId,
+  docKey,
+}: { file: string; paneId: string; docKey: string }): JSX.Element => {
+  // The file's shared in-memory document (created on first open, disposed on last
+  // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every view
+  // of this file ONE live document — both editable, char-level synced. `docKey` is
+  // workspace-ROOT-scoped by the parent (keyed by it too), so two folders sharing a
+  // relative path — or a repath — never collide on one doc.
+  const shared = ensureDoc(docKey);
+  const editor = useCreateBlockNote({
+    schema: bhSchema,
+    collaboration: {
+      fragment: shared.fragment,
+      user: { name: 'me', color: color.accent },
+    },
+  });
+  const closeTab = useWorkspaceStore((s) => s.closeTab);
+  const closeFloatStore = useWorkspaceStore((s) => s.closeFloat);
+  const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
   // stay view-only so editing can't overwrite the original. Inferred at load.
@@ -1017,76 +945,101 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   const [writeFailed, setWriteFailed] = useState(false);
   const writeFailedRef = useRef(false);
   const [loadKey, setLoadKey] = useState(0);
+  // Shared-document ownership: is THIS view the OWNER for its file — the single
+  // view that runs autosave + the watcher + the conflict gate? All views are
+  // editable; the owner just owns persistence (see lib/liveDoc). Claimed on mount
+  // by the first view; hands off when the owner unmounts. isOwnerRef is the
+  // synchronous truth the save/watch paths read.
+  const [isOwner, setIsOwner] = useState(false);
+  const isOwnerRef = useRef(false);
+  isOwnerRef.current = isOwner;
+  // False until the file's shared doc has its seed content APPLIED — gates
+  // editability so a fast joiner can't type into the still-empty doc and have its
+  // edits overwritten when the async seed lands (see lib/liveDoc markReady/onReady).
+  const [seedReady, setSeedReady] = useState(false);
+  // This editor's handle in the shared-doc registry (built below).
+  const viewRef = useRef<LiveDocView | null>(null);
   const initialLoad = useRef(true);
-  // What we believe is on disk — lets us ignore our own write echoes from the
-  // watcher and detect genuine external edits.
-  const lastDiskRef = useRef('');
-  // A leading YAML frontmatter block, kept VERBATIM and re-prepended on save so
-  // BlockNote only ever round-trips the body. Without this, a note that opens
-  // with a YAML block would be forced view-only because YAML can't round-trip.
-  // Empty string when the file has no frontmatter.
-  const frontmatterRef = useRef('');
-  // Identity-addressed verbatim-reuse index (block id → its original source tile)
-  // built from the body on load, so the splice-save can re-emit untouched blocks
-  // byte-for-byte. Keyed by block id (preserved across edits) so duplicate content
-  // can't cross-pollinate; stays valid for the live document without rebuilding.
-  const byIdRef = useRef<Map<string, ReuseEntry>>(new Map());
-  // True once the user typed but the debounced save hasn't flushed yet.
+  // The per-file save state — frontmatter (kept verbatim, re-prepended on save),
+  // the id-keyed verbatim-reuse index, and the last-known disk bytes — lives on the
+  // SHARED doc, not here: the reuse index is keyed by the seeded block ids (which
+  // only the shared doc knows), so it can't be rebuilt per-view, and it must
+  // survive an owner handoff. (See shared.frontmatter / shared.byId / shared.lastDisk.)
+  //
+  // `pendingRef` stays per-view: only the OWNER's matters (its editor receives every
+  // view's edits via Yjs, so its onChange drives the single save), and navigation
+  // always flushes before an owner unmounts, so it's clear at handoff.
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
   viewOnlyRef.current = viewOnly;
 
-  // Load on mount / explicit reload. MdEditor is keyed by `file` in the parent,
-  // so switching files remounts it and this always loads fresh.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loadKey is a reload trigger — bumping it re-runs this effect to re-read the file from disk
+  // Apply disk content to the SHARED doc (replaceBlocks → syncs to every view via
+  // Yjs): peel any leading YAML frontmatter and keep it byte-verbatim (BlockNote
+  // only ever sees the body, which is the source of truth — the projection tiles
+  // it into source-exact segments so the splice-save can reuse untouched bytes,
+  // see mdSegment.ts), project the body into reuse-indexed blocks, swap them in,
+  // and reset the shared disk baseline. Used by the SEEDER (first open) and the
+  // OWNER's external-change reload — both the only callers that touch disk.
+  const applyContent = useCallback(
+    async (original: string): Promise<void> => {
+      initialLoad.current = true;
+      const { frontmatter, body } = splitFrontmatter(original);
+      shared.frontmatter = frontmatter;
+      const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
+      shared.byId = byId;
+      editor.replaceBlocks(
+        editor.document,
+        blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
+      );
+      // File = truth: the echo baseline is the EXACT disk bytes. A save only
+      // happens on a real edit (the pendingRef guard in flush), and our own
+      // write echoes back equal to this — so merely viewing never rewrites.
+      shared.lastDisk = original;
+      pendingRef.current = false;
+      // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
+      // reinterpret its structure. Every Markdown file is now editable; the
+      // splice-save preserves anything the user doesn't touch (incl. constructs
+      // BlockNote can't model, kept as read-only passthrough blocks).
+      setViewOnly(/\.txt$/i.test(file));
+      setReloadPrompt(false);
+      setError('');
+      setTimeout(() => {
+        initialLoad.current = false;
+      }, 50);
+    },
+    [editor, file, shared],
+  );
+
+  // Reload on an EXTERNAL change: the OWNER's watcher / acceptReload bump loadKey.
+  // Always from DISK — an external edit lives on disk. Re-seeding the shared doc
+  // (replaceBlocks) syncs every view via Yjs. Skipped on first render (loadKey 0);
+  // the join effect below does the initial load. Only the owner's loadKey ever
+  // changes (non-owners don't watch), so this is implicitly owner-only.
   useEffect(() => {
-    initialLoad.current = true;
+    if (loadKey === 0) return;
     void (async () => {
       try {
         const result = (await window.bh.run('workspace.readFile', {
           path: file,
         })) as WorkspaceReadFileResult;
-        const original = result.content;
-        // Peel any leading YAML frontmatter and keep it byte-verbatim; BlockNote
-        // only ever sees the body, which is the source of truth. The projection
-        // tiles the body into source-exact segments so the splice-save can reuse
-        // untouched bytes (see mdSegment.ts).
-        const { frontmatter, body } = splitFrontmatter(original);
-        frontmatterRef.current = frontmatter;
-        const { blocks, byId } = await buildLoadProjection(editor as unknown as MdEditorApi, body);
-        byIdRef.current = byId;
-        editor.replaceBlocks(
-          editor.document,
-          blocks as unknown as Parameters<typeof editor.replaceBlocks>[1],
-        );
-        // File = truth: the echo baseline is the EXACT disk bytes. A save only
-        // happens on a real edit (the pendingRef guard in flush), and our own
-        // write echoes back equal to this — so merely viewing never rewrites.
-        lastDiskRef.current = original;
-        pendingRef.current = false;
-        // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
-        // reinterpret its structure. Every Markdown file is now editable; the
-        // splice-save preserves anything the user doesn't touch (incl. constructs
-        // BlockNote can't model, kept as read-only passthrough blocks).
-        setViewOnly(/\.txt$/i.test(file));
-        setSaving(false);
-        setReloadPrompt(false);
-        setError('');
-        setTimeout(() => {
-          initialLoad.current = false;
-        }, 50);
+        await applyContent(result.content);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [file, editor, loadKey]);
+  }, [file, loadKey, applyContent]);
 
-  // The actual save: serialize and write only when content changed. Safe to
-  // call anytime (no-op when nothing's pending). Sets lastDiskRef BEFORE the
-  // write so the watcher echo of our own write compares equal and is ignored.
+  // The actual save (OWNER only): serialize and write only when content changed.
+  // Safe to call anytime (no-op when nothing's pending). Updates shared.lastDisk
+  // after the write so the watcher echo of our own write compares equal + a new
+  // owner inherits the right baseline.
   const flush = useCallback(
     async (force = false): Promise<void> => {
       if (viewOnlyRef.current) return;
+      // Only the OWNER persists. A non-owner view's edits sync to the owner's editor
+      // via Yjs, whose onChange drives the single save — so a non-owner flush (e.g.
+      // a navigation flush of a non-owner pane) is a no-op.
+      if (!isOwnerRef.current) return;
       // A conflict banner is up: the user's explicit Keep/Reload choice is
       // authoritative. Don't let an auto-save / Cmd-S / blur / file-switch write
       // behind it and silently clobber the external edit. keepMine() passes
@@ -1098,7 +1051,6 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       if (!pendingRef.current) {
         writeFailedRef.current = false; // nothing pending → nothing unpersisted
         setWriteFailed(false);
-        setSaving(false);
         return;
       }
       let md: string;
@@ -1108,17 +1060,16 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         md = await spliceSave(
           editor as unknown as MdEditorApi,
           editor.document,
-          frontmatterRef.current,
-          byIdRef.current,
+          shared.frontmatter,
+          shared.byId,
         );
       } catch {
         return; // editor torn down mid-flush — nothing safe to write
       }
-      if (md === lastDiskRef.current) {
+      if (md === shared.lastDisk) {
         pendingRef.current = false;
         writeFailedRef.current = false; // content matches disk → nothing unpersisted
         setWriteFailed(false);
-        setSaving(false);
         return;
       }
       // Last-line interlock against the in-flight race: an external edit can land
@@ -1130,10 +1081,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
           const disk = (
             (await window.bh.run('workspace.readFile', { path: file })) as WorkspaceReadFileResult
           ).content;
-          if (disk !== lastDiskRef.current) {
+          if (disk !== shared.lastDisk) {
             reloadPromptRef.current = true;
             setReloadPrompt(true);
-            setSaving(false);
             return;
           }
         } catch {
@@ -1143,11 +1093,11 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       }
       try {
         await window.bh.run('workspace.writeFile', { path: file, content: md });
-        // Only AFTER a successful write: mark synced to the EXACT bytes written (so
-        // the watcher echo compares equal) and clear pending. The reuse index is
-        // keyed by block id and stays valid for the live document, so there's
-        // nothing to rebuild here.
-        lastDiskRef.current = md;
+        // Only AFTER a successful write: mark the shared baseline to the EXACT bytes
+        // written (so the watcher echo compares equal + a new owner inherits the
+        // right baseline) and clear pending. The reuse index is keyed by block id
+        // and stays valid for the live document, so there's nothing to rebuild.
+        shared.lastDisk = md;
         pendingRef.current = false;
         writeFailedRef.current = false;
         setWriteFailed(false);
@@ -1159,13 +1109,80 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         setWriteFailed(true);
         setError(err instanceof Error ? err.message : String(err));
       } finally {
-        setSaving(false);
       }
     },
-    [editor, file],
+    [editor, file, shared],
   );
   const flushRef = useRef(flush);
   flushRef.current = flush;
+
+  // This view's handle in the shared-doc registry. setOwner toggles the (single)
+  // persistence-owner role; isOwnerRef is set synchronously so flush/onChange see
+  // it the instant ownership changes.
+  const view = useMemo<LiveDocView>(
+    () => ({
+      key: docKey,
+      setOwner: (o) => {
+        isOwnerRef.current = o;
+        setIsOwner(o);
+        // Inherited ownership after a sibling's "Discard & close" on a write-failure:
+        // reload from disk to drop the failed edits that still live in the shared doc.
+        if (o && ensureDoc(docKey).discardRequested) {
+          ensureDoc(docKey).discardRequested = false;
+          pendingRef.current = false;
+          setLoadKey((k) => k + 1);
+        }
+      },
+    }),
+    [docKey],
+  );
+  viewRef.current = view;
+
+  // Join this file's shared document on mount: take a hold (claims the owner role
+  // if vacant), and — as the FIRST view — SEED the doc from disk. Later views bind
+  // to the already-seeded content (Yjs syncs them), so they don't re-read disk and
+  // can't double-seed (claimSeed is atomic). Releasing on unmount hands the owner
+  // role to a surviving view (see lib/liveDoc).
+  useEffect(() => {
+    const self = view;
+    acquireDoc(self);
+    // Every view stays non-editable until the seed content is actually applied, so a
+    // joiner can't type into the empty doc and lose it to the incoming seed.
+    const offReady = onReady(self, () => setSeedReady(true));
+    let joinTimer: ReturnType<typeof setTimeout> | undefined;
+    if (claimSeed(self)) {
+      void (async () => {
+        try {
+          const { content } = (await window.bh.run('workspace.readFile', {
+            path: file,
+          })) as WorkspaceReadFileResult;
+          await applyContent(content);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        } finally {
+          // Mark applied even on a read error (the doc is then empty + editable) so
+          // joiners are never stuck waiting; onReady fires → seedReady true.
+          markReady(self);
+        }
+      })();
+    } else {
+      // Joining an already-seeded doc: the content arrives via Yjs. Set the per-view
+      // flags the seeder's applyContent would have (view-only by extension, cleared
+      // banners) and lift the initial-load guard once the sync has settled.
+      setViewOnly(/\.txt$/i.test(file));
+      setReloadPrompt(false);
+      setError('');
+      initialLoad.current = true;
+      joinTimer = setTimeout(() => {
+        initialLoad.current = false;
+      }, 50);
+    }
+    return () => {
+      offReady();
+      if (joinTimer) clearTimeout(joinTimer);
+      releaseDoc(self);
+    };
+  }, [file, view, applyContent]);
 
   // Debounced auto-save trigger — stable across renders, delegates via the ref.
   const scheduleSave = useMemo(() => debounce(() => void flushRef.current(), AUTOSAVE_MS), []);
@@ -1176,22 +1193,26 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    // The navigation gatekeeper. An unresolved conflict banner is a decision
-    // point — return `false` so setCurrentFile / the workspace switch DON'T
-    // proceed (forcing the user to pick Keep/Reload) rather than silently
-    // dropping local edits OR clobbering the external write. With no conflict,
-    // flush normally (the re-read guard may itself surface one mid-flush, which
-    // we also report as blocked).
-    setFlushEditor(async () => {
+    // The navigation gatekeeper, registered per pane. An unresolved conflict
+    // banner is a decision point — return `false` so a tab/file switch or
+    // workspace switch DON'T proceed (forcing the user to pick Keep/Reload)
+    // rather than silently dropping local edits OR clobbering the external write.
+    // With no conflict, flush normally (the re-read guard may itself surface one
+    // mid-flush, which we also report as blocked).
+    const flusher = async (): Promise<boolean> => {
+      // A non-owner view has nothing to persist (the owner's autosave does) — allow
+      // navigation. (Its edits already synced to the owner via Yjs.)
+      if (!isOwnerRef.current) return true;
       if (reloadPromptRef.current) return false;
       await flushRef.current(false);
       // Block if a conflict surfaced mid-flush OR the write failed (edits still
       // unpersisted) — either way leaving now would lose data. The write-failed
       // banner gives an explicit Discard-&-close escape so this never traps.
       return !reloadPromptRef.current && !writeFailedRef.current;
-    });
-    return () => setFlushEditor(null);
-  }, [setFlushEditor]);
+    };
+    registerFlusher(paneId, flusher);
+    return () => unregisterFlusher(paneId, flusher);
+  }, [paneId]);
 
   // Cancel any queued auto-save when this editor unmounts (file/workspace
   // switch), so it can't fire against a stale closure after the context
@@ -1224,6 +1245,9 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
   useEffect(() => {
     let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
     const unsub = window.bh.onFileEvent((event) => {
+      // Only the OWNER reacts to disk events — it reloads into the shared doc, which
+      // syncs every other view via Yjs. (A non-owner reacting too would double-handle.)
+      if (!isOwnerRef.current) return;
       if (event.type === 'rename') {
         if (event.fromRelPath === file && pendingDeleteTimer) {
           clearTimeout(pendingDeleteTimer);
@@ -1245,7 +1269,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             return;
           }
           // Our own auto-save echoes back as a change event — ignore it.
-          if (disk === lastDiskRef.current) return;
+          if (disk === shared.lastDisk) return;
           if (pendingRef.current) {
             // Genuine external edit collides with local edits → conflict banner.
             // CANCEL the armed auto-save + set the sync ref so the debounced
@@ -1255,7 +1279,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
             setReloadPrompt(true);
             scheduleSave.cancel();
           } else {
-            lastDiskRef.current = disk;
+            shared.lastDisk = disk;
             setLoadKey((k) => k + 1); // adopt the external change
           }
         })();
@@ -1271,7 +1295,7 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
       if (pendingDeleteTimer) clearTimeout(pendingDeleteTimer);
       unsub();
     };
-  }, [file, scheduleSave]);
+  }, [file, scheduleSave, shared]);
 
   const acceptReload = useCallback(() => {
     reloadPromptRef.current = false;
@@ -1299,8 +1323,18 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
-    setCurrentFile(null, null, { bypassFlush: true });
-  }, [setCurrentFile]);
+    // If the same file is open in OTHER views, the failed edits live in the shared
+    // doc — closing just this view would leave a sibling showing them (and a later
+    // no-op flush would silently drop them). Flag the doc so the next owner reloads
+    // disk and drops them everywhere.
+    const shared = ensureDoc(docKey);
+    if (shared.views.size > 1) shared.discardRequested = true;
+    // In the canvas float, closeTab(FLOAT_PANE_ID, …) is a no-op (it isn't a real
+    // pane) — it would leave the failed-save editor open. Close the float instead;
+    // pendingRef is already cleared, so its flush is a no-op (the edits are discarded).
+    if (paneId === FLOAT_PANE_ID) closeFloatStore();
+    else closeTab(paneId, file, { bypassFlush: true });
+  }, [closeTab, closeFloatStore, paneId, file, docKey]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1317,54 +1351,42 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const status: { label: string; dot: string; fg: string } = viewOnly
-    ? {
-        label: 'View only — plain-text files are read-only here; edit them with your own tools',
-        dot: color.warning,
-        fg: color.warning,
-      }
-    : saving
-      ? { label: 'Saving…', dot: color.textTertiary, fg: color.textTertiary }
-      : { label: 'Saved', dot: color.success, fg: color.textTertiary };
-
-  const statusBarStyle: CSSProperties = {
-    padding: `${space[2]}px ${space[4]}px`,
-    background: color.surfaceMuted,
-    borderBottom: `1px solid ${color.border}`,
-    fontSize: font.size.caption,
-    fontFamily: font.sans,
-    display: 'flex',
-    alignItems: 'center',
-    gap: space[2],
-  };
-
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={statusBarStyle}>
-        <span
-          aria-hidden
+      {/* No save-status line — auto-save runs silently (debounced + flushed on
+          close/switch/workspace-change). The only status row kept is the
+          read-only notice for plain-text files, so a non-editable .txt isn't a
+          mystery. The disk-conflict / write-failed banners below stay — those
+          are data-loss decision points, not status noise. */}
+      {viewOnly && (
+        <div
           style={{
-            width: 8,
-            height: 8,
-            borderRadius: '50%',
-            background: status.dot,
-            flexShrink: 0,
-            transition: transition(['background']),
-          }}
-        />
-        <span
-          style={{
-            flex: 1,
-            color: status.fg,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: viewOnly ? 'normal' : 'nowrap',
+            padding: `${space[2]}px ${space[4]}px`,
+            background: color.surfaceMuted,
+            borderBottom: `1px solid ${color.border}`,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+            color: color.warning,
           }}
         >
-          {status.label}
-        </span>
-        {/* No Save button — edits auto-save (debounced + flushed on close/switch). */}
-      </div>
+          <span
+            aria-hidden
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: color.warning,
+              flexShrink: 0,
+            }}
+          />
+          <span>
+            View only — plain-text files are read-only here; edit them with your own tools
+          </span>
+        </div>
+      )}
       {reloadPrompt && (
         <div
           style={{
@@ -1430,18 +1452,31 @@ const MdEditor = ({ file }: { file: string }): JSX.Element => {
         </div>
       )}
       <div style={{ flex: 1, overflow: 'auto' }}>
-        {/* Cap the writing column. The overlay card is wide (room for media
-            viewers), but prose past ~740px is hard to read and write — so the
-            editor sits in a centered measure, like every serious text app. */}
-        <div style={{ maxWidth: 760, margin: '0 auto', padding: `${space[5]}px 0` }}>
+        {/* The editor FILLS the pane (like a code editor) — just a vertical
+            rhythm + a modest horizontal gutter, no narrow centered column. The
+            pane's own width is the measure; widen the pane for a wider editor. */}
+        <div style={{ padding: `${space[5]}px ${space[5]}px` }}>
           <BlockNoteView
             editor={editor}
-            editable={!viewOnly}
+            // Every view of the file is editable — they share one Yjs document, so
+            // edits merge char-level and never diverge. Held non-editable until the
+            // seed is applied (seedReady), so a fast joiner can't lose typing to it.
+            editable={!viewOnly && seedReady}
             theme="dark"
             onChange={() => {
-              if (!initialLoad.current && !viewOnly) {
+              // Gate on seedReady too: a joiner that mounts before the first disk
+              // read finishes clears initialLoad after 50ms, but the seed then
+              // arrives via Yjs as an onChange — without this it would pin the
+              // preview tab (and the owner would "save") on a non-user update.
+              if (initialLoad.current || viewOnly || !seedReady) return;
+              // Editing a preview tab promotes it to a permanent (pinned) tab —
+              // idempotent (no-op once pinned), like a mature editor.
+              pinTab(paneId, file);
+              // Only the OWNER schedules the save. onChange fires here for THIS
+              // view's own edits AND (on the owner) for edits synced in from other
+              // views via Yjs — so the owner's autosave covers every view.
+              if (isOwnerRef.current) {
                 pendingRef.current = true;
-                setSaving(true);
                 scheduleSave();
               }
             }}

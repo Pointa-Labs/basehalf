@@ -20,21 +20,15 @@ export const Sidebar = (): JSX.Element | null => {
   return (
     <aside
       style={{
-        // Floating overlay over the canvas: docked to the left edge, full body
-        // height. Showing / hiding is pure appear-disappear — the canvas behind
-        // never reflows. zIndex sits above the editor backdrop (40) so the
-        // sidebar stays lit + clickable while a file is open, but below the
-        // error banner (50) and dialogs / command palette (100).
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
+        // The LEFT region: a real flex column (not a floating overlay) — the
+        // canvas + editor space sit to its right and reflow when it resizes /
+        // hides. position:relative anchors the resize sash on the right edge.
+        position: 'relative',
+        flexShrink: 0,
         width: sidebarWidth,
-        zIndex: 45,
+        height: '100%',
         borderRight: `1px solid ${color.border}`,
         background: color.surfaceMuted,
-        // A soft right-cast shadow reads the panel as floating on the canvas.
-        boxShadow: '1px 0 10px rgba(0, 0, 0, 0.05)',
         fontFamily: font.sans,
         display: 'flex',
         flexDirection: 'column',

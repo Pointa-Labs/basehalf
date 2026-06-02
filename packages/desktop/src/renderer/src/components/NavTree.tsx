@@ -46,9 +46,17 @@ interface RowProps {
   isExpanded: boolean;
   isSelected: boolean;
   onClick: () => void;
+  onDoubleClick?: () => void;
 }
 
-const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.Element => {
+const Row = ({
+  depth,
+  entry,
+  isExpanded,
+  isSelected,
+  onClick,
+  onDoubleClick,
+}: RowProps): JSX.Element => {
   const [hover, setHover] = useState(false);
   const isDir = entry.type === 'dir';
   const indent = space[2] + depth * 14;
@@ -82,6 +90,7 @@ const Row = ({ depth, entry, isExpanded, isSelected, onClick }: RowProps): JSX.E
     <button
       type="button"
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       title={entry.name}
@@ -148,7 +157,7 @@ const ChevronIcon = ({ open }: { open: boolean }): JSX.Element => (
 );
 
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
-  const setCurrentFile = useWorkspaceStore((s) => s.setCurrentFile);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const currentFile = useWorkspaceStore((s) => s.currentFile);
   const [childrenByPath, setChildrenByPath] = useState<
     Map<string, readonly WorkspaceListFilesEntry[]>
@@ -238,7 +247,11 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
           depth={depth}
           isExpanded={isExpanded}
           isSelected={isSelected}
-          onClick={() => (isDir ? toggleExpand(path) : setCurrentFile(rel))}
+          // Single-click a file = open as a PREVIEW tab (italic, reuses the slot);
+          // double-click PINS it (matches the file-explorer idiom). A folder click
+          // toggles expansion.
+          onClick={() => (isDir ? toggleExpand(path) : openInPanel(rel))}
+          onDoubleClick={isDir ? undefined : () => openInPanel(rel, { pinned: true })}
         />
       );
       if (isDir && isExpanded) {

@@ -2,9 +2,10 @@ import { type JSX, useEffect, useState } from 'react';
 import { Canvas } from './components/Canvas.js';
 import { CommandPalette, openCommandPalette } from './components/CommandPalette.js';
 import { DialogHost } from './components/Dialog.js';
+import { EditorSpace } from './components/EditorSpace.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
-import { FilePreview } from './components/FilePreview.js';
+import { FloatingPreview } from './components/FloatingPreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
@@ -35,14 +36,11 @@ export const App = (): JSX.Element => {
   useEffect(() => {
     const unsub = window.bh.onFileEvent((event) => {
       if (event.type !== 'rename') return;
-      const state = useWorkspaceStore.getState();
-      if (state.currentFile === event.fromRelPath) {
-        // bypassFlush: the open file was renamed/moved on disk, so its OLD path
-        // is gone. Flushing to it would resurrect a deleted file, and the
-        // conflict gate would trap the editor on a vanished path — so rebind
-        // straight to the new path (fresh editor on the moved file's bytes).
-        state.setCurrentFile(event.toRelPath, null, { bypassFlush: true });
-      }
+      // If the renamed file is open in any tab, rebind its path in place (no
+      // flush — the OLD path is gone on disk; flushing would resurrect a deleted
+      // file and trap the editor on a vanished path). renameTab no-ops if the
+      // file isn't open. The active tab remounts on the new path's bytes.
+      useWorkspaceStore.getState().renameTab(event.fromRelPath, event.toRelPath);
     });
     return unsub;
   }, []);
@@ -144,23 +142,33 @@ export const App = (): JSX.Element => {
     >
       <TitleBar />
       <FdaTip />
-      <div style={{ position: 'relative', flex: 1, overflow: 'hidden' }}>
-        {/* The Sidebar FLOATS on top of the canvas (it positions itself
-            absolutely with a higher z-index). Showing / hiding it is pure
-            appear / disappear — the canvas behind it never shifts or resizes.
-            It's first in the DOM (so it stays aside-index 0, with the editor
-            aside last) but paints ON TOP via z-index, not DOM order. */}
+      {/* Three real regions, left → right: Sidebar (nav) | Canvas (the spatial
+          map, takes the middle) | EditorSpace (right-docked editor). They're
+          flex siblings, so showing/resizing one reflows the others — the canvas
+          owns the middle by default and yields width when the editor opens. */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
         <Sidebar />
-        {/* The canvas fills the whole body and never reflows. */}
-        <main style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {/* The canvas region — flex:1 so it takes whatever the sidebar + editor
+            leave. position:relative anchors the canvas's own absolute chrome
+            (New-note button, focus chip, empty hint). */}
+        <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
-          {/* The editor opens as a centered overlay scoped to the canvas
-              area (position:absolute within this relative <main>), so the
-              canvas dims behind it but the Sidebar (a higher-z overlay) stays
-              lit and interactive — you can switch files / workspaces without
-              first closing the editor, the way every file-based editor works. */}
-          <FilePreview />
+          {/* The canvas floating preview (double-click a badge) lives INSIDE the
+              canvas region, so it nearly fills the canvas and is clipped to it —
+              never spilling over the sidebar / right panel. Light-dismissed by a
+              click outside / Esc. */}
+          <FloatingPreview />
         </main>
+        <EditorSpace />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       <DialogHost />
