@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import path from 'node:path';
 
 // Create a copy of the environment and completely delete the problematic key.
 // This prevents Windows from seeing an empty string `""` (which C++ getenv treats as truthy)
@@ -10,8 +11,12 @@ delete env.ELECTRON_RUN_AS_NODE;
 
 // Resolving the local CLI javascript file directly ensures we use the deterministic
 // workspace version instead of relying on `npx`'s external fetching logic.
+// We must resolve `package.json` first because `bin/electron-vite.js` is not an exported subpath in Node.
 const require = createRequire(import.meta.url);
-const viteBin = require.resolve('electron-vite/bin/electron-vite.js');
+const pkgPath = require.resolve('electron-vite/package.json');
+const pkg = require(pkgPath);
+const binSubpath = typeof pkg.bin === 'string' ? pkg.bin : pkg.bin['electron-vite'];
+const viteBin = path.resolve(path.dirname(pkgPath), binSubpath);
 
 // Spawn via `process.execPath` (the current Node binary) to run the CLI script directly.
 // This bypasses the OS's `.cmd`/`.bat` shims entirely, allowing us to drop `shell: true`
