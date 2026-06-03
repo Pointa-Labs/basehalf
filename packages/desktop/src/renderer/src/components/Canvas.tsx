@@ -7,41 +7,75 @@ import type {
 import {
   Background,
   type Connection,
+  ConnectionMode,
   type Edge,
   type EdgeTypes,
+  MarkerType,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
   type NodeTypes,
   type OnNodeDrag,
+  type OnSelectionChangeFunc,
   ReactFlow,
-  ReactFlowProvider,
   type Viewport,
   applyNodeChanges,
   useNodesInitialized,
   useReactFlow,
+  useViewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import {
+  CanvasConnectionLine,
+  ReferenceEdge,
+  type ReferenceEdgeRemoval,
+  type ReferenceEdgeUpdate,
+  applyReferenceEdgeUpdate,
+  badgesToConnectionEdges,
+  removeReferenceEdgeUpdate,
+  sideFromHandle,
+} from '../canvasConnections/index.js';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
+import {
+  SNAP_GUIDE_SCREEN_THRESHOLD,
+  sameSnapGuides,
+  snapFlowNodeChanges,
+} from '../lib/canvasFlowSnap.js';
+import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
 import { briefForClipboard } from '../lib/focusBrief.js';
 import { regionFor } from '../lib/paneDrop.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
-import { BadgeNode, type BadgeNodeData } from './BadgeNode.js';
+import {
+  BadgeNode,
+  type BadgeNodeData,
+  CARD_MIN_HEIGHT,
+  CARD_MIN_WIDTH,
+  DEFAULT_FILE_CARD_HEIGHT,
+  DEFAULT_FILE_CARD_WIDTH,
+  DEFAULT_FOLDER_CARD_HEIGHT,
+  DEFAULT_FOLDER_CARD_WIDTH,
+} from './BadgeNode.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
+import { CanvasSnapGuides } from './CanvasSnapGuides.js';
 import { prompt } from './Dialog.js';
 import { Onboarding } from './Onboarding.js';
-import { ReferenceEdge } from './ReferenceEdge.js';
 import { Button } from './primitives/Button.js';
 import { usePopover } from './primitives/Popover.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
 const DRAG_DEBOUNCE = 300;
+const RESIZE_DEBOUNCE = 300;
 const VIEWPORT_DEBOUNCE = 1000;
+const CONNECTION_EDGE_SIZE_DEFAULTS = {
+  defaultWidth: DEFAULT_FILE_CARD_WIDTH,
+  defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
+};
 
 function badgeToNode(
   badge: BadgeFile,
@@ -59,13 +93,23 @@ function badgeToNode(
   // workspace frames itself. max(6, …) preserves the tuned small/medium look
   // (<=~23 badges keep 6 columns) and only widens for big folders. Saved
   // positions always win.
-  const cols = Math.max(6, Math.ceil(Math.sqrt(1.54 * Math.max(1, total))));
-  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % cols) * 220;
-  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / cols) * 250;
+  const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
+  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % cols) * 340;
+  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / cols) * 280;
+  const width =
+    badge.canvas?.width ??
+    (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_WIDTH : DEFAULT_FILE_CARD_WIDTH);
+  const height =
+    badge.canvas?.height ??
+    (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
   return {
     id: badge.file,
     type: 'badge',
     position: { x, y },
+    style: {
+      width: Math.max(width, CARD_MIN_WIDTH),
+      height: Math.max(height, CARD_MIN_HEIGHT),
+    },
     data: {
       label: badge.file,
       kind: badge.kind,
@@ -73,26 +117,6 @@ function badgeToNode(
       ...(badge.prompt !== undefined && { prompt: badge.prompt }),
     },
   };
-}
-
-function badgesToEdges(badges: readonly BadgeFile[]): Edge[] {
-  const out: Edge[] = [];
-  const known = new Set(badges.map((b) => b.file));
-  for (const badge of badges) {
-    for (const ref of badge.references) {
-      // Only draw edges to badges we can render — silently skip orphan refs
-      // until view-level "broken ref" surfacing lands.
-      if (!known.has(ref.to)) continue;
-      out.push({
-        id: `${badge.file}__${ref.to}`,
-        source: badge.file,
-        target: ref.to,
-        animated: false,
-        ...(ref.note !== undefined && { label: ref.note }),
-      });
-    }
-  }
-  return out;
 }
 
 function debounce<TArgs extends unknown[]>(
@@ -104,6 +128,18 @@ function debounce<TArgs extends unknown[]>(
     if (t) clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+}
+
+function cardWidth(node: Node<BadgeNodeData> | undefined): number | undefined {
+  if (typeof node?.width === 'number') return node.width;
+  const width = node?.style?.width;
+  return typeof width === 'number' ? width : undefined;
+}
+
+function cardHeight(node: Node<BadgeNodeData> | undefined): number | undefined {
+  if (typeof node?.height === 'number') return node.height;
+  const height = node?.style?.height;
+  return typeof height === 'number' ? height : undefined;
 }
 
 // Which right-panel pane (+ drop region) the cursor is over, or null when it's
@@ -132,9 +168,8 @@ export const Canvas = (): JSX.Element => {
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
-  const openFloat = useWorkspaceStore((s) => s.openFloat);
-  const closeFloat = useWorkspaceStore((s) => s.closeFloat);
-  const floating = useWorkspaceStore((s) => s.floatingFile !== null);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+  const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   const setCanvasDockDrag = useWorkspaceStore((s) => s.setCanvasDockDrag);
   const dockBadge = useWorkspaceStore((s) => s.dockBadge);
   // Subscribe to the BOOLEAN (not the target object) so region changes within the
@@ -142,13 +177,12 @@ export const Canvas = (): JSX.Element => {
   const docking = useWorkspaceStore((s) => s.canvasDockDrag !== null);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
+  const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
   const [error, setError] = useState<string>('');
-  // The FULL workspace focus set (from focus.md / focus.get), independent of the
-  // current folder scope. The focus chip reports from THIS — node-derived counts
-  // under-report inside a scope (focused files outside the scoped folder aren't
-  // rendered), which would break the "see exactly what the agent reads"
-  // contract. The per-node `data.focused` flag still drives the on-canvas rings
-  // (you can only ring a badge that's actually on screen).
+  const nodesRef = useRef<Node<BadgeNodeData>[]>([]);
+  // The FULL workspace agent-context set (stored in focus.md / focus.get),
+  // independent of ordinary canvas selection. Selection is object state
+  // (resize/move/connect); this set is what external agents read.
   const [focusActive, setFocusActive] = useState<readonly string[]>([]);
   // Persisted viewport for the current workspace, lifted into state so
   // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
@@ -164,11 +198,13 @@ export const Canvas = (): JSX.Element => {
   // badges spilling past the right edge. `vp` is resolved for THAT refresh, so
   // a saved viewport is never mistaken for "none" mid-load.
   const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
-  // Two views of focus, deliberately distinct: each node's `data.focused` flag
-  // drives the on-canvas ring/dot (you can only ring a badge that's on screen),
-  // while `focusActive` above holds the FULL workspace focus set that the chip
-  // reports — so inside a view/folder scope the chip still names every file the
-  // agent reads, even ones not currently rendered.
+  const viewportRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 });
+  // Keep agent context deliberately distinct from canvas selection: selecting a
+  // card never mutates focus.md. Explicit context actions do.
+
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   const refresh = useCallback(async () => {
     try {
@@ -187,15 +223,10 @@ export const Canvas = (): JSX.Element => {
 
       const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
       setFocusActive(focusResult.active); // chip reports the full set, not scope-filtered nodes
-      const focusedSet = new Set(focusResult.active);
-      setNodes(
-        badges.map((b, i) => {
-          const node = badgeToNode(b, i, badges.length);
-          node.data.focused = focusedSet.has(b.file);
-          return node;
-        }),
-      );
-      setEdges(badgesToEdges(badges));
+      const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
+      setNodes(nextNodes);
+      setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+      setSnapGuides([]);
       // Inside a folder scope, the per-workspace saved viewport doesn't frame
       // this filtered subset (the folder's badges may sit anywhere) — fit
       // instead (vp:null). On the main canvas, restore the saved viewport.
@@ -216,6 +247,7 @@ export const Canvas = (): JSX.Element => {
     } else {
       setNodes([]);
       setEdges([]);
+      setSnapGuides([]);
     }
   }, [current, currentReachable, refresh]);
 
@@ -268,38 +300,53 @@ export const Canvas = (): JSX.Element => {
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
-      // Cancel the deferred single-click focus collapse — opening a badge must
-      // not first wipe the curated focus set.
-      if (clickTimer.current) {
-        clearTimeout(clickTimer.current.timeout);
-        clickTimer.current = null;
-      }
       const data = node.data as unknown as BadgeNodeData;
       if (data.kind === 'folder') {
         // Double-clicking a folder badge scopes INTO it — the canvas shows just
-        // that folder's contents, and the toolbar offers "Focus this folder".
+        // that folder's contents, and the toolbar offers an explicit context action.
         setFolderScope(node.id);
         return;
       }
-      // File badge → a FLOATING, editable preview that nearly fills the canvas.
-      // Distinct from the right panel (fed by the sidebar / palette): the float is
-      // an in-place peek on the canvas. ALWAYS floats — even if the file is also a
-      // panel tab — because the live-doc bus makes the two views one shared document
-      // (instant sync, single writer), so there's never a divergent second copy.
-      openFloat(node.id);
+      // File card → the formal editor surface. The card itself is the canvas
+      // preview, so there is no intermediate floating viewer.
+      openInPanel(node.id, { pinned: true });
     },
-    [setFolderScope, openFloat],
+    [setFolderScope, openInPanel],
   );
 
-  const persistPosition = useMemo(
+  const persistCanvas = useMemo(
     () =>
-      debounce((file: string, x: number, y: number) => {
+      debounce((file: string, x: number, y: number, width?: number, height?: number) => {
         // A drag updates the badge's canonical canvas position via badge.set
         // (on the main canvas and inside a folder scope alike).
         void window.bh
-          .run('badge.set', { file, patch: { canvas: { x, y, collapsed: false } } })
+          .run('badge.set', {
+            file,
+            patch: {
+              canvas: {
+                x,
+                y,
+                ...(width !== undefined && { width }),
+                ...(height !== undefined && { height }),
+                collapsed: false,
+              },
+            },
+          })
           .catch(() => undefined);
       }, DRAG_DEBOUNCE),
+    [],
+  );
+
+  const persistSize = useMemo(
+    () =>
+      debounce((file: string, x: number, y: number, width: number, height: number) => {
+        void window.bh
+          .run('badge.set', {
+            file,
+            patch: { canvas: { x, y, width, height, collapsed: false } },
+          })
+          .catch(() => undefined);
+      }, RESIZE_DEBOUNCE),
     [],
   );
 
@@ -319,27 +366,54 @@ export const Canvas = (): JSX.Element => {
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<BadgeNodeData>>[]) => {
-      setNodes((prev) => applyNodeChanges(changes, prev));
-      for (const change of changes) {
-        if (change.type === 'position' && change.dragging === false && change.position) {
-          if (dockingRef.current) {
-            // The drag ended over the panel → it docked there (onNodeDragStop opens
-            // it). Snap the badge back to where the drag began instead of persisting
-            // a stray position under the panel edge — it's a reference open, not a move.
-            const start = dragStartPos.current;
-            if (start && start.id === change.id) {
-              const at = { x: start.x, y: start.y };
-              setNodes((prev) =>
-                prev.map((n) => (n.id === change.id ? { ...n, position: at } : n)),
+      setNodes((prev) => {
+        const threshold = SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom);
+        const snapped = snapFlowNodeChanges(prev, changes, {
+          threshold,
+          disabled: dockingRef.current,
+          defaultWidth: DEFAULT_FILE_CARD_WIDTH,
+          defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
+          minWidth: CARD_MIN_WIDTH,
+          minHeight: CARD_MIN_HEIGHT,
+        });
+        setSnapGuides((currentGuides) =>
+          sameSnapGuides(currentGuides, snapped.guides) ? currentGuides : snapped.guides,
+        );
+        let next = applyNodeChanges(snapped.changes, prev);
+        for (const change of snapped.changes) {
+          if (change.type === 'position' && change.dragging === false && change.position) {
+            const node = next.find((n) => n.id === change.id);
+            if (dockingRef.current) {
+              // The drag ended over the panel → it docked there (onNodeDragStop opens
+              // it). Snap the badge back to where the drag began instead of persisting
+              // a stray position under the panel edge — it's a reference open, not a move.
+              const start = dragStartPos.current;
+              if (start && start.id === change.id) {
+                const at = { x: start.x, y: start.y };
+                next = next.map((n) => (n.id === change.id ? { ...n, position: at } : n));
+              }
+            } else {
+              persistCanvas(
+                change.id,
+                change.position.x,
+                change.position.y,
+                cardWidth(node),
+                cardHeight(node),
               );
             }
-          } else {
-            persistPosition(change.id, change.position.x, change.position.y);
+          }
+          if (change.type === 'dimensions' && change.resizing === false && change.dimensions) {
+            const node = next.find((n) => n.id === change.id);
+            const at = node?.position;
+            if (at) {
+              persistSize(change.id, at.x, at.y, change.dimensions.width, change.dimensions.height);
+            }
           }
         }
-      }
+        return next;
+      });
     },
-    [persistPosition],
+    [persistCanvas, persistSize],
   );
 
   // A badge drag begins: remember its origin and clear any stale dock state. (Reset
@@ -350,6 +424,7 @@ export const Canvas = (): JSX.Element => {
       dockingRef.current = false;
       dragStartPos.current = { id: node.id, x: node.position.x, y: node.position.y };
       setCanvasDockDrag(null);
+      setSnapGuides([]);
     },
     [setCanvasDockDrag],
   );
@@ -377,200 +452,160 @@ export const Canvas = (): JSX.Element => {
         dockBadge(node.id, dock.paneId, dock.region);
       }
       setCanvasDockDrag(null);
+      setSnapGuides([]);
     },
     [dockBadge, setCanvasDockDrag],
   );
 
-  const onConnect = useCallback(async (conn: Connection) => {
-    if (!conn.source || !conn.target) return;
-    // A self-drag (source handle back to the same badge's target) is a
-    // meaningless no-op, not an error — core rejects self-refs, so without
-    // this guard an accidental loop-back would flash a red error banner.
-    // Silently ignore it; the gesture just doesn't draw anything.
-    if (conn.source === conn.target) return;
-    try {
-      await window.bh.run('badge.addRef', { file: conn.source, to: conn.target });
-      // Refresh so the new edge shows + inbound index updates ripple to other views.
-      const result = (await window.bh.run('badge.list')) as BadgeListResult;
-      setEdges(badgesToEdges(result.badges));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
-  // removed edges here. Each edge's id is `${source}__${target}` (see
-  // badgesToEdges) so we can derive the badge.removeRef args from id alone.
-  const onEdgesDelete = useCallback(async (deleted: Edge[]) => {
-    try {
-      for (const e of deleted) {
-        await window.bh.run('badge.removeRef', { file: e.source, to: e.target });
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  // Pending deferred single-click focus: the badge id, its timer, and the apply
-  // closure (so a click on a DIFFERENT badge can commit it before proceeding).
-  const clickTimer = useRef<{
-    id: string;
-    timeout: ReturnType<typeof setTimeout>;
-    apply: () => void;
-  } | null>(null);
-  // Serialize focus mutations: each apply() chains onto the previous one's
-  // promise so they land in click order. Without this, committing a pending
-  // plain-click (focus.set([A])) and then a shift-toggle (toggleActiveFile(B))
-  // would race two IPC round-trips and could drop A or B non-deterministically.
-  const focusChain = useRef<Promise<void>>(Promise.resolve());
-
-  const onNodeClick = useCallback<NodeMouseHandler>(
-    (event, node) => {
-      const additive = event.shiftKey;
-      // The workspace this click was issued against. A deferred timer or a
-      // committed-but-in-flight chain link can outlive a workspace switch; focus
-      // mutations resolve their target workspace LAZILY at execution time, so a
-      // stale apply would otherwise write THIS workspace's badge into whatever
-      // workspace is current when its IPC finally runs. We snapshot it here and
-      // bail if it no longer matches.
-      const issuedFor = useWorkspaceStore.getState().current;
-      // Single-click manages FOCUS only — it never opens the editor. Opening is
-      // the double-click (onNodeDoubleClick). This keeps the canvas + focus viz
-      // visible while you assemble a focus set by clicking badges.
-      const apply = (): void => {
-        // Enqueue onto the focus-mutation chain so this apply runs only AFTER any
-        // previously-committed one resolves (committed-pending-A then toggle-B
-        // can't interleave). Each link catches internally, so the chain never
-        // rejects and a failed mutation doesn't stall later clicks.
-        focusChain.current = focusChain.current.then(async () => {
-          // Workspace switched out from under this click → drop it (no IPC, no
-          // repaint). This closes the common window (a deferred timer/chain link
-          // that runs AFTER the switch settled). NOTE: a residual race remains
-          // when the link runs DURING a switch — the main-process config flips to
-          // the new root before the renderer's `current` does, and focus.set
-          // resolves its workspace lazily; the full fix is an explicit
-          // target-workspace arg on focus.set (tracked for a follow-up).
-          if (useWorkspaceStore.getState().current !== issuedFor) return;
-          try {
-            let after: { active: readonly string[] };
-            if (additive) {
-              // Shift+click TOGGLES membership — add if absent, remove if present
-              // — so curating a multi-file set never forces a Clear-and-rebuild
-              // (matches Finder / browser / spreadsheet multi-select). Routed
-              // through focus.toggleActiveFile so REFINING a folder-sourced focus
-              // keeps the turn intent + `# source-folder:` provenance (a bare
-              // focus.set({files}) would silently drop both — severing the
-              // folder→brief refresh link and losing the curated intent).
-              after = (await window.bh.run('focus.toggleActiveFile', { file: node.id })) as {
-                active: string[];
-              };
-            } else {
-              // Plain click = focus JUST this file: a fresh files-focus that
-              // intentionally starts clean (no prior intent / view provenance).
-              await window.bh.run('focus.set', { files: [node.id] });
-              after = (await window.bh.run('focus.get', {})) as { active: string[] };
-            }
-            // Reflect the authoritative focus set on the canvas so the human SEES
-            // exactly what the agent now reads.
-            setFocusActive(after.active); // keep the chip's full-set count live on click
-            const set = new Set(after.active);
-            setNodes((prev) =>
-              prev.map((n) => ({ ...n, data: { ...n.data, focused: set.has(n.id) } })),
-            );
-          } catch (err) {
-            // The focus set is the trust contract ("I see what the agent reads").
-            // A silent failure would desync the canvas from .bh/focus.md, so
-            // surface it rather than swallow it.
-            setError(err instanceof Error ? err.message : String(err));
-          }
-        });
-      };
-      // Resolve a still-pending deferred plain-click before handling this one:
-      //  - SAME badge re-clicked → it's a double-click; DROP the pending single
-      //    so opening the editor never collapses focus.
-      //  - DIFFERENT badge → the prior plain-click wasn't a double-click, so
-      //    COMMIT it first (e.g. plain-click A then shift-click B → {A, B}).
-      //    Both go through focusChain, so A's focus.set lands before B's toggle
-      //    (no IPC race), and A's stale timer can't fire later to drop B.
-      const pending = clickTimer.current;
-      if (pending) {
-        clearTimeout(pending.timeout);
-        clickTimer.current = null;
-        if (pending.id !== node.id) pending.apply();
-      }
-      // Shift+click is unambiguous (no shift+double-click gesture) → apply now.
-      if (additive) {
-        apply();
-        return;
-      }
-      // The SECOND click of a double-click carries detail>=2 and fires before
-      // onNodeDoubleClick — bail so a double-click never runs the plain-click
-      // focus replace, and let onNodeDoubleClick open the editor.
-      if (event.detail >= 2) return;
-      // First plain click: DEFER the focus replace. A double-click would
-      // otherwise run it first (DOM click before dblclick), collapsing a curated
-      // multi-file focus set (+ its intent/provenance) before the editor opens.
-      // 320ms comfortably spans a normal double-click interval; the same-badge
-      // cancel + detail guard + onNodeDoubleClick make it robust regardless.
-      clickTimer.current = {
-        id: node.id,
-        apply,
-        timeout: setTimeout(() => {
-          clickTimer.current = null;
-          apply();
-        }, 320),
-      };
-    },
-    // setNodes / setFocusActive / setError are stable; nothing else external.
-    [],
-  );
-
-  // Drop a pending deferred single-click focus — used by anything that should
-  // SUPERSEDE the click (Clear-focus, a workspace switch, unmount), so a stale
-  // timer can't fire afterward and undo the explicit action / write into the
-  // wrong workspace.
-  const cancelPendingClick = useCallback(() => {
-    if (clickTimer.current) {
-      clearTimeout(clickTimer.current.timeout);
-      clickTimer.current = null;
-    }
-  }, []);
-
-  // Drop a pending deferred click on unmount AND whenever the active workspace
-  // changes: Canvas stays mounted across a switch but window.bh re-points at the
-  // new root, so a stale timer could otherwise fire and write the old
-  // workspace's badge into the new one's focus brief (or undo an explicit Clear).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is a trigger — re-run (cleanup cancels) when the workspace changes.
-  useEffect(() => () => cancelPendingClick(), [current, cancelPendingClick]);
-
-  const clearFocus = useCallback(() => {
-    cancelPendingClick(); // an explicit clear must win over a still-deferred click
-    const issuedFor = useWorkspaceStore.getState().current;
-    // Route the clear through the SAME focusChain as the clicks, so a committed
-    // apply() that's still in flight can't repaint the rings AFTER the clear
-    // (the clear's setNodes runs strictly after it). Persist FIRST, then reflect;
-    // on failure surface the error instead of leaving the canvas showing "empty
-    // focus" while .bh/focus.md still feeds the agent stale files.
-    focusChain.current = focusChain.current.then(async () => {
-      if (useWorkspaceStore.getState().current !== issuedFor) return; // workspace switched away
+  const onConnect = useCallback(
+    async (conn: Connection) => {
+      if (!conn.source || !conn.target) return;
+      // A self-drag (source handle back to the same badge's target) is a
+      // meaningless no-op, not an error — core rejects self-refs, so without
+      // this guard an accidental loop-back would flash a red error banner.
+      // Silently ignore it; the gesture just doesn't draw anything.
+      if (conn.source === conn.target) return;
+      const fromSide = sideFromHandle(conn.sourceHandle);
+      const toSide = sideFromHandle(conn.targetHandle);
       try {
-        await window.bh.run('focus.clear', {});
-        setFocusActive([]);
-        setNodes((prev) =>
-          prev.map((n) => (n.data.focused ? { ...n, data: { ...n.data, focused: false } } : n)),
-        );
+        await window.bh.run('badge.addRef', {
+          file: conn.source,
+          to: conn.target,
+          ...(fromSide !== undefined && { fromSide }),
+          ...(toSide !== undefined && { toSide }),
+        });
+        // Refresh so the new edge shows + inbound index updates ripple to other views.
+        const result = (await window.bh.run('badge.list')) as BadgeListResult;
+        setEdges(badgesToConnectionEdges(result.badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
-    });
-  }, [cancelPendingClick]);
+    },
+    [nodes],
+  );
+
+  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
+  // removed edges here. Each edge's id is `${source}__${target}` (see the
+  // canvasConnections module) so we can derive the badge.removeRef args from id alone.
+  const onEdgesDelete = useCallback(
+    async (deleted: Edge[]) => {
+      const deletedIds = new Set(deleted.map((edge) => edge.id));
+      setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
+      try {
+        for (const e of deleted) {
+          await window.bh.run('badge.removeRef', { file: e.source, to: e.target });
+        }
+        const result = (await window.bh.run('badge.list')) as BadgeListResult;
+        setEdges(badgesToConnectionEdges(result.badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [nodes],
+  );
+
+  const resetReferenceEdgesFromCore = useCallback(async (): Promise<void> => {
+    const result = (await window.bh.run('badge.list')) as BadgeListResult;
+    setEdges(
+      badgesToConnectionEdges(result.badges, nodesRef.current, CONNECTION_EDGE_SIZE_DEFAULTS),
+    );
+  }, []);
+
+  const commitReferenceEdgeUpdate = useCallback(
+    (update: ReferenceEdgeUpdate): void => {
+      flushSync(() => {
+        setEdges((prev) => applyReferenceEdgeUpdate(prev, update));
+      });
+      void (async () => {
+        try {
+          const result = (await window.bh.run('badge.reconnectRef', {
+            previous: { file: update.previousSource, to: update.previousTarget },
+            next: {
+              file: update.source,
+              to: update.target,
+              ...(update.note !== undefined && { note: update.note }),
+              ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
+              ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
+            },
+          })) as BadgeListResult;
+          setEdges(
+            badgesToConnectionEdges(result.badges, nodesRef.current, CONNECTION_EDGE_SIZE_DEFAULTS),
+          );
+          setError('');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+          await resetReferenceEdgesFromCore().catch(() => undefined);
+        }
+      })();
+    },
+    [resetReferenceEdgesFromCore],
+  );
+
+  const commitReferenceEdgeRemoval = useCallback(
+    (removal: ReferenceEdgeRemoval): void => {
+      flushSync(() => {
+        setEdges((prev) => removeReferenceEdgeUpdate(prev, removal.id));
+      });
+      void (async () => {
+        try {
+          await window.bh.run('badge.removeRef', { file: removal.source, to: removal.target });
+          await resetReferenceEdgesFromCore();
+          setError('');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+          await resetReferenceEdgesFromCore().catch(() => undefined);
+        }
+      })();
+    },
+    [resetReferenceEdgesFromCore],
+  );
+
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge) => {
+        const data = edge.data && typeof edge.data === 'object' ? edge.data : {};
+        return {
+          ...edge,
+          data: {
+            ...data,
+            onReferenceEdgeUpdate: commitReferenceEdgeUpdate,
+            onReferenceEdgeRemove: commitReferenceEdgeRemoval,
+          },
+        };
+      }),
+    [commitReferenceEdgeRemoval, commitReferenceEdgeUpdate, edges],
+  );
+
+  const onNodeClick = useCallback<NodeMouseHandler>(
+    (event, node) => {
+      const data = node.data as unknown as BadgeNodeData;
+      if (event.detail >= 2) return;
+      if (data.kind === 'folder') {
+        setCanvasSelection({ kind: 'folder', folder: node.id, source: 'canvas' });
+        return;
+      }
+      setCanvasSelection({ kind: 'file', files: [node.id], source: 'canvas' });
+    },
+    [setCanvasSelection],
+  );
+
+  const clearFocus = useCallback(() => {
+    void (async () => {
+      try {
+        await window.bh.run('focus.clear', {});
+        setFocusActive([]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, []);
 
   // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
   // paste exactly what their agent reads into ANY chat — making the otherwise
   // invisible payoff of curation tangible and portable (not just the
   // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
   const [briefCopied, setBriefCopied] = useState(false);
-  // The focus chip's text expands into a read-only preview of the assembled
+  // The Agent Context chip's text expands into a read-only preview of the assembled
   // brief (BriefPreview) — so "your agent reads …" is something you can actually
   // SEE, not just a file count.
   const briefPopover = usePopover({ align: 'left', gap: 6 });
@@ -605,9 +640,37 @@ export const Canvas = (): JSX.Element => {
 
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
+      viewportRef.current = viewport;
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
     },
     [persistViewport],
+  );
+
+  const onMove = useCallback((_event: unknown, viewport: Viewport) => {
+    viewportRef.current = viewport;
+  }, []);
+
+  const onViewport = useCallback((viewport: Viewport) => {
+    viewportRef.current = viewport;
+  }, []);
+
+  const onSelectionChange = useCallback<OnSelectionChangeFunc<Node<BadgeNodeData>, Edge>>(
+    ({ nodes: selectedNodes }) => {
+      if (selectedNodes.length === 0) {
+        setCanvasSelection(null);
+        return;
+      }
+      const files = selectedNodes
+        .filter((node) => (node.data as unknown as BadgeNodeData).kind !== 'folder')
+        .map((node) => node.id);
+      if (files.length > 0) {
+        setCanvasSelection({ kind: 'file', files, source: 'canvas' });
+        return;
+      }
+      const folder = selectedNodes[0]?.id;
+      setCanvasSelection(folder ? { kind: 'folder', folder, source: 'canvas' } : null);
+    },
+    [setCanvasSelection],
   );
 
   if (!current || currentReachable === false) {
@@ -638,11 +701,9 @@ export const Canvas = (): JSX.Element => {
           }
       : null;
 
-  // Derived from the FULL focus set (focusActive), NOT the rendered nodes —
-  // inside a view/folder scope the focus set can include files that aren't on
-  // screen, and the chip must still name everything the agent reads (its whole
-  // reason for existing is "see exactly what your agent reads"). Naming the
-  // files — not just counting — makes the witness concrete.
+  // Derived from the FULL agent-context set (focusActive), NOT the rendered
+  // nodes — inside a folder scope the set can include files that aren't on
+  // screen, and the chip must still name everything the agent reads.
   const focusedFiles = focusActive;
   const focusedCount = focusedFiles.length;
   const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
@@ -659,7 +720,7 @@ export const Canvas = (): JSX.Element => {
     if (!folderScope) return;
     try {
       await window.bh.run('focus.set', { folder: folderScope });
-      void refresh(); // re-read focus.get → rings + chip
+      void refresh(); // re-read focus.get → agent-context chip
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -673,7 +734,7 @@ export const Canvas = (): JSX.Element => {
     })) as { prompt?: string } | null;
     const next = await prompt({
       title: `Folder prompt — /${folderScope}`,
-      body: "What the AI agent should know about this folder — it's read as the turn intent when you focus the folder. Leave blank to clear.",
+      body: "What the AI agent should know about this folder — it's read as the turn intent when you add the folder to Agent Context. Leave blank to clear.",
       label: 'Prompt',
       defaultValue: existing?.prompt ?? '',
       placeholder: 'e.g. Chapter 3 supporting material — read first',
@@ -698,8 +759,8 @@ export const Canvas = (): JSX.Element => {
         </Button>
       </div>
       {/* Folder-scope chrome — top-left, only while scoped into a folder. On
-          its own row (below the New-note / focus-chip row) so the actions never
-          collide with the centered focus chip. */}
+          its own row (below the New-note / context-chip row) so the actions never
+          collide with the centered context chip. */}
       {folderScope && (
         <div
           style={{
@@ -717,23 +778,22 @@ export const Canvas = (): JSX.Element => {
           </Button>
           <Button
             onClick={() => void handleFocusFolder()}
-            title="Focus this folder — your agent reads all its files, with the folder prompt as the turn intent"
+            title="Add this folder to Agent Context — your agent reads all its files, with the folder prompt as the turn intent"
           >
-            Focus this folder
+            Add folder to Context
           </Button>
           <Button
             variant="ghost"
             onClick={() => void handleEditFolderPrompt()}
-            title="Edit this folder's badge prompt (read as the intent when you focus the folder)"
+            title="Edit this folder's badge prompt (read as the intent when you add the folder to Agent Context)"
           >
             Edit folder prompt
           </Button>
         </div>
       )}
       {focusedCount > 0 && (
-        // Witnessed payoff: name the context the human handed the agent. The
-        // focus set was previously a write-only side effect with no visible
-        // trace — now the human can SEE (and clear) what their agent reads.
+        // Witnessed payoff: name the context the human explicitly handed the
+        // agent. Ordinary canvas selection never mutates this.
         <div
           data-testid="focus-chip"
           style={{
@@ -801,7 +861,7 @@ export const Canvas = (): JSX.Element => {
               <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
                 {focusedCount}
               </strong>{' '}
-              {focusedCount === 1 ? 'file' : 'files'} in focus — your agent reads{' '}
+              Agent Context · {focusedCount} {focusedCount === 1 ? 'file' : 'files'} ·{' '}
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
             </span>
             <span
@@ -823,7 +883,7 @@ export const Canvas = (): JSX.Element => {
           <button
             type="button"
             onClick={clearFocus}
-            title="Clear focus"
+            title="Clear Agent Context"
             data-testid="focus-clear"
             style={{
               border: 'none',
@@ -900,11 +960,13 @@ export const Canvas = (): JSX.Element => {
       )}
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={renderedEdges}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
+        onSelectionChange={onSelectionChange}
         onConnect={onConnect}
+        connectionMode={ConnectionMode.Loose}
         onEdgesDelete={onEdgesDelete}
         deleteKeyCode={['Delete', 'Backspace']}
         onNodeClick={onNodeClick}
@@ -917,25 +979,32 @@ export const Canvas = (): JSX.Element => {
         // sliding and the gesture settles onto the panel. XYDrag's autopan loop
         // re-reads this each frame, so the toggle stops it mid-drag.
         autoPanOnNodeDrag={!docking}
+        onMove={onMove}
         onMoveEnd={onMoveEnd}
-        // While a floating preview is open the canvas is "held": a click on the
-        // blank pane closes it (the light-dismiss), and pan / zoom are disabled so
-        // the gesture can't drag the map out from under the float. After it closes
-        // the canvas is live again.
-        onPaneClick={floating ? () => closeFloat() : undefined}
-        panOnDrag={!floating}
-        zoomOnScroll={!floating}
-        zoomOnPinch={!floating}
-        zoomOnDoubleClick={!floating}
-        // All edges render through ReferenceEdge (see EDGE_TYPES): the line is
+        onPaneClick={() => setCanvasSelection(null)}
+        panOnDrag
+        zoomOnScroll
+        zoomOnPinch
+        zoomOnDoubleClick
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode="Shift"
+        // All edges render through the canvasConnections ReferenceEdge (see EDGE_TYPES): the line is
         // always visible, the note reveals on hover/selection — no colliding
         // always-on midpoint labels. Animation off; the custom edge owns its
         // stroke + accent-on-interaction styling.
-        defaultEdgeOptions={{ type: 'reference', animated: false }}
-        // Drawing a reference is the core "compound thinking" gesture, so the
-        // live drag should preview the relationship in the brand accent (the
-        // same color a hovered/selected edge takes) rather than React Flow's
-        // default grey — the line you're dragging IS the connection-to-be.
+        defaultEdgeOptions={{
+          type: 'reference',
+          animated: false,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 18,
+            height: 18,
+            color: color.textGhost,
+          },
+        }}
+        // The live drag previews the same side-midpoint snap that will be
+        // saved on drop, so the line never appears to float beside a card.
+        connectionLineComponent={CanvasConnectionLine}
         connectionLineStyle={{ stroke: color.accent, strokeWidth: 2 }}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
@@ -943,6 +1012,8 @@ export const Canvas = (): JSX.Element => {
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} color={color.border} />
+        <CanvasViewportTracker onViewport={onViewport} />
+        <CanvasSnapGuides guides={snapGuides} />
         <CanvasControls />
         <CanvasFramer frame={frame} />
       </ReactFlow>
@@ -952,6 +1023,16 @@ export const Canvas = (): JSX.Element => {
 
 // Re-export useReactFlow so children can re-center programmatically later.
 export { useReactFlow };
+
+const CanvasViewportTracker = ({
+  onViewport,
+}: { onViewport: (viewport: Viewport) => void }): null => {
+  const viewport = useViewport();
+  useEffect(() => {
+    onViewport({ x: viewport.x, y: viewport.y, zoom: viewport.zoom });
+  }, [onViewport, viewport.x, viewport.y, viewport.zoom]);
+  return null;
+};
 
 /**
  * Frames the canvas after each refresh. Rendered inside <ReactFlow> so the
@@ -977,7 +1058,7 @@ const CanvasFramer = ({
   useEffect(() => {
     if (!frame || !nodesInitialized) return;
     // Frame once per context. A same-key refresh (a watcher file event, a
-    // focus change) must NOT re-frame — that would yank the canvas out from
+    // context changes must NOT re-frame — that would yank the canvas out from
     // under the user mid-work.
     if (framedKey.current === frame.key) return;
     framedKey.current = frame.key;

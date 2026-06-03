@@ -19,7 +19,9 @@ export type BadgeType =
   | 'video'
   | 'pdf'
   | 'code'
-  | 'generic';
+  | 'generic'
+  | 'edit'
+  | 'badge';
 
 const EXT_TYPE: Record<string, BadgeType> = {
   md: 'text',
@@ -182,6 +184,21 @@ const GLYPH_PATHS: Record<BadgeType, JSX.Element> = {
     <>
       <path d="M4 2.5h4.5l3 3V13H4z" />
       <path d="M8.5 2.5v3h3" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="M4 12l2.4-.5 5.1-5.1-1.9-1.9-5.1 5.1z" />
+      <path d="M8.9 5.2l1.9 1.9" />
+      <path d="M3.5 13h9" />
+    </>
+  ),
+  badge: (
+    <>
+      <path d="M6 2.5h4M7 2.5v2M9 2.5v2" />
+      <rect x="3.5" y="4.4" width="9" height="9" rx="1.5" />
+      <circle cx="6.4" cy="8" r="1" />
+      <path d="M8.6 7.4h2.2M8.6 9.5h2.5M5.4 11.7h5.2" />
     </>
   ),
   folder: (

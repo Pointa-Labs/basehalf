@@ -1,11 +1,6 @@
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
-import type {
-  BadgeFile,
-  BadgeGetResult,
-  InboundGetResult,
-  WorkspaceReadFileResult,
-} from '@basehalf/core';
+import type { WorkspaceReadFileResult } from '@basehalf/core';
 import { BlockNoteView } from '@blocknote/mantine';
 import { useCreateBlockNote } from '@blocknote/react';
 import {
@@ -18,9 +13,14 @@ import {
   useState,
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { emitBadgeChange } from '../lib/badgeBus.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
-import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
+import {
+  type FlushOptions,
+  registerDocFlusher,
+  registerFlusher,
+  unregisterDocFlusher,
+  unregisterFlusher,
+} from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
   type LiveDocView,
@@ -30,13 +30,13 @@ import {
   ensureDoc,
   markReady,
   onReady,
+  refreshOwner,
   releaseDoc,
 } from '../lib/liveDoc.js';
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
-import { FLOAT_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
-import { prompt as promptDialog } from './Dialog.js';
+import { useWorkspaceStore } from '../store/workspace.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -85,16 +85,12 @@ function splitPath(rel: string): { dirname: string; basename: string } {
 
 /** The editor body for ONE pane's active file. The pane (EditorSpace) supplies
  *  `file`, the pane `paneId` (for the flush registry + close), and whether the
- *  pane is the active one (only it consumes the search jump-to-match).
- *  `showBadge` renders the badge backpack panel (prompt + references) above the
- *  content — the right panel leaves it OFF (the badge lives on the canvas); the
- *  canvas floating preview turns it ON. */
+ *  pane is the active one (only it consumes the search jump-to-match). */
 export const FilePreview = ({
   file,
   paneId,
   isActive,
-  showBadge = false,
-}: { file: string; paneId: string; isActive: boolean; showBadge?: boolean }): JSX.Element => {
+}: { file: string; paneId: string; isActive: boolean }): JSX.Element => {
   const openMatchQuery = useWorkspaceStore((s) => s.openMatchQuery);
   const clearOpenMatchQuery = useWorkspaceStore((s) => s.clearOpenMatchQuery);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -171,7 +167,6 @@ export const FilePreview = ({
         fontFamily: font.sans,
       }}
     >
-      {showBadge && <BadgeProperties file={file} paneId={paneId} />}
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
         {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} docKey={viewKey} />}
         {mode === 'text' && <TextViewer key={viewKey} file={file} />}
@@ -269,646 +264,28 @@ export const FilePreview = ({
   );
 };
 
-// BadgeProperties is the "背包" editor — the agent-protocol contract surface.
-// Per IR-v2-04, every badge has a prompt + references + position; users need
-// to edit prompt/references here (canvas only handles position via drag).
-// Without this UI, badge.prompt was effectively write-only-by-CLI.
-const BadgeProperties = ({
-  file,
-  paneId,
-}: { file: string; paneId: string }): JSX.Element | null => {
-  const [badge, setBadge] = useState<BadgeFile | null>(null);
-  const [prompt, setPrompt] = useState('');
-  const [inbound, setInbound] = useState<readonly { from: string; note?: string }[]>([]);
-  const inboundCount = inbound.length;
-  // Surfaced when a badge write (prompt or a reference edit) fails, so the
-  // user never silently loses curation work they thought they saved. Cleared
-  // on the next successful write.
-  const [saveError, setSaveError] = useState<string | null>(null);
-  // For the prompt textarea's own Escape-to-close (the global handler skips
-  // form fields, so the field closes the surface itself). The badge panel only
-  // renders in the canvas FLOAT, so Escape there must close the float — closeTab
-  // with FLOAT_PANE_ID is a no-op (it isn't a real pane).
-  const closeTab = useWorkspaceStore((s) => s.closeTab);
-  const closeFloat = useWorkspaceStore((s) => s.closeFloat);
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('bh:badge-props-collapsed') === '1';
-    } catch {
-      return false;
-    }
-  });
-
-  // (Re)load the badge whenever the file changes. We need to reset prompt
-  // state too — otherwise switching files would briefly show the prior
-  // file's prompt while the load is in flight.
-  useEffect(() => {
-    let cancelled = false;
-    setPrompt('');
-    setBadge(null);
-    setInbound([]);
-    void (async () => {
-      try {
-        const b = (await window.bh.run('badge.get', {
-          file,
-          kind: 'file',
-        })) as BadgeGetResult;
-        if (cancelled) return;
-        setBadge(b);
-        setPrompt(b?.prompt ?? '');
-        const ib = (await window.bh.run('inbound.get', { file })) as InboundGetResult;
-        if (cancelled) return;
-        setInbound(ib.entries);
-      } catch {
-        // Badge may not be materialized yet (e.g. brand-new file the
-        // watcher hasn't picked up). Silent — Canvas surfaces fatal errors.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [file]);
-
-  // NOTE: a panel edit to a FOCUSED file must refresh `.bh/focus.md` (it inlines
-  // each focused file's prompt + ref-notes — the turn brief, #91). That used to
-  // be patched here in the renderer; it's now done in CORE — `badge.set` /
-  // `addRef` / `removeRef` call `focus.resync`, which re-inlines the active
-  // brief (preserving `intent:`) under a focus-file mutex, so the refresh
-  // happens inside each `window.bh.run('badge.…')` await below and covers CLI /
-  // agent edits too, not just this panel. So there's no renderer resync to call.
-
-  // Debounced prompt save — typing in a textarea shouldn't write per keystroke.
-  const savePrompt = useMemo(
-    () =>
-      debounce(async (next: string) => {
-        try {
-          await window.bh.run('badge.set', { file, kind: 'file', patch: { prompt: next } });
-          setSaveError(null);
-          emitBadgeChange(); // live-update the canvas badge's prompt
-          // focus.md is refreshed by core (badge.set → focus.resync); see NOTE above.
-        } catch (err) {
-          // The prompt is the literal instruction to the agent — never lose it
-          // silently. Surface so the user knows their edit didn't land.
-          setSaveError(`Couldn't save prompt: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }, 500),
-    [file],
-  );
-
-  // Persist a just-typed prompt when the panel unmounts (Esc / Cmd-W / file or
-  // workspace switch) rather than dropping the queued save with its timer.
-  useEffect(() => () => savePrompt.flush(), [savePrompt]);
-
-  const removeRef = useCallback(
-    async (to: string) => {
-      try {
-        await window.bh.run('badge.removeRef', { file, to });
-        setBadge((b) => (b ? { ...b, references: b.references.filter((r) => r.to !== to) } : b));
-        setSaveError(null);
-        emitBadgeChange(); // live-remove the edge from the canvas
-        // focus.md refreshed by core (badge.removeRef → focus.resync); see NOTE above.
-      } catch (err) {
-        setSaveError(
-          `Couldn't remove reference: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    },
-    [file],
-  );
-
-  const updateRefNote = useCallback(
-    async (to: string, note: string) => {
-      const trimmed = note.trim();
-      try {
-        await window.bh.run('badge.addRef', {
-          file,
-          to,
-          ...(trimmed !== '' && { note: trimmed }),
-        });
-        setBadge((b) =>
-          b
-            ? {
-                ...b,
-                // Clearing a note must DROP it locally too — core writes `{ to }`
-                // (no note), so spreading `{}` would keep the stale note in the
-                // optimistic copy and ReferenceRow would snap the input back to it.
-                references: b.references.map((r) =>
-                  r.to === to ? (trimmed !== '' ? { ...r, note: trimmed } : { to: r.to }) : r,
-                ),
-              }
-            : b,
-        );
-        setSaveError(null);
-        emitBadgeChange(); // live-update the edge's note on the canvas
-        // focus.md refreshed by core (badge.addRef → focus.resync); see NOTE above.
-      } catch (err) {
-        setSaveError(
-          `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    },
-    [file],
-  );
-
-  // Add a reference to a different file. Driven by a prompt dialog so
-  // users editing in the BadgeProperties panel don't have to leave it,
-  // go to the canvas, and drag from this badge's handle to the target.
-  // Validation: non-empty, not self, not a duplicate of an existing ref.
-  // Path existence isn't checked — badge.addRef accepts any
-  // workspace-relative path and orphan refs are surfaced visually on the
-  // canvas; that matches drag-from-handle behavior.
-  const addRefViaPrompt = useCallback(async () => {
-    const to = await promptDialog({
-      title: 'Add reference',
-      body: 'Workspace-relative path to the file or folder this badge depends on.',
-      label: 'Target path',
-      placeholder: 'e.g. theory.md  or  notes/chapter-3.md',
-      validate: (v) => {
-        const t = v.trim();
-        if (t.length === 0) return 'A path is required.';
-        if (t === file) return "Can't reference itself.";
-        if (badge?.references.some((r) => r.to === t)) return 'This reference already exists.';
-        return null;
-      },
-    });
-    const trimmed = to?.trim();
-    if (!trimmed) return;
-    try {
-      await window.bh.run('badge.addRef', { file, to: trimmed });
-      setBadge((b) => (b ? { ...b, references: [...b.references, { to: trimmed }] } : b));
-      setSaveError(null);
-      emitBadgeChange(); // live-add the edge to the canvas
-      // focus.md refreshed by core (badge.addRef → focus.resync); see NOTE above.
-    } catch (err) {
-      setSaveError(`Couldn't add reference: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }, [file, badge]);
-
-  const toggleCollapsed = (): void => {
-    setCollapsed((c) => {
-      const next = !c;
-      try {
-        localStorage.setItem('bh:badge-props-collapsed', next ? '1' : '0');
-      } catch {
-        // localStorage unavailable; just don't persist.
-      }
-      return next;
-    });
-  };
-
-  const refCount = badge?.references.length ?? 0;
-  const hasPrompt = prompt.length > 0;
-  const headerSummary = collapsed
-    ? `${hasPrompt ? '✎ prompt · ' : 'no prompt · '}${refCount} out · ${inboundCount} in`
-    : '';
-
-  return (
-    <section
-      style={{
-        borderBottom: `1px solid ${color.border}`,
-        background: color.surfaceMuted,
-        fontFamily: font.sans,
-      }}
-    >
-      <button
-        type="button"
-        onClick={toggleCollapsed}
-        title={collapsed ? 'Show badge properties' : 'Hide badge properties'}
-        style={{
-          width: '100%',
-          textAlign: 'left',
-          border: 'none',
-          background: 'transparent',
-          padding: `${space[2]}px ${space[4]}px`,
-          fontSize: font.size.micro,
-          color: color.textTertiary,
-          cursor: 'pointer',
-          letterSpacing: font.trackedCaps,
-          textTransform: 'uppercase',
-          fontWeight: font.weight.medium,
-          display: 'flex',
-          alignItems: 'center',
-          gap: space[1.5],
-          transition: transition(['color']),
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.color = color.textSecondary;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = color.textTertiary;
-        }}
-      >
-        <Chevron open={!collapsed} />
-        <span>Badge</span>
-        {collapsed && (
-          <span
-            style={{
-              marginLeft: 'auto',
-              textTransform: 'none',
-              letterSpacing: 0,
-              color: color.textTertiary,
-              fontSize: font.size.caption,
-              fontWeight: font.weight.regular,
-            }}
-          >
-            {headerSummary}
-          </span>
-        )}
-      </button>
-      {!collapsed && (
-        <div
-          style={{
-            padding: `${space[1]}px ${space[4]}px ${space[4]}px`,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: space[3],
-          }}
-        >
-          <label style={{ display: 'block' }}>
-            <div
-              style={{
-                color: color.textSecondary,
-                marginBottom: space[1],
-                fontSize: font.size.caption,
-                fontWeight: font.weight.medium,
-              }}
-            >
-              Prompt
-              <span
-                style={{
-                  color: color.textTertiary,
-                  marginLeft: space[1.5],
-                  fontWeight: font.weight.regular,
-                }}
-              >
-                what agents read about this file
-              </span>
-            </div>
-            <textarea
-              value={prompt}
-              onChange={(e) => {
-                setPrompt(e.target.value);
-                savePrompt(e.target.value);
-              }}
-              onKeyDown={(e) => {
-                // Escape closes the surface in one press from here too (the global
-                // handler skips form fields). Persist first, then close — the float
-                // if this is the canvas badge panel, else the active tab.
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  savePrompt.flush();
-                  if (paneId === FLOAT_PANE_ID) closeFloat();
-                  else closeTab(paneId, file);
-                }
-              }}
-              placeholder="e.g. teacher emphasized chapters 1, 3, 6, 7, 9"
-              rows={3}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: `${space[2]}px ${space[3]}px`,
-                fontSize: font.size.body,
-                fontFamily: font.sans,
-                color: color.textPrimary,
-                border: `1px solid ${color.borderStrong}`,
-                borderRadius: radius.md,
-                resize: 'vertical',
-                background: color.surface,
-                outline: 'none',
-                transition: transition(['border-color', 'box-shadow']),
-                lineHeight: 1.45,
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = color.accent;
-                e.currentTarget.style.boxShadow = shadow.focus;
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = color.borderStrong;
-                e.currentTarget.style.boxShadow = 'none';
-                // Persist immediately on leaving the field rather than waiting
-                // out the 500ms debounce.
-                savePrompt.flush();
-              }}
-            />
-          </label>
-          {saveError && (
-            <div
-              role="alert"
-              style={{
-                marginTop: space[2],
-                padding: `${space[1.5]}px ${space[3]}px`,
-                fontSize: font.size.caption,
-                fontFamily: font.sans,
-                color: color.danger,
-                background: `${color.danger}14`,
-                border: `1px solid ${color.danger}33`,
-                borderRadius: radius.md,
-              }}
-            >
-              {saveError}
-            </div>
-          )}
-          <div>
-            <div
-              style={{
-                color: color.textSecondary,
-                marginBottom: space[1.5],
-                fontSize: font.size.caption,
-                fontWeight: font.weight.medium,
-                display: 'flex',
-                alignItems: 'center',
-                gap: space[2],
-              }}
-            >
-              <span>
-                References{' '}
-                <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
-                  {refCount} out · {inboundCount} in
-                </span>
-              </span>
-              <div style={{ marginLeft: 'auto' }}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void addRefViaPrompt()}
-                  title="Add an outbound reference by path (alternative to dragging from the badge handle on the canvas)"
-                >
-                  + Add
-                </Button>
-              </div>
-            </div>
-            {refCount === 0 ? (
-              <div
-                style={{
-                  color: color.textTertiary,
-                  fontSize: font.size.caption,
-                  lineHeight: 1.5,
-                }}
-              >
-                Drag from this badge's right edge to another badge — or click "+ Add" above to type
-                a path.
-              </div>
-            ) : (
-              <ul
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: space[1],
-                }}
-              >
-                {badge?.references.map((ref) => (
-                  <ReferenceRow
-                    key={ref.to}
-                    to={ref.to}
-                    note={ref.note ?? ''}
-                    onRemove={() => void removeRef(ref.to)}
-                    onNoteCommit={(note) => void updateRefNote(ref.to, note)}
-                  />
-                ))}
-              </ul>
-            )}
-            {inboundCount > 0 && <InboundList entries={inbound} />}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-};
-
-/** Read-only list of files that REFERENCE the current file (backlinks).
- *  To remove an inbound link, the user edits the source file's outbound
- *  list — same as how Wikilink-style apps work. Clicking a row opens
- *  the source file in the preview. */
-const InboundList = ({
-  entries,
-}: {
-  readonly entries: readonly { from: string; note?: string }[];
-}): JSX.Element => {
-  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  return (
-    <div style={{ marginTop: space[3] }}>
-      <div
-        style={{
-          color: color.textSecondary,
-          marginBottom: space[1.5],
-          fontSize: font.size.caption,
-          fontWeight: font.weight.medium,
-        }}
-      >
-        Inbound{' '}
-        <span style={{ color: color.textTertiary, fontWeight: font.weight.regular }}>
-          {entries.length} file{entries.length === 1 ? '' : 's'} point here
-        </span>
-      </div>
-      <ul
-        style={{
-          listStyle: 'none',
-          padding: 0,
-          margin: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: space[1],
-        }}
-      >
-        {entries.map((e) => (
-          <li
-            key={e.from}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: space[1.5],
-              padding: `${space[1]}px ${space[2]}px`,
-              background: color.surface,
-              border: `1px solid ${color.border}`,
-              borderRadius: radius.md,
-            }}
-          >
-            <span aria-hidden style={{ color: color.textTertiary, fontSize: font.size.caption }}>
-              ←
-            </span>
-            <button
-              type="button"
-              onClick={() => openInPanel(e.from)}
-              title={`Open ${e.from}`}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontFamily: font.mono,
-                fontSize: font.size.caption,
-                color: color.accent,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                letterSpacing: -0.2,
-              }}
-            >
-              {e.from}
-            </button>
-            {e.note && (
-              <span
-                style={{
-                  color: color.textTertiary,
-                  fontSize: font.size.caption,
-                  fontStyle: 'italic',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 1,
-                  minWidth: 0,
-                }}
-              >
-                {e.note}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-};
-
-const Chevron = ({ open }: { open: boolean }): JSX.Element => (
-  <svg
-    width={10}
-    height={10}
-    viewBox="0 0 10 10"
-    aria-hidden
-    style={{
-      transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
-      transition: transition(['transform']),
-      flexShrink: 0,
-    }}
-  >
-    <path
-      d="M3.5 2l3 3-3 3"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-const ReferenceRow = ({
-  to,
-  note,
-  onRemove,
-  onNoteCommit,
-}: {
-  to: string;
-  note: string;
-  onRemove: () => void;
-  onNoteCommit: (note: string) => void;
-}): JSX.Element => {
-  const [local, setLocal] = useState(note);
-  // Keep local in sync if the parent re-fetches and changes the prop.
-  useEffect(() => {
-    setLocal(note);
-  }, [note]);
-  const [hovered, setHovered] = useState(false);
-  return (
-    <li
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: space[1.5],
-        padding: `${space[1]}px ${space[2]}px`,
-        background: color.surface,
-        border: `1px solid ${color.border}`,
-        borderRadius: radius.md,
-        transition: transition(['border-color']),
-      }}
-    >
-      <span aria-hidden style={{ color: color.textTertiary, fontSize: font.size.caption }}>
-        →
-      </span>
-      <span
-        title={to}
-        style={{
-          fontFamily: font.mono,
-          fontSize: font.size.caption,
-          color: color.textSecondary,
-          maxWidth: 130,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          flexShrink: 0,
-          letterSpacing: -0.2,
-        }}
-      >
-        {to}
-      </span>
-      <input
-        value={local}
-        onChange={(e) => setLocal(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.currentTarget.blur();
-          }
-        }}
-        placeholder="note (optional)"
-        style={{
-          flex: 1,
-          minWidth: 0,
-          padding: `${space[0.5]}px ${space[1.5]}px`,
-          fontSize: font.size.caption,
-          fontFamily: font.sans,
-          color: color.textPrimary,
-          border: '1px solid transparent',
-          borderRadius: radius.sm,
-          background: 'transparent',
-          outline: 'none',
-          transition: transition(['border-color', 'background']),
-        }}
-        onFocus={(e) => {
-          e.currentTarget.style.borderColor = color.borderStrong;
-          e.currentTarget.style.background = color.surface;
-        }}
-        onBlur={(e) => {
-          e.currentTarget.style.borderColor = 'transparent';
-          e.currentTarget.style.background = 'transparent';
-          if (local !== note) onNoteCommit(local);
-        }}
-      />
-      <button
-        type="button"
-        onClick={onRemove}
-        title="Remove this reference"
-        style={{
-          background: 'transparent',
-          border: 'none',
-          color: hovered ? color.danger : color.textGhost,
-          cursor: 'pointer',
-          fontSize: 16,
-          padding: `0 ${space[1]}px`,
-          lineHeight: 1,
-          transition: transition(['color']),
-        }}
-      >
-        ×
-      </button>
-    </li>
-  );
-};
-
 const AUTOSAVE_MS = 400;
 
-const MdEditor = ({
+export const MdEditor = ({
   file,
   paneId,
   docKey,
-}: { file: string; paneId: string; docKey: string }): JSX.Element => {
+  compact = false,
+  cardEditable = true,
+  promoteOnEdit = true,
+  onDiscardClose,
+}: {
+  file: string;
+  paneId: string;
+  docKey: string;
+  compact?: boolean;
+  /** Compact card mode can use the exact same BlockNote surface for preview and
+   *  editing. Preview passes false: rendered content stays live, but the DOM is
+   *  not editable and yields save ownership to any real editor. */
+  cardEditable?: boolean;
+  promoteOnEdit?: boolean;
+  onDiscardClose?: () => void;
+}): JSX.Element => {
   // The file's shared in-memory document (created on first open, disposed on last
   // close; see lib/liveDoc). Binding the editor to its Yjs fragment makes every view
   // of this file ONE live document — both editable, char-level synced. `docKey` is
@@ -917,13 +294,20 @@ const MdEditor = ({
   const shared = ensureDoc(docKey);
   const editor = useCreateBlockNote({
     schema: bhSchema,
+    ...(compact
+      ? {
+          placeholders: {
+            default: 'Start writing...',
+            emptyDocument: 'Start writing...',
+          },
+        }
+      : {}),
     collaboration: {
       fragment: shared.fragment,
       user: { name: 'me', color: color.accent },
     },
   });
   const closeTab = useWorkspaceStore((s) => s.closeTab);
-  const closeFloatStore = useWorkspaceStore((s) => s.closeFloat);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
@@ -952,6 +336,7 @@ const MdEditor = ({
   // synchronous truth the save/watch paths read.
   const [isOwner, setIsOwner] = useState(false);
   const isOwnerRef = useRef(false);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   isOwnerRef.current = isOwner;
   // False until the file's shared doc has its seed content APPLIED — gates
   // editability so a fast joiner can't type into the still-empty doc and have its
@@ -972,6 +357,10 @@ const MdEditor = ({
   const pendingRef = useRef(false);
   const viewOnlyRef = useRef(false);
   viewOnlyRef.current = viewOnly;
+  const compactEditable = !compact || cardEditable;
+  const ownerPriority = compactEditable ? 1 : 0;
+  const ownerPriorityRef = useRef(ownerPriority);
+  ownerPriorityRef.current = ownerPriority;
 
   // Apply disk content to the SHARED doc (replaceBlocks → syncs to every view via
   // Yjs): peel any leading YAML frontmatter and keep it byte-verbatim (BlockNote
@@ -1034,7 +423,9 @@ const MdEditor = ({
   // after the write so the watcher echo of our own write compares equal + a new
   // owner inherits the right baseline.
   const flush = useCallback(
-    async (force = false): Promise<void> => {
+    async (options: FlushOptions = {}): Promise<void> => {
+      const forceSerialize = options.forceSerialize === true || options.forceWrite === true;
+      const forceWrite = options.forceWrite === true;
       if (viewOnlyRef.current) return;
       // Only the OWNER persists. A non-owner view's edits sync to the owner's editor
       // via Yjs, whose onChange drives the single save — so a non-owner flush (e.g.
@@ -1043,12 +434,12 @@ const MdEditor = ({
       // A conflict banner is up: the user's explicit Keep/Reload choice is
       // authoritative. Don't let an auto-save / Cmd-S / blur / file-switch write
       // behind it and silently clobber the external edit. keepMine() passes
-      // force=true (it has cleared the ref) to honor the explicit overwrite.
-      if (reloadPromptRef.current && !force) return;
+      // forceWrite (after clearing the ref) to honor the explicit overwrite.
+      if (reloadPromptRef.current && !forceWrite) return;
       // Only the user's own edits write back. A mere open/close — or a flush before
       // switching files — must never rewrite the file, even when the projection
       // would normalize a multi-block region it can't index verbatim.
-      if (!pendingRef.current) {
+      if (!pendingRef.current && !forceSerialize) {
         writeFailedRef.current = false; // nothing pending → nothing unpersisted
         setWriteFailed(false);
         return;
@@ -1076,7 +467,7 @@ const MdEditor = ({
       // between the last keystroke and here (or during the spliceSave await). Unless
       // the user explicitly chose Keep-mine, re-read disk and, if it drifted from
       // what we last synced, raise the conflict instead of overwriting it.
-      if (!force) {
+      if (!forceWrite) {
         try {
           const disk = (
             (await window.bh.run('workspace.readFile', { path: file })) as WorkspaceReadFileResult
@@ -1122,6 +513,7 @@ const MdEditor = ({
   const view = useMemo<LiveDocView>(
     () => ({
       key: docKey,
+      ownerPriority: () => ownerPriorityRef.current,
       setOwner: (o) => {
         isOwnerRef.current = o;
         setIsOwner(o);
@@ -1137,6 +529,11 @@ const MdEditor = ({
     [docKey],
   );
   viewRef.current = view;
+
+  useEffect(() => {
+    ownerPriorityRef.current = ownerPriority;
+    refreshOwner(view);
+  }, [ownerPriority, view]);
 
   // Join this file's shared document on mount: take a hold (claims the owner role
   // if vacant), and — as the FIRST view — SEED the doc from disk. Later views bind
@@ -1187,32 +584,38 @@ const MdEditor = ({
   // Debounced auto-save trigger — stable across renders, delegates via the ref.
   const scheduleSave = useMemo(() => debounce(() => void flushRef.current(), AUTOSAVE_MS), []);
 
+  // The navigation/doc gatekeeper. An unresolved conflict banner is a decision
+  // point — return `false` so a tab/file switch or card-edit close DON'T proceed
+  // rather than silently dropping local edits or clobbering an external write.
+  const flusher = useCallback(async (options: FlushOptions = {}): Promise<boolean> => {
+    // A non-owner view has nothing to persist (the owner's autosave does) — allow
+    // navigation. (Its edits already synced to the owner via Yjs.)
+    if (!isOwnerRef.current) return true;
+    if (reloadPromptRef.current) return false;
+    await flushRef.current(options);
+    // Block if a conflict surfaced mid-flush OR the write failed (edits still
+    // unpersisted) — either way leaving now would lose data. The write-failed
+    // banner gives an explicit Discard-&-close escape so this never traps.
+    return !reloadPromptRef.current && !writeFailedRef.current;
+  }, []);
+
   // Register flush with the store. setCurrentFile (file switch / close) and the
   // TopBar (workspace switch) await this BEFORE the context changes, so pending
   // edits persist while the editor is still alive. We deliberately do NOT flush
   // on unmount: by then the editor may be torn down and serialize to empty,
   // which would clobber the file. Navigation always flushes first instead.
   useEffect(() => {
-    // The navigation gatekeeper, registered per pane. An unresolved conflict
-    // banner is a decision point — return `false` so a tab/file switch or
-    // workspace switch DON'T proceed (forcing the user to pick Keep/Reload)
-    // rather than silently dropping local edits OR clobbering the external write.
-    // With no conflict, flush normally (the re-read guard may itself surface one
-    // mid-flush, which we also report as blocked).
-    const flusher = async (): Promise<boolean> => {
-      // A non-owner view has nothing to persist (the owner's autosave does) — allow
-      // navigation. (Its edits already synced to the owner via Yjs.)
-      if (!isOwnerRef.current) return true;
-      if (reloadPromptRef.current) return false;
-      await flushRef.current(false);
-      // Block if a conflict surfaced mid-flush OR the write failed (edits still
-      // unpersisted) — either way leaving now would lose data. The write-failed
-      // banner gives an explicit Discard-&-close escape so this never traps.
-      return !reloadPromptRef.current && !writeFailedRef.current;
-    };
     registerFlusher(paneId, flusher);
     return () => unregisterFlusher(paneId, flusher);
-  }, [paneId]);
+  }, [flusher, paneId]);
+
+  // Also register by shared document. A canvas card can be a non-owner view when
+  // the same file is already open in the right panel; closing the card editor must
+  // flush the file's owner, not merely the card pane's no-op non-owner flusher.
+  useEffect(() => {
+    registerDocFlusher(docKey, flusher);
+    return () => unregisterDocFlusher(docKey, flusher);
+  }, [docKey, flusher]);
 
   // Cancel any queued auto-save when this editor unmounts (file/workspace
   // switch), so it can't fire against a stale closure after the context
@@ -1229,7 +632,7 @@ const MdEditor = ({
       // Gated flush: persists pending edits when there's no conflict, and
       // no-ops while a banner is up (the editor stays mounted across blur, so
       // nothing is lost — the user still resolves Keep/Reload on return).
-      void flushRef.current(false);
+      void flushRef.current();
     };
     window.addEventListener('beforeunload', onLeave);
     window.addEventListener('blur', onLeave);
@@ -1309,7 +712,7 @@ const MdEditor = ({
   const keepMine = useCallback(() => {
     reloadPromptRef.current = false;
     setReloadPrompt(false);
-    void flushRef.current(true); // force-overwrite disk with the local version
+    void flushRef.current({ forceSerialize: true, forceWrite: true });
   }, []);
 
   // Write-failed escape hatch. A persistently-unwritable file (read-only folder,
@@ -1317,7 +720,7 @@ const MdEditor = ({
   // blocks every switch/close. "Retry" re-attempts the save; "Discard & close"
   // drops the unsaved edits and force-closes (bypassFlush skips the gate).
   const retryWrite = useCallback(() => {
-    void flushRef.current(false);
+    void flushRef.current();
   }, []);
   const discardAndClose = useCallback(() => {
     writeFailedRef.current = false;
@@ -1329,12 +732,12 @@ const MdEditor = ({
     // disk and drops them everywhere.
     const shared = ensureDoc(docKey);
     if (shared.views.size > 1) shared.discardRequested = true;
-    // In the canvas float, closeTab(FLOAT_PANE_ID, …) is a no-op (it isn't a real
-    // pane) — it would leave the failed-save editor open. Close the float instead;
-    // pendingRef is already cleared, so its flush is a no-op (the edits are discarded).
-    if (paneId === FLOAT_PANE_ID) closeFloatStore();
-    else closeTab(paneId, file, { bypassFlush: true });
-  }, [closeTab, closeFloatStore, paneId, file, docKey]);
+    if (onDiscardClose) {
+      onDiscardClose();
+    } else {
+      closeTab(paneId, file, { bypassFlush: true });
+    }
+  }, [closeTab, paneId, file, docKey, onDiscardClose]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -1344,15 +747,33 @@ const MdEditor = ({
         e.preventDefault();
         // Gated: saves normally, but no-ops while a conflict banner is up so
         // Cmd-S can't bypass the explicit Keep/Reload decision and clobber disk.
-        void flushRef.current(false);
+        void flushRef.current({ forceSerialize: true });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  useEffect(() => {
+    if (!compact || !compactEditable || viewOnly || !seedReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      (editor as { focus?: () => void }).focus?.();
+      surfaceRef.current
+        ?.querySelector<HTMLElement>(
+          '.bn-editor[contenteditable="true"], .bn-editor [contenteditable="true"]',
+        )
+        ?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [compact, compactEditable, editor, seedReady, viewOnly]);
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      ref={surfaceRef}
+      className={compact ? 'bh-md-editor bh-md-editor-card' : 'bh-md-editor'}
+      data-editor-surface={compact ? 'card' : 'panel'}
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       {/* No save-status line — auto-save runs silently (debounced + flushed on
           close/switch/workspace-change). The only status row kept is the
           read-only notice for plain-text files, so a non-editable .txt isn't a
@@ -1451,17 +872,34 @@ const MdEditor = ({
           {error}
         </div>
       )}
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div className="bh-md-editor-scroll" style={{ flex: 1, overflow: 'auto' }}>
         {/* The editor FILLS the pane (like a code editor) — just a vertical
             rhythm + a modest horizontal gutter, no narrow centered column. The
             pane's own width is the measure; widen the pane for a wider editor. */}
-        <div style={{ padding: `${space[5]}px ${space[5]}px` }}>
+        <div
+          style={{
+            padding: compact
+              ? `${space[2]}px ${space[3]}px ${space[3]}px`
+              : `${space[5]}px ${space[5]}px`,
+          }}
+        >
           <BlockNoteView
+            className={compact ? 'bh-card-editor' : undefined}
             editor={editor}
-            // Every view of the file is editable — they share one Yjs document, so
-            // edits merge char-level and never diverge. Held non-editable until the
-            // seed is applied (seedReady), so a fast joiner can't lose typing to it.
-            editable={!viewOnly && seedReady}
+            autoFocus={compact && compactEditable}
+            // Panel editors and active card editors are editable. Read-only card
+            // previews use the same Yjs-backed BlockNote surface with editing off,
+            // so preview→edit does not swap renderers under the cursor. Held
+            // non-editable until seedReady so a fast joiner can't lose typing.
+            editable={!viewOnly && seedReady && compactEditable}
+            formattingToolbar={compact ? false : undefined}
+            linkToolbar={compact ? false : undefined}
+            slashMenu={compact ? false : undefined}
+            sideMenu={compact ? false : undefined}
+            filePanel={compact ? false : undefined}
+            tableHandles={compact ? false : undefined}
+            emojiPicker={compact ? false : undefined}
+            comments={compact ? false : undefined}
             theme="dark"
             onChange={() => {
               // Gate on seedReady too: a joiner that mounts before the first disk
@@ -1471,7 +909,7 @@ const MdEditor = ({
               if (initialLoad.current || viewOnly || !seedReady) return;
               // Editing a preview tab promotes it to a permanent (pinned) tab —
               // idempotent (no-op once pinned), like a mature editor.
-              pinTab(paneId, file);
+              if (promoteOnEdit) pinTab(paneId, file);
               // Only the OWNER schedules the save. onChange fires here for THIS
               // view's own edits AND (on the owner) for edits synced in from other
               // views via Yjs — so the owner's autosave covers every view.

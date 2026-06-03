@@ -1,10 +1,16 @@
 import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import type { LeafPane } from '../lib/paneTree.js';
+import { isBadgeTab, panelTabFile } from '../lib/panelTab.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 
 const basenameOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1);
+const tabTitle = (tab: string): string =>
+  isBadgeTab(tab) ? `File Badge · ${panelTabFile(tab)}` : tab;
+const tabLabel = (tab: string): string => basenameOf(panelTabFile(tab));
+const tabCloseLabel = (tab: string): string =>
+  isBadgeTab(tab) ? `Close File Badge ${tabLabel(tab)}` : `Close ${tabLabel(tab)}`;
 
 // The DnD type marker for a tab drag. A CUSTOM type (not 'Files') so the
 // App-level folder-drop overlay — which keys off the 'Files' type — ignores it.
@@ -22,6 +28,7 @@ export const TAB_DND_TYPE = 'application/bh-tab';
  */
 export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const dropTabOnStrip = useWorkspaceStore((s) => s.dropTabOnStrip);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
@@ -77,18 +84,20 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
         overflowY: 'hidden',
       }}
     >
-      {pane.tabs.map((file, index) => {
-        const active = file === pane.activeFile;
-        const isPreview = file === pane.previewFile;
-        const showClose = active || hoveredFile === file;
+      {pane.tabs.map((tab, index) => {
+        const active = tab === pane.activeFile;
+        const isPreview = tab === pane.previewFile;
+        const showClose = active || hoveredFile === tab;
         const indicate = dropTarget?.index === index ? dropTarget.side : null;
+        const badge = isBadgeTab(tab);
+        const file = panelTabFile(tab);
         return (
           // biome-ignore lint/a11y/useKeyWithClickEvents: the tab strip isn't keyboard-focusable yet (no roving tabindex); activation is a pointer affordance — keyboard tab nav is a separate concern.
           <div
-            key={file}
+            key={tab}
             role="tab"
             aria-selected={active}
-            title={file}
+            title={tabTitle(tab)}
             data-testid="editor-tab"
             data-active={active ? 'true' : 'false'}
             data-preview={isPreview ? 'true' : 'false'}
@@ -97,7 +106,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               // Middle-click closes — preventDefault stops the autoscroll cursor.
               if (e.button === 1) {
                 e.preventDefault();
-                closeTab(paneId, file);
+                closeTab(paneId, tab);
               }
               // Left-click activation is on CLICK, not mousedown: a drag fires no
               // click, so dragging a tab can't leave an async openInPanel (flush →
@@ -105,17 +114,20 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               // drop. The pane still focuses on mousedown via Pane's capture handler.
             }}
             onClick={(e) => {
-              if (e.button === 0) openInPanel(file, { paneId });
+              if (e.button === 0) {
+                if (badge) openBadgeInPanel(file, { paneId });
+                else openInPanel(file, { paneId });
+              }
             }}
-            onDoubleClick={() => pinTab(paneId, file)}
-            onMouseEnter={() => setHoveredFile(file)}
-            onMouseLeave={() => setHoveredFile((f) => (f === file ? null : f))}
+            onDoubleClick={() => pinTab(paneId, tab)}
+            onMouseEnter={() => setHoveredFile(tab)}
+            onMouseLeave={() => setHoveredFile((f) => (f === tab ? null : f))}
             onDragStart={(e) => {
               e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData(TAB_DND_TYPE, file);
+              e.dataTransfer.setData(TAB_DND_TYPE, tab);
               // Publish to the store so OTHER panes' strips + the pane DropOverlay
               // can pick up which tab + source pane on drop (cross-pane drag).
-              setTabDrag({ file, sourcePaneId: paneId });
+              setTabDrag({ file: tab, sourcePaneId: paneId });
             }}
             onDragOver={(e) => {
               if (!dragActive()) return; // not a tab drag
@@ -171,7 +183,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               />
             )}
             <FileGlyph
-              type={badgeType(basenameOf(file), false)}
+              type={badge ? 'badge' : badgeType(basenameOf(file), false)}
               tone={active ? color.accent : color.textGhost}
               size={13}
             />
@@ -183,18 +195,18 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
                 whiteSpace: 'nowrap',
               }}
             >
-              {basenameOf(file)}
+              {tabLabel(tab)}
             </span>
             <button
               type="button"
               title="Close tab"
-              aria-label={`Close ${basenameOf(file)}`}
+              aria-label={tabCloseLabel(tab)}
               data-testid="editor-tab-close"
               // Stop the tab's mousedown (open/activate) from firing when hitting ×.
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                closeTab(paneId, file);
+                closeTab(paneId, tab);
               }}
               style={{
                 flexShrink: 0,

@@ -5,7 +5,6 @@ import { DialogHost } from './components/Dialog.js';
 import { EditorSpace } from './components/EditorSpace.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
-import { FloatingPreview } from './components/FloatingPreview.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
@@ -159,14 +158,9 @@ export const App = (): JSX.Element => {
         <Sidebar />
         {/* The canvas region — flex:1 so it takes whatever the sidebar + editor
             leave. position:relative anchors the canvas's own absolute chrome
-            (New-note button, focus chip, empty hint). */}
+            (New-note button, context chip, empty hint). */}
         <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
-          {/* The canvas floating preview (double-click a badge) lives INSIDE the
-              canvas region, so it nearly fills the canvas and is clipped to it —
-              never spilling over the sidebar / right panel. Light-dismissed by a
-              click outside / Esc. */}
-          <FloatingPreview />
         </main>
         <EditorSpace />
       </div>

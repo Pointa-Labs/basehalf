@@ -26,19 +26,21 @@ import {
   splitLeaf,
   updateLeaf,
 } from '../lib/paneTree.js';
+import { badgeTabId, isBadgeTab, renamePanelTab } from '../lib/panelTab.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
 
 /** Where a dragged tab lands on a pane: the center (move in as a tab) or one of
  *  the four edges (split that way). */
 export type DropRegion = 'center' | 'left' | 'right' | 'up' | 'down';
 
-/** The flush-registry key for the canvas floating preview's editor (it's not a
- *  pane, but registers a flusher like one so its edits persist on close/switch). */
-export const FLOAT_PANE_ID = 'float';
-
 /** The active pane's active file — the derived `currentFile` convenience. */
 const deriveCurrent = (tree: PaneNode, activePaneId: string): string | null =>
   findLeaf(tree, activePaneId)?.activeFile ?? null;
+
+export type CanvasSelection =
+  | { kind: 'file'; files: readonly string[]; source: 'canvas' }
+  | { kind: 'folder'; folder: string; source: 'canvas' }
+  | null;
 
 /** The pane state to load when a workspace opens: its saved layout (tabs +
  *  splits) if any, else a fresh empty pane. Reveals the panel when it restores
@@ -99,6 +101,8 @@ interface WorkspaceState {
     file: string,
     opts?: { pinned?: boolean; matchQuery?: string | null; paneId?: string },
   ) => void;
+  /** Open this file's BaseHalf-defined File Badge page as a right-panel tab. */
+  openBadgeInPanel: (file: string, opts?: { paneId?: string }) => void;
   /** Promote a pane's preview tab to a permanent (pinned) tab. */
   pinTab: (paneId: string, file: string) => void;
   /** Drop the currently-dragged tab (store.tabDrag) onto a pane's TAB STRIP at
@@ -144,16 +148,11 @@ interface WorkspaceState {
    *  that pane and opens it in the new pane. A reference open (like the sidebar) —
    *  the badge stays on the canvas. */
   dockBadge: (file: string, paneId: string, region: DropRegion) => void;
-  /** The file shown in the canvas FLOATING preview (double-click a badge), or
-   *  null. Independent of the right panel — an editable peek that nearly fills the
-   *  canvas. The canvas is "held" (pan/zoom disabled) while it's open. */
-  floatingFile: string | null;
-  /** Open the floating preview for `file` — ALWAYS floats (a consistent canvas
-   *  gesture). A float + a panel tab of the same file are one shared document via
-   *  the live-doc bus, so floating a second view never forks the content. */
-  openFloat: (file: string) => void;
-  /** Close the floating preview (flushing its editor first — edits persist). */
-  closeFloat: () => void;
+  /** The current object(s) the user selected on the canvas. This is UI object
+   *  state only: resize/move/connect affordances read it, while Agent Context
+   *  remains an explicit `.bh/focus.md` action. */
+  canvasSelection: CanvasSelection;
+  setCanvasSelection: (selection: CanvasSelection) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
    *  flash inside the viewer (MD editor). null on a normal open. Consumed +
    *  cleared by FilePreview once it lands on the match (or gives up). */
@@ -217,6 +216,48 @@ const isPathNotFound = (err: unknown): boolean =>
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   const initialPane = emptyLeaf();
+  const openPanelTab = (
+    tab: string,
+    opts: { pinned?: boolean; matchQuery?: string | null; paneId?: string } = {},
+  ): void => {
+    const { paneTree, activePaneId, current } = get();
+    const targetLeaf = findLeaf(paneTree, opts.paneId ?? activePaneId) ?? firstLeaf(paneTree);
+    const paneId = targetLeaf.id;
+    // We only need a flush when the TARGET pane's active editor/page is being replaced.
+    const willSwitch = targetLeaf.activeFile !== null && targetLeaf.activeFile !== tab;
+    const finish = (): void => {
+      // Workspace switched during the async flush → abort: opening the old root's
+      // relative path into the new workspace would show the wrong file (restored
+      // layouts reuse pane ids). Also abort if the target pane was closed/collapsed
+      // during the flush — else updateLeaf is a no-op but we'd still point
+      // activePane/currentFile at a pane no rendered leaf owns.
+      if (get().current !== current || !findLeaf(get().paneTree, paneId)) return;
+      set((s) => {
+        const tree = updateLeaf(s.paneTree, paneId, (l) =>
+          openInLeaf(l, tab, { pinned: opts.pinned }),
+        );
+        return {
+          paneTree: tree,
+          activePaneId: paneId,
+          currentFile: tab,
+          rightPanelOpen: true,
+          openMatchQuery: opts.matchQuery ?? null,
+        };
+      });
+      if (current !== null && !isBadgeTab(tab)) noteOpenedFile(current, tab);
+    };
+    // Flush the target pane's editor/page (still mounted/alive) BEFORE switching
+    // its active tab — last keystrokes persist. A `false` resolution = an
+    // unresolved disk conflict; don't switch.
+    if (willSwitch) {
+      void flushPane(paneId).then((ok) => {
+        if (ok) finish();
+        else set({ error: "Save or resolve this file's changes before leaving it." });
+      }, finish);
+    } else {
+      finish();
+    }
+  };
   return {
     workspaces: [],
     current: null,
@@ -230,7 +271,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     rightPanelOpen: false,
     tabDrag: null,
     canvasDockDrag: null,
-    floatingFile: null,
+    canvasSelection: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
     folderScope: null,
@@ -244,7 +285,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // must KEEP the live UI context — reloading panes from localStorage would
         // clobber tab/split changes still inside the 400ms save debounce, and the
         // layout subscriber would then write that stale tree back. Only a workspace
-        // CHANGE resets panes (+ float / folder scope / search jump). "Same" means
+        // CHANGE resets panes (+ canvas selection / folder scope / search jump). "Same" means
         // same NAME *and* same PATH — `repath()` keeps the name but points at a new
         // folder, which must reset (else stale editors write the old folder's content
         // into the new root).
@@ -267,7 +308,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             paneTree: panes.paneTree,
             activePaneId: panes.activePaneId,
             rightPanelOpen: panes.rightPanelOpen,
-            floatingFile: null,
+            canvasSelection: null,
             openMatchQuery: null,
             folderScope: null,
             error: '',
@@ -437,7 +478,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           paneTree: panes.paneTree,
           activePaneId: panes.activePaneId,
           rightPanelOpen: panes.rightPanelOpen,
-          floatingFile: null,
+          canvasSelection: null,
           openMatchQuery: null,
           folderScope: null,
           error: '',
@@ -540,47 +581,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    openInPanel: (file, opts = {}) => {
-      const { paneTree, activePaneId, current } = get();
-      const targetLeaf = findLeaf(paneTree, opts.paneId ?? activePaneId) ?? firstLeaf(paneTree);
-      const paneId = targetLeaf.id;
-      // We only need a flush when the TARGET pane's active editor is being replaced.
-      const willSwitch = targetLeaf.activeFile !== null && targetLeaf.activeFile !== file;
-      const finish = (): void => {
-        // Workspace switched during the async flush → abort: opening the old root's
-        // relative path into the new workspace would show the wrong file (restored
-        // layouts reuse pane ids). (The in-flight write itself can still land in the
-        // wrong root — that needs an explicit-workspace core API, tracked separately.)
-        // Also abort if the target pane was closed/collapsed during the flush — else
-        // updateLeaf is a no-op but we'd still point activePane/currentFile at a pane
-        // no rendered leaf owns.
-        if (get().current !== current || !findLeaf(get().paneTree, paneId)) return;
-        set((s) => {
-          const tree = updateLeaf(s.paneTree, paneId, (l) =>
-            openInLeaf(l, file, { pinned: opts.pinned }),
-          );
-          return {
-            paneTree: tree,
-            activePaneId: paneId,
-            currentFile: file,
-            rightPanelOpen: true,
-            openMatchQuery: opts.matchQuery ?? null,
-          };
-        });
-        if (current !== null) noteOpenedFile(current, file);
-      };
-      // Flush the target pane's editor (still mounted/alive) BEFORE switching its
-      // active file — last keystrokes persist. A `false` resolution = an unresolved
-      // disk conflict; don't switch — nudge the user to Keep/Reload.
-      if (willSwitch) {
-        void flushPane(paneId).then((ok) => {
-          if (ok) finish();
-          else set({ error: "Save or resolve this file's changes before leaving it." });
-        }, finish);
-      } else {
-        finish();
-      }
-    },
+    openInPanel: (file, opts = {}) => openPanelTab(file, opts),
+
+    openBadgeInPanel: (file, opts = {}) =>
+      openPanelTab(badgeTabId(file), { paneId: opts.paneId, pinned: true }),
 
     pinTab: (paneId, file) =>
       set((s) => ({ paneTree: updateLeaf(s.paneTree, paneId, (l) => pinInLeaf(l, file)) })),
@@ -647,18 +651,25 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     renameTab: (from, to) =>
       set((s) => {
-        // Rebind the path across EVERY view (it may be open in several panes AND the
-        // canvas float). No flush — the old path is gone on disk; affected editors
-        // remount on `to`. Without the floatingFile rebind, a renamed file left
-        // floating would keep editing/flushing the vanished path.
+        // Rebind the path across EVERY view. No flush — the old path is gone on
+        // disk; affected editors remount on `to`.
         let tree = s.paneTree;
         for (const leaf of allLeaves(tree)) {
           tree = updateLeaf(tree, leaf.id, (l) => renameInLeaf(l, from, to));
         }
+        const canvasSelection =
+          s.canvasSelection?.kind === 'file'
+            ? {
+                ...s.canvasSelection,
+                files: s.canvasSelection.files.map((file) => renamePanelTab(file, from, to)),
+              }
+            : s.canvasSelection?.kind === 'folder' && s.canvasSelection.folder === from
+              ? { ...s.canvasSelection, folder: to }
+              : s.canvasSelection;
         return {
           paneTree: tree,
-          currentFile: s.currentFile === from ? to : s.currentFile,
-          floatingFile: s.floatingFile === from ? to : s.floatingFile,
+          currentFile: s.currentFile === null ? null : renamePanelTab(s.currentFile, from, to),
+          canvasSelection,
         };
       }),
 
@@ -680,7 +691,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           rightPanelOpen: true,
         }));
         const cur = get().current;
-        if (cur !== null) noteOpenedFile(cur, file);
+        if (cur !== null && !isBadgeTab(file)) noteOpenedFile(cur, file);
       };
       // Restructuring the tree unmounts + remounts the source pane's editor, which
       // cancels its debounced autosave — flush it first or its last edits are
@@ -795,47 +806,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    openFloat: (file) => {
-      const cur = get().floatingFile;
-      if (cur === file) return; // already floating this file
-      // Always float on a canvas double-click — a consistent canvas-side peek,
-      // independent of the right panel. The shared Yjs doc (lib/liveDoc) makes a
-      // float + a panel tab of the same file ONE live document, so this never forks
-      // — which is why double-click can float unconditionally.
-      if (cur === null) {
-        set({ floatingFile: file });
-        return;
-      }
-      // A DIFFERENT float is already open: flush its editor before swapping it out,
-      // so edits still inside the autosave debounce window aren't dropped when the
-      // old MdEditor unmounts. An unresolved conflict keeps the current float up.
-      void flushPane(FLOAT_PANE_ID).then(
-        (ok) => {
-          if (ok) set({ floatingFile: file });
-          else set({ error: "Save or resolve this file's changes before switching." });
-        },
-        () => set({ floatingFile: file }),
-      );
-    },
-
-    closeFloat: () => {
-      const closing = get().floatingFile;
-      if (closing === null) return;
-      // Flush the float's editor before unmounting it — edits persist. A `false`
-      // (unresolved conflict) keeps it open so the user resolves it; a rejection
-      // (torn-down editor) is non-blocking. Only act if the SAME float is still up:
-      // the user may have opened a different badge into the float during the flush.
-      void flushPane(FLOAT_PANE_ID).then(
-        (ok) => {
-          if (get().floatingFile !== closing) return;
-          if (ok) set({ floatingFile: null });
-          else set({ error: "Save or resolve this file's changes before closing it." });
-        },
-        () => {
-          if (get().floatingFile === closing) set({ floatingFile: null });
-        },
-      );
-    },
+    setCanvasSelection: (selection) => set({ canvasSelection: selection }),
 
     toggleRightPanel: () => {
       if (!get().rightPanelOpen) {

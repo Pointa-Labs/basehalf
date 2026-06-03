@@ -14,12 +14,23 @@ import type {
   BadgeListResult,
   BadgeMarkOrphanArgs,
   BadgeMarkOrphanResult,
+  BadgeReconnectRefArgs,
+  BadgeReconnectRefResult,
   BadgeRemoveRefArgs,
   BadgeRenameArgs,
   BadgeRenameResult,
   BadgeSetArgs,
   BadgeSetResult,
 } from './types.js';
+
+const BADGE_SIDES = new Set(['top', 'right', 'bottom', 'left']);
+
+function validateSide(side: unknown, field: string): void {
+  if (side === undefined) return;
+  if (typeof side !== 'string' || !BADGE_SIDES.has(side)) {
+    throw new Error(`${field} must be one of top, right, bottom, left`);
+  }
+}
 
 /**
  * Helper: every badge command operates on a workspace. We delegate to
@@ -196,6 +207,8 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
   if (args.to === args.file) {
     throw new Error(`Badge cannot reference itself: ${args.file}`);
   }
+  validateSide(args.fromSide, 'fromSide');
+  validateSide(args.toSide, 'toSide');
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
   const existing = await readBadge(ctx.fs, root, args.file, kind);
@@ -207,7 +220,12 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
     createdAt: new Date().toISOString(),
     modifiedAt: new Date().toISOString(),
   };
-  const newRef = args.note !== undefined ? { to: args.to, note: args.note } : { to: args.to };
+  const newRef = {
+    to: args.to,
+    ...(args.note !== undefined && { note: args.note }),
+    ...(args.fromSide !== undefined && { fromSide: args.fromSide }),
+    ...(args.toSide !== undefined && { toSide: args.toSide }),
+  };
   const without = base.references.filter((r) => r.to !== args.to);
   const next: BadgeFile = {
     ...base,
@@ -246,6 +264,36 @@ export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ct
   }
   await reconcileFocus(ctx, args.file);
   return next;
+};
+
+export const reconnectRef: Handler<BadgeReconnectRefArgs, BadgeReconnectRefResult> = async (
+  args,
+  ctx,
+) => {
+  if (args.next.file === args.next.to) {
+    throw new Error(`Badge cannot reference itself: ${args.next.file}`);
+  }
+  validateSide(args.next.fromSide, 'fromSide');
+  validateSide(args.next.toSide, 'toSide');
+
+  await ctx.run('badge.addRef', {
+    file: args.next.file,
+    to: args.next.to,
+    ...(args.next.kind !== undefined && { kind: args.next.kind }),
+    ...(args.next.note !== undefined && { note: args.next.note }),
+    ...(args.next.fromSide !== undefined && { fromSide: args.next.fromSide }),
+    ...(args.next.toSide !== undefined && { toSide: args.next.toSide }),
+  });
+
+  if (args.previous.file !== args.next.file || args.previous.to !== args.next.to) {
+    await ctx.run('badge.removeRef', {
+      file: args.previous.file,
+      to: args.previous.to,
+      ...(args.previous.kind !== undefined && { kind: args.previous.kind }),
+    });
+  }
+
+  return ctx.run<Record<string, never>, BadgeReconnectRefResult>('badge.list', {});
 };
 
 /**
@@ -367,11 +415,15 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
   }
   for (const entry of inbound.entries) {
     try {
+      const referringBadge = await readBadge(ctx.fs, root, entry.from, 'file');
+      const oldRef = referringBadge?.references.find((r) => r.to === args.from);
       await ctx.run('badge.removeRef', { file: entry.from, to: args.from });
       await ctx.run('badge.addRef', {
         file: entry.from,
         to: args.to,
         ...(entry.note !== undefined && { note: entry.note }),
+        ...(oldRef?.fromSide !== undefined && { fromSide: oldRef.fromSide }),
+        ...(oldRef?.toSide !== undefined && { toSide: oldRef.toSide }),
       });
       updatedRefs.push(entry.from);
     } catch (err) {
@@ -421,6 +473,7 @@ export function commands(): ReadonlyArray<
     ['badge.delete', del as unknown as Handler<never, unknown>],
     ['badge.addRef', addRef as unknown as Handler<never, unknown>],
     ['badge.removeRef', removeRef as unknown as Handler<never, unknown>],
+    ['badge.reconnectRef', reconnectRef as unknown as Handler<never, unknown>],
     ['badge.markOrphan', markOrphan as unknown as Handler<never, unknown>],
     ['badge.rename', rename as unknown as Handler<never, unknown>],
   ];

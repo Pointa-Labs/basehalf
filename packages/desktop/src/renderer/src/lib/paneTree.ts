@@ -7,6 +7,8 @@
 // Everything here is PURE — the store wraps these with flush-gating + IDs. Kept
 // pure so it's unit-testable without React or the store.
 
+import { renamePanelTab } from './panelTab.js';
+
 export interface LeafPane {
   type: 'leaf';
   id: string;
@@ -241,21 +243,22 @@ export const moveInLeaf = (leaf: LeafPane, file: string, toIndex: number): LeafP
  *  MERGE — map `fromPath` over and drop the duplicate, or the pane would carry two
  *  identical tabs (and duplicate React keys; closeInLeaf would later remove both). */
 export const renameInLeaf = (leaf: LeafPane, fromPath: string, toPath: string): LeafPane => {
-  if (!leaf.tabs.includes(fromPath)) return leaf;
-  const alreadyOpen = leaf.tabs.includes(toPath);
-  const mapped = leaf.tabs.map((t) => (t === fromPath ? toPath : t));
-  const tabs = alreadyOpen
-    ? mapped.filter((t, i) => mapped.indexOf(t) === i) // dedup the merged duplicate
-    : mapped;
+  if (!leaf.tabs.some((t) => renamePanelTab(t, fromPath, toPath) !== t)) return leaf;
+  const mapped = leaf.tabs.map((t) => renamePanelTab(t, fromPath, toPath));
+  const tabs = mapped.filter((t, i) => mapped.indexOf(t) === i);
   // On a MERGE (toPath pre-existed), the surviving toPath tab keeps its own state —
   // don't transfer fromPath's preview slot onto it (it may have been pinned), or the
   // next preview-open would replace that tab. Clear the slot instead.
-  const previewFile =
-    leaf.previewFile === fromPath ? (alreadyOpen ? null : toPath) : leaf.previewFile;
+  const previewMapped =
+    leaf.previewFile === null ? null : renamePanelTab(leaf.previewFile, fromPath, toPath);
+  const previewMerged =
+    leaf.previewFile !== null &&
+    previewMapped !== leaf.previewFile &&
+    leaf.tabs.some((t) => t !== leaf.previewFile && t === previewMapped);
   return {
     ...leaf,
     tabs,
-    activeFile: leaf.activeFile === fromPath ? toPath : leaf.activeFile,
-    previewFile,
+    activeFile: leaf.activeFile === null ? null : renamePanelTab(leaf.activeFile, fromPath, toPath),
+    previewFile: previewMerged ? null : previewMapped,
   };
 };

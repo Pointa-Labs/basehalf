@@ -220,7 +220,7 @@ assert(
   /pick a folder/i.test(emptyText),
   'Onboarding card explains the first action (pick a folder)',
 );
-assert(emptyText.includes('Badge'), 'Onboarding mentions the Badge editing path');
+assert(emptyText.includes('File Badge'), 'Onboarding mentions the File Badge editing path');
 assert(
   emptyText.includes('Try a demo workspace'),
   'Onboarding offers the secondary "Try a demo workspace" CTA',
@@ -780,53 +780,44 @@ assert(
 );
 await win.screenshot({ path: `${SCREENS_DIR}/05c-preview.png` });
 
-// --- 5d. Click + shift-click on canvas badges manage FOCUS only — they must
-// NOT open the editor (opening is the deliberate double-click; see 5e). A
-// regular click sets focus = [file]; shift-click extends the set. This is the
-// fluid "assemble what the agent reads" flow, so the canvas (and the focus
-// viz) must stay visible — the editor overlay must stay closed. ---
-console.log('\n[5d] Click + shift-click manage focus (no editor overlay)');
+// --- 5d. Click + shift-click on canvas badges are OBJECT selection only — they
+// must NOT open the editor and must NOT mutate Agent Context. Opening is the
+// deliberate double-click; context is an explicit action from File Badge /
+// context controls.
+console.log('\n[5d] Click + shift-click select badges only');
 await bhRun('focus.clear', {});
 const asidesBeforeFocus = await win.locator('aside').count();
 const introBadgeForFocus = win.locator('.react-flow__node[data-id="intro.md"]');
 await introBadgeForFocus.click();
-// A plain single-click DEFERS focus.set by 320ms (so a double-click to open the
-// editor can't first collapse a curated focus set — see Canvas onNodeClick).
-// Wait past that window before reading the applied focus.
-await win.waitForTimeout(500);
+await win.waitForTimeout(250);
 const focusAfterFirst = await bhRun('focus.get', {});
 assert(
-  Array.isArray(focusAfterFirst.active) &&
-    focusAfterFirst.active.length === 1 &&
-    focusAfterFirst.active[0] === 'intro.md',
-  `Regular click → focus.active = [intro.md] (got ${JSON.stringify(focusAfterFirst.active)})`,
+  Array.isArray(focusAfterFirst.active) && focusAfterFirst.active.length === 0,
+  `Regular click leaves focus.active empty (got ${JSON.stringify(focusAfterFirst.active)})`,
+);
+assert(
+  await introBadgeForFocus.evaluate((el) => el.classList.contains('selected')),
+  'Regular click selects the canvas card as an object',
 );
 const overviewBadgeForFocus = win.locator('.react-flow__node[data-id="overview.md"]');
 await overviewBadgeForFocus.click({ modifiers: ['Shift'] });
 await win.waitForTimeout(300);
 const focusAfterShift = await bhRun('focus.get', {});
 assert(
-  focusAfterShift.active.length === 2 &&
-    focusAfterShift.active.includes('intro.md') &&
-    focusAfterShift.active.includes('overview.md'),
-  `Shift-click → focus.active extends to both files (got ${JSON.stringify(focusAfterShift.active)})`,
+  focusAfterShift.active.length === 0,
+  `Shift-click multi-select still leaves focus.active empty (got ${JSON.stringify(focusAfterShift.active)})`,
 );
-// Neither click opened the editor overlay — the canvas stays visible so the
-// focus viz (dot + chip) is usable. (Pre-overlay this asserted the side panel
-// didn't switch files; with the centered modal the invariant is "no editor
-// opened at all".) focus stays [intro, overview] for [5d-focusmd] below.
+// Neither click opened the editor.
 const asidesDuringFocus = await win.locator('aside').count();
 assert(
   asidesDuringFocus === asidesBeforeFocus,
-  `Single/shift click does NOT open the editor overlay (asides ${asidesBeforeFocus}→${asidesDuringFocus})`,
+  `Single/shift click does NOT open the editor (asides ${asidesBeforeFocus}→${asidesDuringFocus})`,
 );
 
-// --- 5d-focusmd. Agent-protocol contract: clicks → focus.md on disk.
-// focus.get only proves the in-memory state; what AI agents actually
-// read is /workspace/.bh/focus.md. If the round-trip is broken, the
-// entire "make agents work with bh" value prop is broken silently.
-// Validate the on-disk YAML-style active list reflects the clicks.
-console.log('\n[5d-focusmd] focus.md on disk reflects canvas clicks');
+// --- 5d-focusmd. Agent-protocol contract: selection does NOT write focus.md.
+// What AI agents read is /workspace/.bh/focus.md; selecting a canvas object
+// must not silently change that turn brief.
+console.log('\n[5d-focusmd] canvas selection leaves focus.md untouched');
 const focusMdPath = join(WORKSPACE_DIR, '.bh/focus.md');
 const focusMdAfterShift = readFileSync(focusMdPath, 'utf-8');
 assert(
@@ -834,23 +825,39 @@ assert(
   `focus.md has the "active:" YAML key (head: ${JSON.stringify(focusMdAfterShift.slice(0, 80))})`,
 );
 assert(
-  /^\s*-\s*intro\.md\s*$/m.test(focusMdAfterShift),
-  `focus.md lists intro.md after click (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+  !/^\s*-\s*intro\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md does not list intro.md after selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
 );
 assert(
-  /^\s*-\s*overview\.md\s*$/m.test(focusMdAfterShift),
-  `focus.md lists overview.md after shift-click (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+  !/^\s*-\s*overview\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md does not list overview.md after shift-selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
 );
-// Reset focus and verify the active list empties out — agents reading
-// stale focus.md after a clear would be acting on outdated context.
-await bhRun('focus.clear', {});
-await win.waitForTimeout(200);
-const focusMdAfterClear = readFileSync(focusMdPath, 'utf-8');
+
+// --- 5d-inline. The card's pencil button enters in-canvas edit mode, while
+// double-click remains the right-panel open gesture.
+console.log('\n[5d-inline] Pencil button edits Markdown directly on the canvas');
+await overviewBadgeForFocus.click();
+await win.waitForTimeout(250);
 assert(
-  !/^\s*-\s*intro\.md\s*$/m.test(focusMdAfterClear) &&
-    !/^\s*-\s*overview\.md\s*$/m.test(focusMdAfterClear),
-  `focus.clear empties focus.md's active list (file: ${JSON.stringify(focusMdAfterClear.slice(0, 200))})`,
+  !(await introBadgeForFocus.evaluate((el) => el.classList.contains('selected'))),
+  'intro.md is not pre-selected before clicking its pencil button',
 );
+await introBadgeForFocus.hover();
+await win.locator('button[aria-label="Edit on canvas for intro.md"]').click();
+await win.waitForTimeout(700);
+const inlineEditor = win.locator('[data-testid="canvas-inline-editor-intro.md"]');
+assert((await inlineEditor.count()) === 1, 'Inline canvas editor appears for intro.md');
+assert(
+  await introBadgeForFocus.evaluate((el) => el.classList.contains('selected')),
+  'Clicking the pencil selects the canvas card as part of entering edit mode',
+);
+assert(
+  (await win.locator('[data-testid="editor-tab"][title="intro.md"]').count()) === 0,
+  'Inline editing does not open a right-panel intro.md tab',
+);
+await win.keyboard.press('Escape');
+await win.waitForTimeout(500);
+assert((await inlineEditor.count()) === 0, 'Escape exits inline canvas edit mode');
 
 // --- 5d-brief. focus.md is a self-contained TURN BRIEF: it inlines each
 // active file's prompt + reference notes, and carries a folder's prompt as an
@@ -903,13 +910,14 @@ await win.waitForTimeout(150);
 // focus.md, not just the badge JSON: focus.md inlines the prompt, and a badge
 // write alone doesn't regenerate it — so without the resync the agent would
 // read stale curation every turn. ---
-console.log("\n[5d-resync] editing a focused file's prompt refreshes focus.md");
-await win.locator('.react-flow__node[data-id="intro.md"]').click(); // focus it
-await win.waitForTimeout(450); // > the 320ms single-click defer, so focus lands first
-await win.locator('.react-flow__node-badge[data-id="intro.md"]').first().dblclick(); // open editor
+console.log("\n[5d-resync] editing a context file's prompt refreshes focus.md");
+await bhRun('focus.set', { files: ['intro.md'] });
+await win.waitForTimeout(250);
+await win.locator('.react-flow__node[data-id="intro.md"]').hover();
+await win.locator('button[aria-label="Edit File Badge for intro.md"]').click();
 await win.waitForTimeout(700);
 const resyncPrompt = `resync-prompt-${Date.now()}`;
-const resyncTa = win.locator('aside').last().locator('textarea').first();
+const resyncTa = win.locator('[data-testid="file-badge-prompt"]').first();
 await resyncTa.click();
 await resyncTa.fill(resyncPrompt);
 await win.waitForTimeout(150);
@@ -926,57 +934,44 @@ await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' }
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
 
-// --- 5d-focusviz. Focus is VISIBLE on the canvas — the witnessed payoff.
-// Focus was a write-only side effect (click → focus.set, nothing visible);
-// now a focused badge wears a persistent "in focus" dot and a chip names the
-// context handed to the agent, with a Clear control. Closes the loop the
-// curation otherwise left invisible.
-console.log('\n[5d-focusviz] focus is visible on the canvas (dot + chip + clear)');
+// --- 5d-focusviz. Agent Context is VISIBLE as a chip and clearable; it is not
+// tied to ordinary canvas selection.
+console.log('\n[5d-contextviz] Agent Context chip + clear');
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
-await win.locator('.react-flow__node[data-id="intro.md"]').click();
-await win.waitForTimeout(450); // > the 320ms single-click defer (+ chip/dot render)
+await bhRun('focus.set', { files: ['intro.md'] });
+await win.reload();
+await win.waitForLoadState('domcontentloaded');
+await win.waitForTimeout(1200);
 const focusChip = win.locator('[data-testid="focus-chip"]');
-assert((await focusChip.count()) === 1, 'Focus chip appears when a file is focused');
+assert((await focusChip.count()) === 1, 'Agent Context chip appears when a file is in context');
 assert(
-  /1\s*file in focus/.test(await focusChip.innerText()),
-  `Focus chip names the count (got: ${JSON.stringify((await focusChip.innerText()).replace(/\n/g, ' '))})`,
+  /Agent Context\s*·\s*1\s*file/.test(await focusChip.innerText()),
+  `Agent Context chip names the count (got: ${JSON.stringify((await focusChip.innerText()).replace(/\n/g, ' '))})`,
 );
-assert(
-  (await win.locator('.react-flow__node[data-id="intro.md"] span[title*="In focus"]').count()) ===
-    1,
-  'Focused badge shows the persistent "in focus" dot marker',
-);
-// Clear via the chip's Clear button → dot + chip gone, focus.get empty.
+// Clear via the chip's Clear button → chip gone, focus.get empty.
 await win.locator('[data-testid="focus-clear"]').click();
 await win.waitForTimeout(350);
-assert((await focusChip.count()) === 0, 'Clear button hides the focus chip');
-assert(
-  (await win.locator('.react-flow__node[data-id="intro.md"] span[title*="In focus"]').count()) ===
-    0,
-  'Clear removes the focus dot from the badge',
-);
+assert((await focusChip.count()) === 0, 'Clear button hides the Agent Context chip');
 const focusVizAfterClear = await bhRun('focus.get', {});
 assert(
   Array.isArray(focusVizAfterClear.active) && focusVizAfterClear.active.length === 0,
   `Chip Clear empties focus.get (got ${JSON.stringify(focusVizAfterClear.active)})`,
 );
-// (Single-click no longer opens a preview — see [5e] — so there's nothing to
-// close here; clear focus so downstream sections start clean.)
+// Clear focus so downstream sections start clean.
 await bhRun('focus.clear', {});
 await win.waitForTimeout(200);
 
-// --- 5d-open. Double-click a file badge opens the full editor overlay
-// (centered modal, not a side drawer). Single-click only focuses (5d);
-// double-click is the deliberate "open it" gesture, matching the desktop
-// select-vs-open idiom. React-flow's onNodeDoubleClick fires from the
-// synthetic React event, which Playwright's high-level dblclick() sometimes
-// misses — try several mechanisms. ---
-console.log('\n[5d-open] Double-click a file badge → editor overlay opens');
+// --- 5d-open. Double-click a file badge opens the right-panel file tab.
+// Single-click only selects (5d); double-click is the deliberate "open it"
+// gesture, matching the desktop select-vs-open idiom. React-flow's
+// onNodeDoubleClick fires from the synthetic React event, which Playwright's
+// high-level dblclick() sometimes misses — try several mechanisms. ---
+console.log('\n[5d-open] Double-click a file badge → right-panel file tab opens');
 const introForOpen = win.locator('.react-flow__node[data-id="intro.md"]');
 const editorShowsIntro = async () =>
-  (await win.locator('aside header').count()) >= 1 &&
-  (await win.locator('aside header').last().innerText()).includes('intro.md');
+  (await win.locator('[data-testid="editor-tab"][data-active="true"][title="intro.md"]').count()) >
+  0;
 let openWorked = false;
 const openAttempts = [
   async () => introForOpen.dblclick(),
@@ -1003,8 +998,8 @@ for (const attempt of openAttempts) {
     break;
   }
 }
-assert(openWorked, 'Double-click a file badge opens the editor overlay (header shows intro.md)');
-await win.keyboard.press('Escape'); // close the editor overlay
+assert(openWorked, 'Double-click a file badge opens an active intro.md file tab');
+await win.keyboard.press('Escape'); // close the file tab
 await win.waitForTimeout(200);
 await bhRun('focus.clear', {});
 await win.waitForTimeout(150);
@@ -1173,21 +1168,29 @@ assert(
   `Esc closed the preview (asides ${asidesBefore}→${asidesAfter}, aside-headers ${headersBefore}→${headersAfter}; expected 2→1 and 1→0)`,
 );
 
-// --- 7g. BadgeProperties: edit prompt + add a reference note + remove a
+// --- 7g. File Badge page: edit prompt + add a reference note + remove a
 // reference. This is the IR-v2-04 "背包" surface; without it badge.prompt
 // is write-only-by-CLI and the agent contract is empty. ---
-console.log('\n[7g] BadgeProperties — prompt editor + ref CRUD');
+console.log('\n[7g] File Badge page — prompt editor + ref CRUD');
+const openBadgeButton = async (file) => {
+  await win.locator(`.react-flow__node[data-id="${file}"]`).hover();
+  await win.locator(`button[aria-label="Edit File Badge for ${file}"]`).click();
+  await win.waitForTimeout(500);
+};
+
 // Set up a known reference so we have something to remove.
 await bhRun('badge.addRef', { file: 'intro.md', to: 'overview.md' });
-await sidebar.locator('button', { hasText: 'intro.md' }).first().click();
-await win.waitForTimeout(600);
-const badgeSectionPresent = await win.locator('aside section', { hasText: /BADGE/i }).count();
-assert(badgeSectionPresent >= 1, 'BadgeProperties section rendered in FilePreview');
-const promptTextarea = win.locator('aside textarea[placeholder*="teacher emphasized"]').first();
+await openBadgeButton('intro.md');
+const badgePage = win.locator('[data-testid="file-badge-page"]').last();
+assert((await badgePage.count()) === 1, 'File Badge page opens in the right panel');
 assert(
-  (await promptTextarea.count()) === 1,
-  'Prompt textarea is present with concrete placeholder',
+  (await badgePage.innerText()).includes('File Badge') &&
+    (await badgePage.innerText()).includes('intro.md'),
+  'File Badge page identifies the file it edits',
 );
+const promptTextarea = badgePage.locator('[data-testid="file-badge-prompt"]').first();
+assert((await promptTextarea.count()) === 1, 'Prompt textarea is present');
+
 // Type a prompt + wait for the debounced save.
 const promptStamp = `pm-driver prompt ${Date.now()}`;
 await promptTextarea.fill(promptStamp);
@@ -1197,8 +1200,12 @@ assert(
   intro?.prompt === promptStamp,
   `badge.prompt persisted via UI textarea (got: ${JSON.stringify(intro?.prompt)})`,
 );
+
 // Add a reference note inline.
-const refNoteInput = win.locator('aside li input[placeholder="note (optional)"]').first();
+const refRow = badgePage.locator('[data-testid="file-badge-reference-row"]', {
+  hasText: 'overview.md',
+});
+const refNoteInput = refRow.locator('[data-testid="file-badge-reference-note"]').first();
 assert((await refNoteInput.count()) === 1, 'Reference rows expose a note input');
 await refNoteInput.fill('points at the overview doc');
 await refNoteInput.press('Enter');
@@ -1209,9 +1216,9 @@ assert(
   overviewRef?.note === 'points at the overview doc',
   `Reference note saved via UI (got: ${JSON.stringify(overviewRef)})`,
 );
+
 // Remove the reference via the × button.
-const removeBtn = win.locator('aside li', { hasText: 'overview.md' }).locator('button').first();
-await removeBtn.click();
+await refRow.locator('button[title="Remove reference"]').first().click();
 await win.waitForTimeout(400);
 const introAfterRemove = await bhRun('badge.get', { file: 'intro.md', kind: 'file' });
 assert(
@@ -1220,10 +1227,10 @@ assert(
 );
 
 // + Add button — type a path, submit, verify badge.addRef fired.
-const addRefBtn = win.locator('aside button', { hasText: '+ Add' }).first();
+const addRefBtn = badgePage.locator('button', { hasText: '+ Add' }).first();
 assert(
   (await addRefBtn.count()) === 1,
-  'BadgeProperties exposes a "+ Add" button next to the References label',
+  'File Badge page exposes a "+ Add" button next to the References label',
 );
 await addRefBtn.click();
 await waitForDialog('Add reference');
@@ -1267,7 +1274,7 @@ assert(
 // Backlinks: intro.md → overview.md is the existing ref from the +
 // Add test above (state preserved for the inbound list test below).
 const reopenAdd = async () => {
-  await win.locator('aside button', { hasText: '+ Add' }).first().click();
+  await badgePage.locator('button', { hasText: '+ Add' }).first().click();
   await waitForDialog('Add reference');
 };
 // 1) Empty path → "A path is required."
@@ -1304,22 +1311,23 @@ await clickDialogButton('Cancel');
 await win.waitForTimeout(200);
 assert((await dialogIsOpen()) === 0, 'Add-ref dialog closes on Cancel');
 
-// Inbound list — open overview.md (now referenced by intro.md after the
-// + Add dialog above) and verify the BadgeProperties surfaces an
-// "Inbound" section listing intro.md as a clickable backlink.
-await sidebar.locator('button', { hasText: 'overview.md' }).first().click();
-await win.waitForTimeout(600);
-const overviewPreviewText = await win.locator('aside').last().innerText();
+// Inbound list — open overview.md's File Badge (now referenced by intro.md
+// after the + Add dialog above) and verify it lists intro.md as a backlink.
+await openBadgeButton('overview.md');
+const overviewBadgePage = win.locator('[data-testid="file-badge-page"]').last();
+const overviewPreviewText = await overviewBadgePage.innerText();
 assert(
   overviewPreviewText.includes('Inbound'),
   'Inbound section renders when a file has backlinks (overview.md is pointed at by intro.md)',
 );
 assert(
-  /point[s]? here/.test(overviewPreviewText),
-  `Inbound header shows the "N file(s) point here" count (preview snippet: ${JSON.stringify(overviewPreviewText.slice(0, 250))})`,
+  /1 incoming/.test(overviewPreviewText),
+  `Inbound header shows the incoming count (preview snippet: ${JSON.stringify(overviewPreviewText.slice(0, 250))})`,
 );
 // Clicking the inbound link should re-open intro.md.
-const inboundLink = win.locator('aside button', { hasText: 'intro.md' }).first();
+const inboundLink = overviewBadgePage
+  .locator('[data-testid="file-badge-inbound-row"] button', { hasText: 'intro.md' })
+  .first();
 assert(
   (await inboundLink.count()) >= 1,
   'Inbound list exposes a clickable button for the source file (intro.md)',
@@ -1332,13 +1340,9 @@ assert(
   `Click on inbound link opens that source file in the preview (header: ${JSON.stringify(previewAfterBacklink.split('\n')[0])})`,
 );
 
-// Reset: remove the ref again so downstream tests don't trip on it.
-await win.locator('aside li', { hasText: 'overview.md' }).locator('button').first().click();
-await win.waitForTimeout(300);
-
-// Clear prompt for downstream tests (so they don't see this stamp).
-await promptTextarea.fill('');
-await win.waitForTimeout(700);
+// Reset: remove the ref + prompt again so downstream tests don't trip on them.
+await bhRun('badge.removeRef', { file: 'intro.md', to: 'overview.md' });
+await bhRun('badge.set', { file: 'intro.md', kind: 'file', patch: { prompt: '' } });
 await win.keyboard.press('Escape');
 await win.waitForTimeout(200);
 
@@ -1818,7 +1822,7 @@ if ((await win.locator('aside').count()) > 0) {
 }
 
 // --- 9b. Click a folder badge: should NOT open the FilePreview (it's a
-// folder, not a previewable file). Single click sets focus only;
+// folder, not a previewable file). Single click selects the folder object;
 // double-click is what scopes into the folder. ---
 console.log('\n[9b] Click folder badge — should not open preview');
 const asidesBeforeFolderClick = await win.locator('aside').count();
@@ -1896,12 +1900,12 @@ assert(
 );
 if (dblClickWorked) {
   await win.screenshot({ path: `${SCREENS_DIR}/07-folder-scope.png` });
-  // Folder-scope chrome (now floating on the canvas): "Focus this folder" +
+  // Folder-scope chrome (now floating on the canvas): context action +
   // "Edit folder prompt", only visible inside folder scope.
   const folderChromeText = await win.locator('main').first().innerText();
   assert(
-    folderChromeText.includes('Focus this folder'),
-    'Canvas folder-scope chrome offers "Focus this folder"',
+    folderChromeText.includes('Add folder to Context'),
+    'Canvas folder-scope chrome offers "Add folder to Context"',
   );
   assert(
     folderChromeText.includes('Edit folder prompt'),

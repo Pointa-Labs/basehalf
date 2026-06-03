@@ -274,6 +274,26 @@ describe('badge.addRef', () => {
     expect(result.references[0]?.note).toBe('v2');
   });
 
+  it('persists canvas side metadata for edge routing', async () => {
+    const result = (await ctx.core.run('badge.addRef', {
+      file: 'a.md',
+      to: 'b.md',
+      fromSide: 'right',
+      toSide: 'left',
+    })) as BadgeFile;
+    expect(result.references).toEqual([{ to: 'b.md', fromSide: 'right', toSide: 'left' }]);
+  });
+
+  it('rejects invalid canvas sides', async () => {
+    await expect(
+      ctx.core.run('badge.addRef', {
+        file: 'a.md',
+        to: 'b.md',
+        fromSide: 'middle',
+      }),
+    ).rejects.toThrow(/fromSide must be one of top, right, bottom, left/);
+  });
+
   it('tolerates inbound module not registered (UnknownCommand swallowed)', async () => {
     // No inbound module exists in PR 11-1. addRef should still succeed.
     await expect(ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' })).resolves.toBeDefined();
@@ -322,6 +342,60 @@ describe('badge.removeRef', () => {
       to: 'never-there.md',
     })) as BadgeFile;
     expect(result.references).toEqual([{ to: 'b.md' }]);
+  });
+});
+
+describe('badge.reconnectRef', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('moves a reference target and returns the canonical badge list', async () => {
+    await ctx.core.run('badge.addRef', {
+      file: 'a.md',
+      to: 'b.md',
+      note: 'keep',
+      fromSide: 'right',
+      toSide: 'left',
+    });
+    const result = (await ctx.core.run('badge.reconnectRef', {
+      previous: { file: 'a.md', to: 'b.md' },
+      next: {
+        file: 'a.md',
+        to: 'c.md',
+        note: 'keep',
+        fromSide: 'right',
+        toSide: 'top',
+      },
+    })) as { badges: BadgeFile[] };
+
+    const a = result.badges.find((b) => b.file === 'a.md');
+    expect(a?.references).toEqual([{ to: 'c.md', note: 'keep', fromSide: 'right', toSide: 'top' }]);
+  });
+
+  it('moves a reference source without leaving the old outbound ref behind', async () => {
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' });
+    const result = (await ctx.core.run('badge.reconnectRef', {
+      previous: { file: 'a.md', to: 'b.md' },
+      next: { file: 'c.md', to: 'b.md', fromSide: 'bottom', toSide: 'top' },
+    })) as { badges: BadgeFile[] };
+
+    const a = result.badges.find((b) => b.file === 'a.md');
+    const c = result.badges.find((b) => b.file === 'c.md');
+    expect(a?.references).toEqual([]);
+    expect(c?.references).toEqual([{ to: 'b.md', fromSide: 'bottom', toSide: 'top' }]);
+  });
+
+  it('updates sides for the same directed pair instead of duplicating it', async () => {
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md', fromSide: 'right' });
+    const result = (await ctx.core.run('badge.reconnectRef', {
+      previous: { file: 'a.md', to: 'b.md' },
+      next: { file: 'a.md', to: 'b.md', fromSide: 'bottom', toSide: 'top' },
+    })) as { badges: BadgeFile[] };
+
+    const a = result.badges.find((b) => b.file === 'a.md');
+    expect(a?.references).toEqual([{ to: 'b.md', fromSide: 'bottom', toSide: 'top' }]);
   });
 });
 
