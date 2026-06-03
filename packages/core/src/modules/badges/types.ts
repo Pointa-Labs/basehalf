@@ -8,16 +8,21 @@
  */
 
 export type BadgeKind = 'file' | 'folder';
+export type BadgeSide = 'top' | 'right' | 'bottom' | 'left';
 
 export interface BadgePosition {
   readonly x: number;
   readonly y: number;
+  readonly width?: number;
+  readonly height?: number;
   readonly collapsed: boolean;
 }
 
 export interface BadgeReference {
   readonly to: string;
   readonly note?: string;
+  readonly fromSide?: BadgeSide;
+  readonly toSide?: BadgeSide;
 }
 
 export interface BadgeFile {
@@ -77,6 +82,8 @@ export interface BadgeAddRefArgs {
   readonly file: string;
   readonly to: string;
   readonly note?: string;
+  readonly fromSide?: BadgeSide;
+  readonly toSide?: BadgeSide;
   readonly kind?: BadgeKind;
 }
 
@@ -85,6 +92,24 @@ export interface BadgeRemoveRefArgs {
   readonly to: string;
   readonly kind?: BadgeKind;
 }
+
+export interface BadgeReconnectRefEndpoint {
+  readonly file: string;
+  readonly to: string;
+  readonly kind?: BadgeKind;
+}
+
+export interface BadgeReconnectRefNextEndpoint extends BadgeReconnectRefEndpoint {
+  readonly note?: string;
+  readonly fromSide?: BadgeSide;
+  readonly toSide?: BadgeSide;
+}
+
+export interface BadgeReconnectRefArgs {
+  readonly previous: BadgeReconnectRefEndpoint;
+  readonly next: BadgeReconnectRefNextEndpoint;
+}
+export type BadgeReconnectRefResult = BadgeListResult;
 
 export interface BadgeMarkOrphanArgs {
   readonly file: string;

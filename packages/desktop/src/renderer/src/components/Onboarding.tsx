@@ -91,21 +91,20 @@ export const Onboarding = ({ onAddFolder, onTryDemo }: OnboardingProps): JSX.Ele
         </div>
 
         <Step n={1} title="Pick a folder">
-          Your files stay where they are — each appears as a badge on the canvas. BaseHalf only adds
+          Your files stay where they are — each appears as a card on the canvas. BaseHalf only adds
           a hidden <code style={codeStyle}>.bh/</code> directory inside.
         </Step>
         <Step n={2} title="Open a file">
-          Click any file in the sidebar or its badge on the canvas to preview. Markdown opens in a
+          Click any file in the sidebar or its card on the canvas to preview. Markdown opens in a
           block editor; images, PDFs, audio, video each in their viewer.
         </Step>
         <Step n={3} title="Describe it for AI">
-          In the Badge panel above the file content, write a prompt — what the AI should know about
-          this file. Example:{' '}
-          <em style={{ color: color.textSecondary }}>"Chapter 3 — focus on theorem 2."</em>
+          Use a File Badge to write what agents should know about a file. Example:{' '}
+          <em style={{ color: color.textSecondary }}>"Chapter 3: focus on theorem 2."</em>
         </Step>
         <Step n={4} title="Connect things" last>
-          Drag from a badge's right edge — a dot appears on hover — to another badge to link them.
-          Add a note on the link to explain why. The graph is written to{' '}
+          Drag from a card's right edge — a dot appears on hover — to another card to link them. Add
+          a note on the link to explain why. The graph is written to{' '}
           <code style={codeStyle}>.bh/</code> so any AI agent can read it.
         </Step>
 

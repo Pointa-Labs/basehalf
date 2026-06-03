@@ -9,14 +9,16 @@ import {
   isOwner,
   markReady,
   onReady,
+  refreshOwner,
   releaseDoc,
 } from '../src/renderer/src/lib/liveDoc.js';
 
 // A fake view recording owner-role changes. `key` is the (workspace-scoped) doc key.
-function fakeView(key: string) {
+function fakeView(key: string, ownerPriority?: () => number) {
   let owner = false;
   const view: LiveDocView = {
     key,
+    ...(ownerPriority ? { ownerPriority } : {}),
     setOwner: (o) => {
       owner = o;
     },
@@ -47,6 +49,43 @@ describe('liveDoc — per-file shared Y.Doc registry', () => {
     expect(b.isOwner()).toBe(false);
     expect(isOwner(a.view)).toBe(true);
     expect(sharedA.views.size).toBe(2);
+  });
+
+  it('higher-priority editors take ownership from read-only preview surfaces', () => {
+    const passive = fakeView('x.md', () => 0);
+    const editor = fakeView('x.md');
+    acquireDoc(passive.view);
+    expect(passive.isOwner()).toBe(true); // preview still watches disk when alone
+    acquireDoc(editor.view);
+    expect(passive.isOwner()).toBe(false);
+    expect(editor.isOwner()).toBe(true);
+    expect(isOwner(editor.view)).toBe(true);
+  });
+
+  it('refreshOwner rebalances when a canvas card toggles between preview and edit', () => {
+    let priority = 0;
+    const card = fakeView('x.md', () => priority);
+    const panel = fakeView('x.md');
+    acquireDoc(card.view);
+    acquireDoc(panel.view);
+    expect(card.isOwner()).toBe(false);
+    expect(panel.isOwner()).toBe(true);
+
+    releaseDoc(panel.view);
+    expect(card.isOwner()).toBe(true);
+
+    const otherPanel = fakeView('x.md');
+    acquireDoc(otherPanel.view);
+    expect(card.isOwner()).toBe(false);
+    expect(otherPanel.isOwner()).toBe(true);
+
+    priority = 1;
+    refreshOwner(card.view);
+    expect(card.isOwner()).toBe(false); // equal priority does not steal
+    expect(otherPanel.isOwner()).toBe(true);
+
+    releaseDoc(otherPanel.view);
+    expect(card.isOwner()).toBe(true);
   });
 
   it('claimSeed returns true exactly once (no double-seed across concurrent mounts)', () => {

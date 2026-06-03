@@ -9,6 +9,20 @@
 :root {
   --bh-accent: #0078d4;
   --bh-text-ghost: #6e6e6e;
+  --bh-card-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --bh-card-mono-font: "SF Mono", ui-monospace, Menlo, monospace;
+  --bh-card-font-size: 11px;
+  --bh-card-line-height: 1.5;
+  --bh-card-text: #9d9d9d;
+  --bh-card-strong-text: #cccccc;
+  --bh-card-muted-text: #808080;
+  --bh-card-heading-weight: 600;
+  --bh-card-heading-line-height: 1.25;
+  --bh-card-h1-size: 15px;
+  --bh-card-h2-size: 13px;
+  --bh-card-h3-size: 12px;
+  --bh-card-h4-size: 11px;
+  --bh-card-block-pad-y: 1.5px;
 }
 
 html,
@@ -116,24 +130,22 @@ textarea:focus-visible {
   stroke-width: 2;
 }
 
-/* Subtle lift on badge node hover — telegraphs the node is interactive
- * without shouting. Transition lives here (not inline) so it composes with
- * react-flow's transform without clobbering. */
-.react-flow__node-badge > div {
-  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms
-    cubic-bezier(0.16, 1, 0.3, 1);
-}
-.react-flow__node-badge:hover > div {
-  transform: translateY(-1px);
+/* While an existing edge is being reconnected, the gesture owns the cursor.
+ * Without this global lock, hovering over card buttons / target hit zones /
+ * the pane swaps between pointer and grab several times per second. */
+body.bh-edge-reconnecting,
+body.bh-edge-reconnecting * {
+  cursor: grabbing !important;
 }
 
-/* Connect-handles (the L/R dots on each badge) sit quiet by default —
- * grey-bordered white dots. On badge hover, swap to the accent color +
- * slight scale so the "drag from here to connect" affordance is visible
- * before the user even touches the handle. */
-.react-flow__node-badge .react-flow__handle {
+/* Canvas connect handles stay quiet by default. A single dot appears only on
+ * the side the pointer is near; the card body stays clean. */
+.react-flow__node-badge .react-flow__handle.bh-connect-handle {
+  opacity: 0;
+  pointer-events: none;
   transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms
-    cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms
+    cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* Topbar uses overflow-x: auto so contextual buttons (rename / edit
  * prompt / delete view / folder scope / etc.) can stack up without
@@ -143,103 +155,63 @@ header::-webkit-scrollbar {
   display: none;
 }
 
-.react-flow__node-badge:hover .react-flow__handle,
-.react-flow__node-badge .react-flow__handle:hover {
-  background: var(--bh-accent);
-  border-color: var(--bh-accent);
-  transform: scale(1.2);
+.react-flow__node-badge .react-flow__handle.bh-connect-point-handle[data-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-/* Rendered-Markdown preview inside a canvas badge tile. BlockNote produces the
- * HTML (same engine as the editor); these rules scale its semantic tags down
- * to tile size so a badge reads as a formatted document, not raw source. */
-.bh-md-preview {
-  font-size: 11px;
-  line-height: 1.5;
-  color: #9d9d9d;
+.react-flow__node-badge .react-flow__handle.bh-connect-target-handle {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
-.bh-md-preview > :first-child {
-  margin-top: 0;
+
+.react-flow__node-badge .react-flow__resize-control {
+  z-index: 12;
+  pointer-events: all;
 }
-.bh-md-preview h1,
-.bh-md-preview h2,
-.bh-md-preview h3,
-.bh-md-preview h4,
-.bh-md-preview h5,
-.bh-md-preview h6 {
-  margin: 7px 0 3px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: #cccccc;
-  letter-spacing: -0.2px;
+
+.react-flow__node-badge .bh-node-resize-line {
+  opacity: 0;
 }
-.bh-md-preview h1 {
-  font-size: 15px;
+
+.react-flow__node-badge .bh-node-resize-line.left,
+.react-flow__node-badge .bh-node-resize-line.right {
+  width: 10px;
+  top: 0;
+  height: 100%;
 }
-.bh-md-preview h2 {
-  font-size: 13px;
+
+.react-flow__node-badge .bh-node-resize-line.left {
+  transform: translate(-50%, 0);
 }
-.bh-md-preview h3 {
-  font-size: 12px;
+
+.react-flow__node-badge .bh-node-resize-line.right {
+  transform: translate(-50%, 0);
 }
-.bh-md-preview h4,
-.bh-md-preview h5,
-.bh-md-preview h6 {
-  font-size: 11px;
+
+.react-flow__node-badge .bh-node-resize-line.top,
+.react-flow__node-badge .bh-node-resize-line.bottom {
+  height: 10px;
+  left: 0;
+  width: 100%;
 }
-.bh-md-preview p {
-  margin: 3px 0;
+
+.react-flow__node-badge .bh-node-resize-line.top {
+  transform: translate(0, -50%);
 }
-.bh-md-preview ul,
-.bh-md-preview ol {
-  margin: 3px 0;
-  padding-left: 15px;
+
+.react-flow__node-badge .bh-node-resize-line.bottom {
+  transform: translate(0, -50%);
 }
-.bh-md-preview li {
-  margin: 1px 0;
-}
-.bh-md-preview strong {
-  font-weight: 600;
-  color: #cccccc;
-}
-.bh-md-preview em {
-  font-style: italic;
-}
-.bh-md-preview a {
-  color: var(--bh-accent);
-  text-decoration: none;
-}
-.bh-md-preview code {
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  font-size: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 0 3px;
-  border-radius: 3px;
-}
-.bh-md-preview pre {
-  background: rgba(255, 255, 255, 0.08);
-  padding: 6px 8px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-.bh-md-preview pre code {
-  background: none;
-  padding: 0;
-}
-.bh-md-preview blockquote {
-  margin: 3px 0;
-  padding-left: 8px;
-  border-left: 2px solid #454545;
-  color: #808080;
-}
-.bh-md-preview hr {
-  border: none;
-  border-top: 1px solid #2b2b2b;
-  margin: 6px 0;
-}
-.bh-md-preview img {
-  max-width: 100%;
-  border-radius: 4px;
+
+.react-flow__node-badge .bh-node-resize-handle {
+  translate: -50% -50%;
+  opacity: 0;
+  pointer-events: all;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* The MD editor (BlockNote / Mantine) inherits the pane surface instead of its
@@ -249,4 +221,150 @@ header::-webkit-scrollbar {
 .bn-container,
 .bn-editor {
   background-color: transparent !important;
+}
+
+/* Compact BlockNote surface used only inside canvas file cards. Preview and
+   edit mode share this card typography contract, so entering edit mode does
+   not swap fonts, color, or text rhythm under the user's cursor. */
+.bh-card-editor.bn-container {
+  font-family: var(--bh-card-font);
+  color: var(--bh-card-text);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  --mantine-font-family: var(--bh-card-font);
+  --mantine-font-family-headings: var(--bh-card-font);
+  --mantine-heading-font-weight: var(--bh-card-heading-weight);
+  --mantine-font-size-xs: 10px;
+  --mantine-font-size-sm: var(--bh-card-font-size);
+  --mantine-font-size-md: var(--bh-card-font-size);
+  --mantine-line-height: var(--bh-card-line-height);
+  --mantine-h1-font-size: var(--bh-card-h1-size);
+  --mantine-h2-font-size: var(--bh-card-h2-size);
+  --mantine-h3-font-size: var(--bh-card-h3-size);
+  --mantine-h4-font-size: var(--bh-card-h4-size);
+}
+
+.bh-card-editor .bn-editor {
+  min-height: 100%;
+  padding: 0 !important;
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+  caret-color: var(--bh-accent);
+}
+
+.bh-card-editor .bn-editor.bn-default-styles,
+.bh-card-editor .bn-default-styles {
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+}
+
+.bh-md-editor-card .bh-md-editor-scroll {
+  scrollbar-width: none;
+}
+
+.bh-md-editor-card .bh-md-editor-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.bh-card-editor .bn-block-outer {
+  line-height: var(--bh-card-line-height);
+  transition: none;
+}
+
+.bh-card-editor .bn-block-content {
+  padding: var(--bh-card-block-pad-y) 0;
+  color: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  transition: none;
+}
+
+.bh-card-editor .bn-block-group > .bn-block-outer:first-child > .bn-block > .bn-block-content {
+  padding-top: 0;
+}
+
+.bh-card-editor .bn-block-content::before {
+  transition: none;
+}
+
+.bh-card-editor [data-content-type="heading"] {
+  padding-top: 6px;
+  color: var(--bh-card-strong-text);
+  font-family: var(--bh-card-font);
+  line-height: var(--bh-card-heading-line-height);
+}
+
+.bh-card-editor
+  .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="heading"] {
+  font-size: var(--level);
+  font-weight: var(--bh-card-heading-weight);
+}
+
+.bh-card-editor [data-content-type="heading"] {
+  --level: var(--bh-card-h1-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="2"] {
+  --level: var(--bh-card-h2-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="3"] {
+  --level: var(--bh-card-h3-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="4"],
+.bh-card-editor [data-content-type="heading"][data-level="5"],
+.bh-card-editor [data-content-type="heading"][data-level="6"] {
+  --level: var(--bh-card-h4-size);
+}
+
+.bh-card-editor .bn-inline-content {
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.bh-card-editor [data-content-type="heading"] > .bn-inline-content {
+  font-weight: inherit;
+  letter-spacing: 0;
+}
+
+.bh-card-editor strong,
+.bh-card-editor b {
+  color: var(--bh-card-strong-text);
+  font-weight: var(--bh-card-heading-weight);
+}
+
+.bh-card-editor .bn-block-group .bn-block-group {
+  margin-left: 14px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="numberedListItem"]::before {
+  min-width: 18px;
+  padding-right: 3px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="bulletListItem"]::before {
+  min-width: 14px;
+  padding-right: 3px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="codeBlock"] {
+  border-radius: 4px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="codeBlock"] > pre {
+  padding: 8px;
+}
+
+.bh-card-editor .bn-trailing-block {
+  height: 16px;
 }

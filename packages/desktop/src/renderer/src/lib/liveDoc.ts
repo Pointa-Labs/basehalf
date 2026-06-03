@@ -21,16 +21,20 @@ import type { ReuseEntry } from './mdSegment.js';
  * disk bytes) lives HERE and not per-view: the reuse index is keyed by the seeded
  * block ids — which only the shared doc knows — so a second view couldn't rebuild
  * it from disk. One view is the OWNER (runs autosave + the watcher + the conflict
- * gate); ownership hands off when the owner unmounts. All views stay editable.
+ * gate); editable views have priority, while read-only canvas previews can own
+ * only as a fallback so they still refresh from disk when no editor is open.
  */
 
 export interface LiveDocView {
   /** The workspace-scoped registry key (NOT the relative path) — see module note. */
   readonly key: string;
+  /** Higher priority wins persistence/watch ownership. Panel editors and active
+   *  canvas editors use the default 1; read-only canvas preview surfaces use 0 so
+   *  they can refresh from disk when alone but yield as soon as an editor appears. */
+  ownerPriority?(): number;
   /** Become (true) the OWNER — the single view that runs autosave + the file
-   *  watcher + the conflict gate. (All views are editable; the owner just owns
-   *  persistence.) Only ever called with `true`: a leaving owner is unmounting, and
-   *  ownership only moves on unmount. */
+   *  watcher + the conflict gate. Called with `false` when a higher-priority view
+   *  takes over or this owner unmounts. */
   setOwner(isOwner: boolean): void;
 }
 
@@ -67,6 +71,38 @@ export interface SharedDoc {
 
 const docs = new Map<string, SharedDoc>();
 
+function priorityOf(view: LiveDocView): number {
+  return view.ownerPriority?.() ?? 1;
+}
+
+function bestOwner(shared: SharedDoc): LiveDocView | null {
+  let best: LiveDocView | null = null;
+  let bestPriority = Number.NEGATIVE_INFINITY;
+  for (const view of shared.views) {
+    const priority = priorityOf(view);
+    if (priority > bestPriority) {
+      best = view;
+      bestPriority = priority;
+    }
+  }
+  if (shared.owner && shared.views.has(shared.owner) && priorityOf(shared.owner) === bestPriority) {
+    return shared.owner;
+  }
+  return best;
+}
+
+function assignOwner(shared: SharedDoc, next: LiveDocView | null): void {
+  const prev = shared.owner;
+  if (prev === next) return;
+  shared.owner = next;
+  if (prev) prev.setOwner(false);
+  if (next) next.setOwner(true);
+}
+
+function rebalanceOwner(shared: SharedDoc): void {
+  assignOwner(shared, bestOwner(shared));
+}
+
 /** Get-or-create a shared doc for a (scoped) key WITHOUT taking a hold — render-safe
  *  (idempotent across StrictMode's double render). `useCreateBlockNote` binds to
  *  `.fragment`; the hold (acquire/release) is taken in the mount effect. */
@@ -94,8 +130,8 @@ export function ensureDoc(key: string): SharedDoc {
   return shared;
 }
 
-/** Take a hold (mount): add the view, claim the owner role if it's vacant, and
- *  cancel any pending grace-destroy. Pair with releaseDoc in the effect cleanup. */
+/** Take a hold (mount): add the view, rebalance owner priority, and cancel any
+ *  pending grace-destroy. Pair with releaseDoc in the effect cleanup. */
 export function acquireDoc(view: LiveDocView): SharedDoc {
   const shared = ensureDoc(view.key);
   if (shared.destroyTimer) {
@@ -103,10 +139,7 @@ export function acquireDoc(view: LiveDocView): SharedDoc {
     shared.destroyTimer = null;
   }
   shared.views.add(view);
-  if (!shared.owner) {
-    shared.owner = view;
-    view.setOwner(true);
-  }
+  rebalanceOwner(shared);
   return shared;
 }
 
@@ -118,9 +151,7 @@ export function releaseDoc(view: LiveDocView): void {
   if (!shared) return;
   shared.views.delete(view);
   if (shared.owner === view) {
-    const next = shared.views.values().next().value as LiveDocView | undefined;
-    shared.owner = next ?? null;
-    if (next) next.setOwner(true);
+    assignOwner(shared, bestOwner(shared));
   }
   if (shared.views.size === 0 && !shared.destroyTimer) {
     shared.destroyTimer = setTimeout(() => {
@@ -142,6 +173,15 @@ export function claimSeed(view: LiveDocView): boolean {
 
 export function isOwner(view: LiveDocView): boolean {
   return docs.get(view.key)?.owner === view;
+}
+
+/** Re-evaluate owner priority for a mounted view. Used when a canvas card flips
+ *  between read-only preview (priority 0) and inline edit (priority 1) without
+ *  remounting the shared BlockNote document. */
+export function refreshOwner(view: LiveDocView): void {
+  const shared = docs.get(view.key);
+  if (!shared || !shared.views.has(view)) return;
+  rebalanceOwner(shared);
 }
 
 /** Mark a doc's seed as APPLIED → wake every view waiting to become editable. The

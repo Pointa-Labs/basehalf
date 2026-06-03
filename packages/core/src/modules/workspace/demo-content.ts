@@ -3,8 +3,8 @@
  * brand-new folder with a small interconnected set of MD files plus
  * matching badge prompts + references. The goal is to put the v0
  * agent-protocol loop in the user's hands within ~5 seconds of opening
- * BaseHalf for the first time: they get badges on a canvas, a focused
- * file, refs between them, and a CLAUDE.md hint so any AI agent they
+ * BaseHalf for the first time: they get badges on a canvas, refs between
+ * them, and a CLAUDE.md hint so any AI agent they
  * open in the folder immediately recognises the structure.
  *
  * Keep this small. The point isn't to ship a full tutorial — it's to
@@ -79,7 +79,7 @@ export const DEMO_FILES: readonly DemoFile[] = [
       '# The daily loop',
       '',
       '1. **Drop a folder** (papers, notes, code, drafts) into BaseHalf.',
-      '2. **Describe each file** for the AI in the Badge panel — a single',
+      '2. **Describe each file** for the AI in its File Badge page — a single',
       '   sentence is usually enough.',
       '3. **Connect related files** by dragging from one badge to another.',
       '   Add a short note on the edge explaining *why* they relate.',
@@ -102,8 +102,11 @@ export const DEMO_FILES: readonly DemoFile[] = [
       '# Cheatsheet',
       '',
       '## Canvas',
-      '- **Single-click a badge** — focus it (mark what your AI agent reads).',
-      '- **Double-click a file badge** — open it in the full editor.',
+      '- **Single-click a badge** — select it as a canvas object.',
+      '- **Double-click a file badge** — open it in the full right-panel editor.',
+      '- **Click the pencil icon** — edit a Markdown file directly on the canvas.',
+      "- **Click the badge icon** — open that file's File Badge page.",
+      '- **Resize a selected badge** — change how much content the canvas shows.',
       '- **Double-click a folder badge** — scope the canvas into that folder.',
       "- **Drag from a badge's right edge** to another badge — create a reference.",
       '- **Drag a badge** — its position persists per workspace.',

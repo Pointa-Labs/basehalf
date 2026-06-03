@@ -1,18 +1,16 @@
 /**
- * BriefPreview — an in-app peek at the curated turn brief, anchored to the focus
- * chip. The chip claims "your agent reads …" but only ever named files; this
- * shows what the agent ACTUALLY reads — the turn `intent:`, and per focused file
- * its `prompt:` + reference-notes — so curation stops being an act of faith and
- * becomes a feedback loop ("that note is stale, let me fix it before I hand it
- * over"). It closes the loop the whole product is built around: click badges →
- * SEE the brief assemble → copy / let your in-repo agent read it.
+ * BriefPreview — an in-app peek at the curated turn brief, anchored to the
+ * Agent Context chip. The chip names files; this shows what the agent ACTUALLY
+ * reads — the turn `intent:`, and each context file's `prompt:` +
+ * reference-notes — so curation stops being an act of faith and becomes a
+ * feedback loop ("that note is stale, let me fix it before I hand it over").
  *
  * Mostly a read surface: it re-reads `focus.brief` each time it opens (so
  * badge/focus edits are reflected) and renders the cleaned brief. The ONE thing
  * it lets you author is the turn `intent:` — the user's question, the only brief
- * line you can't set by clicking badges — via `focus.setIntent` (which preserves
- * the active set). So the panel is "see what your agent reads AND set your ask",
- * in one place.
+ * line owned by the context preview — via `focus.setIntent` (which preserves the
+ * active set). So the panel is "see what your agent reads AND set your ask", in
+ * one place.
  */
 
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
@@ -49,7 +47,7 @@ export const BriefPreview = ({
   const [intentDraft, setIntentDraft] = useState('');
   const savedIntentRef = useRef(''); // last value successfully persisted
   const lastRequestedRef = useRef(''); // the value the in-flight/last save targets
-  const loadedActiveRef = useRef<string[]>([]); // the focus set this preview loaded
+  const loadedActiveRef = useRef<string[]>([]); // the context set this preview loaded
   const dirtyRef = useRef(false); // the user has typed since this open
   // In-flight save → resolves true once persisted, false if the write failed.
   const savePromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -108,8 +106,8 @@ export const BriefPreview = ({
     // in-flight promise would let Copy reflect the wrong, superseded value.
     if (next === lastRequestedRef.current.trim()) return savePromiseRef.current;
     lastRequestedRef.current = next;
-    // expectedActive binds this write to the focus the preview loaded — so if the
-    // dismiss that triggered it also CHANGED focus (a badge/Clear click), core
+    // expectedActive binds this write to the context the preview loaded — so if
+    // the dismiss that triggered it also CHANGED context (Clear / another action), core
     // skips the write instead of stamping the old question onto the new focus.
     savePromiseRef.current = (
       window.bh.run('focus.setIntent', {
@@ -228,10 +226,9 @@ export const BriefPreview = ({
               gap: space[3],
             }}
           >
-            {/* Intent — the turn's QUESTION, and the only line the user can't set
-                by clicking badges. Editable so the agent gets context AND the
-                ask in one place ("右屏点哪个, 左屏 agent 立刻懂"). Saves on
-                blur / Enter via focus.setIntent. */}
+            {/* Intent — the turn's QUESTION. Editable so the agent gets context
+                AND the ask in one place. Saves on blur / Enter via
+                focus.setIntent. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: space[1] }}>
               <span
                 style={{
@@ -283,7 +280,7 @@ export const BriefPreview = ({
             </div>
 
             {brief.items.length === 0 ? (
-              <div style={{ color: color.textTertiary }}>No files in focus.</div>
+              <div style={{ color: color.textTertiary }}>No files in Agent Context.</div>
             ) : (
               brief.items.map((item) => {
                 const { base, dir } = splitPath(item.file);
