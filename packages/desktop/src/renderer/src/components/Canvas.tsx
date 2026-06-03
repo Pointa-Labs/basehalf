@@ -1,5 +1,6 @@
 import type {
   BadgeFile,
+  BadgeKind,
   BadgeListResult,
   ViewportState,
   WorkspaceGetViewportResult,
@@ -76,6 +77,34 @@ const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
 };
+
+function badgesInScope(
+  badges: readonly BadgeFile[],
+  folderScope: string | null,
+): readonly BadgeFile[] {
+  if (folderScope === null) return badges;
+  const prefix = `${folderScope}/`;
+  return badges.filter((badge) => badge.file.startsWith(prefix));
+}
+
+function nodeBadgeKind(
+  nodes: readonly Node<BadgeNodeData>[],
+  id: string,
+): BadgeKind {
+  return nodes.find((node) => node.id === id)?.data.kind ?? 'file';
+}
+
+function connectionEdgesForScope(
+  badges: readonly BadgeFile[],
+  nodes: readonly Node<BadgeNodeData>[],
+  folderScope: string | null,
+): Edge[] {
+  return badgesToConnectionEdges(
+    badgesInScope(badges, folderScope),
+    nodes,
+    CONNECTION_EDGE_SIZE_DEFAULTS,
+  );
+}
 
 function badgeToNode(
   badge: BadgeFile,
@@ -209,17 +238,7 @@ export const Canvas = (): JSX.Element => {
   const refresh = useCallback(async () => {
     try {
       const result = (await window.bh.run('badge.list')) as BadgeListResult;
-      let badges = result.badges;
-
-      if (folderScope !== null) {
-        // Scoping INTO a folder shows its CONTENTS — not the folder's own badge
-        // (which would read as a sibling of its children, and would suppress the
-        // "this folder is empty" hint for a folder with no children). The
-        // folder's own prompt/refs are edited via the "Edit folder prompt"
-        // toolbar action. Nested child folders still match the prefix and show.
-        const prefix = `${folderScope}/`;
-        badges = badges.filter((b) => b.file.startsWith(prefix));
-      }
+      const badges = badgesInScope(result.badges, folderScope);
 
       const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
       setFocusActive(focusResult.active); // chip reports the full set, not scope-filtered nodes
@@ -316,13 +335,21 @@ export const Canvas = (): JSX.Element => {
 
   const persistCanvas = useMemo(
     () =>
-      debounce((file: string, x: number, y: number, width?: number, height?: number) => {
+      debounce((
+        file: string,
+        kind: BadgeKind,
+        x: number,
+        y: number,
+        width?: number,
+        height?: number,
+      ) => {
         // A drag updates the badge's canonical canvas position via badge.set
         // (on the main canvas and inside a folder scope alike).
         void window.bh
           .run('badge.set', {
             file,
             patch: {
+              kind,
               canvas: {
                 x,
                 y,
@@ -339,11 +366,18 @@ export const Canvas = (): JSX.Element => {
 
   const persistSize = useMemo(
     () =>
-      debounce((file: string, x: number, y: number, width: number, height: number) => {
+      debounce((
+        file: string,
+        kind: BadgeKind,
+        x: number,
+        y: number,
+        width: number,
+        height: number,
+      ) => {
         void window.bh
           .run('badge.set', {
             file,
-            patch: { canvas: { x, y, width, height, collapsed: false } },
+            patch: { kind, canvas: { x, y, width, height, collapsed: false } },
           })
           .catch(() => undefined);
       }, RESIZE_DEBOUNCE),
@@ -393,8 +427,10 @@ export const Canvas = (): JSX.Element => {
                 next = next.map((n) => (n.id === change.id ? { ...n, position: at } : n));
               }
             } else {
+              const kind = nodeBadgeKind(next, change.id);
               persistCanvas(
                 change.id,
+                kind,
                 change.position.x,
                 change.position.y,
                 cardWidth(node),
@@ -406,7 +442,14 @@ export const Canvas = (): JSX.Element => {
             const node = next.find((n) => n.id === change.id);
             const at = node?.position;
             if (at) {
-              persistSize(change.id, at.x, at.y, change.dimensions.width, change.dimensions.height);
+              persistSize(
+                change.id,
+                nodeBadgeKind(next, change.id),
+                at.x,
+                at.y,
+                change.dimensions.width,
+                change.dimensions.height,
+              );
             }
           }
         }
@@ -467,21 +510,23 @@ export const Canvas = (): JSX.Element => {
       if (conn.source === conn.target) return;
       const fromSide = sideFromHandle(conn.sourceHandle);
       const toSide = sideFromHandle(conn.targetHandle);
+      const sourceKind = nodeBadgeKind(nodesRef.current, conn.source);
       try {
         await window.bh.run('badge.addRef', {
           file: conn.source,
           to: conn.target,
+          kind: sourceKind,
           ...(fromSide !== undefined && { fromSide }),
           ...(toSide !== undefined && { toSide }),
         });
         // Refresh so the new edge shows + inbound index updates ripple to other views.
         const result = (await window.bh.run('badge.list')) as BadgeListResult;
-        setEdges(badgesToConnectionEdges(result.badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+        setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [nodes],
+    [folderScope],
   );
 
   // Edge deletion: react-flow selects-then-Delete-key flow gives us the
@@ -493,23 +538,25 @@ export const Canvas = (): JSX.Element => {
       setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
       try {
         for (const e of deleted) {
-          await window.bh.run('badge.removeRef', { file: e.source, to: e.target });
+          await window.bh.run('badge.removeRef', {
+            file: e.source,
+            to: e.target,
+            kind: nodeBadgeKind(nodesRef.current, e.source),
+          });
         }
         const result = (await window.bh.run('badge.list')) as BadgeListResult;
-        setEdges(badgesToConnectionEdges(result.badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+        setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [nodes],
+    [folderScope],
   );
 
   const resetReferenceEdgesFromCore = useCallback(async (): Promise<void> => {
     const result = (await window.bh.run('badge.list')) as BadgeListResult;
-    setEdges(
-      badgesToConnectionEdges(result.badges, nodesRef.current, CONNECTION_EDGE_SIZE_DEFAULTS),
-    );
-  }, []);
+    setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
+  }, [folderScope]);
 
   const commitReferenceEdgeUpdate = useCallback(
     (update: ReferenceEdgeUpdate): void => {
@@ -519,18 +566,21 @@ export const Canvas = (): JSX.Element => {
       void (async () => {
         try {
           const result = (await window.bh.run('badge.reconnectRef', {
-            previous: { file: update.previousSource, to: update.previousTarget },
+            previous: {
+              file: update.previousSource,
+              to: update.previousTarget,
+              kind: nodeBadgeKind(nodesRef.current, update.previousSource),
+            },
             next: {
               file: update.source,
               to: update.target,
+              kind: nodeBadgeKind(nodesRef.current, update.source),
               ...(update.note !== undefined && { note: update.note }),
               ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
               ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
             },
           })) as BadgeListResult;
-          setEdges(
-            badgesToConnectionEdges(result.badges, nodesRef.current, CONNECTION_EDGE_SIZE_DEFAULTS),
-          );
+          setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
           setError('');
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
@@ -548,7 +598,11 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          await window.bh.run('badge.removeRef', { file: removal.source, to: removal.target });
+          await window.bh.run('badge.removeRef', {
+            file: removal.source,
+            to: removal.target,
+            kind: nodeBadgeKind(nodesRef.current, removal.source),
+          });
           await resetReferenceEdgesFromCore();
           setError('');
         } catch (err) {

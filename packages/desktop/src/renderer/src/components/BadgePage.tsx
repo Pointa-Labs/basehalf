@@ -97,7 +97,11 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
     async (to: string) => {
       if (!(await flushPrompt())) return;
       try {
-        const saved = (await window.bh.run('badge.removeRef', { file, to })) as BadgeFile;
+        const saved = (await window.bh.run('badge.removeRef', {
+          file,
+          to,
+          kind: 'file',
+        })) as BadgeFile;
         setBadge(saved);
         setSaveError(null);
         emitBadgeChange();
@@ -114,11 +118,15 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
     async (to: string, note: string) => {
       if (!(await flushPrompt())) return;
       const trimmed = note.trim();
+      const existing = badge?.references.find((ref) => ref.to === to);
       try {
         const saved = (await window.bh.run('badge.addRef', {
           file,
           to,
+          kind: 'file',
           ...(trimmed !== '' && { note: trimmed }),
+          ...(existing?.fromSide !== undefined && { fromSide: existing.fromSide }),
+          ...(existing?.toSide !== undefined && { toSide: existing.toSide }),
         })) as BadgeFile;
         setBadge(saved);
         setSaveError(null);
@@ -129,7 +137,7 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
         );
       }
     },
-    [file, flushPrompt],
+    [badge, file, flushPrompt],
   );
 
   const addRefViaPrompt = useCallback(async () => {
@@ -150,7 +158,11 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
     const trimmed = to?.trim();
     if (!trimmed) return;
     try {
-      const saved = (await window.bh.run('badge.addRef', { file, to: trimmed })) as BadgeFile;
+      const saved = (await window.bh.run('badge.addRef', {
+        file,
+        to: trimmed,
+        kind: 'file',
+      })) as BadgeFile;
       setBadge(saved);
       setSaveError(null);
       emitBadgeChange();

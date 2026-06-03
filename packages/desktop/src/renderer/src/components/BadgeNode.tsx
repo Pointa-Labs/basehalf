@@ -103,6 +103,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const [inlineError, setInlineError] = useState('');
   const connectionHandles = useCanvasConnectionHandles({ disabled: inlineEditing, nodeId: id });
   const armingInlineEdit = useRef(false);
+  const inlineCloseBlocked = useRef(false);
   // Always show a content preview for the types we can render cheaply
   // (text/markdown/code → excerpt, image → thumbnail). Orphans (missing file)
   // and folders have nothing to preview.
@@ -136,12 +137,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     if (!inlineEditing || inlineClosing) return;
     setInlineClosing(true);
     setInlineError('');
+    inlineCloseBlocked.current = false;
     try {
       const ok = await flushDoc(inlineDocKey, { forceSerialize: true });
       if (ok) {
         invalidatePreviewCache(d.label);
+        inlineCloseBlocked.current = false;
         setInlineEditing(false);
       } else {
+        inlineCloseBlocked.current = true;
         setInlineError('Resolve the edit before leaving this card.');
       }
     } finally {
@@ -156,6 +160,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
       return;
     }
     if (armingInlineEdit.current) return;
+    if (inlineCloseBlocked.current) return;
     void finishInlineEdit();
   }, [finishInlineEdit, inlineEditing, selected]);
 
@@ -329,6 +334,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     void finishInlineEdit();
                   } else {
                     armingInlineEdit.current = true;
+                    inlineCloseBlocked.current = false;
                     setInlineError('');
                     setInlineEditing(true);
                   }
@@ -428,7 +434,10 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             compact
             cardEditable={inlineEditing}
             promoteOnEdit={false}
-            onDiscardClose={() => setInlineEditing(false)}
+            onDiscardClose={() => {
+              inlineCloseBlocked.current = false;
+              setInlineEditing(false);
+            }}
           />
           {inlineError && (
             <div
