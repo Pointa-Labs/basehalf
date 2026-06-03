@@ -87,10 +87,7 @@ function badgesInScope(
   return badges.filter((badge) => badge.file.startsWith(prefix));
 }
 
-function nodeBadgeKind(
-  nodes: readonly Node<BadgeNodeData>[],
-  id: string,
-): BadgeKind {
+function nodeBadgeKind(nodes: readonly Node<BadgeNodeData>[], id: string): BadgeKind {
   return nodes.find((node) => node.id === id)?.data.kind ?? 'file';
 }
 
@@ -335,52 +332,44 @@ export const Canvas = (): JSX.Element => {
 
   const persistCanvas = useMemo(
     () =>
-      debounce((
-        file: string,
-        kind: BadgeKind,
-        x: number,
-        y: number,
-        width?: number,
-        height?: number,
-      ) => {
-        // A drag updates the badge's canonical canvas position via badge.set
-        // (on the main canvas and inside a folder scope alike).
-        void window.bh
-          .run('badge.set', {
-            file,
-            patch: {
-              kind,
-              canvas: {
-                x,
-                y,
-                ...(width !== undefined && { width }),
-                ...(height !== undefined && { height }),
-                collapsed: false,
+      debounce(
+        (file: string, kind: BadgeKind, x: number, y: number, width?: number, height?: number) => {
+          // A drag updates the badge's canonical canvas position via badge.set
+          // (on the main canvas and inside a folder scope alike).
+          void window.bh
+            .run('badge.set', {
+              file,
+              patch: {
+                kind,
+                canvas: {
+                  x,
+                  y,
+                  ...(width !== undefined && { width }),
+                  ...(height !== undefined && { height }),
+                  collapsed: false,
+                },
               },
-            },
-          })
-          .catch(() => undefined);
-      }, DRAG_DEBOUNCE),
+            })
+            .catch(() => undefined);
+        },
+        DRAG_DEBOUNCE,
+      ),
     [],
   );
 
   const persistSize = useMemo(
     () =>
-      debounce((
-        file: string,
-        kind: BadgeKind,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-      ) => {
-        void window.bh
-          .run('badge.set', {
-            file,
-            patch: { kind, canvas: { x, y, width, height, collapsed: false } },
-          })
-          .catch(() => undefined);
-      }, RESIZE_DEBOUNCE),
+      debounce(
+        (file: string, kind: BadgeKind, x: number, y: number, width: number, height: number) => {
+          void window.bh
+            .run('badge.set', {
+              file,
+              patch: { kind, canvas: { x, y, width, height, collapsed: false } },
+            })
+            .catch(() => undefined);
+        },
+        RESIZE_DEBOUNCE,
+      ),
     [],
   );
 
