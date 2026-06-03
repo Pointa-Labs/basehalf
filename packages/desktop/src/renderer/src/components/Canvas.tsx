@@ -577,7 +577,7 @@ export const Canvas = (): JSX.Element => {
         }
       })();
     },
-    [resetReferenceEdgesFromCore],
+    [folderScope, resetReferenceEdgesFromCore],
   );
 
   const commitReferenceEdgeRemoval = useCallback(
