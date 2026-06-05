@@ -784,32 +784,28 @@ await win.screenshot({ path: `${SCREENS_DIR}/05c-preview.png` });
 // must NOT open the editor and must NOT mutate Agent Context. Opening is the
 // deliberate double-click; context is an explicit action from File Badge /
 // context controls.
-console.log('\n[5d] Single-click selects (UI-only); shift multi-select mirrors to focus');
+console.log('\n[5d] Click + shift-click select badges only');
 await bhRun('focus.clear', {});
 const asidesBeforeFocus = await win.locator('aside').count();
 const introBadgeForFocus = win.locator('.react-flow__node[data-id="intro.md"]');
 await introBadgeForFocus.click();
-await win.waitForTimeout(450);
+await win.waitForTimeout(250);
 const focusAfterFirst = await bhRun('focus.get', {});
 assert(
   Array.isArray(focusAfterFirst.active) && focusAfterFirst.active.length === 0,
-  `Single click stays UI-only — focus.active empty (got ${JSON.stringify(focusAfterFirst.active)})`,
+  `Regular click leaves focus.active empty (got ${JSON.stringify(focusAfterFirst.active)})`,
 );
 assert(
   await introBadgeForFocus.evaluate((el) => el.classList.contains('selected')),
-  'Single click selects the canvas card as an object',
+  'Regular click selects the canvas card as an object',
 );
-// Shift-click a 2nd badge → an intentional "these as a group" gesture → it mirrors
-// into focus.md (Phase 0: selection-as-deixis). Wait past FOCUS_MIRROR_DEBOUNCE.
 const overviewBadgeForFocus = win.locator('.react-flow__node[data-id="overview.md"]');
 await overviewBadgeForFocus.click({ modifiers: ['Shift'] });
-await win.waitForTimeout(450);
+await win.waitForTimeout(300);
 const focusAfterShift = await bhRun('focus.get', {});
 assert(
-  focusAfterShift.active.length === 2 &&
-    focusAfterShift.active.includes('intro.md') &&
-    focusAfterShift.active.includes('overview.md'),
-  `Shift multi-select (>=2) mirrors both files into focus (got ${JSON.stringify(focusAfterShift.active)})`,
+  focusAfterShift.active.length === 0,
+  `Shift-click multi-select still leaves focus.active empty (got ${JSON.stringify(focusAfterShift.active)})`,
 );
 // Neither click opened the editor.
 const asidesDuringFocus = await win.locator('aside').count();
@@ -818,11 +814,10 @@ assert(
   `Single/shift click does NOT open the editor (asides ${asidesBeforeFocus}→${asidesDuringFocus})`,
 );
 
-// --- 5d-focusmd. Agent-protocol contract (Phase 0: selection-as-deixis): a SINGLE
-// selection never writes focus.md, but a canvas MULTI-selection mirrors into
-// /workspace/.bh/focus.md so the agent shares the user's attention. The mirrored
-// set must actually land in the turn brief the agent reads.
-console.log('\n[5d-focusmd] multi-selection mirrors into focus.md');
+// --- 5d-focusmd. Agent-protocol contract: selection does NOT write focus.md.
+// What AI agents read is /workspace/.bh/focus.md; selecting a canvas object
+// must not silently change that turn brief.
+console.log('\n[5d-focusmd] canvas selection leaves focus.md untouched');
 const focusMdPath = join(WORKSPACE_DIR, '.bh/focus.md');
 const focusMdAfterShift = readFileSync(focusMdPath, 'utf-8');
 assert(
@@ -830,15 +825,13 @@ assert(
   `focus.md has the "active:" YAML key (head: ${JSON.stringify(focusMdAfterShift.slice(0, 80))})`,
 );
 assert(
-  /^\s*-\s*intro\.md\s*$/m.test(focusMdAfterShift),
-  `focus.md lists intro.md after multi-selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+  !/^\s*-\s*intro\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md does not list intro.md after selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
 );
 assert(
-  /^\s*-\s*overview\.md\s*$/m.test(focusMdAfterShift),
-  `focus.md lists overview.md after multi-selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
+  !/^\s*-\s*overview\.md\s*$/m.test(focusMdAfterShift),
+  `focus.md does not list overview.md after shift-selection (file: ${JSON.stringify(focusMdAfterShift.slice(0, 200))})`,
 );
-// Restore a clean focus so later sections start from an empty brief.
-await bhRun('focus.clear', {});
 
 // --- 5d-inline. The card's pencil button enters in-canvas edit mode, while
 // double-click remains the right-panel open gesture.
