@@ -50,3 +50,5 @@ interface Window {
     ): () => void;
   };
 }
+
+declare module 'prismjs/components/*';

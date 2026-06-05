@@ -36,7 +36,7 @@ import {
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { extOf, modeOf } from '../lib/viewerMode.js';
-import { FLOAT_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
+import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt as promptDialog } from './Dialog.js';
 import { Button } from './primitives/Button.js';
 
