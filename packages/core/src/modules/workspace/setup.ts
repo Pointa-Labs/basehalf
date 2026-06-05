@@ -26,64 +26,28 @@ import type { SetupReport } from './types.js';
 const CLAUDE_HINT_MARKER = '<!-- bh:workspace-hint -->';
 const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
 
+// A SHORT pointer, not a 60-line essay: the shorter the hint, the more reliably an
+// agent reads it. It points at the live signal and the graph; usage/judgment beyond
+// this is a versionable skill, not frozen prose baked into every workspace.
 const CLAUDE_HINT_SECTION = `
 ${CLAUDE_HINT_MARKER}
 ## BaseHalf workspace
 
-This folder is a BaseHalf workspace. BaseHalf is a local-first canvas +
-block editor; you (the AI agent) read its metadata under \`.bh/\` to
-understand what the user is focused on and how their files relate, then
-compose context from there.
+This folder is a BaseHalf workspace. **At the start of every turn, read
+\`.bh/focus.md\`** — a self-contained turn brief the app keeps fresh (it never points
+at a deleted file). It carries an optional \`intent:\` (what the user is doing this
+turn) and an \`active:\` list of the files they're focused on, each with its
+\`prompt:\` (what they want you to know) and \`refs:\` (which files connect, and why).
+One read gives you the user's curated attention — grep can't recover those
+human-written notes.
 
-### Start every turn here
+Need more than the brief? The full graph is under \`.bh/\`:
+\`.bh/badges/<rel-path>.json\` is any file's backpack (prompt + references), and
+\`.bh/index/inbound.json\` is who points AT a file. Follow these on your own budget.
 
-Read \`.bh/focus.md\`. The desktop UI rewrites it as the user clicks badges,
-and it is a **self-contained turn brief** — not just a list of paths. One
-read gives you the user's curated meaning:
-
-- \`intent:\` (optional) — what the user is trying to do this turn (carried
-  from a focused task or a saved view's prompt).
-- \`active:\` — the workspace-relative paths the user is focused on right
-  now, and inlined under each: its \`prompt:\` (what the user wants you to
-  know about that file) and its outbound \`refs:\` with notes (which files
-  they've said go together, and why).
-
-Because the prompts and reference-notes are inlined, focus.md is usually all
-you need to know what to pay attention to — you do NOT have to open each
-active file's badge JSON just to recover them.
-
-### Go deeper when the brief isn't enough
-
-\`.bh/\` holds the full graph behind focus.md. Reach for it to follow a
-reference outward or pull in context the user connected from elsewhere:
-
-- \`.bh/badges/<rel-path>.json\` (files) / \`.bh/badges/<rel-path>/.badge.json\`
-  (folders) — the full "backpack" for ANY file, including ones not in
-  \`active:\` that you reach by following a reference. Shape:
-
-\`\`\`json
-{
-  "file": "intro.md",
-  "kind": "file",
-  "prompt": "What the user wants you to know about this file",
-  "references": [
-    { "to": "overview.md", "note": "why this one points at that one" }
-  ]
-}
-\`\`\`
-
-- \`.bh/index/inbound.json\` — who points AT a given file. Use it to surface
-  related context the user has connected from elsewhere.
-
-### Constraints
-
-- **MD is the truth.** User content lives in \`.md\` and other source
-  files. \`.bh/\` is derived metadata only. Edit user files with your own
-  tools; never edit \`.bh/*.json\` directly — the desktop app and \`bh\`
-  CLI own that surface.
-- **\`.bh/cache/\` is rebuildable** and gitignored. Don't read or write to
-  it.
-- \`bh\` CLI reads accept \`--json\` for stable output (\`bh --help\`).
+MD is the truth; \`.bh/\` is derived — edit user files with your own tools,
+never \`.bh/*\` (the app and \`bh\` CLI own it; \`.bh/cache/\` is rebuildable and
+gitignored). \`bh\` CLI reads accept \`--json\`.
 `;
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {
