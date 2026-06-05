@@ -76,6 +76,21 @@ const VIEWPORT_DEBOUNCE = 1000;
 // Settle a canvas multi-selection before mirroring it into focus.md, so a marquee
 // drag (which fires onSelectionChange repeatedly) writes once on release.
 const FOCUS_MIRROR_DEBOUNCE = 250;
+// "agent read your context Ns ago" for the focus chip — a true logged fact
+// (focus.brief stamped it), shown ONLY positively. It confirms a READ happened,
+// not that the agent used the brief.
+function relativeServed(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return null;
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
 const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
@@ -213,6 +228,12 @@ export const Canvas = (): JSX.Element => {
   // independent of ordinary canvas selection. Selection is object state
   // (resize/move/connect); this set is what external agents read.
   const [focusActive, setFocusActive] = useState<readonly string[]>([]);
+  // When the agent last pulled the turn brief (focus.brief stamps it) — surfaced
+  // on the chip so curation has a visible "it's being read" signal. bumpServedClock
+  // forces the relative-time label to re-render each poll even when the stamp is
+  // unchanged, so "read Ns ago" ticks instead of freezing.
+  const [briefServedAt, setBriefServedAt] = useState<string | undefined>(undefined);
+  const [, bumpServedClock] = useState(0);
   // Persisted viewport for the current workspace, lifted into state so
   // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
   // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
@@ -246,8 +267,12 @@ export const Canvas = (): JSX.Element => {
       const result = (await window.bh.run('badge.list')) as BadgeListResult;
       const badges = badgesInScope(result.badges, folderScope);
 
-      const focusResult = (await window.bh.run('focus.get', {})) as { active: string[] };
+      const focusResult = (await window.bh.run('focus.get', {})) as {
+        active: string[];
+        lastBriefServedAt?: string;
+      };
       setFocusActive(focusResult.active); // chip reports the full set, not scope-filtered nodes
+      setBriefServedAt(focusResult.lastBriefServedAt);
       const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
       setNodes(nextNodes);
       setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
@@ -275,6 +300,29 @@ export const Canvas = (): JSX.Element => {
       setSnapGuides([]);
     }
   }, [current, currentReachable, refresh]);
+
+  // Poll the brief-served receipt so "agent read Ns ago" stays live. The stamp
+  // lands in .bh/cache/ (watcher-ignored, no push), so a light 5s poll of focus.get
+  // is how the chip reflects an agent reading the brief between refreshes.
+  useEffect(() => {
+    if (!current || !currentReachable) return;
+    const id = window.setInterval(() => {
+      void (async () => {
+        try {
+          const r = (await window.bh.run('focus.get', {})) as {
+            active: string[];
+            lastBriefServedAt?: string;
+          };
+          setFocusActive(r.active);
+          setBriefServedAt(r.lastBriefServedAt);
+          bumpServedClock((n) => n + 1);
+        } catch {
+          /* transient — keep the last known values */
+        }
+      })();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [current, currentReachable]);
 
   // Live-update the canvas when files are added / removed / renamed on disk
   // (Finder, the `bh` CLI, an AI agent writing a file). Without this the
@@ -948,6 +996,12 @@ export const Canvas = (): JSX.Element => {
               </strong>{' '}
               Agent Context · {focusedCount} {focusedCount === 1 ? 'file' : 'files'} ·{' '}
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
+              {relativeServed(briefServedAt) && (
+                <span style={{ color: color.textTertiary }}>
+                  {' '}
+                  · read {relativeServed(briefServedAt)}
+                </span>
+              )}
             </span>
             <span
               aria-hidden

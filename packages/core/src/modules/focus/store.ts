@@ -210,3 +210,43 @@ export async function writeFocus(
   await fs.mkdir(dirname(path), { recursive: true });
   await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source, droppedCount));
 }
+
+const SERVED_FILE = '.bh/cache/focus-served.json';
+
+/** Path to the workspace-scoped brief-read receipt (in .bh/cache/, gitignored). */
+function servedPath(workspaceRoot: string): string {
+  return join(workspaceRoot, SERVED_FILE);
+}
+
+/**
+ * Stamp "the turn brief was served" — written every time focus.brief runs (CLI
+ * `bh focus brief`, the desktop Copy-brief, a future MCP get_focus_brief), the one
+ * choke point every brief read funnels through. Lets the desktop show "agent read
+ * your context Ns ago". Honest semantics: records that a READ occurred, NOT that
+ * the agent used it. Lives in .bh/cache/ (gitignored, rebuildable) so it never
+ * pollutes the brief or git. Best-effort at the call site — a cache hiccup must
+ * never fail a read.
+ */
+export async function stampBriefServed(fs: FsLike, workspaceRoot: string): Promise<void> {
+  const path = await assertWriteContained(fs, workspaceRoot, servedPath(workspaceRoot));
+  await fs.mkdir(dirname(path), { recursive: true });
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify({ servedAt: new Date().toISOString() })}\n`);
+}
+
+/** Read the last brief-served timestamp (ISO), or undefined if never served. */
+export async function readBriefServedAt(
+  fs: FsLike,
+  workspaceRoot: string,
+): Promise<string | undefined> {
+  const raw = await readMaybeNoFollow(
+    fs,
+    await assertReadContained(fs, workspaceRoot, servedPath(workspaceRoot)),
+  );
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { servedAt?: unknown };
+    return typeof parsed.servedAt === 'string' ? parsed.servedAt : undefined;
+  } catch {
+    return undefined;
+  }
+}

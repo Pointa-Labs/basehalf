@@ -633,3 +633,20 @@ describe('focus.pruneDangling (re-entry: drop active files gone from disk)', () 
     expect(after.active).toEqual(['keep.md']);
   });
 });
+
+describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('focus.brief stamps a served receipt in .bh/cache/; focus.get reads it back; the brief stays clean', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined(); // never served
+    await ctx.core.run('focus.brief', {}); // an agent pulls the brief
+    const after = await ctx.core.run('focus.get', {});
+    expect(typeof after.lastBriefServedAt).toBe('string'); // receipt stamped + read back
+    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(true); // in gitignored cache
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('servedAt'); // not in the brief
+  });
+});

@@ -6,7 +6,13 @@ import {
   readMaybeNoFollow,
 } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
-import { focusPath, readFocusBrief, writeFocus } from './store.js';
+import {
+  focusPath,
+  readBriefServedAt,
+  readFocusBrief,
+  stampBriefServed,
+  writeFocus,
+} from './store.js';
 import type {
   FocusBriefArgs,
   FocusBriefResult,
@@ -433,7 +439,14 @@ export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => 
   // Strip the internal source provenance — focus.get's contract is the
   // round-trippable active list + intent.
   const { active, intent } = await readFocusBrief(ctx.fs, root);
-  return { active, ...(intent !== undefined && { intent }) };
+  // The brief-read receipt (when an agent last pulled focus.brief), so the chip
+  // can show "agent read your context Ns ago". A read, never a stamp.
+  const lastBriefServedAt = await readBriefServedAt(ctx.fs, root);
+  return {
+    active,
+    ...(intent !== undefined && { intent }),
+    ...(lastBriefServedAt !== undefined && { lastBriefServedAt }),
+  };
 };
 
 /**
@@ -449,6 +462,14 @@ export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (_args, ct
     ctx.fs,
     await assertReadContained(ctx.fs, root, focusPath(root)),
   );
+  // CONFIRM (serve-and-confirm): record that the brief was served so the desktop
+  // can show "agent read your context Ns ago". Best-effort — a .bh/cache/ write
+  // hiccup must never fail the read. Honest: this logs a READ, not comprehension.
+  try {
+    await stampBriefServed(ctx.fs, root);
+  } catch {
+    /* best-effort: the served receipt is non-load-bearing */
+  }
   return { brief: raw ?? '' };
 };
 

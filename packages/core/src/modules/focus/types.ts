@@ -53,6 +53,10 @@ export interface FocusGetResult {
   /** The turn intent (from `intent:` in focus.md), if any. Surfaced so a caller
    *  re-setting focus can preserve it instead of dropping the block. */
   readonly intent?: string;
+  /** When the turn brief was last SERVED (ISO) — stamped by focus.brief, read here
+   *  so the desktop chip can show "agent read your context Ns ago". Confirms a
+   *  read occurred, not comprehension. Undefined until the first brief read. */
+  readonly lastBriefServedAt?: string;
 }
 
 export type FocusClearArgs = Record<string, never>;
