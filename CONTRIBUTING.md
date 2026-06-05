@@ -5,8 +5,9 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-> **Status note.** Pre-alpha. The CLI ships one real module (`workspace`);
-> the desktop app is being built in v0 (PR 8 → 16). Contribution surfaces
+> **Status note.** Pre-alpha. The CLI ships the `workspace`, `badge`, `inbound`,
+> `focus`, and `search` modules (plus an internal `watcher`); the Electron
+> desktop app (v0) has shipped. Contribution surfaces
 > are narrow today — **open an issue first** to find one that's ready for
 > outside work. See [docs/roadmap.md](docs/roadmap.md) for the current PR
 > plan. (A `bh decision` subcommand also shipped briefly as an internal
@@ -32,7 +33,7 @@ bh workspace list
 packages/
   core/    kernel (registry + context) + modules (one per feature)
   cli/     bh — thin shell over core
-  desktop/ (planned, v0) — Electron app; React + BlockNote + React Flow on
+  desktop/ — Electron app; React + BlockNote + React Flow on
            the renderer, Node main process owns fs + chokidar
 ```
 
@@ -55,7 +56,7 @@ When contributing, keep these invariants (see [docs/decisions.md](docs/decisions
    through the BaseHalf UI (block editor, rename) write back to MD. Agents
    edit user files with their own tools — bh stays out of that path.
 6. **Primitives, not tasks.** Add small composable commands (e.g. `badge.add-ref`,
-   `view.create`), not task-specific ones (e.g. `arrange-into-heart`). The
+   `focus.set`), not task-specific ones (e.g. `arrange-into-heart`). The
    agent composes them.
 7. **Publish, don't inject.** Agent-facing surfaces write files to known paths
    in `.bh/` (`focus.md` / `badges/<file>.json` / `index/inbound.json`); no

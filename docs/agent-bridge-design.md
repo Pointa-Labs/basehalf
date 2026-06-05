@@ -67,7 +67,7 @@ source-of-truth = who is the source within the persistent plane.
                          ┌──────── data line (≈ single-center tools) ────────┐
                          │                                                    │
   agent  ──[ in-app server ]── core.run ──> .md / .bh/ ──> watcher ──> UI (reactive)
-   (MCP primary)  │
+   (door: CLI/files = floor; MCP additive)  │
                   └──────── runtime line (no precedent except §8-C) ─────────┐
                                                                              │
                           main process ── IPC ──> renderer (executes UI op)  ┘
@@ -90,14 +90,18 @@ source-of-truth = who is the source within the persistent plane.
 
 The transport is **not** the essence; it's just how commands arrive. Choices:
 
-- **MCP — primary.** O(1) across the fragmenting agent ecosystem (implement
-  once, every MCP-capable agent plugs in), tools are self-describing (no hint to
-  read), **stdio = fully local, no network**.
-- **CLI — fallback.** Reaches humans, scripts, CI, and any agent that doesn't
-  speak MCP. Same `core.run` underneath.
-- **Files (`.bh/`) — demoted to internal storage**, *not* a contract for the
-  agent. Stop teaching agents the on-disk JSON shape; the interface is the
-  contract.
+- **Files (`.bh/`) + CLI — the universal floor (active: D5, D14).** Every agent
+  that can read files reaches the published `.bh/focus.md` +
+  `.bh/badges/<file>.json` + `.bh/index/inbound.json` with zero config; any agent
+  with a shell reaches the same `core.run` via the CLI. This is the contract
+  today and stays the contract — the published file shapes ARE the agent
+  interface (D14: publish, not inject), not internal storage.
+- **MCP — an ADDITIVE premium door, layered on later.** O(1) across the
+  fragmenting agent ecosystem (implement once, every MCP-capable agent plugs in),
+  tools are self-describing (no hint to read), **stdio = fully local, no
+  network**. Its real, non-marginal justification is the *runtime plane* (§2):
+  live selection / active-view that a file snapshot can't deliver. It layers on
+  top of the floor — it does NOT demote files/CLI to a fallback.
 - **Protocol delivery:** capabilities via MCP self-description; *usage/judgment*
   via a **skill** (versionable, updatable) — replacing the long, frozen,
   Claude-only `CLAUDE.md` hint that fails for other agents.
@@ -137,7 +141,8 @@ latest runtime state without us building push. Add push only when the agent must
   own single-file + override flows. *Why ≥2:* "these / those two" is inherently
   plural — a multi-select is the intentional "treat these as a group" gesture,
   and gating on it stops a single click (made to drag a card) from silently
-  changing agent context. *Verified:* tsc + biome + 444 unit tests green; a
+  changing agent context. *Verified:* tsc + biome + 450 unit tests green (core
+  273 + desktop 177); a
   real-app e2e (shift-click two badges → `focus.md` mirrors both; single click
   does not); and a real `claude -p` given only the pronoun **"these"** resolved
   it from `focus.md` to the two files AND read the human-authored ref-note's

@@ -261,7 +261,7 @@ const badgeRemoveRef = defineCommand({
 const badgeRename = defineCommand({
   meta: {
     name: 'rename',
-    description: 'Atomically rename a badge (cascade refs + focus + view membership)',
+    description: 'Atomically rename a badge (cascade refs + focus)',
   },
   args: {
     from: { type: 'positional', description: 'Current file path', required: true },

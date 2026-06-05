@@ -354,11 +354,13 @@ export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, 
     if (args.file !== undefined && !active.includes(args.file)) return { resynced: false };
     const items = await assembleItems(ctx, active);
     // Preserve provenance (and intent) — a badge edit must not strip the
-    // `# source-view:`/`# source-folder:` marker, or a later source-prompt edit
-    // would stop refreshing the brief. Pass the dropped count: assembleItems now
-    // re-validates each active path against disk and filters now-missing/orphan
-    // items, so a bare resync self-heals a dangling brief and shows the heal note.
-    await writeFocus(ctx.fs, root, items, intent, source, active.length - items.length);
+    // `# source-folder:` marker, or a later folder-prompt edit would stop
+    // refreshing the brief. resync is a pure RE-RENDER that trusts its active
+    // list: assembleItems returns one item per input and asserts no liveness, so
+    // resync can't (and shouldn't) self-heal a dangling brief — that's the job of
+    // focus.dropOrphan (watcher-driven) and focus.pruneDangling (re-entry). No
+    // dropped count to report here.
+    await writeFocus(ctx.fs, root, items, intent, source);
     return { resynced: true };
   });
 };
