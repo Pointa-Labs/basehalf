@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import {
   type Handler,
   assertReadContained,
@@ -11,11 +12,15 @@ import type {
   FocusBriefResult,
   FocusClearArgs,
   FocusClearResult,
+  FocusDropOrphanArgs,
+  FocusDropOrphanResult,
   FocusGetArgs,
   FocusGetResult,
   FocusInitArgs,
   FocusInitResult,
   FocusItem,
+  FocusPruneDanglingArgs,
+  FocusPruneDanglingResult,
   FocusReconcileNewFileArgs,
   FocusReconcileNewFileResult,
   FocusRefreshFolderIntentArgs,
@@ -73,6 +78,12 @@ async function assembleItems(
     } catch {
       badge = null;
     }
+    // A file with no badge (or a folder) contributes its bare path — the agent
+    // still gets the path even without curated meaning. Liveness (is the file
+    // still on disk?) is NOT asserted here: assembleItems runs on every write,
+    // including focus.set of a file the user just picked, so it must trust its
+    // input. Dangling is reconciled out-of-band — markOrphan→dropOrphan (watcher,
+    // live) and focus.pruneDangling (stat-based, on re-entry).
     const refs = (badge?.references ?? [])
       .filter((r) => r.to)
       .map((r) => ({ to: r.to, ...(r.note !== undefined && r.note !== '' && { note: r.note }) }));
@@ -89,6 +100,7 @@ async function assembleItems(
 // (never imports another module's internals — keeps the dep arrow one-way).
 interface BadgeGetMinimal {
   readonly prompt?: string;
+  readonly orphan?: boolean;
   readonly references?: readonly { readonly to: string; readonly note?: string }[];
 }
 interface BadgeListMinimal {
@@ -337,9 +349,82 @@ export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, 
     const items = await assembleItems(ctx, active);
     // Preserve provenance (and intent) — a badge edit must not strip the
     // `# source-view:`/`# source-folder:` marker, or a later source-prompt edit
-    // would stop refreshing the brief.
-    await writeFocus(ctx.fs, root, items, intent, source);
+    // would stop refreshing the brief. Pass the dropped count: assembleItems now
+    // re-validates each active path against disk and filters now-missing/orphan
+    // items, so a bare resync self-heals a dangling brief and shows the heal note.
+    await writeFocus(ctx.fs, root, items, intent, source, active.length - items.length);
     return { resynced: true };
+  });
+};
+
+/**
+ * Drop a just-deleted file from the active brief. Cascaded from badge.markOrphan
+ * (like badge.rename cascades renameActiveFile), so a focused file the watcher
+ * saw vanish LEAVES focus.md instead of dangling. The watcher already confirmed
+ * the delete, so this removes the path directly (no stat) and re-renders with a
+ * heal note, preserving intent + provenance. No-op when `file` isn't focused.
+ * Atomic under the lock. (The watcher-off case — git checkout / external rm — is
+ * handled by focus.pruneDangling on re-entry.)
+ */
+export const dropOrphan: Handler<FocusDropOrphanArgs, FocusDropOrphanResult> = async (
+  args,
+  ctx,
+) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
+    if (!active.includes(args.file)) return { dropped: false };
+    const next = active.filter((f) => f !== args.file);
+    const items = await assembleItems(ctx, next);
+    await writeFocus(ctx.fs, root, items, intent, source, active.length - next.length);
+    return { dropped: true };
+  });
+};
+
+/**
+ * Is a workspace-relative file still on disk? Routed through the realpath
+ * containment guard so a planted symlink can't make a vanished file look live.
+ * Any error (PathEscape, stat failure) is treated as "gone" — fail toward
+ * pruning a dangling item, never toward keeping one.
+ */
+async function fileStillExists(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  file: string,
+): Promise<boolean> {
+  try {
+    const abs = await assertReadContained(ctx.fs, root, join(root, file));
+    return (await ctx.fs.stat(abs)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-validate the active list against disk and drop any file that no longer
+ * exists (git checkout, external rm, a delete that happened while the watcher
+ * wasn't running). The stat-based counterpart to the watcher-driven dropOrphan,
+ * meant to run on re-entry (workspace open). Cheap when nothing dangles (one stat
+ * per active file; focus sets are small). Intent + provenance preserved; a heal
+ * note records the count. Atomic under the lock.
+ */
+export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingResult> = async (
+  _args,
+  ctx,
+) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
+    if (active.length === 0) return { pruned: 0 };
+    const live: string[] = [];
+    for (const f of active) {
+      if (await fileStillExists(ctx, root, f)) live.push(f);
+    }
+    const pruned = active.length - live.length;
+    if (pruned === 0) return { pruned: 0 };
+    const items = await assembleItems(ctx, live);
+    await writeFocus(ctx.fs, root, items, intent, source, pruned);
+    return { pruned };
   });
 };
 
@@ -407,6 +492,8 @@ export function commands(): ReadonlyArray<
     ['focus.setIntent', setIntent as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.resync', resync as unknown as Handler<never, unknown>],
+    ['focus.dropOrphan', dropOrphan as unknown as Handler<never, unknown>],
+    ['focus.pruneDangling', pruneDangling as unknown as Handler<never, unknown>],
     ['focus.init', init as unknown as Handler<never, unknown>],
   ];
 }

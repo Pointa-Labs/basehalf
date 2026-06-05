@@ -327,6 +327,13 @@ async function materializeWithFallback(ctx: Context, workspaceRoot: string): Pro
   }
   try {
     await ctx.run('focus.init', {});
+    // Re-entry liveness: prune any active file that vanished while we weren't
+    // watching (git checkout, external rm, a delete with the app closed). The
+    // watcher-driven dropOrphan handles LIVE deletes; this is the on-open
+    // stat-based catch-up so a stale focus.md self-heals instead of pointing the
+    // agent at deleted files. Runs after materialize, so present files keep
+    // their (re)materialized badges and only truly-gone paths are pruned.
+    await ctx.run('focus.pruneDangling', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     // A planted symlink at .bh/focus.md escapes — skip seeding rather than

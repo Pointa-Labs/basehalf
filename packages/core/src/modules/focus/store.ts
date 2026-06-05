@@ -57,6 +57,7 @@ export function renderFocus(
   active: readonly (FocusItem | string)[],
   intent?: string,
   source?: FocusSource,
+  droppedCount = 0,
 ): string {
   const items: FocusItem[] = active.map((a) => (typeof a === 'string' ? { file: a } : a));
   const lines: string[] = ['# bh focus', ''];
@@ -86,6 +87,15 @@ export function renderFocus(
     }
   }
   lines.push('');
+  // Heal receipt: when the liveness invariant dropped now-missing/orphan files
+  // from the brief, say so in a `#` comment (which the agent ignores for `active:`
+  // parsing) so a silently-shrunk brief is never a mystery.
+  if (droppedCount > 0) {
+    lines.push(
+      `# note: ${droppedCount} previously-focused file(s) were deleted and dropped from this brief.`,
+    );
+    lines.push('');
+  }
   // bh-internal PROVENANCE (a `#` comment the agent ignores): which folder
   // sourced this focus, so editing that folder's prompt can refresh the
   // `intent:` by exact identity — never by guessing from members/text. Written
@@ -193,9 +203,10 @@ export async function writeFocus(
   active: readonly (FocusItem | string)[],
   intent?: string,
   source?: FocusSource,
+  droppedCount = 0,
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source, droppedCount));
 }

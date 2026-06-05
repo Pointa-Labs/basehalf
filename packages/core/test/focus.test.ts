@@ -568,3 +568,68 @@ describe('focus.setIntent (author the turn intent without touching the active se
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: matched question');
   });
 });
+
+describe('focus.dropOrphan (a focused file deleted under the watcher leaves the brief)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('badge.markOrphan on a focused file cascades: it drops from the brief, with a heal note', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'compare them' });
+    // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.dropOrphan.
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['b.md']); // a.md left the brief
+    expect(after.intent).toBe('compare them'); // intent preserved
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('- a.md');
+    expect(md).toContain('# note:'); // visible heal receipt
+  });
+
+  it('focus.dropOrphan is a no-op (dropped:false) when the file is not focused', async () => {
+    await ctx.core.run('focus.set', { files: ['x.md'] });
+    const r = await ctx.core.run('focus.dropOrphan', { file: 'not-focused.md' });
+    expect(r.dropped).toBe(false);
+  });
+});
+
+describe('focus.pruneDangling (re-entry: drop active files gone from disk)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('drops an active file whose disk file vanished (git checkout / external rm), with a note', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    ctx.files.set('/work/b.md', '# b');
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'study' });
+    ctx.files.delete('/work/b.md'); // deleted on disk with NO watcher event
+    const r = await ctx.core.run('focus.pruneDangling', {});
+    expect(r.pruned).toBe(1);
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['a.md']); // self-healed
+    expect(after.intent).toBe('study'); // intent preserved
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# note:');
+  });
+
+  it('is a no-op (pruned:0) when every active file still exists on disk', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const r = await ctx.core.run('focus.pruneDangling', {});
+    expect(r.pruned).toBe(0);
+  });
+
+  it('workspace.use re-validates on re-open: a stale focus.md self-heals', async () => {
+    ctx.files.set('/work/keep.md', '# keep');
+    ctx.files.set('/work/gone.md', '# gone');
+    await ctx.core.run('focus.set', { files: ['keep.md', 'gone.md'] });
+    ctx.files.delete('/work/gone.md');
+    // Re-open the workspace → materializeWithFallback → focus.pruneDangling.
+    await ctx.core.run('workspace.use', { name: 'w' });
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['keep.md']);
+  });
+});

@@ -171,3 +171,21 @@ export interface FocusRenameActiveFolderResult {
    *  survives the rename). False when nothing referenced `from`. */
   readonly renamed: boolean;
 }
+
+export interface FocusDropOrphanArgs {
+  /** A file whose badge just went orphan / was deleted on disk. Removed from the
+   *  active list if present (intent + `# source-folder:` provenance preserved);
+   *  the brief is re-assembled through the liveness choke point so it lands
+   *  dangling-free with a heal note. No-op when the file isn't focused. */
+  readonly file: string;
+}
+export interface FocusDropOrphanResult {
+  /** True when `file` was active and got dropped; false when it wasn't focused. */
+  readonly dropped: boolean;
+}
+
+export type FocusPruneDanglingArgs = Record<string, never>;
+export interface FocusPruneDanglingResult {
+  /** How many active files were dropped because they no longer exist on disk. */
+  readonly pruned: number;
+}
