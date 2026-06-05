@@ -73,6 +73,9 @@ const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
 const DRAG_DEBOUNCE = 300;
 const RESIZE_DEBOUNCE = 300;
 const VIEWPORT_DEBOUNCE = 1000;
+// Settle a canvas multi-selection before mirroring it into focus.md, so a marquee
+// drag (which fires onSelectionChange repeatedly) writes once on release.
+const FOCUS_MIRROR_DEBOUNCE = 250;
 const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
@@ -225,8 +228,14 @@ export const Canvas = (): JSX.Element => {
   // a saved viewport is never mistaken for "none" mid-load.
   const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 });
-  // Keep agent context deliberately distinct from canvas selection: selecting a
-  // card never mutates focus.md. Explicit context actions do.
+  // Canvas selection and agent context are mostly distinct: a SINGLE selection is
+  // object state only (resize/move/connect) and never touches focus.md. A
+  // MULTI-selection (>=2 badges) is an intentional "treat these as a group"
+  // gesture, so it mirrors into focus.md as agent context (Phase 0:
+  // selection-as-deixis). Explicit context actions (Add to Context / folder /
+  // Clear) still own single-file and override flows.
+  // Debounce timer for that mirror (see mirrorSelectionToFocus).
+  const focusMirrorTimer = useRef<number | null>(null);
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -677,6 +686,7 @@ export const Canvas = (): JSX.Element => {
   useEffect(
     () => () => {
       if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+      if (focusMirrorTimer.current !== null) window.clearTimeout(focusMirrorTimer.current);
     },
     [],
   );
@@ -697,8 +707,35 @@ export const Canvas = (): JSX.Element => {
     viewportRef.current = viewport;
   }, []);
 
+  // Mirror a canvas MULTI-selection into focus.md as agent context — debounced so
+  // a marquee drag writes once on release. Single selections never call this (they
+  // stay object-state only); explicit Add-to-Context / folder / Clear still own
+  // single-file and override flows. focus.set({files}) is files-sourced, so it
+  // carries no folder provenance and the user's chat message supplies the intent.
+  const mirrorSelectionToFocus = useCallback((files: readonly string[]) => {
+    if (focusMirrorTimer.current !== null) window.clearTimeout(focusMirrorTimer.current);
+    focusMirrorTimer.current = window.setTimeout(() => {
+      void (async () => {
+        try {
+          await window.bh.run('focus.set', { files });
+          setFocusActive(files); // chip reflects the new agent context immediately
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })();
+    }, FOCUS_MIRROR_DEBOUNCE);
+  }, []);
+
   const onSelectionChange = useCallback<OnSelectionChangeFunc<Node<BadgeNodeData>, Edge>>(
     ({ nodes: selectedNodes }) => {
+      // Any selection change cancels a pending mirror; only a >=2 set below
+      // reschedules one. Without this, a debounced mirror could land AFTER the
+      // user narrowed back to a single card (or cleared) within the debounce
+      // window — writing a group they'd already abandoned into focus.md.
+      if (focusMirrorTimer.current !== null) {
+        window.clearTimeout(focusMirrorTimer.current);
+        focusMirrorTimer.current = null;
+      }
       if (selectedNodes.length === 0) {
         setCanvasSelection(null);
         return;
@@ -708,12 +745,17 @@ export const Canvas = (): JSX.Element => {
         .map((node) => node.id);
       if (files.length > 0) {
         setCanvasSelection({ kind: 'file', files, source: 'canvas' });
+        // Phase 0 (selection-as-deixis): >=2 selected files is an intentional
+        // "these as a group" gesture — mirror it into focus.md so the agent shares
+        // the user's attention with zero extra action. A single file stays UI-only
+        // ("operate on this one"): no focus write.
+        if (files.length >= 2) mirrorSelectionToFocus(files);
         return;
       }
       const folder = selectedNodes[0]?.id;
       setCanvasSelection(folder ? { kind: 'folder', folder, source: 'canvas' } : null);
     },
-    [setCanvasSelection],
+    [setCanvasSelection, mirrorSelectionToFocus],
   );
 
   if (!current || currentReachable === false) {

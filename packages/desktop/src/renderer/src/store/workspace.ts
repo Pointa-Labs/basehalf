@@ -148,9 +148,11 @@ interface WorkspaceState {
    *  that pane and opens it in the new pane. A reference open (like the sidebar) —
    *  the badge stays on the canvas. */
   dockBadge: (file: string, paneId: string, region: DropRegion) => void;
-  /** The current object(s) the user selected on the canvas. This is UI object
-   *  state only: resize/move/connect affordances read it, while Agent Context
-   *  remains an explicit `.bh/focus.md` action. */
+  /** The current object(s) the user selected on the canvas — UI object state for
+   *  resize/move/connect affordances. A SINGLE selection stays UI-only; a canvas
+   *  MULTI-selection (>=2 files) additionally mirrors into `.bh/focus.md` as agent
+   *  context (Phase 0: selection-as-deixis), handled in Canvas.onSelectionChange.
+   *  Explicit context actions still own single-file + override flows. */
   canvasSelection: CanvasSelection;
   setCanvasSelection: (selection: CanvasSelection) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
