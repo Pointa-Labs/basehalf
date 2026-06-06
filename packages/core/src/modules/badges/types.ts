@@ -117,6 +117,12 @@ export interface BadgeMarkOrphanArgs {
 }
 export type BadgeMarkOrphanResult = BadgeFile | null;
 
+export type BadgeDeleteOrphansArgs = Record<string, never>;
+export interface BadgeDeleteOrphansResult {
+  /** Workspace-relative paths of every orphan badge that was deleted. */
+  readonly deleted: readonly string[];
+}
+
 export interface BadgeRenameArgs {
   readonly from: string;
   readonly to: string;

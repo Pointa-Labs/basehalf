@@ -1,5 +1,5 @@
 import { join, relative } from 'node:path';
-import { type FsLike, type Run, canonicalize, isContained } from '../../kernel/index.js';
+import { type FsLike, type Run, canonicalize, isContained, toPosix } from '../../kernel/index.js';
 
 // SR-v0 §4.5 default canvas whitelist (v0 hardcoded; v0.x will move to
 // .bh/config.json). Files outside this list show in the NavTree but
@@ -102,7 +102,7 @@ async function walk(
   const names = await fs.readdir(dir);
   for (const name of names) {
     if (SKIP_NAMES.has(name)) continue;
-    const child = join(dir, name);
+    const child = toPosix(join(dir, name));
     // Resolve the child's canonical path + stat. A hostile/broken symlink can
     // make either throw (ELOOP on a mutual a->b,b->a cycle; EACCES; etc.) —
     // skip that child rather than abort the whole workspace open, mirroring
@@ -179,7 +179,3 @@ async function ensureBadge(
   stats.created++;
 }
 
-// POSIX paths on disk regardless of host (SR-v0 §3.1: relative paths use /).
-function toPosix(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).join('/');
-}

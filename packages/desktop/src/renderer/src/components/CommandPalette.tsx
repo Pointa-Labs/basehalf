@@ -18,10 +18,11 @@
  */
 
 import type { SearchQueryResult } from '@basehalf/core';
-import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actions.js';
+import { emitBadgeChange } from '../lib/badgeBus.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -194,10 +195,12 @@ export const CommandPalette = (): JSX.Element | null => {
   // path in the now-active workspace (the same class as the gated Search bug).
   const [files, setFiles] = useState<readonly FileEntry[]>([]);
   const [filesWorkspace, setFilesWorkspace] = useState<string | null>(null);
+  const [orphanCount, setOrphanCount] = useState(0);
   useEffect(() => {
     if (!open) return;
     setFiles([]);
     setFilesWorkspace(null);
+    setOrphanCount(0);
     // No active workspace → no files to list (badge.list would have nothing to
     // resolve against). Referencing `current` here also makes it the explicit
     // re-fetch trigger it's meant to be.
@@ -206,14 +209,17 @@ export const CommandPalette = (): JSX.Element | null => {
     void (async () => {
       try {
         const result = (await window.bh.run('badge.list')) as {
-          badges: { file: string; prompt?: string }[];
+          badges: { file: string; prompt?: string; orphan?: boolean }[];
         };
         if (cancelled) return;
+        setOrphanCount(result.badges.filter((b) => b.orphan).length);
         setFiles(
-          result.badges.map((b) => ({
-            file: b.file,
-            ...(b.prompt !== undefined && { prompt: b.prompt }),
-          })),
+          result.badges
+            .filter((b) => !b.orphan)
+            .map((b) => ({
+              file: b.file,
+              ...(b.prompt !== undefined && { prompt: b.prompt }),
+            })),
         );
         setFilesWorkspace(current);
       } catch {
@@ -286,6 +292,21 @@ export const CommandPalette = (): JSX.Element | null => {
   const [mouseActive, setMouseActive] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  const runDeleteOrphans = useCallback(async () => {
+    if (orphanCount === 0) return;
+    const noun = orphanCount === 1 ? 'orphaned badge' : 'orphaned badges';
+    const ok = await confirm({
+      title: `Delete ${orphanCount} ${noun}?`,
+      body: 'These badges have no backing file on disk. Their prompts and reference notes will be permanently removed. Other badges that pointed at them will keep their links (dangling refs you can clean up later).',
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    await window.bh.run('badge.deleteOrphans', {});
+    setOrphanCount(0);
+    emitBadgeChange();
+  }, [orphanCount]);
 
   // Build the action list from current store state + fetched files.
   // Memoized on (workspaces, views, files, current) so typing doesn't
@@ -374,10 +395,19 @@ export const CommandPalette = (): JSX.Element | null => {
         category: 'Action',
         run: () => void removeActiveWorkspace(),
       });
+      if (orphanCount > 0) {
+        out.push({
+          id: 'action:delete-orphans',
+          label: `Clean up ${orphanCount} orphaned badge${orphanCount === 1 ? '' : 's'}`,
+          hint: 'Badges whose files were deleted from disk',
+          category: 'Action',
+          run: () => void runDeleteOrphans(),
+        });
+      }
     }
 
     return out;
-  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
+  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd, orphanCount, runDeleteOrphans]);
 
   // Filter actions by query (case-insensitive substring match on label,
   // hint, or category). Keeps it dead simple — no fuzzy distance yet.

@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
-import { basename, dirname, join, normalize, sep } from 'node:path';
+import { basename, dirname, join, normalize } from 'node:path';
 import type { FsLike } from './types.js';
+import { toPosix } from './paths.js';
 
 /**
  * Realpath-based workspace containment — the guard a *string* check
@@ -77,14 +78,14 @@ function isENOENT(err: unknown): boolean {
  * Falls back to a lexical `normalize(p)` when the fs has no `realpath`.
  */
 export async function canonicalize(fs: FsLike, p: string): Promise<string> {
-  const norm = normalize(p);
+  const norm = toPosix(normalize(p));
   if (!fs.realpath) return norm;
   const suffix: string[] = [];
   let cur = norm;
   for (;;) {
     try {
       const real = await fs.realpath(cur);
-      return suffix.length > 0 ? join(real, ...suffix) : real;
+      return toPosix(suffix.length > 0 ? join(real, ...suffix) : real);
     } catch (err) {
       // A path we cannot resolve is not safely containable. ENOENT only means
       // "doesn't exist YET" — keep walking up to the deepest existing ancestor
@@ -110,7 +111,7 @@ export async function canonicalize(fs: FsLike, p: string): Promise<string> {
         // Walked to the filesystem root and it still ENOENTs — nothing on this
         // path exists, so there is no symlink to follow. Lexical is safe
         // because the caller already string-guarded the relative part.
-        return suffix.length > 0 ? join(cur, ...suffix) : cur;
+        return toPosix(suffix.length > 0 ? join(cur, ...suffix) : cur);
       }
       suffix.unshift(basename(cur));
       cur = parent;
@@ -120,7 +121,11 @@ export async function canonicalize(fs: FsLike, p: string): Promise<string> {
 
 /** True if `real` is `realRoot` itself or strictly beneath it. */
 export function isContained(realRoot: string, real: string): boolean {
-  return real === realRoot || real.startsWith(realRoot + sep);
+  // Normalize to forward slashes so this works on Windows (where `sep` is `\`)
+  // and with in-memory mock-fs test helpers that use POSIX-style paths.
+  const r = toPosix(realRoot);
+  const p = toPosix(real);
+  return p === r || p.startsWith(r + '/');
 }
 
 /**
@@ -165,7 +170,7 @@ export async function assertWriteContained(
   if (!isContained(realRoot, realParent)) {
     throw new PathEscape(relLabel(root, lexicalPath));
   }
-  const leaf = join(realParent, basename(lexicalPath));
+  const leaf = toPosix(join(realParent, basename(lexicalPath)));
   if (fs.lstat) {
     const ls = await fs.lstat(leaf);
     if (ls?.isSymbolicLink) {
@@ -227,7 +232,7 @@ export async function writeMaybeNoFollow(fs: FsLike, abs: string, content: strin
 
 /** Best-effort short label for error messages (the rel part under root). */
 function relLabel(root: string, lexicalPath: string): string {
-  const r = normalize(root);
-  const p = normalize(lexicalPath);
-  return p.startsWith(r + sep) ? p.slice(r.length + 1) : p;
+  const r = toPosix(normalize(root));
+  const p = toPosix(normalize(lexicalPath));
+  return p.startsWith(r + '/') ? p.slice(r.length + 1) : p;
 }

@@ -1,4 +1,15 @@
 /**
+ * Normalize any `node:path`-produced path to use POSIX forward-slash
+ * separators. On Windows `path.join` emits backslashes; both Node.js `fs` and
+ * the in-memory mock-fs test helper require forward slashes. Calling this on
+ * every path produced by `path.join / path.resolve / path.normalize` makes
+ * the modules work correctly on Windows without changing test fixtures.
+ */
+export function toPosix(p: string): string {
+  return p.replaceAll('\\', '/');
+}
+
+/**
  * Shared workspace-relative path guard.
  *
  * Any user-supplied path that gets joined onto the workspace root (or a

@@ -3,6 +3,7 @@ import {
   type FsLike,
   assertReadContained,
   assertWriteContained,
+  toPosix,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
@@ -20,7 +21,7 @@ const EMPTY = (): InboundIndex => ({
 });
 
 export function inboundPath(workspaceRoot: string): string {
-  return join(workspaceRoot, INDEX_FILE);
+  return toPosix(join(workspaceRoot, INDEX_FILE));
 }
 
 export async function readInbound(fs: FsLike, workspaceRoot: string): Promise<InboundIndex> {
@@ -43,6 +44,6 @@ export async function writeInbound(
   index: InboundIndex,
 ): Promise<void> {
   const path = await assertWriteContained(fs, workspaceRoot, inboundPath(workspaceRoot));
-  await fs.mkdir(dirname(path), { recursive: true });
+  await fs.mkdir(toPosix(dirname(path)), { recursive: true });
   await writeMaybeNoFollow(fs, path, `${JSON.stringify(index, null, 2)}\n`);
 }

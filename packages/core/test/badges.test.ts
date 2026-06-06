@@ -553,3 +553,60 @@ describe('badge.rename', () => {
     expect(result.badge.orphan).toBeUndefined();
   });
 });
+
+describe('badge.deleteOrphans', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('returns empty deleted list when no orphans exist', async () => {
+    await ctx.core.run('badge.set', { file: 'alive.md' });
+    const result = (await ctx.core.run('badge.deleteOrphans', {})) as {
+      deleted: readonly string[];
+    };
+    expect(result.deleted).toEqual([]);
+    expect(ctx.files.has('/work/.bh/badges/alive.md.json')).toBe(true);
+  });
+
+  it('deletes all orphaned badges and returns their paths', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md' });
+    await ctx.core.run('badge.set', { file: 'b.md' });
+    await ctx.core.run('badge.set', { file: 'keep.md' });
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
+    await ctx.core.run('badge.markOrphan', { file: 'b.md' });
+
+    const result = (await ctx.core.run('badge.deleteOrphans', {})) as {
+      deleted: readonly string[];
+    };
+    expect([...result.deleted].sort()).toEqual(['a.md', 'b.md']);
+    expect(ctx.files.has('/work/.bh/badges/a.md.json')).toBe(false);
+    expect(ctx.files.has('/work/.bh/badges/b.md.json')).toBe(false);
+    expect(ctx.files.has('/work/.bh/badges/keep.md.json')).toBe(true);
+  });
+
+  it('leaves non-orphan badges completely untouched', async () => {
+    await ctx.core.run('badge.set', {
+      file: 'safe.md',
+      patch: { prompt: 'keep this' },
+    });
+    await ctx.core.run('badge.set', { file: 'gone.md' });
+    await ctx.core.run('badge.markOrphan', { file: 'gone.md' });
+
+    await ctx.core.run('badge.deleteOrphans', {});
+
+    const safe = (await ctx.core.run('badge.get', { file: 'safe.md' })) as BadgeFile;
+    expect(safe.prompt).toBe('keep this');
+  });
+
+  it('badge.list shows no orphans after deleteOrphans', async () => {
+    await ctx.core.run('badge.set', { file: 'x.md' });
+    await ctx.core.run('badge.markOrphan', { file: 'x.md' });
+
+    await ctx.core.run('badge.deleteOrphans', {});
+
+    const list = (await ctx.core.run('badge.list', {})) as { badges: BadgeFile[] };
+    expect(list.badges.some((b) => b.orphan)).toBe(false);
+    expect(list.badges.find((b) => b.file === 'x.md')).toBeUndefined();
+  });
+});

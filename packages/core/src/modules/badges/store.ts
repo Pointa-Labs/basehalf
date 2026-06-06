@@ -3,6 +3,7 @@ import {
   type FsLike,
   assertReadContained,
   assertWorkspaceRelative,
+  toPosix,
   assertWriteContained,
   canonicalize,
   isContained,
@@ -27,9 +28,9 @@ export function badgePath(workspaceRoot: string, file: string, kind: BadgeKind):
   // through path.join — badge.set used to write `/etc/passwd.json`.
   assertWorkspaceRelative(file);
   if (kind === 'folder') {
-    return join(workspaceRoot, BADGES_DIR, file, FOLDER_BADGE_FILENAME);
+    return toPosix(join(workspaceRoot, BADGES_DIR, file, FOLDER_BADGE_FILENAME));
   }
-  return join(workspaceRoot, BADGES_DIR, `${file}.json`);
+  return toPosix(join(workspaceRoot, BADGES_DIR, `${file}.json`));
 }
 
 export async function readBadge(
@@ -58,7 +59,7 @@ export async function writeBadge(
     workspaceRoot,
     badgePath(workspaceRoot, badge.file, badge.kind),
   );
-  await fs.mkdir(dirname(path), { recursive: true });
+  await fs.mkdir(toPosix(dirname(path)), { recursive: true });
   await writeMaybeNoFollow(fs, path, `${JSON.stringify(badge, null, 2)}\n`);
 }
 
@@ -81,7 +82,7 @@ export async function removeBadge(
  * callers want listing to be robust against a single bad file.
  */
 export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<readonly BadgeFile[]> {
-  const badgesDir = join(workspaceRoot, BADGES_DIR);
+  const badgesDir = toPosix(join(workspaceRoot, BADGES_DIR));
   const out: BadgeFile[] = [];
   // Anchor containment to the WORKSPACE root, not to .bh/badges/: if
   // .bh/badges itself is a planted directory symlink (the whole .bh/ tree
@@ -132,7 +133,7 @@ async function walk(
   if (!stat?.isDirectory) return;
   const names = await fs.readdir(dir);
   for (const name of names) {
-    const child = join(dir, name);
+    const child = toPosix(join(dir, name));
     // Resolve canonical path + stat under a try: a hostile/broken symlink
     // (ELOOP on a mutual cycle, EACCES, …) skips this child rather than
     // crashing the listing — same robustness as the corrupt-badge skip below.

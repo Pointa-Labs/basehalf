@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { FsLike } from '../../kernel/index.js';
+import { type FsLike, toPosix } from '../../kernel/index.js';
 import { EMPTY_WORKSPACES, type WorkspacesFile } from './types.js';
 
 /**
@@ -8,7 +8,7 @@ import { EMPTY_WORKSPACES, type WorkspacesFile } from './types.js';
  */
 
 export function workspacesFilePath(configDir: string): string {
-  return join(configDir, 'workspaces.json');
+  return toPosix(join(configDir, 'workspaces.json'));
 }
 
 export async function readWorkspaces(fs: FsLike, configDir: string): Promise<WorkspacesFile> {
