@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Handler,
   PathEscape,
+  toPosix,
   assertReadContained,
   assertWorkspaceRelative,
   assertWriteContained,
@@ -46,7 +47,7 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   args,
   ctx,
 ) => {
-  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  const absPath = toPosix(isAbsolute(args.path) ? args.path : resolve(args.path));
   const stat = await ctx.fs.stat(absPath);
   if (!stat) {
     // Tagged so the desktop NavTree can render a "workspace unreachable"
@@ -90,7 +91,7 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   const names = await ctx.fs.readdir(absPath);
   const entries: WorkspaceListFilesEntry[] = [];
   for (const name of names) {
-    const child = join(absPath, name);
+    const child = toPosix(join(absPath, name));
     // Filter a symlinked-out child so it never surfaces in the tree (and
     // can't be expanded into an external dir on the next listFiles call).
     let realChild: string;
@@ -140,7 +141,7 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   // the request string, but a planted symlink whose NAME is innocuous still
   // escapes once node:fs follows it. Canonicalize and require containment, then
   // read the canonical path so check and open agree. (See kernel/contain.ts.)
-  const abs = await assertReadContained(ctx.fs, entry.path, join(entry.path, args.path));
+  const abs = await assertReadContained(ctx.fs, entry.path, toPosix(join(entry.path, args.path)));
   // O_NOFOLLOW read closes the check-then-read TOCTOU: if the leaf is swapped
   // for a symlink between the guard above and this read, the open refuses it
   // rather than re-following. (Residual: an intermediate-component swap still
@@ -206,12 +207,12 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   // not let an editor save / New-Note clobber or plant a file outside the
   // workspace. assertWriteContained proves the real parent is inside and
   // refuses a symlink leaf. (See kernel/contain.ts.)
-  const abs = await assertWriteContained(ctx.fs, entry.path, join(entry.path, args.path));
+  const abs = await assertWriteContained(ctx.fs, entry.path, toPosix(join(entry.path, args.path)));
   // Honor the desktop new-note dialog's "folders auto-created" promise:
   // mkdir -p the parent so a path like `subdir/new/note.md` succeeds even
   // when `subdir/new` doesn't exist yet. Top-level paths have an empty
   // dirname (".") and the mkdir is a no-op.
-  const parent = dirname(abs);
+  const parent = toPosix(dirname(abs));
   if (parent && parent !== abs) {
     await ctx.fs.mkdir(parent, { recursive: true });
   }

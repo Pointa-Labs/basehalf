@@ -3,6 +3,7 @@ import {
   type FsLike,
   assertReadContained,
   assertWriteContained,
+  toPosix,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
@@ -106,7 +107,7 @@ async function updateGitignore(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<Pick<SetupReport, 'gitignoreUpdated' | 'gitignoreSkipped' | 'gitignoreAbsent'>> {
-  const lexical = join(workspaceRoot, '.gitignore');
+  const lexical = toPosix(join(workspaceRoot, '.gitignore'));
   // runSetup writes two USER files (.gitignore, CLAUDE.md) — bh's only other
   // write path besides the editor. A workspace "you drop in" can ship a
   // planted `.gitignore`/`CLAUDE.md` SYMLINK whose innocuous name escapes
@@ -149,7 +150,7 @@ async function updateClaudeMd(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<Pick<SetupReport, 'claudeMdUpdated' | 'claudeMdSkipped'>> {
-  const lexical = join(workspaceRoot, 'CLAUDE.md');
+  const lexical = toPosix(join(workspaceRoot, 'CLAUDE.md'));
   try {
     const current = await readMaybeNoFollow(
       fs,

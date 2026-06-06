@@ -5,6 +5,8 @@ import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
   BadgeAddRefArgs,
   BadgeDeleteArgs,
+  BadgeDeleteOrphansArgs,
+  BadgeDeleteOrphansResult,
   BadgeDeleteResult,
   BadgeFile,
   BadgeGetArgs,
@@ -463,6 +465,68 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
   return { badge: moved, updatedRefs, focusUpdated };
 };
 
+/**
+ * Delete all orphan badges in the current workspace in one shot. An orphan is
+ * any badge whose `orphan: true` flag was set by the watcher when the backing
+ * file was deleted from disk. The badge's prompt and references are discarded;
+ * other badges that referred TO the orphan keep their outbound refs (they become
+ * dangling refs the user can clean up individually via badge.removeRef). Focus is
+ * updated via the same reconcile path as badge.delete so an orphan that was
+ * still in focus.md gets removed cleanly.
+ *
+ * Returns the list of deleted paths so the caller can refresh the canvas.
+ */
+export const deleteOrphans: Handler<BadgeDeleteOrphansArgs, BadgeDeleteOrphansResult> = async (
+  _args,
+  ctx,
+) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const all = await listBadges(ctx.fs, root);
+  const orphans = all.filter((b) => b.orphan === true);
+  const deleted: string[] = [];
+  for (const badge of orphans) {
+    try {
+      await removeBadge(ctx.fs, root, badge.file, badge.kind);
+      deleted.push(badge.file);
+      // Remove from focus.md if it was in the active list. toggleActiveFile
+      // removes the file when present, adds it when absent — so guard with
+      // focus.get first to avoid accidentally re-adding it.
+      try {
+        const focusState = await ctx.run<Record<string, never>, { active: readonly string[] }>(
+          'focus.get',
+          {},
+        );
+        if (focusState.active.includes(badge.file)) {
+          await ctx.run('focus.toggleActiveFile', { file: badge.file });
+        }
+      } catch {
+        // Best-effort — a PathEscape or missing focus module must never abort
+        // the cleanup loop.
+      }
+      // Clean up inbound index entries: both inbound (other badges → this one)
+      // and outbound (this badge → others, which leave stale backlink rows).
+      try {
+        const inboundRes = await ctx.run<{ file: string }, { entries: { from: string }[] }>(
+          'inbound.get',
+          { file: badge.file },
+        );
+        for (const entry of inboundRes.entries) {
+          await ctx.run('inbound.removeRef', { from: entry.from, to: badge.file });
+        }
+        for (const ref of badge.references) {
+          await ctx.run('inbound.removeRef', { from: badge.file, to: ref.to });
+        }
+      } catch {
+        // inbound module may not be registered in lightweight tests
+      }
+    } catch (err) {
+      // Skip badges we can't delete (permissions, already gone) — don't abort.
+      console.warn(`[bh:badges] deleteOrphans: skipping ${badge.file}:`, err);
+    }
+  }
+  return { deleted };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -471,6 +535,7 @@ export function commands(): ReadonlyArray<
     ['badge.set', set as unknown as Handler<never, unknown>],
     ['badge.list', list as unknown as Handler<never, unknown>],
     ['badge.delete', del as unknown as Handler<never, unknown>],
+    ['badge.deleteOrphans', deleteOrphans as unknown as Handler<never, unknown>],
     ['badge.addRef', addRef as unknown as Handler<never, unknown>],
     ['badge.removeRef', removeRef as unknown as Handler<never, unknown>],
     ['badge.reconnectRef', reconnectRef as unknown as Handler<never, unknown>],

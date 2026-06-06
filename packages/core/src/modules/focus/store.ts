@@ -3,6 +3,7 @@ import {
   type FsLike,
   assertReadContained,
   assertWriteContained,
+  toPosix,
   readMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
@@ -24,7 +25,7 @@ function oneLine(s: string): string {
 }
 
 export function focusPath(workspaceRoot: string): string {
-  return join(workspaceRoot, FOCUS_FILE);
+  return toPosix(join(workspaceRoot, FOCUS_FILE));
 }
 
 /**
@@ -196,6 +197,6 @@ export async function writeFocus(
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
-  await fs.mkdir(dirname(path), { recursive: true });
+  await fs.mkdir(toPosix(dirname(path)), { recursive: true });
   await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source));
 }

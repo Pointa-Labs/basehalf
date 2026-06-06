@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { type Handler, canonicalize } from '../../kernel/index.js';
+import { type Handler, canonicalize, toPosix } from '../../kernel/index.js';
 import type { SearchHit, SearchMatch, SearchQueryArgs, SearchQueryResult } from './types.js';
 
 // Directories we never descend into. A superset of the renderer's NavTree
@@ -170,7 +170,7 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
     const dirs: (typeof frame)[] = [];
     for (const entry of listing.entries) {
       const childRel = frame.rel ? `${frame.rel}/${entry.name}` : entry.name;
-      const childAbs = join(frame.abs, entry.name);
+      const childAbs = toPosix(join(frame.abs, entry.name));
       if (entry.type === 'dir') {
         // SKIP_DIRS prunes tooling/cache DIRECTORIES only — a regular FILE whose
         // basename happens to be `build` / `vendor` / `node_modules` (an
