@@ -111,16 +111,17 @@ async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Prom
 }
 
 /**
- * A focused file's badge just went orphan (its file was deleted on disk). Drop it
- * from focus.md so the agent's brief never points at a vanished file — the same
- * best-effort cascade as reconcileFocus (a derived-.bh/ hiccup must never fail the
- * badge op). focus.dropOrphan no-ops when the file isn't focused.
+ * A focused file's badge just went orphan (its file was deleted on disk). Re-render
+ * the brief so the agent never reads a vanished file: focus.resync re-assembles
+ * through the liveness choke point, which now EXCLUDES the just-orphaned file (and
+ * leaves a heal note). Best-effort — a derived-.bh/ hiccup must never fail the badge
+ * op. focus.resync no-ops when the file isn't focused.
  */
-async function dropOrphanFromFocus(ctx: Parameters<Handler>[1], file: string): Promise<void> {
+async function resyncFocusAfterOrphan(ctx: Parameters<Handler>[1], file: string): Promise<void> {
   try {
-    await ctx.run('focus.dropOrphan', { file });
+    await ctx.run('focus.resync', { file });
   } catch (err) {
-    console.warn('[bh:badges] focus.dropOrphan after markOrphan failed (non-fatal):', err);
+    console.warn('[bh:badges] focus.resync after markOrphan failed (non-fatal):', err);
   }
 }
 
@@ -333,7 +334,7 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   // Cascade to focus.md: a focused file that just vanished must leave the brief,
   // exactly like badge.rename cascades via renameActiveFile. File badges only —
   // a folder badge is never an active focus item.
-  if (kind === 'file') await dropOrphanFromFocus(ctx, args.file);
+  if (kind === 'file') await resyncFocusAfterOrphan(ctx, args.file);
   return next;
 };
 

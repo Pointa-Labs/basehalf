@@ -569,17 +569,18 @@ describe('focus.setIntent (author the turn intent without touching the active se
   });
 });
 
-describe('focus.dropOrphan (a focused file deleted under the watcher leaves the brief)', () => {
+describe('brief liveness: orphan-flagged files never reach the brief (by construction)', () => {
   let ctx: TestContext;
   beforeEach(async () => {
     ctx = await seed();
   });
 
-  it('badge.markOrphan on a focused file cascades: it drops from the brief, with a heal note', async () => {
+  it('badge.markOrphan on a focused file cascades (via resync): it drops from the brief, with a heal note', async () => {
     await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
     await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
     await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'compare them' });
-    // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.dropOrphan.
+    // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.resync,
+    // which re-assembles through the liveness choke point and excludes the orphan.
     await ctx.core.run('badge.markOrphan', { file: 'a.md' });
     const after = await ctx.core.run('focus.get', {});
     expect(after.active).toEqual(['b.md']); // a.md left the brief
@@ -589,10 +590,19 @@ describe('focus.dropOrphan (a focused file deleted under the watcher leaves the 
     expect(md).toContain('# note:'); // visible heal receipt
   });
 
-  it('focus.dropOrphan is a no-op (dropped:false) when the file is not focused', async () => {
-    await ctx.core.run('focus.set', { files: ['x.md'] });
-    const r = await ctx.core.run('focus.dropOrphan', { file: 'not-focused.md' });
-    expect(r.dropped).toBe(false);
+  it('focus.set NEVER writes a known-deleted (orphan) file — dropped at the write', async () => {
+    // The canvas multi-select can include an orphan badge (a MISSING card); the
+    // brief must still never point at it. assembleItems excludes orphan-flagged
+    // files for EVERY writer, so a dead pick is dropped (with a heal note) by
+    // construction — not patched out afterwards.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' }); // a.md deleted on disk
+    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect(res.active).toEqual(['b.md']); // orphan a.md dropped at the write
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('- a.md');
+    expect(md).toContain('# note:');
   });
 });
 
