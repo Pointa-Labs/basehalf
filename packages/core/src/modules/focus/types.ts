@@ -53,6 +53,10 @@ export interface FocusGetResult {
   /** The turn intent (from `intent:` in focus.md), if any. Surfaced so a caller
    *  re-setting focus can preserve it instead of dropping the block. */
   readonly intent?: string;
+  /** When the turn brief was last SERVED (ISO) — stamped by focus.brief, read here
+   *  so the desktop chip can show "agent read your context Ns ago". Confirms a
+   *  read occurred, not comprehension. Undefined until the first brief read. */
+  readonly lastBriefServedAt?: string;
 }
 
 export type FocusClearArgs = Record<string, never>;
@@ -117,7 +121,13 @@ export interface FocusSetIntentResult {
   readonly skipped?: boolean;
 }
 
-export type FocusBriefArgs = Record<string, never>;
+export interface FocusBriefArgs {
+  /** When false, READ the brief WITHOUT stamping the served receipt — the in-app
+   *  preview's peek must not masquerade as an agent pull. Defaults to true: a CLI
+   *  `bh focus brief`, the desktop Copy-brief, or a future MCP get_brief are
+   *  genuine hand-offs and DO stamp. */
+  readonly stamp?: boolean;
+}
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
    *  agent reads each message. Surfaced so the desktop can offer a one-click
@@ -170,4 +180,10 @@ export interface FocusRenameActiveFolderResult {
    *  `from` and was re-stamped to `to` (so the folder→brief refresh link
    *  survives the rename). False when nothing referenced `from`. */
   readonly renamed: boolean;
+}
+
+export type FocusPruneDanglingArgs = Record<string, never>;
+export interface FocusPruneDanglingResult {
+  /** How many active files were dropped because they no longer exist on disk. */
+  readonly pruned: number;
 }

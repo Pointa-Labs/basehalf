@@ -41,7 +41,7 @@ It turns a real folder into a visual workspace with files, notes, references,
 prompts, and focus signals that stay close to the materials they describe.
 
 Your files stay in a real folder. BaseHalf adds a `.bh/` layer beside them for
-canvas positions, prompts, references, saved views, and the current focus signal.
+canvas positions, prompts, references, and the current focus signal.
 Humans work through the desktop app. Agents read the same local protocol and
 decide what context to load.
 
@@ -77,8 +77,8 @@ flowchart LR
   bh --> inbound[".bh/index/inbound.json"]
 ```
 
-A **badge** is a file plus a small backpack of metadata: prompt, references,
-canvas position, and view-specific placement. Badges are materialized
+A **badge** is a file plus a small backpack of metadata: prompt, references, and
+canvas position. Badges are materialized
 automatically when you open a workspace.
 
 The protocol is deliberately simple:
@@ -101,7 +101,7 @@ BaseHalf is pre-alpha and the core loop is usable:
 - Preview and edit Markdown via BlockNote, with guardrails for lossy
   round-trips.
 - Preview images, audio, video, PDFs, and plain code/text files.
-- Save compound views and publish the current focus for agents.
+- Focus a folder as a group and publish the current focus for agents.
 - Keep `.bh/` metadata reconciled as files are added, renamed, or removed.
 
 Core modules currently ship for:
@@ -110,7 +110,7 @@ Core modules currently ship for:
 - `badge` - read/write prompts, references, kind, and canvas metadata.
 - `inbound` - query and rebuild reverse references.
 - `focus` - publish the agent focus signal.
-- `view` - create saved compound views.
+- `search` - full-text content search across the workspace.
 - `watcher` - reconcile external filesystem changes.
 
 ## Quickstart
@@ -148,8 +148,7 @@ bh badge set chapter-03.md --prompt "explain supply and demand simply"
 bh badge addRef chapter-03.md textbook.pdf --note "source chapter"
 bh inbound get textbook.pdf --json
 bh focus set --files chapter-03.md,textbook.pdf
-bh view create "Exam review"
-bh view addMember exam-review chapter-03.md --x 100 --y 200
+bh search "supply and demand" --json
 ```
 
 Create a demo workspace:
@@ -177,7 +176,7 @@ packages/
         badges/       file/folder badges + references + canvas metadata
         inbound/      derived reverse-reference index
         focus/        .bh/focus.md publication
-        views/        saved compound views
+        search/       full-text content search over workspace files
         watcher/      chokidar reconciliation for local filesystem changes
   cli/              bh - thin shell over @basehalf/core
   desktop/          Electron + React shell over core via IPC
@@ -197,14 +196,14 @@ docs/             decisions, dependency policy, trademark policy
 5. **Publish simple local context.** BaseHalf writes a small protocol to disk so
    agents can navigate the workspace from the same folder.
 6. **Composable primitives.** BaseHalf exposes small operations for workspaces,
-   badges, references, focus, views, and filesystem reconciliation.
+   badges, references, focus, search, and filesystem reconciliation.
 
 ## Designed For
 
 - **Agent-assisted reading and writing:** keep source files, notes, prompts, and
   references connected in one local workspace.
 - **Research maps:** arrange files on a canvas, connect supporting materials,
-  and save focused views for later work.
+  and focus a folder of supporting materials for later work.
 - **Project memory:** keep the current focus, file-level prompts, and reference
   graph beside the project itself.
 - **Local-first collaboration with agents:** let Codex, Claude Code, OpenClaw,

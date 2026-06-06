@@ -568,3 +568,139 @@ describe('focus.setIntent (author the turn intent without touching the active se
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: matched question');
   });
 });
+
+describe('brief liveness: orphan-flagged files never reach the brief (by construction)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('badge.markOrphan on a focused file cascades (via resync): it drops from the brief, with a heal note', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'compare them' });
+    // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.resync,
+    // which re-assembles through the liveness choke point and excludes the orphan.
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['b.md']); // a.md left the brief
+    expect(after.intent).toBe('compare them'); // intent preserved
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('- a.md');
+    expect(md).toContain('# note:'); // visible heal receipt
+  });
+
+  it('focus.set NEVER writes a known-deleted (orphan) file — dropped at the write', async () => {
+    // The canvas multi-select can include an orphan badge (a MISSING card); the
+    // brief must still never point at it. assembleItems excludes orphan-flagged
+    // files for EVERY writer, so a dead pick is dropped (with a heal note) by
+    // construction — not patched out afterwards.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' }); // a.md deleted on disk
+    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect(res.active).toEqual(['b.md']); // orphan a.md dropped at the write
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('- a.md');
+    expect(md).toContain('# note:');
+  });
+
+  it('a metadata edit on an orphan file keeps it orphan — it does NOT re-enter the brief', async () => {
+    // The liveness invariant relies on the orphan flag PERSISTING: editing a
+    // deleted file's prompt (panel / CLI badge.set) must not silently un-orphan
+    // it, or a later focus.set could publish a brief pointing at the dead file.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'edited while gone' } });
+    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBe(true); // survived the edit
+    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect(res.active).toEqual(['b.md']); // still excluded
+    // An explicit orphan:false (the watcher's add when the file re-appears) clears it.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { kind: 'file', orphan: false } });
+    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBeUndefined();
+  });
+});
+
+describe('focus.pruneDangling (re-entry: drop active files gone from disk)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('drops an active file whose disk file vanished (git checkout / external rm), with a note', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    ctx.files.set('/work/b.md', '# b');
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'study' });
+    ctx.files.delete('/work/b.md'); // deleted on disk with NO watcher event
+    const r = await ctx.core.run('focus.pruneDangling', {});
+    expect(r.pruned).toBe(1);
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['a.md']); // self-healed
+    expect(after.intent).toBe('study'); // intent preserved
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# note:');
+  });
+
+  it('is a no-op (pruned:0) when every active file still exists on disk', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const r = await ctx.core.run('focus.pruneDangling', {});
+    expect(r.pruned).toBe(0);
+  });
+
+  it('workspace.use re-validates on re-open: a stale focus.md self-heals', async () => {
+    ctx.files.set('/work/keep.md', '# keep');
+    ctx.files.set('/work/gone.md', '# gone');
+    await ctx.core.run('focus.set', { files: ['keep.md', 'gone.md'] });
+    ctx.files.delete('/work/gone.md');
+    // Re-open the workspace → materializeWithFallback → focus.pruneDangling.
+    await ctx.core.run('workspace.use', { name: 'w' });
+    const after = await ctx.core.run('focus.get', {});
+    expect(after.active).toEqual(['keep.md']);
+  });
+});
+
+describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('focus.brief stamps a served receipt in .bh/cache/; focus.get reads it back; the brief stays clean', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined(); // never served
+    await ctx.core.run('focus.brief', {}); // an agent pulls the brief
+    const after = await ctx.core.run('focus.get', {});
+    expect(typeof after.lastBriefServedAt).toBe('string'); // receipt stamped + read back
+    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(true); // in gitignored cache
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('servedAt'); // not in the brief
+  });
+
+  it('a focus CHANGE invalidates the receipt — "served Ns ago" never claims a stale set', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    await ctx.core.run('focus.brief', {}); // agent pulls THIS set
+    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
+    // User re-curates → the prior pull was of the OLD set; the receipt must clear.
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+  });
+
+  it('a {stamp:false} read (the in-app preview peek) does NOT record a delivery', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    await ctx.core.run('focus.brief', { stamp: false }); // peek, not a hand-off
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(false);
+  });
+
+  it('a heal (focus.pruneDangling) also invalidates the receipt — every focus.md write clears it', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    ctx.files.set('/work/b.md', '# b');
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    await ctx.core.run('focus.brief', {}); // agent pulled THIS (2-file) set
+    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
+    ctx.files.delete('/work/b.md'); // gone while the watcher wasn't running
+    await ctx.core.run('focus.pruneDangling', {}); // re-entry heal rewrites focus.md
+    // The pulled set is no longer current → "served Ns ago" must not survive the heal.
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+  });
+});

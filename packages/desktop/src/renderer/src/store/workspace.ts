@@ -148,9 +148,11 @@ interface WorkspaceState {
    *  that pane and opens it in the new pane. A reference open (like the sidebar) —
    *  the badge stays on the canvas. */
   dockBadge: (file: string, paneId: string, region: DropRegion) => void;
-  /** The current object(s) the user selected on the canvas. This is UI object
-   *  state only: resize/move/connect affordances read it, while Agent Context
-   *  remains an explicit `.bh/focus.md` action. */
+  /** The current object(s) the user selected on the canvas — UI object state for
+   *  resize/move/connect affordances. A SINGLE selection stays UI-only; a canvas
+   *  MULTI-selection (>=2 files) additionally mirrors into `.bh/focus.md` as agent
+   *  context (Phase 0: selection-as-deixis), handled in Canvas.onSelectionChange.
+   *  Explicit context actions still own single-file + override flows. */
   canvasSelection: CanvasSelection;
   setCanvasSelection: (selection: CanvasSelection) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
@@ -322,6 +324,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await window.bh.run('workspace.listFiles', { path: currentWs.path });
             set({ currentReachable: true });
             await startWatcher();
+            // Re-validate the brief against disk on every workspace LOAD. Plain
+            // startup loads via workspace.list (a read) — not workspace.use — so
+            // materializeWithFallback's re-entry prune never runs here; a focus.md
+            // gone stale while the app was closed (git checkout / external rm)
+            // would otherwise point the agent at a deleted file. Cheap + idempotent;
+            // fire-and-forget so a hiccup never blocks the canvas.
+            void window.bh.run('focus.pruneDangling', {}).catch(() => undefined);
           } catch (err) {
             if (isPathNotFound(err)) {
               set({ currentReachable: false });

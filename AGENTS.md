@@ -1,62 +1,33 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` has one real module today — `workspace`. The desktop app
-> (v0) is in development; once it ships, the CLAUDE.md hint installed by
-> `bh init` will switch to the **agent protocol** model
-> (`.bh/focus.md` + `.bh/badges/<file>.json` + `.bh/index/inbound.json` — see
-> [docs/decisions.md D14](docs/decisions.md)).
+> **This mirrors [`CLAUDE.md`](CLAUDE.md).** BaseHalf keeps ONE maintained agent
+> guide — `CLAUDE.md` in the repo root — so the two can't drift. Read it for the
+> full command reference: the `workspace`, `badge`, `inbound`, `focus`, and
+> `search` modules (plus an internal `watcher`), and the `.bh/` agent protocol
+> (`.bh/focus.md` + `.bh/badges/<file>.json` + `.bh/index/inbound.json`). The
+> load-bearing invariants are repeated below so they hold even if this is the
+> only file you read.
 >
-> The old `node src/cli.mjs` reference impl was deleted (clean slate); that
-> path no longer exists. A short-lived `bh decision` subcommand has also been
-> retired — see [docs/decisions.md D18](docs/decisions.md). Internal product
-> decisions for the BaseHalf project itself live in `private-docs/decisions/`
-> (private repo).
+> The old `node src/cli.mjs` reference impl was deleted (clean slate); that path
+> no longer exists. A short-lived `bh decision` subcommand has also been retired
+> — see [docs/decisions.md D18](docs/decisions.md). Internal product decisions
+> for the BaseHalf project itself live in `private-docs/decisions/` (private repo).
 
 `bh` is the CLI. Invoke it as `bh <cmd>` (linked globally via `npm link` in
 `packages/cli/`). If `bh` is missing on this machine, rebuild + relink:
-`pnpm -r build && (cd packages/cli && npm link)`.
-
-Always prefer `--json` on reads — output stays stable across versions.
-**Put `--json` after the subcommand** (e.g. `bh workspace list --json`),
-not at the root.
-
-## Workspaces — which folder is "active"
-
-A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
-place; `bh` tracks which folder is "active" so future modules (badges, focus,
-inbound — landing in v0) know which root to operate on. Adding one creates a
-`.bh/` subdirectory; removing only unregisters — it never deletes user files.
-
-```bash
-bh init                                      # register cwd as workspace + setup (.gitignore + CLAUDE.md hint)
-bh workspace add <path> [--name <name>] [--setup]
-bh workspace list
-bh workspace use <name>
-bh workspace current
-bh workspace remove <name>
-```
-
-`bh init` is the one-shot for a new project: registers the current directory,
-appends `.bh/cache/` to `.gitignore` (the rest of `.bh/` stays in git so
-canvas positions / metadata travel with the folder, per the architecture),
-and appends a workspace-hint section to `CLAUDE.md` (non-destructive —
-marker-detected to be idempotent).
-
-Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
-(useful for tests / sandboxed runs). Default is OS-conventional:
-`~/Library/Application Support/basehalf` on macOS, `$XDG_CONFIG_HOME/basehalf`
-on Linux, `%APPDATA%/basehalf` on Windows.
+`pnpm -r build && (cd packages/cli && npm link)`. Always prefer `--json` on
+reads — output stays stable across versions — placed **after** the subcommand
+(e.g. `bh workspace list --json`), not at the root. Set `BH_CONFIG_DIR=/some/path`
+to point `bh` at a non-default config directory (useful for tests / sandboxed
+runs).
 
 ## Recording why decisions were made (internal team workflow)
 
-This project's own architecture / product decisions are kept as MD files
-under `private-docs/decisions/<slug>.md` (one decision per file, with a
-YAML frontmatter block plus a rationale body). Grep / read them directly;
-there's no CLI wrapper.
-
-For agents helping us build BaseHalf: when you encounter "why did we…"
-questions about architecture or product direction, look in
-`private-docs/decisions/` first. The corpus README at
+This project's own architecture / product decisions are kept as MD files under
+`private-docs/decisions/<slug>.md` (one decision per file, with a YAML
+frontmatter block plus a rationale body). Grep / read them directly; there's no
+CLI wrapper. When you encounter "why did we…" questions about architecture or
+product direction, look in `private-docs/decisions/` first. The corpus README at
 `private-docs/decisions/README.md` explains the conventions.
 
 ## Rules (carry into future modules)

@@ -110,6 +110,21 @@ async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Prom
   }
 }
 
+/**
+ * A focused file's badge just went orphan (its file was deleted on disk). Re-render
+ * the brief so the agent never reads a vanished file: focus.resync re-assembles
+ * through the liveness choke point, which now EXCLUDES the just-orphaned file (and
+ * leaves a heal note). Best-effort — a derived-.bh/ hiccup must never fail the badge
+ * op. focus.resync no-ops when the file isn't focused.
+ */
+async function resyncFocusAfterOrphan(ctx: Parameters<Handler>[1], file: string): Promise<void> {
+  try {
+    await ctx.run('focus.resync', { file });
+  } catch (err) {
+    console.warn('[bh:badges] focus.resync after markOrphan failed (non-fatal):', err);
+  }
+}
+
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return readBadge(ctx.fs, root, args.file, args.kind ?? 'file');
@@ -134,6 +149,12 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         ...(patch.canvas !== undefined
           ? { canvas: patch.canvas }
           : existing.canvas !== undefined && { canvas: existing.canvas }),
+        // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
+        // deleted file must not silently un-orphan it (that would let a vanished
+        // path back into the agent's brief). Cleared only by an explicit
+        // `orphan:false` (the watcher's add when the file re-appears); set only by
+        // badge.markOrphan.
+        ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
         createdAt: existing.createdAt,
         modifiedAt: now,
       }
@@ -144,6 +165,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         ...(patch.prompt !== undefined && { prompt: patch.prompt }),
         references: patch.references ?? [],
         ...(patch.canvas !== undefined && { canvas: patch.canvas }),
+        ...(patch.orphan === true && { orphan: true }),
         createdAt: now,
         modifiedAt: now,
       };
@@ -316,6 +338,10 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
     modifiedAt: new Date().toISOString(),
   };
   await writeBadge(ctx.fs, root, next);
+  // Cascade to focus.md: a focused file that just vanished must leave the brief,
+  // exactly like badge.rename cascades via renameActiveFile. File badges only —
+  // a folder badge is never an active focus item.
+  if (kind === 'file') await resyncFocusAfterOrphan(ctx, args.file);
   return next;
 };
 

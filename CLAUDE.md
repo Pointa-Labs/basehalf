@@ -1,7 +1,8 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` ships six modules: `workspace`, `badge`, `inbound`,
-> `focus`, `view`, `search`. The desktop app (v0) has shipped (PRs 9–16; see
+> **Status:** `bh` ships five user-facing modules: `workspace`, `badge`,
+> `inbound`, `focus`, `search` (plus an internal `watcher`). The desktop app
+> (v0) has shipped (PRs 9–16; see
 > [docs/roadmap.md](docs/roadmap.md)); `bh init` now installs the full
 > **agent protocol** hint pointing agents at `.bh/focus.md` +
 > `.bh/badges/<file>.json` + `.bh/index/inbound.json` (see
@@ -25,7 +26,7 @@ not at the root.
 
 A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
 place; `bh` tracks which folder is "active" so the badge / focus / inbound /
-view modules know which root to operate on. Adding one creates a `.bh/`
+search modules know which root to operate on. Adding one creates a `.bh/`
 subdirectory and **eagerly materializes a default badge for every supported
 file and subfolder** (idempotent — re-using the workspace later picks up any
 files added externally). Removing only unregisters — it never deletes user
@@ -52,7 +53,7 @@ Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
 `~/Library/Application Support/basehalf` on macOS, `$XDG_CONFIG_HOME/basehalf`
 on Linux, `%APPDATA%/basehalf` on Windows.
 
-## Badges, references, inbound, focus, views (the v0 agent protocol)
+## Badges, references, inbound, focus (the v0 agent protocol)
 
 A *badge* is a file (or folder) plus a "backpack" — prompt, references to
 other files, and a canvas position. Badges live at
@@ -65,7 +66,7 @@ bh badge get <file> [--kind file|folder] [--json]
 bh badge set <file> [--kind file|folder] [--prompt <text>] [--json]
 bh badge addRef <file> <to> [--note <text>] [--json]
 bh badge removeRef <file> <to> [--json]
-bh badge rename <from> <to> [--kind file|folder] [--json]   # atomic move + cascade refs + focus + views
+bh badge rename <from> <to> [--kind file|folder] [--json]   # atomic move + cascade refs + focus
 ```
 
 The reverse index lives at `.bh/index/inbound.json` and is maintained
@@ -79,13 +80,16 @@ bh inbound rebuild [--json]
 
 The agent's "what do I read this turn?" signal is `<workspace>/.bh/focus.md`
 (Markdown so it pastes naturally into context). It's a YAML-style `active:`
-list inside MD, written by the desktop UI as the user clicks badges. Editing a
+list inside MD, written by the desktop UI as the user curates context — an
+explicit focus action, or a canvas **multi-selection (≥2 file badges)** that
+mirrors in automatically (debounced; a single selection stays UI-only). Editing a
 focused file's badge (`badge.set/addRef/removeRef`) auto-reconciles focus.md so
 its inlined prompt/refs stay fresh — and preserves the `intent:` line — via an
 internal `focus.resync` (no manual re-focus needed, CLI/agent edits included).
 
 ```bash
-bh focus set --files <csv>   # or --view <id>
+bh focus set --files <csv>   # or --folder <path>
+bh focus set-intent <text>   # set/clear the turn intent (the user's question) — active set untouched
 bh focus get
 bh focus brief               # print .bh/focus.md verbatim — the brief the agent reads
 bh focus clear
@@ -95,18 +99,14 @@ bh focus clear
 the turn brief verbatim so it can be pasted into any AI chat — making the
 curated context portable beyond the Claude-Code-auto-read-in-repo path.
 
-A *saved view* is a named, free-position grouping of badges that need to
-sit together in one canvas even if they live in different workspace
-folders — references, not copies.
+A **folder is the grouping unit** (the old saved-"views" feature was removed in
+favour of this). Focus a whole folder and the agent reads its files as a group;
+the folder badge's prompt becomes the turn `intent:`, and the brief records a
+`# source-folder:` provenance marker so editing that folder prompt refreshes the
+brief by exact identity.
 
 ```bash
-bh view create <name> [--id <id>] [--prompt <text>]
-bh view list
-bh view get <id>
-bh view update <id> [--name <name>] [--prompt <text>]      # rename and/or set agent prompt
-bh view addMember <id> <file> [--x <n>] [--y <n>]
-bh view removeMember <id> <file>
-bh view delete <id>                 # member badges + user files untouched
+bh focus set --folder <path>   # focus every supported file under <path>
 ```
 
 Full-text **content search** across the current workspace's text files — the
@@ -161,3 +161,22 @@ questions about architecture or product direction, look in
   forever, so the commit never turns green. Flow: branch → PR → checks green
   → merge on GitHub. (Human-contributor specifics live in
   [CONTRIBUTING.md](CONTRIBUTING.md).)
+
+<!-- bh:workspace-hint -->
+## BaseHalf workspace
+
+This folder is a BaseHalf workspace. **At the start of every turn, read
+`.bh/focus.md`** — a self-contained turn brief the app keeps fresh (it never points
+at a deleted file). It carries an optional `intent:` (what the user is doing this
+turn) and an `active:` list of the files they're focused on, each with its
+`prompt:` (what they want you to know) and `refs:` (which files connect, and why).
+One read gives you the user's curated attention — grep can't recover those
+human-written notes.
+
+Need more than the brief? The full graph is under `.bh/`:
+`.bh/badges/<rel-path>.json` is any file's backpack (prompt + references), and
+`.bh/index/inbound.json` is who points AT a file. Follow these on your own budget.
+
+MD is the truth; `.bh/` is derived — edit user files with your own tools,
+never `.bh/*` (the app and `bh` CLI own it; `.bh/cache/` is rebuildable and
+gitignored). `bh` CLI reads accept `--json`.

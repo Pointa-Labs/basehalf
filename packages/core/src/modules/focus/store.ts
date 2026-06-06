@@ -57,6 +57,7 @@ export function renderFocus(
   active: readonly (FocusItem | string)[],
   intent?: string,
   source?: FocusSource,
+  droppedCount = 0,
 ): string {
   const items: FocusItem[] = active.map((a) => (typeof a === 'string' ? { file: a } : a));
   const lines: string[] = ['# bh focus', ''];
@@ -86,6 +87,15 @@ export function renderFocus(
     }
   }
   lines.push('');
+  // Heal receipt: when the liveness invariant dropped now-missing/orphan files
+  // from the brief, say so in a `#` comment (which the agent ignores for `active:`
+  // parsing) so a silently-shrunk brief is never a mystery.
+  if (droppedCount > 0) {
+    lines.push(
+      `# note: ${droppedCount} previously-focused file(s) were deleted and dropped from this brief.`,
+    );
+    lines.push('');
+  }
   // bh-internal PROVENANCE (a `#` comment the agent ignores): which folder
   // sourced this focus, so editing that folder's prompt can refresh the
   // `intent:` by exact identity — never by guessing from members/text. Written
@@ -193,9 +203,75 @@ export async function writeFocus(
   active: readonly (FocusItem | string)[],
   intent?: string,
   source?: FocusSource,
+  droppedCount = 0,
 ): Promise<void> {
   for (const a of active) assertFocusablePath(typeof a === 'string' ? a : a.file);
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
-  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source));
+  await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source, droppedCount));
+  // Any focus.md write CHANGES the brief → a served receipt (an agent pulled the
+  // PREVIOUS brief) is now stale. Clear it at this single write choke point so
+  // every writer (set/resync/toggle/folder/prune/clear) invalidates it uniformly
+  // and "served Ns ago" never outlives the brief it referred to. Best-effort.
+  await clearBriefServed(fs, workspaceRoot);
+}
+
+const SERVED_FILE = '.bh/cache/focus-served.json';
+
+/** Path to the workspace-scoped brief-read receipt (in .bh/cache/, gitignored). */
+function servedPath(workspaceRoot: string): string {
+  return join(workspaceRoot, SERVED_FILE);
+}
+
+/**
+ * Stamp "the brief was pulled by an agent" — written by focus.brief when an agent
+ * PULLS it through the command interface (CLI `bh focus brief`, the desktop
+ * Copy-brief hand-off, a future MCP get_brief). Honest semantics: it records a
+ * genuine hand-off, NOT comprehension — and the in-app preview reads with
+ * `{stamp:false}`, so merely PEEKING at the brief never counts as a delivery.
+ * (A raw `.bh/focus.md` file read by an in-repo agent is unobservable by design —
+ * D14 publish-not-inject — so this signal covers the command/copy path only.)
+ * Cleared on every focus change (see clearBriefServed). Lives in .bh/cache/
+ * (gitignored, rebuildable). Best-effort at the call site — a cache hiccup must
+ * never fail a read.
+ */
+export async function stampBriefServed(fs: FsLike, workspaceRoot: string): Promise<void> {
+  const path = await assertWriteContained(fs, workspaceRoot, servedPath(workspaceRoot));
+  await fs.mkdir(dirname(path), { recursive: true });
+  await writeMaybeNoFollow(fs, path, `${JSON.stringify({ servedAt: new Date().toISOString() })}\n`);
+}
+
+/**
+ * Clear the served receipt — called on EVERY brief change (writeBrief), so
+ * "served Ns ago" only ever reflects the CURRENT focus, never a stale set the
+ * agent pulled before the user re-curated. Best-effort; unlink no-ops when the
+ * receipt is absent. A cache hiccup must never fail a focus write.
+ */
+export async function clearBriefServed(fs: FsLike, workspaceRoot: string): Promise<void> {
+  try {
+    await fs.unlink(await assertWriteContained(fs, workspaceRoot, servedPath(workspaceRoot)));
+  } catch {
+    /* best-effort: the receipt is rebuildable + non-load-bearing */
+  }
+}
+
+/** Read the last brief-served timestamp (ISO), or undefined if never served. */
+export async function readBriefServedAt(
+  fs: FsLike,
+  workspaceRoot: string,
+): Promise<string | undefined> {
+  try {
+    const raw = await readMaybeNoFollow(
+      fs,
+      await assertReadContained(fs, workspaceRoot, servedPath(workspaceRoot)),
+    );
+    if (raw === null) return undefined;
+    const parsed = JSON.parse(raw) as { servedAt?: unknown };
+    return typeof parsed.servedAt === 'string' ? parsed.servedAt : undefined;
+  } catch {
+    // Rebuildable, non-load-bearing: a bad .bh/cache entry (escaping symlink,
+    // unreadable/cyclic dir) must NEVER break focus.get — it's on the hot canvas
+    // load/poll path. Any failure → "no receipt".
+    return undefined;
+  }
 }

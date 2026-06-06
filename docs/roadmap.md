@@ -18,7 +18,7 @@ The center of gravity is **the desktop app**. CLI is a means, not an end.
   Obsidian-style folder of real files. Goal: dogfoodable; the team uses it
   daily for its own knowledge work.
 - **v0.x (after v0 dogfood):** polish and the things that became obvious
-  during dogfood — multi-workspace, saved-view templates, user-configurable
+  during dogfood — multi-workspace, folder-grouping refinements, user-configurable
   file-type filters (`.bh/config.json`), possibly Rust sidecars for watcher /
   search if profiling demands.
 - **v1:** still local-first, still Apache-2.0, still free. Sync (local-first,
@@ -52,7 +52,7 @@ gate is real-use daily dogfood, not protocol correctness.
 | 10 | Workspace selector + left-side file tree (Obsidian-style) | ✅ done |
 | 11 | `badges` + `inbound` + `focus` + `views` modules in core + CLI commands | ✅ done |
 | 12 | `watcher` module — chokidar + reconcile-on-launch | ✅ done (rename heuristic + external-edit reload prompt have since shipped) |
-| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas + saved-view selector have since shipped) |
+| 13 | Canvas (React Flow) + drag + viewport persistence | ✅ done (folder sub-canvas has since shipped) |
 | 14 | Block editor (BlockNote) + PDF viewer | ✅ done (BlockNote MD round-trip is lossy — flagged in UI; G-08 hardening deferred to v0.x) |
 | 15 | Media viewers (image / audio / video) | ✅ done |
 | 16 | Polish + dogfood readiness | ⏳ self-build complete; dogfood week ongoing |
@@ -68,7 +68,8 @@ polish/hardening arc (status updated 2026-05-30):
 - pdf.js (currently `file://` iframe; sufficient for reading, not annotation) —
   still deferred.
 - ✅ folder badge → sub-canvas (double-click) — scopes to folder contents.
-- ✅ saved-view selector in TopBar (view picker + create/rename/delete/edit-prompt).
+- ✅ saved-view selector in TopBar — later removed; grouping is now folder-based
+  (focus a folder; the folder badge's prompt becomes the turn intent).
 - ✅ file rename heuristic (watcher unlink+add → `badge.rename`; covered in
   `watcher.test.ts`).
 - ✅ external-edit IPC + reload prompt in the editor ("changed on disk" banner →

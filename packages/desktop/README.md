@@ -6,41 +6,36 @@ single `run(command, args)` door. No business logic lives here.
 
 ## Status
 
-PR 9 (scaffold) and PR 10 (workspace GUI) are in. The shell now boots
-with a TopBar (workspace dropdown + pick/remove), a Sidebar with
-NavTree (lazy-expand directory tree, hidden-files blacklist), an
-"unreachable workspace" recovery UI (re-select / unregister), and a
-one-shot macOS Full Disk Access guidance banner. PR 11 onward adds
-the canvas + badges + block editor + agent protocol. See
-[roadmap](../../docs/roadmap.md).
+Pre-alpha but well past scaffold: the v0 desktop app has shipped. The shell
+boots into a three-region layout (sidebar file tree | canvas | right panel)
+with workspace switching, file/folder **badges** on a React Flow canvas (drag,
+positions persist, references, folder sub-canvases), a **BlockNote** block
+editor with VS Code-style editor groups (split panes, tabs, drag-to-dock),
+media / code / PDF previews, the **focus** chip (Agent Context + Copy brief +
+brief preview), and a ⌘K **content-search** palette. Still changing quickly.
+See [roadmap](../../docs/roadmap.md).
 
 ## Layout
 
 ```text
 src/
-  main/
-    index.ts                    BrowserWindow + core singleton + window state persistence
-    ipc.ts                      ipcMain handlers: bh:run (delegates to core), workspace:pick
-    window-state.ts             read/write/clamp bounds against BH_CONFIG_DIR/window-state.json
-  preload/
-    index.ts                    contextBridge → window.bh (run / pickWorkspace / platform)
-  renderer/
-    index.html                  CSS reset + React mount point
-    env.d.ts                    ambient window.bh type declaration
-    src/main.tsx                React root entry
-    src/App.tsx                 layout shell (TopBar + [Sidebar | Main] + banners)
-    src/store/
-      workspace.ts              Zustand store: workspaces, current, reachability, actions
-    src/components/
-      TopBar.tsx                workspace dropdown + Pick / Remove buttons
-      Sidebar.tsx               workspace header + (NavTree | WorkspaceUnreachable)
-      NavTree.tsx               recursive lazy-expand directory tree, hidden-files filter
-      WorkspaceUnreachable.tsx  re-select / unregister UI when current folder is gone
-      ErrorBanner.tsx           bottom-pinned dismissible error overlay
-      FdaTip.tsx                top-pinned macOS Full Disk Access guidance (once-per-host)
-test/
-  ipc.test.ts                   vitest contract tests for the bh:run channel
+  main/      BrowserWindow + core singleton + window-state persistence;
+             ipc.ts handlers delegate bh:run → core
+  preload/   contextBridge → window.bh (run / pickWorkspace / platform)
+  renderer/  React app
+    App.tsx              three-region layout shell + banners
+    store/               Zustand stores (workspace, layout / paneTree)
+    components/          TitleBar, Sidebar + NavTree, Canvas + BadgeNode,
+                         EditorSpace + TabStrip (editor groups), CommandPalette
+                         (⌘K search), focus chip + BriefPreview, media/code viewers
+    lib/                 liveDoc (per-file Y.Doc registry), paneTree, mdSegment,
+                         focusBrief, and other renderer-only helpers
+    canvasConnections/   reference-edge rendering for the canvas
+test/        vitest unit tests (ipc contract, paneTree, mdSegment, liveDoc, …)
 ```
+
+The exhaustive per-file tree is intentionally omitted — it rots faster than it
+helps. Browse `src/` for the current set.
 
 ## Commands
 

@@ -227,15 +227,21 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       const finalize = async (): Promise<void> => {
         pendingAdds.delete(event.relPath);
         try {
-          const existing = await ctx.run('badge.get', {
+          const kind = event.isDir ? 'folder' : 'file';
+          const existing = (await ctx.run('badge.get', {
             file: event.relPath,
-            kind: event.isDir ? 'folder' : 'file',
-          });
+            kind,
+          })) as { orphan?: boolean } | null;
           if (!existing) {
-            await ctx.run('badge.set', {
-              file: event.relPath,
-              patch: { kind: event.isDir ? 'folder' : 'file' },
-            });
+            // New file → materialize (badge.set reconciles any folder focus).
+            await ctx.run('badge.set', { file: event.relPath, patch: { kind } });
+          } else if (existing.orphan === true) {
+            // A previously-deleted file re-appeared at the SAME path: clear the
+            // orphan flag (so it stops being excluded from briefs) and re-join any
+            // folder-sourced focus it belongs to — badge.set's reconcileNewFile
+            // only fires for brand-new badges, so do it explicitly here.
+            await ctx.run('badge.set', { file: event.relPath, patch: { kind, orphan: false } });
+            await ctx.run('focus.reconcileNewFile', { file: event.relPath });
           }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
