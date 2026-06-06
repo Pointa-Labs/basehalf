@@ -409,19 +409,31 @@ export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingRe
   ctx,
 ) => {
   const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
+  const missing = await withFocusLock(root, async () => {
     const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    if (active.length === 0) return { pruned: 0 };
+    if (active.length === 0) return [] as string[];
     const live: string[] = [];
     for (const f of active) {
       if (await fileStillExists(ctx, root, f)) live.push(f);
     }
-    const pruned = active.length - live.length;
-    if (pruned === 0) return { pruned: 0 };
+    if (live.length === active.length) return [] as string[];
     const items = await assembleItems(ctx, live);
-    await writeFocus(ctx.fs, root, items, intent, source, pruned);
-    return { pruned };
+    await writeFocus(ctx.fs, root, items, intent, source, active.length - live.length);
+    return active.filter((f) => !live.includes(f));
   });
+  // Mark each pruned file's badge orphan so its canvas card shows MISSING and can't
+  // be multi-selected back into a brief (assembleItems excludes orphan badges).
+  // OUTSIDE the focus lock: badge.markOrphan cascades to focus.resync, which takes
+  // the SAME lock — re-entering here would deadlock. The cascade no-ops now (the
+  // file is already out of focus.md), so this only repairs the badge graph.
+  for (const f of missing) {
+    try {
+      await ctx.run('badge.markOrphan', { file: f });
+    } catch {
+      /* best-effort: a missing badge / cascade hiccup must not fail the prune */
+    }
+  }
+  return { pruned: missing.length };
 };
 
 export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {

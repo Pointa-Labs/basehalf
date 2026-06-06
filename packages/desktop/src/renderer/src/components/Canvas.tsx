@@ -715,7 +715,11 @@ export const Canvas = (): JSX.Element => {
   const copyBrief = useCallback(() => {
     void (async () => {
       try {
-        const { brief } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        // Peek with stamp:false — DON'T record "served" yet; the delivery hasn't
+        // happened until the clipboard write below actually succeeds.
+        const { brief } = (await window.bh.run('focus.brief', { stamp: false })) as {
+          brief: string;
+        };
         // Strip bh-internal noise (provenance marker + the .bh/-pointing footer)
         // so what lands in a chat is just the self-contained brief.
         const clean = briefForClipboard(brief);
@@ -723,6 +727,9 @@ export const Canvas = (): JSX.Element => {
         // write an empty string or flash a misleading "Copied ✓".
         if (clean.length === 0) return;
         await navigator.clipboard.writeText(clean);
+        // Clipboard write SUCCEEDED → now record the delivery. A rejected write
+        // (unfocused window / denied permission) throws above and never stamps.
+        void window.bh.run('focus.brief', { stamp: true }).catch(() => undefined);
         setBriefCopied(true);
         // Reset the confirmation; clear any prior timer so a rapid re-click
         // doesn't let an earlier timer flip the label back early.
