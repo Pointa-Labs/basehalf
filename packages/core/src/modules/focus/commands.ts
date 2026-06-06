@@ -7,6 +7,7 @@ import {
 } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import {
+  clearBriefServed,
   focusPath,
   readBriefServedAt,
   readFocusBrief,
@@ -119,6 +120,10 @@ async function writeBrief(
 ): Promise<string[]> {
   const items = await assembleItems(ctx, files);
   await writeFocus(ctx.fs, root, items, intent, source, files.length - items.length);
+  // The brief changed → any prior served receipt is now stale (it was for the set
+  // the agent pulled BEFORE this edit). Clear it so "served Ns ago" never claims
+  // the CURRENT focus was delivered when it wasn't. Best-effort (no-op if absent).
+  await clearBriefServed(ctx.fs, root);
   return items.map((i) => i.file);
 }
 
@@ -374,10 +379,12 @@ export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, 
 };
 
 /**
- * Is a workspace-relative file still on disk? Routed through the realpath
- * containment guard so a planted symlink can't make a vanished file look live.
- * Any error (PathEscape, stat failure) is treated as "gone" — fail toward
- * pruning a dangling item, never toward keeping one.
+ * Is a workspace-relative file still a live FILE on disk? Routed through the
+ * realpath containment guard so a planted symlink can't make a vanished file look
+ * live. Requires isFile — a path replaced by a DIRECTORY (e.g. a branch checkout
+ * while the app was closed) is no longer a focusable file and must be pruned. Any
+ * error (PathEscape, stat failure) is treated as "gone" — fail toward pruning a
+ * dangling item, never toward keeping one.
  */
 async function fileStillExists(
   ctx: Parameters<Handler>[1],
@@ -386,7 +393,8 @@ async function fileStillExists(
 ): Promise<boolean> {
   try {
     const abs = await assertReadContained(ctx.fs, root, join(root, file));
-    return (await ctx.fs.stat(abs)) !== null;
+    const st = await ctx.fs.stat(abs);
+    return st !== null && st.isFile === true;
   } catch {
     return false;
   }
@@ -442,19 +450,23 @@ export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => 
  * Markdown the agent actually consumes, so the desktop can offer "copy what my
  * agent sees" for pasting into any chat. Read-only; empty string when absent.
  */
-export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (_args, ctx) => {
+export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   const raw = await readMaybeNoFollow(
     ctx.fs,
     await assertReadContained(ctx.fs, root, focusPath(root)),
   );
-  // CONFIRM (serve-and-confirm): record that the brief was served so the desktop
-  // can show "agent read your context Ns ago". Best-effort — a .bh/cache/ write
-  // hiccup must never fail the read. Honest: this logs a READ, not comprehension.
-  try {
-    await stampBriefServed(ctx.fs, root);
-  } catch {
-    /* best-effort: the served receipt is non-load-bearing */
+  // CONFIRM (serve-and-confirm): record a genuine agent PULL so the desktop can
+  // show "served Ns ago". `stamp:false` (the in-app preview's peek) reads WITHOUT
+  // stamping — a peek is not a delivery. Best-effort; honest: records a hand-off
+  // through the command interface, not comprehension (a raw focus.md file read is
+  // unobservable by design — D14).
+  if (args.stamp !== false) {
+    try {
+      await stampBriefServed(ctx.fs, root);
+    } catch {
+      /* best-effort: the served receipt is non-load-bearing */
+    }
   }
   return { brief: raw ?? '' };
 };

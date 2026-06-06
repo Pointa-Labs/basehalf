@@ -121,7 +121,13 @@ export interface FocusSetIntentResult {
   readonly skipped?: boolean;
 }
 
-export type FocusBriefArgs = Record<string, never>;
+export interface FocusBriefArgs {
+  /** When false, READ the brief WITHOUT stamping the served receipt — the in-app
+   *  preview's peek must not masquerade as an agent pull. Defaults to true: a CLI
+   *  `bh focus brief`, the desktop Copy-brief, or a future MCP get_brief are
+   *  genuine hand-offs and DO stamp. */
+  readonly stamp?: boolean;
+}
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the
    *  agent reads each message. Surfaced so the desktop can offer a one-click

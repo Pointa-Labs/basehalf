@@ -659,4 +659,20 @@ describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
     expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(true); // in gitignored cache
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('servedAt'); // not in the brief
   });
+
+  it('a focus CHANGE invalidates the receipt — "served Ns ago" never claims a stale set', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    await ctx.core.run('focus.brief', {}); // agent pulls THIS set
+    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
+    // User re-curates → the prior pull was of the OLD set; the receipt must clear.
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+  });
+
+  it('a {stamp:false} read (the in-app preview peek) does NOT record a delivery', async () => {
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    await ctx.core.run('focus.brief', { stamp: false }); // peek, not a hand-off
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(false);
+  });
 });

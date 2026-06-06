@@ -71,7 +71,12 @@ export const BriefPreview = ({
       try {
         await savePromiseRef.current.catch(() => {}); // let a pending save land first
         if (cancelled) return;
-        const { brief: text } = (await window.bh.run('focus.brief', {})) as { brief: string };
+        // stamp:false — opening the preview is the user PEEKING at what the agent
+        // would read; it is not an agent pull, so it must not stamp the served
+        // receipt (that would fake a "served Ns ago" the agent never received).
+        const { brief: text } = (await window.bh.run('focus.brief', { stamp: false })) as {
+          brief: string;
+        };
         if (cancelled) return;
         setRaw(briefForClipboard(text));
         const parsed = parseBriefForDisplay(text);

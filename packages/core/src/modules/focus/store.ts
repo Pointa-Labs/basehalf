@@ -219,12 +219,15 @@ function servedPath(workspaceRoot: string): string {
 }
 
 /**
- * Stamp "the turn brief was served" — written every time focus.brief runs (CLI
- * `bh focus brief`, the desktop Copy-brief, a future MCP get_focus_brief), the one
- * choke point every brief read funnels through. Lets the desktop show "agent read
- * your context Ns ago". Honest semantics: records that a READ occurred, NOT that
- * the agent used it. Lives in .bh/cache/ (gitignored, rebuildable) so it never
- * pollutes the brief or git. Best-effort at the call site — a cache hiccup must
+ * Stamp "the brief was pulled by an agent" — written by focus.brief when an agent
+ * PULLS it through the command interface (CLI `bh focus brief`, the desktop
+ * Copy-brief hand-off, a future MCP get_brief). Honest semantics: it records a
+ * genuine hand-off, NOT comprehension — and the in-app preview reads with
+ * `{stamp:false}`, so merely PEEKING at the brief never counts as a delivery.
+ * (A raw `.bh/focus.md` file read by an in-repo agent is unobservable by design —
+ * D14 publish-not-inject — so this signal covers the command/copy path only.)
+ * Cleared on every focus change (see clearBriefServed). Lives in .bh/cache/
+ * (gitignored, rebuildable). Best-effort at the call site — a cache hiccup must
  * never fail a read.
  */
 export async function stampBriefServed(fs: FsLike, workspaceRoot: string): Promise<void> {
@@ -233,20 +236,37 @@ export async function stampBriefServed(fs: FsLike, workspaceRoot: string): Promi
   await writeMaybeNoFollow(fs, path, `${JSON.stringify({ servedAt: new Date().toISOString() })}\n`);
 }
 
+/**
+ * Clear the served receipt — called on EVERY brief change (writeBrief), so
+ * "served Ns ago" only ever reflects the CURRENT focus, never a stale set the
+ * agent pulled before the user re-curated. Best-effort; unlink no-ops when the
+ * receipt is absent. A cache hiccup must never fail a focus write.
+ */
+export async function clearBriefServed(fs: FsLike, workspaceRoot: string): Promise<void> {
+  try {
+    await fs.unlink(await assertWriteContained(fs, workspaceRoot, servedPath(workspaceRoot)));
+  } catch {
+    /* best-effort: the receipt is rebuildable + non-load-bearing */
+  }
+}
+
 /** Read the last brief-served timestamp (ISO), or undefined if never served. */
 export async function readBriefServedAt(
   fs: FsLike,
   workspaceRoot: string,
 ): Promise<string | undefined> {
-  const raw = await readMaybeNoFollow(
-    fs,
-    await assertReadContained(fs, workspaceRoot, servedPath(workspaceRoot)),
-  );
-  if (raw === null) return undefined;
   try {
+    const raw = await readMaybeNoFollow(
+      fs,
+      await assertReadContained(fs, workspaceRoot, servedPath(workspaceRoot)),
+    );
+    if (raw === null) return undefined;
     const parsed = JSON.parse(raw) as { servedAt?: unknown };
     return typeof parsed.servedAt === 'string' ? parsed.servedAt : undefined;
   } catch {
+    // Rebuildable, non-load-bearing: a bad .bh/cache entry (escaping symlink,
+    // unreadable/cyclic dir) must NEVER break focus.get — it's on the hot canvas
+    // load/poll path. Any failure → "no receipt".
     return undefined;
   }
 }

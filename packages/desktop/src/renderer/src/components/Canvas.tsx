@@ -76,9 +76,11 @@ const VIEWPORT_DEBOUNCE = 1000;
 // Settle a canvas multi-selection before mirroring it into focus.md, so a marquee
 // drag (which fires onSelectionChange repeatedly) writes once on release.
 const FOCUS_MIRROR_DEBOUNCE = 250;
-// "agent read your context Ns ago" for the focus chip — a true logged fact
-// (focus.brief stamped it), shown ONLY positively. It confirms a READ happened,
-// not that the agent used the brief.
+// "served Ns ago" for the focus chip — a true logged fact: an agent PULLED the
+// brief through the command interface (CLI `bh focus brief` / Copy-brief / MCP),
+// and the receipt is cleared whenever the focus changes, so it only ever reflects
+// the CURRENT brief. Shown ONLY positively. Honest: it confirms a hand-off, not
+// comprehension (a raw focus.md file read is unobservable by design — D14).
 function relativeServed(iso: string | undefined): string | null {
   if (!iso) return null;
   const then = Date.parse(iso);
@@ -739,6 +741,23 @@ export const Canvas = (): JSX.Element => {
     [],
   );
 
+  // Cancel a pending selection→focus mirror when the workspace changes. <Canvas/>
+  // stays mounted across workspace.use, so a debounce in flight from the OLD
+  // workspace must NOT fire focus.set against the NEW workspace's focus.md — that
+  // would write the previous workspace's selection into the wrong brief.
+  // `current` is a pure TRIGGER: the body touches only the timer ref, but we want
+  // the cleanup to run on every workspace change.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: current is a deliberate trigger — re-run cleanup to cancel a pending mirror on workspace switch
+  useEffect(
+    () => () => {
+      if (focusMirrorTimer.current !== null) {
+        window.clearTimeout(focusMirrorTimer.current);
+        focusMirrorTimer.current = null;
+      }
+    },
+    [current],
+  );
+
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
       viewportRef.current = viewport;
@@ -999,7 +1018,7 @@ export const Canvas = (): JSX.Element => {
               {relativeServed(briefServedAt) && (
                 <span style={{ color: color.textTertiary }}>
                   {' '}
-                  · read {relativeServed(briefServedAt)}
+                  · served {relativeServed(briefServedAt)}
                 </span>
               )}
             </span>
