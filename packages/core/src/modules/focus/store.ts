@@ -209,6 +209,11 @@ export async function writeFocus(
   const path = await assertWriteContained(fs, workspaceRoot, focusPath(workspaceRoot));
   await fs.mkdir(dirname(path), { recursive: true });
   await writeMaybeNoFollow(fs, path, renderFocus(active, intent, source, droppedCount));
+  // Any focus.md write CHANGES the brief → a served receipt (an agent pulled the
+  // PREVIOUS brief) is now stale. Clear it at this single write choke point so
+  // every writer (set/resync/toggle/folder/prune/clear) invalidates it uniformly
+  // and "served Ns ago" never outlives the brief it referred to. Best-effort.
+  await clearBriefServed(fs, workspaceRoot);
 }
 
 const SERVED_FILE = '.bh/cache/focus-served.json';

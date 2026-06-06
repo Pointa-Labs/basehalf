@@ -324,6 +324,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await window.bh.run('workspace.listFiles', { path: currentWs.path });
             set({ currentReachable: true });
             await startWatcher();
+            // Re-validate the brief against disk on every workspace LOAD. Plain
+            // startup loads via workspace.list (a read) — not workspace.use — so
+            // materializeWithFallback's re-entry prune never runs here; a focus.md
+            // gone stale while the app was closed (git checkout / external rm)
+            // would otherwise point the agent at a deleted file. Cheap + idempotent;
+            // fire-and-forget so a hiccup never blocks the canvas.
+            void window.bh.run('focus.pruneDangling', {}).catch(() => undefined);
           } catch (err) {
             if (isPathNotFound(err)) {
               set({ currentReachable: false });

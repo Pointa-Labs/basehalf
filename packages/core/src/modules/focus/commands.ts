@@ -7,7 +7,6 @@ import {
 } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import {
-  clearBriefServed,
   focusPath,
   readBriefServedAt,
   readFocusBrief,
@@ -119,11 +118,8 @@ async function writeBrief(
   source: FocusSource | undefined,
 ): Promise<string[]> {
   const items = await assembleItems(ctx, files);
+  // writeFocus clears any now-stale served receipt at the single write choke point.
   await writeFocus(ctx.fs, root, items, intent, source, files.length - items.length);
-  // The brief changed → any prior served receipt is now stale (it was for the set
-  // the agent pulled BEFORE this edit). Clear it so "served Ns ago" never claims
-  // the CURRENT focus was delivered when it wasn't. Best-effort (no-op if absent).
-  await clearBriefServed(ctx.fs, root);
   return items.map((i) => i.file);
 }
 

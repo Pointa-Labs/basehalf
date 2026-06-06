@@ -675,4 +675,16 @@ describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
     expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
     expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(false);
   });
+
+  it('a heal (focus.pruneDangling) also invalidates the receipt — every focus.md write clears it', async () => {
+    ctx.files.set('/work/a.md', '# a');
+    ctx.files.set('/work/b.md', '# b');
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    await ctx.core.run('focus.brief', {}); // agent pulled THIS (2-file) set
+    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
+    ctx.files.delete('/work/b.md'); // gone while the watcher wasn't running
+    await ctx.core.run('focus.pruneDangling', {}); // re-entry heal rewrites focus.md
+    // The pulled set is no longer current → "served Ns ago" must not survive the heal.
+    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
+  });
 });
