@@ -383,9 +383,37 @@ const focusBrief = defineCommand({
   },
 });
 
+const focusSetIntent = defineCommand({
+  meta: {
+    name: 'set-intent',
+    description:
+      "Set (or clear) the turn intent — the user's question — WITHOUT changing the active set",
+  },
+  args: {
+    intent: {
+      type: 'positional',
+      description: 'The turn intent text; omit (or pass "") to clear it',
+      required: false,
+    },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('focus.setIntent', {
+      intent: typeof args.intent === 'string' ? args.intent : '',
+    });
+    render('focus.setIntent', result, Boolean(args.json));
+  },
+});
+
 const focus = defineCommand({
   meta: { name: 'focus', description: 'Read / write the agent focus signal' },
-  subCommands: { set: focusSet, get: focusGet, brief: focusBrief, clear: focusClear },
+  subCommands: {
+    set: focusSet,
+    'set-intent': focusSetIntent,
+    get: focusGet,
+    brief: focusBrief,
+    clear: focusClear,
+  },
 });
 
 // ── search ───────────────────────────────────────────────────────────────────

@@ -106,6 +106,13 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
     case 'focus.clear':
       process.stdout.write('Focus cleared.\n');
       return;
+    case 'focus.setIntent': {
+      const r = result as { intent: string | null; skipped?: boolean };
+      if (r.skipped) process.stdout.write('Intent unchanged (focus changed underneath).\n');
+      else if (r.intent === null) process.stdout.write('Intent cleared.\n');
+      else process.stdout.write(`Intent set: ${r.intent}\n`);
+      return;
+    }
     case 'focus.brief': {
       // Print the brief verbatim (it's already Markdown). Empty → a hint.
       const brief = (result as { brief: string }).brief;

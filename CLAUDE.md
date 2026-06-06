@@ -89,6 +89,7 @@ internal `focus.resync` (no manual re-focus needed, CLI/agent edits included).
 
 ```bash
 bh focus set --files <csv>   # or --folder <path>
+bh focus set-intent <text>   # set/clear the turn intent (the user's question) — active set untouched
 bh focus get
 bh focus brief               # print .bh/focus.md verbatim — the brief the agent reads
 bh focus clear
