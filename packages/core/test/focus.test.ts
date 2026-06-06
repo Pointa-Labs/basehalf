@@ -604,6 +604,22 @@ describe('brief liveness: orphan-flagged files never reach the brief (by constru
     expect(md).not.toContain('- a.md');
     expect(md).toContain('# note:');
   });
+
+  it('a metadata edit on an orphan file keeps it orphan — it does NOT re-enter the brief', async () => {
+    // The liveness invariant relies on the orphan flag PERSISTING: editing a
+    // deleted file's prompt (panel / CLI badge.set) must not silently un-orphan
+    // it, or a later focus.set could publish a brief pointing at the dead file.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'edited while gone' } });
+    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBe(true); // survived the edit
+    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    expect(res.active).toEqual(['b.md']); // still excluded
+    // An explicit orphan:false (the watcher's add when the file re-appears) clears it.
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { kind: 'file', orphan: false } });
+    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBeUndefined();
+  });
 });
 
 describe('focus.pruneDangling (re-entry: drop active files gone from disk)', () => {

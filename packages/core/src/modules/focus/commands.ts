@@ -448,23 +448,29 @@ export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => 
  */
 export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const raw = await readMaybeNoFollow(
-    ctx.fs,
-    await assertReadContained(ctx.fs, root, focusPath(root)),
-  );
-  // CONFIRM (serve-and-confirm): record a genuine agent PULL so the desktop can
-  // show "served Ns ago". `stamp:false` (the in-app preview's peek) reads WITHOUT
-  // stamping — a peek is not a delivery. Best-effort; honest: records a hand-off
-  // through the command interface, not comprehension (a raw focus.md file read is
-  // unobservable by design — D14).
-  if (args.stamp !== false) {
-    try {
-      await stampBriefServed(ctx.fs, root);
-    } catch {
-      /* best-effort: the served receipt is non-load-bearing */
+  // Lock the read+stamp TOGETHER: a concurrent focus.set/clear/prune must not slip
+  // between them — otherwise a writer clears the receipt after we re-stamp, leaving
+  // the NEW focus marked "served" while we returned the OLD brief. Serializing with
+  // every writer keeps the stamp tied to exactly the brief this call returns.
+  return withFocusLock(root, async () => {
+    const raw = await readMaybeNoFollow(
+      ctx.fs,
+      await assertReadContained(ctx.fs, root, focusPath(root)),
+    );
+    // CONFIRM (serve-and-confirm): record a genuine agent PULL so the desktop can
+    // show "served Ns ago". `stamp:false` (the in-app preview's peek) reads WITHOUT
+    // stamping — a peek is not a delivery. Best-effort; honest: records a hand-off
+    // through the command interface, not comprehension (a raw focus.md file read is
+    // unobservable by design — D14).
+    if (args.stamp !== false) {
+      try {
+        await stampBriefServed(ctx.fs, root);
+      } catch {
+        /* best-effort: the served receipt is non-load-bearing */
+      }
     }
-  }
-  return { brief: raw ?? '' };
+    return { brief: raw ?? '' };
+  });
 };
 
 export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {

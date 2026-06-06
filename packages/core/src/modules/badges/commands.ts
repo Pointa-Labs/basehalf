@@ -149,6 +149,12 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         ...(patch.canvas !== undefined
           ? { canvas: patch.canvas }
           : existing.canvas !== undefined && { canvas: existing.canvas }),
+        // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
+        // deleted file must not silently un-orphan it (that would let a vanished
+        // path back into the agent's brief). Cleared only by an explicit
+        // `orphan:false` (the watcher's add when the file re-appears); set only by
+        // badge.markOrphan.
+        ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
         createdAt: existing.createdAt,
         modifiedAt: now,
       }
@@ -159,6 +165,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         ...(patch.prompt !== undefined && { prompt: patch.prompt }),
         references: patch.references ?? [],
         ...(patch.canvas !== undefined && { canvas: patch.canvas }),
+        ...(patch.orphan === true && { orphan: true }),
         createdAt: now,
         modifiedAt: now,
       };

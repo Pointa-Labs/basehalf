@@ -53,6 +53,12 @@ export type BadgeGetResult = BadgeFile | null;
 export type BadgePatch = Partial<Pick<BadgeFile, 'prompt' | 'references' | 'canvas'>> & {
   /** Required only on the very first set() that creates the badge from scratch. */
   readonly kind?: BadgeKind;
+  /** Explicit orphan transition. OMITTED on ordinary edits — badge.set then
+   *  PRESERVES the existing orphan flag (a prompt/ref edit on a deleted file must
+   *  not silently un-orphan it). Set `false` by a presence-confirmer (the
+   *  watcher's add when a file re-appears) to clear it; orphan is otherwise set
+   *  only by badge.markOrphan. */
+  readonly orphan?: boolean;
 };
 
 export interface BadgeSetArgs {

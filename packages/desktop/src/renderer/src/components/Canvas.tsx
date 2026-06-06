@@ -786,6 +786,10 @@ export const Canvas = (): JSX.Element => {
         try {
           await window.bh.run('focus.set', { files });
           setFocusActive(files); // chip reflects the new agent context immediately
+          // focus.set cleared the on-disk served receipt (the new brief was never
+          // served); drop the local stamp too so the chip doesn't show the new
+          // selection as "served Ns ago" until the next poll catches up.
+          setBriefServedAt(undefined);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
         }
