@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 
+const isWin = process.platform === 'win32';
+
 /**
  * badge.rename must treat the focus.md reconcile as BEST-EFFORT — exactly like
  * badge.set/addRef/removeRef do via reconcileFocus. A hostile / workspace-
@@ -34,7 +36,7 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-describe('badge.rename with a hostile focus.md (real fs)', () => {
+describe.skipIf(isWin)('badge.rename with a hostile focus.md (real fs)', () => {
   it('still completes the rename when focus.md is a workspace-escaping symlink', async () => {
     await writeFile(join(ws, 'note.md'), '# Note\n');
     await core.run('badge.set', { file: 'note.md', patch: {} });

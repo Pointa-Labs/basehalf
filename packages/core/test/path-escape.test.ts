@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import { isContained } from '../src/kernel/contain.js';
 
+const isWin = process.platform === 'win32';
+
 /**
  * Symlink / path-traversal workspace-escape suite — the CLASS audited after
  * the `shell:open-path` finding. A BaseHalf workspace is "a folder you drop
@@ -57,7 +59,7 @@ describe('isContained (pure)', () => {
   });
 });
 
-describe('workspace.readFile', () => {
+describe.skipIf(isWin)('workspace.readFile', () => {
   it('refuses to read THROUGH a file-symlink that points outside the workspace', async () => {
     await writeFile(join(outside, 'secret.txt'), 'TOP-SECRET outside contents');
     await symlink(join(outside, 'secret.txt'), join(ws, 'notes.md'));
@@ -73,7 +75,7 @@ describe('workspace.readFile', () => {
   });
 });
 
-describe('workspace.writeFile', () => {
+describe.skipIf(isWin)('workspace.writeFile', () => {
   it('refuses to overwrite an outside file through an existing symlink leaf (editor save)', async () => {
     await writeFile(join(outside, 'victim.txt'), 'IMPORTANT USER DATA DO NOT TOUCH');
     await symlink(join(outside, 'victim.txt'), join(ws, 'config.md'));
@@ -100,7 +102,7 @@ describe('workspace.writeFile', () => {
   });
 });
 
-describe('badges store', () => {
+describe.skipIf(isWin)('badges store', () => {
   it('refuses badge.get through a symlinked badge JSON pointing outside', async () => {
     await mkdir(join(ws, '.bh/badges'), { recursive: true });
     await writeFile(
@@ -142,7 +144,7 @@ describe('badges store', () => {
   });
 });
 
-describe('focus store', () => {
+describe.skipIf(isWin)('focus store', () => {
   it('refuses read AND write through a symlinked .bh/focus.md, never clobbering the target', async () => {
     await rm(join(ws, '.bh/focus.md'));
     await writeFile(join(outside, 'ftarget.md'), 'EXTERNAL FOCUS DATA');
@@ -155,7 +157,7 @@ describe('focus store', () => {
   });
 });
 
-describe('inbound store', () => {
+describe.skipIf(isWin)('inbound store', () => {
   it('refuses to write through a symlinked .bh/index/inbound.json (no outside clobber)', async () => {
     await rm(join(ws, '.bh/index/inbound.json'));
     await writeFile(join(outside, 'idx.json'), 'EXTERNAL INDEX');
@@ -167,7 +169,7 @@ describe('inbound store', () => {
   });
 });
 
-describe('materialize walk', () => {
+describe.skipIf(isWin)('materialize walk', () => {
   it('does NOT materialize badges for files under a symlinked directory to outside', async () => {
     await writeFile(join(outside, 'secret.md'), 'SECRET');
     const fresh = join(base, 'ws2');
@@ -202,7 +204,7 @@ describe('materialize walk', () => {
   });
 });
 
-describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSetup surface)', () => {
+describe.skipIf(isWin)('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSetup surface)', () => {
   it('refuses to write THROUGH a symlinked CLAUDE.md / .gitignore on add({setup:true})', async () => {
     const fresh = join(base, 'wss1');
     await mkdir(fresh, { recursive: true });
@@ -232,7 +234,7 @@ describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSe
   });
 });
 
-describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () => {
+describe.skipIf(isWin)('read dangling-symlink TOCTOU + write dangling-symlink directory', () => {
   it('refuses to read a DANGLING symlink leaf (closes the create-target race)', async () => {
     await symlink(join(outside, 'not-yet.txt'), join(ws, 'dang.md')); // target missing
     await expect(core.run('workspace.readFile', { path: 'dang.md' })).rejects.toThrow(
@@ -255,7 +257,7 @@ describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () =
   });
 });
 
-describe('.bh metadata DIRECTORY itself a symlink', () => {
+describe.skipIf(isWin)('.bh metadata DIRECTORY itself a symlink', () => {
   it('listBadges does not enumerate through a symlinked .bh/badges directory', async () => {
     const fresh = join(base, 'wsbsym');
     await mkdir(join(fresh, '.bh'), { recursive: true });
@@ -272,7 +274,7 @@ describe('.bh metadata DIRECTORY itself a symlink', () => {
   });
 });
 
-describe('workspace.listFiles metadata oracle', () => {
+describe.skipIf(isWin)('workspace.listFiles metadata oracle', () => {
   it('refuses listing a symlinked-out dir and filters the escaping child from the root listing', async () => {
     await mkdir(join(outside, 'sekrit'), { recursive: true });
     await writeFile(join(outside, 'sekrit', 'k.txt'), 'k');
@@ -292,7 +294,7 @@ describe('workspace.listFiles metadata oracle', () => {
   });
 });
 
-describe('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCLE', () => {
+describe.skipIf(isWin)('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCLE', () => {
   it('badge.list returns gracefully (no PathEscape throw) when .bh/badges is a symlink cycle', async () => {
     await mkdir(join(ws, '.bh'), { recursive: true });
     await symlink(join(ws, '.bh/b2'), join(ws, '.bh/badges')); // badges -> b2

@@ -488,14 +488,23 @@ export const deleteOrphans: Handler<BadgeDeleteOrphansArgs, BadgeDeleteOrphansRe
     try {
       await removeBadge(ctx.fs, root, badge.file, badge.kind);
       deleted.push(badge.file);
-      // Remove from focus.md if it was in the active list. Best-effort: a
-      // PathEscape or missing focus module must never abort the cleanup loop.
+      // Remove from focus.md if it was in the active list. toggleActiveFile
+      // removes the file when present, adds it when absent — so guard with
+      // focus.get first to avoid accidentally re-adding it.
       try {
-        await ctx.run('focus.renameActiveFile', { from: badge.file, to: null });
+        const focusState = await ctx.run<Record<string, never>, { active: readonly string[] }>(
+          'focus.get',
+          {},
+        );
+        if (focusState.active.includes(badge.file)) {
+          await ctx.run('focus.toggleActiveFile', { file: badge.file });
+        }
       } catch {
-        // no-op — focus.renameActiveFile may not support null-to (remove-only)
+        // Best-effort — a PathEscape or missing focus module must never abort
+        // the cleanup loop.
       }
-      // Clean up inbound index entries pointing at this now-gone badge.
+      // Clean up inbound index entries: both inbound (other badges → this one)
+      // and outbound (this badge → others, which leave stale backlink rows).
       try {
         const inboundRes = await ctx.run<{ file: string }, { entries: { from: string }[] }>(
           'inbound.get',
@@ -503,6 +512,9 @@ export const deleteOrphans: Handler<BadgeDeleteOrphansArgs, BadgeDeleteOrphansRe
         );
         for (const entry of inboundRes.entries) {
           await ctx.run('inbound.removeRef', { from: entry.from, to: badge.file });
+        }
+        for (const ref of badge.references) {
+          await ctx.run('inbound.removeRef', { from: badge.file, to: ref.to });
         }
       } catch {
         // inbound module may not be registered in lightweight tests

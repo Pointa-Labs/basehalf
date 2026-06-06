@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import type { SearchQueryResult } from '../src/index.js';
 
+const isWin = process.platform === 'win32';
+
 /**
  * search.query against the REAL node:fs with a REAL in-bounds directory symlink
  * cycle — the one thing mockFs can't model (its realpath is identity). Proves
@@ -29,7 +31,7 @@ afterEach(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-describe('search.query symlink-cycle guard (real fs)', () => {
+describe.skipIf(isWin)('search.query symlink-cycle guard (real fs)', () => {
   it('breaks an in-bounds directory-symlink cycle instead of rescanning to MAX_DIRS', async () => {
     await writeFile(join(ws, 'note.md'), 'findme here');
     // `loop -> ws` (the root itself): in-bounds (realpath stays inside ws), so
