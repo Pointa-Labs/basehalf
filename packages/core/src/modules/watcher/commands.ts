@@ -159,37 +159,28 @@ async function emitRename(
     // normally cascades, so a sparse rename isn't lossy, then fall through to emit
     // the rename side-channel below.
     if (err instanceof Error && err.name === 'UnknownCommand') return;
-    console.warn('[bh:watcher] badge.rename fell back (no source badge):', err);
-    // (a) orphan the old badge IF one exists (no-op for a truly unbadged file).
-    await ctx.run('badge.markOrphan', { file: from, kind });
-    // (b) remap any focus entry to the new path — badge.rename's focus cascade only
-    //     fires when a source badge existed, so a FOCUSED unannotated file would
-    //     otherwise dangle in focus.md.
-    try {
-      await ctx.run(add.isDir ? 'focus.renameActiveFolder' : 'focus.renameActiveFile', {
-        from,
-        to,
-      });
-    } catch (e) {
-      if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
-    }
-    // (c) rewrite inbound refs (annotated files that referenced the old path) →
-    //     the new path. badge.rename does this when a source badge exists; an
-    //     unbadged target still has inbound refs that would otherwise dangle.
-    try {
-      const inbound = (await ctx.run('inbound.get', { file: from })) as {
-        entries: readonly { from: string; note?: string }[];
-      };
-      for (const ref of inbound.entries) {
-        await ctx.run('badge.removeRef', { file: ref.from, to: from });
-        await ctx.run('badge.addRef', {
-          file: ref.from,
+    console.warn('[bh:watcher] badge.rename fell back:', err);
+    // markOrphan returns the badge it flagged, or null when there was NO source
+    // badge (the sparse case). It cascades a focus resync when a badge existed —
+    // so it fully covers BOTH a genuine sparse rename and a rare destination
+    // collision (source badge exists → flagged + resynced here). Only the sparse
+    // case (null) needs the extra focus remap, since no cascade ran.
+    const orphaned = (await ctx.run('badge.markOrphan', { file: from, kind })) as {
+      orphan?: boolean;
+    } | null;
+    if (orphaned === null) {
+      // Sparse: no source badge, so badge.rename's focus cascade never fired.
+      // Remap any focus entry to the new path so a FOCUSED unannotated file doesn't
+      // dangle. (Inbound refs pointing AT an unbadged renamed target are a narrower
+      // case that self-heals via inbound.rebuild, so we don't rewrite them here.)
+      try {
+        await ctx.run(add.isDir ? 'focus.renameActiveFolder' : 'focus.renameActiveFile', {
+          from,
           to,
-          ...(ref.note !== undefined && { note: ref.note }),
         });
+      } catch (e) {
+        if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
       }
-    } catch (e) {
-      if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
     }
   }
   // Side-channel: tell hosts a rename happened (NavTree refresh, currentFile
