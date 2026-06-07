@@ -221,31 +221,38 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         await emitRename(ctx, unlinkMatch, event);
         return;
       }
-      // No pending unlink yet — buffer this add briefly in case the
-      // unlink arrives shortly (add-first ordering, common under FSEvents
-      // on macOS). If no unlink arrives in time, materialize normally.
+      // No pending unlink yet — buffer this add briefly in case the unlink
+      // arrives shortly (add-first ordering, common under FSEvents on macOS).
+      // If no unlink arrives in time, finalize the add.
       const finalize = async (): Promise<void> => {
         pendingAdds.delete(event.relPath);
         try {
           const kind = event.isDir ? 'folder' : 'file';
+          // No eager materialization: a brand-new file gets NO badge — badges are
+          // a sparse overlay, created lazily only on first annotation. The
+          // renderer re-reads the folder on this event and shows the file from the
+          // filesystem with defaults. The ONE thing to do here: if a previously
+          // deleted but ANNOTATED file re-appeared at the same path, clear its
+          // orphan flag (so it stops being excluded from briefs) and re-join any
+          // folder-sourced focus (badge.set's reconcileNewFile only fires for
+          // brand-new badges, so do it explicitly).
           const existing = (await ctx.run('badge.get', {
             file: event.relPath,
             kind,
           })) as { orphan?: boolean } | null;
-          if (!existing) {
-            // New file → materialize (badge.set reconciles any folder focus).
-            await ctx.run('badge.set', { file: event.relPath, patch: { kind } });
-          } else if (existing.orphan === true) {
-            // A previously-deleted file re-appeared at the SAME path: clear the
-            // orphan flag (so it stops being excluded from briefs) and re-join any
-            // folder-sourced focus it belongs to — badge.set's reconcileNewFile
-            // only fires for brand-new badges, so do it explicitly here.
+          if (existing?.orphan === true) {
+            // Re-appeared annotated file: clear orphan, then re-join its folder brief.
             await ctx.run('badge.set', { file: event.relPath, patch: { kind, orphan: false } });
+            await ctx.run('focus.reconcileNewFile', { file: event.relPath });
+          } else if (!existing) {
+            // Brand-new unannotated file: NO badge is created (sparse overlay), but
+            // if it sits under a focused FOLDER it must join that folder's brief —
+            // a folder means "read ALL its files," and the file is now on disk.
             await ctx.run('focus.reconcileNewFile', { file: event.relPath });
           }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
-          console.error('[bh:watcher] materialize failed on buffered add', event, err);
+          console.error('[bh:watcher] add-finalize failed', event, err);
         }
       };
       const timer = setTimeout(() => {

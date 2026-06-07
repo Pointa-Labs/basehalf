@@ -12,11 +12,17 @@ import {
   readBytesMaybeNoFollow,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
+import type { BadgeFile } from '../badges/types.js';
 import { readWorkspaces } from './store.js';
+import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
+  WorkspaceListCanvasArgs,
+  WorkspaceListCanvasResult,
   WorkspaceListFilesArgs,
   WorkspaceListFilesEntry,
   WorkspaceListFilesResult,
+  WorkspaceListSupportedFilesArgs,
+  WorkspaceListSupportedFilesResult,
   WorkspaceReadFileArgs,
   WorkspaceReadFileResult,
   WorkspaceWriteFileArgs,
@@ -109,6 +115,123 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
     return a.name.localeCompare(b.name);
   });
   return { path: absPath, entries };
+};
+
+/**
+ * `workspace.listCanvas({ folder })` — the canvas's data source. Returns the
+ * DIRECT children (one level) of `folder` (null = workspace root) as badge
+ * objects: each supported-type file + subfolder, merged with its sparse badge
+ * overlay if one exists, else a synthesized default. The filesystem IS the tree
+ * — we read one level on demand (like the NavTree) instead of a materialized
+ * mirror, so a huge or deeply-nested workspace stays fast and there is no eager
+ * badge-per-file. Read-only: it never writes a badge.
+ */
+export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasResult> = async (
+  args,
+  ctx,
+) => {
+  const folder = args.folder;
+  if (folder !== null) assertWorkspaceRelative(folder);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
+  if (root === undefined) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  const absDir = folder === null ? root : join(root, folder);
+  // Reuse listFiles for the single-level, realpath-contained, symlink-hardened
+  // readdir — escaped children are already dropped there.
+  const { entries } = (await ctx.run('workspace.listFiles', {
+    path: absDir,
+  })) as WorkspaceListFilesResult;
+
+  const badges: BadgeFile[] = [];
+  for (const entry of entries) {
+    const isDir = entry.type === 'dir';
+    if (isDir) {
+      if (SKIP_NAMES.has(entry.name)) continue;
+    } else if (!hasSupportedExt(entry.name)) {
+      continue;
+    }
+    const rel = folder === null ? entry.name : toPosix(`${folder}/${entry.name}`);
+    const kind = isDir ? 'folder' : 'file';
+    let badge: BadgeFile | null = null;
+    try {
+      badge = (await ctx.run('badge.get', { file: rel, kind })) as BadgeFile | null;
+    } catch (err) {
+      // A corrupt badge or a symlinked-out badge path must not blank the folder;
+      // fall back to a synthesized default (same skip-and-warn as listBadges).
+      if (err instanceof Error && (err.name === 'BadgeCorrupt' || err.name === 'PathEscape')) {
+        console.warn(`[bh] skipping unreadable badge for canvas: ${rel}`);
+      } else {
+        throw err;
+      }
+    }
+    // Synthesized default for an unannotated file: structurally a BadgeFile, but
+    // NEVER written to disk (empty timestamps signal "not persisted"). The
+    // renderer's badgeToNode + badgesToConnectionEdges only read
+    // file/kind/canvas/orphan/prompt/references, so this is sufficient.
+    badges.push(
+      badge ?? { bhVersion: 1, file: rel, kind, references: [], createdAt: '', modifiedAt: '' },
+    );
+  }
+  badges.sort((a, b) => a.file.localeCompare(b.file));
+  return { badges };
+};
+
+/**
+ * `workspace.listSupportedFiles({ folder })` — all canvas-supported files under
+ * `folder` (null = root), RECURSIVELY, as sorted workspace-relative POSIX paths.
+ * Walks the filesystem (reusing listFiles per level for containment), skipping
+ * SKIP_NAMES dirs. Powers focus-folder and the ⌘K picker — it sees every file
+ * on disk, not just annotated ones. A canonical-path `visited` set breaks
+ * symlink loops inside the workspace.
+ */
+export const listSupportedFiles: Handler<
+  WorkspaceListSupportedFilesArgs,
+  WorkspaceListSupportedFilesResult
+> = async (args, ctx) => {
+  const folder = args.folder;
+  if (folder !== null) assertWorkspaceRelative(folder);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
+  if (root === undefined) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  const files: string[] = [];
+  const visited = new Set<string>();
+  const startAbs = folder === null ? root : join(root, folder);
+  const startRel = folder === null ? '' : toPosix(folder);
+  const stack: Array<{ abs: string; rel: string }> = [{ abs: startAbs, rel: startRel }];
+  while (stack.length > 0) {
+    const { abs, rel } = stack.pop() as { abs: string; rel: string };
+    let real: string;
+    try {
+      real = await canonicalize(ctx.fs, abs);
+    } catch {
+      continue; // unreachable/escaped dir → skip
+    }
+    if (visited.has(real)) continue; // symlink-loop guard
+    visited.add(real);
+    let entries: readonly WorkspaceListFilesEntry[];
+    try {
+      ({ entries } = (await ctx.run('workspace.listFiles', {
+        path: abs,
+      })) as WorkspaceListFilesResult);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const childRel = rel === '' ? entry.name : toPosix(`${rel}/${entry.name}`);
+      if (entry.type === 'dir') {
+        if (SKIP_NAMES.has(entry.name)) continue;
+        stack.push({ abs: join(abs, entry.name), rel: childRel });
+      } else if (hasSupportedExt(entry.name)) {
+        files.push(childRel);
+      }
+    }
+  }
+  files.sort((a, b) => a.localeCompare(b));
+  return { files };
 };
 
 function ensureInsideWorkspace(rel: string): void {

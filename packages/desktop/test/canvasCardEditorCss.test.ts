@@ -72,7 +72,10 @@ describe('canvas card editor CSS', () => {
     expect(badgeNodeSource).toMatch(
       /\{usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
     );
-    expect(badgeNodeSource).toMatch(/\) : showPreview \? \(\s*<BadgePreview/);
+    expect(badgeNodeSource).toMatch(/\) : showPreview && showDetail \? \(\s*<BadgePreview/);
+    // Level-of-detail: the preview body is gated on showDetail (zoom), so a fully
+    // framed large workspace doesn't render every card's preview at once.
+    expect(badgeNodeSource).toContain('s.transform[2] >= PREVIEW_ZOOM_THRESHOLD');
     expect(filePreviewSource).toContain('cardEditable = true');
     expect(filePreviewSource).toMatch(/autoFocus=\{compact && compactEditable\}/);
     expect(filePreviewSource).toMatch(/editable=\{!viewOnly && seedReady && compactEditable\}/);

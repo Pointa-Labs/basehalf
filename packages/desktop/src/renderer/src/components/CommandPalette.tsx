@@ -198,23 +198,21 @@ export const CommandPalette = (): JSX.Element | null => {
     if (!open) return;
     setFiles([]);
     setFilesWorkspace(null);
-    // No active workspace → no files to list (badge.list would have nothing to
-    // resolve against). Referencing `current` here also makes it the explicit
-    // re-fetch trigger it's meant to be.
+    // No active workspace → no files to list. Referencing `current` here also
+    // makes it the explicit re-fetch trigger it's meant to be.
     if (current === null) return;
     let cancelled = false;
     void (async () => {
       try {
-        const result = (await window.bh.run('badge.list')) as {
-          badges: { file: string; prompt?: string }[];
-        };
+        // Read the FILESYSTEM (every supported file under the workspace), not the
+        // badge mirror — badges are now a sparse overlay (only annotated files
+        // have one), so badge.list would miss most files. The palette is a
+        // jump-to-any-file picker, so it wants the full file list.
+        const result = (await window.bh.run('workspace.listSupportedFiles', {
+          folder: null,
+        })) as { files: string[] };
         if (cancelled) return;
-        setFiles(
-          result.badges.map((b) => ({
-            file: b.file,
-            ...(b.prompt !== undefined && { prompt: b.prompt }),
-          })),
-        );
+        setFiles(result.files.map((file) => ({ file })));
         setFilesWorkspace(current);
       } catch {
         // Don't block the palette on a transient core error — just show

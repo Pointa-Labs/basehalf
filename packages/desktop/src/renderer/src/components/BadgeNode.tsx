@@ -1,4 +1,4 @@
-import { type Node, type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
+import { type Node, type NodeProps, NodeResizer, useReactFlow, useStore } from '@xyflow/react';
 import {
   type CSSProperties,
   type JSX,
@@ -16,11 +16,13 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
 import { MdEditor } from './FilePreview.js';
 
-// A badge is a *living tile*: it always shows a real preview of the file's
-// contents (a text excerpt / image thumbnail), so the canvas reads as "my
-// documents in space," not a graph of names. React-flow's transform scales the
-// whole tile with zoom — so the content shrinks to a thumbnail when you zoom
-// out and becomes readable as you zoom in, with no detail-toggling needed.
+// A badge is a *living tile*: when it's big enough on screen to read, it shows a
+// real preview of the file's contents (a text excerpt / image thumbnail), so the
+// canvas reads as "my documents in space," not a graph of names. Below
+// PREVIEW_ZOOM_THRESHOLD the tile is too small to read, so it drops to just a
+// name + glyph — no file read, no editor. This level-of-detail gate is what keeps
+// a large, fully-framed workspace fast: at fit-to-all zoom EVERY tile is on
+// screen, so viewport virtualization alone can't cull the per-tile preview work.
 
 // Cache previews per path so a transient unmount (Canvas rebuilds nodes on file
 // events) doesn't refetch/re-render. Staleness self-heals on the next refresh.
@@ -35,6 +37,10 @@ export const DEFAULT_FILE_CARD_WIDTH = 300;
 export const DEFAULT_FILE_CARD_HEIGHT = 220;
 export const DEFAULT_FOLDER_CARD_WIDTH = 240;
 export const DEFAULT_FOLDER_CARD_HEIGHT = 132;
+// Below this zoom a default 300px card is < ~150px wide on screen — too small to
+// read the content preview, so cards drop to name + glyph only (see BadgeNode).
+// Tune to taste: higher = previews kick in only when zoomed closer.
+export const PREVIEW_ZOOM_THRESHOLD = 0.5;
 
 // One shared file-event subscription fans out to all mounted tiles, instead of
 // each tile registering its own ipcRenderer listener (which trips Node's
@@ -97,6 +103,10 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const inlineDocKey = docKeyFor(wsPath, d.label);
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
+  // Level-of-detail: only render the (expensive) content preview when the canvas
+  // is zoomed in enough to actually read it. The boolean selector re-renders the
+  // tile only when CROSSING the threshold, not on every zoom delta (no flicker).
+  const showDetail = useStore((s) => s.transform[2] >= PREVIEW_ZOOM_THRESHOLD);
   const [nodeHover, setNodeHover] = useState(false);
   const [inlineEditing, setInlineEditing] = useState(false);
   const [inlineClosing, setInlineClosing] = useState(false);
@@ -457,7 +467,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             </div>
           )}
         </div>
-      ) : showPreview ? (
+      ) : showPreview && showDetail ? (
         <BadgePreview type={type} label={d.label} wsPath={wsPath} />
       ) : (
         <div

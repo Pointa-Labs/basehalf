@@ -130,30 +130,22 @@ interface BadgeGetMinimal {
   readonly orphan?: boolean;
   readonly references?: readonly { readonly to: string; readonly note?: string }[];
 }
-interface BadgeListMinimal {
-  readonly badges: readonly { readonly file: string }[];
-}
-
 /**
  * Gather every supported FILE under a folder — the folder IS the grouping, so
- * its members are derived (no manual selection). Reads the materialized file
- * badges (one per supported file, eagerly created on workspace open) and keeps
- * those whose path sits under the folder prefix, including nested descendants
- * (matching what the canvas shows when scoped into the folder). Sorted for a
- * deterministic brief.
+ * its members are derived (no manual selection). Walks the FILESYSTEM (via
+ * workspace.listSupportedFiles) so it sees every supported file on disk under
+ * the folder — annotated or not — including nested descendants (matching what
+ * the canvas shows). Already sorted for a deterministic brief.
  */
 async function filesUnderFolder(
   ctx: Parameters<Handler>[1],
   folder: string,
 ): Promise<readonly string[]> {
-  const prefix = folder.endsWith('/') ? folder : `${folder}/`;
-  const { badges } = await ctx.run<{ kind: 'file' }, BadgeListMinimal>('badge.list', {
-    kind: 'file',
-  });
-  return badges
-    .map((b) => b.file)
-    .filter((f) => f.startsWith(prefix))
-    .sort();
+  const { files } = await ctx.run<{ folder: string }, { readonly files: readonly string[] }>(
+    'workspace.listSupportedFiles',
+    { folder },
+  );
+  return files;
 }
 
 /** Read a folder badge's prompt — the folder's agent-facing intent. */

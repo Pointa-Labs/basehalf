@@ -182,8 +182,8 @@ interface WorkspaceState {
   clearOpenMatchQuery: () => void;
   setFolderScope: (path: string | null) => void;
   /** Create an empty MD note (writes a workspace-relative file) and open it
-   * in the preview. The watcher picks it up and badge.list materializes a
-   * badge on the next refresh — no extra step needed. */
+   * in the preview. The watcher picks it up and the canvas re-reads the folder,
+   * so the note appears as a tile — no badge is created until you annotate it. */
   createNote: (relPath: string) => Promise<void>;
   /** Create a blank untitled note and open it (pinned) in a pane — the
    *  double-click-empty-tab-strip gesture. (A code editor's "new untitled"
@@ -326,7 +326,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await startWatcher();
             // Re-validate the brief against disk on every workspace LOAD. Plain
             // startup loads via workspace.list (a read) — not workspace.use — so
-            // materializeWithFallback's re-entry prune never runs here; a focus.md
+            // bootstrapWorkspace's re-entry prune never runs here; a focus.md
             // gone stale while the app was closed (git checkout / external rm)
             // would otherwise point the agent at a deleted file. Cheap + idempotent;
             // fire-and-forget so a hiccup never blocks the canvas.

@@ -1,9 +1,8 @@
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
 import { createDemo } from './demo.js';
-import { listFiles, readFile, writeFile } from './files.js';
+import { listCanvas, listFiles, listSupportedFiles, readFile, writeFile } from './files.js';
 import { NAME_PATTERN, withConfigLock } from './lock.js';
-import { materializeWorkspace } from './materialize.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
 import type {
@@ -87,11 +86,10 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
 
-  // Workspace-becoming-current = "opening" → materialize defaults (SR-v0
-  // §3.1). For subsequent adds (not auto-current), materialization is
-  // deferred to workspace.use.
+  // Workspace-becoming-current = "opening" → seed focus + inbound surfaces.
+  // For subsequent adds (not auto-current), this is deferred to workspace.use.
   if (setAsCurrent) {
-    await materializeWithFallback(ctx, absPath);
+    await bootstrapWorkspace(ctx, absPath);
   }
 
   return {
@@ -116,10 +114,9 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
   return { current: data.current, workspaces };
 };
 
-/** `workspace use <name>` — switch the active workspace. Triggers eager
- * badge materialization (SR-v0 §3.1) so opening a workspace always leaves
- * every supported-type file with a default badge JSON. Idempotent on
- * re-use because existing badges are short-circuited via badge.get. */
+/** `workspace use <name>` — switch the active workspace. Seeds the focus.md +
+ * inbound contract surfaces on open; the canvas reads the filesystem per folder
+ * (workspace.listCanvas), so there is no eager badge materialization. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
   const entry = await withConfigLock(ctx.configDir, async () => {
     const data = await readWorkspaces(ctx.fs, ctx.configDir);
@@ -130,10 +127,10 @@ export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, c
     await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
     return found;
   });
-  // Materialize outside the lock — it touches workspace files, not the
-  // config, and can be slow; holding the config lock through it would stall
-  // a concurrent setViewport for no correctness benefit.
-  await materializeWithFallback(ctx, entry.path);
+  // Bootstrap outside the lock — it touches workspace files, not the config;
+  // holding the config lock through it would stall a concurrent setViewport
+  // for no correctness benefit.
+  await bootstrapWorkspace(ctx, entry.path);
   return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
 };
 
@@ -285,10 +282,10 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
     return { existing: found, bhDirCreated: created, isCurrent: data.current === args.name };
   });
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
-  // If this workspace is currently open, re-materialize at the new path
-  // (eager badges + focus + inbound seeding). Mirrors workspace.use.
+  // If this workspace is currently open, re-seed focus + inbound at the new
+  // path. Mirrors workspace.use.
   if (isCurrent) {
-    await materializeWithFallback(ctx, absPath);
+    await bootstrapWorkspace(ctx, absPath);
   }
   return {
     workspace: { name: args.name, path: absPath, addedAt: existing.addedAt },
@@ -298,33 +295,26 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
 };
 
 /**
- * Materialize via the badges module + seed the focus.md contract surface
- * via the focus module. Both are "bootstrap on workspace open" work, and
- * both are tolerant of their module not being registered (tests can wire
- * only the workspace module; production createCore always has all five).
+ * Seed the focus.md + inbound contract surfaces on workspace open. No longer
+ * materializes badges — the canvas reads the filesystem per folder (via
+ * workspace.listCanvas) and badges are a sparse overlay created lazily on first
+ * annotation. Tolerant of a module not being registered (tests can wire only
+ * the workspace module; production createCore always has all five).
  *
- * Why focus.init lives here: an agent following the CLAUDE.md hint and
- * reading .bh/focus.md on a brand-new workspace used to get ENOENT before
- * any UI click ever happened. Seeding the empty template on every open
- * means the contract surface always exists.
+ * Why focus.init lives here: an agent following the CLAUDE.md hint and reading
+ * .bh/focus.md on a brand-new workspace used to get ENOENT before any UI click
+ * ever happened. Seeding the empty template on every open means the contract
+ * surface always exists.
  */
-async function materializeWithFallback(ctx: Context, workspaceRoot: string): Promise<void> {
-  // If the workspace folder vanished between add/use (e.g. user moved it
-  // in Finder), short-circuit materialization. The renderer probes
-  // reachability separately via workspace.listFiles and renders the
-  // "Workspace folder not found" UI from there — bubbling a hard ENOENT
-  // from use() would leave the renderer thinking the switch failed
-  // outright and never flipping currentReachable to false in-session.
+async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<void> {
+  // If the workspace folder vanished between add/use (e.g. user moved it in
+  // Finder), short-circuit. The renderer probes reachability separately via
+  // workspace.listFiles and renders the "Workspace folder not found" UI from
+  // there — bubbling a hard ENOENT here would leave the renderer thinking the
+  // switch failed outright and never flip currentReachable to false in-session.
   const rootStat = await ctx.fs.stat(workspaceRoot);
   if (!rootStat) return;
 
-  try {
-    await materializeWorkspace(ctx.fs, ctx.run, workspaceRoot);
-  } catch (err) {
-    if (err instanceof Error && err.name === 'UnknownCommand') return;
-    if (err instanceof Error && err.name === 'PathEscape') return;
-    throw err;
-  }
   try {
     await ctx.run('focus.init', {});
     // Re-entry liveness: prune any active file that vanished while we weren't
@@ -372,6 +362,8 @@ export function commands(): ReadonlyArray<
     ['workspace.repath', repath as unknown as Handler<never, unknown>],
     ['workspace.createDemo', createDemo as unknown as Handler<never, unknown>],
     ['workspace.listFiles', listFiles as unknown as Handler<never, unknown>],
+    ['workspace.listCanvas', listCanvas as unknown as Handler<never, unknown>],
+    ['workspace.listSupportedFiles', listSupportedFiles as unknown as Handler<never, unknown>],
     ['workspace.getViewport', getViewport as unknown as Handler<never, unknown>],
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
     ['workspace.readFile', readFile as unknown as Handler<never, unknown>],

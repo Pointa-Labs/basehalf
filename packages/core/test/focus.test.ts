@@ -340,6 +340,10 @@ describe('focus provenance preservation through rename / toggle', () => {
   let ctx: TestContext;
   beforeEach(async () => {
     ctx = await seed();
+    // Files on disk — focus.set({folder}) now gathers folder members from the
+    // filesystem (workspace.listSupportedFiles), not the badge mirror.
+    ctx.dirs.add('/work/notes');
+    ctx.files.set('/work/notes/a.md', 'A body');
     await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
     await ctx.core.run('badge.set', {
       file: 'notes',
@@ -386,9 +390,14 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
   let ctx: TestContext;
   beforeEach(async () => {
     ctx = await seed();
-    // Two file badges under notes/, one outside. badge.set materializes the
-    // badge JSON without needing the file on disk — enough for badge.list to
-    // enumerate the folder's members.
+    // Real files on disk: focus.set({folder}) gathers a folder's members from the
+    // FILESYSTEM (workspace.listSupportedFiles), so they must exist — two under
+    // notes/, one outside. Their prompts are a sparse badge overlay on top.
+    ctx.dirs.add('/work/notes');
+    ctx.dirs.add('/work/other');
+    ctx.files.set('/work/notes/a.md', 'A body');
+    ctx.files.set('/work/notes/b.md', 'B body');
+    ctx.files.set('/work/other/c.md', 'C body');
     await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
     await ctx.core.run('badge.set', { file: 'notes/b.md', patch: { prompt: 'B' } });
     await ctx.core.run('badge.set', { file: 'other/c.md', patch: { prompt: 'C' } });
@@ -464,8 +473,11 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
   it('a NEW file under a focused folder joins the brief automatically', async () => {
     await ctx.core.run('focus.set', { folder: 'notes' });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
-    // The watcher materializes a new file as a kind-only badge.set.
-    await ctx.core.run('badge.set', { file: 'notes/d.md' });
+    // A new file appears on disk; the watcher calls focus.reconcileNewFile (NO
+    // badge is created — badges are a sparse overlay). The folder brief, which
+    // gathers from the filesystem, pulls it in.
+    ctx.files.set('/work/notes/d.md', 'D body');
+    await ctx.core.run('focus.reconcileNewFile', { file: 'notes/d.md' });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('- notes/d.md'); // pulled in, not stale
     expect(md).toContain('# source-folder: notes'); // provenance kept
