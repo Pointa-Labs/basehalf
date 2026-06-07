@@ -30,6 +30,13 @@ import { MdEditor } from './FilePreview.js';
 // text falls back to a raw excerpt.
 type PreviewContent = { text: string };
 const previewCache = new Map<string, PreviewContent>();
+/** Drop all cached previews — call on workspace switch. The cache is keyed by
+ *  workspace-relative path for within-workspace reuse, so a path that exists in
+ *  two workspaces (e.g. README.md) would otherwise serve the wrong one's content
+ *  after a switch. */
+export function clearPreviewCache(): void {
+  previewCache.clear();
+}
 const PREVIEW_CHARS = 600;
 export const CARD_MIN_WIDTH = 220;
 export const CARD_MIN_HEIGHT = 160;
@@ -102,6 +109,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   });
   const inlineDocKey = docKeyFor(wsPath, d.label);
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
+  const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
   // Level-of-detail: only render the (expensive) content preview when the canvas
   // is zoomed in enough to actually read it. The boolean selector re-renders the
@@ -162,6 +170,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
       setInlineClosing(false);
     }
   }, [d.label, inlineClosing, inlineDocKey, inlineEditing]);
+
+  // Tell the canvas this card is being inline-edited so it suspends viewport
+  // virtualization — otherwise a pan/zoom could cull this tile mid-edit and the
+  // unmount would CANCEL (not flush) the debounced autosave, losing keystrokes.
+  // Cleared on exit and on unmount (idempotent in the store).
+  useEffect(() => {
+    setCardEditing(id, inlineEditing);
+    return () => setCardEditing(id, false);
+  }, [id, inlineEditing, setCardEditing]);
 
   useEffect(() => {
     if (!inlineEditing) return;

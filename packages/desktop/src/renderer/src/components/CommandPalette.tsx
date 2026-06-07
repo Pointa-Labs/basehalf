@@ -204,15 +204,27 @@ export const CommandPalette = (): JSX.Element | null => {
     let cancelled = false;
     void (async () => {
       try {
-        // Read the FILESYSTEM (every supported file under the workspace), not the
-        // badge mirror — badges are now a sparse overlay (only annotated files
-        // have one), so badge.list would miss most files. The palette is a
-        // jump-to-any-file picker, so it wants the full file list.
-        const result = (await window.bh.run('workspace.listSupportedFiles', {
-          folder: null,
-        })) as { files: string[] };
+        // The full file list comes from the FILESYSTEM (every supported file),
+        // since badges are now a sparse overlay (only annotated files have one) —
+        // badge.list alone would miss most files. We ALSO read the (sparse, cheap)
+        // badge.list to overlay prompts, so search-by-prompt still works for the
+        // files that have one.
+        const [filesRes, badgesRes] = (await Promise.all([
+          window.bh.run('workspace.listSupportedFiles', { folder: null }),
+          window.bh.run('badge.list', {}),
+        ])) as [{ files: string[] }, { badges: { file: string; prompt?: string }[] }];
         if (cancelled) return;
-        setFiles(result.files.map((file) => ({ file })));
+        const prompts = new Map(
+          badgesRes.badges
+            .filter((b) => b.prompt !== undefined)
+            .map((b) => [b.file, b.prompt as string]),
+        );
+        setFiles(
+          filesRes.files.map((file) => {
+            const prompt = prompts.get(file);
+            return prompt !== undefined ? { file, prompt } : { file };
+          }),
+        );
         setFilesWorkspace(current);
       } catch {
         // Don't block the palette on a transient core error — just show

@@ -143,6 +143,13 @@ interface WorkspaceState {
    *  settle onto the panel instead of the map sliding out from under it. */
   canvasDockDrag: { paneId: string; region: DropRegion } | null;
   setCanvasDockDrag: (target: { paneId: string; region: DropRegion } | null) => void;
+  /** Card ids currently being inline-edited on the canvas. While non-empty the
+   *  canvas disables viewport virtualization, so React Flow can't unmount a card
+   *  mid-edit (a pan/zoom that culls the editing tile would otherwise cancel its
+   *  debounced autosave → lost keystrokes). Folders are one level, so the canvas
+   *  is small and rendering it un-virtualized during an edit is cheap. */
+  canvasEditingCardIds: ReadonlySet<string>;
+  setCanvasCardEditing: (id: string, editing: boolean) => void;
   /** Open a canvas badge in the right panel at a drop region (the canvas→panel
    *  drag-dock lands here): 'center' adds it as a tab in `paneId`; an edge splits
    *  that pane and opens it in the new pane. A reference open (like the sidebar) —
@@ -273,6 +280,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     rightPanelOpen: false,
     tabDrag: null,
     canvasDockDrag: null,
+    canvasEditingCardIds: new Set<string>(),
     canvasSelection: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
@@ -717,6 +725,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set((s) => ({ paneTree: setFraction(s.paneTree, splitId, fraction) })),
 
     setTabDrag: (drag) => set({ tabDrag: drag }),
+
+    setCanvasCardEditing: (id, editing) =>
+      set((s) => {
+        const has = s.canvasEditingCardIds.has(id);
+        if (editing === has) return {}; // no-op: avoid churning renders
+        const next = new Set(s.canvasEditingCardIds);
+        if (editing) next.add(id);
+        else next.delete(id);
+        return { canvasEditingCardIds: next };
+      }),
 
     setCanvasDockDrag: (target) =>
       set((s) => {

@@ -155,25 +155,24 @@ async function emitRename(
       kind: add.isDir ? 'folder' : 'file',
     });
   } catch (err) {
-    // The atomic rename failed (e.g. no source badge yet, or destination
-    // collision because materialize already wrote one). Fall back to the
-    // safe path: markOrphan the old, materialize the new. The user sees
-    // the same visual result they would have without the heuristic.
+    // badge.rename failed — usually because the renamed path had NO source badge
+    // (the common case now that badges are sparse: an unannotated file), or a rare
+    // destination collision. Fall back: orphan the old badge IF one exists (a
+    // no-op otherwise) and remap any focus entry to the new path. No badge is
+    // created for the new file — it shows from the filesystem. The focus remap is
+    // essential: a FOCUSED but unannotated file would otherwise dangle in focus.md
+    // (badge.rename's focus cascade only fires when a source badge existed).
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     console.warn('[bh:watcher] badge.rename failed; falling back:', err);
-    await ctx.run('badge.markOrphan', {
-      file: pending.event.relPath,
-      kind: pending.event.isDir ? 'folder' : 'file',
-    });
-    const existing = await ctx.run('badge.get', {
-      file: add.relPath,
-      kind: add.isDir ? 'folder' : 'file',
-    });
-    if (!existing) {
-      await ctx.run('badge.set', {
-        file: add.relPath,
-        patch: { kind: add.isDir ? 'folder' : 'file' },
+    const kind = add.isDir ? 'folder' : 'file';
+    await ctx.run('badge.markOrphan', { file: pending.event.relPath, kind });
+    try {
+      await ctx.run(add.isDir ? 'focus.renameActiveFolder' : 'focus.renameActiveFile', {
+        from: pending.event.relPath,
+        to: add.relPath,
       });
+    } catch (e) {
+      if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
     }
     return;
   }

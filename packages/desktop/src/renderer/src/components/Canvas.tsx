@@ -58,6 +58,7 @@ import {
   DEFAULT_FILE_CARD_WIDTH,
   DEFAULT_FOLDER_CARD_HEIGHT,
   DEFAULT_FOLDER_CARD_WIDTH,
+  clearPreviewCache,
 } from './BadgeNode.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -223,6 +224,10 @@ export const Canvas = (): JSX.Element => {
   // Subscribe to the BOOLEAN (not the target object) so region changes within the
   // panel don't re-render the canvas — only the on/off transition flips autopan.
   const docking = useWorkspaceStore((s) => s.canvasDockDrag !== null);
+  // While a card is being inline-edited, suspend viewport virtualization so a
+  // pan/zoom can't cull the editing tile mid-edit (which would cancel its
+  // unsaved autosave). Boolean selector → re-renders only on the 0↔1 transition.
+  const cardEditing = useWorkspaceStore((s) => s.canvasEditingCardIds.size > 0);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
@@ -303,6 +308,14 @@ export const Canvas = (): JSX.Element => {
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [current, folderScope, reloadFocus]);
+
+  // Drop cached previews when the active workspace changes — the cache is keyed
+  // by workspace-relative path, so a path present in two workspaces (README.md)
+  // must not carry the prior workspace's content across a switch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears a module cache and reads nothing.
+  useEffect(() => {
+    clearPreviewCache();
+  }, [current]);
 
   useEffect(() => {
     if (current && currentReachable) {
@@ -1199,11 +1212,13 @@ export const Canvas = (): JSX.Element => {
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
-        // Only mount nodes inside the viewport. A large workspace can hold
-        // hundreds of badges; without this, every one mounts (and every markdown
-        // card's editor with it) even far off-screen. Nodes carry initialWidth/
-        // initialHeight (see badgeToNode) so culling has bounds before measurement.
-        onlyRenderVisibleElements
+        // Only mount nodes inside the viewport. A folder with many direct children
+        // can hold lots of badges; without this, every one mounts (and every
+        // markdown card's editor with it) even far off-screen. Nodes carry
+        // initialWidth/initialHeight (see badgeToNode) so culling has bounds before
+        // measurement. SUSPENDED while a card is being inline-edited, so a pan/zoom
+        // can't cull the editing tile and cancel its unsaved autosave.
+        onlyRenderVisibleElements={!cardEditing}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} color={color.border} />
