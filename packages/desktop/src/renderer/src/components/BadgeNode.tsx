@@ -1,4 +1,4 @@
-import { type Node, type NodeProps, NodeResizer, useReactFlow } from '@xyflow/react';
+import { type Node, type NodeProps, NodeResizer, useReactFlow, useStore } from '@xyflow/react';
 import {
   type CSSProperties,
   type JSX,
@@ -16,11 +16,13 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
 import { MdEditor } from './FilePreview.js';
 
-// A badge is a *living tile*: it always shows a real preview of the file's
-// contents (a text excerpt / image thumbnail), so the canvas reads as "my
-// documents in space," not a graph of names. React-flow's transform scales the
-// whole tile with zoom — so the content shrinks to a thumbnail when you zoom
-// out and becomes readable as you zoom in, with no detail-toggling needed.
+// A badge is a *living tile*: when it's big enough on screen to read, it shows a
+// real preview of the file's contents (a text excerpt / image thumbnail), so the
+// canvas reads as "my documents in space," not a graph of names. Below
+// PREVIEW_ZOOM_THRESHOLD the tile is too small to read, so it drops to just a
+// name + glyph — no file read, no editor. This level-of-detail gate is what keeps
+// a large, fully-framed workspace fast: at fit-to-all zoom EVERY tile is on
+// screen, so viewport virtualization alone can't cull the per-tile preview work.
 
 // Cache previews per path so a transient unmount (Canvas rebuilds nodes on file
 // events) doesn't refetch/re-render. Staleness self-heals on the next refresh.
@@ -28,6 +30,13 @@ import { MdEditor } from './FilePreview.js';
 // text falls back to a raw excerpt.
 type PreviewContent = { text: string };
 const previewCache = new Map<string, PreviewContent>();
+/** Drop all cached previews — call on workspace switch. The cache is keyed by
+ *  workspace-relative path for within-workspace reuse, so a path that exists in
+ *  two workspaces (e.g. README.md) would otherwise serve the wrong one's content
+ *  after a switch. */
+export function clearPreviewCache(): void {
+  previewCache.clear();
+}
 const PREVIEW_CHARS = 600;
 export const CARD_MIN_WIDTH = 220;
 export const CARD_MIN_HEIGHT = 160;
@@ -35,6 +44,10 @@ export const DEFAULT_FILE_CARD_WIDTH = 300;
 export const DEFAULT_FILE_CARD_HEIGHT = 220;
 export const DEFAULT_FOLDER_CARD_WIDTH = 240;
 export const DEFAULT_FOLDER_CARD_HEIGHT = 132;
+// Below this zoom a default 300px card is < ~150px wide on screen — too small to
+// read the content preview, so cards drop to name + glyph only (see BadgeNode).
+// Tune to taste: higher = previews kick in only when zoomed closer.
+export const PREVIEW_ZOOM_THRESHOLD = 0.5;
 
 // One shared file-event subscription fans out to all mounted tiles, instead of
 // each tile registering its own ipcRenderer listener (which trips Node's
@@ -96,7 +109,12 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   });
   const inlineDocKey = docKeyFor(wsPath, d.label);
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
+  const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
+  // Level-of-detail: only render the (expensive) content preview when the canvas
+  // is zoomed in enough to actually read it. The boolean selector re-renders the
+  // tile only when CROSSING the threshold, not on every zoom delta (no flicker).
+  const showDetail = useStore((s) => s.transform[2] >= PREVIEW_ZOOM_THRESHOLD);
   const [nodeHover, setNodeHover] = useState(false);
   const [inlineEditing, setInlineEditing] = useState(false);
   const [inlineClosing, setInlineClosing] = useState(false);
@@ -152,6 +170,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
       setInlineClosing(false);
     }
   }, [d.label, inlineClosing, inlineDocKey, inlineEditing]);
+
+  // Tell the canvas this card is being inline-edited so it suspends viewport
+  // virtualization — otherwise a pan/zoom could cull this tile mid-edit and the
+  // unmount would CANCEL (not flush) the debounced autosave, losing keystrokes.
+  // Cleared on exit and on unmount (idempotent in the store).
+  useEffect(() => {
+    setCardEditing(id, inlineEditing);
+    return () => setCardEditing(id, false);
+  }, [id, inlineEditing, setCardEditing]);
 
   useEffect(() => {
     if (!inlineEditing) return;
@@ -406,25 +433,24 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
           )}
         </div>
       </div>
-      {usesMarkdownCardSurface ? (
+      {/* Markdown cards mount the heavy live editor (BlockNote + Yjs) ONLY while
+          inline-editing — never as the resting preview. Otherwise every .md card
+          on the canvas mounts its own ProseMirror editor (e.g. ~48 at once inside
+          a decisions/ folder), janking the whole canvas. At rest, markdown falls
+          through to the cheap BadgePreview excerpt below (it is type 'text'). */}
+      {usesMarkdownCardSurface && inlineEditing ? (
         <div
-          className={inlineEditing ? 'nodrag nopan nowheel' : undefined}
-          data-testid={inlineEditing ? `canvas-inline-editor-${d.label}` : undefined}
-          onMouseDown={inlineEditing ? (e) => e.stopPropagation() : undefined}
-          onDoubleClick={inlineEditing ? (e) => e.stopPropagation() : undefined}
+          className="nodrag nopan nowheel"
+          data-testid={`canvas-inline-editor-${d.label}`}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
           style={{
             flex: 1,
             minHeight: 0,
             overflow: 'hidden',
-            cursor: inlineEditing ? 'text' : 'grab',
+            cursor: 'text',
             background: color.surface,
-            pointerEvents: inlineEditing ? 'auto' : 'none',
-            maskImage: inlineEditing
-              ? undefined
-              : 'linear-gradient(to bottom, #000 70%, transparent)',
-            WebkitMaskImage: inlineEditing
-              ? undefined
-              : 'linear-gradient(to bottom, #000 70%, transparent)',
+            pointerEvents: 'auto',
           }}
         >
           <MdEditor
@@ -458,7 +484,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             </div>
           )}
         </div>
-      ) : showPreview ? (
+      ) : showPreview && showDetail ? (
         <BadgePreview type={type} label={d.label} wsPath={wsPath} />
       ) : (
         <div

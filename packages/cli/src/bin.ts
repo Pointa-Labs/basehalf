@@ -197,7 +197,7 @@ const badgeSet = defineCommand({
 });
 
 const badgeList = defineCommand({
-  meta: { name: 'list', description: 'List all materialized badges in current workspace' },
+  meta: { name: 'list', description: 'List annotated badges in current workspace' },
   args: {
     kind: { type: 'string', description: 'Filter by file|folder' },
     query: { type: 'string', description: 'Substring filter (case-insensitive)' },

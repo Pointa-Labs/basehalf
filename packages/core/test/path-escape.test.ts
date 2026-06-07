@@ -134,9 +134,10 @@ describe('badges store', () => {
     expect(existsSync(join(outside, 'pwned.json'))).toBe(false);
   });
 
-  it('still lists legitimately materialized badges (no false rejection)', async () => {
+  it('still lists legitimately created badges (no false rejection)', async () => {
     await writeFile(join(ws, 'doc.md'), '# doc');
-    await core.run('workspace.use', { name: 'ws' }); // re-materialize
+    await core.run('workspace.use', { name: 'ws' }); // ensure current
+    await core.run('badge.set', { file: 'doc.md', patch: { prompt: 'x' } }); // annotate → real badge
     const { badges } = await core.run('badge.list', {});
     expect(badges.find((b: { file: string }) => b.file === 'doc.md')).toBeDefined();
   });

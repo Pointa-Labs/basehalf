@@ -61,13 +61,21 @@ describe('canvas card editor CSS', () => {
     expect(badgeNodeSource).not.toContain('markdownToHtml');
   });
 
-  it('renders Markdown card preview and edit through the same compact MdEditor', () => {
+  it('mounts the heavy card editor only while inline-editing, not for the resting preview', () => {
     expect(badgeNodeSource).toContain(
       'const usesMarkdownCardSurface = canInlineEdit && showPreview;',
     );
+    // The live BlockNote+Yjs editor mounts ONLY while inline-editing — mounting it
+    // for the resting preview would put one ProseMirror editor on every .md card
+    // and jank a large workspace. At rest, markdown falls through to the cheap
+    // BadgePreview excerpt (it is type 'text').
     expect(badgeNodeSource).toMatch(
-      /\{usesMarkdownCardSurface \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
+      /\{usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
     );
+    expect(badgeNodeSource).toMatch(/\) : showPreview && showDetail \? \(\s*<BadgePreview/);
+    // Level-of-detail: the preview body is gated on showDetail (zoom), so a fully
+    // framed large workspace doesn't render every card's preview at once.
+    expect(badgeNodeSource).toContain('s.transform[2] >= PREVIEW_ZOOM_THRESHOLD');
     expect(filePreviewSource).toContain('cardEditable = true');
     expect(filePreviewSource).toMatch(/autoFocus=\{compact && compactEditable\}/);
     expect(filePreviewSource).toMatch(/editable=\{!viewOnly && seedReady && compactEditable\}/);
@@ -211,7 +219,9 @@ describe('canvas card editor CSS', () => {
     expect(badgeNodeSource).toContain("querySelector<HTMLElement>('.bh-md-editor-scroll')");
     expect(badgeNodeSource).toContain('event.preventDefault();');
     expect(badgeNodeSource).toContain('scroller.scrollTop += event.deltaY');
-    expect(badgeNodeSource).toContain("className={inlineEditing ? 'nodrag nopan nowheel'");
+    // The card editor wrapper renders only while inline-editing, so it is
+    // unconditionally nodrag/nopan/nowheel — gestures stay inside the editor.
+    expect(badgeNodeSource).toContain('className="nodrag nopan nowheel"');
   });
 
   it('focuses the compact editor when a card enters edit mode', () => {

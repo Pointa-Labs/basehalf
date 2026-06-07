@@ -148,42 +148,49 @@ async function emitRename(
   pending: PendingUnlink,
   add: WatcherFsEvent,
 ): Promise<void> {
+  const kind = add.isDir ? 'folder' : 'file';
+  const from = pending.event.relPath;
+  const to = add.relPath;
   try {
-    await ctx.run('badge.rename', {
-      from: pending.event.relPath,
-      to: add.relPath,
-      kind: add.isDir ? 'folder' : 'file',
-    });
+    await ctx.run('badge.rename', { from, to, kind });
   } catch (err) {
-    // The atomic rename failed (e.g. no source badge yet, or destination
-    // collision because materialize already wrote one). Fall back to the
-    // safe path: markOrphan the old, materialize the new. The user sees
-    // the same visual result they would have without the heuristic.
+    // badge.rename throws when there's no source badge — the common case now that
+    // badges are sparse (the renamed file was unannotated). Do the liveness work it
+    // normally cascades, so a sparse rename isn't lossy, then fall through to emit
+    // the rename side-channel below.
     if (err instanceof Error && err.name === 'UnknownCommand') return;
-    console.warn('[bh:watcher] badge.rename failed; falling back:', err);
-    await ctx.run('badge.markOrphan', {
-      file: pending.event.relPath,
-      kind: pending.event.isDir ? 'folder' : 'file',
-    });
-    const existing = await ctx.run('badge.get', {
-      file: add.relPath,
-      kind: add.isDir ? 'folder' : 'file',
-    });
-    if (!existing) {
-      await ctx.run('badge.set', {
-        file: add.relPath,
-        patch: { kind: add.isDir ? 'folder' : 'file' },
-      });
+    console.warn('[bh:watcher] badge.rename fell back:', err);
+    // markOrphan returns the badge it flagged, or null when there was NO source
+    // badge (the sparse case). It cascades a focus resync when a badge existed —
+    // so it fully covers BOTH a genuine sparse rename and a rare destination
+    // collision (source badge exists → flagged + resynced here). Only the sparse
+    // case (null) needs the extra focus remap, since no cascade ran.
+    const orphaned = (await ctx.run('badge.markOrphan', { file: from, kind })) as {
+      orphan?: boolean;
+    } | null;
+    if (orphaned === null) {
+      // Sparse: no source badge, so badge.rename's focus cascade never fired.
+      // Remap any focus entry to the new path so a FOCUSED unannotated file doesn't
+      // dangle. (Inbound refs pointing AT an unbadged renamed target are a narrower
+      // case that self-heals via inbound.rebuild, so we don't rewrite them here.)
+      try {
+        await ctx.run(add.isDir ? 'focus.renameActiveFolder' : 'focus.renameActiveFile', {
+          from,
+          to,
+        });
+      } catch (e) {
+        if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
+      }
     }
-    return;
   }
-  // Side-channel: tell hosts a rename happened so they can update UI
-  // (NavTree refresh, currentFile rebinding, canvas re-render) without a
-  // markOrphan flicker.
+  // Side-channel: tell hosts a rename happened (NavTree refresh, currentFile
+  // rebinding, canvas re-render). Emitted for BOTH the badged-rename and the
+  // sparse fallback, so an open editor/tab on an unannotated file rebinds to the
+  // new path instead of staying stuck on the vanished one.
   watcherEvents.emit('event', {
     type: 'rename',
-    fromRelPath: pending.event.relPath,
-    toRelPath: add.relPath,
+    fromRelPath: from,
+    toRelPath: to,
     toAbsPath: add.absPath,
     isDir: add.isDir,
   });
@@ -221,31 +228,38 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         await emitRename(ctx, unlinkMatch, event);
         return;
       }
-      // No pending unlink yet — buffer this add briefly in case the
-      // unlink arrives shortly (add-first ordering, common under FSEvents
-      // on macOS). If no unlink arrives in time, materialize normally.
+      // No pending unlink yet — buffer this add briefly in case the unlink
+      // arrives shortly (add-first ordering, common under FSEvents on macOS).
+      // If no unlink arrives in time, finalize the add.
       const finalize = async (): Promise<void> => {
         pendingAdds.delete(event.relPath);
         try {
           const kind = event.isDir ? 'folder' : 'file';
+          // No eager materialization: a brand-new file gets NO badge — badges are
+          // a sparse overlay, created lazily only on first annotation. The
+          // renderer re-reads the folder on this event and shows the file from the
+          // filesystem with defaults. The ONE thing to do here: if a previously
+          // deleted but ANNOTATED file re-appeared at the same path, clear its
+          // orphan flag (so it stops being excluded from briefs) and re-join any
+          // folder-sourced focus (badge.set's reconcileNewFile only fires for
+          // brand-new badges, so do it explicitly).
           const existing = (await ctx.run('badge.get', {
             file: event.relPath,
             kind,
           })) as { orphan?: boolean } | null;
-          if (!existing) {
-            // New file → materialize (badge.set reconciles any folder focus).
-            await ctx.run('badge.set', { file: event.relPath, patch: { kind } });
-          } else if (existing.orphan === true) {
-            // A previously-deleted file re-appeared at the SAME path: clear the
-            // orphan flag (so it stops being excluded from briefs) and re-join any
-            // folder-sourced focus it belongs to — badge.set's reconcileNewFile
-            // only fires for brand-new badges, so do it explicitly here.
+          if (existing?.orphan === true) {
+            // Re-appeared annotated file: clear orphan, then re-join its folder brief.
             await ctx.run('badge.set', { file: event.relPath, patch: { kind, orphan: false } });
+            await ctx.run('focus.reconcileNewFile', { file: event.relPath });
+          } else if (!existing) {
+            // Brand-new unannotated file: NO badge is created (sparse overlay), but
+            // if it sits under a focused FOLDER it must join that folder's brief —
+            // a folder means "read ALL its files," and the file is now on disk.
             await ctx.run('focus.reconcileNewFile', { file: event.relPath });
           }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
-          console.error('[bh:watcher] materialize failed on buffered add', event, err);
+          console.error('[bh:watcher] add-finalize failed', event, err);
         }
       };
       const timer = setTimeout(() => {
@@ -279,10 +293,17 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       const finalize = async (): Promise<void> => {
         pendingUnlinks.delete(event.relPath);
         try {
-          await ctx.run('badge.markOrphan', {
+          const orphaned = (await ctx.run('badge.markOrphan', {
             file: event.relPath,
             kind: event.isDir ? 'folder' : 'file',
-          });
+          })) as { orphan?: boolean } | null;
+          // A sparse (unbadged) file has no badge for markOrphan to flag, so it
+          // never resyncs focus. If the deleted file was in a focus brief, drop it
+          // now (stat-based prune) — otherwise the LIVE brief keeps pointing at a
+          // vanished file until the next on-open prune.
+          if (orphaned === null) {
+            await ctx.run('focus.pruneDangling', {});
+          }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
           console.error('[bh:watcher] markOrphan failed on buffered unlink', event, err);

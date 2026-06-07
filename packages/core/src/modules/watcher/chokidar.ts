@@ -3,7 +3,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import type { WatcherEvent, WatcherFsEvent } from './types.js';
 
 // Tooling cruft we never want to wake the dispatcher for. Kept in sync with
-// workspace/materialize.ts SKIP_NAMES (the eager-materialization blacklist).
+// workspace/supported.ts SKIP_NAMES (the canvas-walk blacklist).
 const IGNORED_GLOBS = [
   /(^|[/\\])\.git([/\\]|$)/,
   /(^|[/\\])\.bh([/\\]|$)/,

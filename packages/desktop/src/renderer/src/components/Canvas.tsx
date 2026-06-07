@@ -1,9 +1,8 @@
 import type {
   BadgeFile,
   BadgeKind,
-  BadgeListResult,
   ViewportState,
-  WorkspaceGetViewportResult,
+  WorkspaceListCanvasResult,
 } from '@basehalf/core';
 import {
   Background,
@@ -59,6 +58,7 @@ import {
   DEFAULT_FILE_CARD_WIDTH,
   DEFAULT_FOLDER_CARD_HEIGHT,
   DEFAULT_FOLDER_CARD_WIDTH,
+  clearPreviewCache,
 } from './BadgeNode.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
@@ -98,29 +98,28 @@ const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
 };
 
-function badgesInScope(
-  badges: readonly BadgeFile[],
-  folderScope: string | null,
-): readonly BadgeFile[] {
-  if (folderScope === null) return badges;
-  const prefix = `${folderScope}/`;
-  return badges.filter((badge) => badge.file.startsWith(prefix));
+// The parent folder of a scope (one level up), or null for a top-level folder
+// (whose parent is the root canvas). Powers "back" navigation up the tree. Each
+// canvas IS a folder — it shows only that folder's direct children (the one-level
+// set comes straight from workspace.listCanvas), and double-clicking a folder
+// badge opens it (the canvas becomes that folder's inside).
+function parentScope(folderScope: string): string | null {
+  const slash = folderScope.lastIndexOf('/');
+  return slash === -1 ? null : folderScope.slice(0, slash);
 }
 
 function nodeBadgeKind(nodes: readonly Node<BadgeNodeData>[], id: string): BadgeKind {
   return nodes.find((node) => node.id === id)?.data.kind ?? 'file';
 }
 
-function connectionEdgesForScope(
+// Build reference edges for the badges currently on the canvas. They are already
+// exactly one folder level (workspace.listCanvas), so no scope filter is needed —
+// badgesToConnectionEdges drops refs whose target isn't in the visible set.
+function connectionEdges(
   badges: readonly BadgeFile[],
   nodes: readonly Node<BadgeNodeData>[],
-  folderScope: string | null,
 ): Edge[] {
-  return badgesToConnectionEdges(
-    badgesInScope(badges, folderScope),
-    nodes,
-    CONNECTION_EDGE_SIZE_DEFAULTS,
-  );
+  return badgesToConnectionEdges(badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS);
 }
 
 function badgeToNode(
@@ -148,14 +147,18 @@ function badgeToNode(
   const height =
     badge.canvas?.height ??
     (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
+  const w = Math.max(width, CARD_MIN_WIDTH);
+  const h = Math.max(height, CARD_MIN_HEIGHT);
   return {
     id: badge.file,
     type: 'badge',
     position: { x, y },
-    style: {
-      width: Math.max(width, CARD_MIN_WIDTH),
-      height: Math.max(height, CARD_MIN_HEIGHT),
-    },
+    // initialWidth/Height give onlyRenderVisibleElements (see <ReactFlow>) the
+    // node bounds for viewport culling BEFORE the DOM is measured — without them
+    // the first frame can't tell which nodes fall inside the viewport.
+    initialWidth: w,
+    initialHeight: h,
+    style: { width: w, height: h },
     data: {
       label: badge.file,
       kind: badge.kind,
@@ -221,6 +224,10 @@ export const Canvas = (): JSX.Element => {
   // Subscribe to the BOOLEAN (not the target object) so region changes within the
   // panel don't re-render the canvas — only the on/off transition flips autopan.
   const docking = useWorkspaceStore((s) => s.canvasDockDrag !== null);
+  // While a card is being inline-edited, suspend viewport virtualization so a
+  // pan/zoom can't cull the editing tile mid-edit (which would cancel its
+  // unsaved autosave). Boolean selector → re-renders only on the 0↔1 transition.
+  const cardEditing = useWorkspaceStore((s) => s.canvasEditingCardIds.size > 0);
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
@@ -264,44 +271,61 @@ export const Canvas = (): JSX.Element => {
     nodesRef.current = nodes;
   }, [nodes]);
 
-  const refresh = useCallback(async () => {
+  // Read focus state only (cheap: one file). Updates the agent-context chip
+  // without re-walking every badge — folder navigation never needs this.
+  const reloadFocus = useCallback(async () => {
     try {
-      const result = (await window.bh.run('badge.list')) as BadgeListResult;
-      const badges = badgesInScope(result.badges, folderScope);
-
-      const focusResult = (await window.bh.run('focus.get', {})) as {
+      const r = (await window.bh.run('focus.get', {})) as {
         active: string[];
         lastBriefServedAt?: string;
       };
-      setFocusActive(focusResult.active); // chip reports the full set, not scope-filtered nodes
-      setBriefServedAt(focusResult.lastBriefServedAt);
+      setFocusActive(r.active); // chip reports the full set, not scope-filtered nodes
+      setBriefServedAt(r.lastBriefServedAt);
+    } catch {
+      /* transient — keep the last known values */
+    }
+  }, []);
+
+  // Load THIS folder's canvas. The filesystem IS the tree, so we read ONE level
+  // on demand (workspace.listCanvas) — the direct children of folderScope (null =
+  // root), each merged with its sparse badge overlay. Cheap (one readdir), so
+  // folder navigation re-runs it (loadData depends on folderScope). Each folder
+  // canvas fits its OWN contents on entry (vp:null → fit-to-view), so you always
+  // land looking at the items in THIS folder, not a stale pan/zoom.
+  const loadData = useCallback(async () => {
+    try {
+      const { badges } = (await window.bh.run('workspace.listCanvas', {
+        folder: folderScope,
+      })) as WorkspaceListCanvasResult;
       const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
       setNodes(nextNodes);
       setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
       setSnapGuides([]);
-      // Inside a folder scope, the per-workspace saved viewport doesn't frame
-      // this filtered subset (the folder's badges may sit anywhere) — fit
-      // instead (vp:null). On the main canvas, restore the saved viewport.
-      const vp =
-        folderScope !== null
-          ? null
-          : ((await window.bh.run('workspace.getViewport', {})) as WorkspaceGetViewportResult);
-      setFrame({ key: `${current}|${folderScope ?? ''}`, vp });
+      setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
+      await reloadFocus();
       setError('');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [current, folderScope]);
+  }, [current, folderScope, reloadFocus]);
+
+  // Drop cached previews when the active workspace changes — the cache is keyed
+  // by workspace-relative path, so a path present in two workspaces (README.md)
+  // must not carry the prior workspace's content across a switch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears a module cache and reads nothing.
+  useEffect(() => {
+    clearPreviewCache();
+  }, [current]);
 
   useEffect(() => {
     if (current && currentReachable) {
-      void refresh();
+      void loadData();
     } else {
       setNodes([]);
       setEdges([]);
       setSnapGuides([]);
     }
-  }, [current, currentReachable, refresh]);
+  }, [current, currentReachable, loadData]);
 
   // Poll the brief-served receipt so "agent read Ns ago" stays live. The stamp
   // lands in .bh/cache/ (watcher-ignored, no push), so a light 5s poll of focus.get
@@ -343,13 +367,13 @@ export const Canvas = (): JSX.Element => {
     const unsub = window.bh.onFileEvent((event) => {
       if (event.type === 'change') return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void refresh(), 1100);
+      timer = setTimeout(() => void loadData(), 1100);
     });
     return () => {
       if (timer) clearTimeout(timer);
       unsub();
     };
-  }, [refresh]);
+  }, [loadData]);
 
   // Live-update when a badge's metadata (prompt / references) is edited in the
   // editor's badge panel. Those writes land in `.bh/`, which the watcher above
@@ -357,21 +381,21 @@ export const Canvas = (): JSX.Element => {
   // panel-added edge until reload. The panel emits on each successful mutation
   // (see lib/badgeBus); re-deriving nodes + edges keeps the hero surface honest.
   //
-  // COALESCED: refresh() re-walks every badge JSON (badge.list) + focus.get +
-  // viewport over IPC, so a burst of edits (rapid prompt saves / ref edits) must
-  // not trigger a full re-walk each. A trailing timer collapses a burst into one
-  // refresh (canvas is behind the editor overlay, so a small delay is invisible).
+  // COALESCED: loadData() re-walks every badge JSON (badge.list) + focus over IPC,
+  // so a burst of edits (rapid prompt saves / ref edits) must not trigger a full
+  // re-walk each. A trailing timer collapses a burst into one load (canvas is
+  // behind the editor overlay, so a small delay is invisible).
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = subscribeBadgeChange(() => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void refresh(), 250);
+      timer = setTimeout(() => void loadData(), 250);
     });
     return () => {
       if (timer) clearTimeout(timer);
       unsub();
     };
-  }, [refresh]);
+  }, [loadData]);
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
@@ -568,8 +592,10 @@ export const Canvas = (): JSX.Element => {
           ...(toSide !== undefined && { toSide }),
         });
         // Refresh so the new edge shows + inbound index updates ripple to other views.
-        const result = (await window.bh.run('badge.list')) as BadgeListResult;
-        setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
+        const { badges } = (await window.bh.run('workspace.listCanvas', {
+          folder: folderScope,
+        })) as WorkspaceListCanvasResult;
+        setEdges(connectionEdges(badges, nodesRef.current));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -592,8 +618,10 @@ export const Canvas = (): JSX.Element => {
             kind: nodeBadgeKind(nodesRef.current, e.source),
           });
         }
-        const result = (await window.bh.run('badge.list')) as BadgeListResult;
-        setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
+        const { badges } = (await window.bh.run('workspace.listCanvas', {
+          folder: folderScope,
+        })) as WorkspaceListCanvasResult;
+        setEdges(connectionEdges(badges, nodesRef.current));
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -602,8 +630,10 @@ export const Canvas = (): JSX.Element => {
   );
 
   const resetReferenceEdgesFromCore = useCallback(async (): Promise<void> => {
-    const result = (await window.bh.run('badge.list')) as BadgeListResult;
-    setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
+    const { badges } = (await window.bh.run('workspace.listCanvas', {
+      folder: folderScope,
+    })) as WorkspaceListCanvasResult;
+    setEdges(connectionEdges(badges, nodesRef.current));
   }, [folderScope]);
 
   const commitReferenceEdgeUpdate = useCallback(
@@ -613,7 +643,7 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          const result = (await window.bh.run('badge.reconnectRef', {
+          await window.bh.run('badge.reconnectRef', {
             previous: {
               file: update.previousSource,
               to: update.previousTarget,
@@ -627,8 +657,8 @@ export const Canvas = (): JSX.Element => {
               ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
               ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
             },
-          })) as BadgeListResult;
-          setEdges(connectionEdgesForScope(result.badges, nodesRef.current, folderScope));
+          });
+          await resetReferenceEdgesFromCore();
           setError('');
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
@@ -636,7 +666,7 @@ export const Canvas = (): JSX.Element => {
         }
       })();
     },
-    [folderScope, resetReferenceEdgesFromCore],
+    [resetReferenceEdgesFromCore],
   );
 
   const commitReferenceEdgeRemoval = useCallback(
@@ -883,7 +913,7 @@ export const Canvas = (): JSX.Element => {
     if (!folderScope) return;
     try {
       await window.bh.run('focus.set', { folder: folderScope });
-      void refresh(); // re-read focus.get → agent-context chip
+      void reloadFocus(); // re-read focus → agent-context chip
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -936,7 +966,11 @@ export const Canvas = (): JSX.Element => {
             gap: space[2],
           }}
         >
-          <Button variant="ghost" onClick={() => setFolderScope(null)} title="Exit folder scope">
+          <Button
+            variant="ghost"
+            onClick={() => setFolderScope(parentScope(folderScope))}
+            title="Up one level"
+          >
             ← /{folderScope}
           </Button>
           <Button
@@ -1178,6 +1212,13 @@ export const Canvas = (): JSX.Element => {
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
+        // Only mount nodes inside the viewport. A folder with many direct children
+        // can hold lots of badges; without this, every one mounts (and every
+        // markdown card's editor with it) even far off-screen. Nodes carry
+        // initialWidth/initialHeight (see badgeToNode) so culling has bounds before
+        // measurement. SUSPENDED while a card is being inline-edited, so a pan/zoom
+        // can't cull the editing tile and cancel its unsaved autosave.
+        onlyRenderVisibleElements={!cardEditing}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} color={color.border} />

@@ -143,6 +143,13 @@ interface WorkspaceState {
    *  settle onto the panel instead of the map sliding out from under it. */
   canvasDockDrag: { paneId: string; region: DropRegion } | null;
   setCanvasDockDrag: (target: { paneId: string; region: DropRegion } | null) => void;
+  /** Card ids currently being inline-edited on the canvas. While non-empty the
+   *  canvas disables viewport virtualization, so React Flow can't unmount a card
+   *  mid-edit (a pan/zoom that culls the editing tile would otherwise cancel its
+   *  debounced autosave → lost keystrokes). Folders are one level, so the canvas
+   *  is small and rendering it un-virtualized during an edit is cheap. */
+  canvasEditingCardIds: ReadonlySet<string>;
+  setCanvasCardEditing: (id: string, editing: boolean) => void;
   /** Open a canvas badge in the right panel at a drop region (the canvas→panel
    *  drag-dock lands here): 'center' adds it as a tab in `paneId`; an edge splits
    *  that pane and opens it in the new pane. A reference open (like the sidebar) —
@@ -182,8 +189,8 @@ interface WorkspaceState {
   clearOpenMatchQuery: () => void;
   setFolderScope: (path: string | null) => void;
   /** Create an empty MD note (writes a workspace-relative file) and open it
-   * in the preview. The watcher picks it up and badge.list materializes a
-   * badge on the next refresh — no extra step needed. */
+   * in the preview. The watcher picks it up and the canvas re-reads the folder,
+   * so the note appears as a tile — no badge is created until you annotate it. */
   createNote: (relPath: string) => Promise<void>;
   /** Create a blank untitled note and open it (pinned) in a pane — the
    *  double-click-empty-tab-strip gesture. (A code editor's "new untitled"
@@ -273,6 +280,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     rightPanelOpen: false,
     tabDrag: null,
     canvasDockDrag: null,
+    canvasEditingCardIds: new Set<string>(),
     canvasSelection: null,
     openMatchQuery: null,
     // (saved-view state removed — a folder is the grouping unit now)
@@ -326,7 +334,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await startWatcher();
             // Re-validate the brief against disk on every workspace LOAD. Plain
             // startup loads via workspace.list (a read) — not workspace.use — so
-            // materializeWithFallback's re-entry prune never runs here; a focus.md
+            // bootstrapWorkspace's re-entry prune never runs here; a focus.md
             // gone stale while the app was closed (git checkout / external rm)
             // would otherwise point the agent at a deleted file. Cheap + idempotent;
             // fire-and-forget so a hiccup never blocks the canvas.
@@ -717,6 +725,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       set((s) => ({ paneTree: setFraction(s.paneTree, splitId, fraction) })),
 
     setTabDrag: (drag) => set({ tabDrag: drag }),
+
+    setCanvasCardEditing: (id, editing) =>
+      set((s) => {
+        const has = s.canvasEditingCardIds.has(id);
+        if (editing === has) return {}; // no-op: avoid churning renders
+        const next = new Set(s.canvasEditingCardIds);
+        if (editing) next.add(id);
+        else next.delete(id);
+        return { canvasEditingCardIds: next };
+      }),
 
     setCanvasDockDrag: (target) =>
       set((s) => {

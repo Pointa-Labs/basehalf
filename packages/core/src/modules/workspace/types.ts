@@ -4,6 +4,8 @@
  * one is currently active (so other modules know which root to operate on).
  */
 
+import type { BadgeFile } from '../badges/types.js';
+
 export interface WorkspaceEntry {
   readonly name: string;
   readonly path: string;
@@ -139,6 +141,30 @@ export interface WorkspaceListFilesEntry {
 export interface WorkspaceListFilesResult {
   readonly path: string;
   readonly entries: readonly WorkspaceListFilesEntry[];
+}
+
+/** `workspace.listCanvas({folder})` — the DIRECT children (one level) of a
+ * folder, each merged with its sparse badge overlay. folder=null is the
+ * workspace root. Files are filtered to canvas-supported types; tooling dirs
+ * are skipped. Unannotated entries come back as synthesized default badges so
+ * the renderer's badge→node mapping is unchanged. This is the canvas's data
+ * source — it reads the filesystem per folder instead of a materialized mirror. */
+export interface WorkspaceListCanvasArgs {
+  readonly folder: string | null;
+}
+export interface WorkspaceListCanvasResult {
+  readonly badges: readonly BadgeFile[];
+}
+
+/** `workspace.listSupportedFiles({folder})` — all canvas-supported files under
+ * a folder, RECURSIVELY (workspace-relative POSIX paths, sorted). folder=null
+ * is the whole workspace. Powers focus-folder and the ⌘K file picker — reads
+ * the filesystem, not the badge mirror, so it sees unannotated files too. */
+export interface WorkspaceListSupportedFilesArgs {
+  readonly folder: string | null;
+}
+export interface WorkspaceListSupportedFilesResult {
+  readonly files: readonly string[];
 }
 
 export type WorkspaceGetViewportArgs = Record<string, never>;

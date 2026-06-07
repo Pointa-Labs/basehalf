@@ -198,22 +198,32 @@ export const CommandPalette = (): JSX.Element | null => {
     if (!open) return;
     setFiles([]);
     setFilesWorkspace(null);
-    // No active workspace → no files to list (badge.list would have nothing to
-    // resolve against). Referencing `current` here also makes it the explicit
-    // re-fetch trigger it's meant to be.
+    // No active workspace → no files to list. Referencing `current` here also
+    // makes it the explicit re-fetch trigger it's meant to be.
     if (current === null) return;
     let cancelled = false;
     void (async () => {
       try {
-        const result = (await window.bh.run('badge.list')) as {
-          badges: { file: string; prompt?: string }[];
-        };
+        // The full file list comes from the FILESYSTEM (every supported file),
+        // since badges are now a sparse overlay (only annotated files have one) —
+        // badge.list alone would miss most files. We ALSO read the (sparse, cheap)
+        // badge.list to overlay prompts, so search-by-prompt still works for the
+        // files that have one.
+        const [filesRes, badgesRes] = (await Promise.all([
+          window.bh.run('workspace.listSupportedFiles', { folder: null }),
+          window.bh.run('badge.list', {}),
+        ])) as [{ files: string[] }, { badges: { file: string; prompt?: string }[] }];
         if (cancelled) return;
+        const prompts = new Map(
+          badgesRes.badges
+            .filter((b) => b.prompt !== undefined)
+            .map((b) => [b.file, b.prompt as string]),
+        );
         setFiles(
-          result.badges.map((b) => ({
-            file: b.file,
-            ...(b.prompt !== undefined && { prompt: b.prompt }),
-          })),
+          filesRes.files.map((file) => {
+            const prompt = prompts.get(file);
+            return prompt !== undefined ? { file, prompt } : { file };
+          }),
         );
         setFilesWorkspace(current);
       } catch {
