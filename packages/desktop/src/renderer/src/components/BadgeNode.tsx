@@ -406,25 +406,24 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
           )}
         </div>
       </div>
-      {usesMarkdownCardSurface ? (
+      {/* Markdown cards mount the heavy live editor (BlockNote + Yjs) ONLY while
+          inline-editing — never as the resting preview. Otherwise every .md card
+          on the canvas mounts its own ProseMirror editor (e.g. ~48 at once inside
+          a decisions/ folder), janking the whole canvas. At rest, markdown falls
+          through to the cheap BadgePreview excerpt below (it is type 'text'). */}
+      {usesMarkdownCardSurface && inlineEditing ? (
         <div
-          className={inlineEditing ? 'nodrag nopan nowheel' : undefined}
-          data-testid={inlineEditing ? `canvas-inline-editor-${d.label}` : undefined}
-          onMouseDown={inlineEditing ? (e) => e.stopPropagation() : undefined}
-          onDoubleClick={inlineEditing ? (e) => e.stopPropagation() : undefined}
+          className="nodrag nopan nowheel"
+          data-testid={`canvas-inline-editor-${d.label}`}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
           style={{
             flex: 1,
             minHeight: 0,
             overflow: 'hidden',
-            cursor: inlineEditing ? 'text' : 'grab',
+            cursor: 'text',
             background: color.surface,
-            pointerEvents: inlineEditing ? 'auto' : 'none',
-            maskImage: inlineEditing
-              ? undefined
-              : 'linear-gradient(to bottom, #000 70%, transparent)',
-            WebkitMaskImage: inlineEditing
-              ? undefined
-              : 'linear-gradient(to bottom, #000 70%, transparent)',
+            pointerEvents: 'auto',
           }}
         >
           <MdEditor

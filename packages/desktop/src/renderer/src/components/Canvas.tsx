@@ -148,14 +148,18 @@ function badgeToNode(
   const height =
     badge.canvas?.height ??
     (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
+  const w = Math.max(width, CARD_MIN_WIDTH);
+  const h = Math.max(height, CARD_MIN_HEIGHT);
   return {
     id: badge.file,
     type: 'badge',
     position: { x, y },
-    style: {
-      width: Math.max(width, CARD_MIN_WIDTH),
-      height: Math.max(height, CARD_MIN_HEIGHT),
-    },
+    // initialWidth/Height give onlyRenderVisibleElements (see <ReactFlow>) the
+    // node bounds for viewport culling BEFORE the DOM is measured — without them
+    // the first frame can't tell which nodes fall inside the viewport.
+    initialWidth: w,
+    initialHeight: h,
+    style: { width: w, height: h },
     data: {
       label: badge.file,
       kind: badge.kind,
@@ -1178,6 +1182,11 @@ export const Canvas = (): JSX.Element => {
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
         minZoom={0.2}
         maxZoom={4}
+        // Only mount nodes inside the viewport. A large workspace can hold
+        // hundreds of badges; without this, every one mounts (and every markdown
+        // card's editor with it) even far off-screen. Nodes carry initialWidth/
+        // initialHeight (see badgeToNode) so culling has bounds before measurement.
+        onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={20} size={1} color={color.border} />
