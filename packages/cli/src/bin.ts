@@ -447,7 +447,7 @@ const init = defineCommand({
   meta: {
     name: 'init',
     description:
-      'Register the current directory as a workspace + setup (.gitignore + CLAUDE.md hint)',
+      'Register the current directory as a workspace + setup (.gitignore + agent hints: CLAUDE.md / AGENTS.md / copilot-instructions.md)',
   },
   args: {
     name: { type: 'string', description: 'Override workspace name (default: cwd basename)' },

@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   type FsLike,
   assertReadContained,
@@ -17,21 +17,27 @@ import type { SetupReport } from './types.js';
  *    views, index, focus.md, decisions) are kept in git so they travel
  *    with the folder (IR-v2-06). If no .gitignore (no git repo yet),
  *    reports `gitignoreAbsent: true` and skips.
- *  - CLAUDE.md: appends the workspace-hint section if not already present
- *    (detects both the current marker and the legacy `bh:recall-hint`
- *    marker so re-running `bh init` on older workspaces stays idempotent).
- *    Creates CLAUDE.md if missing.
+ *  - Agent hints: appends the same workspace-hint section to CLAUDE.md,
+ *    AGENTS.md, and .github/copilot-instructions.md — the three filenames
+ *    that, between them, the major coding agents read (Claude Code →
+ *    CLAUDE.md; Codex/Aider/Zed/Warp/OpenCode/Cline/Cursor-fallback/… →
+ *    AGENTS.md; in-IDE Copilot → .github/copilot-instructions.md). One
+ *    curated brief, dropped where each agent already looks — no per-tool
+ *    config, no MCP server required for the file-reading path. Each file is
+ *    guarded by a marker so re-running `bh init` is idempotent (CLAUDE.md
+ *    also detects the legacy `bh:recall-hint` marker). Files are created if
+ *    missing; existing content is preserved (the hint is appended).
  */
 
-const CLAUDE_HINT_MARKER = '<!-- bh:workspace-hint -->';
+const HINT_MARKER = '<!-- bh:workspace-hint -->';
 const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
 
 // A SHORT pointer, not a 60-line essay: the shorter the hint, the more reliably an
-// agent reads it. It points at the live signal and the graph; usage/judgment beyond
-// this is a versionable skill, not frozen prose baked into every workspace.
-const CLAUDE_HINT_SECTION = `
-${CLAUDE_HINT_MARKER}
-## BaseHalf workspace
+// agent reads it. It points at the live signal and the graph, and offers BOTH ways
+// in — read the `.bh/` files directly (any agent), or drive the `bh` CLI (agents
+// with a shell) — so it lands whether or not the agent can run commands. Usage
+// beyond this is a versionable skill, not frozen prose baked into every workspace.
+const HINT_BODY = `## BaseHalf workspace
 
 This folder is a BaseHalf workspace. **At the start of every turn, read
 \`.bh/focus.md\`** — a self-contained turn brief the app keeps fresh (it never points
@@ -41,28 +47,62 @@ turn) and an \`active:\` list of the files they're focused on, each with its
 One read gives you the user's curated attention — grep can't recover those
 human-written notes.
 
-Need more than the brief? The full graph is under \`.bh/\`:
-\`.bh/badges/<rel-path>.json\` is any file's backpack (prompt + references), and
-\`.bh/index/inbound.json\` is who points AT a file. Follow these on your own budget.
+Need more than the brief? Read the graph under \`.bh/\` directly, or — if you have a
+shell — drive the \`bh\` CLI (reads accept \`--json\`):
+- \`.bh/badges/<rel-path>.json\` — any file's backpack (prompt + references); or \`bh badge get <path> --json\`
+- \`.bh/index/inbound.json\` — who points AT a file; or \`bh inbound get <path> --json\`
+- \`bh search <query> --json\` — full-text search across the workspace's text files
 
 MD is the truth; \`.bh/\` is derived — edit user files with your own tools,
 never \`.bh/*\` (the app and \`bh\` CLI own it; \`.bh/cache/\` is rebuildable and
-gitignored). \`bh\` CLI reads accept \`--json\`.
-`;
+gitignored).`;
+
+// Prepended newline so appending to an existing file leaves a blank line before
+// the marker; trailing newline so the file ends clean.
+const HINT_SECTION = `\n${HINT_MARKER}\n${HINT_BODY}\n`;
+
+/** One agent-hint file to install. Same body, three landing spots. */
+interface HintTarget {
+  /** Workspace-relative path (POSIX `/`; `join` localizes it). */
+  readonly relPath: string;
+  /** Content to start from when the file doesn't exist yet. */
+  readonly emptyBase: string;
+  /** An older marker that also counts as "already installed" (skip). */
+  readonly legacyMarker?: string;
+  /** Whether the parent dir may be missing and must be `mkdir`'d first
+   *  (production `fs.writeFile` won't create `.github/`). */
+  readonly needsParentDir?: boolean;
+}
+
+const CLAUDE_TARGET: HintTarget = {
+  relPath: 'CLAUDE.md',
+  emptyBase: '# CLAUDE.md\n',
+  legacyMarker: LEGACY_CLAUDE_HINT_MARKER,
+};
+const AGENTS_TARGET: HintTarget = {
+  relPath: 'AGENTS.md',
+  emptyBase: '# AGENTS.md\n',
+};
+const COPILOT_TARGET: HintTarget = {
+  relPath: '.github/copilot-instructions.md',
+  emptyBase: '# Copilot instructions\n',
+  needsParentDir: true,
+};
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {
-  const report: SetupReport = {
-    gitignoreUpdated: false,
-    claudeMdUpdated: false,
-    gitignoreSkipped: false,
-    claudeMdSkipped: false,
-    gitignoreAbsent: false,
-  };
+  const gitignore = await updateGitignore(fs, workspaceRoot);
+  const claude = await installHint(fs, workspaceRoot, CLAUDE_TARGET);
+  const agents = await installHint(fs, workspaceRoot, AGENTS_TARGET);
+  const copilot = await installHint(fs, workspaceRoot, COPILOT_TARGET);
 
   return {
-    ...report,
-    ...(await updateGitignore(fs, workspaceRoot)),
-    ...(await updateClaudeMd(fs, workspaceRoot)),
+    ...gitignore,
+    claudeMdUpdated: claude.updated,
+    claudeMdSkipped: claude.skipped,
+    agentsMdUpdated: agents.updated,
+    agentsMdSkipped: agents.skipped,
+    copilotMdUpdated: copilot.updated,
+    copilotMdSkipped: copilot.skipped,
   };
 }
 
@@ -71,13 +111,12 @@ async function updateGitignore(
   workspaceRoot: string,
 ): Promise<Pick<SetupReport, 'gitignoreUpdated' | 'gitignoreSkipped' | 'gitignoreAbsent'>> {
   const lexical = join(workspaceRoot, '.gitignore');
-  // runSetup writes two USER files (.gitignore, CLAUDE.md) — bh's only other
-  // write path besides the editor. A workspace "you drop in" can ship a
-  // planted `.gitignore`/`CLAUDE.md` SYMLINK whose innocuous name escapes
-  // assertWorkspaceRelative but whose target is outside the root (e.g.
-  // ~/.ssh/authorized_keys, a launch agent). Route read+write through the
-  // realpath guards so node:fs never follows it; refuse (skip the step)
-  // rather than clobber/plant outside.
+  // runSetup writes USER files (.gitignore + the agent-hint files) — bh's only
+  // other write path besides the editor. A workspace "you drop in" can ship a
+  // planted SYMLINK whose innocuous name escapes assertWorkspaceRelative but
+  // whose target is outside the root (e.g. ~/.ssh/authorized_keys, a launch
+  // agent). Route read+write through the realpath guards so node:fs never
+  // follows it; refuse (skip the step) rather than clobber/plant outside.
   try {
     const current = await readMaybeNoFollow(
       fs,
@@ -109,30 +148,43 @@ async function updateGitignore(
   }
 }
 
-async function updateClaudeMd(
+/**
+ * Install the workspace hint into one target file (idempotent + non-destructive).
+ * Skips if the marker (or the target's legacy marker) is already present; creates
+ * the file from `emptyBase` when missing; appends otherwise. A symlinked target
+ * (or symlinked parent dir) is refused via the realpath guards and reported as a
+ * skip, never a clobber.
+ */
+async function installHint(
   fs: FsLike,
   workspaceRoot: string,
-): Promise<Pick<SetupReport, 'claudeMdUpdated' | 'claudeMdSkipped'>> {
-  const lexical = join(workspaceRoot, 'CLAUDE.md');
+  target: HintTarget,
+): Promise<{ updated: boolean; skipped: boolean }> {
+  const lexical = join(workspaceRoot, target.relPath);
   try {
     const current = await readMaybeNoFollow(
       fs,
       await assertReadContained(fs, workspaceRoot, lexical),
     );
-    if (current?.includes(CLAUDE_HINT_MARKER) || current?.includes(LEGACY_CLAUDE_HINT_MARKER)) {
-      return { claudeMdUpdated: false, claudeMdSkipped: true };
+    if (
+      current?.includes(HINT_MARKER) ||
+      (target.legacyMarker !== undefined && current?.includes(target.legacyMarker))
+    ) {
+      return { updated: false, skipped: true };
     }
-    const base = current ?? '# CLAUDE.md\n';
+    const writeAbs = await assertWriteContained(fs, workspaceRoot, lexical);
+    if (target.needsParentDir) {
+      // assertWriteContained already proved the parent is contained and not a
+      // symlink leaf, so mkdir-ing it can't escape the root. recursive → idempotent.
+      await fs.mkdir(dirname(writeAbs), { recursive: true });
+    }
+    const base = current ?? target.emptyBase;
     const trailingNewline = base.endsWith('\n') ? '' : '\n';
-    await writeMaybeNoFollow(
-      fs,
-      await assertWriteContained(fs, workspaceRoot, lexical),
-      `${base}${trailingNewline}${CLAUDE_HINT_SECTION}`,
-    );
-    return { claudeMdUpdated: true, claudeMdSkipped: false };
+    await writeMaybeNoFollow(fs, writeAbs, `${base}${trailingNewline}${HINT_SECTION}`);
+    return { updated: true, skipped: false };
   } catch (err) {
     if (err instanceof Error && err.name === 'PathEscape') {
-      return { claudeMdUpdated: false, claudeMdSkipped: true };
+      return { updated: false, skipped: true };
     }
     throw err;
   }

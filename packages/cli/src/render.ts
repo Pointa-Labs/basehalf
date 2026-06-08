@@ -11,8 +11,12 @@ type WorkspaceEntry = { name: string; path: string; addedAt: string };
 type SetupReport = {
   gitignoreUpdated: boolean;
   claudeMdUpdated: boolean;
+  agentsMdUpdated: boolean;
+  copilotMdUpdated: boolean;
   gitignoreSkipped: boolean;
   claudeMdSkipped: boolean;
+  agentsMdSkipped: boolean;
+  copilotMdSkipped: boolean;
   gitignoreAbsent: boolean;
 };
 
@@ -141,6 +145,23 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
 
 // ── workspace ───────────────────────────────────────────────────────────────
 
+/** Summarize which agent-hint files `bh init` / `--setup` touched. One line for
+ *  freshly installed, one for already-present — names match the files on disk. */
+function renderHintSetup(s: SetupReport): void {
+  const installed: string[] = [];
+  if (s.claudeMdUpdated) installed.push('CLAUDE.md');
+  if (s.agentsMdUpdated) installed.push('AGENTS.md');
+  if (s.copilotMdUpdated) installed.push('.github/copilot-instructions.md');
+  if (installed.length > 0)
+    process.stdout.write(`  setup:   agent hint installed in ${installed.join(', ')}\n`);
+  const present: string[] = [];
+  if (s.claudeMdSkipped) present.push('CLAUDE.md');
+  if (s.agentsMdSkipped) present.push('AGENTS.md');
+  if (s.copilotMdSkipped) present.push('.github/copilot-instructions.md');
+  if (present.length > 0)
+    process.stdout.write(`  setup:   agent hint already in ${present.join(', ')}\n`);
+}
+
 function renderWsAdd(r: {
   workspace: WorkspaceEntry;
   setAsCurrent: boolean;
@@ -158,10 +179,7 @@ function renderWsAdd(r: {
       process.stdout.write('  setup:   .gitignore already had .bh/cache/\n');
     else if (s.gitignoreAbsent)
       process.stdout.write('  setup:   no .gitignore (not a git repo?) — skipped\n');
-    if (s.claudeMdUpdated)
-      process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
-    else if (s.claudeMdSkipped)
-      process.stdout.write('  setup:   CLAUDE.md already has the agent-protocol hint\n');
+    renderHintSetup(s);
   }
 }
 
@@ -210,8 +228,7 @@ function renderWsRepath(r: {
   if (r.setup) {
     const s = r.setup;
     if (s.gitignoreUpdated) process.stdout.write('  setup:   .bh/cache/ added to .gitignore\n');
-    if (s.claudeMdUpdated)
-      process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
+    renderHintSetup(s);
   }
 }
 
@@ -226,8 +243,7 @@ function renderWsCreateDemo(r: {
     process.stdout.write(`  seeded:  ${r.filesCreated.length} file(s)\n`);
     for (const f of r.filesCreated) process.stdout.write(`           - ${f}\n`);
   }
-  if (r.setup.claudeMdUpdated)
-    process.stdout.write('  setup:   agent-protocol hint installed in CLAUDE.md\n');
+  renderHintSetup(r.setup);
   process.stdout.write(
     '\nOpen Claude Code in this folder and ask "what is this workspace about?"\n',
   );

@@ -231,6 +231,47 @@ describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSe
     expect(res.setup.claudeMdUpdated).toBe(true);
     expect(await readFile(join(fresh, 'CLAUDE.md'), 'utf8')).toContain('BaseHalf workspace');
   });
+
+  it('refuses to write THROUGH a symlinked AGENTS.md on setup (new fan-out surface)', async () => {
+    const fresh = join(base, 'wss4');
+    await mkdir(fresh, { recursive: true });
+    await writeFile(join(outside, 'victim-agents.md'), 'OUTSIDE AGENTS');
+    await symlink(join(outside, 'victim-agents.md'), join(fresh, 'AGENTS.md'));
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss4', setup: true });
+    // The symlinked file is refused (reported skipped), the outside file untouched…
+    expect(res.setup.agentsMdSkipped).toBe(true);
+    expect(res.setup.agentsMdUpdated).toBe(false);
+    expect(await readFile(join(outside, 'victim-agents.md'), 'utf8')).toBe('OUTSIDE AGENTS');
+    // …while the other (clean) hint files still install — skip is per-file.
+    expect(res.setup.claudeMdUpdated).toBe(true);
+  });
+
+  it('does NOT plant copilot-instructions through a symlinked .github directory', async () => {
+    const fresh = join(base, 'wss5');
+    await mkdir(fresh, { recursive: true });
+    const outGithub = join(outside, 'evil-github');
+    await mkdir(outGithub, { recursive: true });
+    // `.github` itself is a symlink pointing outside — the parent-dir escape that
+    // the on-demand mkdir could otherwise follow.
+    await symlink(outGithub, join(fresh, '.github'));
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss5', setup: true });
+    expect(res.setup.copilotMdSkipped).toBe(true);
+    expect(res.setup.copilotMdUpdated).toBe(false);
+    // Nothing planted in the outside dir the symlink pointed at.
+    expect(existsSync(join(outGithub, 'copilot-instructions.md'))).toBe(false);
+  });
+
+  it('installs AGENTS.md + copilot-instructions.md on a clean workspace (no false rejection)', async () => {
+    const fresh = join(base, 'wss6');
+    await mkdir(fresh, { recursive: true });
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss6', setup: true });
+    expect(res.setup.agentsMdUpdated).toBe(true);
+    expect(res.setup.copilotMdUpdated).toBe(true);
+    expect(await readFile(join(fresh, 'AGENTS.md'), 'utf8')).toContain('BaseHalf workspace');
+    expect(await readFile(join(fresh, '.github/copilot-instructions.md'), 'utf8')).toContain(
+      'BaseHalf workspace',
+    );
+  });
 });
 
 describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () => {
