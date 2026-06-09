@@ -141,10 +141,12 @@ export const App = (): JSX.Element => {
     >
       <TitleBar />
       <FdaTip />
-      {/* Three real regions, left → right: Sidebar (nav) | Canvas (the spatial
-          map, takes the middle) | EditorSpace (right-docked editor). They're
-          flex siblings, so showing/resizing one reflows the others — the canvas
-          owns the middle by default and yields width when the editor opens. */}
+      {/* Two docked regions, left → right: Canvas (the spatial map, takes the
+          middle) | EditorSpace (right-docked editor, a flex sibling that yields
+          the canvas width when open). The Sidebar (nav) is NOT a flex sibling —
+          it floats OVER the canvas, so toggling it never reflows or shifts the
+          map. The right editor already never pushes the canvas; now the left
+          sidebar matches. */}
       <div
         style={{
           display: 'flex',
@@ -155,12 +157,13 @@ export const App = (): JSX.Element => {
           position: 'relative',
         }}
       >
-        <Sidebar />
-        {/* The canvas region — flex:1 so it takes whatever the sidebar + editor
-            leave. position:relative anchors the canvas's own absolute chrome
-            (New-note button, context chip, empty hint). */}
+        {/* The canvas region — flex:1 so it takes whatever the editor leaves.
+            position:relative anchors the canvas's own absolute chrome (New-note
+            button, context chip, empty hint) AND the floating Sidebar overlay,
+            whose overflow:hidden clips the sidebar to this region. */}
         <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
+          <Sidebar />
         </main>
         <EditorSpace />
       </div>

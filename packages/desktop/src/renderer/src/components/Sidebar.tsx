@@ -1,5 +1,5 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useState } from 'react';
-import { color, font, space, transition } from '../design.js';
+import { color, font, shadow, space, transition } from '../design.js';
 import { SIDEBAR_SNAP_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
@@ -20,15 +20,20 @@ export const Sidebar = (): JSX.Element | null => {
   return (
     <aside
       style={{
-        // The LEFT region: a real flex column (not a floating overlay) — the
-        // canvas + editor space sit to its right and reflow when it resizes /
-        // hides. position:relative anchors the resize sash on the right edge.
-        position: 'relative',
-        flexShrink: 0,
+        // The LEFT region FLOATS over the canvas (absolute, not a flex sibling),
+        // so showing / hiding / resizing it never reflows or shifts the canvas —
+        // the canvas is a full-width backdrop the sidebar sits on top of, mirroring
+        // how the right editor never pushes the canvas content. Pinned to the
+        // canvas region's left edge; clipped to it by the region's overflow.
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        bottom: 0,
+        zIndex: 6,
         width: sidebarWidth,
-        height: '100%',
         borderRight: `1px solid ${color.border}`,
         background: color.surfaceMuted,
+        boxShadow: shadow.raised,
         fontFamily: font.sans,
         display: 'flex',
         flexDirection: 'column',

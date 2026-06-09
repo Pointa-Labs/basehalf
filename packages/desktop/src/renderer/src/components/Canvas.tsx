@@ -11,7 +11,6 @@ import {
   ConnectionMode,
   type Edge,
   type EdgeTypes,
-  MarkerType,
   type Node,
   type NodeChange,
   type NodeMouseHandler,
@@ -50,6 +49,7 @@ import {
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
 import { briefForClipboard } from '../lib/focusBrief.js';
 import { regionFor } from '../lib/paneDrop.js';
+import { useLayoutStore } from '../store/layout.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
 import {
   BadgeNode,
@@ -1212,16 +1212,12 @@ export const Canvas = (): JSX.Element => {
         // All edges render through the canvasConnections ReferenceEdge (see EDGE_TYPES): the line is
         // always visible, the note reveals on hover/selection — no colliding
         // always-on midpoint labels. Animation off; the custom edge owns its
-        // stroke + accent-on-interaction styling.
+        // stroke + accent-on-interaction styling AND draws its own arrowhead as
+        // part of the same stroke (no marker — see ReferenceEdge), so the line
+        // and its tip are one continuous pen stroke, not a triangle glued on.
         defaultEdgeOptions={{
           type: 'reference',
           animated: false,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 18,
-            height: 18,
-            color: color.textGhost,
-          },
         }}
         // The live drag previews the same side-midpoint snap that will be
         // saved on drop, so the line never appears to float beside a card.
@@ -1282,6 +1278,13 @@ const CanvasFramer = ({
 }: { frame: { key: string; vp: ViewportState | null } | null }): null => {
   const { setViewport, fitView, getNodes } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
+  // The sidebar FLOATS over the canvas's left, so `main` (and thus fitView's
+  // frame) spans the full width INCLUDING the area the sidebar covers. Inset the
+  // fit by the sidebar's width so a fresh fit lands content in the VISIBLE region
+  // instead of tucked behind it. The right editor needs no such inset — it's a
+  // docked flex sibling that already shrinks `main`. Read at fit time only; a
+  // later toggle/resize does NOT re-fit (framedKey guard), so nothing shifts.
+  const sidebarInset = useLayoutStore((s) => (s.sidebarOpen ? s.sidebarWidth : 0));
   const framedKey = useRef<string | null>(null);
   useEffect(() => {
     if (!frame || !nodesInitialized) return;
@@ -1293,8 +1296,12 @@ const CanvasFramer = ({
     if (frame.vp) {
       setViewport({ x: frame.vp.offsetX, y: frame.vp.offsetY, zoom: frame.vp.scale });
     } else if (getNodes().length > 0) {
-      void fitView({ padding: 0.2, maxZoom: 1, duration: 0 });
+      const padding =
+        sidebarInset > 0
+          ? { top: 0.2, right: 0.2, bottom: 0.2, left: `${sidebarInset + 32}px` as `${number}px` }
+          : 0.2;
+      void fitView({ padding, maxZoom: 1, duration: 0 });
     }
-  }, [frame, nodesInitialized, setViewport, fitView, getNodes]);
+  }, [frame, nodesInitialized, setViewport, fitView, getNodes, sidebarInset]);
   return null;
 };
