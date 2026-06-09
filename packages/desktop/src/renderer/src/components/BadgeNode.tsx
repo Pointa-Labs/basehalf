@@ -12,13 +12,15 @@ import { CanvasConnectionHandles, useCanvasConnectionHandles } from '../canvasCo
 import { color, font, radius, shadow, space, transition } from '../design.js';
 import { flushDoc } from '../lib/editorFlush.js';
 import { docKeyFor } from '../lib/liveDoc.js';
+import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
 import { MdEditor } from './FilePreview.js';
 
 // A badge is a *living tile*: when it's big enough on screen to read, it shows a
-// real preview of the file's contents (a text excerpt / image thumbnail), so the
-// canvas reads as "my documents in space," not a graph of names. Below
+// real preview of the file's contents (rendered Markdown, a raw text/code
+// excerpt, or an image thumbnail), so the canvas reads as "my documents in
+// space," not a graph of names. A taller card reveals more of the same. Below
 // PREVIEW_ZOOM_THRESHOLD the tile is too small to read, so it drops to just a
 // name + glyph — no file read, no editor. This level-of-detail gate is what keeps
 // a large, fully-framed workspace fast: at fit-to-all zoom EVERY tile is on
@@ -26,18 +28,25 @@ import { MdEditor } from './FilePreview.js';
 
 // Cache previews per path so a transient unmount (Canvas rebuilds nodes on file
 // events) doesn't refetch/re-render. Staleness self-heals on the next refresh.
-// Markdown cards use the same compact BlockNote surface for preview/edit; other
-// text falls back to a raw excerpt.
+// Two caches: the raw file excerpt (text/code cards) and the rendered-Markdown
+// HTML (.md cards). Markdown renders through the ONE shared off-screen converter
+// (lib/mdRender) — a static, sanitized HTML string per tile, never a mounted
+// editor (mounting one per card is what janked a large workspace).
 type PreviewContent = { text: string };
 const previewCache = new Map<string, PreviewContent>();
+const mdHtmlCache = new Map<string, string>();
 /** Drop all cached previews — call on workspace switch. The cache is keyed by
  *  workspace-relative path for within-workspace reuse, so a path that exists in
  *  two workspaces (e.g. README.md) would otherwise serve the wrong one's content
  *  after a switch. */
 export function clearPreviewCache(): void {
   previewCache.clear();
+  mdHtmlCache.clear();
 }
-const PREVIEW_CHARS = 600;
+// A tile reads (and renders) at most this many characters: enough that a taller
+// card reveals more real content as you resize it, bounded so a multi-MB file
+// neither crosses IPC whole nor blows up the Markdown parse.
+const PREVIEW_CHARS = 8000;
 export const CARD_MIN_WIDTH = 220;
 export const CARD_MIN_HEIGHT = 160;
 export const DEFAULT_FILE_CARD_WIDTH = 300;
@@ -57,6 +66,7 @@ const tileListeners = new Set<(e: FileEvent) => void>();
 let tileHubUnsub: (() => void) | null = null;
 function invalidatePreviewCache(label: string): void {
   previewCache.delete(label);
+  mdHtmlCache.delete(label);
 }
 
 function invalidatePreviewCacheForEvent(event: FileEvent): void {
@@ -493,12 +503,23 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             flex: 1,
             minHeight: 0,
             padding: `${space[2]}px ${space[3]}px`,
-            color: color.textGhost,
+            color: isFolder && d.prompt ? color.textSecondary : color.textGhost,
             fontSize: font.size.caption,
             lineHeight: 1.45,
+            overflow: 'hidden',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            // Fade a long folder note so the clip reads as "more below," not a hard cut.
+            maskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
+            WebkitMaskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
           }}
         >
-          {isFolder ? dirname || basename : orphan ? 'Missing file' : ''}
+          {/* A folder card shows its own note (the folder badge prompt) — an
+              annotated folder reads as a labelled group on the canvas. An
+              un-annotated folder stays clean (the glyph + name + path already
+              say what it is). The old `dirname` body just duplicated the path
+              subtitle above. */}
+          {isFolder ? (d.prompt ?? '') : orphan ? 'Missing file' : ''}
         </div>
       )}
     </div>
@@ -550,9 +571,16 @@ const BadgePreview = ({
   }
 
   if (type === 'text' || type === 'code') {
+    // Markdown renders to its formatted HTML (a window into the note); plain text
+    // and source code show their raw bytes — rendering those would be a lie.
+    const isMarkdown = /\.(md|markdown|mdx)$/i.test(label);
     return (
       <div style={frame}>
-        <TextPreview label={label} mono={type === 'code'} />
+        {isMarkdown ? (
+          <MarkdownPreview label={label} />
+        ) : (
+          <TextPreview label={label} mono={type === 'code'} />
+        )}
       </div>
     );
   }
@@ -568,13 +596,10 @@ const previewMask: CSSProperties = {
   WebkitMaskImage: 'linear-gradient(to bottom, #000 70%, transparent)',
 };
 
-const TextPreview = ({
-  label,
-  mono,
-}: {
-  label: string;
-  mono: boolean;
-}): JSX.Element => {
+// Read (and cache) a bounded excerpt of a file's raw text, re-reading when the
+// file changes on disk so the tile always matches it. Shared by the raw
+// text/code preview and the Markdown render path. Returns null while loading.
+function usePreviewSource(label: string): string | null {
   const [content, setContent] = useState<PreviewContent | null>(
     () => previewCache.get(label) ?? null,
   );
@@ -586,12 +611,12 @@ const TextPreview = ({
   useEffect(() => {
     return subscribeTile((event) => {
       if (event.type === 'change' && event.relPath === label) {
-        previewCache.delete(label);
+        invalidatePreviewCache(label);
         setTick((t) => t + 1); // re-read from disk → tile matches the file
       } else if (event.type === 'unlink' && event.relPath === label) {
-        previewCache.delete(label); // drop stale cache; the badge orphans
+        invalidatePreviewCache(label); // drop stale cache; the badge orphans
       } else if (event.type === 'rename' && event.fromRelPath === label) {
-        previewCache.delete(label); // path reused later won't serve old content
+        invalidatePreviewCache(label); // path reused later won't serve old content
       }
     });
   }, [label]);
@@ -607,13 +632,11 @@ const TextPreview = ({
     void (async () => {
       let out: PreviewContent;
       try {
-        // Cap the read: a tile only ever shows PREVIEW_CHARS, so don't ship a
-        // multi-MB file across IPC for a small canvas excerpt. The headroom
-        // leaves enough room for code/text files whose useful first lines land
-        // just past a short prologue while still bounding the read.
+        // Cap the read at PREVIEW_CHARS: a tall card shows more, but a multi-MB
+        // file never crosses IPC whole nor blows up the Markdown parse.
         const res = (await window.bh.run('workspace.readFile', {
           path: label,
-          maxChars: PREVIEW_CHARS + 16_384,
+          maxChars: PREVIEW_CHARS,
         })) as { content: string };
         out = { text: res.content.slice(0, PREVIEW_CHARS).trimEnd() };
       } catch {
@@ -627,23 +650,82 @@ const TextPreview = ({
     };
   }, [label, tick]);
 
-  if (content === null) {
-    return <div style={{ fontSize: font.size.micro, color: color.textTertiary }}>…</div>;
+  return content === null ? null : content.text;
+}
+
+const previewLoading: CSSProperties = { fontSize: font.size.micro, color: color.textTertiary };
+
+// The raw-bytes body, shared by the text/code tile and the Markdown fallback.
+const RawTextBody = ({ text, mono }: { text: string; mono: boolean }): JSX.Element => (
+  <div
+    style={{
+      ...previewMask,
+      fontSize: 'var(--bh-card-font-size)',
+      fontFamily: mono ? font.mono : 'var(--bh-card-font)',
+      color: mono ? color.textTertiary : 'var(--bh-card-text)',
+      lineHeight: 'var(--bh-card-line-height)',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+    }}
+  >
+    {text === '' ? 'empty file' : text}
+  </div>
+);
+
+const TextPreview = ({ label, mono }: { label: string; mono: boolean }): JSX.Element => {
+  const text = usePreviewSource(label);
+  if (text === null) return <div style={previewLoading}>…</div>;
+  return <RawTextBody text={text} mono={mono} />;
+};
+
+// A .md tile renders the SAME way the editor would (BlockNote's own HTML) but as
+// a static, sanitized string — no editor mounted, no ProseMirror per card. The
+// conversion runs through the one shared off-screen converter (lib/mdRender),
+// serialized + timeout-guarded; while pending or on failure we show the raw
+// excerpt so the tile is never blank.
+const MarkdownPreview = ({ label }: { label: string }): JSX.Element => {
+  const text = usePreviewSource(label);
+  const [html, setHtml] = useState<string | null>(() => mdHtmlCache.get(label) ?? null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (text === null || text === '') return;
+    const cached = mdHtmlCache.get(label);
+    if (cached !== undefined) {
+      setHtml(cached);
+      return;
+    }
+    let cancelled = false;
+    setFailed(false);
+    void markdownToHtml(text)
+      .then((out) => {
+        mdHtmlCache.set(label, out);
+        if (!cancelled) setHtml(out);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true); // raw-excerpt fallback below
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [label, text]);
+
+  if (text === null) return <div style={previewLoading}>…</div>;
+  if (text === '') return <RawTextBody text="" mono={false} />; // 'empty file' affordance
+  if (html === null) {
+    // Render pending vs failed: while the shared converter is working, show a
+    // quiet loading dot — NOT the raw `#`/`**` source (flashing source then
+    // reflowing to rendered is exactly the jank we're removing). Only a real
+    // conversion failure falls back to the raw excerpt, so the tile is never blank.
+    return failed ? <RawTextBody text={text} mono={false} /> : <div style={previewLoading}>…</div>;
   }
   return (
     <div
-      style={{
-        ...previewMask,
-        fontSize: 'var(--bh-card-font-size)',
-        fontFamily: mono ? font.mono : 'var(--bh-card-font)',
-        color: mono ? color.textTertiary : 'var(--bh-card-text)',
-        lineHeight: 'var(--bh-card-line-height)',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}
-    >
-      {content.text === '' ? 'empty file' : content.text}
-    </div>
+      className="bh-md-preview"
+      style={previewMask}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: html is sanitized in lib/mdRender (script/style/iframe/event handlers + javascript: URLs stripped) before it reaches here
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 };
 

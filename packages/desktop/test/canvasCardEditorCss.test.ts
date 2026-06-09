@@ -39,6 +39,10 @@ const filePreviewSource = readFileSync(
   join(__dirname, '../src/renderer/src/components/FilePreview.tsx'),
   'utf-8',
 );
+const mdRenderSource = readFileSync(
+  join(__dirname, '../src/renderer/src/lib/mdRender.ts'),
+  'utf-8',
+);
 
 describe('canvas card editor CSS', () => {
   it('uses the compact BlockNote card typography contract', () => {
@@ -55,10 +59,21 @@ describe('canvas card editor CSS', () => {
     );
   });
 
-  it('does not keep a second rendered-HTML Markdown preview surface', () => {
-    expect(css).not.toContain('.bh-md-preview');
-    expect(badgeNodeSource).not.toContain('MarkdownHtml');
-    expect(badgeNodeSource).not.toContain('markdownToHtml');
+  it('renders a resting Markdown tile as static, sanitized HTML (no editor mounted)', () => {
+    // A .md card at rest shows its RENDERED note (formatted — not raw `#`/`**`
+    // source) via the ONE shared off-screen converter (lib/mdRender), emitted as
+    // a static sanitized HTML string. This is NOT the live editor — that still
+    // mounts only while editing (asserted in the next test). The earlier
+    // "raw excerpt at rest" rule was reverted: raw markdown source on the canvas
+    // defeats the point of a thinking/notes surface.
+    expect(css).toContain('.bh-md-preview');
+    expect(badgeNodeSource).toContain('markdownToHtml');
+    expect(badgeNodeSource).toContain('<MarkdownPreview label={label} />');
+    expect(badgeNodeSource).toContain('className="bh-md-preview"');
+    // The HTML is set via innerHTML, so it MUST be sanitized upstream.
+    expect(mdRenderSource).toContain('function sanitizeHtml');
+    expect(mdRenderSource).toContain('DANGEROUS_TAGS');
+    expect(mdRenderSource).toMatch(/sanitizeHtml\(await editor\.blocksToHTMLLossy/);
   });
 
   it('mounts the heavy card editor only while inline-editing, not for the resting preview', () => {
@@ -67,8 +82,8 @@ describe('canvas card editor CSS', () => {
     );
     // The live BlockNote+Yjs editor mounts ONLY while inline-editing — mounting it
     // for the resting preview would put one ProseMirror editor on every .md card
-    // and jank a large workspace. At rest, markdown falls through to the cheap
-    // BadgePreview excerpt (it is type 'text').
+    // and jank a large workspace. At rest, markdown renders through BadgePreview
+    // as a static HTML string (cheap, shared converter), never a mounted editor.
     expect(badgeNodeSource).toMatch(
       /\{usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
     );

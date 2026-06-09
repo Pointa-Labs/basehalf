@@ -271,6 +271,117 @@ header::-webkit-scrollbar {
   height: 0;
 }
 
+/* Read-only Markdown tile preview: the SAME typography contract as the card
+   editor (--bh-card-*), applied to the static, sanitized HTML from lib/mdRender,
+   so a resting .md card reads like the note (rendered — not raw source) and
+   entering edit mode does not swap fonts, sizes, or rhythm. No editor mounts
+   here; this is plain DOM behind a fade mask, so a taller card shows more. */
+.bh-md-preview {
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.bh-md-preview > :first-child {
+  margin-top: 0;
+}
+.bh-md-preview p,
+.bh-md-preview ul,
+.bh-md-preview ol,
+.bh-md-preview pre,
+.bh-md-preview blockquote {
+  margin: 0 0 var(--bh-card-font-size) 0;
+}
+.bh-md-preview h1,
+.bh-md-preview h2,
+.bh-md-preview h3,
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  color: var(--bh-card-strong-text);
+  font-weight: var(--bh-card-heading-weight);
+  line-height: var(--bh-card-heading-line-height);
+  margin: 0 0 4px 0;
+}
+.bh-md-preview h1 {
+  font-size: var(--bh-card-h1-size);
+}
+.bh-md-preview h2 {
+  font-size: var(--bh-card-h2-size);
+}
+.bh-md-preview h3 {
+  font-size: var(--bh-card-h3-size);
+}
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  font-size: var(--bh-card-h4-size);
+}
+.bh-md-preview strong {
+  color: var(--bh-card-strong-text);
+  font-weight: 600;
+}
+.bh-md-preview a {
+  color: var(--bh-accent);
+  text-decoration: none;
+}
+.bh-md-preview ul,
+.bh-md-preview ol {
+  padding-left: 1.3em;
+}
+.bh-md-preview li {
+  margin: 1px 0;
+}
+.bh-md-preview li > p {
+  margin: 0;
+}
+.bh-md-preview code {
+  font-family: var(--bh-card-mono-font);
+  font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.5px 4px;
+  border-radius: 3px;
+}
+.bh-md-preview pre {
+  font-family: var(--bh-card-mono-font);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.bh-md-preview pre code {
+  background: none;
+  padding: 0;
+}
+.bh-md-preview blockquote {
+  margin-left: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--bh-card-muted-text);
+  color: var(--bh-card-muted-text);
+}
+.bh-md-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+.bh-md-preview hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 6px 0;
+}
+.bh-md-preview table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.bh-md-preview th,
+.bh-md-preview td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 5px;
+}
+
 .bh-card-editor .bn-block-outer {
   line-height: var(--bh-card-line-height);
   transition: none;
