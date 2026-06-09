@@ -177,8 +177,12 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     setup: addResult.setup ?? {
       gitignoreUpdated: false,
       claudeMdUpdated: false,
+      agentsMdUpdated: false,
+      copilotMdUpdated: false,
       gitignoreSkipped: false,
       claudeMdSkipped: false,
+      agentsMdSkipped: false,
+      copilotMdSkipped: false,
       gitignoreAbsent: true,
     },
   };
