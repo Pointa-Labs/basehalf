@@ -866,16 +866,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           let activePaneId = s.activePaneId;
           const after = findLeaf(tree, paneId);
           // Emptying a NON-root pane removes it (collapsing the split); the only
-          // remaining pane stays even when empty (shows the panel's empty state).
+          // remaining pane stays even when empty.
           if (after && after.tabs.length === 0 && leafCount(tree) > 1) {
             tree = removeLeaf(tree, paneId) ?? tree;
             if (!findLeaf(tree, activePaneId)) activePaneId = firstLeaf(tree).id;
           }
+          // Closing the last tab of the sole pane returns the panel to its initial
+          // collapsed state — the canvas is home, so hand the width back rather than
+          // parking on an empty watermark. (Mirrors open-a-file flipping this true.)
+          const collapse = leafCount(tree) === 1 && firstLeaf(tree).tabs.length === 0;
           return {
             paneTree: tree,
             activePaneId,
             currentFile: deriveCurrent(tree, activePaneId),
             openMatchQuery: null,
+            ...(collapse ? { rightPanelOpen: false } : {}),
           };
         });
       };
