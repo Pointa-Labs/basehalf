@@ -1,13 +1,18 @@
 /**
- * CommandPalette — a fuzzy command launcher.
+ * CommandPalette — an editor-style fuzzy command launcher.
  *
- * Cmd/Ctrl+K opens; users type to filter across:
+ * Cmd/Ctrl+K (or ⌘S) opens; users type to filter across:
  *   - Workspaces (switch active workspace)
- *   - Files (open any file in the current workspace by basename)
+ *   - Files (open any file in the current workspace by basename / path / prompt)
  *   - Chrome actions (Add folder, New note)
  *   - Search (files whose CONTENT matches — full-text, async + debounced)
  *
- * The name/prompt matches above are instant + local; the Search section is
+ * Empty-state behavior mirrors editor quick-open (⌘P): opening the palette
+ * does NOT dump the whole workspace — it shows only the few most-recently
+ * opened files (an onboarding fallback when none exist). The full file set is
+ * surfaced only once the user types, ranked by a real fuzzy score (see
+ * lib/fuzzyScore.ts) so the CLOSEST match floats to the top — `cmdpal` finds
+ * `CommandPalette.tsx`, not just literal substring hits. The Search section is
  * the retrieval leg that lets you find a note by a phrase you remember from
  * INSIDE it, not just its filename. So ⌘K is "find anything."
  *
@@ -17,11 +22,15 @@
  * Select, etc.) so it doesn't read as a separate sub-product.
  */
 
+/** Empty-state quick-open shows at most this many recent files (⌘P pattern). */
+const EMPTY_RECENT_CAP = 8;
+
 import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actions.js';
+import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -389,17 +398,72 @@ export const CommandPalette = (): JSX.Element | null => {
     return out;
   }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
 
-  // Filter actions by query (case-insensitive substring match on label,
-  // hint, or category). Keeps it dead simple — no fuzzy distance yet.
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return actions;
-    return actions.filter((a) => {
-      const haystack =
-        `${a.category} ${a.label} ${a.hint ?? ''} ${a.searchAlso ?? ''}`.toLowerCase();
-      return haystack.includes(q);
+  // The visible name/prompt rows + the highlight ranges for each row's label.
+  // Two modes:
+  //   - Empty query  → editor ⌘P quick-open: just the recent files (capped), so opening
+  //                    the palette doesn't dump the whole tree. No workspace /
+  //                    nothing-opened-yet falls back to the chrome actions so
+  //                    the palette is never a dead end.
+  //   - Typed query  → fuzzy-score every action against the query (label, path,
+  //                    and the user's prompt), drop non-matches, rank by score
+  //                    (best first), tie-break recent-then-alphabetical.
+  // `matchMap` carries the label's matched-char ranges so the row can bold
+  // exactly the characters that matched (only for fuzzy rows; content/Search
+  // rows keep substring highlight).
+  const { filtered, matchMap } = useMemo<{
+    filtered: Action[];
+    matchMap: Map<string, IMatch[]>;
+  }>(() => {
+    const q = query.trim();
+    const fileId = (a: Action): string => a.id.slice('file:'.length);
+
+    if (q.length === 0) {
+      // No active workspace, or a workspace with no opened files yet → show the
+      // workspace switches + chrome actions instead of an empty list.
+      const fallback = (): Action[] => actions.filter((a) => a.category !== 'File');
+      if (current === null) return { filtered: fallback(), matchMap: new Map() };
+      const rank = new Map(recentFilesFor(current).map((p, i) => [p, i] as const));
+      const recents = actions
+        .filter((a) => a.category === 'File' && rank.has(fileId(a)))
+        .sort((a, b) => (rank.get(fileId(a)) ?? 0) - (rank.get(fileId(b)) ?? 0))
+        .slice(0, EMPTY_RECENT_CAP);
+      return { filtered: recents.length > 0 ? recents : fallback(), matchMap: new Map() };
+    }
+
+    // Typed → score against label / path / prompt; keep the best, plus the
+    // label's match ranges for highlighting. We DON'T score against category
+    // (typing "file" shouldn't flood every file row).
+    const matchMap = new Map<string, IMatch[]>();
+    const scored: { action: Action; score: number }[] = [];
+    for (const a of actions) {
+      const labelScore = fuzzyMatch(q, a.label);
+      // Prefer a label hit on ties — it's what the user reads first.
+      let score = labelScore ? labelScore[0] + 1 : Number.NEGATIVE_INFINITY;
+      for (const field of [a.hint, a.searchAlso]) {
+        if (field === undefined || field.length === 0) continue;
+        const s = fuzzyMatch(q, field);
+        if (s && s[0] > score) score = s[0];
+      }
+      if (score === Number.NEGATIVE_INFINITY) continue; // matched nothing
+      if (labelScore) matchMap.set(a.id, createMatches(labelScore));
+      scored.push({ action: a, score });
+    }
+
+    const rank =
+      current !== null
+        ? new Map(recentFilesFor(current).map((p, i) => [p, i] as const))
+        : new Map<string, number>();
+    scored.sort((x, y) => {
+      if (y.score !== x.score) return y.score - x.score;
+      const rx = x.action.category === 'File' ? rank.get(fileId(x.action)) : undefined;
+      const ry = y.action.category === 'File' ? rank.get(fileId(y.action)) : undefined;
+      if (rx !== undefined && ry !== undefined) return rx - ry;
+      if (rx !== undefined) return -1;
+      if (ry !== undefined) return 1;
+      return x.action.label.localeCompare(y.action.label);
     });
-  }, [actions, query]);
+    return { filtered: scored.map((s) => s.action), matchMap };
+  }, [actions, query, current]);
 
   // Content matches → Search rows, appended below the instant name/prompt
   // matches. Gated on hitsQuery === current query so we never show snippets for
@@ -533,6 +597,7 @@ export const CommandPalette = (): JSX.Element | null => {
                 idx={idx}
                 selected={idx === selectedIdx}
                 query={query.trim()}
+                labelMatches={matchMap.get(a.id)}
                 onHover={() => {
                   if (mouseActive) setSelectedIdx(idx);
                 }}
@@ -580,11 +645,38 @@ function renderHighlighted(text: string, query: string): JSX.Element {
   return <>{nodes}</>;
 }
 
+/**
+ * Highlight the exact characters a fuzzy match landed on (`matches` are
+ * char-offset ranges from createMatches), so a row shows WHERE the typed
+ * characters hit — even when they're non-contiguous (`cmdpal` → **C**o**md**…).
+ * Same accent + semibold mark as the substring path for visual consistency.
+ */
+function renderFuzzyHighlighted(text: string, matches: IMatch[]): JSX.Element {
+  if (matches.length === 0) return <>{text}</>;
+  const nodes: JSX.Element[] = [];
+  let pos = 0;
+  for (const m of matches) {
+    if (m.start > pos) nodes.push(<span key={pos}>{text.slice(pos, m.start)}</span>);
+    nodes.push(
+      <mark
+        key={m.start}
+        style={{ background: 'transparent', color: color.accent, fontWeight: font.weight.semibold }}
+      >
+        {text.slice(m.start, m.end)}
+      </mark>,
+    );
+    pos = m.end;
+  }
+  if (pos < text.length) nodes.push(<span key={pos}>{text.slice(pos)}</span>);
+  return <>{nodes}</>;
+}
+
 const PaletteRow = ({
   action,
   idx,
   selected,
   query,
+  labelMatches,
   onHover,
   onClick,
 }: {
@@ -592,6 +684,9 @@ const PaletteRow = ({
   idx: number;
   selected: boolean;
   query: string;
+  /** Fuzzy-match ranges on the label (typed-query rows). Absent on empty-state
+   *  and content/Search rows, which fall back to substring highlight. */
+  labelMatches?: IMatch[];
   onHover: () => void;
   onClick: () => void;
 }): JSX.Element => (
@@ -641,7 +736,9 @@ const PaletteRow = ({
           fontWeight: selected ? font.weight.medium : font.weight.regular,
         }}
       >
-        {renderHighlighted(action.label, query)}
+        {labelMatches !== undefined
+          ? renderFuzzyHighlighted(action.label, labelMatches)
+          : renderHighlighted(action.label, query)}
       </span>
       {action.sub && (
         // Search rows: the matching snippet, so you can see WHY the file
