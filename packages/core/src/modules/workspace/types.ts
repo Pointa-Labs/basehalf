@@ -160,8 +160,29 @@ export interface WorkspaceListFilesResult {
 export interface WorkspaceListCanvasArgs {
   readonly folder: string | null;
 }
+
+/** One direct child surfaced in a folder card's contents preview. */
+export interface CanvasFolderPreviewItem {
+  readonly name: string;
+  readonly kind: 'file' | 'folder';
+}
+/** Lightweight, derived peek at a folder's DIRECT contents — drives the canvas
+ *  folder card's "what's inside" list. `total` is the count of canvas-supported
+ *  direct children (files + subfolders); `items` is the first few (folders-first,
+ *  then alpha — the same order the canvas shows when you enter the folder),
+ *  capped so a giant folder never bloats the canvas payload. Computed read-only
+ *  in listCanvas; never persisted. */
+export interface CanvasFolderPreview {
+  readonly total: number;
+  readonly items: readonly CanvasFolderPreviewItem[];
+}
+/** A badge as returned by listCanvas: the persisted (or synthesized) badge, plus
+ *  — for folder kind — a derived `preview` of its direct contents. The on-disk
+ *  BadgeFile schema is unchanged; `preview` lives only on the canvas wire. */
+export type CanvasBadge = BadgeFile & { readonly preview?: CanvasFolderPreview };
+
 export interface WorkspaceListCanvasResult {
-  readonly badges: readonly BadgeFile[];
+  readonly badges: readonly CanvasBadge[];
 }
 
 /** `workspace.listSupportedFiles({folder})` — all canvas-supported files under

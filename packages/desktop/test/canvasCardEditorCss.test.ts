@@ -85,12 +85,18 @@ describe('canvas card editor CSS', () => {
     // and jank a large workspace. At rest, markdown renders through BadgePreview
     // as a static HTML string (cheap, shared converter), never a mounted editor.
     expect(badgeNodeSource).toMatch(
-      /\{usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
+      /usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
     );
-    expect(badgeNodeSource).toMatch(/\) : showPreview && showDetail \? \(\s*<BadgePreview/);
-    // Level-of-detail: the preview body is gated on showDetail (zoom), so a fully
-    // framed large workspace doesn't render every card's preview at once.
-    expect(badgeNodeSource).toContain('s.transform[2] >= PREVIEW_ZOOM_THRESHOLD');
+    expect(badgeNodeSource).toMatch(/\) : showPreview \? \(\s*<BadgePreview/);
+    // Size-aware level-of-detail: the WHEN-to-show-what decision is delegated to
+    // the pure, unit-tested lib/cardLod policy; the component just feeds it the
+    // node's measured height × zoom. The heavy body renders only in the 'full'
+    // tier — a card too small ON SCREEN (shrunk or zoomed out) collapses to a
+    // centred title chip with no count and no body.
+    expect(badgeNodeSource).toContain("import { cardLodForHeight } from '../lib/cardLod.js';");
+    expect(badgeNodeSource).toMatch(/return cardLodForHeight\(h, s\.transform\[2\]\);/);
+    expect(badgeNodeSource).toMatch(/\{lod === 'mini' \? null :/);
+    expect(badgeNodeSource).toMatch(/lod === 'mini' \? \(\s*\/\/[\s\S]*?<CardTitleChip/);
     expect(filePreviewSource).toContain('cardEditable = true');
     expect(filePreviewSource).toMatch(/autoFocus=\{compact && compactEditable\}/);
     expect(filePreviewSource).toMatch(/editable=\{!viewOnly && seedReady && compactEditable\}/);

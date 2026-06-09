@@ -1,3 +1,4 @@
+import type { CanvasFolderPreview } from '@basehalf/core';
 import { type Node, type NodeProps, NodeResizer, useReactFlow, useStore } from '@xyflow/react';
 import {
   type CSSProperties,
@@ -10,6 +11,7 @@ import {
 } from 'react';
 import { CanvasConnectionHandles, useCanvasConnectionHandles } from '../canvasConnections/index.js';
 import { color, font, radius, shadow, space, transition } from '../design.js';
+import { cardLodForHeight } from '../lib/cardLod.js';
 import { flushDoc } from '../lib/editorFlush.js';
 import { docKeyFor } from '../lib/liveDoc.js';
 import { markdownToHtml } from '../lib/mdRender.js';
@@ -20,11 +22,12 @@ import { MdEditor } from './FilePreview.js';
 // A badge is a *living tile*: when it's big enough on screen to read, it shows a
 // real preview of the file's contents (rendered Markdown, a raw text/code
 // excerpt, or an image thumbnail), so the canvas reads as "my documents in
-// space," not a graph of names. A taller card reveals more of the same. Below
-// PREVIEW_ZOOM_THRESHOLD the tile is too small to read, so it drops to just a
-// name + glyph — no file read, no editor. This level-of-detail gate is what keeps
-// a large, fully-framed workspace fast: at fit-to-all zoom EVERY tile is on
-// screen, so viewport virtualization alone can't cull the per-tile preview work.
+// space," not a graph of names. A taller card reveals more of the same. Once the
+// tile is too small ON SCREEN to read (shrunk by the user or zoomed out — see the
+// size-aware LOD tiers below), it drops to just a name + glyph — no file read, no
+// editor. This level-of-detail gate is what keeps a large, fully-framed workspace
+// fast: at fit-to-all zoom EVERY tile is on screen, so viewport virtualization
+// alone can't cull the per-tile preview work.
 
 // Cache previews per path so a transient unmount (Canvas rebuilds nodes on file
 // events) doesn't refetch/re-render. Staleness self-heals on the next refresh.
@@ -47,16 +50,17 @@ export function clearPreviewCache(): void {
 // card reveals more real content as you resize it, bounded so a multi-MB file
 // neither crosses IPC whole nor blows up the Markdown parse.
 const PREVIEW_CHARS = 8000;
-export const CARD_MIN_WIDTH = 220;
-export const CARD_MIN_HEIGHT = 160;
+// Cards can shrink all the way down to a title chip (glyph + name). The minimums
+// are deliberately small so the size-aware LOD below (titleizes a card once it's
+// tiny ON SCREEN) is actually reachable by resizing, not just by zooming out.
+export const CARD_MIN_WIDTH = 140;
+export const CARD_MIN_HEIGHT = 48;
 export const DEFAULT_FILE_CARD_WIDTH = 300;
 export const DEFAULT_FILE_CARD_HEIGHT = 220;
-export const DEFAULT_FOLDER_CARD_WIDTH = 240;
-export const DEFAULT_FOLDER_CARD_HEIGHT = 132;
-// Below this zoom a default 300px card is < ~150px wide on screen — too small to
-// read the content preview, so cards drop to name + glyph only (see BadgeNode).
-// Tune to taste: higher = previews kick in only when zoomed closer.
-export const PREVIEW_ZOOM_THRESHOLD = 0.5;
+export const DEFAULT_FOLDER_CARD_WIDTH = 248;
+// Tall enough to seat the header + a few contents rows (the folder card now
+// previews what's inside) without the user having to resize it first.
+export const DEFAULT_FOLDER_CARD_HEIGHT = 188;
 
 // One shared file-event subscription fans out to all mounted tiles, instead of
 // each tile registering its own ipcRenderer listener (which trips Node's
@@ -98,6 +102,8 @@ export interface BadgeNodeData extends Record<string, unknown> {
   kind: 'file' | 'folder';
   orphan?: boolean;
   prompt?: string;
+  /** Folder kind only: a peek at the folder's direct contents (see listCanvas). */
+  preview?: CanvasFolderPreview;
 }
 
 type BadgeFlowNode = Node<BadgeNodeData, 'badge'>;
@@ -121,10 +127,18 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
-  // Level-of-detail: only render the (expensive) content preview when the canvas
-  // is zoomed in enough to actually read it. The boolean selector re-renders the
-  // tile only when CROSSING the threshold, not on every zoom delta (no flicker).
-  const showDetail = useStore((s) => s.transform[2] >= PREVIEW_ZOOM_THRESHOLD);
+  // Size-aware level-of-detail: a card shows less as it gets smaller ON SCREEN —
+  // whether the user shrank it or zoomed the canvas out. The WHEN-to-show-what
+  // policy lives in lib/cardLod (pure + unit-tested); here we just feed it the
+  // node's measured height × zoom. Selecting the tier STRING (not raw px) means
+  // the store subscription re-renders the tile only when it crosses the threshold,
+  // never on every zoom/resize delta (no flicker, no per-frame preview churn).
+  const fallbackHeight = isFolder ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT;
+  const sizeLod = useStore((s) => {
+    const node = s.nodeLookup.get(id);
+    const h = node?.measured?.height ?? node?.height ?? fallbackHeight;
+    return cardLodForHeight(h, s.transform[2]);
+  });
   const [nodeHover, setNodeHover] = useState(false);
   const [inlineEditing, setInlineEditing] = useState(false);
   const [inlineClosing, setInlineClosing] = useState(false);
@@ -137,6 +151,8 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // and folders have nothing to preview.
   const previewable = type === 'image' || type === 'text' || type === 'code';
   const showPreview = previewable && !orphan && !isFolder;
+  // Inline-editing always forces full detail — you can't edit a collapsed chip.
+  const lod = inlineEditing ? 'full' : sizeLod;
   const usesMarkdownCardSurface = canInlineEdit && showPreview;
 
   // Orphan = file referenced but missing on disk. We want the badge to read
@@ -323,200 +339,230 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
         targetAffordance={connectionHandles.targetAffordance}
         targetInteractive={connectionHandles.targetInteractive}
       />
+      {/* Content clip. The card root stays overflow:visible so the resize /
+          connection handles can sit OUTSIDE the border — so the actual content
+          (header + body) needs its OWN hard clip. Without it, a short card zoomed
+          into the 'full' tier paints its contents list past the bottom edge: a
+          stray "shadow" of the first child bleeding onto the canvas. This wrapper
+          fills the card and clips to the rounded border. */}
       <div
         style={{
+          flex: 1,
+          minHeight: 0,
+          minWidth: 0,
           display: 'flex',
-          gap: space[2],
-          alignItems: 'flex-start',
-          padding: `${space[2]}px ${space[3]}px`,
-          borderBottom: showPreview || inlineEditing ? `1px solid ${color.border}` : 'none',
-          minHeight: 42,
-          flexShrink: 0,
+          flexDirection: 'column',
+          overflow: 'hidden',
+          borderRadius: radius.lg,
         }}
       >
-        {/* Fixed 20px box so the glyph optically centers against the
+        {lod === 'mini' ? (
+          // Collapsed to a centred glyph + name chip. No count, no contents, no
+          // half-filled body — the count is shown only alongside the contents list,
+          // which lives in the 'full' tier (see lib/cardLod).
+          <CardTitleChip type={type} tone={glyphTone} name={basename} orphan={orphan} />
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              gap: space[2],
+              alignItems: 'flex-start',
+              padding: `${space[2]}px ${space[3]}px`,
+              borderBottom: showPreview || inlineEditing ? `1px solid ${color.border}` : 'none',
+              minHeight: 42,
+              flexShrink: 0,
+            }}
+          >
+            {/* Fixed 20px box so the glyph optically centers against the
             basename's first line regardless of how many lines follow. */}
-        <span
-          aria-hidden
-          style={{ display: 'flex', alignItems: 'center', height: 20, flexShrink: 0 }}
-        >
-          <FileGlyph type={type} tone={glyphTone} size={15} />
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: space[1.5] }}>
             <span
-              style={{
-                fontWeight: font.weight.semibold,
-                fontSize: font.size.body,
-                color: orphan ? color.danger : color.textPrimary,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                flex: 1,
-                minWidth: 0,
-                letterSpacing: -0.1,
-              }}
+              aria-hidden
+              style={{ display: 'flex', alignItems: 'center', height: 20, flexShrink: 0 }}
             >
-              {basename}
+              <FileGlyph type={type} tone={glyphTone} size={15} />
             </span>
-            {canInlineEdit && (
-              <button
-                type="button"
-                className="nodrag nopan"
-                title={inlineEditing ? 'Finish editing on canvas' : 'Edit on canvas'}
-                aria-label={`Edit on canvas for ${d.label}`}
-                aria-pressed={inlineEditing}
-                data-testid={`canvas-inline-edit-button-${d.label}`}
-                onPointerDown={stopNodeGesture}
-                onMouseDown={stopNodeGesture}
-                onDoubleClick={stopNodeGesture}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  selectThisNode();
-                  if (inlineEditing) {
-                    void finishInlineEdit();
-                  } else {
-                    armingInlineEdit.current = true;
-                    inlineCloseBlocked.current = false;
-                    setInlineError('');
-                    setInlineEditing(true);
-                  }
-                }}
-                style={chromeButton(inlineEditing)}
-              >
-                <FileGlyph
-                  type="edit"
-                  tone={inlineEditing ? color.accent : color.textTertiary}
-                  size={15}
-                />
-              </button>
-            )}
-            {!isFolder && (
-              <button
-                type="button"
-                className="nodrag nopan"
-                title="Edit File Badge"
-                aria-label={`Edit File Badge for ${d.label}`}
-                onPointerDown={stopNodeGesture}
-                onMouseDown={stopNodeGesture}
-                onDoubleClick={stopNodeGesture}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  selectThisNode();
-                  openBadgeInPanel(d.label);
-                }}
-                style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
-              >
-                {/* "Has a note" is signalled by the accent-toned glyph alone (kept
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: space[1.5] }}>
+                <span
+                  style={{
+                    fontWeight: font.weight.semibold,
+                    fontSize: font.size.body,
+                    color: orphan ? color.danger : color.textPrimary,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: 1,
+                    minWidth: 0,
+                    letterSpacing: -0.1,
+                  }}
+                >
+                  {basename}
+                </span>
+                {isFolder && d.preview && (
+                  <KindChip label={countLabel(d.preview.total)} tone="folder" />
+                )}
+                {canInlineEdit && (
+                  <button
+                    type="button"
+                    className="nodrag nopan"
+                    title={inlineEditing ? 'Finish editing on canvas' : 'Edit on canvas'}
+                    aria-label={`Edit on canvas for ${d.label}`}
+                    aria-pressed={inlineEditing}
+                    data-testid={`canvas-inline-edit-button-${d.label}`}
+                    onPointerDown={stopNodeGesture}
+                    onMouseDown={stopNodeGesture}
+                    onDoubleClick={stopNodeGesture}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      selectThisNode();
+                      if (inlineEditing) {
+                        void finishInlineEdit();
+                      } else {
+                        armingInlineEdit.current = true;
+                        inlineCloseBlocked.current = false;
+                        setInlineError('');
+                        setInlineEditing(true);
+                      }
+                    }}
+                    style={chromeButton(inlineEditing)}
+                  >
+                    <FileGlyph
+                      type="edit"
+                      tone={inlineEditing ? color.accent : color.textTertiary}
+                      size={15}
+                    />
+                  </button>
+                )}
+                {!isFolder && (
+                  <button
+                    type="button"
+                    className="nodrag nopan"
+                    title="Edit File Badge"
+                    aria-label={`Edit File Badge for ${d.label}`}
+                    onPointerDown={stopNodeGesture}
+                    onMouseDown={stopNodeGesture}
+                    onDoubleClick={stopNodeGesture}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      selectThisNode();
+                      openBadgeInPanel(d.label);
+                    }}
+                    style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
+                  >
+                    {/* "Has a note" is signalled by the accent-toned glyph alone (kept
                     visible at rest via `lit` below) — no separate dot. */}
-                <FileGlyph
-                  type="badge"
-                  tone={d.prompt ? color.accent : color.textTertiary}
-                  size={15}
-                />
-              </button>
-            )}
-            {orphan && <KindChip label="MISSING" tone="danger" />}
-          </div>
-          {dirname && (
-            <div
-              style={{
-                fontSize: font.size.micro,
-                color: color.textTertiary,
-                marginTop: 2,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                fontFamily: font.mono,
-                letterSpacing: -0.2,
-              }}
-            >
-              {dirname}/
+                    <FileGlyph
+                      type="badge"
+                      tone={d.prompt ? color.accent : color.textTertiary}
+                      size={15}
+                    />
+                  </button>
+                )}
+                {orphan && <KindChip label="MISSING" tone="danger" />}
+              </div>
+              {dirname && (
+                <div
+                  style={{
+                    fontSize: font.size.micro,
+                    color: color.textTertiary,
+                    marginTop: 2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontFamily: font.mono,
+                    letterSpacing: -0.2,
+                  }}
+                >
+                  {dirname}/
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
-      {/* Markdown cards mount the heavy live editor (BlockNote + Yjs) ONLY while
+          </div>
+        )}
+        {/* Markdown cards mount the heavy live editor (BlockNote + Yjs) ONLY while
           inline-editing — never as the resting preview. Otherwise every .md card
           on the canvas mounts its own ProseMirror editor (e.g. ~48 at once inside
           a decisions/ folder), janking the whole canvas. At rest, markdown falls
           through to the cheap BadgePreview excerpt below (it is type 'text'). */}
-      {usesMarkdownCardSurface && inlineEditing ? (
-        <div
-          className="nodrag nopan nowheel"
-          data-testid={`canvas-inline-editor-${d.label}`}
-          onMouseDown={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          style={{
-            flex: 1,
-            minHeight: 0,
-            overflow: 'hidden',
-            cursor: 'text',
-            background: color.surface,
-            pointerEvents: 'auto',
-          }}
-        >
-          <MdEditor
-            file={d.label}
-            paneId={inlinePaneId}
-            docKey={inlineDocKey}
-            compact
-            cardEditable={inlineEditing}
-            promoteOnEdit={false}
-            onDiscardClose={() => {
-              inlineCloseBlocked.current = false;
-              setInlineEditing(false);
+        {lod === 'mini' ? null : usesMarkdownCardSurface && inlineEditing ? (
+          <div
+            className="nodrag nopan nowheel"
+            data-testid={`canvas-inline-editor-${d.label}`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden',
+              cursor: 'text',
+              background: color.surface,
+              pointerEvents: 'auto',
             }}
-          />
-          {inlineError && (
-            <div
-              style={{
-                position: 'absolute',
-                left: space[2],
-                right: space[2],
-                bottom: space[2],
-                padding: `${space[1]}px ${space[2]}px`,
-                borderRadius: radius.md,
-                background: color.warningSoft,
-                color: color.warning,
-                fontSize: font.size.micro,
-                boxShadow: shadow.card,
+          >
+            <MdEditor
+              file={d.label}
+              paneId={inlinePaneId}
+              docKey={inlineDocKey}
+              compact
+              cardEditable={inlineEditing}
+              promoteOnEdit={false}
+              onDiscardClose={() => {
+                inlineCloseBlocked.current = false;
+                setInlineEditing(false);
               }}
-            >
-              {inlineError}
-            </div>
-          )}
-        </div>
-      ) : showPreview && showDetail ? (
-        <BadgePreview type={type} label={d.label} wsPath={wsPath} />
-      ) : (
-        <div
-          aria-hidden
-          style={{
-            flex: 1,
-            minHeight: 0,
-            padding: `${space[2]}px ${space[3]}px`,
-            color: isFolder && d.prompt ? color.textSecondary : color.textGhost,
-            fontSize: font.size.caption,
-            lineHeight: 1.45,
-            overflow: 'hidden',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            // Fade a long folder note so the clip reads as "more below," not a hard cut.
-            maskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
-            WebkitMaskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
-          }}
-        >
-          {/* A folder card shows its own note (the folder badge prompt) — an
+            />
+            {inlineError && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: space[2],
+                  right: space[2],
+                  bottom: space[2],
+                  padding: `${space[1]}px ${space[2]}px`,
+                  borderRadius: radius.md,
+                  background: color.warningSoft,
+                  color: color.warning,
+                  fontSize: font.size.micro,
+                  boxShadow: shadow.card,
+                }}
+              >
+                {inlineError}
+              </div>
+            )}
+          </div>
+        ) : showPreview ? (
+          <BadgePreview type={type} label={d.label} wsPath={wsPath} />
+        ) : isFolder && !orphan && d.preview ? (
+          <FolderContents preview={d.preview} prompt={d.prompt} />
+        ) : (
+          <div
+            aria-hidden
+            style={{
+              flex: 1,
+              minHeight: 0,
+              padding: `${space[2]}px ${space[3]}px`,
+              color: isFolder && d.prompt ? color.textSecondary : color.textGhost,
+              fontSize: font.size.caption,
+              lineHeight: 1.45,
+              overflow: 'hidden',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              // Fade a long folder note so the clip reads as "more below," not a hard cut.
+              maskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to bottom, #000 72%, transparent)',
+            }}
+          >
+            {/* A folder card shows its own note (the folder badge prompt) — an
               annotated folder reads as a labelled group on the canvas. An
               un-annotated folder stays clean (the glyph + name + path already
               say what it is). The old `dirname` body just duplicated the path
               subtitle above. */}
-          {isFolder ? (d.prompt ?? '') : orphan ? 'Missing file' : ''}
-        </div>
-      )}
+            {isFolder ? (d.prompt ?? '') : orphan ? 'Missing file' : ''}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -721,6 +767,156 @@ const MarkdownPreview = ({ label }: { label: string }): JSX.Element => {
       // biome-ignore lint/security/noDangerouslySetInnerHtml: html is sanitized in lib/mdRender (script/style/iframe/event handlers + javascript: URLs stripped) before it reaches here
       dangerouslySetInnerHTML={{ __html: html }}
     />
+  );
+};
+
+// The collapsed card: a centred glyph + name that fills the card, so there's no
+// dead space at any height. Used for EVERY kind once the card is too small ON
+// SCREEN to carry its payload (see lib/cardLod) — a file's preview or a folder's
+// count + contents. Pointer-transparent enough that the card still handles
+// select / double-click; the chip is purely visual.
+const CardTitleChip = ({
+  type,
+  tone,
+  name,
+  orphan,
+}: {
+  type: BadgeType;
+  tone: string;
+  name: string;
+  orphan: boolean;
+}): JSX.Element => (
+  <div
+    style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: space[2],
+      padding: `0 ${space[3]}px`,
+      flex: 1,
+      minWidth: 0,
+    }}
+  >
+    <FileGlyph type={type} tone={tone} size={15} />
+    <span
+      style={{
+        fontWeight: font.weight.semibold,
+        fontSize: font.size.caption,
+        color: orphan ? color.danger : color.textPrimary,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        minWidth: 0,
+        letterSpacing: -0.1,
+      }}
+    >
+      {name}
+    </span>
+  </div>
+);
+
+// Short, uppercased-by-KindChip count for the folder header: "EMPTY" / "1 ITEM"
+// / "12 ITEMS". Tells you the size at a glance even when the card is too short to
+// show every contents row.
+const countLabel = (total: number): string =>
+  total === 0 ? 'empty' : total === 1 ? '1 item' : `${total} items`;
+
+// A folder card's body: a peek at its direct contents (glyph + name per child),
+// folders-first, capped at FOLDER_PREVIEW_LIMIT by core — the rest collapse to
+// "+N more". An annotated folder still shows its own note below, dimmer, so the
+// card reads as "this labelled group, and here's what's in it." Pointer-transparent
+// so it never steals the badge drag; double-clicking the card enters the folder.
+const FolderContents = ({
+  preview,
+  prompt,
+}: {
+  preview: CanvasFolderPreview;
+  prompt?: string;
+}): JSX.Element => {
+  const remaining = preview.total - preview.items.length;
+  return (
+    <div
+      aria-hidden
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: space[1],
+        padding: `${space[1.5]}px ${space[3]}px ${space[2]}px`,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+        maskImage: 'linear-gradient(to bottom, #000 86%, transparent)',
+        WebkitMaskImage: 'linear-gradient(to bottom, #000 86%, transparent)',
+      }}
+    >
+      {preview.total === 0 ? (
+        <span style={{ fontSize: font.size.caption, color: color.textGhost }}>Empty folder</span>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minHeight: 0 }}>
+          {preview.items.map((it) => {
+            const isDir = it.kind === 'folder';
+            return (
+              <div
+                key={it.name}
+                style={{ display: 'flex', alignItems: 'center', gap: space[1.5], minWidth: 0 }}
+              >
+                <FileGlyph
+                  type={badgeType(it.name, isDir)}
+                  tone={isDir ? color.folderGlyph : color.textTertiary}
+                  size={12}
+                />
+                <span
+                  style={{
+                    fontSize: font.size.caption,
+                    color: color.textSecondary,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                    fontFamily: isDir ? font.sans : font.mono,
+                    letterSpacing: -0.1,
+                  }}
+                >
+                  {it.name}
+                  {isDir ? '/' : ''}
+                </span>
+              </div>
+            );
+          })}
+          {remaining > 0 && (
+            <span
+              style={{
+                fontSize: font.size.micro,
+                color: color.textTertiary,
+                paddingLeft: 12 + space[1.5],
+                marginTop: 1,
+              }}
+            >
+              +{remaining} more
+            </span>
+          )}
+        </div>
+      )}
+      {prompt && (
+        <div
+          style={{
+            marginTop: space[1],
+            paddingTop: space[1.5],
+            borderTop: `1px solid ${color.border}`,
+            fontSize: font.size.micro,
+            color: color.textTertiary,
+            lineHeight: 1.4,
+            overflow: 'hidden',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            wordBreak: 'break-word',
+          }}
+        >
+          {prompt}
+        </div>
+      )}
+    </div>
   );
 };
 

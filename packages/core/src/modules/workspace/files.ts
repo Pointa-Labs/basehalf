@@ -16,6 +16,8 @@ import type { BadgeFile } from '../badges/types.js';
 import { readWorkspaces } from './store.js';
 import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
+  CanvasBadge,
+  CanvasFolderPreview,
   WorkspaceListCanvasArgs,
   WorkspaceListCanvasResult,
   WorkspaceListFilesArgs,
@@ -126,6 +128,43 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
  * mirror, so a huge or deeply-nested workspace stays fast and there is no eager
  * badge-per-file. Read-only: it never writes a badge.
  */
+/** The canvas-surface filter: a subfolder (minus tooling dirs) or a
+ *  supported-type file. Shared by listCanvas and its folder-contents preview so
+ *  the card's "what's inside" list matches exactly what entering the folder shows. */
+const isCanvasEntry = (entry: WorkspaceListFilesEntry): boolean =>
+  entry.type === 'dir' ? !SKIP_NAMES.has(entry.name) : hasSupportedExt(entry.name);
+
+/** Most child rows a folder card previews; the rest collapse to "+N more". Kept
+ *  small so a folder of thousands never bloats the canvas payload — the card is a
+ *  peek, not the folder. listFiles already sorts folders-first then alpha, so the
+ *  slice is the same order you see on entering the folder. */
+const FOLDER_PREVIEW_LIMIT = 6;
+
+/** Peek at a folder's DIRECT contents for its card. Reuses the hardened,
+ *  symlink-contained listFiles (escaped children already dropped there); a read
+ *  failure degrades to an empty preview rather than blanking the whole canvas. */
+const folderPreview = async (
+  ctx: Parameters<Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasResult>>[1],
+  absChildDir: string,
+): Promise<CanvasFolderPreview> => {
+  let children: readonly WorkspaceListFilesEntry[];
+  try {
+    ({ entries: children } = (await ctx.run('workspace.listFiles', {
+      path: absChildDir,
+    })) as WorkspaceListFilesResult);
+  } catch {
+    return { total: 0, items: [] };
+  }
+  const supported = children.filter(isCanvasEntry);
+  return {
+    total: supported.length,
+    items: supported.slice(0, FOLDER_PREVIEW_LIMIT).map((e) => ({
+      name: e.name,
+      kind: e.type === 'dir' ? 'folder' : 'file',
+    })),
+  };
+};
+
 export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasResult> = async (
   args,
   ctx,
@@ -144,16 +183,15 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
     path: absDir,
   })) as WorkspaceListFilesResult;
 
-  const badges: BadgeFile[] = [];
+  const badges: CanvasBadge[] = [];
   for (const entry of entries) {
+    if (!isCanvasEntry(entry)) continue;
     const isDir = entry.type === 'dir';
-    if (isDir) {
-      if (SKIP_NAMES.has(entry.name)) continue;
-    } else if (!hasSupportedExt(entry.name)) {
-      continue;
-    }
     const rel = folder === null ? entry.name : toPosix(`${folder}/${entry.name}`);
     const kind = isDir ? 'folder' : 'file';
+    // A folder card shows its direct contents — peek one more level (the same
+    // on-demand readdir the NavTree does), bounded by FOLDER_PREVIEW_LIMIT.
+    const preview = isDir ? await folderPreview(ctx, join(absDir, entry.name)) : undefined;
     let badge: BadgeFile | null = null;
     try {
       badge = (await ctx.run('badge.get', { file: rel, kind })) as BadgeFile | null;
@@ -170,9 +208,15 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
     // NEVER written to disk (empty timestamps signal "not persisted"). The
     // renderer's badgeToNode + badgesToConnectionEdges only read
     // file/kind/canvas/orphan/prompt/references, so this is sufficient.
-    badges.push(
-      badge ?? { bhVersion: 1, file: rel, kind, references: [], createdAt: '', modifiedAt: '' },
-    );
+    const base: BadgeFile = badge ?? {
+      bhVersion: 1,
+      file: rel,
+      kind,
+      references: [],
+      createdAt: '',
+      modifiedAt: '',
+    };
+    badges.push(preview ? { ...base, preview } : base);
   }
   badges.sort((a, b) => a.file.localeCompare(b.file));
   return { badges };

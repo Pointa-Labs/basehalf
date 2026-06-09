@@ -1,6 +1,7 @@
 import type {
   BadgeFile,
   BadgeKind,
+  CanvasBadge,
   ViewportState,
   WorkspaceListCanvasResult,
 } from '@basehalf/core';
@@ -124,7 +125,7 @@ function connectionEdges(
 }
 
 function badgeToNode(
-  badge: BadgeFile,
+  badge: CanvasBadge,
   fallbackIndex: number,
   total: number,
   override?: { x?: number; y?: number },
@@ -165,6 +166,7 @@ function badgeToNode(
       kind: badge.kind,
       ...(badge.orphan === true && { orphan: true }),
       ...(badge.prompt !== undefined && { prompt: badge.prompt }),
+      ...(badge.preview !== undefined && { preview: badge.preview }),
     },
   };
 }

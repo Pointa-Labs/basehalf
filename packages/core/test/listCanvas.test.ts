@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { type BadgeFile, createCore } from '../src/index.js';
+import { type CanvasBadge, createCore } from '../src/index.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 interface TestContext {
@@ -29,9 +29,9 @@ async function openWorkspace(
   await ctx.core.run('workspace.add', { path: '/work', name: 'w' });
 }
 
-async function listCanvas(ctx: TestContext, folder: string | null): Promise<BadgeFile[]> {
+async function listCanvas(ctx: TestContext, folder: string | null): Promise<CanvasBadge[]> {
   const { badges } = (await ctx.core.run('workspace.listCanvas', { folder })) as {
-    badges: BadgeFile[];
+    badges: CanvasBadge[];
   };
   return badges;
 }
@@ -112,6 +112,48 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     const notes = (await listCanvas(ctx, null)).find((b) => b.file === 'notes');
     expect(notes?.kind).toBe('folder');
     expect(notes?.prompt).toBe('my notes');
+  });
+
+  it('attaches a folder contents preview (total + items), folders-first, supported-only', async () => {
+    await openWorkspace(ctx, {
+      dirs: ['notes', 'notes/sub'],
+      files: {
+        'notes/a.md': '',
+        'notes/b.png': '',
+        'notes/code.sh': '', // unsupported → excluded from total + items
+        'notes/sub/deep.md': '',
+      },
+    });
+    const notes = (await listCanvas(ctx, null)).find((b) => b.file === 'notes');
+    // 3 supported direct children: sub/ (folder), a.md, b.png. code.sh excluded.
+    expect(notes?.preview?.total).toBe(3);
+    // listFiles sorts folders-first then alpha → sub, a.md, b.png.
+    expect(notes?.preview?.items).toEqual([
+      { name: 'sub', kind: 'folder' },
+      { name: 'a.md', kind: 'file' },
+      { name: 'b.png', kind: 'file' },
+    ]);
+  });
+
+  it('caps the preview items at FOLDER_PREVIEW_LIMIT but keeps the true total', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 9; i++) files[`big/f${i}.md`] = '';
+    await openWorkspace(ctx, { dirs: ['big'], files });
+    const big = (await listCanvas(ctx, null)).find((b) => b.file === 'big');
+    expect(big?.preview?.total).toBe(9);
+    expect(big?.preview?.items).toHaveLength(6); // FOLDER_PREVIEW_LIMIT
+  });
+
+  it('reports an empty folder as total 0 with no items', async () => {
+    await openWorkspace(ctx, { dirs: ['empty'] });
+    const empty = (await listCanvas(ctx, null)).find((b) => b.file === 'empty');
+    expect(empty?.preview).toEqual({ total: 0, items: [] });
+  });
+
+  it('leaves a file badge without a preview', async () => {
+    await openWorkspace(ctx, { files: { 'a.md': '' } });
+    const a = (await listCanvas(ctx, null)).find((b) => b.file === 'a.md');
+    expect(a?.preview).toBeUndefined();
   });
 
   it('falls back to a synthesized default when a badge JSON is corrupt (no throw)', async () => {
