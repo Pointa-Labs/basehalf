@@ -40,6 +40,7 @@ import {
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
+import { badgeMutations } from '../lib/badgeMutations.js';
 import {
   SNAP_GUIDE_SCREEN_THRESHOLD,
   sameSnapGuides,
@@ -387,7 +388,10 @@ export const Canvas = (): JSX.Element => {
   // behind the editor overlay, so a small delay is invisible).
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = subscribeBadgeChange(() => {
+    const unsub = subscribeBadgeChange((origin) => {
+      // Our own writes already refreshed the canvas inline — only react to the
+      // OTHER surface's edits (panel), so we don't double-load after a drag.
+      if (origin === 'canvas') return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => void loadData(), 250);
     });
@@ -584,13 +588,16 @@ export const Canvas = (): JSX.Element => {
       const toSide = sideFromHandle(conn.targetHandle);
       const sourceKind = nodeBadgeKind(nodesRef.current, conn.source);
       try {
-        await window.bh.run('badge.addRef', {
-          file: conn.source,
-          to: conn.target,
-          kind: sourceKind,
-          ...(fromSide !== undefined && { fromSide }),
-          ...(toSide !== undefined && { toSide }),
-        });
+        await badgeMutations.addRef(
+          {
+            file: conn.source,
+            to: conn.target,
+            kind: sourceKind,
+            ...(fromSide !== undefined && { fromSide }),
+            ...(toSide !== undefined && { toSide }),
+          },
+          'canvas',
+        );
         // Refresh so the new edge shows + inbound index updates ripple to other views.
         const { badges } = (await window.bh.run('workspace.listCanvas', {
           folder: folderScope,
@@ -612,11 +619,14 @@ export const Canvas = (): JSX.Element => {
       setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
       try {
         for (const e of deleted) {
-          await window.bh.run('badge.removeRef', {
-            file: e.source,
-            to: e.target,
-            kind: nodeBadgeKind(nodesRef.current, e.source),
-          });
+          await badgeMutations.removeRef(
+            {
+              file: e.source,
+              to: e.target,
+              kind: nodeBadgeKind(nodesRef.current, e.source),
+            },
+            'canvas',
+          );
         }
         const { badges } = (await window.bh.run('workspace.listCanvas', {
           folder: folderScope,
@@ -643,21 +653,24 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          await window.bh.run('badge.reconnectRef', {
-            previous: {
-              file: update.previousSource,
-              to: update.previousTarget,
-              kind: nodeBadgeKind(nodesRef.current, update.previousSource),
+          await badgeMutations.reconnectRef(
+            {
+              previous: {
+                file: update.previousSource,
+                to: update.previousTarget,
+                kind: nodeBadgeKind(nodesRef.current, update.previousSource),
+              },
+              next: {
+                file: update.source,
+                to: update.target,
+                kind: nodeBadgeKind(nodesRef.current, update.source),
+                ...(update.note !== undefined && { note: update.note }),
+                ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
+                ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
+              },
             },
-            next: {
-              file: update.source,
-              to: update.target,
-              kind: nodeBadgeKind(nodesRef.current, update.source),
-              ...(update.note !== undefined && { note: update.note }),
-              ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
-              ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
-            },
-          });
+            'canvas',
+          );
           await resetReferenceEdgesFromCore();
           setError('');
         } catch (err) {
@@ -676,11 +689,14 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          await window.bh.run('badge.removeRef', {
-            file: removal.source,
-            to: removal.target,
-            kind: nodeBadgeKind(nodesRef.current, removal.source),
-          });
+          await badgeMutations.removeRef(
+            {
+              file: removal.source,
+              to: removal.target,
+              kind: nodeBadgeKind(nodesRef.current, removal.source),
+            },
+            'canvas',
+          );
           await resetReferenceEdgesFromCore();
           setError('');
         } catch (err) {

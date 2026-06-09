@@ -8,7 +8,7 @@
  * from anywhere without prop-drilling a context.
  */
 
-import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
 import { Button } from './primitives/Button.js';
@@ -37,7 +37,23 @@ interface PromptDialog extends BaseDialog {
   readonly resolve: (value: string | null) => void;
 }
 
-type DialogState = ConfirmDialog | PromptDialog | null;
+/** One row in a `pick` dialog. `value` is what resolves; the rest is display. */
+export interface PickOption {
+  readonly value: string;
+  readonly label: string;
+  readonly hint?: string;
+  readonly detail?: string;
+}
+
+interface PickDialog extends BaseDialog {
+  readonly type: 'pick';
+  readonly placeholder: string;
+  readonly emptyText: string;
+  readonly options: readonly PickOption[];
+  readonly resolve: (value: string | null) => void;
+}
+
+type DialogState = ConfirmDialog | PromptDialog | PickDialog | null;
 
 interface DialogStore {
   current: DialogState;
@@ -101,6 +117,29 @@ export function prompt(opts: PromptOptions): Promise<string | null> {
       confirmText: opts.confirmText ?? 'OK',
       cancelText: opts.cancelText ?? 'Cancel',
       ...(opts.validate !== undefined && { validate: opts.validate }),
+      resolve,
+    });
+  });
+}
+
+interface PickOptions {
+  readonly title: string;
+  readonly placeholder?: string;
+  readonly emptyText?: string;
+  readonly options: readonly PickOption[];
+}
+
+/** Search-and-pick from a list. Resolves the chosen option's `value`, or null
+ *  if dismissed. Caller supplies the options (and their display fields) — the
+ *  dialog stays generic, owning only the search/keyboard/selection mechanics. */
+export function pick(opts: PickOptions): Promise<string | null> {
+  return new Promise((resolve) => {
+    useDialogStore.getState().show({
+      type: 'pick',
+      title: opts.title,
+      placeholder: opts.placeholder ?? 'Search…',
+      emptyText: opts.emptyText ?? 'Nothing to choose from.',
+      options: opts.options,
       resolve,
     });
   });
@@ -218,8 +257,10 @@ export const DialogHost = (): JSX.Element | null => {
     >
       {current.type === 'confirm' ? (
         <ConfirmBody dialog={current} onResolve={resolveAndClose} />
-      ) : (
+      ) : current.type === 'prompt' ? (
         <PromptBody dialog={current} onResolve={resolveAndClose} />
+      ) : (
+        <PickBody dialog={current} onResolve={resolveAndClose} />
       )}
     </div>
   );
@@ -354,5 +395,184 @@ const PromptBody = ({
         </Button>
       </div>
     </form>
+  );
+};
+
+const PickBody = ({
+  dialog,
+  onResolve,
+}: {
+  dialog: PickDialog;
+  onResolve: (result: unknown) => void;
+}): JSX.Element => {
+  const [query, setQuery] = useState('');
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q === '') return dialog.options;
+    return dialog.options.filter(
+      (o) =>
+        o.label.toLowerCase().includes(q) ||
+        (o.hint?.toLowerCase().includes(q) ?? false) ||
+        (o.detail?.toLowerCase().includes(q) ?? false),
+    );
+  }, [query, dialog.options]);
+
+  // Reset the cursor to the top whenever the filtered set changes under it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: filtered length is the trigger; resetting on every keystroke is intended
+  useEffect(() => {
+    setSelectedIdx(0);
+  }, [filtered.length]);
+
+  // Keep the highlighted row in view as the cursor moves past the fold.
+  useEffect(() => {
+    const row = listRef.current?.children[selectedIdx] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIdx]);
+
+  const choose = (idx: number): void => {
+    const opt = filtered[idx];
+    if (opt) onResolve(opt.value);
+  };
+
+  return (
+    <div
+      style={{
+        ...dialogStyle,
+        minWidth: 460,
+        maxWidth: 560,
+        padding: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ padding: `${space[4]}px ${space[5]}px ${space[2]}px` }}>
+        <div id="bh-dialog-title" style={titleStyle}>
+          {dialog.title}
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        placeholder={dialog.placeholder}
+        spellCheck={false}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setSelectedIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setSelectedIdx((i) => Math.max(i - 1, 0));
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            choose(selectedIdx);
+          }
+        }}
+        style={{
+          margin: `0 ${space[5]}px`,
+          padding: `${space[2]}px ${space[3]}px`,
+          fontSize: font.size.body,
+          fontFamily: font.sans,
+          color: color.textPrimary,
+          background: color.bg,
+          border: `1px solid ${color.borderStrong}`,
+          borderRadius: radius.md,
+          outline: 'none',
+        }}
+      />
+      <div
+        ref={listRef}
+        style={{
+          marginTop: space[2],
+          maxHeight: 320,
+          overflowY: 'auto',
+          padding: `0 ${space[3]}px ${space[3]}px`,
+        }}
+      >
+        {filtered.length === 0 ? (
+          <div
+            style={{
+              padding: `${space[3]}px ${space[2]}px`,
+              fontSize: font.size.caption,
+              color: color.textTertiary,
+            }}
+          >
+            {dialog.options.length === 0 ? dialog.emptyText : 'No matches.'}
+          </div>
+        ) : (
+          filtered.map((opt, idx) => (
+            <div
+              key={opt.value}
+              role="option"
+              aria-selected={idx === selectedIdx}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep focus on the input; don't blur-then-click
+                choose(idx);
+              }}
+              onMouseMove={() => setSelectedIdx(idx)}
+              style={{
+                display: 'flex',
+                alignItems: 'baseline',
+                gap: space[2],
+                padding: `${space[1.5]}px ${space[2]}px`,
+                borderRadius: radius.md,
+                cursor: 'pointer',
+                background: idx === selectedIdx ? color.accentSofter : 'transparent',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: font.size.body,
+                  color: color.textPrimary,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {opt.label}
+              </span>
+              {opt.hint && (
+                <span
+                  style={{
+                    fontSize: font.size.caption,
+                    fontFamily: font.mono,
+                    color: color.textTertiary,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {opt.hint}
+                </span>
+              )}
+              {opt.detail && (
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: font.size.caption,
+                    color: color.textGhost,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '45%',
+                  }}
+                >
+                  {opt.detail}
+                </span>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 };
