@@ -240,21 +240,28 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     [inlineEditing],
   );
 
-  const chromeButton = (active = false): CSSProperties => ({
+  // Two distinct visual states, kept separate because they mean different things:
+  //   `pressed` = a real toggle is ON (the canvas-edit pencil → filled accent bg,
+  //               reads as "click again to release").
+  //   `lit`     = a passive indicator (the badge button when a prompt exists →
+  //               just stays visible + accent-toned glyph + dot, NO filled bg).
+  // Sharing the filled-bg "pressed" look for `lit` made the badge button read as a
+  // stuck toggle you couldn't un-press — it isn't a toggle, so it only lights up.
+  const chromeButton = (pressed = false, lit = false): CSSProperties => ({
     position: 'relative',
     flexShrink: 0,
     width: 24,
     height: 24,
     padding: 0,
-    border: `1px solid ${active ? color.accentSoft : showChrome ? color.borderStrong : 'transparent'}`,
+    border: `1px solid ${pressed ? color.accentSoft : showChrome ? color.borderStrong : 'transparent'}`,
     borderRadius: radius.md,
-    background: active ? `${color.accent}1f` : 'transparent',
-    color: active ? color.accent : color.textTertiary,
+    background: pressed ? `${color.accent}1f` : 'transparent',
+    color: pressed ? color.accent : color.textTertiary,
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    opacity: showChrome || inlineEditing || active ? 1 : 0.56,
+    opacity: showChrome || inlineEditing || pressed || lit ? 1 : 0.56,
     pointerEvents: 'auto',
     transition: transition(['opacity', 'border-color', 'background', 'color']),
   });
@@ -400,27 +407,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                   selectThisNode();
                   openBadgeInPanel(d.label);
                 }}
-                style={chromeButton(d.prompt !== undefined && d.prompt !== '')}
+                style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
               >
+                {/* "Has a note" is signalled by the accent-toned glyph alone (kept
+                    visible at rest via `lit` below) — no separate dot. */}
                 <FileGlyph
                   type="badge"
                   tone={d.prompt ? color.accent : color.textTertiary}
                   size={15}
                 />
-                {d.prompt && (
-                  <span
-                    aria-hidden
-                    style={{
-                      position: 'absolute',
-                      top: 3,
-                      right: 3,
-                      width: 5,
-                      height: 5,
-                      borderRadius: '50%',
-                      background: color.accent,
-                    }}
-                  />
-                )}
               </button>
             )}
             {orphan && <KindChip label="MISSING" tone="danger" />}
