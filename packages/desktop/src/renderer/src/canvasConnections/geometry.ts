@@ -18,6 +18,13 @@ export const CANVAS_CONNECTION_SIDE_POSITION: Record<CanvasConnectionSide, Posit
   left: Position.Left,
 };
 
+export const CANVAS_CONNECTION_POSITION_SIDE: Record<Position, CanvasConnectionSide> = {
+  [Position.Top]: 'top',
+  [Position.Right]: 'right',
+  [Position.Bottom]: 'bottom',
+  [Position.Left]: 'left',
+};
+
 export const CANVAS_CONNECTION_POINT_SIZE = 15;
 export const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
 

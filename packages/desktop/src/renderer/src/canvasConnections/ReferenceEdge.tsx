@@ -3,22 +3,19 @@ import {
   EdgeLabelRenderer,
   type EdgeProps,
   type Node,
-  getBezierPath,
   useReactFlow,
 } from '@xyflow/react';
 import { type JSX, type PointerEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, motion, radius, shadow, space } from '../design.js';
+import { arrowheadPath } from './arrowhead.js';
 import {
   type SnappedCanvasNodeSide,
   flowRootForNodeId,
   snappedNodeSideForClientPoint,
 } from './domAnchors.js';
 import { type ReferenceEdgeRemoval, type ReferenceEdgeUpdate, sideFromHandle } from './edges.js';
-import {
-  CANVAS_CONNECTION_SIDE_POSITION,
-  type CanvasConnectionSide,
-  connectionPointForBoxSide,
-} from './geometry.js';
+import { type CanvasConnectionSide, connectionPointForBoxSide } from './geometry.js';
+import { curvedReferencePath } from './referenceCurve.js';
 
 const RECONNECT_DRAG_THRESHOLD = 4;
 const EDGE_RECONNECTING_CURSOR_CLASS = 'bh-edge-reconnecting';
@@ -107,15 +104,12 @@ export const ReferenceEdge = ({
   sourceHandleId,
   sourceX,
   sourceY,
-  sourcePosition,
   target,
   targetHandleId,
   targetX,
   targetY,
-  targetPosition,
   label,
   selected,
-  markerEnd,
   data,
 }: EdgeProps): JSX.Element => {
   const { getNode, screenToFlowPosition } = useReactFlow();
@@ -132,14 +126,20 @@ export const ReferenceEdge = ({
     x: targetX,
     y: targetY,
   });
-  const [edgePath] = getBezierPath({
-    sourceX: sourcePoint.x,
-    sourceY: sourcePoint.y,
-    sourcePosition,
-    targetX: targetPoint.x,
-    targetY: targetPoint.y,
-    targetPosition,
-  });
+  const sourceSide = sideFromHandle(sourceHandleId);
+  const targetSide = sideFromHandle(targetHandleId);
+  // A spline that leaves the source side and arrives at the target side both
+  // perpendicular (see referenceCurve), so the line stays anchored to its card
+  // edges; its end tangent IS that perpendicular approach, so the arrowhead
+  // oriented to it sits dead-on the curve — no kink, no stub.
+  const staticCurve = curvedReferencePath(
+    sourcePoint.x,
+    sourcePoint.y,
+    targetPoint.x,
+    targetPoint.y,
+    { sourceSide, targetSide },
+  );
+  const edgePath = staticCurve.path;
   const active = hover || selected === true;
   const note = typeof label === 'string' && label.length > 0 ? label : undefined;
   const reconnecting = reconnect?.started === true;
@@ -152,23 +152,20 @@ export const ReferenceEdge = ({
     reconnect?.end === 'source' && reconnectPoint ? reconnectPoint : sourcePoint;
   const previewTargetPoint =
     reconnect?.end === 'target' && reconnectPoint ? reconnectPoint : targetPoint;
-  const previewSourcePosition =
-    reconnect?.end === 'source' && reconnect.snapped
-      ? CANVAS_CONNECTION_SIDE_POSITION[reconnect.snapped.side]
-      : sourcePosition;
-  const previewTargetPosition =
-    reconnect?.end === 'target' && reconnect.snapped
-      ? CANVAS_CONNECTION_SIDE_POSITION[reconnect.snapped.side]
-      : targetPosition;
-  const [displayPath, displayLabelX, displayLabelY] = getBezierPath({
-    sourceX: previewSourcePoint.x,
-    sourceY: previewSourcePoint.y,
-    sourcePosition: previewSourcePosition,
-    targetX: previewTargetPoint.x,
-    targetY: previewTargetPoint.y,
-    targetPosition: previewTargetPosition,
-  });
-
+  const previewSourceSide = reconnect?.end === 'source' ? reconnect.snapped?.side : sourceSide;
+  const previewTargetSide = reconnect?.end === 'target' ? reconnect.snapped?.side : targetSide;
+  const displayCurve = reconnecting
+    ? curvedReferencePath(
+        previewSourcePoint.x,
+        previewSourcePoint.y,
+        previewTargetPoint.x,
+        previewTargetPoint.y,
+        { sourceSide: previewSourceSide, targetSide: previewTargetSide },
+      )
+    : staticCurve;
+  const displayPath = displayCurve.path;
+  const displayLabelX = displayCurve.labelX;
+  const displayLabelY = displayCurve.labelY;
   const applyLocalReconnect = useCallback(
     (end: EdgeReconnectEnd, snapped: SnappedCanvasNodeSide | null): void => {
       if (!snapped) {
@@ -289,18 +286,30 @@ export const ReferenceEdge = ({
     };
   }, [applyLocalReconnect, endReconnectGesture, reconnect, source, target]);
 
+  // Arrowhead oriented to the curve's exact end tangent, tip on the curve's end
+  // point — line runs up its centre. (No round linecap: it would poke a hair
+  // past the tip.)
+  const lineColor = reconnecting || active ? color.accent : color.textGhost;
+  const head = arrowheadPath(reconnecting ? previewTargetPoint : targetPoint, displayCurve.endDir);
   return (
     <>
       <BaseEdge
         id={id}
         path={reconnecting ? displayPath : edgePath}
-        markerEnd={markerEnd}
         style={{
-          stroke: reconnecting || active ? color.accent : color.textGhost,
+          stroke: lineColor,
           strokeWidth: reconnecting || active ? 2 : 1.5,
           transition: `stroke ${motion.fast}, stroke-width ${motion.fast}`,
         }}
       />
+      {head && (
+        <path
+          d={head}
+          fill={lineColor}
+          stroke="none"
+          style={{ transition: `fill ${motion.fast}` }}
+        />
+      )}
       <path
         ref={hitPathRef}
         className="bh-edge-hit"

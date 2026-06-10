@@ -1,8 +1,10 @@
-import { type ConnectionLineComponentProps, getBezierPath, useReactFlow } from '@xyflow/react';
+import { type ConnectionLineComponentProps, useReactFlow } from '@xyflow/react';
 import type { JSX } from 'react';
 import { color } from '../design.js';
+import { arrowheadPath } from './arrowhead.js';
 import { flowRootForNodeId, snappedNodeSideForClientPoint } from './domAnchors.js';
-import { CANVAS_CONNECTION_SIDE_POSITION, type CanvasConnectionSide } from './geometry.js';
+import { CANVAS_CONNECTION_POSITION_SIDE, type CanvasConnectionSide } from './geometry.js';
+import { curvedReferencePath } from './referenceCurve.js';
 
 type SnappedConnectionTarget = {
   readonly x: number;
@@ -41,7 +43,6 @@ export function CanvasConnectionLine({
   fromPosition,
   fromX,
   fromY,
-  toPosition,
   toX,
   toY,
 }: ConnectionLineComponentProps): JSX.Element {
@@ -58,23 +59,21 @@ export function CanvasConnectionLine({
     : null;
   const targetX = snappedTarget?.x ?? toX;
   const targetY = snappedTarget?.y ?? toY;
-  const targetPosition = snappedTarget
-    ? CANVAS_CONNECTION_SIDE_POSITION[snappedTarget.side]
-    : toPosition;
-  const [path] = getBezierPath({
-    sourceX: fromX,
-    sourceY: fromY,
-    sourcePosition: fromPosition,
-    targetX,
-    targetY,
-    targetPosition,
+  // Same side-anchored spline + line-following arrowhead the committed edge
+  // draws: it leaves the source's handle side perpendicular and (once snapped)
+  // arrives perpendicular to the target side, so the preview reads identically
+  // to the edge it will become.
+  const curve = curvedReferencePath(fromX, fromY, targetX, targetY, {
+    sourceSide: CANVAS_CONNECTION_POSITION_SIDE[fromPosition],
+    targetSide: snappedTarget?.side,
   });
+  const head = arrowheadPath({ x: targetX, y: targetY }, curve.endDir);
 
   return (
     <g className="bh-connection-preview" pointerEvents="none">
       <path
         className="bh-connection-preview-path"
-        d={path}
+        d={curve.path}
         fill="none"
         style={{
           stroke: color.accent,
@@ -82,17 +81,7 @@ export function CanvasConnectionLine({
           ...connectionLineStyle,
         }}
       />
-      {snappedTarget && (
-        <circle
-          className="bh-connection-preview-endpoint"
-          cx={targetX}
-          cy={targetY}
-          r={5}
-          fill={color.surface}
-          stroke={color.accent}
-          strokeWidth={2}
-        />
-      )}
+      {head && <path d={head} fill={color.accent} stroke="none" />}
     </g>
   );
 }
