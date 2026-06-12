@@ -95,12 +95,15 @@ describe('workspace config lost-update race', () => {
     const { fs, dirs } = yieldingFs();
     dirs.add('/a');
     dirs.add('/b');
+    dirs.add('/c');
     const core = createCore({ fs, configDir: '/cfg' });
     // First add seeds the config + becomes current (materializes); do it
     // alone so the race under test is purely the two concurrent adds below.
+    // Distinct paths on purpose: same-path adds dedupe by design (folder
+    // identity is the path); the race under test is the config lost-update.
     await core.run('workspace.add', { path: '/a', name: 'a' });
     const addB = core.run('workspace.add', { path: '/b', name: 'b' });
-    const addC = core.run('workspace.add', { path: '/b', name: 'c' });
+    const addC = core.run('workspace.add', { path: '/c', name: 'c' });
     await Promise.all([addB, addC]);
 
     const list = await core.run('workspace.list', {});

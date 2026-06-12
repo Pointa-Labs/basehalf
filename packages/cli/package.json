@@ -8,9 +8,7 @@
   "bin": {
     "bh": "./dist/bin.js"
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc -b && tsup",
     "dev": "tsup --watch",

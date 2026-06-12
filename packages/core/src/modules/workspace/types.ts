@@ -69,6 +69,9 @@ export interface WorkspaceAddResult {
   readonly workspace: WorkspaceEntry;
   readonly setAsCurrent: boolean;
   readonly bhDirCreated: boolean;
+  /** True when the path was already registered (folder identity is the
+   *  path): the existing entry is returned and nothing new is written. */
+  readonly alreadyRegistered: boolean;
   /** Only present when called with `setup: true`. */
   readonly setup?: SetupReport;
 }

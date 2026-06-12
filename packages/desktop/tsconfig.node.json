@@ -8,11 +8,6 @@
     "outDir": "dist/node",
     "tsBuildInfoFile": "dist/node/.tsbuildinfo"
   },
-  "include": [
-    "src/main/**/*.ts",
-    "src/preload/**/*.ts",
-    "electron.vite.config.ts",
-    "package.json"
-  ],
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "electron.vite.config.ts", "package.json"],
   "references": [{ "path": "../core" }]
 }

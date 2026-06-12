@@ -180,9 +180,14 @@ function renderWsAdd(r: {
   workspace: WorkspaceEntry;
   setAsCurrent: boolean;
   bhDirCreated: boolean;
+  alreadyRegistered?: boolean;
   setup?: SetupReport;
 }): void {
-  process.stdout.write(`Added workspace "${r.workspace.name}"\n`);
+  process.stdout.write(
+    r.alreadyRegistered
+      ? `Folder already registered as "${r.workspace.name}"\n`
+      : `Added workspace "${r.workspace.name}"\n`,
+  );
   process.stdout.write(`  path:    ${r.workspace.path}\n`);
   if (r.bhDirCreated) process.stdout.write('  .bh/:    created\n');
   if (r.setAsCurrent) process.stdout.write('  current: yes (first workspace)\n');

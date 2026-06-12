@@ -369,9 +369,19 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // setup: true installs the agent-protocol hint into CLAUDE.md and adds
         // .bh/cache/ to .gitignore. Both are non-destructive + idempotent (the
         // hint marker means re-adding the same folder is safe). Without this,
-        // desktop-added workspaces silently lack the bridge that makes Claude
-        // Code / Codex / Cursor recognise the protocol.
-        await window.bh.run('workspace.add', { path, setup: true });
+        // desktop-added workspaces silently lack the bridge that makes coding
+        // agents recognise the protocol.
+        const added = (await window.bh.run('workspace.add', { path, setup: true })) as {
+          workspace: { name: string };
+          setAsCurrent: boolean;
+        };
+        // "Open Folder" means OPEN: switch to it. add is idempotent by path
+        // (an already-registered folder returns its existing entry), so the
+        // only remaining step is making it current — unless add already did
+        // (first workspace) or it is current already.
+        if (!added.setAsCurrent && added.workspace.name !== get().current) {
+          await window.bh.run('workspace.use', { name: added.workspace.name });
+        }
         await get().refresh();
         await startWatcher();
       } catch (err) {
@@ -402,26 +412,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return;
       }
       const failures: string[] = [];
-      // Snapshot the current workspace list once so we can detect drops
-      // of already-registered paths in O(1) and switch instead of erroring.
-      const existingByPath = new Map(get().workspaces.map((w) => [w.path, w.name]));
       try {
+        // workspace.add is idempotent by path (re-adding a registered folder
+        // returns its existing entry) and auto-resolves name collisions, so
+        // dropping is just add-then-open. Multiple folders: all register,
+        // the last successful one becomes the open workspace.
+        let lastName: string | null = null;
         for (const path of paths) {
-          const alreadyRegistered = existingByPath.get(path);
-          if (alreadyRegistered) {
-            // Idempotent — same path dropped a second time switches to the
-            // existing workspace instead of failing with "already exists".
-            try {
-              await window.bh.run('workspace.use', { name: alreadyRegistered });
-            } catch (err) {
-              failures.push(`${path}: ${formatError(err)}`);
-            }
-            continue;
-          }
           try {
-            await window.bh.run('workspace.add', { path, setup: true });
+            const added = (await window.bh.run('workspace.add', { path, setup: true })) as {
+              workspace: { name: string };
+            };
+            lastName = added.workspace.name;
           } catch (err) {
             failures.push(`${path}: ${formatError(err)}`);
+          }
+        }
+        if (lastName !== null && lastName !== get().current) {
+          try {
+            await window.bh.run('workspace.use', { name: lastName });
+          } catch (err) {
+            failures.push(formatError(err));
           }
         }
         await get().refresh();
@@ -445,9 +456,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         }
         // workspace.createDemo creates the folder + seeds the interconnected
         // demo content + registers via workspace.add(setup:true). Idempotent
-        // on re-run: existing files aren't overwritten, the workspace add
-        // throws on name collision (the user picked a path whose basename
-        // collides with an existing workspace), which we surface verbatim.
+        // on re-run: existing files aren't overwritten, re-adding the same
+        // path returns the existing registration, and a basename collision
+        // with a different folder auto-suffixes the name.
         await window.bh.run('workspace.createDemo', { path });
         await get().refresh();
         await startWatcher();

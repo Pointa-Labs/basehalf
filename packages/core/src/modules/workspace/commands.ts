@@ -35,10 +35,38 @@ import { getViewport, setViewport } from './viewport.js';
  * its workspace.* name regardless of which file defines it.
  */
 
+/** Folder identity is the PATH, compared case-insensitively — the default
+ *  macOS/Windows filesystems are case-insensitive, so `/Users/X/Notes` and
+ *  `/users/x/notes` are the same folder and must hit the same registration.
+ *  (Symlink aliasing is not chased here; the rare false-negative just yields
+ *  a second registration, which is harmless.) */
+function samePath(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
+/** Derive a registry name that doesn't collide: basename, then basename-2,
+ *  -3, … — names are just labels; the folder path is the identity, so a
+ *  label clash must never block opening a folder. Keeps NAME_PATTERN's
+ *  64-char cap by trimming the base before suffixing. */
+function uniqueName(base: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const suffix = `-${i}`;
+    const candidate = `${base.slice(0, 64 - suffix.length)}${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 /**
  * `workspace add <path> [--name <name>]`
  *  - Validates the path exists and is a directory.
- *  - Derives a name from basename (or uses `--name`); refuses duplicates.
+ *  - Folder identity is the PATH: re-adding a registered folder is a no-op
+ *    that returns the existing entry (`alreadyRegistered: true`) instead of
+ *    erroring — "open folder" must be idempotent, the way a mature editor
+ *    focuses the existing window for a folder that's already open.
+ *  - Derives a name from basename; a name taken by a DIFFERENT folder gets
+ *    auto-suffixed (-2, -3, …). An EXPLICIT `--name` collision still errors
+ *    (the user asked for that exact label).
  *  - Creates `<path>/.bh/` if missing (eager init; lazier feels surprising).
  *  - First workspace added becomes `current` automatically.
  */
@@ -52,50 +80,80 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
     throw new Error(`Path is not a directory: ${absPath}`);
   }
 
-  const name = args.name ?? basename(absPath);
-  if (!NAME_PATTERN.test(name)) {
+  const requestedName = args.name ?? basename(absPath);
+  if (!NAME_PATTERN.test(requestedName)) {
     throw new Error(
-      `Invalid workspace name: ${JSON.stringify(name)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
+      `Invalid workspace name: ${JSON.stringify(requestedName)} (allowed: a-z, 0-9, . _ -, 1-64 chars, starts alnum)`,
     );
   }
 
   const addedAt = new Date().toISOString();
   const bhDir = `${absPath}/.bh`;
-  // Atomic config section: dup-check + write must not interleave with a
-  // concurrent add/use/setViewport or a workspace gets dropped. bhDir
-  // creation lives inside too — cheap, and it's gated on this name winning
-  // the dup-check.
-  const { setAsCurrent, bhDirCreated } = await withConfigLock(ctx.configDir, async () => {
-    const data = await readWorkspaces(ctx.fs, ctx.configDir);
-    if (data.workspaces[name]) {
-      throw new Error(`Workspace already exists: ${name}`);
-    }
-    const bhStat = await ctx.fs.stat(bhDir);
-    const created = bhStat === null;
-    if (created) {
-      await ctx.fs.mkdir(bhDir, { recursive: true });
-    }
-    const becomesCurrent = data.current === null;
-    await writeWorkspaces(ctx.fs, ctx.configDir, {
-      version: 1,
-      current: becomesCurrent ? name : data.current,
-      workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
-    });
-    return { setAsCurrent: becomesCurrent, bhDirCreated: created };
-  });
+  // Atomic config section: identity/name resolution + write must not
+  // interleave with a concurrent add/use/setViewport or a workspace gets
+  // dropped. bhDir creation lives inside too — cheap, and gated on the
+  // resolution winning.
+  const { workspace, setAsCurrent, bhDirCreated, alreadyRegistered } = await withConfigLock(
+    ctx.configDir,
+    async () => {
+      const data = await readWorkspaces(ctx.fs, ctx.configDir);
 
-  const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
+      // Path identity first: this folder may already be registered (under
+      // any name). Return that registration; make it current if nothing is.
+      const existing = Object.entries(data.workspaces).find(([, e]) => samePath(e.path, absPath));
+      if (existing) {
+        const [existingName, entry] = existing;
+        const becomesCurrent = data.current === null;
+        if (becomesCurrent) {
+          await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: existingName });
+        }
+        return {
+          workspace: { name: existingName, path: entry.path, addedAt: entry.addedAt },
+          setAsCurrent: becomesCurrent,
+          bhDirCreated: false,
+          alreadyRegistered: true,
+        };
+      }
+
+      const taken = new Set(Object.keys(data.workspaces));
+      if (args.name !== undefined && taken.has(args.name)) {
+        throw new Error(`Workspace already exists: ${args.name}`);
+      }
+      const name = uniqueName(requestedName, taken);
+
+      const bhStat = await ctx.fs.stat(bhDir);
+      const created = bhStat === null;
+      if (created) {
+        await ctx.fs.mkdir(bhDir, { recursive: true });
+      }
+      const becomesCurrent = data.current === null;
+      await writeWorkspaces(ctx.fs, ctx.configDir, {
+        version: 1,
+        current: becomesCurrent ? name : data.current,
+        workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
+      });
+      return {
+        workspace: { name, path: absPath, addedAt },
+        setAsCurrent: becomesCurrent,
+        bhDirCreated: created,
+        alreadyRegistered: false,
+      };
+    },
+  );
+
+  const setup = args.setup ? await runSetup(ctx.fs, workspace.path) : undefined;
 
   // Workspace-becoming-current = "opening" → seed focus + inbound surfaces.
   // For subsequent adds (not auto-current), this is deferred to workspace.use.
   if (setAsCurrent) {
-    await bootstrapWorkspace(ctx, absPath);
+    await bootstrapWorkspace(ctx, workspace.path);
   }
 
   return {
-    workspace: { name, path: absPath, addedAt },
+    workspace,
     setAsCurrent,
     bhDirCreated,
+    alreadyRegistered,
     ...(setup !== undefined && { setup }),
   };
 };
@@ -152,7 +210,10 @@ export const current: Handler<WorkspaceCurrentArgs, WorkspaceCurrentResult> = as
 /**
  * `workspace remove <name>` — unregister. Does NOT delete files or `.bh/` —
  * BaseHalf is an "observer", never an owner of user files.
- * If the removed one was current, picks an alphabetically-first survivor (or null).
+ * Removing the CURRENT workspace leaves none current — the app shows its
+ * empty/welcome state and the user picks what to open next. (Auto-promoting
+ * an arbitrary survivor used to yank a folder the user never asked for into
+ * view; closing a folder must end in an empty window, like a mature editor.)
  */
 export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async (args, ctx) => {
   return withConfigLock(ctx.configDir, async () => {
@@ -161,11 +222,7 @@ export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async
       throw new Error(`No such workspace: ${args.name}`);
     }
     const { [args.name]: _removed, ...rest } = data.workspaces;
-    let newCurrent: string | null = data.current;
-    if (data.current === args.name) {
-      const survivors = Object.keys(rest).sort((a, b) => a.localeCompare(b));
-      newCurrent = survivors[0] ?? null;
-    }
+    const newCurrent = data.current === args.name ? null : data.current;
     await writeWorkspaces(ctx.fs, ctx.configDir, {
       version: 1,
       current: newCurrent,

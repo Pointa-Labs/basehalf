@@ -27,10 +27,14 @@ not at the root.
 A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
 place; `bh` tracks which folder is "active" so the badge / focus / inbound /
 search modules know which root to operate on. Adding one creates a `.bh/`
-subdirectory and **eagerly materializes a default badge for every supported
-file and subfolder** (idempotent — re-using the workspace later picks up any
-files added externally). Removing only unregisters — it never deletes user
-files.
+subdirectory (badges are a sparse overlay created lazily on first annotation —
+there is no eager materialization). **Folder identity is the path**: re-adding
+a registered folder returns the existing entry instead of erroring (the
+desktop's Open Folder then just switches to it), and a derived-name collision
+with a different folder auto-suffixes (`notes`, `notes-2`, …; an explicit
+`--name` collision still errors). Removing only unregisters — it never deletes
+user files — and removing the *current* workspace leaves none current (the
+app shows its welcome state; it never auto-promotes another workspace).
 
 ```bash
 bh init                                      # register cwd as workspace + setup (.gitignore + agent hints)
@@ -168,8 +172,8 @@ questions about architecture or product direction, look in
 - **Maintainers (including agents working for them) push `main` directly —
   no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on
   direct pushes by allowlisted logins, so the old "CLAAssistant stuck on
-  Expected" problem is gone. The quality gate moved EARLIER: lint + typecheck
-  + the full test suite must be green BEFORE every push (CI still runs on
+  Expected" problem is gone. The quality gate moved EARLIER: lint, typecheck
+  and the full test suite must be green BEFORE every push (CI still runs on
   main but a red run won't block an already-landed push), and substantive
   changes get an in-session adversarial review (there's no PR-time codex
   review on this path). External contributors are unchanged: branch → PR →

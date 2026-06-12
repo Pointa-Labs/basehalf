@@ -198,14 +198,69 @@ describe('workspace module (mock FS)', () => {
     );
   });
 
-  it('add: rejects duplicate names', async () => {
+  it('add: re-adding a registered path is idempotent (folder identity = path)', async () => {
     const { fs, dirs } = mockFs();
     dirs.add('/a');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/a', name: 'dup' });
-    await expect(core.run('workspace.add', { path: '/a', name: 'dup' })).rejects.toThrow(
+    const again = await core.run<
+      unknown,
+      { workspace: { name: string }; alreadyRegistered: boolean }
+    >('workspace.add', { path: '/a', name: 'dup' });
+    expect(again.alreadyRegistered).toBe(true);
+    expect(again.workspace.name).toBe('dup');
+    // Even with a different requested name, the same path hits the same entry.
+    const renamedAttempt = await core.run<
+      unknown,
+      { workspace: { name: string }; alreadyRegistered: boolean }
+    >('workspace.add', { path: '/a', name: 'other' });
+    expect(renamedAttempt.alreadyRegistered).toBe(true);
+    expect(renamedAttempt.workspace.name).toBe('dup');
+    const list = await core.run<unknown, { workspaces: unknown[] }>('workspace.list', {});
+    expect(list.workspaces).toHaveLength(1);
+  });
+
+  it('add: path identity is case-insensitive (default macOS/Windows filesystems)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/Notes');
+    dirs.add('/notes');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/Notes' });
+    const again = await core.run<unknown, { alreadyRegistered: boolean }>('workspace.add', {
+      path: '/notes',
+    });
+    expect(again.alreadyRegistered).toBe(true);
+  });
+
+  it('add: explicit name taken by a DIFFERENT path still errors', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'dup' });
+    await expect(core.run('workspace.add', { path: '/b', name: 'dup' })).rejects.toThrow(
       /already exists/,
     );
+  });
+
+  it('add: derived-name collision with a different path auto-suffixes', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/one/notes');
+    dirs.add('/two/notes');
+    dirs.add('/three/notes');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const first = await core.run<unknown, { workspace: { name: string } }>('workspace.add', {
+      path: '/one/notes',
+    });
+    const second = await core.run<unknown, { workspace: { name: string } }>('workspace.add', {
+      path: '/two/notes',
+    });
+    const third = await core.run<unknown, { workspace: { name: string } }>('workspace.add', {
+      path: '/three/notes',
+    });
+    expect(first.workspace.name).toBe('notes');
+    expect(second.workspace.name).toBe('notes-2');
+    expect(third.workspace.name).toBe('notes-3');
   });
 
   it('list: sorted alphabetically; reports current', async () => {
@@ -253,7 +308,7 @@ describe('workspace module (mock FS)', () => {
     expect(r.current).toBeNull();
   });
 
-  it('remove: picks alphabetically-first survivor as new current', async () => {
+  it('remove: removing the current workspace leaves NONE current (empty window)', async () => {
     const { fs, dirs } = mockFs();
     dirs.add('/a');
     dirs.add('/b');
@@ -267,7 +322,24 @@ describe('workspace module (mock FS)', () => {
     const r = await core.run<unknown, { newCurrent: string | null }>('workspace.remove', {
       name: 'b',
     });
-    expect(r.newCurrent).toBe('a'); // alphabetically first survivor
+    // Never auto-promote a survivor — the user closes a folder, they get the
+    // empty/welcome state and choose what to open next.
+    expect(r.newCurrent).toBeNull();
+    const cur = await core.run<unknown, { current: unknown }>('workspace.current', {});
+    expect(cur.current).toBeNull();
+  });
+
+  it('remove: removing a NON-current workspace keeps current untouched', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' });
+    await core.run('workspace.add', { path: '/b', name: 'b' });
+    const r = await core.run<unknown, { newCurrent: string | null }>('workspace.remove', {
+      name: 'b',
+    });
+    expect(r.newCurrent).toBe('a');
   });
 
   it('remove: null current when last workspace removed', async () => {

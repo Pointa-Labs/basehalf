@@ -106,6 +106,7 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
       workspace: { name, path: existing.path, addedAt: existing.addedAt },
       setAsCurrent: true,
       bhDirCreated: false,
+      alreadyRegistered: true,
       // Re-run setup so a deleted CLAUDE.md gets recreated. Setup is
       // marker-detected idempotent on existing CLAUDE.md.
       setup: await runSetup(ctx.fs, absPath),
