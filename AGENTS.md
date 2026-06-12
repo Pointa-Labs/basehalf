@@ -50,11 +50,12 @@ product direction, look in `private-docs/decisions/` first. The corpus README at
 - **Don't restore the deleted decisions module.** It served the old
   AI-coding wedge as a dogfood tool; the corpus lives as MD in
   `private-docs/decisions/` now. See [docs/decisions.md D18](docs/decisions.md).
-- **Land changes through a PR; never push `main` directly.** Push to a
-  feature branch and open a PR — that's where CI runs. `main`'s branch
-  protection requires the `CLAAssistant` check, which only fires on a pull
-  request; a direct push to `main` (even a clean fast-forward) still passes
-  `licenses` + `ci-summary`, but leaves `CLAAssistant` stuck on "Expected"
-  forever, so the commit never turns green. Flow: branch → PR → checks green
-  → merge on GitHub. (Human-contributor specifics live in
-  [CONTRIBUTING.md](CONTRIBUTING.md).)
+- **Maintainers (including agents working for them) push `main` directly —
+  no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on
+  direct pushes by allowlisted logins, so the old "CLAAssistant stuck on
+  Expected" problem is gone. The quality gate moved EARLIER: lint + typecheck
+  + the full test suite must be green BEFORE every push (CI still runs on
+  main but a red run won't block an already-landed push), and substantive
+  changes get an in-session adversarial review (there's no PR-time codex
+  review on this path). External contributors are unchanged: branch → PR →
+  CLA + checks → merge (see [CONTRIBUTING.md](CONTRIBUTING.md)).

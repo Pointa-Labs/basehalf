@@ -484,9 +484,27 @@ export const BriefPreview = ({
                         ) : null}
                       </div>
                       {item.prompt ? (
-                        <div style={{ color: color.textSecondary, lineHeight: 1.5, marginTop: 1 }}>
-                          {item.prompt}
-                        </div>
+                        <>
+                          <div
+                            style={{ color: color.textSecondary, lineHeight: 1.5, marginTop: 1 }}
+                          >
+                            {item.prompt}
+                          </div>
+                          {item.stale && (
+                            // The agent reads this caveat — "what your agent
+                            // reads" must show it too, or the preview lies.
+                            <div
+                              data-testid={`brief-stale-${item.file}`}
+                              style={{
+                                color: color.warning,
+                                fontSize: font.size.micro,
+                                marginTop: 1,
+                              }}
+                            >
+                              note may be stale: {item.stale}
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <GhostPromptEditor
                           file={item.file}

@@ -716,3 +716,72 @@ describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
     expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
   });
 });
+
+describe('brief freshness marker (note vs file mtime)', () => {
+  // Local seed exposing the mock's per-file mtimes (absent by default, so
+  // every other suite keeps zero markers).
+  async function seedWithMtimes(): Promise<TestContext & { mtimes: Map<string, number> }> {
+    const { fs, files, dirs, mtimes } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w' });
+    return { files, dirs, core, mtimes };
+  }
+
+  it('flags a note written before the file last changed, with both dates', async () => {
+    const ctx = await seedWithMtimes();
+    ctx.files.set('/work/a.md', 'content');
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
+    // File changes AFTER the note was written.
+    ctx.mtimes.set('/work/a.md', Date.now() + 60_000);
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('prompt: my note');
+    expect(brief).toMatch(
+      /\(note may be stale: written \d{4}-\d{2}-\d{2}, file changed \d{4}-\d{2}-\d{2}\)/,
+    );
+  });
+
+  it('stays silent when the note is newer than the file', async () => {
+    const ctx = await seedWithMtimes();
+    ctx.files.set('/work/a.md', 'content');
+    ctx.mtimes.set('/work/a.md', Date.now() - 60_000); // file older than the note
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(brief).toContain('prompt: my note');
+    expect(brief).not.toContain('note may be stale');
+  });
+
+  it('stays silent when the fs reports no mtime or the badge predates the anchor (no guessing)', async () => {
+    const ctx = await seedWithMtimes();
+    ctx.files.set('/work/a.md', 'content'); // no mtimes entry → stat omits mtimeMs
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
+    await ctx.core.run('focus.set', { files: ['a.md'] });
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');
+
+    // Legacy badge: prompt exists but promptModifiedAt is absent (pre-D1 data).
+    const raw = JSON.parse(ctx.files.get('/work/.bh/badges/a.md.json') ?? '{}');
+    raw.promptModifiedAt = undefined;
+    ctx.files.set('/work/.bh/badges/a.md.json', JSON.stringify(raw));
+    ctx.mtimes.set('/work/a.md', Date.now() + 60_000);
+    await ctx.core.run('focus.resync', {});
+    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');
+  });
+
+  it('round-trips: the marker line is invisible to parseFocus', () => {
+    const rendered = renderFocus([
+      {
+        file: 'a.md',
+        prompt: 'my note',
+        promptStale: {
+          notedAt: '2026-06-01T00:00:00.000Z',
+          fileChangedAt: '2026-06-12T00:00:00.000Z',
+        },
+        refs: [{ to: 'b.md', note: 'why' }],
+      },
+    ]);
+    expect(rendered).toContain('(note may be stale: written 2026-06-01, file changed 2026-06-12)');
+    expect(parseFocus(rendered)).toEqual(['a.md']);
+  });
+});

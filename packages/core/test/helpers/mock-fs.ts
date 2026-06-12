@@ -15,12 +15,18 @@ export function mockFs(): {
   files: Map<string, string>;
   fileBytes: Map<string, Uint8Array>;
   dirs: Set<string>;
+  /** Optional per-file mtime (epoch ms) returned by `stat`. Empty by default —
+   *  seeding via `files.set` leaves mtime ABSENT (stat omits `mtimeMs`), so
+   *  freshness-comparing code degrades instead of firing on every legacy test.
+   *  Tests that exercise freshness set explicit epoch values here. */
+  mtimes: Map<string, number>;
   /** maxBytes of every `readFileBytesCappedNoFollow` call, for boundedness assertions. */
   capRequests: number[];
 } {
   const files = new Map<string, string>();
   const fileBytes = new Map<string, Uint8Array>();
   const dirs = new Set<string>();
+  const mtimes = new Map<string, number>();
   const capRequests: number[] = [];
 
   function addAncestors(path: string): void {
@@ -51,7 +57,10 @@ export function mockFs(): {
       if (opts?.recursive) addAncestors(path);
     },
     async stat(path) {
-      if (files.has(path) || fileBytes.has(path)) return { isFile: true, isDirectory: false };
+      if (files.has(path) || fileBytes.has(path)) {
+        const mtimeMs = mtimes.get(path);
+        return { isFile: true, isDirectory: false, ...(mtimeMs !== undefined && { mtimeMs }) };
+      }
       if (dirs.has(path)) return { isFile: false, isDirectory: true };
       return null;
     },
@@ -132,5 +141,5 @@ export function mockFs(): {
     },
   };
 
-  return { fs, files, fileBytes, dirs, capRequests };
+  return { fs, files, fileBytes, dirs, mtimes, capRequests };
 }

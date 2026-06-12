@@ -76,6 +76,17 @@ export function renderFocus(
       lines.push(`  - ${item.file}`);
       const prompt = item.prompt ? oneLine(item.prompt) : '';
       if (prompt) lines.push(`      prompt: ${prompt}`);
+      // Freshness calibration (D1): when the file changed AFTER the note was
+      // written, say so with both dates — the agent decides how much to trust
+      // the note; bh states facts, never judgments. Indent 6 keeps the line
+      // invisible to parseFocus (sub-line) and to the preview's prompt/ref
+      // regexes, while surviving briefForClipboard into pasted chats.
+      if (prompt && item.promptStale) {
+        const day = (iso: string): string => iso.slice(0, 10);
+        lines.push(
+          `      (note may be stale: written ${day(item.promptStale.notedAt)}, file changed ${day(item.promptStale.fileChangedAt)})`,
+        );
+      }
       const refs = (item.refs ?? []).filter((r) => r.to);
       if (refs.length > 0) {
         lines.push('      refs:');

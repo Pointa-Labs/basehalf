@@ -44,6 +44,12 @@ export interface FocusSetResult {
 export interface FocusItem {
   readonly file: string;
   readonly prompt?: string;
+  /** Freshness calibration: present when the file changed on disk AFTER the
+   *  prompt was last written, so the brief can tell the agent how much to
+   *  trust the note (dates only — the agent calibrates, bh never judges).
+   *  Computable only for badges that carry `promptModifiedAt` AND when the
+   *  fs reports mtimes; absent otherwise (no guessing). */
+  readonly promptStale?: { readonly notedAt: string; readonly fileChangedAt: string };
   readonly refs?: readonly { readonly to: string; readonly note?: string }[];
 }
 

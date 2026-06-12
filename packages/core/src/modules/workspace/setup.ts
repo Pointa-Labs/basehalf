@@ -54,9 +54,15 @@ shell — drive the \`bh\` CLI (reads accept \`--json\`):
 - \`bh search <query> --json\` — full-text search across the workspace's text files
 - \`bh search <query> --brief\` — assemble a paste-ready context brief from the matches (each hydrated with its prompt + reference notes)
 
+While working, if you discover a file relationship or a key fact that no badge
+note records (e.g. "touching X breaks Y's test"), append one line to
+\`.bh/cache/proposals.md\`: \`[file] -> [target or fact]: [reason]\`. The user
+triages these into real notes.
+
 MD is the truth; \`.bh/\` is derived — edit user files with your own tools,
-never \`.bh/*\` (the app and \`bh\` CLI own it; \`.bh/cache/\` is rebuildable and
-gitignored).`;
+never \`.bh/*\` (the app and \`bh\` CLI own it; the proposals file above is the
+ONE exception). \`.bh/cache/\` is gitignored; it is rebuildable EXCEPT the
+proposals file, which holds your observations.`;
 
 // Prepended newline so appending to an existing file leaves a blank line before
 // the marker; trailing newline so the file ends clean.

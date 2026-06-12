@@ -553,3 +553,81 @@ describe('badge.rename', () => {
     expect(result.badge.orphan).toBeUndefined();
   });
 });
+
+describe('promptModifiedAt (freshness anchor)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+  const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 5));
+
+  it('is set when a prompt is first written, and only moves when the prompt TEXT changes', async () => {
+    const created = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { prompt: 'first' },
+    })) as BadgeFile;
+    expect(created.promptModifiedAt).toBeDefined();
+    const t1 = created.promptModifiedAt;
+
+    await tick();
+    // Canvas-only write (a drag) must NOT move the anchor — that pollution is
+    // exactly why modifiedAt can't be used for freshness.
+    const dragged = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { canvas: { x: 1, y: 2 } },
+    })) as BadgeFile;
+    expect(dragged.promptModifiedAt).toBe(t1);
+    expect(dragged.modifiedAt).not.toBe(created.modifiedAt);
+
+    await tick();
+    // Re-saving the SAME text is not a change.
+    const resaved = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { prompt: 'first' },
+    })) as BadgeFile;
+    expect(resaved.promptModifiedAt).toBe(t1);
+
+    await tick();
+    // A real text change moves it.
+    const edited = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { prompt: 'second' },
+    })) as BadgeFile;
+    expect(edited.promptModifiedAt).not.toBe(t1);
+  });
+
+  it('is absent on badges that never had a prompt', async () => {
+    const bare = (await ctx.core.run('badge.set', {
+      file: 'b.md',
+      patch: { canvas: { x: 0, y: 0 } },
+    })) as BadgeFile;
+    expect(bare.promptModifiedAt).toBeUndefined();
+  });
+
+  it('survives addRef/removeRef (reference edits are not prompt edits)', async () => {
+    const created = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { prompt: 'note' },
+    })) as BadgeFile;
+    await new Promise((r) => setTimeout(r, 5));
+    const withRef = (await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' })) as BadgeFile;
+    expect(withRef.promptModifiedAt).toBe(created.promptModifiedAt);
+    const without = (await ctx.core.run('badge.removeRef', {
+      file: 'a.md',
+      to: 'b.md',
+    })) as BadgeFile;
+    expect(without.promptModifiedAt).toBe(created.promptModifiedAt);
+  });
+
+  it('moves with the badge on rename (the note is unchanged, so its anchor is too)', async () => {
+    const created = (await ctx.core.run('badge.set', {
+      file: 'a.md',
+      patch: { prompt: 'note' },
+    })) as BadgeFile;
+    await new Promise((r) => setTimeout(r, 5));
+    const result = (await ctx.core.run('badge.rename', { from: 'a.md', to: 'a2.md' })) as {
+      badge: BadgeFile;
+    };
+    expect(result.badge.promptModifiedAt).toBe(created.promptModifiedAt);
+  });
+});

@@ -165,14 +165,15 @@ questions about architecture or product direction, look in
 - **Don't restore the deleted decisions module.** It served the old
   AI-coding wedge as a dogfood tool; the corpus lives as MD in
   `private-docs/decisions/` now. See [docs/decisions.md D18](docs/decisions.md).
-- **Land changes through a PR; never push `main` directly.** Push to a
-  feature branch and open a PR — that's where CI runs. `main`'s branch
-  protection requires the `CLAAssistant` check, which only fires on a pull
-  request; a direct push to `main` (even a clean fast-forward) still passes
-  `licenses` + `ci-summary`, but leaves `CLAAssistant` stuck on "Expected"
-  forever, so the commit never turns green. Flow: branch → PR → checks green
-  → merge on GitHub. (Human-contributor specifics live in
-  [CONTRIBUTING.md](CONTRIBUTING.md).)
+- **Maintainers (including agents working for them) push `main` directly —
+  no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on
+  direct pushes by allowlisted logins, so the old "CLAAssistant stuck on
+  Expected" problem is gone. The quality gate moved EARLIER: lint + typecheck
+  + the full test suite must be green BEFORE every push (CI still runs on
+  main but a red run won't block an already-landed push), and substantive
+  changes get an in-session adversarial review (there's no PR-time codex
+  review on this path). External contributors are unchanged: branch → PR →
+  CLA + checks → merge (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 <!-- bh:workspace-hint -->
 ## BaseHalf workspace
@@ -189,6 +190,12 @@ Need more than the brief? The full graph is under `.bh/`:
 `.bh/badges/<rel-path>.json` is any file's backpack (prompt + references), and
 `.bh/index/inbound.json` is who points AT a file. Follow these on your own budget.
 
+While working, if you discover a file relationship or a key fact that no badge
+note records (e.g. "touching X breaks Y's test"), append one line to
+`.bh/cache/proposals.md`: `[file] -> [target or fact]: [reason]`. The user
+triages these into real notes.
+
 MD is the truth; `.bh/` is derived — edit user files with your own tools,
-never `.bh/*` (the app and `bh` CLI own it; `.bh/cache/` is rebuildable and
-gitignored). `bh` CLI reads accept `--json`.
+never `.bh/*` (the app and `bh` CLI own it; the proposals file above is the ONE
+exception). `.bh/cache/` is gitignored; it is rebuildable EXCEPT the proposals
+file, which holds your observations. `bh` CLI reads accept `--json`.

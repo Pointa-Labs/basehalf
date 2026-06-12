@@ -27,7 +27,10 @@ export interface FsLike {
   readFileBytes?(path: string): Promise<Uint8Array | null>;
   writeFile(path: string, content: string): Promise<void>;
   mkdir(path: string, opts?: { recursive?: boolean }): Promise<void>;
-  stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean } | null>;
+  /** `mtimeMs` is OPTIONAL (epoch ms of last content change) so older mocks
+   *  stay valid; consumers that calibrate freshness (focus brief staleness)
+   *  degrade gracefully when it's absent. */
+  stat(path: string): Promise<{ isFile: boolean; isDirectory: boolean; mtimeMs?: number } | null>;
   readdir(path: string): Promise<string[]>;
   /** Removes a file; no-op if missing. Used by badge/view delete commands. */
   unlink(path: string): Promise<void>;

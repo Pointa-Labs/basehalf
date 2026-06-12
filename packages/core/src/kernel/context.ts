@@ -64,7 +64,7 @@ function defaultFs(): FsLike {
     async stat(path) {
       try {
         const s = await stat(path);
-        return { isFile: s.isFile(), isDirectory: s.isDirectory() };
+        return { isFile: s.isFile(), isDirectory: s.isDirectory(), mtimeMs: s.mtimeMs };
       } catch (err) {
         if (isENOENT(err)) return null;
         throw err;

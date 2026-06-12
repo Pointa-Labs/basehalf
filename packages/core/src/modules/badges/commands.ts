@@ -137,6 +137,13 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   const now = new Date().toISOString();
   const patch = args.patch ?? {};
 
+  // The prompt's OWN timestamp moves only when the prompt text actually
+  // changes — never on canvas drags / kind patches / re-saves of the same
+  // text. It anchors the brief's freshness comparison (focus assembleItems),
+  // which `modifiedAt` cannot (every write bumps it).
+  const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
+  const promptAt = promptChanged ? now : existing?.promptModifiedAt;
+
   const next: BadgeFile = existing
     ? {
         bhVersion: 1,
@@ -145,6 +152,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         ...(patch.prompt !== undefined
           ? { prompt: patch.prompt }
           : existing.prompt !== undefined && { prompt: existing.prompt }),
+        ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
         references: patch.references ?? existing.references,
         ...(patch.canvas !== undefined
           ? { canvas: patch.canvas }
@@ -163,6 +171,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
         file: args.file,
         kind,
         ...(patch.prompt !== undefined && { prompt: patch.prompt }),
+        ...(patch.prompt !== undefined && { promptModifiedAt: now }),
         references: patch.references ?? [],
         ...(patch.canvas !== undefined && { canvas: patch.canvas }),
         ...(patch.orphan === true && { orphan: true }),
@@ -391,6 +400,8 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     file: args.to,
     kind,
     ...(source.prompt !== undefined && { prompt: source.prompt }),
+    // A rename moves the prompt unchanged — its freshness anchor moves with it.
+    ...(source.promptModifiedAt !== undefined && { promptModifiedAt: source.promptModifiedAt }),
     references: source.references,
     ...(source.canvas !== undefined && { canvas: source.canvas }),
     createdAt: source.createdAt,

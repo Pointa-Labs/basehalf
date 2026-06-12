@@ -38,6 +38,10 @@ export interface BriefRef {
 export interface BriefItem {
   readonly file: string;
   readonly prompt?: string;
+  /** The freshness caveat exactly as the brief carries it (e.g. "written
+   *  2026-06-01, file changed 2026-06-12") — the preview must show it because
+   *  the agent reads it ("what your agent reads" can't omit a trust signal). */
+  readonly stale?: string;
   readonly refs: readonly BriefRef[];
 }
 /** The brief, parsed into the shape the in-app preview renders. */
@@ -62,8 +66,8 @@ export function parseBriefForDisplay(raw: string): BriefDisplay {
   const lines = briefForClipboard(raw).split('\n');
   let intent: string | undefined;
   let empty = false;
-  const items: { file: string; prompt?: string; refs: BriefRef[] }[] = [];
-  let cur: { file: string; prompt?: string; refs: BriefRef[] } | null = null;
+  const items: { file: string; prompt?: string; stale?: string; refs: BriefRef[] }[] = [];
+  let cur: { file: string; prompt?: string; stale?: string; refs: BriefRef[] } | null = null;
   for (const line of lines) {
     const intentM = /^intent: (.+)$/.exec(line);
     if (intentM?.[1] !== undefined) {
@@ -83,6 +87,11 @@ export function parseBriefForDisplay(raw: string): BriefDisplay {
     const promptM = /^ {6}prompt: (.+)$/.exec(line);
     if (promptM?.[1] !== undefined && cur) {
       cur.prompt = promptM[1];
+      continue;
+    }
+    const staleM = /^ {6}\(note may be stale: (.+)\)$/.exec(line);
+    if (staleM?.[1] !== undefined && cur) {
+      cur.stale = staleM[1];
       continue;
     }
     const refM = /^ {8}-> (.+?)(?: {2}\(note: (.+)\))?$/.exec(line);

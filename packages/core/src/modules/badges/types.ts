@@ -30,6 +30,12 @@ export interface BadgeFile {
   readonly file: string;
   readonly kind: BadgeKind;
   readonly prompt?: string;
+  /** When the PROMPT TEXT last changed. Distinct from `modifiedAt`, which is
+   * bumped by every write (canvas drags included) and therefore can't anchor a
+   * freshness comparison. Set only when a badge.set patch actually CHANGES the
+   * prompt value; absent on badges whose prompt predates this field — consumers
+   * must then skip the comparison, never guess. */
+  readonly promptModifiedAt?: string;
   readonly references: readonly BadgeReference[];
   readonly canvas?: BadgePosition;
   readonly createdAt: string;

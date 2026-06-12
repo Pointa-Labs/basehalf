@@ -80,6 +80,7 @@ const withFocusLock = createKeyedMutex();
  */
 async function assembleItems(
   ctx: Parameters<Handler>[1],
+  root: string,
   files: readonly string[],
 ): Promise<FocusItem[]> {
   const items: FocusItem[] = [];
@@ -94,13 +95,53 @@ async function assembleItems(
     const refs = (badge?.references ?? [])
       .filter((r) => r.to)
       .map((r) => ({ to: r.to, ...(r.note !== undefined && r.note !== '' && { note: r.note }) }));
+    const promptText =
+      badge?.prompt !== undefined && badge.prompt !== '' ? badge.prompt : undefined;
+    const hasPrompt = promptText !== undefined;
+    // Freshness calibration: a note written BEFORE the file's last content
+    // change deserves a flag, so the agent knows how much to trust it. Both
+    // facts must be available (promptModifiedAt on the badge, mtime from the
+    // fs) — when either is missing we say nothing rather than guess. Dates
+    // only; the agent calibrates, bh never judges.
+    let promptStale: FocusItem['promptStale'];
+    if (hasPrompt && badge?.promptModifiedAt !== undefined) {
+      const notedMs = Date.parse(badge.promptModifiedAt);
+      const mtimeMs = await fileMtimeMs(ctx, root, file);
+      if (mtimeMs !== undefined && Number.isFinite(notedMs) && mtimeMs > notedMs) {
+        promptStale = {
+          notedAt: badge.promptModifiedAt,
+          fileChangedAt: new Date(mtimeMs).toISOString(),
+        };
+      }
+    }
     items.push({
       file,
-      ...(badge?.prompt !== undefined && badge.prompt !== '' && { prompt: badge.prompt }),
+      ...(promptText !== undefined && { prompt: promptText }),
+      ...(promptStale !== undefined && { promptStale }),
       ...(refs.length > 0 && { refs }),
     });
   }
   return items;
+}
+
+/**
+ * Best-effort mtime (epoch ms) of a workspace-relative file, routed through the
+ * realpath containment guard like fileStillExists. Undefined when the fs
+ * doesn't report mtimes (older mocks), the file is gone, or the path escapes —
+ * callers must treat "unknown" as "say nothing", never as "fresh" or "stale".
+ */
+async function fileMtimeMs(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  file: string,
+): Promise<number | undefined> {
+  try {
+    const abs = await assertReadContained(ctx.fs, root, join(root, file));
+    const st = await ctx.fs.stat(abs);
+    return st !== null && st.isFile === true ? st.mtimeMs : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -117,7 +158,7 @@ async function writeBrief(
   intent: string | undefined,
   source: FocusSource | undefined,
 ): Promise<string[]> {
-  const items = await assembleItems(ctx, files);
+  const items = await assembleItems(ctx, root, files);
   // writeFocus clears any now-stale served receipt at the single write choke point.
   await writeFocus(ctx.fs, root, items, intent, source, files.length - items.length);
   return items.map((i) => i.file);
@@ -127,6 +168,7 @@ async function writeBrief(
 // (never imports another module's internals — keeps the dep arrow one-way).
 interface BadgeGetMinimal {
   readonly prompt?: string;
+  readonly promptModifiedAt?: string;
   readonly orphan?: boolean;
   readonly references?: readonly { readonly to: string; readonly note?: string }[];
 }
@@ -409,7 +451,7 @@ export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingRe
       if (await fileStillExists(ctx, root, f)) live.push(f);
     }
     if (live.length === active.length) return [] as string[];
-    const items = await assembleItems(ctx, live);
+    const items = await assembleItems(ctx, root, live);
     await writeFocus(ctx.fs, root, items, intent, source, active.length - live.length);
     return active.filter((f) => !live.includes(f));
   });
