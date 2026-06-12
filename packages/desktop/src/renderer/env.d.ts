@@ -31,6 +31,17 @@ interface Window {
     /** Subscribe to the app-menu "Settings…" action (relayed by main).
      *  Returns an unsubscribe function. */
     onMenuOpenSettings(handler: () => void): () => void;
+    /** Self-update bridge — main owns the state machine (main/updater.ts);
+     *  the renderer narrows the `unknown` states where it consumes them. */
+    updateGetState(): Promise<unknown>;
+    updateCheck(): Promise<void>;
+    updateDownload(): Promise<void>;
+    updateInstall(): Promise<void>;
+    /** Subscribe to update state transitions. Returns an unsubscribe function. */
+    onUpdateState(handler: (state: unknown) => void): () => void;
+    /** Background check found a new version (once per session per version).
+     *  Returns an unsubscribe function. */
+    onUpdateFoundBackground(handler: (info: { version: string }) => void): () => void;
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
      *  main). Returns an unsubscribe function. */
     onMenuOpenFolder(handler: () => void): () => void;

@@ -11,6 +11,12 @@ import {
 import { buildAppMenu, installContextMenu } from './menu.js';
 import { PrefsStore } from './prefs.js';
 import {
+  Updater,
+  cleanupUpdateLeftovers,
+  registerUpdaterIpc,
+  startBackgroundUpdateChecks,
+} from './updater.js';
+import {
   clampToDisplays,
   debounce,
   readWindowState,
@@ -34,6 +40,8 @@ registerWorkspacePickHandler();
 registerShellOpenHandler(core);
 // Zoom hooks reference the function declarations below — hoisted, so safe here.
 registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLevel });
+const updater = new Updater();
+registerUpdaterIpc(updater);
 
 // Forward file events from the core watcher to all open renderers so the
 // FilePreview can prompt for reload on external edits and rebind currentFile
@@ -171,6 +179,11 @@ app.whenReady().then(async () => {
   // Before the window: the renderer may ask for prefs as soon as it loads.
   await prefs.load();
   void createWindow();
+  // Update plumbing: sweep debris a previous swap left behind (self-delayed —
+  // see updater.ts), then start the background "newer version?" cadence (each
+  // tick re-reads the pref).
+  cleanupUpdateLeftovers();
+  startBackgroundUpdateChecks(updater, prefs);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow();

@@ -23,22 +23,30 @@ describe('sanitizePrefs', () => {
 
 describe('PrefsStore', () => {
   let dir: string;
+  const stores: PrefsStore[] = [];
+  const track = (s: PrefsStore): PrefsStore => {
+    stores.push(s);
+    return s;
+  };
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'bh-prefs-'));
   });
   afterEach(async () => {
+    // Drain queued write-throughs before removing the dir, or a late write
+    // recreates files under the rm (ENOTEMPTY).
+    await Promise.all(stores.splice(0).map((s) => s.flush()));
     await rm(dir, { recursive: true, force: true });
   });
 
   it('starts from defaults when no file exists', async () => {
-    const store = new PrefsStore(dir);
+    const store = track(new PrefsStore(dir));
     await store.load();
     expect(store.get()).toEqual({ autoUpdateCheck: true });
   });
 
   it('set() merges, persists, and a fresh store reads it back', async () => {
-    const store = new PrefsStore(dir);
+    const store = track(new PrefsStore(dir));
     await store.load();
     const merged = store.set({ autoUpdateCheck: false });
     expect(merged).toEqual({ autoUpdateCheck: false });
@@ -47,20 +55,20 @@ describe('PrefsStore', () => {
     const onDisk = JSON.parse(await readFile(join(dir, 'prefs.json'), 'utf8'));
     expect(onDisk).toEqual({ autoUpdateCheck: false });
 
-    const reread = new PrefsStore(dir);
+    const reread = track(new PrefsStore(dir));
     await reread.load();
     expect(reread.get()).toEqual({ autoUpdateCheck: false });
   });
 
   it('survives a corrupt file (falls back to defaults)', async () => {
     await writeFile(join(dir, 'prefs.json'), '{ not json', 'utf8');
-    const store = new PrefsStore(dir);
+    const store = track(new PrefsStore(dir));
     await store.load();
     expect(store.get()).toEqual({ autoUpdateCheck: true });
   });
 
   it('ignores untrusted patch shapes', async () => {
-    const store = new PrefsStore(dir);
+    const store = track(new PrefsStore(dir));
     await store.load();
     expect(store.set('garbage')).toEqual({ autoUpdateCheck: true });
     expect(store.set({ autoUpdateCheck: 1 })).toEqual({ autoUpdateCheck: true });
@@ -68,7 +76,7 @@ describe('PrefsStore', () => {
   });
 
   it('serializes rapid writes — last value wins on disk', async () => {
-    const store = new PrefsStore(dir);
+    const store = track(new PrefsStore(dir));
     await store.load();
     store.set({ autoUpdateCheck: false });
     store.set({ autoUpdateCheck: true });

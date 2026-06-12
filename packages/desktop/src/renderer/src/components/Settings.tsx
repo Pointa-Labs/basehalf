@@ -33,6 +33,72 @@ function closeSettings(): void {
   useSettingsStore.setState({ open: false });
 }
 
+// ---- Self-update mirror -----------------------------------------------------
+// Main owns the real state machine (main/updater.ts); this store mirrors its
+// pushes so the Updates row reflects background activity even if it started
+// before Settings was ever opened.
+
+export type UpdateUiState =
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'upToDate'; version: string }
+  | { phase: 'available'; version: string }
+  | { phase: 'downloading'; version: string; received: number; total: number }
+  | { phase: 'staged'; version: string }
+  | { phase: 'error'; message: string };
+
+/** Narrow main's `unknown` push into the UI union; anything unrecognized
+ *  degrades to idle rather than crashing the row. */
+function asUpdateUiState(raw: unknown): UpdateUiState {
+  if (typeof raw !== 'object' || raw === null) return { phase: 'idle' };
+  const r = raw as Record<string, unknown>;
+  switch (r.phase) {
+    case 'checking':
+      return { phase: 'checking' };
+    case 'upToDate':
+      return typeof r.version === 'string'
+        ? { phase: 'upToDate', version: r.version }
+        : { phase: 'idle' };
+    case 'available':
+      return typeof r.version === 'string'
+        ? { phase: 'available', version: r.version }
+        : { phase: 'idle' };
+    case 'downloading':
+      return typeof r.version === 'string' &&
+        typeof r.received === 'number' &&
+        typeof r.total === 'number'
+        ? { phase: 'downloading', version: r.version, received: r.received, total: r.total }
+        : { phase: 'idle' };
+    case 'staged':
+      return typeof r.version === 'string'
+        ? { phase: 'staged', version: r.version }
+        : { phase: 'idle' };
+    case 'error':
+      return typeof r.message === 'string'
+        ? { phase: 'error', message: r.message }
+        : { phase: 'idle' };
+    default:
+      return { phase: 'idle' };
+  }
+}
+
+const useUpdateStore = create<{ state: UpdateUiState }>(() => ({
+  state: { phase: 'idle' },
+}));
+
+let updateBridgeWired = false;
+
+/** Idempotent: sync the mirror once and subscribe to pushes. App calls this at
+ *  startup so background-check results are never missed. */
+export function wireUpdateBridge(): void {
+  if (updateBridgeWired) return;
+  updateBridgeWired = true;
+  void window.bh
+    .updateGetState()
+    .then((s) => useUpdateStore.setState({ state: asUpdateUiState(s) }));
+  window.bh.onUpdateState((s) => useUpdateStore.setState({ state: asUpdateUiState(s) }));
+}
+
 const backdropStyle: CSSProperties = {
   position: 'fixed',
   top: 0,
@@ -80,10 +146,13 @@ const FOCUSABLE_SELECTOR =
 const SettingRow = ({
   label,
   description,
+  descriptionColor,
   control,
 }: {
   label: string;
   description?: string;
+  /** Override for state-carrying descriptions (e.g. errors in danger red). */
+  descriptionColor?: string;
   control: ReactNode;
 }): JSX.Element => (
   <div
@@ -101,7 +170,7 @@ const SettingRow = ({
         <div
           style={{
             fontSize: font.size.caption,
-            color: color.textTertiary,
+            color: descriptionColor ?? color.textTertiary,
             marginTop: space[0.5],
             lineHeight: 1.45,
           }}
@@ -264,7 +333,87 @@ const SettingsCard = (): JSX.Element => {
           </Button>
         }
       />
+      <UpdatesRow />
     </div>
+  );
+};
+
+/** The Updates row: one button whose label/action tracks main's update state
+ *  machine, with the row description carrying the detail (progress, errors,
+ *  "you're current"). */
+const UpdatesRow = (): JSX.Element => {
+  const state = useUpdateStore((s) => s.state);
+
+  let description = 'Get new versions as they ship.';
+  let descriptionColor: string | undefined;
+  let button: ReactNode;
+  switch (state.phase) {
+    case 'checking':
+      button = (
+        <Button size="sm" disabled>
+          Checking…
+        </Button>
+      );
+      break;
+    case 'upToDate':
+      description = `You're on the latest version (${state.version}).`;
+      button = (
+        <Button size="sm" onClick={() => void window.bh.updateCheck()}>
+          Check for Updates
+        </Button>
+      );
+      break;
+    case 'available':
+      description = `Version ${state.version} is available.`;
+      button = (
+        <Button size="sm" variant="primary" onClick={() => void window.bh.updateDownload()}>
+          Download {state.version}
+        </Button>
+      );
+      break;
+    case 'downloading': {
+      const pct = state.total > 0 ? Math.floor((state.received / state.total) * 100) : 0;
+      const mb = (n: number): string => (n / (1024 * 1024)).toFixed(0);
+      description = `Downloading ${state.version} — ${mb(state.received)} of ${mb(state.total)} MB.`;
+      button = (
+        <Button size="sm" disabled>
+          {pct}%
+        </Button>
+      );
+      break;
+    }
+    case 'staged':
+      description = `Version ${state.version} is downloaded and verified — restart to finish.`;
+      button = (
+        <Button size="sm" variant="primary" onClick={() => void window.bh.updateInstall()}>
+          Restart to Update
+        </Button>
+      );
+      break;
+    case 'error':
+      description = state.message;
+      descriptionColor = color.danger;
+      button = (
+        <Button size="sm" onClick={() => void window.bh.updateCheck()}>
+          Try Again
+        </Button>
+      );
+      break;
+    default:
+      button = (
+        <Button size="sm" onClick={() => void window.bh.updateCheck()}>
+          Check for Updates
+        </Button>
+      );
+  }
+
+  return (
+    <SettingRow
+      label="Updates"
+      description={description}
+      {...(descriptionColor !== undefined && { descriptionColor })}
+      control={button}
+    />
   );
 };
 
