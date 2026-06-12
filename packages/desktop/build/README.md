@@ -4,6 +4,12 @@
   canonical copy; re-fetch from `https://github.com/Pointa-Labs.png` if it
   ever changes upstream).
 - `icon.icns` — the macOS app icon consumed by electron-builder.
+- `dmg-background.png` (+ `@2x`) — the installer-window art: drag instruction,
+  arrow between the two icon spots (electron-builder.yml's dmg.contents at
+  x=180/x=480, y=195, iconSize 120 — keep them in sync), and the one-time
+  first-launch terminal command. Regenerate like the icon: a throwaway HTML
+  page at 660×420 CSS px → offscreen Electron capture (retina = 1320×840 =
+  the @2x) → `sips -z 420 660` for the 1x.
 
 ## Release flow (self-update feed)
 

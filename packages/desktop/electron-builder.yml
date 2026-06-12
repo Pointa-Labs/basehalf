@@ -16,9 +16,10 @@ npmRebuild: false
 
 mac:
   # Unsigned for now (no Apple Developer ID yet): identity:null skips
-  # signing entirely. First-launch needs right-click → Open (Gatekeeper);
-  # documented in the release notes. Notarization is a fast-follow once a
-  # certificate exists.
+  # signing entirely. First launch needs the one-time quarantine-clear
+  # command (printed on the dmg background + release notes). Signing +
+  # notarization is a fast-follow once a certificate exists; self-update
+  # (main/updater.ts) is unaffected — its archives carry no quarantine.
   identity: null
   icon: build/icon.icns
   category: public.app-category.productivity
@@ -30,5 +31,23 @@ mac:
 
 artifactName: ${productName}-${version}-${arch}.${ext}
 
+# Installer window: branded background with the drag instruction and the
+# one-time first-launch terminal command (we're unsigned for now, so spelling
+# it out IN the installer beats a release-notes footnote). Icon coordinates
+# must match the spots the background art leaves clear; Finder draws its own
+# labels under the icons. dmg-background@2x.png alongside is picked up for retina.
 dmg:
   title: ${productName} ${version}
+  background: build/dmg-background.png
+  iconSize: 120
+  window:
+    width: 660
+    height: 420
+  contents:
+    - x: 180
+      y: 195
+      type: file
+    - x: 480
+      y: 195
+      type: link
+      path: /Applications
