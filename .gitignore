@@ -17,7 +17,7 @@ build/
 out/
 .turbo/
 *.tsbuildinfo
-# ...but the desktop packaging assets (app icon + its SVG source) are INPUTS,
+# ...but the desktop packaging assets (app icon + its source mark) are INPUTS,
 # not output -- electron-builder reads them from its buildResources dir, which
 # happens to be named `build/`. Un-ignore just that one.
 !packages/desktop/build/
