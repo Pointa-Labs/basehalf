@@ -17,6 +17,11 @@ build/
 out/
 .turbo/
 *.tsbuildinfo
+# ...but the desktop packaging assets (app icon + its SVG source) are INPUTS,
+# not output -- electron-builder reads them from its buildResources dir, which
+# happens to be named `build/`. Un-ignore just that one.
+!packages/desktop/build/
+!packages/desktop/build/**
 
 # logs / env / OS cruft
 *.log

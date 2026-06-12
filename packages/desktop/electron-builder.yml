@@ -1,0 +1,34 @@
+# Packaging config (electron-builder). The app is fully self-contained after
+# electron-vite build — main inlines @basehalf/core (+ its pure-JS chokidar),
+# preload needs only electron, renderer is a static web bundle — so we pack
+# `out/` alone: no node_modules collection, no pnpm-symlink headaches (all
+# runtime deps live in devDependencies on purpose; see package.json note).
+appId: com.pointalabs.basehalf
+productName: BaseHalf
+copyright: Copyright © 2026 Pointa Labs
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+asar: true
+npmRebuild: false
+
+mac:
+  # Unsigned for now (no Apple Developer ID yet): identity:null skips
+  # signing entirely. First-launch needs right-click → Open (Gatekeeper);
+  # documented in the release notes. Notarization is a fast-follow once a
+  # certificate exists.
+  identity: null
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+
+artifactName: ${productName}-${version}-${arch}.${ext}
+
+dmg:
+  title: ${productName} ${version}
