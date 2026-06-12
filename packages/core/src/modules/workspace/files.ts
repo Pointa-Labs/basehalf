@@ -1,5 +1,5 @@
 import { Buffer, isUtf8 } from 'node:buffer';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   type Handler,
   PathEscape,
@@ -18,6 +18,8 @@ import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
   CanvasBadge,
   CanvasFolderPreview,
+  WorkspaceImportFileArgs,
+  WorkspaceImportFileResult,
   WorkspaceListCanvasArgs,
   WorkspaceListCanvasResult,
   WorkspaceListFilesArgs,
@@ -394,4 +396,123 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   // raced onto `abs` after the guard is refused, not written through.
   await writeMaybeNoFollow(ctx.fs, abs, args.content);
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
+};
+
+/** Collision-free basename in `dir`: `report.pdf`, then `report-2.pdf`,
+ *  `report-3.pdf`, … (same suffix convention as workspace-name collisions).
+ *  Existence is re-checked per candidate; the EXCL copy below still closes
+ *  the pick-then-copy race. */
+async function freeImportName(
+  fs: Parameters<Handler>[1]['fs'],
+  dir: string,
+  base: string,
+): Promise<string> {
+  const dot = base.lastIndexOf('.');
+  // A leading dot (.env) is a hidden-file marker, not an extension separator.
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+  for (let i = 1; i <= 1000; i++) {
+    const candidate = i === 1 ? base : `${stem}-${i}${ext}`;
+    if ((await fs.stat(join(dir, candidate))) === null) return candidate;
+  }
+  throw new Error(`Could not find a free name for "${base}" — too many copies exist.`);
+}
+
+/**
+ * `workspace.importFile({ from, to })` — COPY an external file into the
+ * current workspace (drag-a-file-onto-the-canvas/window). Deliberate
+ * semantics, per the product's first rule about other people's folders:
+ *  - always a copy — the source file is never moved, renamed, or deleted;
+ *  - the copy lands in the user's own folder (visible to the file manager,
+ *    git, and agents — not an app-internal store);
+ *  - never clobbers — a name collision picks `-2`/`-3`, and the copy itself
+ *    is EXCL so a race can't overwrite either;
+ *  - a source already inside the workspace is returned as-is (no duplicate).
+ * The destination is realpath-contained like every other write; the source is
+ * wherever the user dragged from, which is the point — it's an explicit user
+ * action, same trust level as picking a folder in the OS dialog.
+ */
+export const importFile: Handler<WorkspaceImportFileArgs, WorkspaceImportFileResult> = async (
+  args,
+  ctx,
+) => {
+  if (typeof args.from !== 'string' || !isAbsolute(args.from)) {
+    throw new Error(`Import source must be an absolute path: ${String(args.from)}`);
+  }
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
+  if (root === undefined) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  const srcStat = await ctx.fs.stat(args.from);
+  if (!srcStat) {
+    throw Object.assign(new Error(`Path does not exist: ${args.from}`), {
+      code: 'PATH_NOT_FOUND',
+    });
+  }
+  if (srcStat.isDirectory) {
+    // Tagged so the desktop drop handler can route folders to the
+    // add-as-workspace flow instead of surfacing a raw error.
+    throw Object.assign(new Error(`Cannot import a folder: ${args.from}`), {
+      code: 'IS_DIRECTORY',
+    });
+  }
+  // Resolve both ends to canonical paths. A source that already lives inside
+  // the workspace (directly or via symlink) needs no copy — importing your own
+  // file back into the same folder would just breed `-2` duplicates.
+  const realRoot = await canonicalize(ctx.fs, root);
+  let realFrom: string;
+  try {
+    realFrom = await canonicalize(ctx.fs, args.from);
+  } catch {
+    throw Object.assign(new Error(`Path does not exist: ${args.from}`), {
+      code: 'PATH_NOT_FOUND',
+    });
+  }
+  if (isContained(realRoot, realFrom)) {
+    const rel = toPosix(realFrom.slice(realRoot.length + 1));
+    const name = basename(realFrom);
+    return { path: rel, name, imported: false, supported: hasSupportedExt(name) };
+  }
+  const toFolder = args.to ?? null;
+  if (toFolder !== null) assertWorkspaceRelative(toFolder);
+  const destDir = toFolder === null ? root : join(root, toFolder);
+  const destDirStat = await ctx.fs.stat(destDir);
+  if (!destDirStat?.isDirectory) {
+    throw new Error(`Import destination is not a folder: ${toFolder ?? '.'}`);
+  }
+  // Pick a free name, then copy with EXCL so a concurrent import racing onto
+  // the same name can't clobber — the loser sees EEXIST and re-picks (the
+  // re-stat sees the winner's file and suffixes past it).
+  let name = '';
+  for (let attempt = 0; attempt < 10; attempt++) {
+    name = await freeImportName(ctx.fs, destDir, basename(args.from));
+    // Same write containment as workspace.writeFile: the real parent must be
+    // inside the root, and a symlink leaf is refused.
+    const destAbs = await assertWriteContained(ctx.fs, root, join(destDir, name));
+    if (ctx.fs.copyFile) {
+      try {
+        await ctx.fs.copyFile(realFrom, destAbs, { excl: true });
+        break;
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        if (code === 'EEXIST' && attempt < 9) continue;
+        throw err;
+      }
+    } else {
+      // Legacy-mock fallback (no binary fidelity — mocks carry no binaries,
+      // and no concurrent writers either, so the stat in freeImportName is
+      // sufficient).
+      const content = await ctx.fs.readFile(realFrom);
+      if (content === null) {
+        throw Object.assign(new Error(`Path does not exist: ${args.from}`), {
+          code: 'PATH_NOT_FOUND',
+        });
+      }
+      await writeMaybeNoFollow(ctx.fs, destAbs, content);
+      break;
+    }
+  }
+  const rel = toFolder === null ? name : toPosix(`${toFolder}/${name}`);
+  return { path: rel, name, imported: true, supported: hasSupportedExt(name) };
 };

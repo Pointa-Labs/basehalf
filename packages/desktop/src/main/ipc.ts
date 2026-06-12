@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import type { Core } from '@basehalf/core';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import packageJson from '../../package.json' with { type: 'json' };
@@ -76,6 +77,25 @@ export function registerShellOpenHandler(core: Core): void {
       }
     },
   );
+}
+
+/**
+ * Register the `path:kind` channel — classify an absolute path the OS handed
+ * the renderer in a drag-drop payload, so the drop handler can route folders
+ * (add as workspace) and files (copy into the open workspace) differently.
+ * Read-only stat of a user-chosen path: the same trust level as the paths the
+ * OS folder picker returns, and it leaks nothing beyond file-vs-dir-vs-absent.
+ */
+export function registerPathKindHandler(): void {
+  ipcMain.handle('path:kind', async (_event, path): Promise<'file' | 'dir' | null> => {
+    if (typeof path !== 'string' || path.length === 0) return null;
+    try {
+      const s = await stat(path);
+      return s.isDirectory() ? 'dir' : s.isFile() ? 'file' : null;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** Hooks the Settings UI's zoom buttons call — same contract as the View

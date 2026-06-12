@@ -38,7 +38,7 @@ import {
   sideFromHandle,
 } from '../canvasConnections/index.js';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { copyAgentBrief, createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
+import { copyAgentBrief, createDemoAtDefault } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import {
@@ -47,6 +47,7 @@ import {
   snapFlowNodeChanges,
 } from '../lib/canvasFlowSnap.js';
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
+import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { regionFor } from '../lib/paneDrop.js';
 import { useLayoutStore } from '../store/layout.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
@@ -65,6 +66,7 @@ import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
 import { CanvasSnapGuides } from './CanvasSnapGuides.js';
 import { prompt } from './Dialog.js';
+import { FileGlyph, badgeType } from './FileGlyph.js';
 import { Onboarding } from './Onboarding.js';
 import { Button } from './primitives/Button.js';
 import { usePopover } from './primitives/Popover.js';
@@ -245,6 +247,8 @@ export const Canvas = (): JSX.Element => {
   const [annotateHintDismissed, setAnnotateHintDismissed] = useState(false);
   // Monotonic sequence for loadData staleness checks (see loadData).
   const loadSeqRef = useRef(0);
+  // The canvas region's DOM node — drop-position math needs its screen rect.
+  const canvasRootRef = useRef<HTMLDivElement | null>(null);
   // Persisted viewport for the current workspace, lifted into state so
   // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
   // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
@@ -418,26 +422,44 @@ export const Canvas = (): JSX.Element => {
   }, [current, currentReachable]);
 
   // Live-update the canvas when files are added / removed / renamed on disk
-  // (Finder, the `bh` CLI, an AI agent writing a file). Without this the
-  // canvas went stale until a manual reload while the sidebar already
-  // refreshed — the hero surface silently lagged reality. The watcher
-  // already ignores `.bh/`, so these are real user-file events only. Skip
-  // 'change' (content edits don't alter the badge set).
+  // (the file manager, the `bh` CLI, an AI agent writing a file). Without
+  // this the canvas went stale until a manual reload while the sidebar
+  // already refreshed — the hero surface silently lagged reality. The
+  // watcher already ignores `.bh/`, so these are real user-file events only.
+  // Skip 'change' (content edits don't alter the badge set).
   //
-  // The delay must clear the watcher's add path: it buffers ~600ms to detect
-  // renames, THEN materializes the badge, so a refresh before ~800ms would
-  // hit a badge.list that doesn't include the new file yet (and nothing
-  // re-triggers it). A single trailing timer (cleared on each event to
-  // coalesce bursts, and on unmount/reload) fires safely past that window.
+  // Two timers, tuned for how the watcher settles (badges are SPARSE now —
+  // listCanvas reads the filesystem directly, so a brand-new file is visible
+  // the moment its add event lands; nothing waits on materialization):
+  //  - FAST pass (150ms, coalescing): a plain `add` with no unlink in the
+  //    recent window is a new file — show its card near-instantly. This is
+  //    the save-in-the-file-manager → see-it-on-the-canvas latency the user
+  //    actually feels.
+  //  - SETTLE pass (1100ms, coalescing): every non-change event also queues
+  //    a reload past the watcher's 600ms rename window, so badge cascades
+  //    (badge.rename carrying position/refs, markOrphan) land in the final
+  //    render. Unlinks take only this pass: reloading them fast would flash a
+  //    rename as remove-then-re-add and yank the card's position.
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let fastTimer: ReturnType<typeof setTimeout> | undefined;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastUnlinkAt = 0;
     const unsub = window.bh.onFileEvent((event) => {
       if (event.type === 'change') return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void loadData(), 1100);
+      if (event.type === 'unlink') lastUnlinkAt = Date.now();
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => void loadData(), 1100);
+      // An add right after an unlink is likely a rename pair mid-flight —
+      // leave that to the settle pass (the rename window is 600ms; 700ms of
+      // quiet means this add stands alone).
+      if (event.type === 'add' && Date.now() - lastUnlinkAt > 700) {
+        if (fastTimer) clearTimeout(fastTimer);
+        fastTimer = setTimeout(() => void loadData(), 150);
+      }
     });
     return () => {
-      if (timer) clearTimeout(timer);
+      if (fastTimer) clearTimeout(fastTimer);
+      if (settleTimer) clearTimeout(settleTimer);
       unsub();
     };
   }, [loadData]);
@@ -967,24 +989,13 @@ export const Canvas = (): JSX.Element => {
     );
   }
 
-  // Pick the empty-canvas hint based on why nothing's showing: a folder scope
-  // with no children vs a freshly-opened workspace with no supported files.
-  // (We don't show the hint if a badge exists; the canvas speaks for itself.)
-  // The main-canvas case also surfaces a "Create a note" CTA so the user
-  // has a single-click path out of the empty state instead of having to
-  // discover Cmd+N or the topbar.
-  type EmptyHint = { readonly text: string; readonly cta?: 'new-note' };
-  const emptyHint: EmptyHint | null =
-    nodes.length === 0
-      ? folderScope !== null
-        ? {
-            text: `No badges inside ${folderScope}/ yet. Drop files into this folder; they'll appear automatically.`,
-          }
-        : {
-            text: "This workspace has no files yet. Drop files in the folder and they'll appear as badges — or create one now:",
-            cta: 'new-note',
-          }
-      : null;
+  // Empty canvas → the GHOST NOTE CARD: a dashed card shaped like the real
+  // file cards, sitting where the first card would. It doesn't describe the
+  // product, it demonstrates it — click and it becomes a real `untitled.md`
+  // in the user's folder (no filename dialog), open for typing. The caption
+  // names the other first move: drop files in (they're copied, originals
+  // stay put). Inside a folder scope the note is created in THAT folder.
+  const showGhostCard = nodes.length === 0;
 
   // Derived from the FULL agent-context set (focusActive), NOT the rendered
   // nodes — inside a folder scope the set can include files that aren't on
@@ -1036,10 +1047,42 @@ export const Canvas = (): JSX.Element => {
   };
 
   return (
-    <div style={{ width: '100%', height: '100%' }}>
-      {/* New note — top-right of the canvas (the top bar was removed). */}
+    <div
+      ref={canvasRootRef}
+      style={{ width: '100%', height: '100%' }}
+      // OS file drops land ON the map: copy into the workspace folder and
+      // place the new card under the cursor. preventDefault (without
+      // stopPropagation) marks the drop handled — App's catch-all sees
+      // defaultPrevented, clears its overlay, and skips re-routing.
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files') || e.defaultPrevented) return;
+        e.preventDefault();
+        const rect = canvasRootRef.current?.getBoundingClientRect();
+        const vp = viewportRef.current;
+        // Screen → flow coordinates (the inverse of the viewport transform);
+        // offset by half a default card so the card CENTERS on the cursor.
+        const canvasPoint = rect
+          ? {
+              x: (e.clientX - rect.left - vp.x) / vp.zoom - DEFAULT_FILE_CARD_WIDTH / 2,
+              y: (e.clientY - rect.top - vp.y) / vp.zoom - DEFAULT_FILE_CARD_HEIGHT / 2,
+            }
+          : undefined;
+        void handleExternalDrop(droppedPaths(e.dataTransfer), { canvasPoint, folderScope });
+      }}
+    >
+      {/* New note — top-right of the canvas (the top bar was removed). A real
+          `untitled-N.md` opens for typing immediately (no filename dialog);
+          inside a folder scope it's created in that folder. */}
       <div style={{ position: 'absolute', top: space[3], right: space[3], zIndex: 8 }}>
-        <Button onClick={() => void promptForNewNote()} title="Create a new note (⌘N)">
+        <Button
+          onClick={() => void useWorkspaceStore.getState().newNote({ folder: folderScope })}
+          title="Create a new note here (⌘N)"
+        >
           New note
         </Button>
       </div>
@@ -1237,7 +1280,7 @@ export const Canvas = (): JSX.Element => {
       {folderScope === null &&
         !workspaceHasAnyPrompt &&
         !annotateHintDismissed &&
-        !emptyHint &&
+        !showGhostCard &&
         nodes.length > 0 && (
           <div
             data-testid="annotate-hint-card"
@@ -1295,40 +1338,7 @@ export const Canvas = (): JSX.Element => {
             </div>
           </div>
         )}
-      {emptyHint && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            maxWidth: 380,
-            padding: `${space[4]}px ${space[5]}px`,
-            background: color.surface,
-            border: `1px dashed ${color.borderStrong}`,
-            borderRadius: radius.lg,
-            fontFamily: font.sans,
-            fontSize: font.size.body,
-            color: color.textSecondary,
-            textAlign: 'center',
-            lineHeight: 1.55,
-            zIndex: 5,
-            // pointerEvents:'none' when there's no CTA so the dot grid
-            // behind stays draggable for panning; flip to 'auto' when
-            // the CTA button needs to be clickable.
-            pointerEvents: emptyHint.cta ? 'auto' : 'none',
-          }}
-        >
-          {emptyHint.text}
-          {emptyHint.cta === 'new-note' && (
-            <div style={{ marginTop: space[3] }}>
-              <Button variant="primary" onClick={() => void promptForNewNote()}>
-                New note
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+      {showGhostCard && <GhostNoteCard folderScope={folderScope} />}
       <ReactFlow
         nodes={nodes}
         edges={renderedEdges}
@@ -1397,6 +1407,93 @@ export const Canvas = (): JSX.Element => {
 
 // Re-export useReactFlow so children can re-center programmatically later.
 export { useReactFlow };
+
+/**
+ * The empty-canvas invitation: a dashed card SHAPED like the real file cards,
+ * sitting where the first card would. It demonstrates the model instead of
+ * describing it — click and it becomes a real `untitled.md` in the user's
+ * folder (no filename dialog), open for typing; the dashed frame is the only
+ * "ghost" about it. The caption names the other first move (drop files in —
+ * copies, originals stay put). Inside a folder scope both paths target that
+ * folder.
+ */
+const GhostNoteCard = ({ folderScope }: { folderScope: string | null }): JSX.Element => {
+  const [hover, setHover] = useState(false);
+  const where = folderScope ? `${folderScope}/` : 'your folder';
+  // The sidebar FLOATS over the canvas's left edge, so "50% of the region"
+  // can land partly underneath it (where its surface eats the click). Center
+  // in the VISIBLE remainder instead — the same inset CanvasFramer applies
+  // to fitView.
+  const sidebarInset = useLayoutStore((s) => (s.sidebarOpen ? s.sidebarWidth : 0));
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: `calc(50% + ${sidebarInset / 2}px)`,
+        transform: 'translate(-50%, -50%)',
+        zIndex: 5,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: space[3],
+        // The column wrapper must not block canvas panning around the card;
+        // the button itself re-enables hits.
+        pointerEvents: 'none',
+      }}
+    >
+      <button
+        type="button"
+        data-testid="ghost-note-card"
+        onClick={() => void useWorkspaceStore.getState().newNote({ folder: folderScope })}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title="Create a note — a real Markdown file, ready to type into"
+        style={{
+          width: DEFAULT_FILE_CARD_WIDTH,
+          height: DEFAULT_FILE_CARD_HEIGHT,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: space[2],
+          pointerEvents: 'auto',
+          background: hover ? color.accentSofter : color.surface,
+          border: `1.5px dashed ${hover ? color.accent : color.borderStrong}`,
+          borderRadius: radius.lg,
+          cursor: 'pointer',
+          fontFamily: font.sans,
+          color: hover ? color.accent : color.textPrimary,
+          transition: transition(['background', 'border-color', 'color']),
+        }}
+      >
+        <FileGlyph
+          type={badgeType('untitled.md', false)}
+          tone={hover ? color.accent : color.textTertiary}
+          size={22}
+        />
+        <span style={{ fontSize: font.size.body, fontWeight: font.weight.medium }}>
+          Write your first note
+        </span>
+        <span style={{ fontSize: font.size.caption, color: color.textTertiary }}>
+          a real .md file in {where}
+        </span>
+      </button>
+      <div
+        style={{
+          maxWidth: 340,
+          textAlign: 'center',
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          color: color.textTertiary,
+          lineHeight: 1.5,
+        }}
+      >
+        …or drop files here — they're copied into {where}; the originals stay where they are.
+      </div>
+    </div>
+  );
+};
 
 const CanvasViewportTracker = ({
   onViewport,

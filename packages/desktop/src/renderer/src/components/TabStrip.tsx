@@ -57,7 +57,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
       // pane, like a code editor's empty-tab-bar gesture. The target===currentTarget
       // guard keeps a double-click ON a tab (which pins it) from also firing this.
       onDoubleClick={(e) => {
-        if (e.target === e.currentTarget) void newNote(paneId);
+        if (e.target === e.currentTarget) void newNote({ paneId });
       }}
       // Accept a tab dropped on the strip's EMPTY area (past the last tab) →
       // append it to this pane. (Drops ON a tab are handled per-tab below; they

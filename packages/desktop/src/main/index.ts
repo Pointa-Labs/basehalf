@@ -4,6 +4,7 @@ import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
 import { BrowserWindow, Menu, app, screen } from 'electron';
 import {
   registerBhRunHandler,
+  registerPathKindHandler,
   registerSettingsIpc,
   registerShellOpenHandler,
   registerWorkspacePickHandler,
@@ -38,6 +39,7 @@ console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.lis
 registerBhRunHandler(core);
 registerWorkspacePickHandler();
 registerShellOpenHandler(core);
+registerPathKindHandler();
 // Zoom hooks reference the function declarations below — hoisted, so safe here.
 registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLevel });
 const updater = new Updater();

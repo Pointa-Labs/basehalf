@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { constants } from 'node:fs';
 import {
+  copyFile,
   lstat,
   mkdir,
   open,
@@ -170,6 +171,9 @@ function defaultFs(): FsLike {
       } finally {
         await fh.close();
       }
+    },
+    async copyFile(src, dest, opts) {
+      await copyFile(src, dest, opts?.excl ? constants.COPYFILE_EXCL : 0);
     },
   };
 }

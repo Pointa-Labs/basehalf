@@ -389,11 +389,20 @@ export const CommandPalette = (): JSX.Element | null => {
           run: () => void copyAgentBrief().catch(() => undefined),
         });
       }
+      // Primary "New note" is INSTANT — a real untitled-N.md opens for typing,
+      // no filename dialog. The path-choosing dialog survives as the
+      // secondary, for the "I know exactly where this goes" case.
       out.push({
         id: 'action:new-note',
-        label: 'New note…',
+        label: 'New note',
         category: 'Action',
         shortcut: `${MOD}N`,
+        run: () => void useWorkspaceStore.getState().newNote(),
+      });
+      out.push({
+        id: 'action:new-note-at-path',
+        label: 'New note at path…',
+        category: 'Action',
         run: () => void promptForNewNote(),
       });
     }

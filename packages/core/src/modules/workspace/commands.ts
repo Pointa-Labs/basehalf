@@ -1,7 +1,14 @@
 import { basename, isAbsolute, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
 import { createDemo } from './demo.js';
-import { listCanvas, listFiles, listSupportedFiles, readFile, writeFile } from './files.js';
+import {
+  importFile,
+  listCanvas,
+  listFiles,
+  listSupportedFiles,
+  readFile,
+  writeFile,
+} from './files.js';
 import { NAME_PATTERN, withConfigLock } from './lock.js';
 import { runSetup } from './setup.js';
 import { readWorkspaces, writeWorkspaces } from './store.js';
@@ -425,5 +432,6 @@ export function commands(): ReadonlyArray<
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
     ['workspace.readFile', readFile as unknown as Handler<never, unknown>],
     ['workspace.writeFile', writeFile as unknown as Handler<never, unknown>],
+    ['workspace.importFile', importFile as unknown as Handler<never, unknown>],
   ];
 }

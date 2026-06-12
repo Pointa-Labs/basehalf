@@ -233,6 +233,30 @@ export interface WorkspaceWriteFileResult {
   readonly bytes: number;
 }
 
+/** Copy an EXTERNAL file into the current workspace (the drag-a-file-onto-
+ * the-canvas door). Always a copy — the source is never moved or touched;
+ * the destination lands in the user's own folder where the file manager,
+ * git, and agents all see it. Never clobbers: a name collision picks a
+ * `-2`/`-3` suffix (same convention as workspace-name collisions). */
+export interface WorkspaceImportFileArgs {
+  /** Absolute path of the source file (from the OS drag payload). */
+  readonly from: string;
+  /** Workspace-relative destination folder; null/omitted = workspace root. */
+  readonly to?: string | null;
+}
+export interface WorkspaceImportFileResult {
+  /** Workspace-relative POSIX path the file lives at after the call. */
+  readonly path: string;
+  /** Final basename (collision suffix included when one was needed). */
+  readonly name: string;
+  /** False when the source already lived inside the workspace — no copy was
+   *  made; `path` points at the existing file. */
+  readonly imported: boolean;
+  /** Whether the file's type gets a canvas card (callers use this to decide
+   *  whether placing a canvas position makes sense). */
+  readonly supported: boolean;
+}
+
 export interface WorkspaceSetViewportArgs {
   readonly viewport: ViewportState;
 }

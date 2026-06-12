@@ -9,13 +9,17 @@ import { SettingsHost, openSettings, wireUpdateBridge } from './components/Setti
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
-import { promptForNewNote, removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
+import { removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
+import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
 import { useLayoutStore } from './store/layout.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
 export const App = (): JSX.Element => {
   const error = useWorkspaceStore((s) => s.error);
   const clearError = useWorkspaceStore((s) => s.clearError);
+  const notice = useWorkspaceStore((s) => s.notice);
+  const clearNotice = useWorkspaceStore((s) => s.clearNotice);
+  const current = useWorkspaceStore((s) => s.current);
   const refresh = useWorkspaceStore((s) => s.refresh);
   // Drag-drop folder → add as workspace. Tracked at the App level so the
   // overlay covers everything (TopBar, Sidebar, Canvas, FilePreview).
@@ -78,8 +82,12 @@ export const App = (): JSX.Element => {
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
+        // Instant note — a real `untitled-N.md` opens for typing right away;
+        // no filename dialog up front (rename later, when it has a subject).
+        // Created in the folder the canvas is scoped into, where you're looking.
         e.preventDefault();
-        void promptForNewNote();
+        const ws = useWorkspaceStore.getState();
+        void ws.newNote({ folder: ws.folderScope });
       }
     };
     window.addEventListener('keydown', onKey);
@@ -108,6 +116,14 @@ export const App = (): JSX.Element => {
   // App menu ▸ Settings… (⌘,) — the overlay lives in the renderer; main just
   // triggers, same as the other menu relays.
   useEffect(() => window.bh.onMenuOpenSettings(openSettings), []);
+
+  // Notices are transient confirmations ("Copied … into …") — they retire
+  // themselves; only errors require a human dismissal.
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(clearNotice, 6000);
+    return () => window.clearTimeout(id);
+  }, [notice, clearNotice]);
 
   // Self-update: mirror main's state machine from startup (so Settings shows
   // background activity), and when a BACKGROUND check finds a version, ask
@@ -161,19 +177,17 @@ export const App = (): JSX.Element => {
       }}
       onDrop={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
-        e.preventDefault();
+        // Always clear the overlay — even when the canvas (a descendant)
+        // already handled this drop and marked it defaultPrevented; routing
+        // it again here would import every file twice.
         setDragDepth(0);
-        // Electron exposes a non-standard `.path` on dropped File objects
-        // (absolute path on disk). Iterate, ignore non-folder entries (the
-        // store action surfaces "path is not a directory" if a file slips
-        // through), call workspace.add with setup:true so the agent-protocol
-        // hint lands the same as the "Add folder" picker flow.
-        const paths: string[] = [];
-        for (const file of Array.from(e.dataTransfer.files)) {
-          const p = (file as File & { path?: string }).path;
-          if (typeof p === 'string' && p.length > 0) paths.push(p);
-        }
-        void useWorkspaceStore.getState().addDroppedPaths(paths);
+        if (e.defaultPrevented) return;
+        e.preventDefault();
+        // Shared routing (lib/importDrop): folders → add/open as workspace;
+        // files → COPY into the open workspace. This is the catch-all for
+        // drops outside the canvas (sidebar, editor area); the canvas has its
+        // own handler that also places the new card at the drop point.
+        void handleExternalDrop(droppedPaths(e.dataTransfer));
       }}
     >
       <TitleBar />
@@ -205,6 +219,7 @@ export const App = (): JSX.Element => {
         <EditorSpace />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
+      {!error && notice && <ErrorBanner message={notice} onDismiss={clearNotice} tone="info" />}
       {/* Before DialogHost/CommandPalette: same z-index, so DOM order keeps
           transient dialogs and the palette above the Settings surface. */}
       <SettingsHost />
@@ -244,7 +259,9 @@ export const App = (): JSX.Element => {
               letterSpacing: -0.1,
             }}
           >
-            Drop a folder to add as a workspace
+            {current
+              ? 'Drop files to copy them into this workspace — or a folder to open as a workspace'
+              : 'Drop a folder to add as a workspace'}
           </div>
         </div>
       )}

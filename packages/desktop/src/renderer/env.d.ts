@@ -8,6 +8,13 @@ interface Window {
     run(name: string, args?: unknown): Promise<unknown>;
     /** Opens the OS folder picker; returns the selected path or null on cancel. */
     pickWorkspace(): Promise<string | null>;
+    /** Classify an absolute path from an OS drag payload: 'file' | 'dir' |
+     *  null (missing/unreadable). Drop handlers use it to route folders →
+     *  add-as-workspace, files → copy-into-workspace. */
+    pathKind(absPath: string): Promise<'file' | 'dir' | null>;
+    /** The on-disk absolute path of a dropped File ('' when it has none).
+     *  Bridges webUtils.getPathForFile, which only exists in preload. */
+    pathForFile(file: File): string;
     /** Open a workspace-relative file in the OS default app (e.g. .docx → Word)
      *  for types bh can't render inline. Resolved inside the current workspace. */
     openPath(relPath: string): Promise<{ ok: boolean; error?: string }>;

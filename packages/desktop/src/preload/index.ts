@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webFrame } from 'electron';
+import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 
 interface SerializedError {
   name: string;
@@ -37,6 +37,22 @@ const bh = {
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
+  /** Classify an absolute path from an OS drag payload: 'file' | 'dir' | null
+   *  (missing/unreadable). Lets the drop handler route folders → add-as-
+   *  workspace and files → copy-into-workspace. */
+  pathKind: (absPath: string): Promise<'file' | 'dir' | null> =>
+    ipcRenderer.invoke('path:kind', absPath),
+  /** The on-disk absolute path of a dropped File object ('' when it has
+   *  none, e.g. a JS-constructed File). File.path was removed from modern
+   *  runtimes; webUtils.getPathForFile is the sanctioned replacement and is
+   *  only callable from the preload context, hence this bridge. */
+  pathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
+  },
   /** Open a workspace-relative file in the OS default app (e.g. a .docx in Word)
    *  for types bh can't render inline. Main resolves it inside the current
    *  workspace + rejects path escapes. Resolves {ok} or {ok:false, error}. */

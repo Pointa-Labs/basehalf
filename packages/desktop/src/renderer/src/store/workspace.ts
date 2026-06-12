@@ -170,6 +170,10 @@ interface WorkspaceState {
    * null = the whole workspace. Set by double-clicking a folder badge. */
   folderScope: string | null;
   error: string;
+  /** Transient confirmation line ("Copied report.pdf into …") — the calm
+   *  counterpart of `error`. Rendered by App in an info-toned banner;
+   *  auto-dismissed there. */
+  notice: string;
   busy: boolean;
   refresh: () => Promise<void>;
   pickAndAdd: () => Promise<void>;
@@ -193,9 +197,13 @@ interface WorkspaceState {
    * so the note appears as a tile — no badge is created until you annotate it. */
   createNote: (relPath: string) => Promise<void>;
   /** Create a blank untitled note and open it (pinned) in a pane — the
-   *  double-click-empty-tab-strip gesture. (A code editor's "new untitled"
-   *  adapted to our file=truth model: it's a real `untitled-N.md`.) */
-  newNote: (paneId?: string) => Promise<void>;
+   *  ghost-card / ⌘N / double-click-empty-tab-strip gesture. (A code editor's
+   *  "new untitled" adapted to our file=truth model: it's a real
+   *  `untitled-N.md` in the user's folder.) `folder` scopes the new file into
+   *  a workspace-relative subfolder (the canvas passes its folder scope). */
+  newNote: (opts?: { paneId?: string; folder?: string | null }) => Promise<void>;
+  setNotice: (message: string) => void;
+  clearNotice: () => void;
   clearError: () => void;
 }
 
@@ -286,6 +294,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     // (saved-view state removed — a folder is the grouping unit now)
     folderScope: null,
     error: '',
+    notice: '',
     busy: false,
 
     refresh: async () => {
@@ -964,9 +973,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
-    newNote: async (paneId) => {
-      const target = paneId ?? get().activePaneId;
+    newNote: async (opts) => {
+      const target = opts?.paneId ?? get().activePaneId;
+      const folder = opts?.folder ?? null;
       const ws = get().current;
+      // No workspace open → nowhere to create the file; quiet no-op (⌘N and
+      // the palette are reachable from the welcome state).
+      if (ws === null) return;
       // Persist the target pane's editor before it switches to the new note (and
       // gate on an unresolved conflict, so we don't create an orphan stub we can't
       // open). openInPanel below also flushes — a no-op after this clean flush.
@@ -982,7 +995,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // never overwrite an existing note. readFile throws PATH_NOT_FOUND when free.
         let name = '';
         for (let i = 0; i < 1000; i++) {
-          const candidate = i === 0 ? 'untitled.md' : `untitled-${i}.md`;
+          const base = i === 0 ? 'untitled.md' : `untitled-${i}.md`;
+          const candidate = folder === null ? base : `${folder}/${base}`;
           let taken = false;
           try {
             await window.bh.run('workspace.readFile', { path: candidate });
@@ -1013,6 +1027,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({ error: formatError(err) });
       }
     },
+
+    setNotice: (message: string) => set({ notice: message }),
+    clearNotice: () => set({ notice: '' }),
 
     clearError: () => set({ error: '' }),
   };

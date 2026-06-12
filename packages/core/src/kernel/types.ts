@@ -82,6 +82,15 @@ export interface FsLike {
    * writeFile).
    */
   writeFileNoFollow?(path: string, content: string): Promise<void>;
+  /**
+   * Byte-for-byte file copy. With `excl: true` the copy REFUSES (EEXIST) if
+   * `dest` already exists — callers that pre-pick a collision-free name use it
+   * to close the pick-then-copy race instead of clobbering. OPTIONAL: the
+   * string-based writeFile fallback would corrupt binary content (PDFs,
+   * images), so handlers that need a real copy degrade to read-string +
+   * write-string ONLY for legacy mocks (which have no binary files in play).
+   */
+  copyFile?(src: string, dest: string, opts?: { excl?: boolean }): Promise<void>;
 }
 
 /**
