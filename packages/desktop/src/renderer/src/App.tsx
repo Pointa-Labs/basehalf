@@ -5,6 +5,7 @@ import { DialogHost } from './components/Dialog.js';
 import { EditorSpace } from './components/EditorSpace.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
+import { SettingsHost, openSettings } from './components/Settings.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
@@ -104,6 +105,10 @@ export const App = (): JSX.Element => {
     [],
   );
 
+  // App menu ▸ Settings… (⌘,) — the overlay lives in the renderer; main just
+  // triggers, same as the other menu relays.
+  useEffect(() => window.bh.onMenuOpenSettings(openSettings), []);
+
   return (
     <div
       style={{
@@ -179,6 +184,9 @@ export const App = (): JSX.Element => {
         <EditorSpace />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
+      {/* Before DialogHost/CommandPalette: same z-index, so DOM order keeps
+          transient dialogs and the palette above the Settings surface. */}
+      <SettingsHost />
       <DialogHost />
       <CommandPalette />
       {dragDepth > 0 && (

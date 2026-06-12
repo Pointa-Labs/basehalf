@@ -71,6 +71,28 @@ const bh = {
     ipcRenderer.on('window:zoom-factor', wrapped);
     return () => ipcRenderer.off('window:zoom-factor', wrapped);
   },
+  /** App version (package.json in dev, bundle metadata when packaged). */
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  /** Read the app-level prefs (settings the main process owns; see main/prefs.ts). */
+  getPrefs: (): Promise<{ autoUpdateCheck: boolean }> => ipcRenderer.invoke('prefs:get'),
+  /** Patch the app-level prefs; resolves to the merged result. */
+  setPrefs: (patch: { autoUpdateCheck?: boolean }): Promise<{ autoUpdateCheck: boolean }> =>
+    ipcRenderer.invoke('prefs:set', patch),
+  /** Step the window zoom (same authoritative level the View menu drives; the
+   *  resulting factor arrives via onZoomFactor). */
+  zoomWindow: (action: 'in' | 'out' | 'reset'): Promise<void> =>
+    ipcRenderer.invoke('window:zoom', action),
+  /** Open an external https link in the system browser. Main enforces an
+   *  allowlist (project pages only) — the renderer can't launch arbitrary URLs. */
+  openExternal: (url: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('shell:open-external', url),
+  /** Subscribe to the app-menu "Settings…" action (relayed by main). Returns an
+   *  unsubscribe function; the renderer owns the Settings overlay. */
+  onMenuOpenSettings: (handler: () => void): (() => void) => {
+    const wrapped = (): void => handler();
+    ipcRenderer.on('menu:open-settings', wrapped);
+    return () => ipcRenderer.off('menu:open-settings', wrapped);
+  },
   /** Subscribe to the menu/right-click "Open Folder…" action (relayed by main).
    * Returns an unsubscribe function. The renderer responds by running its
    * own pickAndAdd flow, so the folder-open UX is identical to the in-app

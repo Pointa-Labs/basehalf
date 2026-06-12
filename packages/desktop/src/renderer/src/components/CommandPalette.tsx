@@ -39,6 +39,7 @@ import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { openSettings } from './Settings.js';
 
 interface CommandPaletteStore {
   open: boolean;
@@ -396,6 +397,13 @@ export const CommandPalette = (): JSX.Element | null => {
         run: () => void promptForNewNote(),
       });
     }
+    out.push({
+      id: 'action:settings',
+      label: 'Settings…',
+      category: 'Action',
+      shortcut: `${MOD},`,
+      run: openSettings,
+    });
 
     return out;
   }, [workspaces, current, files, filesWorkspace, focusCount, use, openInPanel, pickAndAdd]);

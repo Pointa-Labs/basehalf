@@ -14,6 +14,13 @@ function emitOpenFolder(win?: BrowserWindow | null): void {
   target?.webContents.send('menu:open-folder');
 }
 
+/** Nudge the focused renderer to open the Settings overlay (the renderer owns
+ *  the UI; main just triggers — mirroring emitOpenFolder). Lives in the app
+ *  menu on macOS (the conventional ⌘, spot) and in File elsewhere. */
+function emitOpenSettings(): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:open-settings');
+}
+
 /**
  * Nudge the focused renderer to run a workspace-management dialog (rename /
  * remove the ACTIVE workspace). These rare, destructive ops live in the File
@@ -64,8 +71,27 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
     visible: false,
     acceleratorWorksWhenHidden: true,
   });
+  // The macOS app menu, spelled out instead of `{ role: 'appMenu' }` so we can
+  // slot "Settings…" into its conventional home (between About and Services,
+  // on ⌘,). Everything else matches what the role would have produced.
+  const macAppMenu: MenuItemConstructorOptions = {
+    role: 'appMenu',
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: emitOpenSettings },
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
+  };
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' } as MenuItemConstructorOptions] : []),
+    ...(isMac ? [macAppMenu] : []),
     {
       label: 'File',
       submenu: [
@@ -74,6 +100,18 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
         { label: 'Rename Workspace…', click: () => emitWorkspaceAction('rename') },
         { label: 'Remove Workspace…', click: () => emitWorkspaceAction('remove') },
         { type: 'separator' },
+        // On macOS Settings lives in the app menu (above); elsewhere File is
+        // its conventional home.
+        ...(isMac
+          ? []
+          : [
+              {
+                label: 'Settings…',
+                accelerator: 'CmdOrCtrl+,',
+                click: emitOpenSettings,
+              } as MenuItemConstructorOptions,
+              { type: 'separator' } as MenuItemConstructorOptions,
+            ]),
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },

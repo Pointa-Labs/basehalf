@@ -1,5 +1,7 @@
 import type { Core } from '@basehalf/core';
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import packageJson from '../../package.json' with { type: 'json' };
+import type { PrefsStore } from './prefs.js';
 import { resolveInsideWorkspace } from './workspacePath.js';
 
 export interface SerializedError {
@@ -69,6 +71,68 @@ export function registerShellOpenHandler(core: Core): void {
         if (!resolved.ok) return resolved;
         const errMsg = await shell.openPath(resolved.abs);
         return errMsg ? { ok: false, error: errMsg } : { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+}
+
+/** Hooks the Settings UI's zoom buttons call — same contract as the View
+ *  menu's ZoomMenuHooks; the caller (main/index.ts) owns the authoritative
+ *  level, clamping, applying, and persisting. */
+export interface WindowZoomHooks {
+  getZoomLevel: () => number;
+  applyZoomLevel: (level: number) => void;
+}
+
+/** External links the renderer may open in the system browser. The renderer is
+ *  sandboxed and its input untrusted — an allowlist (not a scheme check) keeps
+ *  a compromised renderer from launching arbitrary URLs/protocol handlers.
+ *  Parsed-field comparison, not a string prefix: URL parsing normalizes
+ *  `..`/percent-escape tricks before we look, so the path can't sneak out of
+ *  the project namespace. */
+function isAllowedExternalUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return (
+    parsed.protocol === 'https:' &&
+    parsed.host === 'github.com' &&
+    parsed.pathname.startsWith('/Pointa-Labs/')
+  );
+}
+
+/**
+ * Settings-surface channels: app version (About), prefs read/write, the
+ * window-zoom commands (mirroring the View menu so the Settings rows behave
+ * identically), and allowlisted external links. GUI-only, so separate from
+ * `bh:run` — none of these are core commands.
+ */
+export function registerSettingsIpc(prefs: PrefsStore, zoom: WindowZoomHooks): void {
+  // Bundled at build time from package.json — `app.getVersion()` would be
+  // right when packaged but falls back to the runtime's own version in dev
+  // (the main script is launched directly, with no app package.json beside it).
+  ipcMain.handle('app:version', (): string => packageJson.version);
+  ipcMain.handle('prefs:get', () => prefs.get());
+  ipcMain.handle('prefs:set', (_event, patch: unknown) => prefs.set(patch));
+  ipcMain.handle('window:zoom', (_event, action: unknown): void => {
+    if (action === 'in') zoom.applyZoomLevel(zoom.getZoomLevel() + 1);
+    else if (action === 'out') zoom.applyZoomLevel(zoom.getZoomLevel() - 1);
+    else if (action === 'reset') zoom.applyZoomLevel(0);
+  });
+  ipcMain.handle(
+    'shell:open-external',
+    async (_event, url: unknown): Promise<{ ok: boolean; error?: string }> => {
+      if (typeof url !== 'string' || !isAllowedExternalUrl(url)) {
+        return { ok: false, error: 'URL not allowed.' };
+      }
+      try {
+        await shell.openExternal(url);
+        return { ok: true };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }

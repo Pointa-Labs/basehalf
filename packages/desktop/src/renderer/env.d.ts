@@ -16,6 +16,21 @@ interface Window {
     /** OS home directory (frozen at preload). Used to suggest defaults
      *  like `~/BaseHalf-Demo` for the demo workspace generator. */
     homeDir: string;
+    /** App version (package.json in dev, bundle metadata when packaged). */
+    appVersion(): Promise<string>;
+    /** Read the app-level prefs (owned by the main process). */
+    getPrefs(): Promise<{ autoUpdateCheck: boolean }>;
+    /** Patch the app-level prefs; resolves to the merged result. */
+    setPrefs(patch: { autoUpdateCheck?: boolean }): Promise<{ autoUpdateCheck: boolean }>;
+    /** Step the window zoom (the View menu's authoritative level); the new
+     *  factor arrives via onZoomFactor. */
+    zoomWindow(action: 'in' | 'out' | 'reset'): Promise<void>;
+    /** Open an external https link in the system browser (main enforces an
+     *  allowlist of project pages). */
+    openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
+    /** Subscribe to the app-menu "Settings…" action (relayed by main).
+     *  Returns an unsubscribe function. */
+    onMenuOpenSettings(handler: () => void): () => void;
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
      *  main). Returns an unsubscribe function. */
     onMenuOpenFolder(handler: () => void): () => void;

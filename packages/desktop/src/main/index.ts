@@ -4,10 +4,12 @@ import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
 import { BrowserWindow, Menu, app, screen } from 'electron';
 import {
   registerBhRunHandler,
+  registerSettingsIpc,
   registerShellOpenHandler,
   registerWorkspacePickHandler,
 } from './ipc.js';
 import { buildAppMenu, installContextMenu } from './menu.js';
+import { PrefsStore } from './prefs.js';
 import {
   clampToDisplays,
   debounce,
@@ -22,6 +24,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const configDir = defaultConfigDir();
 const core = createCore();
+const prefs = new PrefsStore(configDir);
 
 // AR-PR9-2 self-test signal: confirms core's first-party modules registered.
 console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.list'));
@@ -29,6 +32,8 @@ console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.lis
 registerBhRunHandler(core);
 registerWorkspacePickHandler();
 registerShellOpenHandler(core);
+// Zoom hooks reference the function declarations below — hoisted, so safe here.
+registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLevel });
 
 // Forward file events from the core watcher to all open renderers so the
 // FilePreview can prompt for reload on external edits and rebind currentFile
@@ -158,11 +163,13 @@ async function createWindow(): Promise<void> {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) and a custom
   // View menu whose zoom matches a mature editor (±1 level/⌘0), while keeping the
   // standard Edit/Window roles the editor relies on.
   Menu.setApplicationMenu(buildAppMenu({ getZoomLevel: () => currentZoomLevel, applyZoomLevel }));
+  // Before the window: the renderer may ask for prefs as soon as it loads.
+  await prefs.load();
   void createWindow();
 
   app.on('activate', () => {
