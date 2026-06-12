@@ -321,8 +321,8 @@ async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<
     // watching (git checkout, external rm, a delete with the app closed). The
     // watcher-driven dropOrphan handles LIVE deletes; this is the on-open
     // stat-based catch-up so a stale focus.md self-heals instead of pointing the
-    // agent at deleted files. Runs after materialize, so present files keep
-    // their (re)materialized badges and only truly-gone paths are pruned.
+    // agent at deleted files. Badges are a sparse overlay (no open-time
+    // materialization), so only truly-gone paths are pruned here.
     await ctx.run('focus.pruneDangling', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;

@@ -124,8 +124,14 @@ Read-only — it walks via the already-hardened `workspace.listFiles` +
 `workspace.readFile`, so path containment is inherited, not re-implemented.
 
 ```bash
-bh search <query> [--maxFiles <n>] [--maxPerFile <n>] [--json]
+bh search <query> [--maxFiles <n>] [--maxPerFile <n>] [--brief] [--json]
 ```
+
+`--brief` assembles the matches into a paste-ready **context brief** (same
+spirit as `.bh/focus.md`, but retrieval-sourced instead of hand-curated): each
+matching file is inlined with its badge prompt, reference notes, and noted
+inbound links. The on-ramp for "I know what I want to ask, not which files
+matter." Core command: `search.brief`.
 
 ## Recording why decisions were made (internal team workflow)
 

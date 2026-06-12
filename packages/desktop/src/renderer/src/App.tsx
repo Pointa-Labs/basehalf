@@ -8,7 +8,7 @@ import { FdaTip } from './components/FdaTip.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
-import { promptForNewNote } from './lib/actions.js';
+import { promptForNewNote, removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
 import { useLayoutStore } from './store/layout.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
@@ -90,6 +90,17 @@ export const App = (): JSX.Element => {
   // flows use so the folder-open UX is identical everywhere (one door).
   useEffect(
     () => window.bh.onMenuOpenFolder(() => void useWorkspaceStore.getState().pickAndAdd()),
+    [],
+  );
+
+  // File ▸ Rename / Remove Workspace… — the management dialogs live in
+  // lib/actions (they no-op when no workspace is open); main just triggers.
+  useEffect(
+    () =>
+      window.bh.onMenuWorkspaceAction((action) => {
+        if (action === 'rename') void renameActiveWorkspace();
+        else void removeActiveWorkspace();
+      }),
     [],
   );
 

@@ -38,6 +38,7 @@ import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { Button } from './primitives/Button.js';
+import { useFileBadge } from './useFileBadge.js';
 
 function debounce<TArgs extends unknown[]>(
   fn: (...args: TArgs) => void,
@@ -260,6 +261,215 @@ export const FilePreview = ({
         )}
         {mode === 'other' && <UnsupportedFileViewer file={file} absPath={absPath} />}
       </div>
+      {/* The annotation surface, parked where the reading happens. Readable
+          file types only — media files route to the badge panel as before. */}
+      {(mode === 'md' || mode === 'text' || mode === 'other') && (
+        <AgentNoteStrip key={viewKey} file={file} paneId={paneId} wsPath={wsPath} />
+      )}
+    </div>
+  );
+};
+
+// Per-session memory of "Not now" on the empty-note strip, keyed by workspace
+// path + file so a dismissal neither leaks across workspaces nor nags again
+// every tab switch. Deliberately NOT persisted: the strip is the product's main
+// cold-start intervention, and a new session is a fair moment to re-offer it.
+const noteStripDismissed = new Set<string>();
+
+/**
+ * AgentNoteStrip — the file's agent note, docked under the editor.
+ *
+ * This is the highest-leverage annotation moment in the app: the user is
+ * LOOKING at the file's content, which is the only time writing "what should
+ * the agent know about this file?" costs one honest sentence instead of a
+ * memory exercise. Two states:
+ *   - no note yet → an inline input right here (plus "Not now" for the
+ *     session); saving flips it to…
+ *   - note exists → a calm one-liner showing exactly what the brief will say
+ *     for this file, with its context status and the Add/Remove toggle.
+ * All writes ride useFileBadge's autosave controller (badge.set via the badge
+ * bus), so the canvas card and badge panel stay in sync for free.
+ */
+const AgentNoteStrip = ({
+  file,
+  paneId,
+  wsPath,
+}: { file: string; paneId: string; wsPath: string }): JSX.Element | null => {
+  const fb = useFileBadge(file, `${paneId}:note-strip`);
+  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
+  const dismissKey = `${wsPath}:${file}`;
+  const [dismissed, setDismissed] = useState(() => noteStripDismissed.has(dismissKey));
+  // The input mode must be STICKY while the user types: the textarea is a
+  // controlled view of fb.prompt, so without this latch the first keystroke
+  // would flip hasNote → true and re-render into the read-only strip,
+  // unmounting the textarea after one character. Drafting starts on focus and
+  // ends only when the blur-flush commits.
+  const [drafting, setDrafting] = useState(false);
+  const hasNote = fb.prompt.trim() !== '' && !drafting;
+
+  if (fb.loading) return null;
+
+  if (!hasNote && dismissed) {
+    // Dismissed for the session — keep a one-word way back instead of nothing,
+    // so "Not now" never becomes "never".
+    return (
+      <div
+        style={{
+          flexShrink: 0,
+          borderTop: `1px solid ${color.border}`,
+          padding: `${space[1]}px ${space[3]}px`,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            noteStripDismissed.delete(dismissKey);
+            setDismissed(false);
+          }}
+          style={{
+            border: 'none',
+            background: 'transparent',
+            padding: 0,
+            color: color.textGhost,
+            fontFamily: font.sans,
+            fontSize: font.size.micro,
+            cursor: 'pointer',
+          }}
+        >
+          Add agent note
+        </button>
+      </div>
+    );
+  }
+
+  if (!hasNote) {
+    return (
+      <div
+        data-testid={`agent-note-strip-empty-${file}`}
+        style={{
+          flexShrink: 0,
+          borderTop: `1px solid ${color.accentSoft}`,
+          background: color.accentSofter,
+          padding: `${space[2]}px ${space[3]}px`,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: space[2],
+          fontFamily: font.sans,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: font.size.caption,
+              fontWeight: font.weight.medium,
+              color: color.textPrimary,
+              marginBottom: space[1],
+            }}
+          >
+            What should agents know about this file?
+          </div>
+          <textarea
+            value={fb.prompt}
+            onFocus={() => setDrafting(true)}
+            onChange={(e) => fb.onPromptChange(e.target.value)}
+            onBlur={() => {
+              void fb.flushPrompt().finally(() => setDrafting(false));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                e.currentTarget.blur(); // commit via onBlur → flushPrompt
+              }
+            }}
+            rows={1}
+            placeholder="One honest sentence — it goes into every brief that includes this file."
+            data-testid={`agent-note-input-${file}`}
+            style={{
+              width: '100%',
+              resize: 'none',
+              boxSizing: 'border-box',
+              background: color.surface,
+              border: `1px solid ${color.accentSoft}`,
+              borderRadius: radius.md,
+              padding: `${space[1]}px ${space[2]}px`,
+              color: color.textPrimary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              lineHeight: 1.5,
+              outline: 'none',
+            }}
+          />
+          {fb.saveError && (
+            <div style={{ color: color.warning, fontSize: font.size.micro, marginTop: 2 }}>
+              {fb.saveError}
+            </div>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            noteStripDismissed.add(dismissKey);
+            setDismissed(true);
+          }}
+        >
+          Not now
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`agent-note-strip-${file}`}
+      style={{
+        flexShrink: 0,
+        borderTop: `1px solid ${color.border}`,
+        padding: `${space[1.5]}px ${space[3]}px`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: space[2],
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+        color: color.textSecondary,
+        background: color.surfaceMuted,
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: '50%',
+          flexShrink: 0,
+          background: fb.isFocused ? color.accent : color.textGhost,
+        }}
+      />
+      <button
+        type="button"
+        title={`The brief will say: ${fb.prompt} — click to edit the File Badge`}
+        onClick={() => openBadgeInPanel(file)}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          textAlign: 'left',
+          border: 'none',
+          background: 'transparent',
+          padding: 0,
+          color: color.textSecondary,
+          fontFamily: 'inherit',
+          fontSize: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        {fb.prompt}
+      </button>
+      <Button variant="ghost" size="sm" onClick={() => void fb.toggleFocus()}>
+        {fb.isFocused ? 'Remove from Context' : 'Add to Context'}
+      </Button>
     </div>
   );
 };

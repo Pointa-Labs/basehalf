@@ -19,6 +19,10 @@ interface Window {
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
      *  main). Returns an unsubscribe function. */
     onMenuOpenFolder(handler: () => void): () => void;
+    /** Subscribe to the File-menu workspace-management actions (rename /
+     *  remove the active workspace, relayed by main). Returns an
+     *  unsubscribe function. */
+    onMenuWorkspaceAction(handler: (action: 'rename' | 'remove') => void): () => void;
     /** Subscribe to window fullscreen changes (relayed by main). Returns an
      *  unsubscribe function. */
     onFullscreenChange(handler: (isFullscreen: boolean) => void): () => void;

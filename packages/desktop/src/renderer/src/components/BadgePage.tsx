@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { type JSX, useState } from 'react';
 import { color, font, radius, shadow, space, transition } from '../design.js';
 import { badgeTabId } from '../lib/panelTab.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -23,6 +23,7 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
   const closeTab = useWorkspaceStore((s) => s.closeTab);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
+  const [inboundExpanded, setInboundExpanded] = useState(false);
 
   const type = badgeType(file, false);
   // Subtitle carries only the *folder* the file lives in — at root there is none,
@@ -267,24 +268,66 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
             </List>
           )}
 
+          {/* Inbound is read-only graph navigation — useful, but every always-
+              visible row competes with the panel's real job (writing the note +
+              outbound refs above). Collapsed to one line by default; the canvas
+              arrows and `bh inbound get` serve the heavy tracing. */}
           <div style={{ marginTop: space[5] }}>
-            <SectionTitle
-              title="Referenced by"
-              detail={fb.inbound.length > 0 ? String(fb.inbound.length) : undefined}
-            />
             {fb.inbound.length === 0 ? (
-              <EmptyLine>Nothing points here yet.</EmptyLine>
+              <>
+                <SectionTitle title="Referenced by" />
+                <EmptyLine>Nothing points here yet.</EmptyLine>
+              </>
             ) : (
-              <List>
-                {fb.inbound.map((entry) => (
-                  <InboundRow
-                    key={entry.from}
-                    entry={entry}
-                    onOpen={() => openInPanel(entry.from)}
-                    onOpenBadge={() => openBadgeInPanel(entry.from)}
-                  />
-                ))}
-              </List>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setInboundExpanded((v) => !v)}
+                  aria-expanded={inboundExpanded}
+                  aria-label={`Referenced by ${fb.inbound.length} ${fb.inbound.length === 1 ? 'file' : 'files'} — toggle list`}
+                  data-testid="inbound-toggle"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: space[1.5],
+                    width: '100%',
+                    padding: 0,
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <SectionTitle title="Referenced by" detail={String(fb.inbound.length)} />
+                  <span
+                    aria-hidden
+                    style={{
+                      color: color.textTertiary,
+                      fontSize: 10,
+                      transform: inboundExpanded ? 'rotate(180deg)' : 'none',
+                      transition: transition(['transform']),
+                    }}
+                  >
+                    ▾
+                  </span>
+                </button>
+                {inboundExpanded ? (
+                  <List>
+                    {fb.inbound.map((entry) => (
+                      <InboundRow
+                        key={entry.from}
+                        entry={entry}
+                        onOpen={() => openInPanel(entry.from)}
+                        onOpenBadge={() => openBadgeInPanel(entry.from)}
+                      />
+                    ))}
+                  </List>
+                ) : (
+                  <EmptyLine>
+                    {`← referenced by ${fb.inbound.length} ${fb.inbound.length === 1 ? 'file' : 'files'}`}
+                  </EmptyLine>
+                )}
+              </>
             )}
           </div>
         </section>

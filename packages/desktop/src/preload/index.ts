@@ -80,6 +80,17 @@ const bh = {
     ipcRenderer.on('menu:open-folder', wrapped);
     return () => ipcRenderer.off('menu:open-folder', wrapped);
   },
+  /** Subscribe to the File-menu workspace-management actions (rename / remove
+   * the active workspace, relayed by main). Returns an unsubscribe function.
+   * The renderer responds with its own dialog flows (lib/actions), so the
+   * menu path and any in-app path stay identical — main just triggers. */
+  onMenuWorkspaceAction: (handler: (action: 'rename' | 'remove') => void): (() => void) => {
+    const wrapped = (_e: unknown, action: unknown): void => {
+      if (action === 'rename' || action === 'remove') handler(action);
+    };
+    ipcRenderer.on('menu:workspace-action', wrapped);
+    return () => ipcRenderer.off('menu:workspace-action', wrapped);
+  },
   /** Subscribe to file events from the core watcher (relayed by main process).
    * Returns an unsubscribe function. Rename events are synthetic — the
    * watcher pairs an unlink with a follow-up add (same dir + ext) and

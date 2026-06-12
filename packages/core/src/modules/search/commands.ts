@@ -1,6 +1,13 @@
 import { join } from 'node:path';
 import { type Handler, canonicalize } from '../../kernel/index.js';
-import type { SearchHit, SearchMatch, SearchQueryArgs, SearchQueryResult } from './types.js';
+import type {
+  SearchBriefArgs,
+  SearchBriefResult,
+  SearchHit,
+  SearchMatch,
+  SearchQueryArgs,
+  SearchQueryResult,
+} from './types.js';
 
 // Directories we never descend into. A superset of the renderer's NavTree
 // HIDDEN_NAMES + the materialize SKIP_NAMES — `workspace.listFiles` is
@@ -248,8 +255,107 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
   return { query: needle, hits: top, ...((truncated || capped) && { truncated: true }) };
 };
 
+// Brief defaults: a context-sized file set (what fits a chat hand-off), not a
+// result page. `search.query`'s own defaults (50 files) are for browsing.
+const BRIEF_MAX_FILES = 8;
+const BRIEF_MAX_MATCHES_PER_FILE = 3;
+
+/**
+ * `search.brief({ query })` — assemble a paste-ready context brief by RETRIEVAL.
+ *
+ * `.bh/focus.md` is curation-sourced: the user picks the files. This is the
+ * other on-ramp — "I know what I want to ask, not which files matter": content
+ * search finds the files, then each hit is hydrated with its badge prompt,
+ * reference notes, and inbound notes (via ctx.run — badges/inbound stay behind
+ * their own doors, and their absence degrades to a plain match list). The
+ * output is self-contained Markdown in the same spirit as the focus brief.
+ */
+export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, ctx) => {
+  const res = (await ctx.run('search.query', {
+    query: args.query,
+    maxFiles: clampPositive(args.maxFiles, BRIEF_MAX_FILES),
+    maxMatchesPerFile: clampPositive(args.maxMatchesPerFile, BRIEF_MAX_MATCHES_PER_FILE),
+  })) as SearchQueryResult;
+
+  const lines: string[] = ['# bh search brief', '', `query: ${res.query}`, ''];
+  if (res.hits.length === 0) {
+    lines.push('results:', '  (none)');
+  } else {
+    lines.push('results:');
+    for (const hit of res.hits) {
+      lines.push(`  - ${hit.file}`);
+      // Hydrate with the human-written layer. Both reads are best-effort: a
+      // missing badge (sparse overlay), an unregistered module (UnknownCommand)
+      // or a transient read error must degrade the brief, never fail it.
+      type HydratedBadge = {
+        prompt?: string;
+        references?: { to: string; note?: string }[];
+      } | null;
+      let badge: HydratedBadge = null;
+      try {
+        badge = (await ctx.run('badge.get', { file: hit.file, kind: 'file' })) as HydratedBadge;
+      } catch {
+        badge = null;
+      }
+      let inboundEntries: { from: string; note?: string }[] = [];
+      try {
+        const ib = (await ctx.run('inbound.get', { file: hit.file })) as {
+          entries: { from: string; note?: string }[];
+        };
+        inboundEntries = [...ib.entries];
+      } catch {
+        inboundEntries = [];
+      }
+      const prompt = badge?.prompt?.trim();
+      if (prompt !== undefined && prompt !== '') lines.push(`      prompt: ${prompt}`);
+      for (const m of hit.matches) {
+        lines.push(`      match (line ${m.line}): ${m.text}`);
+      }
+      const refs = badge?.references ?? [];
+      if (refs.length > 0) {
+        lines.push('      refs:');
+        for (const ref of refs) {
+          const note = ref.note?.trim();
+          lines.push(
+            note !== undefined && note !== ''
+              ? `        -> ${ref.to}  (note: ${note})`
+              : `        -> ${ref.to}`,
+          );
+        }
+      }
+      // Inbound notes carry the OTHER side's reasoning about this file — often
+      // exactly the context a retrieval-sourced brief is missing. Note-less
+      // inbound entries are topology only; skip them to keep the brief lean.
+      const notedInbound = inboundEntries.filter(
+        (e) => e.note !== undefined && e.note.trim() !== '',
+      );
+      if (notedInbound.length > 0) {
+        lines.push('      referenced-by:');
+        for (const e of notedInbound) {
+          lines.push(`        <- ${e.from}  (note: ${e.note?.trim() ?? ''})`);
+        }
+      }
+    }
+  }
+  lines.push(
+    '',
+    '# (Assembled by content search — each file inlines its human-written notes.',
+    '#  Files were matched by content, not curated; treat relevance accordingly.)',
+  );
+
+  return {
+    query: res.query,
+    brief: `${lines.join('\n')}\n`,
+    files: res.hits.map((h) => h.file),
+    ...(res.truncated === true && { truncated: true }),
+  };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
-  return [['search.query', query as unknown as Handler<never, unknown>]];
+  return [
+    ['search.query', query as unknown as Handler<never, unknown>],
+    ['search.brief', brief as unknown as Handler<never, unknown>],
+  ];
 }

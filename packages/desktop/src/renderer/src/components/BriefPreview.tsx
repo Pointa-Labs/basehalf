@@ -15,6 +15,7 @@
 
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space } from '../design.js';
+import { badgeMutations } from '../lib/badgeMutations.js';
 import { type BriefDisplay, briefForClipboard, parseBriefForDisplay } from '../lib/focusBrief.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { Button } from './primitives/Button.js';
@@ -30,6 +31,146 @@ interface BriefPreviewProps {
 const splitPath = (file: string): { base: string; dir: string } => {
   const i = file.lastIndexOf('/');
   return i >= 0 ? { base: file.slice(i + 1), dir: file.slice(0, i) } : { base: file, dir: '' };
+};
+
+/**
+ * The empty-prompt slot, made fixable in place. The popover is exactly where a
+ * user DISCOVERS their brief is thin — "No prompt yet" used to be a dead end
+ * that sent them hunting through the badge panel; now the disappointment moment
+ * is the fix moment. Writes through badge.set (badgeMutations), whose core
+ * cascade (focus.resync) refreshes focus.md — the parent re-reads the brief on
+ * save so the preview shows what the agent will now actually get.
+ */
+const GhostPromptEditor = ({
+  file,
+  onSaved,
+  registerSave,
+}: {
+  file: string;
+  onSaved: () => void;
+  /** Hands every badge.set promise to the parent so "Copy brief" can await
+   *  in-flight ghost saves — a note typed here then immediately copied must
+   *  be IN the copied brief, not racing it. */
+  registerSave: (p: Promise<unknown>) => void;
+}): JSX.Element => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  // Unmount flush: dismissing the popover (outside click / Esc on the canvas)
+  // unmounts the textarea WITHOUT firing onBlur — a typed-but-uncommitted note
+  // would be silently lost (the exact trap the intent field guards against
+  // above). Refs carry the live values into the unmount cleanup; the write is
+  // fire-and-forget (no setState — we're unmounting) and idempotent against a
+  // commit already in flight (same value, same badge.set).
+  const editingRef = useRef(false);
+  const draftRef = useRef('');
+  editingRef.current = editing;
+  draftRef.current = draft;
+  const registerSaveRef = useRef(registerSave);
+  registerSaveRef.current = registerSave;
+  useEffect(
+    () => () => {
+      const next = draftRef.current.trim();
+      if (editingRef.current && next !== '') {
+        const p = badgeMutations.setPrompt(file, next, 'brief-preview').catch(() => undefined);
+        registerSaveRef.current(p);
+        void p;
+      }
+    },
+    [file],
+  );
+
+  const commit = (): void => {
+    const next = draft.trim();
+    if (next === '') {
+      setEditing(false); // nothing typed — back to the ghost, no write
+      return;
+    }
+    setSaving(true);
+    const p = badgeMutations.setPrompt(file, next, 'brief-preview');
+    registerSave(p.catch(() => undefined));
+    void p
+      .then(() => {
+        setSaving(false);
+        setEditing(false);
+        onSaved();
+      })
+      .catch((err) => {
+        setSaving(false);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        data-testid={`brief-ghost-prompt-${file}`}
+        style={{
+          display: 'block',
+          marginTop: 1,
+          padding: 0,
+          border: 'none',
+          background: 'transparent',
+          color: color.textTertiary,
+          fontStyle: 'italic',
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          lineHeight: 1.5,
+          cursor: 'text',
+          textAlign: 'left',
+        }}
+      >
+        No note yet — click to add one.
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: space[1] }}>
+      <textarea
+        // biome-ignore lint/a11y/noAutofocus: the user just clicked "add a note" — focus IS the requested action
+        autoFocus
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            e.currentTarget.blur(); // commit via onBlur
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft('');
+            setEditing(false);
+          }
+        }}
+        rows={2}
+        placeholder="What should the agent know about this file?"
+        data-testid={`brief-ghost-input-${file}`}
+        style={{
+          width: '100%',
+          resize: 'none',
+          boxSizing: 'border-box',
+          background: color.bg,
+          border: `1px solid ${color.accentSoft}`,
+          borderRadius: radius.md,
+          padding: `${space[1]}px ${space[2]}px`,
+          color: color.textPrimary,
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          lineHeight: 1.5,
+          outline: 'none',
+        }}
+      />
+      {error && (
+        <span style={{ color: color.warning, fontSize: font.size.micro }}>
+          Couldn't save — {error}
+        </span>
+      )}
+    </div>
+  );
 };
 
 export const BriefPreview = ({
@@ -51,6 +192,16 @@ export const BriefPreview = ({
   const dirtyRef = useRef(false); // the user has typed since this open
   // In-flight save → resolves true once persisted, false if the write failed.
   const savePromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  // Bumped when a ghost-prompt save lands — re-reads the brief so the preview
+  // reflects the note the agent will now actually get (badge.set's core
+  // cascade already refreshed focus.md by the time the save resolves).
+  const [reloadTick, setReloadTick] = useState(0);
+  // In-flight ghost-prompt saves (note typed → blur fires badge.set). Copy
+  // awaits these alongside the intent flush: blur runs before the Copy click,
+  // so the promise is registered here by the time copyAfterSave reads it —
+  // the copied brief always contains the note the user just typed. Reset per
+  // open (a fresh popover starts with no pending writes of its own).
+  const ghostSavesRef = useRef<Promise<unknown>[]>([]);
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
   // RESET to a loading state first, so a reopen never shows (or lets you type
@@ -59,6 +210,7 @@ export const BriefPreview = ({
   // consistent with it — and we do NOT reset savePromiseRef, so a Copy right
   // after a reopen still awaits that real pending write. Seeds the draft only
   // when the user hasn't started typing.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadTick is a deliberate re-read trigger (ghost-prompt save → re-fetch the brief); the body reads nothing from it
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -67,6 +219,7 @@ export const BriefPreview = ({
     setBrief(null); // → "Loading…"; hides the (stale) textarea until fresh data lands
     setRaw('');
     dirtyRef.current = false;
+    ghostSavesRef.current = [];
     void (async () => {
       try {
         await savePromiseRef.current.catch(() => {}); // let a pending save land first
@@ -93,7 +246,7 @@ export const BriefPreview = ({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, reloadTick]);
 
   // Persist the typed intent (focus.setIntent preserves the active set + clears
   // view provenance) when it actually changed. Returns a promise that resolves
@@ -156,13 +309,19 @@ export const BriefPreview = ({
     void flushRef.current();
   }, [open]);
 
-  // Copy must reflect the latest intent: commit any pending edit, and only copy
-  // once it actually persisted (a failed save shows its error instead).
+  // Copy must reflect the latest edits: commit any pending intent edit AND let
+  // in-flight ghost-prompt saves land (their core cascade refreshes focus.md),
+  // then copy — which re-reads the brief from disk, now complete. A failed
+  // intent save shows its error instead of copying.
   const copyAfterSave = useCallback((): void => {
     if (brief === null) return; // not loaded — nothing meaningful to copy yet
-    void flushIntent().then((ok) => {
-      if (ok) onCopy();
-    });
+    const pendingGhosts = ghostSavesRef.current;
+    ghostSavesRef.current = [];
+    void Promise.allSettled(pendingGhosts)
+      .then(() => flushIntent())
+      .then((ok) => {
+        if (ok) onCopy();
+      });
   }, [flushIntent, onCopy, brief]);
 
   if (!open) return null;
@@ -171,6 +330,11 @@ export const BriefPreview = ({
   // blank panel; the content is still there, just unstyled.
   const parsedNothing = brief !== null && !brief.intent && brief.items.length === 0 && !brief.empty;
   const showRaw = parsedNothing && raw.trim().length > 0;
+  // Files in context that carry NO note — for these the agent gets a bare
+  // filename. Surfaced in the header at the exact moment the user is about to
+  // commit to this brief, so a thin hand-off never happens silently.
+  const noteless =
+    brief === null ? 0 : brief.items.filter((i) => !i.prompt || i.prompt.trim() === '').length;
 
   return (
     <PopoverSurface
@@ -200,6 +364,15 @@ export const BriefPreview = ({
           }}
         >
           What your agent reads
+          {noteless > 0 && (
+            <span
+              data-testid="brief-thin-warning"
+              style={{ color: color.warning, textTransform: 'none', letterSpacing: 0 }}
+            >
+              {' '}
+              — {noteless} {noteless === 1 ? 'file has' : 'files have'} no notes yet
+            </span>
+          )}
         </div>
 
         {error ? (
@@ -315,11 +488,11 @@ export const BriefPreview = ({
                           {item.prompt}
                         </div>
                       ) : (
-                        <div
-                          style={{ color: color.textTertiary, fontStyle: 'italic', marginTop: 1 }}
-                        >
-                          No prompt yet.
-                        </div>
+                        <GhostPromptEditor
+                          file={item.file}
+                          onSaved={() => setReloadTick((n) => n + 1)}
+                          registerSave={(p) => ghostSavesRef.current.push(p)}
+                        />
                       )}
                       {item.refs.length > 0 && (
                         <div

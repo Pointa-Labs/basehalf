@@ -29,12 +29,16 @@ import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actions.js';
+import {
+  copyAgentBrief,
+  createDemoAtDefault,
+  promptForNewNote,
+  tildifyPath,
+} from '../lib/actions.js';
 import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
-import { confirm, prompt } from './Dialog.js';
 
 interface CommandPaletteStore {
   open: boolean;
@@ -54,42 +58,9 @@ export function closeCommandPalette(): void {
   usePaletteStore.getState().setOpen(false);
 }
 
-// Workspace management lives in the palette (the sidebar header is just the
-// location label now). These read live state via getState() so the palette's
-// action list doesn't have to depend on them. The palette closes BEFORE the
-// action runs, so the dialog opens cleanly over the dimmed canvas.
-async function renameActiveWorkspace(): Promise<void> {
-  const { current, workspaces, renameWorkspace } = useWorkspaceStore.getState();
-  if (!current) return;
-  const next = await prompt({
-    title: `Rename workspace "${current}"`,
-    body: 'Changes the display name only — the folder path and its .bh/ are untouched.',
-    label: 'New name',
-    defaultValue: current,
-    placeholder: 'e.g. school-spring-2026',
-    validate: (v) => {
-      const t = v.trim();
-      if (t.length === 0) return 'A name is required.';
-      if (t === current) return null;
-      if (workspaces.some((w) => w.name === t)) return `Name "${t}" is already in use.`;
-      return null;
-    },
-  });
-  const trimmed = next?.trim();
-  if (trimmed && trimmed !== current) void renameWorkspace(current, trimmed);
-}
-
-async function removeActiveWorkspace(): Promise<void> {
-  const { current, remove } = useWorkspaceStore.getState();
-  if (!current) return;
-  const ok = await confirm({
-    title: `Remove workspace "${current}"?`,
-    body: 'The folder and its files stay on disk; only the registration is removed.',
-    confirmText: 'Remove',
-    destructive: true,
-  });
-  if (ok) void remove(current);
-}
+// Workspace management (rename / remove) deliberately does NOT live here — those
+// are rare, destructive ops, and the palette's job is the everyday loop (open a
+// file, copy the brief). They live in the File menu (see lib/actions.ts).
 
 interface Action {
   /** Stable id used as React key and for navigation focus. */
@@ -245,15 +216,41 @@ export const CommandPalette = (): JSX.Element | null => {
     };
   }, [open, current]);
 
+  // How many files are in the agent context (focus.md) — fetched on open so the
+  // "Copy agent brief" action only shows when there is actually a brief to copy
+  // (copying an empty focus would put nothing on the clipboard and read as a
+  // broken action).
+  const [focusCount, setFocusCount] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    setFocusCount(0);
+    if (current === null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = (await window.bh.run('focus.get', {})) as { active: string[] };
+        if (!cancelled) setFocusCount(r.active.length);
+      } catch {
+        // Leave 0 — the action simply doesn't show this open.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, current]);
+
   const [query, setQuery] = useState('');
   // Debounced full-text content search. Fires only once the user pauses (180ms)
-  // on a query of ≥2 chars in a real workspace — so we don't read every file's
-  // bytes on each keystroke. Stale results are guarded by the `cancelled` flag
-  // plus the `hitsQuery` gate where the rows are built.
+  // on a query of ≥3 chars in a real workspace — so we don't read every file's
+  // bytes on each keystroke, and 1–2 char queries (which match nearly every
+  // file) never flood the list with low-signal content rows. Name/path/prompt
+  // fuzzy matching still fires from the first character. Stale results are
+  // guarded by the `cancelled` flag plus the `hitsQuery` gate where the rows
+  // are built.
   useEffect(() => {
     if (!open) return;
     const q = query.trim();
-    if (current === null || q.length < 2) {
+    if (current === null || q.length < 3) {
       setContentHits([]);
       setHitsQuery('');
       setHitsWorkspace(null);
@@ -366,14 +363,31 @@ export const CommandPalette = (): JSX.Element | null => {
       category: 'Action',
       run: () => void pickAndAdd(),
     });
-    out.push({
-      id: 'action:try-demo',
-      label: 'Try a demo workspace…',
-      hint: '~/BaseHalf-Demo',
-      category: 'Action',
-      run: () => void createDemoAtDefault(),
-    });
+    if (current === null) {
+      // Onboarding-only: once a real workspace is open, "try the demo" is
+      // noise competing with the actual workflow actions.
+      out.push({
+        id: 'action:try-demo',
+        label: 'Try a demo workspace…',
+        hint: '~/BaseHalf-Demo',
+        category: 'Action',
+        run: () => void createDemoAtDefault(),
+      });
+    }
     if (current !== null) {
+      // The loop's most important step, one keystroke away: copy exactly what
+      // the agent reads and paste it into any chat. Only offered when the
+      // context is non-empty (see focusCount above). The chip's "updated" dot
+      // clears when the stamp lands, so the copy confirms itself there.
+      if (focusCount > 0) {
+        out.push({
+          id: 'action:copy-brief',
+          label: 'Copy agent brief',
+          hint: `${focusCount} ${focusCount === 1 ? 'file' : 'files'} in context`,
+          category: 'Action',
+          run: () => void copyAgentBrief().catch(() => undefined),
+        });
+      }
       out.push({
         id: 'action:new-note',
         label: 'New note…',
@@ -381,22 +395,10 @@ export const CommandPalette = (): JSX.Element | null => {
         shortcut: `${MOD}N`,
         run: () => void promptForNewNote(),
       });
-      out.push({
-        id: 'action:rename-workspace',
-        label: 'Rename workspace…',
-        category: 'Action',
-        run: () => void renameActiveWorkspace(),
-      });
-      out.push({
-        id: 'action:remove-workspace',
-        label: 'Remove workspace…',
-        category: 'Action',
-        run: () => void removeActiveWorkspace(),
-      });
     }
 
     return out;
-  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
+  }, [workspaces, current, files, filesWorkspace, focusCount, use, openInPanel, pickAndAdd]);
 
   // The visible name/prompt rows + the highlight ranges for each row's label.
   // Two modes:
@@ -427,7 +429,18 @@ export const CommandPalette = (): JSX.Element | null => {
         .filter((a) => a.category === 'File' && rank.has(fileId(a)))
         .sort((a, b) => (rank.get(fileId(a)) ?? 0) - (rank.get(fileId(b)) ?? 0))
         .slice(0, EMPTY_RECENT_CAP);
-      return { filtered: recents.length > 0 ? recents : fallback(), matchMap: new Map() };
+      // "Copy agent brief" owns the zero-query TOP slot when a context exists:
+      // ⌘K → Enter → paste is the loop's tightest path, so it must not hide
+      // behind the recents — and with NO recents it must still lead the
+      // fallback (which already contains it among the actions; reorder, don't
+      // duplicate).
+      const copyBrief = actions.find((a) => a.id === 'action:copy-brief');
+      const head = copyBrief ? [copyBrief] : [];
+      const rows =
+        recents.length > 0
+          ? [...head, ...recents]
+          : [...head, ...fallback().filter((a) => a.id !== 'action:copy-brief')];
+      return { filtered: rows, matchMap: new Map() };
     }
 
     // Typed → score against label / path / prompt; keep the best, plus the
@@ -472,7 +485,7 @@ export const CommandPalette = (): JSX.Element | null => {
   const contentActions = useMemo<Action[]>(() => {
     const q = query.trim();
     // Only show hits that belong to the CURRENT (workspace, query) pair.
-    if (q.length < 2 || hitsQuery !== q || hitsWorkspace !== current) return [];
+    if (q.length < 3 || hitsQuery !== q || hitsWorkspace !== current) return [];
     const shownFiles = new Set(
       filtered.filter((a) => a.category === 'File').map((a) => a.id.slice('file:'.length)),
     );

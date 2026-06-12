@@ -146,8 +146,8 @@ export interface FocusInitResult {
 
 export interface FocusResyncArgs {
   /** When given, resync is a no-op unless this file is in the active list —
-   *  so a badge edit on an UNfocused file (e.g. eager materialize) doesn't
-   *  rewrite focus.md. Omit to force a resync of the whole active list. */
+   *  so a badge edit on an UNfocused file doesn't rewrite focus.md. Omit to
+   *  force a resync of the whole active list. */
   readonly file?: string;
 }
 export interface FocusResyncResult {
@@ -157,7 +157,7 @@ export interface FocusResyncResult {
 }
 
 export interface FocusReconcileNewFileArgs {
-  /** A newly-materialized file (workspace-relative). When the active focus is
+  /** A newly-created file (workspace-relative). When the active focus is
    *  folder-SOURCED and this file is under that folder, it's pulled into the
    *  brief (so "Focus this folder = read all its files" stays true for files
    *  added after focusing). No-op otherwise. */

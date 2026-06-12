@@ -150,7 +150,12 @@ describe('canvas card editor CSS', () => {
     expect(connectionEdgesSource).toContain('sourceHandle: fromSide');
     expect(connectionEdgesSource).toContain('targetHandle: toSide');
     expect(referenceEdgeSource).toContain('export const ReferenceEdge');
-    expect(referenceEdgeSource).toContain('{active && note && (');
+    // The note label reveals on hover/selection — including the no-note state,
+    // whose hover label teaches the double-click-to-annotate gesture — and the
+    // inline editor branch replaces the label while a note is being written.
+    expect(referenceEdgeSource).toContain('{editingNote ? (');
+    expect(referenceEdgeSource).toContain('(active || hover) && (');
+    expect(referenceEdgeSource).toContain("'Double-click to say why'");
   });
 
   it('locks the cursor while reconnecting an existing edge', () => {

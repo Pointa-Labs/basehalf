@@ -282,3 +282,78 @@ describe('search.query', () => {
     await expect(run(core, { query: 'x' })).rejects.toThrow(/no current workspace/i);
   });
 });
+
+describe('search.brief', () => {
+  type BriefResult = {
+    query: string;
+    brief: string;
+    files: readonly string[];
+    truncated?: boolean;
+  };
+  const runBrief = (core: ReturnType<typeof createCore>, args: object): Promise<BriefResult> =>
+    core.run<object, BriefResult>('search.brief', args);
+
+  it('assembles a Markdown brief with matches hydrated by badge prompt + ref notes', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'alpha needle here');
+      m.files.set('/v/b.md', 'unrelated');
+    });
+    await core.run('badge.set', { file: 'a.md', patch: { prompt: 'the source of truth' } });
+    await core.run('badge.addRef', { file: 'a.md', to: 'b.md', note: 'derives from it' });
+
+    const res = await runBrief(core, { query: 'needle' });
+    expect(res.query).toBe('needle');
+    expect(res.files).toEqual(['a.md']);
+    expect(res.brief).toContain('# bh search brief');
+    expect(res.brief).toContain('query: needle');
+    expect(res.brief).toContain('  - a.md');
+    expect(res.brief).toContain('prompt: the source of truth');
+    expect(res.brief).toContain('match (line 1): alpha needle here');
+    expect(res.brief).toContain('-> b.md  (note: derives from it)');
+  });
+
+  it('inlines noted inbound entries and skips note-less ones', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/target.md', 'the needle lives here');
+      m.files.set('/v/noted.md', 'x');
+      m.files.set('/v/bare.md', 'y');
+    });
+    await core.run('badge.addRef', { file: 'noted.md', to: 'target.md', note: 'why it matters' });
+    await core.run('badge.addRef', { file: 'bare.md', to: 'target.md' });
+
+    const res = await runBrief(core, { query: 'needle' });
+    expect(res.brief).toContain('<- noted.md  (note: why it matters)');
+    expect(res.brief).not.toContain('<- bare.md');
+  });
+
+  it('degrades to a plain match list when a hit has no badge (sparse overlay)', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/plain.md', 'needle without any badge');
+    });
+    const res = await runBrief(core, { query: 'needle' });
+    expect(res.files).toEqual(['plain.md']);
+    expect(res.brief).toContain('  - plain.md');
+    expect(res.brief).toContain('match (line 1): needle without any badge');
+    expect(res.brief).not.toContain('prompt:');
+    expect(res.brief).not.toContain('refs:');
+  });
+
+  it('returns an empty-results brief for a query with no matches', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'nothing relevant');
+    });
+    const res = await runBrief(core, { query: 'zzz-absent' });
+    expect(res.files).toEqual([]);
+    expect(res.brief).toContain('results:');
+    expect(res.brief).toContain('  (none)');
+  });
+
+  it('caps the brief to a context-sized file set (default 8) and flags truncated', async () => {
+    const { core } = await setup((m) => {
+      for (let i = 0; i < 12; i++) m.files.set(`/v/f${String(i).padStart(2, '0')}.md`, 'needle');
+    });
+    const res = await runBrief(core, { query: 'needle' });
+    expect(res.files).toHaveLength(8);
+    expect(res.truncated).toBe(true);
+  });
+});

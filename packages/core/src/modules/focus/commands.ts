@@ -348,7 +348,7 @@ export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = asyn
  * agent would keep reading the OLD inlined brief until the user re-set focus.
  * Wiring badge edits to focus.resync keeps the brief fresh everywhere, not
  * just in the desktop. No-op (no write) unless `args.file` is in the active
- * list, so eager-materialize badge writes don't churn focus.md.
+ * list, so badge writes on unfocused files don't churn focus.md.
  */
 export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
