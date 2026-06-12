@@ -246,31 +246,15 @@ describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSe
     expect(res.setup.claudeMdUpdated).toBe(true);
   });
 
-  it('does NOT plant copilot-instructions through a symlinked .github directory', async () => {
-    const fresh = join(base, 'wss5');
-    await mkdir(fresh, { recursive: true });
-    const outGithub = join(outside, 'evil-github');
-    await mkdir(outGithub, { recursive: true });
-    // `.github` itself is a symlink pointing outside — the parent-dir escape that
-    // the on-demand mkdir could otherwise follow.
-    await symlink(outGithub, join(fresh, '.github'));
-    const res = await core.run('workspace.add', { path: fresh, name: 'wss5', setup: true });
-    expect(res.setup.copilotMdSkipped).toBe(true);
-    expect(res.setup.copilotMdUpdated).toBe(false);
-    // Nothing planted in the outside dir the symlink pointed at.
-    expect(existsSync(join(outGithub, 'copilot-instructions.md'))).toBe(false);
-  });
-
-  it('installs AGENTS.md + copilot-instructions.md on a clean workspace (no false rejection)', async () => {
+  it('installs both hint files on a clean workspace, and ONLY them (no false rejection, no extra litter)', async () => {
     const fresh = join(base, 'wss6');
     await mkdir(fresh, { recursive: true });
     const res = await core.run('workspace.add', { path: fresh, name: 'wss6', setup: true });
     expect(res.setup.agentsMdUpdated).toBe(true);
-    expect(res.setup.copilotMdUpdated).toBe(true);
+    expect(res.setup.claudeMdUpdated).toBe(true);
     expect(await readFile(join(fresh, 'AGENTS.md'), 'utf8')).toContain('BaseHalf workspace');
-    expect(await readFile(join(fresh, '.github/copilot-instructions.md'), 'utf8')).toContain(
-      'BaseHalf workspace',
-    );
+    // The retired third target stays retired — no hidden directory conjured.
+    expect(existsSync(join(fresh, '.github'))).toBe(false);
   });
 });
 

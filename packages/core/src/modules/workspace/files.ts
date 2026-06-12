@@ -134,6 +134,13 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
 const isCanvasEntry = (entry: WorkspaceListFilesEntry): boolean =>
   entry.type === 'dir' ? !SKIP_NAMES.has(entry.name) : hasSupportedExt(entry.name);
 
+/** The agent-protocol pointer files setup installs at the workspace root.
+ *  They are scaffolding, not content — the canvas is the user's map of THEIR
+ *  material, so these don't get cards (the sidebar, which is the truthful
+ *  filesystem view, still shows them). Root level only: a nested AGENTS.md
+ *  is the user's own and stays visible. */
+const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
+
 /** Most child rows a folder card previews; the rest collapse to "+N more". Kept
  *  small so a folder of thousands never bloats the canvas payload — the card is a
  *  peek, not the folder. listFiles already sorts folders-first then alpha, so the
@@ -186,6 +193,7 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
   const badges: CanvasBadge[] = [];
   for (const entry of entries) {
     if (!isCanvasEntry(entry)) continue;
+    if (folder === null && entry.type === 'file' && AGENT_HINT_FILES.has(entry.name)) continue;
     const isDir = entry.type === 'dir';
     const rel = folder === null ? entry.name : toPosix(`${folder}/${entry.name}`);
     const kind = isDir ? 'folder' : 'file';

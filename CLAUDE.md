@@ -49,14 +49,17 @@ bh workspace rename <from> <to>              # change a workspace's name; path +
 `bh init` is the one-shot for a new project: registers the current directory,
 appends `.bh/cache/` to `.gitignore` (the rest of `.bh/` stays in git so
 canvas positions / metadata travel with the folder, per the architecture),
-and appends the same workspace-hint section to `CLAUDE.md`, `AGENTS.md`, and
-`.github/copilot-instructions.md` — between them the filenames the major coding
-agents read (Claude Code → `CLAUDE.md`; Codex / Aider / Zed / Warp / OpenCode /
-Cline / Cursor-fallback / … → `AGENTS.md`; in-IDE Copilot →
-`.github/copilot-instructions.md`), so whatever agent the user runs now or
-installs later picks up the curated brief with no per-tool setup. All three
-writes are non-destructive — marker-detected to be idempotent, existing content
-preserved, a symlinked target refused rather than clobbered.
+and appends the same workspace-hint section to `CLAUDE.md` and `AGENTS.md` —
+between them the filenames today's coding agents read (Claude Code →
+`CLAUDE.md`; Codex / Cursor / Windsurf / Cline / the Copilot coding agent / …
+→ `AGENTS.md`), so whatever agent the user runs now or installs later picks up
+the curated brief with no per-tool setup. (The old third target,
+`.github/copilot-instructions.md`, was retired once Copilot's agent learned to
+read `AGENTS.md` natively.) Both writes are non-destructive — marker-detected
+to be idempotent, existing content preserved, a symlinked target refused
+rather than clobbered. In the desktop UI these two files are scaffolding, not
+content: the canvas skips them; the sidebar shows them dimmed with an `AI`
+tag.
 
 Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
 (useful for tests / sandboxed runs). Default is OS-conventional:

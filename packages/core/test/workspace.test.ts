@@ -713,11 +713,9 @@ type SetupReport = {
   gitignoreUpdated: boolean;
   claudeMdUpdated: boolean;
   agentsMdUpdated: boolean;
-  copilotMdUpdated: boolean;
   gitignoreSkipped: boolean;
   claudeMdSkipped: boolean;
   agentsMdSkipped: boolean;
-  copilotMdSkipped: boolean;
   gitignoreAbsent: boolean;
 };
 
@@ -813,22 +811,17 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(files.get('/work/AGENTS.md')).toMatch(/\.bh\/focus\.md/);
   });
 
-  it('creates .github/copilot-instructions.md (nested dir made on demand)', async () => {
+  it('does NOT create .github/copilot-instructions.md (the agent reads AGENTS.md now)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
     const core = createCore({ fs, configDir: '/cfg' });
-    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
-      path: '/work',
-      name: 'w',
-      setup: true,
-    });
-    expect(r.setup.copilotMdUpdated).toBe(true);
-    expect(files.get('/work/.github/copilot-instructions.md')).toMatch(/bh:workspace-hint/);
-    // The .github/ parent must be created (production fs.writeFile won't do it).
-    expect(dirs.has('/work/.github')).toBe(true);
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+    // Two root files is the whole footprint — no conjured hidden directory.
+    expect(files.has('/work/.github/copilot-instructions.md')).toBe(false);
+    expect(dirs.has('/work/.github')).toBe(false);
   });
 
-  it('all three hint files carry the same brief (fan-out consistency)', async () => {
+  it('both hint files carry the same brief (fan-out consistency)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
     const core = createCore({ fs, configDir: '/cfg' });
@@ -836,10 +829,9 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     const marker = '<!-- bh:workspace-hint -->';
     const bodyOf = (s: string) => s.slice(s.indexOf(marker));
     const claude = bodyOf(files.get('/work/CLAUDE.md') ?? '');
-    // The section after the marker must be byte-identical across all three files
-    // — one brief, three landing spots. Diverging content is the bug this guards.
+    // The section after the marker must be byte-identical across both files
+    // — one brief, two landing spots. Diverging content is the bug this guards.
     expect(bodyOf(files.get('/work/AGENTS.md') ?? '')).toBe(claude);
-    expect(bodyOf(files.get('/work/.github/copilot-instructions.md') ?? '')).toBe(claude);
     // …and it still teaches both the file path and the CLI command for each leg.
     expect(claude).toContain('.bh/focus.md');
     expect(claude).toContain('bh search');
@@ -917,7 +909,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
   it('skips a hint file per-file: marker in AGENTS.md only, others still install', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
-    // AGENTS.md was already curated by a prior init; CLAUDE.md / copilot fresh.
+    // AGENTS.md was already curated by a prior init; CLAUDE.md fresh.
     files.set(
       '/work/AGENTS.md',
       '# AGENTS.md\n\n<!-- bh:workspace-hint -->\n## BaseHalf workspace\n\nold\n',
@@ -930,9 +922,8 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     });
     expect(r.setup.agentsMdSkipped).toBe(true);
     expect(r.setup.agentsMdUpdated).toBe(false);
-    // Skip is independent per file — the other two still get installed.
+    // Skip is independent per file — the other still gets installed.
     expect(r.setup.claudeMdUpdated).toBe(true);
-    expect(r.setup.copilotMdUpdated).toBe(true);
   });
 
   it('appends to an existing AGENTS.md (preserves prior content)', async () => {

@@ -91,8 +91,10 @@ export const Onboarding = ({ onAddFolder, onTryDemo }: OnboardingProps): JSX.Ele
         </div>
 
         <Step n={1} title="Pick a folder">
-          Your files stay where they are — each appears as a card on the canvas. BaseHalf only adds
-          a hidden <code style={codeStyle}>.bh/</code> directory inside.
+          Your files stay where they are — each appears as a card on the canvas. BaseHalf adds a
+          hidden <code style={codeStyle}>.bh/</code> directory, plus two small instruction files (
+          <code style={codeStyle}>CLAUDE.md</code>, <code style={codeStyle}>AGENTS.md</code>) that
+          tell AI agents where your notes live. Already have them? A short section is appended.
         </Step>
         <Step n={2} title="Open a file">
           Click any file in the sidebar or its card on the canvas to preview. Markdown opens in a

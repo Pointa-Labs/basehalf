@@ -50,6 +50,15 @@ interface RowProps {
   onDoubleClick?: () => void;
 }
 
+/** Root-level agent-protocol pointer files (setup installs them). The sidebar
+ *  is the truthful filesystem view, so they stay visible — but dimmed and
+ *  labeled, so a user who just opened a folder understands what they are at a
+ *  glance. (The canvas — the user's content map — skips them entirely.) */
+const isAgentHintFile = (depth: number, entry: WorkspaceListFilesEntry): boolean =>
+  depth === 0 &&
+  entry.type === 'file' &&
+  (entry.name === 'CLAUDE.md' || entry.name === 'AGENTS.md');
+
 const Row = ({
   depth,
   entry,
@@ -61,9 +70,16 @@ const Row = ({
   const [hover, setHover] = useState(false);
   const isDir = entry.type === 'dir';
   const indent = space[2] + depth * 14;
+  const agentHint = isAgentHintFile(depth, entry);
 
   const bg = isSelected ? color.accentSofter : hover ? color.divider : 'transparent';
-  const fg = isSelected ? color.accent : isDir ? color.textPrimary : color.textSecondary;
+  const fg = isSelected
+    ? color.accent
+    : agentHint
+      ? color.textGhost
+      : isDir
+        ? color.textPrimary
+        : color.textSecondary;
   const weight = isSelected ? font.weight.medium : font.weight.regular;
 
   const style: CSSProperties = {
@@ -94,7 +110,11 @@ const Row = ({
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      title={entry.name}
+      title={
+        agentHint
+          ? `${entry.name} — instructions AI agents read when working in this folder (installed by BaseHalf)`
+          : entry.name
+      }
       data-selected={isSelected ? 'true' : 'false'}
       className="bh-nav-row"
       style={style}
@@ -131,6 +151,25 @@ const Row = ({
       >
         {entry.name}
       </span>
+      {agentHint && (
+        <span
+          aria-hidden
+          style={{
+            marginLeft: 'auto',
+            flexShrink: 0,
+            fontSize: 9,
+            fontWeight: font.weight.medium,
+            letterSpacing: font.trackedCaps,
+            color: color.textGhost,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.pill,
+            padding: '0px 5px',
+            lineHeight: '12px',
+          }}
+        >
+          AI
+        </span>
+      )}
     </button>
   );
 };

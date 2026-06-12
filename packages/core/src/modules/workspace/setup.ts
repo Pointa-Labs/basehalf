@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   type FsLike,
   assertReadContained,
@@ -17,13 +17,15 @@ import type { SetupReport } from './types.js';
  *    views, index, focus.md, decisions) are kept in git so they travel
  *    with the folder (IR-v2-06). If no .gitignore (no git repo yet),
  *    reports `gitignoreAbsent: true` and skips.
- *  - Agent hints: appends the same workspace-hint section to CLAUDE.md,
- *    AGENTS.md, and .github/copilot-instructions.md — the three filenames
- *    that, between them, the major coding agents read (Claude Code →
- *    CLAUDE.md; Codex/Aider/Zed/Warp/OpenCode/Cline/Cursor-fallback/… →
- *    AGENTS.md; in-IDE Copilot → .github/copilot-instructions.md). One
- *    curated brief, dropped where each agent already looks — no per-tool
- *    config, no MCP server required for the file-reading path. Each file is
+ *  - Agent hints: appends the same workspace-hint section to CLAUDE.md and
+ *    AGENTS.md — the two filenames that, between them, today's coding agents
+ *    read (Claude Code → CLAUDE.md, the only file it reliably reads as of
+ *    mid-2026; Codex/Cursor/Windsurf/Cline/the Copilot coding agent/… →
+ *    AGENTS.md). The old third target, .github/copilot-instructions.md, is
+ *    no longer written: Copilot's agent reads AGENTS.md (and CLAUDE.md)
+ *    natively now, and conjuring a hidden directory into the user's folder
+ *    was the worst of the litter. Two root files is the honest minimum; the
+ *    day Claude Code reads AGENTS.md natively, collapse to one. Each file is
  *    guarded by a marker so re-running `bh init` is idempotent (CLAUDE.md
  *    also detects the legacy `bh:recall-hint` marker). Files are created if
  *    missing; existing content is preserved (the hint is appended).
@@ -38,6 +40,11 @@ const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
 // with a shell) — so it lands whether or not the agent can run commands. Usage
 // beyond this is a versionable skill, not frozen prose baked into every workspace.
 const HINT_BODY = `## BaseHalf workspace
+
+> Added by [BaseHalf](https://github.com/Pointa-Labs/basehalf) when this folder
+> was opened as a workspace — it tells AI coding agents where the user's
+> curated context lives. Your own content above/below is untouched; delete
+> this section if you don't want agents reading that context.
 
 This folder is a BaseHalf workspace. **At the start of every turn, read
 \`.bh/focus.md\`** — a self-contained turn brief the app keeps fresh (it never points
@@ -68,7 +75,7 @@ proposals file, which holds your observations.`;
 // the marker; trailing newline so the file ends clean.
 const HINT_SECTION = `\n${HINT_MARKER}\n${HINT_BODY}\n`;
 
-/** One agent-hint file to install. Same body, three landing spots. */
+/** One agent-hint file to install. Same body, two landing spots. */
 interface HintTarget {
   /** Workspace-relative path (POSIX `/`; `join` localizes it). */
   readonly relPath: string;
@@ -76,31 +83,24 @@ interface HintTarget {
   readonly emptyBase: string;
   /** An older marker that also counts as "already installed" (skip). */
   readonly legacyMarker?: string;
-  /** Whether the parent dir may be missing and must be `mkdir`'d first
-   *  (production `fs.writeFile` won't create `.github/`). */
-  readonly needsParentDir?: boolean;
 }
 
+// When WE create the file, the heading explains what the file is — a user
+// who finds it in their folder should understand it at a glance.
 const CLAUDE_TARGET: HintTarget = {
   relPath: 'CLAUDE.md',
-  emptyBase: '# CLAUDE.md\n',
+  emptyBase: '# CLAUDE.md\n\nInstructions AI coding agents read when working in this folder.\n',
   legacyMarker: LEGACY_CLAUDE_HINT_MARKER,
 };
 const AGENTS_TARGET: HintTarget = {
   relPath: 'AGENTS.md',
-  emptyBase: '# AGENTS.md\n',
-};
-const COPILOT_TARGET: HintTarget = {
-  relPath: '.github/copilot-instructions.md',
-  emptyBase: '# Copilot instructions\n',
-  needsParentDir: true,
+  emptyBase: '# AGENTS.md\n\nInstructions AI coding agents read when working in this folder.\n',
 };
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {
   const gitignore = await updateGitignore(fs, workspaceRoot);
   const claude = await installHint(fs, workspaceRoot, CLAUDE_TARGET);
   const agents = await installHint(fs, workspaceRoot, AGENTS_TARGET);
-  const copilot = await installHint(fs, workspaceRoot, COPILOT_TARGET);
 
   return {
     ...gitignore,
@@ -108,8 +108,6 @@ export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<Setup
     claudeMdSkipped: claude.skipped,
     agentsMdUpdated: agents.updated,
     agentsMdSkipped: agents.skipped,
-    copilotMdUpdated: copilot.updated,
-    copilotMdSkipped: copilot.skipped,
   };
 }
 
@@ -180,11 +178,6 @@ async function installHint(
       return { updated: false, skipped: true };
     }
     const writeAbs = await assertWriteContained(fs, workspaceRoot, lexical);
-    if (target.needsParentDir) {
-      // assertWriteContained already proved the parent is contained and not a
-      // symlink leaf, so mkdir-ing it can't escape the root. recursive → idempotent.
-      await fs.mkdir(dirname(writeAbs), { recursive: true });
-    }
     const base = current ?? target.emptyBase;
     const trailingNewline = base.endsWith('\n') ? '' : '\n';
     await writeMaybeNoFollow(fs, writeAbs, `${base}${trailingNewline}${HINT_SECTION}`);

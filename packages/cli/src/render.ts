@@ -12,11 +12,9 @@ type SetupReport = {
   gitignoreUpdated: boolean;
   claudeMdUpdated: boolean;
   agentsMdUpdated: boolean;
-  copilotMdUpdated: boolean;
   gitignoreSkipped: boolean;
   claudeMdSkipped: boolean;
   agentsMdSkipped: boolean;
-  copilotMdSkipped: boolean;
   gitignoreAbsent: boolean;
 };
 
@@ -165,13 +163,11 @@ function renderHintSetup(s: SetupReport): void {
   const installed: string[] = [];
   if (s.claudeMdUpdated) installed.push('CLAUDE.md');
   if (s.agentsMdUpdated) installed.push('AGENTS.md');
-  if (s.copilotMdUpdated) installed.push('.github/copilot-instructions.md');
   if (installed.length > 0)
     process.stdout.write(`  setup:   agent hint installed in ${installed.join(', ')}\n`);
   const present: string[] = [];
   if (s.claudeMdSkipped) present.push('CLAUDE.md');
   if (s.agentsMdSkipped) present.push('AGENTS.md');
-  if (s.copilotMdSkipped) present.push('.github/copilot-instructions.md');
   if (present.length > 0)
     process.stdout.write(`  setup:   agent hint already in ${present.join(', ')}\n`);
 }

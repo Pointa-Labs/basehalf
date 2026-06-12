@@ -51,16 +51,12 @@ export interface SetupReport {
   readonly claudeMdUpdated: boolean;
   /** Workspace-hint section added to AGENTS.md (the cross-tool convention). */
   readonly agentsMdUpdated: boolean;
-  /** Workspace-hint section added to .github/copilot-instructions.md (in-IDE Copilot). */
-  readonly copilotMdUpdated: boolean;
   /** `.gitignore` already had `.bh/cache/` — skipped. */
   readonly gitignoreSkipped: boolean;
   /** CLAUDE.md already had the hint marker (or a symlink was refused) — skipped. */
   readonly claudeMdSkipped: boolean;
   /** AGENTS.md already had the hint marker (or a symlink was refused) — skipped. */
   readonly agentsMdSkipped: boolean;
-  /** .github/copilot-instructions.md already had the hint marker (or refused) — skipped. */
-  readonly copilotMdSkipped: boolean;
   /** No .gitignore (no git repo or not yet initialized) — skipped, with note. */
   readonly gitignoreAbsent: boolean;
 }

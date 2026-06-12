@@ -53,6 +53,24 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     expect(inside).toEqual(['sub/deep.md']);
   });
 
+  it('hides root-level agent-protocol pointer files; nested ones are user content', async () => {
+    await openWorkspace(ctx, {
+      dirs: ['docs'],
+      files: {
+        'CLAUDE.md': '# hint',
+        'AGENTS.md': '# hint',
+        'note.md': '',
+        'docs/AGENTS.md': '# the user wrote this one on purpose',
+      },
+    });
+    // Scaffolding, not content: the canvas (the user's map) skips them at root…
+    const root = (await listCanvas(ctx, null)).map((b) => b.file).sort();
+    expect(root).toEqual(['docs', 'note.md']);
+    // …but a nested AGENTS.md is the user's own file and stays visible.
+    const inside = (await listCanvas(ctx, 'docs')).map((b) => b.file);
+    expect(inside).toEqual(['docs/AGENTS.md']);
+  });
+
   it('marks subfolders kind:folder and files kind:file', async () => {
     await openWorkspace(ctx, { dirs: ['notes'], files: { 'a.md': '' } });
     const badges = await listCanvas(ctx, null);
