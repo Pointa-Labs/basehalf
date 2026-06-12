@@ -1238,7 +1238,7 @@ export const Canvas = (): JSX.Element => {
         !workspaceHasAnyPrompt &&
         !annotateHintDismissed &&
         !emptyHint &&
-        nodes.some((n) => n.data.kind === 'file') && (
+        nodes.length > 0 && (
           <div
             data-testid="annotate-hint-card"
             role="status"
@@ -1274,8 +1274,17 @@ export const Canvas = (): JSX.Element => {
               <Button
                 variant="primary"
                 onClick={() => {
+                  // Root has direct files → open the first one's badge panel.
+                  // Folder-only root (files all nested) → step INTO the first
+                  // folder; the editor strip and folder chrome take it from
+                  // there.
                   const firstFile = nodes.find((n) => n.data.kind === 'file');
-                  if (firstFile) openBadgeInPanel(firstFile.id);
+                  if (firstFile) {
+                    openBadgeInPanel(firstFile.id);
+                    return;
+                  }
+                  const firstFolder = nodes.find((n) => n.data.kind === 'folder');
+                  if (firstFolder) setFolderScope(firstFolder.id);
                 }}
               >
                 Add a note

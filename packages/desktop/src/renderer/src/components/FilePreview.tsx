@@ -299,7 +299,13 @@ const AgentNoteStrip = ({
   const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const dismissKey = `${wsPath}:${file}`;
   const [dismissed, setDismissed] = useState(() => noteStripDismissed.has(dismissKey));
-  const hasNote = fb.prompt.trim() !== '';
+  // The input mode must be STICKY while the user types: the textarea is a
+  // controlled view of fb.prompt, so without this latch the first keystroke
+  // would flip hasNote → true and re-render into the read-only strip,
+  // unmounting the textarea after one character. Drafting starts on focus and
+  // ends only when the blur-flush commits.
+  const [drafting, setDrafting] = useState(false);
+  const hasNote = fb.prompt.trim() !== '' && !drafting;
 
   if (fb.loading) return null;
 
@@ -364,8 +370,11 @@ const AgentNoteStrip = ({
           </div>
           <textarea
             value={fb.prompt}
+            onFocus={() => setDrafting(true)}
             onChange={(e) => fb.onPromptChange(e.target.value)}
-            onBlur={() => void fb.flushPrompt()}
+            onBlur={() => {
+              void fb.flushPrompt().finally(() => setDrafting(false));
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();

@@ -44,7 +44,15 @@ const splitPath = (file: string): { base: string; dir: string } => {
 const GhostPromptEditor = ({
   file,
   onSaved,
-}: { file: string; onSaved: () => void }): JSX.Element => {
+  registerSave,
+}: {
+  file: string;
+  onSaved: () => void;
+  /** Hands every badge.set promise to the parent so "Copy brief" can await
+   *  in-flight ghost saves — a note typed here then immediately copied must
+   *  be IN the copied brief, not racing it. */
+  registerSave: (p: Promise<unknown>) => void;
+}): JSX.Element => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
@@ -59,11 +67,15 @@ const GhostPromptEditor = ({
   const draftRef = useRef('');
   editingRef.current = editing;
   draftRef.current = draft;
+  const registerSaveRef = useRef(registerSave);
+  registerSaveRef.current = registerSave;
   useEffect(
     () => () => {
       const next = draftRef.current.trim();
       if (editingRef.current && next !== '') {
-        void badgeMutations.setPrompt(file, next, 'brief-preview').catch(() => undefined);
+        const p = badgeMutations.setPrompt(file, next, 'brief-preview').catch(() => undefined);
+        registerSaveRef.current(p);
+        void p;
       }
     },
     [file],
@@ -76,8 +88,9 @@ const GhostPromptEditor = ({
       return;
     }
     setSaving(true);
-    void badgeMutations
-      .setPrompt(file, next, 'brief-preview')
+    const p = badgeMutations.setPrompt(file, next, 'brief-preview');
+    registerSave(p.catch(() => undefined));
+    void p
       .then(() => {
         setSaving(false);
         setEditing(false);
@@ -183,6 +196,12 @@ export const BriefPreview = ({
   // reflects the note the agent will now actually get (badge.set's core
   // cascade already refreshed focus.md by the time the save resolves).
   const [reloadTick, setReloadTick] = useState(0);
+  // In-flight ghost-prompt saves (note typed → blur fires badge.set). Copy
+  // awaits these alongside the intent flush: blur runs before the Copy click,
+  // so the promise is registered here by the time copyAfterSave reads it —
+  // the copied brief always contains the note the user just typed. Reset per
+  // open (a fresh popover starts with no pending writes of its own).
+  const ghostSavesRef = useRef<Promise<unknown>[]>([]);
 
   // Re-read on every open so the preview reflects the latest badge/focus edits.
   // RESET to a loading state first, so a reopen never shows (or lets you type
@@ -200,6 +219,7 @@ export const BriefPreview = ({
     setBrief(null); // → "Loading…"; hides the (stale) textarea until fresh data lands
     setRaw('');
     dirtyRef.current = false;
+    ghostSavesRef.current = [];
     void (async () => {
       try {
         await savePromiseRef.current.catch(() => {}); // let a pending save land first
@@ -289,13 +309,19 @@ export const BriefPreview = ({
     void flushRef.current();
   }, [open]);
 
-  // Copy must reflect the latest intent: commit any pending edit, and only copy
-  // once it actually persisted (a failed save shows its error instead).
+  // Copy must reflect the latest edits: commit any pending intent edit AND let
+  // in-flight ghost-prompt saves land (their core cascade refreshes focus.md),
+  // then copy — which re-reads the brief from disk, now complete. A failed
+  // intent save shows its error instead of copying.
   const copyAfterSave = useCallback((): void => {
     if (brief === null) return; // not loaded — nothing meaningful to copy yet
-    void flushIntent().then((ok) => {
-      if (ok) onCopy();
-    });
+    const pendingGhosts = ghostSavesRef.current;
+    ghostSavesRef.current = [];
+    void Promise.allSettled(pendingGhosts)
+      .then(() => flushIntent())
+      .then((ok) => {
+        if (ok) onCopy();
+      });
   }, [flushIntent, onCopy, brief]);
 
   if (!open) return null;
@@ -465,6 +491,7 @@ export const BriefPreview = ({
                         <GhostPromptEditor
                           file={item.file}
                           onSaved={() => setReloadTick((n) => n + 1)}
+                          registerSave={(p) => ghostSavesRef.current.push(p)}
                         />
                       )}
                       {item.refs.length > 0 && (

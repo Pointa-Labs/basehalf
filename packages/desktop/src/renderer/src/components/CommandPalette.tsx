@@ -431,13 +431,16 @@ export const CommandPalette = (): JSX.Element | null => {
         .slice(0, EMPTY_RECENT_CAP);
       // "Copy agent brief" owns the zero-query TOP slot when a context exists:
       // ⌘K → Enter → paste is the loop's tightest path, so it must not hide
-      // behind the recents.
+      // behind the recents — and with NO recents it must still lead the
+      // fallback (which already contains it among the actions; reorder, don't
+      // duplicate).
       const copyBrief = actions.find((a) => a.id === 'action:copy-brief');
       const head = copyBrief ? [copyBrief] : [];
-      return {
-        filtered: recents.length > 0 ? [...head, ...recents] : fallback(),
-        matchMap: new Map(),
-      };
+      const rows =
+        recents.length > 0
+          ? [...head, ...recents]
+          : [...head, ...fallback().filter((a) => a.id !== 'action:copy-brief')];
+      return { filtered: rows, matchMap: new Map() };
     }
 
     // Typed → score against label / path / prompt; keep the best, plus the
