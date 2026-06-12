@@ -115,6 +115,14 @@ export const ReferenceEdge = ({
   const { getNode, screenToFlowPosition } = useReactFlow();
   const [hover, setHover] = useState(false);
   const [reconnect, setReconnect] = useState<EdgeReconnectState | null>(null);
+  // Inline note editing — double-click the line, type WHY these two connect,
+  // Enter. The note is the edge's whole value to the brief (an arrow without
+  // one ships structure but no meaning), so writing it must not cost a trip
+  // through the badge panel. Commits through the same reconnectRef path a
+  // reconnect drag uses (endpoints unchanged, note swapped).
+  const [editingNote, setEditingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const hitPathRef = useRef<SVGPathElement>(null);
   const releaseReconnectCursorRef = useRef<(() => void) | null>(null);
   const interactionData = data as ReferenceEdgeInteractionData | undefined;
@@ -193,8 +201,32 @@ export const ReferenceEdge = ({
     [id, interactionData, note, source, sourceHandleId, target, targetHandleId],
   );
 
+  const beginNoteEdit = useCallback((): void => {
+    setNoteDraft(note ?? '');
+    setEditingNote(true);
+    // Focus once the textarea mounts (the editor renders on the next commit).
+    requestAnimationFrame(() => noteInputRef.current?.focus());
+  }, [note]);
+
+  const commitNoteEdit = useCallback((): void => {
+    setEditingNote(false);
+    const next = noteDraft.trim();
+    if (next === (note ?? '')) return; // unchanged (including still-empty)
+    interactionData?.onReferenceEdgeUpdate?.({
+      previousId: id,
+      previousSource: source,
+      previousTarget: target,
+      source,
+      target,
+      sourceHandle: sourceSide,
+      targetHandle: targetSide,
+      note: next === '' ? undefined : next,
+    });
+  }, [id, interactionData, note, noteDraft, source, sourceSide, target, targetSide]);
+
   const beginReconnect = (event: PointerEvent<SVGPathElement>): void => {
     if (event.button !== 0) return;
+    if (editingNote) return;
     const path = hitPathRef.current;
     if (!path) return;
 
@@ -321,32 +353,94 @@ export const ReferenceEdge = ({
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onPointerDown={beginReconnect}
+        onDoubleClick={(event) => {
+          // Double-click = annotate, right where the relationship is visible.
+          // Stop the canvas's zoom-on-double-click from eating the gesture.
+          event.preventDefault();
+          event.stopPropagation();
+          if (reconnect) return; // never open the editor mid-reconnect-drag
+          beginNoteEdit();
+        }}
       />
-      {active && note && (
+      {editingNote ? (
         <EdgeLabelRenderer>
           <div
+            className="nodrag nopan nowheel"
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${displayLabelX}px, ${displayLabelY}px)`,
-              pointerEvents: 'none',
-              padding: `${space[0.5]}px ${space[2]}px`,
-              borderRadius: radius.sm,
-              background: color.surface,
-              border: `1px solid ${color.border}`,
-              boxShadow: shadow.card,
-              fontSize: font.size.micro,
-              fontFamily: font.sans,
-              fontWeight: font.weight.medium,
-              color: color.textSecondary,
-              whiteSpace: 'nowrap',
-              maxWidth: 240,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
+              pointerEvents: 'all',
+              zIndex: 10,
             }}
           >
-            {note ?? ''}
+            <textarea
+              ref={noteInputRef}
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              onBlur={commitNoteEdit}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation(); // Delete/Backspace must edit text, not delete the edge
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  commitNoteEdit();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setEditingNote(false); // cancel — draft discarded
+                }
+              }}
+              rows={2}
+              placeholder="Say why these connect"
+              aria-label="Reference note — why these files connect"
+              data-testid={`edge-note-input-${id}`}
+              style={{
+                width: 220,
+                resize: 'none',
+                boxSizing: 'border-box',
+                padding: `${space[1]}px ${space[2]}px`,
+                borderRadius: radius.md,
+                background: color.surface,
+                border: `1px solid ${color.accent}`,
+                boxShadow: shadow.raised,
+                fontSize: font.size.micro,
+                fontFamily: font.sans,
+                color: color.textPrimary,
+                lineHeight: 1.45,
+                outline: 'none',
+              }}
+            />
           </div>
         </EdgeLabelRenderer>
+      ) : (
+        (active || hover) && (
+          <EdgeLabelRenderer>
+            <div
+              title={note ? 'Double-click the line to edit this note' : undefined}
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${displayLabelX}px, ${displayLabelY}px)`,
+                pointerEvents: 'none',
+                padding: `${space[0.5]}px ${space[2]}px`,
+                borderRadius: radius.sm,
+                background: color.surface,
+                border: `1px solid ${color.border}`,
+                boxShadow: shadow.card,
+                fontSize: font.size.micro,
+                fontFamily: font.sans,
+                fontWeight: font.weight.medium,
+                color: note ? color.textSecondary : color.textTertiary,
+                whiteSpace: 'nowrap',
+                maxWidth: 240,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                ...(note ? {} : { fontStyle: 'italic' }),
+              }}
+            >
+              {/* No note yet → the hover label itself teaches the gesture. */}
+              {note ?? 'Double-click to say why'}
+            </div>
+          </EdgeLabelRenderer>
+        )
       )}
     </>
   );

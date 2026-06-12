@@ -425,19 +425,28 @@ const search = defineCommand({
   },
   args: {
     query: { type: 'positional', description: 'Text to search for', required: true },
-    maxFiles: { type: 'string', description: 'Max files to return (default 50)' },
-    maxPerFile: { type: 'string', description: 'Max snippet lines per file (default 5)' },
+    maxFiles: { type: 'string', description: 'Max files to return (default 50; 8 with --brief)' },
+    maxPerFile: {
+      type: 'string',
+      description: 'Max snippet lines per file (default 5; 3 with --brief)',
+    },
+    brief: {
+      type: 'boolean',
+      description:
+        'Assemble a paste-ready context brief: matches hydrated with badge prompts + reference notes',
+    },
     json: { type: 'boolean', description: 'JSON output' },
   },
   async run({ args }) {
     const maxFiles = Number.parseInt(String(args.maxFiles ?? ''), 10);
     const maxPerFile = Number.parseInt(String(args.maxPerFile ?? ''), 10);
-    const result = await core.run('search.query', {
+    const cmd = args.brief === true ? 'search.brief' : 'search.query';
+    const result = await core.run(cmd, {
       query: args.query,
       ...(Number.isFinite(maxFiles) && maxFiles > 0 && { maxFiles }),
       ...(Number.isFinite(maxPerFile) && maxPerFile > 0 && { maxMatchesPerFile: maxPerFile }),
     });
-    render('search.query', result, Boolean(args.json));
+    render(cmd, result, Boolean(args.json));
   },
 });
 
@@ -451,9 +460,22 @@ const init = defineCommand({
   },
   args: {
     name: { type: 'string', description: 'Override workspace name (default: cwd basename)' },
+    demo: {
+      type: 'boolean',
+      description:
+        'Instead: create the pre-seeded demo workspace at ~/BaseHalf-Demo (alias of `bh workspace demo`)',
+    },
     json: { type: 'boolean', description: 'JSON output' },
   },
   async run({ args }) {
+    if (args.demo === true) {
+      // Discoverability alias: the demo generator existed but only behind
+      // `bh workspace demo <path>` / the desktop onboarding. Same core command.
+      const home = process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
+      const result = await core.run('workspace.createDemo', { path: `${home}/BaseHalf-Demo` });
+      render('workspace.createDemo', result, Boolean(args.json));
+      return;
+    }
     const cwd = process.cwd();
     const result = await core.run('workspace.add', {
       path: cwd,

@@ -52,6 +52,7 @@ shell — drive the \`bh\` CLI (reads accept \`--json\`):
 - \`.bh/badges/<rel-path>.json\` — any file's backpack (prompt + references); or \`bh badge get <path> --json\`
 - \`.bh/index/inbound.json\` — who points AT a file; or \`bh inbound get <path> --json\`
 - \`bh search <query> --json\` — full-text search across the workspace's text files
+- \`bh search <query> --brief\` — assemble a paste-ready context brief from the matches (each hydrated with its prompt + reference notes)
 
 MD is the truth; \`.bh/\` is derived — edit user files with your own tools,
 never \`.bh/*\` (the app and \`bh\` CLI own it; \`.bh/cache/\` is rebuildable and

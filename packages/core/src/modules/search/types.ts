@@ -51,3 +51,27 @@ export interface SearchQueryResult {
   /** More files matched than `maxFiles`; the list was capped. */
   readonly truncated?: boolean;
 }
+
+export interface SearchBriefArgs {
+  /** The substring to look for. Empty / whitespace-only → empty brief. */
+  readonly query: string;
+  /** Max files to include (default 8 — a context-sized set, not a result page). */
+  readonly maxFiles?: number;
+  /** Max snippet lines PER file (default 3). */
+  readonly maxMatchesPerFile?: number;
+}
+
+export interface SearchBriefResult {
+  /** Echo of the trimmed query. */
+  readonly query: string;
+  /** The assembled, self-contained Markdown brief — content matches hydrated
+   *  with each file's badge prompt + reference notes + inbound notes. Ready to
+   *  paste into any AI chat (same spirit as `.bh/focus.md`, but assembled by
+   *  RETRIEVAL instead of explicit curation — the on-ramp for "I know what I
+   *  want to ask but not which files matter"). */
+  readonly brief: string;
+  /** The files the brief covers, in brief order. */
+  readonly files: readonly string[];
+  /** The underlying search was capped / incomplete. */
+  readonly truncated?: boolean;
+}

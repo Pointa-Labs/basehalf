@@ -56,8 +56,8 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
  * doesn't go stale. Best-effort + tolerant — the badge write already
  * succeeded, so a focus refresh failure (module not registered, a hostile
  * symlinked focus.md → PathEscape, etc.) must never fail the badge op.
- * focus.resync itself no-ops when `file` isn't active, so this is cheap on the
- * common (eager-materialize) path.
+ * focus.resync itself no-ops when `file` isn't active, so edits to unfocused
+ * badges stay cheap.
  */
 async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promise<void> {
   try {

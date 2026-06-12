@@ -7,8 +7,9 @@
  * — clicking the button and typing the shortcut produce the same UX.
  */
 
-import { prompt } from '../components/Dialog.js';
+import { confirm, prompt } from '../components/Dialog.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { briefForClipboard } from './focusBrief.js';
 
 /** Default location for the demo workspace. Both the Onboarding "Try a
  *  demo" button and the palette "Try a demo workspace…" action use this
@@ -34,6 +35,59 @@ export function tildifyPath(path: string): string {
  *  store action so callers don't need to know the path convention. */
 export function createDemoAtDefault(): Promise<void> {
   return useWorkspaceStore.getState().createDemo(defaultDemoPath());
+}
+
+/** Copy the cleaned turn brief (.bh/focus.md minus bh-internal noise) to the
+ *  clipboard, stamping the served receipt only AFTER the clipboard write
+ *  succeeds (a denied/failed write must not record a delivery that never
+ *  happened). Returns false when there was nothing to copy (empty focus), so
+ *  callers can skip their "Copied ✓" confirmation. Shared by the focus chip
+ *  and the ⌘K "Copy agent brief" action — one copy path, one stamping rule. */
+export async function copyAgentBrief(): Promise<boolean> {
+  const { brief } = (await window.bh.run('focus.brief', { stamp: false })) as { brief: string };
+  const clean = briefForClipboard(brief);
+  if (clean.length === 0) return false;
+  await navigator.clipboard.writeText(clean);
+  void window.bh.run('focus.brief', { stamp: true }).catch(() => undefined);
+  return true;
+}
+
+// Workspace management dialogs. Reachable from the File menu (App.tsx wires the
+// main-process menu events here); deliberately NOT in the command palette —
+// destructive/rare management ops don't belong one mistyped Enter away from
+// "open a file". These read live state via getState() so callers don't need
+// store hooks.
+export async function renameActiveWorkspace(): Promise<void> {
+  const { current, workspaces, renameWorkspace } = useWorkspaceStore.getState();
+  if (!current) return;
+  const next = await prompt({
+    title: `Rename workspace "${current}"`,
+    body: 'Changes the display name only — the folder path and its .bh/ are untouched.',
+    label: 'New name',
+    defaultValue: current,
+    placeholder: 'e.g. school-spring-2026',
+    validate: (v) => {
+      const t = v.trim();
+      if (t.length === 0) return 'A name is required.';
+      if (t === current) return null;
+      if (workspaces.some((w) => w.name === t)) return `Name "${t}" is already in use.`;
+      return null;
+    },
+  });
+  const trimmed = next?.trim();
+  if (trimmed && trimmed !== current) void renameWorkspace(current, trimmed);
+}
+
+export async function removeActiveWorkspace(): Promise<void> {
+  const { current, remove } = useWorkspaceStore.getState();
+  if (!current) return;
+  const ok = await confirm({
+    title: `Remove workspace "${current}"?`,
+    body: 'The folder and its files stay on disk; only the registration is removed.',
+    confirmText: 'Remove',
+    destructive: true,
+  });
+  if (ok) void remove(current);
 }
 
 /** Prompt for a workspace-relative path and create an empty MD note.

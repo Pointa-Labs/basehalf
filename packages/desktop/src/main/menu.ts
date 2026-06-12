@@ -14,6 +14,18 @@ function emitOpenFolder(win?: BrowserWindow | null): void {
   target?.webContents.send('menu:open-folder');
 }
 
+/**
+ * Nudge the focused renderer to run a workspace-management dialog (rename /
+ * remove the ACTIVE workspace). These rare, destructive ops live in the File
+ * menu — not the command palette, where they'd sit one mistyped Enter away
+ * from "open a file". The renderer owns the dialogs + store calls; main just
+ * triggers, mirroring emitOpenFolder. The renderer no-ops when no workspace
+ * is open (native menus can't cheaply track that state).
+ */
+function emitWorkspaceAction(action: 'rename' | 'remove'): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:workspace-action', action);
+}
+
 /** Hooks the View menu's zoom items call. The caller owns the authoritative zoom
  *  level (so repeated steps don't drift on Electron's factor↔level rounding) and
  *  is responsible for clamping, applying it to the window, and persisting it. */
@@ -58,6 +70,9 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
       label: 'File',
       submenu: [
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => emitOpenFolder() },
+        { type: 'separator' },
+        { label: 'Rename Workspace…', click: () => emitWorkspaceAction('rename') },
+        { label: 'Remove Workspace…', click: () => emitWorkspaceAction('remove') },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],

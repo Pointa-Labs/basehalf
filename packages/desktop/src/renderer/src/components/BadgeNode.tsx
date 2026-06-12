@@ -104,6 +104,14 @@ export interface BadgeNodeData extends Record<string, unknown> {
   prompt?: string;
   /** Folder kind only: a peek at the folder's direct contents (see listCanvas). */
   preview?: CanvasFolderPreview;
+  /** File kind: how many outbound references carry a human-written note. With a
+   *  prompt, distinguishes "fully annotated" (note + explained connections)
+   *  from "prompt only" on the card's badge button. */
+  notedRefs?: number;
+  /** Folder kind: annotation coverage of the supported files under this folder
+   *  (how many carry a prompt) — rendered as the thin heat bar at the card's
+   *  bottom edge so annotation debt is visible at a glance. */
+  coverage?: { annotated: number; total: number };
 }
 
 type BadgeFlowNode = Node<BadgeNodeData, 'badge'>;
@@ -347,6 +355,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
           fills the card and clips to the rounded border. */}
       <div
         style={{
+          position: 'relative',
           flex: 1,
           minHeight: 0,
           minWidth: 0,
@@ -438,7 +447,13 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                   <button
                     type="button"
                     className="nodrag nopan"
-                    title="Edit File Badge"
+                    title={
+                      d.prompt && (d.notedRefs ?? 0) > 0
+                        ? `Has a note + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit File Badge`
+                        : d.prompt
+                          ? 'Has a note — edit File Badge'
+                          : 'Edit File Badge'
+                    }
                     aria-label={`Edit File Badge for ${d.label}`}
                     onPointerDown={stopNodeGesture}
                     onMouseDown={stopNodeGesture}
@@ -451,13 +466,31 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     }}
                     style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
                   >
-                    {/* "Has a note" is signalled by the accent-toned glyph alone (kept
-                    visible at rest via `lit` below) — no separate dot. */}
+                    {/* "Has a note" is signalled by the accent-toned glyph (kept
+                    visible at rest via `lit`). A file whose connections ALSO
+                    carry notes — the fully-annotated state the brief benefits
+                    from most — earns the small corner dot on top. */}
                     <FileGlyph
                       type="badge"
                       tone={d.prompt ? color.accent : color.textTertiary}
                       size={15}
                     />
+                    {d.prompt !== undefined && d.prompt !== '' && (d.notedRefs ?? 0) > 0 && (
+                      <span
+                        aria-hidden
+                        data-testid={`badge-coverage-dot-${d.label}`}
+                        style={{
+                          position: 'absolute',
+                          top: -2,
+                          right: -2,
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          background: color.accent,
+                          border: `1.5px solid ${baseBg}`,
+                        }}
+                      />
+                    )}
                   </button>
                 )}
                 {orphan && <KindChip label="MISSING" tone="danger" />}
@@ -562,6 +595,40 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             {isFolder ? (d.prompt ?? '') : orphan ? 'Missing file' : ''}
           </div>
         )}
+        {/* Annotation-coverage heat bar: what fraction of the files under this
+            folder carry a note. A glanceable pull toward the act the brief
+            depends on — full = accent, partial = amber, none = empty track.
+            Full LOD only; at chip size the bar would be sub-pixel noise. */}
+        {isFolder &&
+          !orphan &&
+          lod === 'full' &&
+          d.coverage !== undefined &&
+          d.coverage.total > 0 && (
+            <div
+              title={`${d.coverage.annotated} of ${d.coverage.total} files annotated`}
+              data-testid={`folder-coverage-${d.label}`}
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 3,
+                background: color.border,
+              }}
+            >
+              {d.coverage.annotated > 0 && (
+                <div
+                  style={{
+                    width: `${Math.round((d.coverage.annotated / d.coverage.total) * 100)}%`,
+                    height: '100%',
+                    background:
+                      d.coverage.annotated >= d.coverage.total ? color.accent : color.warning,
+                    transition: transition(['width', 'background']),
+                  }}
+                />
+              )}
+            </div>
+          )}
       </div>
     </div>
   );

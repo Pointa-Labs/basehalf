@@ -137,6 +137,20 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
         },
       );
       return;
+    case 'search.brief': {
+      // Print the assembled brief verbatim (it's already Markdown) — same
+      // contract as focus.brief, so both paste cleanly into a chat.
+      const r = result as { brief: string; files: readonly string[]; truncated?: boolean };
+      if (r.files.length === 0) {
+        process.stdout.write('(no matches — brief is empty)\n');
+        return;
+      }
+      process.stdout.write(r.brief);
+      if (r.truncated) {
+        process.stderr.write('(search incomplete — results capped; the brief may miss files)\n');
+      }
+      return;
+    }
     default:
       // Fallback: pretty-print whatever we got.
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

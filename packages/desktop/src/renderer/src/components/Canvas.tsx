@@ -38,7 +38,7 @@ import {
   sideFromHandle,
 } from '../canvasConnections/index.js';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
+import { copyAgentBrief, createDemoAtDefault, promptForNewNote } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import {
@@ -47,7 +47,6 @@ import {
   snapFlowNodeChanges,
 } from '../lib/canvasFlowSnap.js';
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
-import { briefForClipboard } from '../lib/focusBrief.js';
 import { regionFor } from '../lib/paneDrop.js';
 import { useLayoutStore } from '../store/layout.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
@@ -78,23 +77,6 @@ const VIEWPORT_DEBOUNCE = 1000;
 // Settle a canvas multi-selection before mirroring it into focus.md, so a marquee
 // drag (which fires onSelectionChange repeatedly) writes once on release.
 const FOCUS_MIRROR_DEBOUNCE = 250;
-// "served Ns ago" for the focus chip — a true logged fact: an agent PULLED the
-// brief through the command interface (CLI `bh focus brief` / Copy-brief / MCP),
-// and the receipt is cleared whenever the focus changes, so it only ever reflects
-// the CURRENT brief. Shown ONLY positively. Honest: it confirms a hand-off, not
-// comprehension (a raw focus.md file read is unobservable by design — D14).
-function relativeServed(iso: string | undefined): string | null {
-  if (!iso) return null;
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return null;
-  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.round(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
 const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
@@ -129,6 +111,7 @@ function badgeToNode(
   fallbackIndex: number,
   total: number,
   override?: { x?: number; y?: number },
+  coverage?: { annotated: number; total: number },
 ): Node<BadgeNodeData> {
   // Auto-layout grid for badges without a saved position. Content TILES are
   // taller than bare labels, so rows need vertical room. Column count ADAPTS to
@@ -167,6 +150,12 @@ function badgeToNode(
       ...(badge.orphan === true && { orphan: true }),
       ...(badge.prompt !== undefined && { prompt: badge.prompt }),
       ...(badge.preview !== undefined && { preview: badge.preview }),
+      // How many of this badge's outbound references carry a human-written
+      // note — the card's coverage indicator distinguishes "annotated with
+      // connections explained" from "prompt only" (see BadgeNode).
+      notedRefs: badge.references.filter((r) => r.note !== undefined && r.note.trim() !== '')
+        .length,
+      ...(coverage !== undefined && { coverage }),
     },
   };
 }
@@ -221,6 +210,7 @@ export const Canvas = (): JSX.Element => {
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   const setCanvasDockDrag = useWorkspaceStore((s) => s.setCanvasDockDrag);
   const dockBadge = useWorkspaceStore((s) => s.dockBadge);
@@ -240,12 +230,21 @@ export const Canvas = (): JSX.Element => {
   // independent of ordinary canvas selection. Selection is object state
   // (resize/move/connect); this set is what external agents read.
   const [focusActive, setFocusActive] = useState<readonly string[]>([]);
-  // When the agent last pulled the turn brief (focus.brief stamps it) — surfaced
-  // on the chip so curation has a visible "it's being read" signal. bumpServedClock
-  // forces the relative-time label to re-render each poll even when the stamp is
-  // unchanged, so "read Ns ago" ticks instead of freezing.
+  // When the agent last pulled the turn brief (focus.brief stamps it; the
+  // receipt is cleared whenever the brief changes). The chip shows its ABSENCE
+  // as a binary freshness signal: no receipt + a non-empty context = the
+  // CURRENT brief was never handed off → an "updated" marker that clears on
+  // the next copy / agent read. (The old "served 47s ago" string implied a
+  // precision bh can't deliver — it confirms a hand-off, not comprehension —
+  // and needed a live ticker just to avoid going stale.)
   const [briefServedAt, setBriefServedAt] = useState<string | undefined>(undefined);
-  const [, bumpServedClock] = useState(0);
+  // True once ANY badge in the workspace carries a prompt — gates the
+  // first-annotation hint card (derived each loadData; writing the first note
+  // retires the card permanently, so no dismissal needs persisting).
+  const [workspaceHasAnyPrompt, setWorkspaceHasAnyPrompt] = useState(true);
+  const [annotateHintDismissed, setAnnotateHintDismissed] = useState(false);
+  // Monotonic sequence for loadData staleness checks (see loadData).
+  const loadSeqRef = useRef(0);
   // Persisted viewport for the current workspace, lifted into state so
   // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
   // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
@@ -296,18 +295,80 @@ export const Canvas = (): JSX.Element => {
   // canvas fits its OWN contents on entry (vp:null → fit-to-view), so you always
   // land looking at the items in THIS folder, not a stale pan/zoom.
   const loadData = useCallback(async () => {
+    // Staleness guard: loadData closes over (current, folderScope) but is fired
+    // from many places (effects, file events, badge bus). A workspace/folder
+    // switch mid-flight must not let the OLD load's late resolution clobber the
+    // NEW context's nodes / hint-card state — same class as the palette's
+    // `cancelled` gates. Each call bumps the sequence; only the latest commits.
+    const seq = ++loadSeqRef.current;
+    const fresh = (): boolean => seq === loadSeqRef.current;
     try {
       const { badges } = (await window.bh.run('workspace.listCanvas', {
         folder: folderScope,
       })) as WorkspaceListCanvasResult;
-      const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
+      // The annotation layer alongside the visible folder level: the sparse
+      // badge overlay (cheap — only annotated files have one) derives the
+      // first-annotation hint; the supported-file census (a full tree walk,
+      // fetched only when folder cards are visible to price) derives each
+      // folder card's coverage bar. Both are best-effort: a transient failure
+      // degrades the indicators, never the canvas itself.
+      let prompted = new Set<string>();
+      let anyPrompt = true; // fail safe: never flash the hint card on a failed read
+      let filesAll: string[] = [];
+      try {
+        const badgesAll = (await window.bh.run('badge.list', {})) as {
+          badges: { file: string; kind: string; prompt?: string }[];
+        };
+        prompted = new Set(
+          badgesAll.badges
+            .filter((b) => b.kind === 'file' && b.prompt !== undefined && b.prompt.trim() !== '')
+            .map((b) => b.file),
+        );
+        anyPrompt = badgesAll.badges.some((b) => b.prompt !== undefined && b.prompt.trim() !== '');
+        if (badges.some((b) => b.kind === 'folder')) {
+          const res = (await window.bh.run('workspace.listSupportedFiles', {
+            folder: null,
+          })) as { files: string[] };
+          filesAll = res.files;
+        }
+      } catch {
+        // Indicators degrade (no coverage bars, no hint card) — canvas renders.
+      }
+      if (!fresh()) return;
+      const coverageFor = (folder: string): { annotated: number; total: number } | undefined => {
+        if (filesAll.length === 0) return undefined;
+        const prefix = `${folder}/`;
+        let annotated = 0;
+        let total = 0;
+        for (const f of filesAll) {
+          if (!f.startsWith(prefix)) continue;
+          total++;
+          if (prompted.has(f)) annotated++;
+        }
+        return { annotated, total };
+      };
+      const nextNodes = badges.map((b, i) =>
+        badgeToNode(
+          b,
+          i,
+          badges.length,
+          undefined,
+          b.kind === 'folder' ? coverageFor(b.file) : undefined,
+        ),
+      );
       setNodes(nextNodes);
       setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
       setSnapGuides([]);
       setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
+      // The hint card invites the FIRST note: it shows only while the whole
+      // workspace is annotation-free (any saved prompt — file or folder —
+      // retires it for good, no dismissal state to persist).
+      setWorkspaceHasAnyPrompt(anyPrompt);
       await reloadFocus();
+      if (!fresh()) return;
       setError('');
     } catch (err) {
+      if (!fresh()) return;
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [current, folderScope, reloadFocus]);
@@ -315,9 +376,12 @@ export const Canvas = (): JSX.Element => {
   // Drop cached previews when the active workspace changes — the cache is keyed
   // by workspace-relative path, so a path present in two workspaces (README.md)
   // must not carry the prior workspace's content across a switch.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears a module cache and reads nothing.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears per-workspace caches and reads nothing.
   useEffect(() => {
     clearPreviewCache();
+    // "Not now" on the first-annotation hint is a per-workspace answer — a
+    // different (also unannotated) workspace gets to ask again.
+    setAnnotateHintDismissed(false);
   }, [current]);
 
   useEffect(() => {
@@ -330,9 +394,10 @@ export const Canvas = (): JSX.Element => {
     }
   }, [current, currentReachable, loadData]);
 
-  // Poll the brief-served receipt so "agent read Ns ago" stays live. The stamp
-  // lands in .bh/cache/ (watcher-ignored, no push), so a light 5s poll of focus.get
-  // is how the chip reflects an agent reading the brief between refreshes.
+  // Poll the brief-served receipt so the chip's "updated" dot clears when an
+  // agent pulls the brief out-of-band. The stamp lands in .bh/cache/
+  // (watcher-ignored, no push), so a light 5s poll of focus.get is how the chip
+  // reflects an agent reading the brief between refreshes.
   useEffect(() => {
     if (!current || !currentReachable) return;
     const id = window.setInterval(() => {
@@ -344,7 +409,6 @@ export const Canvas = (): JSX.Element => {
           };
           setFocusActive(r.active);
           setBriefServedAt(r.lastBriefServedAt);
-          bumpServedClock((n) => n + 1);
         } catch {
           /* transient — keep the last known values */
         }
@@ -646,6 +710,23 @@ export const Canvas = (): JSX.Element => {
       folder: folderScope,
     })) as WorkspaceListCanvasResult;
     setEdges(connectionEdges(badges, nodesRef.current));
+    // Refresh each card's noted-refs count from the same fetch: an edge-note
+    // edit commits with origin 'canvas', which the badge-bus listener ignores
+    // (by design — no full reload for our own writes), so the corner dot would
+    // otherwise lag until the next unrelated reload.
+    const notedCounts = new Map(
+      badges.map((b) => [
+        b.file,
+        b.references.filter((r) => r.note !== undefined && r.note.trim() !== '').length,
+      ]),
+    );
+    setNodes((prev) =>
+      prev.map((n) => {
+        const c = notedCounts.get(n.id);
+        if (c === undefined || n.data.notedRefs === c) return n;
+        return { ...n, data: { ...n.data, notedRefs: c } };
+      }),
+    );
   }, [folderScope]);
 
   const commitReferenceEdgeUpdate = useCallback(
@@ -763,22 +844,15 @@ export const Canvas = (): JSX.Element => {
   const copyBrief = useCallback(() => {
     void (async () => {
       try {
-        // Peek with stamp:false — DON'T record "served" yet; the delivery hasn't
-        // happened until the clipboard write below actually succeeds.
-        const { brief } = (await window.bh.run('focus.brief', { stamp: false })) as {
-          brief: string;
-        };
-        // Strip bh-internal noise (provenance marker + the .bh/-pointing footer)
-        // so what lands in a chat is just the self-contained brief.
-        const clean = briefForClipboard(brief);
-        // Nothing to copy (focus.md absent under a still-visible chip) — don't
-        // write an empty string or flash a misleading "Copied ✓".
-        if (clean.length === 0) return;
-        await navigator.clipboard.writeText(clean);
-        // Clipboard write SUCCEEDED → now record the delivery. A rejected write
-        // (unfocused window / denied permission) throws above and never stamps.
-        void window.bh.run('focus.brief', { stamp: true }).catch(() => undefined);
+        // The shared copy path (lib/actions): peek without stamping, clean the
+        // bh-internal noise, copy, and stamp the served receipt only once the
+        // clipboard write actually succeeded. False = nothing to copy (focus.md
+        // absent under a still-visible chip) — no misleading "Copied ✓".
+        if (!(await copyAgentBrief())) return;
         setBriefCopied(true);
+        // The hand-off just happened — clear the "updated" dot immediately
+        // rather than waiting for the next 5s receipt poll.
+        setBriefServedAt(new Date().toISOString());
         // Reset the confirmation; clear any prior timer so a rapid re-click
         // doesn't let an earlier timer flip the label back early.
         if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
@@ -1078,10 +1152,19 @@ export const Canvas = (): JSX.Element => {
               </strong>{' '}
               Agent Context · {focusedCount} {focusedCount === 1 ? 'file' : 'files'} ·{' '}
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
-              {relativeServed(briefServedAt) && (
-                <span style={{ color: color.textTertiary }}>
+              {briefServedAt === undefined && (
+                // No served receipt for the CURRENT brief = it changed since it
+                // was last copied / read (or was never handed off). Clears the
+                // moment a copy or an agent pull stamps the receipt. "not sent"
+                // (vs the old "served Ns ago" ticker) names the missing ACTION,
+                // not a fake precision.
+                <span
+                  data-testid="focus-chip-updated"
+                  title="This brief hasn't been handed to your agent since it last changed — Copy brief sends the update"
+                  style={{ color: color.warning, whiteSpace: 'nowrap' }}
+                >
                   {' '}
-                  · served {relativeServed(briefServedAt)}
+                  · not sent
                 </span>
               )}
             </span>
@@ -1145,6 +1228,64 @@ export const Canvas = (): JSX.Element => {
           {error}
         </div>
       )}
+      {/* First-annotation invitation: a workspace full of files but ZERO notes
+          is the product's null state — the brief the agent would read is empty,
+          and nothing on a quiet canvas says why that matters. One dismissible
+          card teaches the single act everything else builds on. It retires
+          itself permanently the moment any note is saved (the condition flips),
+          so no dismissal state needs persisting. Root canvas only. */}
+      {folderScope === null &&
+        !workspaceHasAnyPrompt &&
+        !annotateHintDismissed &&
+        !emptyHint &&
+        nodes.some((n) => n.data.kind === 'file') && (
+          <div
+            data-testid="annotate-hint-card"
+            role="status"
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              maxWidth: 400,
+              padding: `${space[4]}px ${space[5]}px`,
+              background: color.surface,
+              border: `1px solid ${color.accentSoft}`,
+              borderRadius: radius.lg,
+              boxShadow: shadow.raised,
+              fontFamily: font.sans,
+              fontSize: font.size.body,
+              color: color.textSecondary,
+              textAlign: 'center',
+              lineHeight: 1.55,
+              zIndex: 5,
+              animation: `bh-banner-in ${motion.normal}`,
+            }}
+          >
+            These files have no notes yet. Add one sentence to a file — it's what your agent reads.
+            <div
+              style={{
+                marginTop: space[3],
+                display: 'flex',
+                gap: space[2],
+                justifyContent: 'center',
+              }}
+            >
+              <Button
+                variant="primary"
+                onClick={() => {
+                  const firstFile = nodes.find((n) => n.data.kind === 'file');
+                  if (firstFile) openBadgeInPanel(firstFile.id);
+                }}
+              >
+                Add a note
+              </Button>
+              <Button variant="ghost" onClick={() => setAnnotateHintDismissed(true)}>
+                Not now
+              </Button>
+            </div>
+          </div>
+        )}
       {emptyHint && (
         <div
           style={{
