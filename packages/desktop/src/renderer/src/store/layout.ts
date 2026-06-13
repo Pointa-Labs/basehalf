@@ -39,6 +39,19 @@ const clampEditorWidth = (n: number): number => {
   return Math.max(EDITOR_MIN_WIDTH, Math.min(max, Math.round(n)));
 };
 
+// Terminal dock width — the RIGHT-most region, a fixed home for the embedded
+// terminal (the agent runner). Persisted like the editor width. Clamped so a
+// minimum canvas region always survives beside it.
+const TERMINAL_WIDTH_KEY = 'bh:terminal-width';
+export const TERMINAL_DEFAULT_WIDTH = 520;
+export const TERMINAL_MIN_WIDTH = 280;
+
+const clampTerminalWidth = (n: number): number => {
+  const viewport = typeof window !== 'undefined' ? window.innerWidth : 1440;
+  const max = Math.max(TERMINAL_MIN_WIDTH, viewport - MIN_CANVAS_WIDTH);
+  return Math.max(TERMINAL_MIN_WIDTH, Math.min(max, Math.round(n)));
+};
+
 function readBool(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key);
@@ -73,6 +86,9 @@ interface LayoutState {
   /** Width of the right-docked editor space (canvas keeps the rest). */
   editorWidth: number;
   setEditorWidth: (width: number) => void;
+  /** Width of the right-most terminal dock (the embedded agent runner). */
+  terminalWidth: number;
+  setTerminalWidth: (width: number) => void;
 }
 
 export const useLayoutStore = create<LayoutState>((set, get) => {
@@ -103,6 +119,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       const w = clampEditorWidth(width);
       persist(EDITOR_WIDTH_KEY, String(w));
       set({ editorWidth: w });
+    },
+    terminalWidth: clampTerminalWidth(readNum(TERMINAL_WIDTH_KEY, TERMINAL_DEFAULT_WIDTH)),
+    setTerminalWidth: (width) => {
+      const w = clampTerminalWidth(width);
+      persist(TERMINAL_WIDTH_KEY, String(w));
+      set({ terminalWidth: w });
     },
   };
 });

@@ -212,6 +212,41 @@ const bh = {
     ipcRenderer.on('bh:file-event', wrapped);
     return () => ipcRenderer.off('bh:file-event', wrapped);
   },
+  /** Embedded terminal bridge. The real shell pty lives in MAIN (the sandboxed
+   *  renderer can't spawn processes); xterm.js in the renderer is the view.
+   *  Bytes stream both ways: spawn/write/resize/kill out, data/exit in. */
+  terminal: {
+    /** Spawn a shell pty. cwd defaults to the active workspace root (resolved in
+     *  main). Resolves the new session id. */
+    spawn: (opts?: { cols?: number; rows?: number; cwd?: string }): Promise<string> =>
+      ipcRenderer.invoke('terminal:spawn', opts ?? {}),
+    /** Forward user keystrokes to a session's pty. */
+    write: (id: string, data: string): void => {
+      ipcRenderer.send('terminal:write', { id, data });
+    },
+    /** Tell a session's pty the new viewport size (cols × rows). */
+    resize: (id: string, cols: number, rows: number): void => {
+      ipcRenderer.send('terminal:resize', { id, cols, rows });
+    },
+    /** Kill a session's pty (tab close / unmount). */
+    kill: (id: string): void => {
+      ipcRenderer.send('terminal:kill', { id });
+    },
+    /** Subscribe to pty output. Returns an unsubscribe function. */
+    onData: (handler: (id: string, data: string) => void): (() => void) => {
+      const wrapped = (_e: unknown, payload: { id: string; data: string }): void =>
+        handler(payload.id, payload.data);
+      ipcRenderer.on('terminal:data', wrapped);
+      return () => ipcRenderer.off('terminal:data', wrapped);
+    },
+    /** Subscribe to pty exit. Returns an unsubscribe function. */
+    onExit: (handler: (id: string, exitCode: number) => void): (() => void) => {
+      const wrapped = (_e: unknown, payload: { id: string; exitCode: number }): void =>
+        handler(payload.id, payload.exitCode);
+      ipcRenderer.on('terminal:exit', wrapped);
+      return () => ipcRenderer.off('terminal:exit', wrapped);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('bh', bh);

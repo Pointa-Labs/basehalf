@@ -11,6 +11,7 @@ import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { SettingsHost, openSettings, wireUpdateBridge } from './components/Settings.js';
 import { Sidebar } from './components/Sidebar.js';
+import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
@@ -237,12 +238,14 @@ export const App = (): JSX.Element => {
     >
       <TitleBar />
       <FdaTip />
-      {/* Two docked regions, left → right: Canvas (the spatial map, takes the
-          middle) | EditorSpace (right-docked editor, a flex sibling that yields
-          the canvas width when open). The Sidebar (nav) is NOT a flex sibling —
-          it floats OVER the canvas, so toggling it never reflows or shifts the
-          map. The right editor already never pushes the canvas; now the left
-          sidebar matches. */}
+      {/* Docked regions, left → right: Canvas (the spatial map, takes the
+          middle) | EditorSpace (the editor, opens/closes) | TerminalDock (a
+          FIXED right-most home for the embedded terminal — where TUI agents
+          run). The Sidebar (nav) is NOT a flex sibling — it floats OVER the
+          canvas, so toggling it never reflows the map.
+          NOTE (transitional): the editor is still docked here. The sibling
+          editor-float track relocates it to a canvas float, after which the
+          final shape is `canvas (+ floating editor) | terminal`. */}
       <div
         style={{
           display: 'flex',
@@ -262,6 +265,7 @@ export const App = (): JSX.Element => {
           <Sidebar />
         </main>
         <EditorSpace />
+        <TerminalDock />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       {!error && notice && <ErrorBanner message={notice} onDismiss={clearNotice} tone="info" />}
