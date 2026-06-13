@@ -11,6 +11,7 @@ import {
 } from './ipc.js';
 import { buildAppMenu, installContextMenu } from './menu.js';
 import { PrefsStore } from './prefs.js';
+import { disposeAllTerminals, registerTerminalIpc } from './terminal.js';
 import {
   Updater,
   cleanupUpdateLeftovers,
@@ -40,6 +41,9 @@ registerBhRunHandler(core);
 registerWorkspacePickHandler();
 registerShellOpenHandler(core);
 registerPathKindHandler();
+// Embedded terminal: pty lives in main, streams to xterm.js in the renderer.
+// cwd defaults to the active workspace root (resolved via core.run here).
+registerTerminalIpc(core);
 // Zoom hooks reference the function declarations below — hoisted, so safe here.
 registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLevel });
 const updater = new Updater();
@@ -218,6 +222,10 @@ async function createWindow(): Promise<void> {
   // createWindow() reassigns it — a latent footgun for any future code that
   // touches mainWindow without an isDestroyed() guard.
   mainWindow.on('closed', () => {
+    // A hard window destroy skips the renderer's React teardown (which kills
+    // each session's pty on unmount), so sweep any survivors here — no orphan
+    // shell processes left running headless.
+    disposeAllTerminals();
     mainWindow = null;
   });
 }
@@ -243,6 +251,8 @@ app.whenReady().then(async () => {
 
 // Sync save on quit so the debounced async writes don't get cut off mid-flight.
 app.on('before-quit', () => {
+  // Reap any live pty before exit (idempotent with the 'closed' sweep).
+  disposeAllTerminals();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const bounds = mainWindow.getBounds();
   try {

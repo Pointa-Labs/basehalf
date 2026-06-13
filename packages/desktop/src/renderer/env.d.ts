@@ -91,5 +91,22 @@ interface Window {
             },
       ) => void,
     ): () => void;
+    /** Embedded terminal bridge — a real pty lives in main (the sandboxed
+     *  renderer can't spawn processes); xterm.js in the renderer is the view. */
+    terminal: {
+      /** Spawn a shell pty (cwd defaults to the active workspace root, resolved
+       *  in main). Resolves the new session id. */
+      spawn(opts?: { cols?: number; rows?: number; cwd?: string }): Promise<string>;
+      /** Forward user keystrokes to a session's pty. */
+      write(id: string, data: string): void;
+      /** Tell a session's pty the new viewport size (cols × rows). */
+      resize(id: string, cols: number, rows: number): void;
+      /** Kill a session's pty (tab close / unmount). */
+      kill(id: string): void;
+      /** Subscribe to pty output. Returns an unsubscribe function. */
+      onData(handler: (id: string, data: string) => void): () => void;
+      /** Subscribe to pty exit. Returns an unsubscribe function. */
+      onExit(handler: (id: string, exitCode: number) => void): () => void;
+    };
   };
 }

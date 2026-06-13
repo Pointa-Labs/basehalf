@@ -49,9 +49,8 @@ import {
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
 import { focusMutations } from '../lib/focusMutations.js';
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
-import { regionFor } from '../lib/paneDrop.js';
 import { useLayoutStore } from '../store/layout.js';
-import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
+import { useWorkspaceStore } from '../store/workspace.js';
 import {
   BadgeNode,
   type BadgeNodeData,
@@ -216,40 +215,13 @@ function cardHeight(node: Node<BadgeNodeData> | undefined): number | undefined {
   return typeof height === 'number' ? height : undefined;
 }
 
-// Which right-panel pane (+ drop region) the cursor is over, or null when it's
-// over the canvas. Geometry-based: panes carry `data-pane-id` and their rects
-// tile the panel without overlap, so this is robust to z-order (elementFromPoint
-// would hit the react-flow drag node, which is clipped at the canvas edge anyway).
-// Drives the canvas→panel badge dock — crossing into the panel switches the drag
-// from "reposition on canvas" to "dock into the panel".
-function dockTargetAt(
-  clientX: number,
-  clientY: number,
-): { paneId: string; region: DropRegion } | null {
-  for (const el of document.querySelectorAll<HTMLElement>('[data-pane-id]')) {
-    const r = el.getBoundingClientRect();
-    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
-      const paneId = el.dataset.paneId;
-      if (paneId)
-        return { paneId, region: regionFor(clientX - r.left, clientY - r.top, r.width, r.height) };
-    }
-  }
-  return null;
-}
-
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
-  const setCanvasDockDrag = useWorkspaceStore((s) => s.setCanvasDockDrag);
-  const dockBadge = useWorkspaceStore((s) => s.dockBadge);
-  // Subscribe to the BOOLEAN (not the target object) so region changes within the
-  // panel don't re-render the canvas — only the on/off transition flips autopan.
-  const docking = useWorkspaceStore((s) => s.canvasDockDrag !== null);
   // While a card is being inline-edited, suspend viewport virtualization so a
   // pan/zoom can't cull the editing tile mid-edit (which would cancel its
   // unsaved autosave). Boolean selector → re-renders only on the 0↔1 transition.
@@ -571,9 +543,9 @@ export const Canvas = (): JSX.Element => {
         void setFolderScope(node.id);
         return;
       }
-      // File card → the formal editor surface. The card itself is the canvas
-      // preview, so there is no intermediate floating viewer.
-      openInPanel(node.id, { pinned: true });
+      // File card → open it in the full-canvas editor overlay. The card itself is
+      // the canvas preview, so there is no intermediate floating viewer.
+      openInPanel(node.id);
     },
     [setFolderScope, openInPanel],
   );
@@ -629,19 +601,12 @@ export const Canvas = (): JSX.Element => {
     [],
   );
 
-  // Canvas→panel badge drag state (refs, not state — read in the drag/change
-  // handlers without re-subscribing): the dragged node's start position (to snap
-  // it back if it docks) and whether the last drag tick was over the panel.
-  const dragStartPos = useRef<{ id: string; x: number; y: number } | null>(null);
-  const dockingRef = useRef(false);
-
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<BadgeNodeData>>[]) => {
       setNodes((prev) => {
         const threshold = SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom);
         const snapped = snapFlowNodeChanges(prev, changes, {
           threshold,
-          disabled: dockingRef.current,
           defaultWidth: DEFAULT_FILE_CARD_WIDTH,
           defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
           minWidth: CARD_MIN_WIDTH,
@@ -650,30 +615,19 @@ export const Canvas = (): JSX.Element => {
         setSnapGuides((currentGuides) =>
           sameSnapGuides(currentGuides, snapped.guides) ? currentGuides : snapped.guides,
         );
-        let next = applyNodeChanges(snapped.changes, prev);
+        const next = applyNodeChanges(snapped.changes, prev);
         for (const change of snapped.changes) {
           if (change.type === 'position' && change.dragging === false && change.position) {
             const node = next.find((n) => n.id === change.id);
-            if (dockingRef.current) {
-              // The drag ended over the panel → it docked there (onNodeDragStop opens
-              // it). Snap the badge back to where the drag began instead of persisting
-              // a stray position under the panel edge — it's a reference open, not a move.
-              const start = dragStartPos.current;
-              if (start && start.id === change.id) {
-                const at = { x: start.x, y: start.y };
-                next = next.map((n) => (n.id === change.id ? { ...n, position: at } : n));
-              }
-            } else {
-              const kind = nodeBadgeKind(next, change.id);
-              persistCanvas(
-                change.id,
-                kind,
-                change.position.x,
-                change.position.y,
-                cardWidth(node),
-                cardHeight(node),
-              );
-            }
+            const kind = nodeBadgeKind(next, change.id);
+            persistCanvas(
+              change.id,
+              kind,
+              change.position.x,
+              change.position.y,
+              cardWidth(node),
+              cardHeight(node),
+            );
           }
           if (change.type === 'dimensions' && change.resizing === false && change.dimensions) {
             const node = next.find((n) => n.id === change.id);
@@ -696,46 +650,18 @@ export const Canvas = (): JSX.Element => {
     [persistCanvas, persistSize],
   );
 
-  // A badge drag begins: remember its origin and clear any stale dock state. (Reset
-  // dockingRef HERE — not on stop — so a docked drag's snap-back in onNodesChange
-  // reads the right value regardless of stop-vs-change ordering.)
-  const onNodeDragStart = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(
-    (_event, node) => {
-      dockingRef.current = false;
-      dragStartPos.current = { id: node.id, x: node.position.x, y: node.position.y };
-      setCanvasDockDrag(null);
-      setSnapGuides([]);
-    },
-    [setCanvasDockDrag],
-  );
+  // A badge drag begins: clear any stale snap guides. (The editor is a
+  // full-canvas overlay now — there's no docked panel to drag a card into, so a
+  // drag is a pure reposition; its final position persists in onNodesChange.)
+  const onNodeDragStart = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(() => {
+    setSnapGuides([]);
+  }, []);
 
-  // Each drag tick: if the cursor crossed into the right panel, publish the dock
-  // target (pane + region) — which lights the panel highlight and (via the
-  // canvasDockDrag flag) suppresses autopan. Folders scope on double-click; they
-  // don't dock, so dragging one just repositions / autopans as before.
-  const onNodeDrag = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(
-    (event, node) => {
-      if ((node.data as BadgeNodeData).kind === 'folder') return;
-      const target = dockTargetAt(event.clientX, event.clientY);
-      dockingRef.current = target !== null;
-      setCanvasDockDrag(target);
-    },
-    [setCanvasDockDrag],
-  );
-
-  // Drop: if it ended over the panel, open the file there (center=tab, edge=split);
-  // the snap-back is handled in onNodesChange. Always clear the dock state.
-  const onNodeDragStop = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(
-    (_event, node) => {
-      const dock = useWorkspaceStore.getState().canvasDockDrag;
-      if (dockingRef.current && dock && (node.data as BadgeNodeData).kind !== 'folder') {
-        dockBadge(node.id, dock.paneId, dock.region);
-      }
-      setCanvasDockDrag(null);
-      setSnapGuides([]);
-    },
-    [dockBadge, setCanvasDockDrag],
-  );
+  // A drag ends: clear the live snap guides (the final position is persisted in
+  // onNodesChange when react-flow reports dragging === false).
+  const onNodeDragStop = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(() => {
+    setSnapGuides([]);
+  }, []);
 
   const onConnect = useCallback(
     async (conn: Connection) => {
@@ -1443,13 +1369,19 @@ export const Canvas = (): JSX.Element => {
               <Button
                 variant="primary"
                 onClick={() => {
-                  // Root has direct files → open the first one's badge panel.
-                  // Folder-only root (files all nested) → step INTO the first
-                  // folder; the editor strip and folder chrome take it from
-                  // there.
+                  // Root has direct files → SELECT the first one's card so the
+                  // user spots its badge toggle (the badge now lives in the card,
+                  // not a panel). Folder-only root (files all nested) → step INTO
+                  // the first folder; its chrome takes it from there.
                   const firstFile = nodes.find((n) => n.data.kind === 'file');
                   if (firstFile) {
-                    openBadgeInPanel(firstFile.id);
+                    setNodes((ns) =>
+                      ns.map((n) => {
+                        const sel = n.id === firstFile.id;
+                        return n.selected === sel ? n : { ...n, selected: sel };
+                      }),
+                    );
+                    setCanvasSelection({ kind: 'file', files: [firstFile.id], source: 'canvas' });
                     return;
                   }
                   const firstFolder = nodes.find((n) => n.data.kind === 'folder');
@@ -1479,13 +1411,7 @@ export const Canvas = (): JSX.Element => {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onNodeDragStart={onNodeDragStart}
-        onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
-        // Autopan follows the badge toward the canvas edge — but the instant the
-        // cursor crosses into the panel (docking), flip it off so the map stops
-        // sliding and the gesture settles onto the panel. XYDrag's autopan loop
-        // re-reads this each frame, so the toggle stops it mid-drag.
-        autoPanOnNodeDrag={!docking}
         onMove={onMove}
         onMoveEnd={onMoveEnd}
         onPaneClick={() => setCanvasSelection(null)}

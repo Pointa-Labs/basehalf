@@ -1,7 +1,6 @@
 import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { panelTabFile } from '../lib/panelTab.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 
@@ -199,7 +198,7 @@ const ChevronIcon = ({ open }: { open: boolean }): JSX.Element => (
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const currentFile = useWorkspaceStore((s) => s.currentFile);
-  const currentPath = currentFile === null ? null : panelTabFile(currentFile);
+  const currentPath = currentFile;
   const [childrenByPath, setChildrenByPath] = useState<
     Map<string, readonly WorkspaceListFilesEntry[]>
   >(new Map());

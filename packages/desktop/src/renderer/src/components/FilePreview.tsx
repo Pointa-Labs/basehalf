@@ -84,9 +84,9 @@ function splitPath(rel: string): { dirname: string; basename: string } {
     : { dirname: rel.slice(0, i), basename: rel.slice(i + 1) };
 }
 
-/** The editor body for ONE pane's active file. The pane (EditorSpace) supplies
- *  `file`, the pane `paneId` (for the flush registry + close), and whether the
- *  pane is the active one (only it consumes the search jump-to-match). */
+/** The editor body for the open file. The full-canvas editor overlay
+ *  (EditorOverlay) supplies `file`, a stable synthetic `paneId` (for the flush
+ *  registry), and `isActive` (it consumes the search jump-to-match). */
 export const FilePreview = ({
   file,
   paneId,
@@ -149,10 +149,9 @@ export const FilePreview = ({
   const viewKey = docKeyFor(wsPath, file);
 
   return (
-    // The editor PANEL — the body of the active right-panel tab. Its width + left
-    // resize sash + the tab strip (file identity + close) live in EditorSpace; the
-    // canvas sits to its left, lit and interactive, so you read/edit on the right
-    // while the spatial map stays in view.
+    // The editor body — fills the full-canvas editor overlay. The top bar (file
+    // identity + ✕ close) lives in EditorOverlay; the canvas sits underneath,
+    // preserved, so closing the overlay reveals it unchanged.
     <div
       style={{
         // flex:1 + minWidth:0 so we FILL the pane / float (both are flex-row
@@ -273,7 +272,6 @@ export const MdEditor = ({
   docKey,
   compact = false,
   cardEditable = true,
-  promoteOnEdit = true,
   onDiscardClose,
 }: {
   file: string;
@@ -284,7 +282,6 @@ export const MdEditor = ({
    *  editing. Preview passes false: rendered content stays live, but the DOM is
    *  not editable and yields save ownership to any real editor. */
   cardEditable?: boolean;
-  promoteOnEdit?: boolean;
   onDiscardClose?: () => void;
 }): JSX.Element => {
   // The file's shared in-memory document (created on first open, disposed on last
@@ -308,8 +305,7 @@ export const MdEditor = ({
       user: { name: 'me', color: color.accent },
     },
   });
-  const closeTab = useWorkspaceStore((s) => s.closeTab);
-  const pinTab = useWorkspaceStore((s) => s.pinTab);
+  const closeEditor = useWorkspaceStore((s) => s.closeEditor);
   const [error, setError] = useState<string>('');
   // G-08 safety: when BlockNote's parse→serialize loop loses real CONTENT we
   // stay view-only so editing can't overwrite the original. Inferred at load.
@@ -719,7 +715,8 @@ export const MdEditor = ({
   // Write-failed escape hatch. A persistently-unwritable file (read-only folder,
   // ENOSPC, vanished path) would otherwise trap the editor — the gatekeeper
   // blocks every switch/close. "Retry" re-attempts the save; "Discard & close"
-  // drops the unsaved edits and force-closes (bypassFlush skips the gate).
+  // drops the unsaved edits and closes the overlay (after clearing the
+  // write-failed ref, so the close gate no longer blocks).
   const retryWrite = useCallback(() => {
     void flushRef.current();
   }, []);
@@ -727,18 +724,18 @@ export const MdEditor = ({
     writeFailedRef.current = false;
     setWriteFailed(false);
     pendingRef.current = false;
-    // If the same file is open in OTHER views, the failed edits live in the shared
-    // doc — closing just this view would leave a sibling showing them (and a later
-    // no-op flush would silently drop them). Flag the doc so the next owner reloads
-    // disk and drops them everywhere.
+    // If the same file is open in OTHER views (a card badge face binding the same
+    // doc), the failed edits live in the shared doc — flag it so the next owner
+    // reloads disk and drops them everywhere.
     const shared = ensureDoc(docKey);
     if (shared.views.size > 1) shared.discardRequested = true;
     if (onDiscardClose) {
       onDiscardClose();
     } else {
-      closeTab(paneId, file, { bypassFlush: true });
+      // The write-failed ref is cleared above, so the close gate won't block.
+      closeEditor();
     }
-  }, [closeTab, paneId, file, docKey, onDiscardClose]);
+  }, [closeEditor, docKey, onDiscardClose]);
 
   // Cmd/Ctrl+S still works as "save now" for muscle memory (auto-save covers
   // it anyway). Registered once; delegates through the ref.
@@ -908,9 +905,6 @@ export const MdEditor = ({
               // arrives via Yjs as an onChange — without this it would pin the
               // preview tab (and the owner would "save") on a non-user update.
               if (initialLoad.current || viewOnly || !seedReady) return;
-              // Editing a preview tab promotes it to a permanent (pinned) tab —
-              // idempotent (no-op once pinned), like a mature editor.
-              if (promoteOnEdit) pinTab(paneId, file);
               // Only the OWNER schedules the save. onChange fires here for THIS
               // view's own edits AND (on the owner) for edits synced in from other
               // views via Yjs — so the owner's autosave covers every view.

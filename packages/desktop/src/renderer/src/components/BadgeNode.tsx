@@ -1,24 +1,14 @@
 import type { CanvasFolderPreview } from '@basehalf/core';
 import { type Node, type NodeProps, NodeResizer, useReactFlow, useStore } from '@xyflow/react';
-import {
-  type CSSProperties,
-  type JSX,
-  type WheelEvent as ReactWheelEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type CSSProperties, type JSX, useCallback, useEffect, useState } from 'react';
 import { CanvasConnectionHandles, useCanvasConnectionHandles } from '../canvasConnections/index.js';
 import { color, font, radius, shadow, space, transition } from '../design.js';
 import { cardLodForHeight } from '../lib/cardLod.js';
-import { flushDoc } from '../lib/editorFlush.js';
 import { fileUrl } from '../lib/fileUrl.js';
-import { docKeyFor } from '../lib/liveDoc.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { CardBadgeFace } from './CardBadgeFace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
-import { MdEditor } from './FilePreview.js';
 
 // A badge is a *living tile*: when it's big enough on screen to read, it shows a
 // real preview of the file's contents (rendered Markdown, a raw text/code
@@ -125,15 +115,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const basename = lastSlash === -1 ? d.label : d.label.slice(lastSlash + 1);
   const dirname = lastSlash === -1 ? '' : d.label.slice(0, lastSlash);
   const type = badgeType(d.label, isFolder);
-  const canInlineEdit = !isFolder && !orphan && /\.(md|markdown)$/i.test(d.label);
-  const inlinePaneId = `canvas-card:${d.label}`;
+  // The in-card badge face's flush key. Synthetic (not a real pane) — the hook
+  // registers a flusher under it AND flushes its debounced prompt edit on unmount,
+  // so an in-card edit persists even though the badge face has no editor pane.
+  const badgeFacePaneId = `canvas-badge:${d.label}`;
 
   const wsPath = useWorkspaceStore((s) => {
     const w = s.workspaces.find((ws) => ws.name === s.current);
     return w?.path ?? '';
   });
-  const inlineDocKey = docKeyFor(wsPath, d.label);
-  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
   // Size-aware level-of-detail: a card shows less as it gets smaller ON SCREEN —
@@ -149,20 +139,19 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     return cardLodForHeight(h, s.transform[2]);
   });
   const [nodeHover, setNodeHover] = useState(false);
-  const [inlineEditing, setInlineEditing] = useState(false);
-  const [inlineClosing, setInlineClosing] = useState(false);
-  const [inlineError, setInlineError] = useState('');
-  const connectionHandles = useCanvasConnectionHandles({ disabled: inlineEditing, nodeId: id });
-  const armingInlineEdit = useRef(false);
-  const inlineCloseBlocked = useRef(false);
+  const [showBadgeFace, setShowBadgeFace] = useState(false);
+  const connectionHandles = useCanvasConnectionHandles({ disabled: false, nodeId: id });
   // Always show a content preview for the types we can render cheaply
   // (text/markdown/code → excerpt, image → thumbnail). Orphans (missing file)
   // and folders have nothing to preview.
   const previewable = type === 'image' || type === 'text' || type === 'code';
   const showPreview = previewable && !orphan && !isFolder;
-  // Inline-editing always forces full detail — you can't edit a collapsed chip.
-  const lod = inlineEditing ? 'full' : sizeLod;
-  const usesMarkdownCardSurface = canInlineEdit && showPreview;
+  // The badge face always forces full detail — you can't edit a collapsed chip.
+  const lod = showBadgeFace ? 'full' : sizeLod;
+  // The badge face (in-card prompt + refs + inbound + focus) replaces the body
+  // when toggled on. Offered at full detail only (the mini chip has no room), and
+  // not for an orphan folder (a missing folder has no contents to annotate).
+  const canShowBadgeFace = lod === 'full' && !(isFolder && orphan);
 
   // Orphan = file referenced but missing on disk. We want the badge to read
   // as "placeholder" rather than "error": muted background + dashed danger
@@ -175,68 +164,24 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // folder kind, danger when the target is missing.
   const glyphTone = orphan ? color.danger : isFolder ? color.folderGlyph : color.textTertiary;
 
-  const tooltip = inlineEditing
-    ? `${d.label} — editing on canvas`
-    : isFolder
-      ? `${d.label} — click to select; double-click to enter this folder`
-      : orphan
-        ? `${d.label} — referenced but missing on disk`
-        : `${d.label} — click to select; double-click to open in the right panel`;
+  const tooltip = isFolder
+    ? `${d.label} — click to select; double-click to enter this folder`
+    : orphan
+      ? `${d.label} — referenced but missing on disk`
+      : `${d.label} — click to select; double-click to open the editor`;
 
   const boxShadow = shadow.card;
   const showChrome = selected || nodeHover;
   const showResizeControls = selected || nodeHover;
-  const finishInlineEdit = useCallback(async () => {
-    if (!inlineEditing || inlineClosing) return;
-    setInlineClosing(true);
-    setInlineError('');
-    inlineCloseBlocked.current = false;
-    try {
-      const ok = await flushDoc(inlineDocKey, { forceSerialize: true });
-      if (ok) {
-        invalidatePreviewCache(d.label);
-        inlineCloseBlocked.current = false;
-        setInlineEditing(false);
-      } else {
-        inlineCloseBlocked.current = true;
-        setInlineError('Resolve the edit before leaving this card.');
-      }
-    } finally {
-      setInlineClosing(false);
-    }
-  }, [d.label, inlineClosing, inlineDocKey, inlineEditing]);
 
-  // Tell the canvas this card is being inline-edited so it suspends viewport
+  // Tell the canvas this card's badge face is being edited so it suspends viewport
   // virtualization — otherwise a pan/zoom could cull this tile mid-edit and the
-  // unmount would CANCEL (not flush) the debounced autosave, losing keystrokes.
-  // Cleared on exit and on unmount (idempotent in the store).
+  // unmount would interrupt the open prompt edit. Cleared on toggle-off and on
+  // unmount (idempotent in the store).
   useEffect(() => {
-    setCardEditing(id, inlineEditing);
+    setCardEditing(id, showBadgeFace);
     return () => setCardEditing(id, false);
-  }, [id, inlineEditing, setCardEditing]);
-
-  useEffect(() => {
-    if (!inlineEditing) return;
-    if (selected) {
-      armingInlineEdit.current = false;
-      return;
-    }
-    if (armingInlineEdit.current) return;
-    if (inlineCloseBlocked.current) return;
-    void finishInlineEdit();
-  }, [finishInlineEdit, inlineEditing, selected]);
-
-  useEffect(() => {
-    if (!inlineEditing) return;
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      void finishInlineEdit();
-    };
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [finishInlineEdit, inlineEditing]);
+  }, [id, showBadgeFace, setCardEditing]);
 
   const selectThisNode = useCallback(() => {
     setFlowNodes((nodes) =>
@@ -252,22 +197,9 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     event.stopPropagation();
   };
 
-  const routeInlineEditorWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>): void => {
-      if (!inlineEditing) return;
-      const scroller = event.currentTarget.querySelector<HTMLElement>('.bh-md-editor-scroll');
-      event.preventDefault();
-      event.stopPropagation();
-      if (!scroller) return;
-      scroller.scrollTop += event.deltaY;
-      scroller.scrollLeft += event.deltaX;
-    },
-    [inlineEditing],
-  );
-
   // Two distinct visual states, kept separate because they mean different things:
-  //   `pressed` = a real toggle is ON (the canvas-edit pencil → filled accent bg,
-  //               reads as "click again to release").
+  //   `pressed` = a real toggle is ON (the badge button when the face is open →
+  //               filled accent bg, reads as "click again to release").
   //   `lit`     = a passive indicator (the badge button when a prompt exists →
   //               just stays visible + accent-toned glyph + dot, NO filled bg).
   // Sharing the filled-bg "pressed" look for `lit` made the badge button read as a
@@ -286,7 +218,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    opacity: showChrome || inlineEditing || pressed || lit ? 1 : 0.56,
+    opacity: showChrome || pressed || lit ? 1 : 0.56,
     pointerEvents: 'auto',
     transition: transition(['opacity', 'border-color', 'background', 'color']),
   });
@@ -295,14 +227,11 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     <div
       ref={connectionHandles.cardRef}
       data-selected={selected ? 'true' : 'false'}
-      data-editing={inlineEditing ? 'true' : 'false'}
       data-testid={`canvas-card-${d.label}`}
-      className={inlineEditing ? 'nowheel' : undefined}
       title={tooltip}
       onMouseEnter={() => setNodeHover(true)}
       onMouseLeave={() => setNodeHover(false)}
       onPointerMove={connectionHandles.onCardPointerMove}
-      onWheelCapture={inlineEditing ? routeInlineEditorWheel : undefined}
       onPointerLeave={() => {
         setNodeHover(false);
         connectionHandles.onCardPointerLeave();
@@ -322,7 +251,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
         fontFamily: font.sans,
         boxShadow,
         transition: transition(['box-shadow', 'border-color', 'background']),
-        cursor: inlineEditing ? 'default' : 'grab',
+        cursor: 'grab',
       }}
     >
       <NodeResizer
@@ -343,7 +272,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
       />
       <CanvasConnectionHandles
         connectionInProgress={connectionHandles.connectionInProgress}
-        disabled={inlineEditing}
+        disabled={false}
         sourceAffordance={connectionHandles.sourceAffordance}
         targetAffordance={connectionHandles.targetAffordance}
         targetInteractive={connectionHandles.targetInteractive}
@@ -378,7 +307,10 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
               gap: space[2],
               alignItems: 'flex-start',
               padding: `${space[2]}px ${space[3]}px`,
-              borderBottom: showPreview || inlineEditing ? `1px solid ${color.border}` : 'none',
+              borderBottom:
+                showPreview || (showBadgeFace && canShowBadgeFace)
+                  ? `1px solid ${color.border}`
+                  : 'none',
               minHeight: 42,
               flexShrink: 0,
             }}
@@ -411,51 +343,27 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                 {isFolder && d.preview && (
                   <KindChip label={countLabel(d.preview.total)} tone="folder" />
                 )}
-                {canInlineEdit && (
-                  <button
-                    type="button"
-                    className="nodrag nopan"
-                    title={inlineEditing ? 'Finish editing on canvas' : 'Edit on canvas'}
-                    aria-label={`Edit on canvas for ${d.label}`}
-                    aria-pressed={inlineEditing}
-                    data-testid={`canvas-inline-edit-button-${d.label}`}
-                    onPointerDown={stopNodeGesture}
-                    onMouseDown={stopNodeGesture}
-                    onDoubleClick={stopNodeGesture}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      selectThisNode();
-                      if (inlineEditing) {
-                        void finishInlineEdit();
-                      } else {
-                        armingInlineEdit.current = true;
-                        inlineCloseBlocked.current = false;
-                        setInlineError('');
-                        setInlineEditing(true);
-                      }
-                    }}
-                    style={chromeButton(inlineEditing)}
-                  >
-                    <FileGlyph
-                      type="edit"
-                      tone={inlineEditing ? color.accent : color.textTertiary}
-                      size={15}
-                    />
-                  </button>
-                )}
-                {!isFolder && (
+                {/* Badge toggle: flips the card body between its content preview
+                    and the in-card badge face (prompt + refs + inbound + focus).
+                    Offered at full detail only (the mini chip has no room) — the
+                    badge UI no longer opens a separate panel tab. Works for both
+                    file and folder kinds; an orphan folder has no badge face. */}
+                {canShowBadgeFace && (
                   <button
                     type="button"
                     className="nodrag nopan"
                     title={
-                      d.prompt && (d.notedRefs ?? 0) > 0
-                        ? `Has a badge + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit it`
-                        : d.prompt
-                          ? 'Has a badge — edit it'
-                          : 'Edit File Badge'
+                      showBadgeFace
+                        ? 'Hide the badge — back to the preview'
+                        : d.prompt && (d.notedRefs ?? 0) > 0
+                          ? `Has a badge + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit it`
+                          : d.prompt
+                            ? 'Has a badge — edit it'
+                            : 'Edit Badge'
                     }
-                    aria-label={`Edit File Badge for ${d.label}`}
+                    aria-label={`${showBadgeFace ? 'Hide' : 'Show'} badge for ${d.label}`}
+                    aria-pressed={showBadgeFace}
+                    data-testid={`canvas-badge-toggle-${d.label}`}
                     onPointerDown={stopNodeGesture}
                     onMouseDown={stopNodeGesture}
                     onDoubleClick={stopNodeGesture}
@@ -463,9 +371,9 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                       e.preventDefault();
                       e.stopPropagation();
                       selectThisNode();
-                      openBadgeInPanel(d.label);
+                      setShowBadgeFace((v) => !v);
                     }}
-                    style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
+                    style={chromeButton(showBadgeFace, d.prompt !== undefined && d.prompt !== '')}
                   >
                     {/* "Has a note" is signalled by the accent-toned glyph (kept
                     visible at rest via `lit`). A file whose connections ALSO
@@ -473,25 +381,30 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     from most — earns the small corner dot on top. */}
                     <FileGlyph
                       type="badge"
-                      tone={d.prompt ? color.accent : color.textTertiary}
+                      tone={
+                        showBadgeFace ? color.accent : d.prompt ? color.accent : color.textTertiary
+                      }
                       size={15}
                     />
-                    {d.prompt !== undefined && d.prompt !== '' && (d.notedRefs ?? 0) > 0 && (
-                      <span
-                        aria-hidden
-                        data-testid={`badge-coverage-dot-${d.label}`}
-                        style={{
-                          position: 'absolute',
-                          top: -2,
-                          right: -2,
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: color.accent,
-                          border: `1.5px solid ${baseBg}`,
-                        }}
-                      />
-                    )}
+                    {!showBadgeFace &&
+                      d.prompt !== undefined &&
+                      d.prompt !== '' &&
+                      (d.notedRefs ?? 0) > 0 && (
+                        <span
+                          aria-hidden
+                          data-testid={`badge-coverage-dot-${d.label}`}
+                          style={{
+                            position: 'absolute',
+                            top: -2,
+                            right: -2,
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: color.accent,
+                            border: `1.5px solid ${baseBg}`,
+                          }}
+                        />
+                      )}
                   </button>
                 )}
                 {orphan && <KindChip label="MISSING" tone="danger" />}
@@ -515,57 +428,17 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             </div>
           </div>
         )}
-        {/* Markdown cards mount the heavy live editor (BlockNote + Yjs) ONLY while
-          inline-editing — never as the resting preview. Otherwise every .md card
-          on the canvas mounts its own ProseMirror editor (e.g. ~48 at once inside
-          a decisions/ folder), janking the whole canvas. At rest, markdown falls
-          through to the cheap BadgePreview excerpt below (it is type 'text'). */}
-        {lod === 'mini' ? null : usesMarkdownCardSurface && inlineEditing ? (
-          <div
-            className="nodrag nopan nowheel"
-            data-testid={`canvas-inline-editor-${d.label}`}
-            onMouseDown={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => e.stopPropagation()}
-            style={{
-              flex: 1,
-              minHeight: 0,
-              overflow: 'hidden',
-              cursor: 'text',
-              background: color.surface,
-              pointerEvents: 'auto',
-            }}
-          >
-            <MdEditor
-              file={d.label}
-              paneId={inlinePaneId}
-              docKey={inlineDocKey}
-              compact
-              cardEditable={inlineEditing}
-              promoteOnEdit={false}
-              onDiscardClose={() => {
-                inlineCloseBlocked.current = false;
-                setInlineEditing(false);
-              }}
-            />
-            {inlineError && (
-              <div
-                style={{
-                  position: 'absolute',
-                  left: space[2],
-                  right: space[2],
-                  bottom: space[2],
-                  padding: `${space[1]}px ${space[2]}px`,
-                  borderRadius: radius.md,
-                  background: color.warningSoft,
-                  color: color.warning,
-                  fontSize: font.size.micro,
-                  boxShadow: shadow.card,
-                }}
-              >
-                {inlineError}
-              </div>
-            )}
-          </div>
+        {/* Cards only DISPLAY: a content preview (markdown rendered to static HTML,
+          a text/code excerpt, or an image thumbnail) or — via the badge toggle —
+          the in-card badge face. Editing a file happens in the full-canvas editor
+          overlay (double-click the card), never inside the tile, so no heavy live
+          editor ever mounts per card. */}
+        {lod === 'mini' ? null : showBadgeFace && canShowBadgeFace ? (
+          <CardBadgeFace
+            file={d.label}
+            kind={isFolder ? 'folder' : 'file'}
+            paneId={badgeFacePaneId}
+          />
         ) : showPreview ? (
           <BadgePreview type={type} label={d.label} wsPath={wsPath} />
         ) : isFolder && !orphan && d.preview ? (
@@ -635,12 +508,12 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   );
 };
 
-// The non-Markdown "see inside" payload. Cheap, type-aware, and
-// pointer-transparent so it never steals the badge's drag. Markdown cards use
-// MdEditor directly above; other text shows a faded raw excerpt, and images show
-// a contained thumbnail. PDF/audio/video/other degrade to nothing extra — the
-// glyph + name already say what they are, and a live thumbnail there would cost
-// far more than it tells.
+// The "see inside" payload. Cheap, type-aware, and pointer-transparent so it
+// never steals the badge's drag. Markdown renders to static, sanitized HTML (the
+// shared off-screen converter); other text shows a faded raw excerpt, and images
+// show a contained thumbnail. PDF/audio/video/other degrade to nothing extra —
+// the glyph + name already say what they are, and a live thumbnail there would
+// cost far more than it tells.
 const BadgePreview = ({
   type,
   label,
