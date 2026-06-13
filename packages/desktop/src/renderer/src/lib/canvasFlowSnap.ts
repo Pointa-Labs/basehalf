@@ -14,7 +14,9 @@ type DimensionChange<TNode extends Node> = Extract<NodeChange<TNode>, { type: 'd
 
 export type CanvasFlowSnapOptions = {
   readonly threshold: number;
-  readonly disabled: boolean;
+  /** Skip snapping entirely (return the raw changes, no guides). Defaults to
+   *  false — snapping is on unless a caller opts out. */
+  readonly disabled?: boolean;
   readonly defaultWidth: number;
   readonly defaultHeight: number;
   readonly minWidth: number;

@@ -1,8 +1,10 @@
-// Multi-editor flush registry. With split panes, several MD editors are mounted
-// at once (one per pane). Each registers its flush keyed by pane id; the store
-// flushes the relevant pane before a tab switch / close, and ALL of them before
-// a workspace switch — so auto-saved edits always land before the context
-// changes. A flush resolves `false` when an unresolved disk conflict blocks it.
+// Editor flush registry. A handful of MD editors can be mounted at once — the
+// full-canvas editor overlay plus any in-card badge-prompt flushers — each
+// registering its flush keyed by a (synthetic) pane id. The store flushes the
+// open overlay editor before a file switch / close (`flushPane`), and EVERY
+// registered flusher before a workspace switch / quit (`flushAll`) — so
+// auto-saved edits always land before the context changes. A flush resolves
+// `false` when an unresolved disk conflict / failed write blocks it.
 //
 // Lives outside the zustand state on purpose: nothing renders off it, and it
 // must survive store updates without being a reactive dependency.
