@@ -1,6 +1,10 @@
 import { type JSX, useEffect, useState } from 'react';
 import { Canvas } from './components/Canvas.js';
-import { CommandPalette, openCommandPalette } from './components/CommandPalette.js';
+import {
+  CommandPalette,
+  isCommandPaletteOpen,
+  openCommandPalette,
+} from './components/CommandPalette.js';
 import { DialogHost, confirm } from './components/Dialog.js';
 import { EditorSpace } from './components/EditorSpace.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
@@ -60,10 +64,22 @@ export const App = (): JSX.Element => {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === 's' || e.key === 'S' || e.key === 'k') {
-        // ⌘S is the primary search shortcut (⌘K kept as an alias). The app
-        // auto-saves, so ⌘S isn't "save" — and preventDefault also stops the
-        // browser's save-page dialog from firing while a note is focused.
+      const ae = document.activeElement;
+      const editable =
+        ae instanceof HTMLElement &&
+        (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
+      if (e.key === 'k') {
+        // ⌘K always opens the command palette, even from inside the editor.
+        e.preventDefault();
+        openCommandPalette();
+        return;
+      }
+      if (e.key === 's' || e.key === 'S') {
+        // ⌘S opens search — but NOT while the user is writing. The editor owns
+        // ⌘S as "save now" (muscle memory); popping the palette over their text
+        // every time they reflexively save was the bug. Yield to the editable
+        // surface there; preventDefault still stops the browser save-page dialog.
+        if (editable) return;
         e.preventDefault();
         openCommandPalette();
         return;
@@ -72,16 +88,17 @@ export const App = (): JSX.Element => {
         // ⌘B is "bold" inside any editable surface (the BlockNote note editor,
         // inputs, the ⌘K palette field). Yield to it there; only toggle the
         // sidebar when focus is on inert chrome — as well-behaved editors do.
-        const ae = document.activeElement;
-        const editable =
-          ae instanceof HTMLElement &&
-          (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
         if (editable) return;
         e.preventDefault();
         useLayoutStore.getState().toggleSidebar();
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
+        // The command palette is modal (its own backdrop + focused input). ⌘N
+        // while it's open would open the New-note dialog UNDERNEATH the palette
+        // and steal focus into an obscured input — keystrokes vanish. Let the
+        // palette field handle the press instead.
+        if (isCommandPaletteOpen()) return;
         // Instant note — a real `untitled-N.md` opens for typing right away;
         // no filename dialog up front (rename later, when it has a subject).
         // Created in the folder the canvas is scoped into, where you're looking.
@@ -92,6 +109,27 @@ export const App = (): JSX.Element => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // External links (in a Markdown preview or note) open in the system browser,
+  // never in-app. The main process refuses all in-renderer navigation (so a
+  // workspace file's link can't hijack the app), which would otherwise make
+  // such links dead. We intercept the click here and route http(s) URLs through
+  // the allowlisted `shell:open-external` IPC. Delegated at the document so it
+  // covers every preview tile and the editor without per-anchor wiring.
+  useEffect(() => {
+    const onClick = (e: MouseEvent): void => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const href = anchor.getAttribute('href') ?? '';
+      if (!/^https?:\/\//i.test(href)) return;
+      e.preventDefault();
+      void window.bh.openExternal(href);
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
   }, []);
 
   // File ▸ Open Folder… (⌘O) and the right-click "Open Folder…" both fire this

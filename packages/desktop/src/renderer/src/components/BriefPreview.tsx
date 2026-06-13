@@ -17,6 +17,7 @@ import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space } from '../design.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import { type BriefDisplay, briefForClipboard, parseBriefForDisplay } from '../lib/focusBrief.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { Button } from './primitives/Button.js';
 import { type PopoverController, PopoverSurface } from './primitives/Popover.js';
@@ -137,6 +138,7 @@ const GhostPromptEditor = ({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return; // Enter/Esc belong to the IME mid-composition
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             e.currentTarget.blur(); // commit via onBlur
@@ -427,6 +429,7 @@ export const BriefPreview = ({
                 }}
                 onBlur={() => void flushIntent()}
                 onKeyDown={(e) => {
+                  if (isImeComposing(e)) return; // don't commit mid-composition
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     e.currentTarget.blur(); // commit via onBlur → flushIntent

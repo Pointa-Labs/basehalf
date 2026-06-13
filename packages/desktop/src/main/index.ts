@@ -129,6 +129,22 @@ async function createWindow(): Promise<void> {
 
   if (state.isMaximized) mainWindow.maximize();
 
+  // Navigation lockdown. A workspace can hold Markdown authored by someone else
+  // (cloned repo, shared notes) whose links render as live anchors on canvas
+  // cards. Without these guards a click would navigate the renderer to a remote
+  // origin — and the preload re-injects the `window.bh` bridge on every load, so
+  // that page would inherit full core access (read/write the user's files). We
+  // deny ALL top-level navigation and window opens; genuine external links are
+  // routed (by the renderer) through the allowlisted `shell:open-external` IPC.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // The dev server / packaged index.html load is the only legitimate
+    // navigation; everything else (a clicked link) is refused.
+    const allowed = process.env.ELECTRON_RENDERER_URL ?? '';
+    if (allowed !== '' && url.startsWith(allowed)) return;
+    event.preventDefault();
+  });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
   // Native right-click menu (Open Folder… everywhere; clipboard roles in the
   // block editor). Per-window because it binds to this webContents.
   installContextMenu(mainWindow);

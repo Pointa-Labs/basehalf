@@ -37,6 +37,7 @@ import {
 } from '../lib/actions.js';
 import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import { recentFilesFor } from '../lib/recent-files.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { openSettings } from './Settings.js';
@@ -53,6 +54,10 @@ const usePaletteStore = create<CommandPaletteStore>((set) => ({
 
 export function openCommandPalette(): void {
   usePaletteStore.getState().setOpen(true);
+}
+
+export function isCommandPaletteOpen(): boolean {
+  return usePaletteStore.getState().open;
 }
 
 export function closeCommandPalette(): void {
@@ -558,6 +563,9 @@ export const CommandPalette = (): JSX.Element | null => {
   if (!open) return null;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Mid-IME-composition, Enter confirms a candidate and Esc cancels it — don't
+    // run a row or close the palette under the user's pinyin selection.
+    if (isImeComposing(e)) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);

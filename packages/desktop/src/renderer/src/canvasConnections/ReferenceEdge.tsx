@@ -7,6 +7,7 @@ import {
 } from '@xyflow/react';
 import { type JSX, type PointerEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, motion, radius, shadow, space } from '../design.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import { arrowheadPath } from './arrowhead.js';
 import {
   type SnappedCanvasNodeSide,
@@ -381,6 +382,7 @@ export const ReferenceEdge = ({
               onPointerDown={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 e.stopPropagation(); // Delete/Backspace must edit text, not delete the edge
+                if (isImeComposing(e)) return; // Enter/Esc belong to the IME mid-composition
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   commitNoteEdit();

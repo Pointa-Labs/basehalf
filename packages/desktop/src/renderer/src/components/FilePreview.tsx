@@ -22,6 +22,7 @@ import {
   unregisterFlusher,
 } from '../lib/editorFlush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import {
   type LiveDocView,
   acquireDoc,
@@ -376,6 +377,7 @@ const AgentNoteStrip = ({
               void fb.flushPrompt().finally(() => setDrafting(false));
             }}
             onKeyDown={(e) => {
+              if (isImeComposing(e)) return; // Enter confirms a pinyin candidate
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 e.currentTarget.blur(); // commit via onBlur → flushPrompt

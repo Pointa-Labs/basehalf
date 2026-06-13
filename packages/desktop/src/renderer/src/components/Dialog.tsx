@@ -11,6 +11,7 @@
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import { Button } from './primitives/Button.js';
 
 interface BaseDialog {
@@ -467,6 +468,7 @@ const PickBody = ({
         spellCheck={false}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return; // Enter picks a candidate, not a row
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             setSelectedIdx((i) => Math.min(i + 1, filtered.length - 1));

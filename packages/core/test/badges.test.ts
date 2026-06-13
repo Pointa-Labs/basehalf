@@ -631,3 +631,37 @@ describe('promptModifiedAt (freshness anchor)', () => {
     expect(result.badge.promptModifiedAt).toBe(created.promptModifiedAt);
   });
 });
+
+describe('badge.set concurrency (keyed mutex)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('two concurrent set patches on the same badge do not lose either field', async () => {
+    // A prompt blur and a canvas drag of the same card both fire badge.set. Each
+    // reads the pre-write badge; without the lock the second write resurrects the
+    // first's stale field and silently drops the user's just-typed note (or the
+    // new position). The keyed mutex serializes the read→write so both survive.
+    await Promise.all([
+      ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'one honest sentence' } }),
+      ctx.core.run('badge.set', {
+        file: 'a.md',
+        patch: { canvas: { x: 42, y: 7, width: 200, height: 120, collapsed: false } },
+      }),
+    ]);
+    const badge = (await ctx.core.run('badge.get', { file: 'a.md' })) as BadgeFile;
+    expect(badge.prompt).toBe('one honest sentence');
+    expect(badge.canvas).toEqual({ x: 42, y: 7, width: 200, height: 120, collapsed: false });
+  });
+
+  it('a burst of addRef calls on the same badge all land', async () => {
+    await Promise.all([
+      ctx.core.run('badge.addRef', { file: 'hub.md', to: 'a.md' }),
+      ctx.core.run('badge.addRef', { file: 'hub.md', to: 'b.md' }),
+      ctx.core.run('badge.addRef', { file: 'hub.md', to: 'c.md' }),
+    ]);
+    const badge = (await ctx.core.run('badge.get', { file: 'hub.md' })) as BadgeFile;
+    expect(badge.references.map((r) => r.to).sort()).toEqual(['a.md', 'b.md', 'c.md']);
+  });
+});

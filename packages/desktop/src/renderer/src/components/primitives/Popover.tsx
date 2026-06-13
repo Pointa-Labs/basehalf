@@ -107,21 +107,26 @@ export const usePopover = ({
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent): void => {
+      if (e.isComposing) return; // Esc cancels an IME candidate, not the popover
       if (e.key === 'Escape') {
         e.preventDefault();
+        // Capture phase + stopPropagation: the editor-space Esc-to-close listens
+        // on window in the bubble phase. Stopping here keeps "Esc dismisses the
+        // open popover" from ALSO closing the active editor tab underneath it.
+        e.stopPropagation();
         setOpen(false);
         triggerRef.current?.focus();
       }
     };
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
     // capture:true — scroll events don't bubble, so we catch the toolbar's
     // own horizontal scroll (overflow-x:auto) in the capture phase and follow.
     window.addEventListener('scroll', reposition, true);
     window.addEventListener('resize', reposition);
     return () => {
       window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('scroll', reposition, true);
       window.removeEventListener('resize', reposition);
     };

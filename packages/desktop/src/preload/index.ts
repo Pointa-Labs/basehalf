@@ -109,6 +109,14 @@ const bh = {
     ipcRenderer.on('menu:open-settings', wrapped);
     return () => ipcRenderer.off('menu:open-settings', wrapped);
   },
+  /** Subscribe to the File ▸ Close Tab (⌘W) action (relayed by main, which owns
+   *  the accelerator so it doesn't close the window). Returns an unsubscribe
+   *  function; the renderer closes its active editor tab. */
+  onMenuCloseTab: (handler: () => void): (() => void) => {
+    const wrapped = (): void => handler();
+    ipcRenderer.on('menu:close-tab', wrapped);
+    return () => ipcRenderer.off('menu:close-tab', wrapped);
+  },
   /** Self-update state machine lives in MAIN (background checks run before any
    *  window exists); these mirror it. See main/updater.ts for the states. */
   updateGetState: (): Promise<unknown> => ipcRenderer.invoke('update:get-state'),

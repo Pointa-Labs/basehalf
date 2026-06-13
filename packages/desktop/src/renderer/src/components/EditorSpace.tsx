@@ -2,10 +2,12 @@ import {
   type CSSProperties,
   type JSX,
   type MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useState,
 } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { isImeComposing } from '../lib/imeGuard.js';
 import { regionFor } from '../lib/paneDrop.js';
 import type { LeafPane, PaneNode, SplitPane } from '../lib/paneTree.js';
 import { isBadgeTab, panelTabFile } from '../lib/panelTab.js';
@@ -30,9 +32,19 @@ export const EditorSpace = (): JSX.Element | null => {
 
   // Global editor keys (read the store imperatively so they don't re-subscribe
   // per keystroke):
-  //  - Esc / ⌘W  → close the active pane's active tab
-  //  - ⌘\        → split the active pane right (the active file in a new pane)
-  // Skip close when a form field has focus (those handle their own Escape).
+  //  - Esc  → close the active pane's active tab
+  //  - ⌘\   → split the active pane right (the active file in a new pane)
+  // ⌘W is owned by the File ▸ Close Tab menu accelerator (its accelerator fires
+  // before this keydown on every platform), handled via onMenuCloseTab below.
+  // Skip close when an editable surface has focus or an IME is composing —
+  // those press Esc to dismiss candidates / blur their own field, not to close
+  // the tab under the user.
+  const closeActiveTab = useCallback((): void => {
+    const s = useWorkspaceStore.getState();
+    if (!s.rightPanelOpen || s.currentFile === null) return;
+    s.closeTab(s.activePaneId, s.currentFile);
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const mod = e.metaKey || e.ctrlKey;
@@ -43,17 +55,25 @@ export const EditorSpace = (): JSX.Element | null => {
         s.splitPane(s.activePaneId, 'row', s.currentFile);
         return;
       }
-      const isClose = e.key === 'Escape' || (e.key === 'w' && mod);
-      if (!isClose) return;
-      const tag = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (!s.rightPanelOpen || s.currentFile === null) return;
-      if (e.key === 'w') e.preventDefault();
-      s.closeTab(s.activePaneId, s.currentFile);
+      if (e.key !== 'Escape') return;
+      if (isImeComposing(e)) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable === true
+      ) {
+        return;
+      }
+      closeActiveTab();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [closeActiveTab]);
+
+  // ⌘W (File ▸ Close Tab) → close the active tab. Main owns the accelerator so
+  // it can't close the window; we run the same close path as Esc.
+  useEffect(() => window.bh.onMenuCloseTab(closeActiveTab), [closeActiveTab]);
 
   // Toggled closed → no region; the canvas takes the full middle.
   if (!rightPanelOpen) return null;

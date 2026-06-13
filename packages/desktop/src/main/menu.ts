@@ -33,6 +33,18 @@ function emitWorkspaceAction(action: 'rename' | 'remove'): void {
   BrowserWindow.getFocusedWindow()?.webContents.send('menu:workspace-action', action);
 }
 
+/**
+ * Nudge the focused renderer to close its active EDITOR TAB. ⌘W must close a
+ * tab, not the window — but on macOS the `{ role: 'close' }` menu item carries
+ * ⌘W and its accelerator fires before the renderer ever sees the keystroke, so
+ * the in-renderer ⌘W handler was dead. We own the accelerator here and forward
+ * it; the window-close gesture moves to ⇧⌘W (role: 'close'). The renderer
+ * no-ops when no tab is open.
+ */
+function emitCloseTab(): void {
+  BrowserWindow.getFocusedWindow()?.webContents.send('menu:close-tab');
+}
+
 /** Hooks the View menu's zoom items call. The caller owns the authoritative zoom
  *  level (so repeated steps don't drift on Electron's factor↔level rounding) and
  *  is responsible for clamping, applying it to the window, and persisting it. */
@@ -112,7 +124,12 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
               } as MenuItemConstructorOptions,
               { type: 'separator' } as MenuItemConstructorOptions,
             ]),
-        isMac ? { role: 'close' } : { role: 'quit' },
+        // ⌘W closes the active editor tab (forwarded to the renderer); the
+        // window-close gesture is ⇧⌘W. On non-macOS the conventional Quit stays.
+        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: emitCloseTab },
+        isMac
+          ? { label: 'Close Window', accelerator: 'Shift+Cmd+W', role: 'close' }
+          : { role: 'quit' },
       ],
     },
     { role: 'editMenu' },

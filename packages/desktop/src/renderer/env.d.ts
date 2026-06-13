@@ -38,6 +38,9 @@ interface Window {
     /** Subscribe to the app-menu "Settings…" action (relayed by main).
      *  Returns an unsubscribe function. */
     onMenuOpenSettings(handler: () => void): () => void;
+    /** Subscribe to the File ▸ Close Tab (⌘W) action (relayed by main).
+     *  Returns an unsubscribe function. */
+    onMenuCloseTab(handler: () => void): () => void;
     /** Self-update bridge — main owns the state machine (main/updater.ts);
      *  the renderer narrows the `unknown` states where it consumes them. */
     updateGetState(): Promise<unknown>;

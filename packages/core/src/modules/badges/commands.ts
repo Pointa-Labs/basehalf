@@ -1,4 +1,4 @@
-import type { Handler } from '../../kernel/index.js';
+import { type Handler, createKeyedMutex } from '../../kernel/index.js';
 import type { InboundGetResult } from '../inbound/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
@@ -48,6 +48,22 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   }
   return current.current.path;
 }
+
+// Serialize the read-modify-write of each workspace's badge JSONs. Badge files
+// were the one .bh/ store without this guard, so concurrent writers — a canvas
+// drag's `badge.set {canvas}` racing a prompt blur's `badge.set {prompt}`, or
+// the watcher's add-finalize `badge.set {orphan:false}` — each read the same
+// pre-write badge and the second write resurrected the first's stale fields,
+// silently dropping the user's just-typed note (or new position). Same kernel
+// mutex inbound/focus/workspaces.json use. [[bh-json-rmw-race]]
+//
+// CRITICAL — the lock wraps ONLY the badge JSON RMW, never the cascade. The
+// cascade (ctx.run('focus.resync' / 'inbound.addRef' / 'badge.addRef' …)) takes
+// OTHER locks (focus, inbound) or re-enters badge.* — holding the badge lock
+// across it would nest locks and can deadlock. Acquire → RMW → release → then
+// cascade. Keyed by root: rename touches multiple badge files at once, so
+// root-level (not per-file) is the safe granularity.
+const withBadgeLock = createKeyedMutex();
 
 /**
  * Reconcile focus.md after a badge edit, exactly like badge.addRef/removeRef
@@ -133,53 +149,61 @@ export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
 export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind: BadgeKind = args.patch?.kind ?? 'file';
-  const existing = await readBadge(ctx.fs, root, args.file, kind);
-  const now = new Date().toISOString();
   const patch = args.patch ?? {};
 
-  // The prompt's OWN timestamp moves only when the prompt text actually
-  // changes — never on canvas drags / kind patches / re-saves of the same
-  // text. It anchors the brief's freshness comparison (focus assembleItems),
-  // which `modifiedAt` cannot (every write bumps it).
-  const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
-  const promptAt = promptChanged ? now : existing?.promptModifiedAt;
+  // Lock the read→merge→write so a concurrent set on the same badge can't
+  // interleave a stale read with a fresh write and drop a field. `existing` is
+  // captured here too — derive `!existing` from the result for the cascade.
+  const { next, existed } = await withBadgeLock(root, async () => {
+    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const now = new Date().toISOString();
 
-  const next: BadgeFile = existing
-    ? {
-        bhVersion: 1,
-        file: existing.file,
-        kind: existing.kind,
-        ...(patch.prompt !== undefined
-          ? { prompt: patch.prompt }
-          : existing.prompt !== undefined && { prompt: existing.prompt }),
-        ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
-        references: patch.references ?? existing.references,
-        ...(patch.canvas !== undefined
-          ? { canvas: patch.canvas }
-          : existing.canvas !== undefined && { canvas: existing.canvas }),
-        // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
-        // deleted file must not silently un-orphan it (that would let a vanished
-        // path back into the agent's brief). Cleared only by an explicit
-        // `orphan:false` (the watcher's add when the file re-appears); set only by
-        // badge.markOrphan.
-        ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
-        createdAt: existing.createdAt,
-        modifiedAt: now,
-      }
-    : {
-        bhVersion: 1,
-        file: args.file,
-        kind,
-        ...(patch.prompt !== undefined && { prompt: patch.prompt }),
-        ...(patch.prompt !== undefined && { promptModifiedAt: now }),
-        references: patch.references ?? [],
-        ...(patch.canvas !== undefined && { canvas: patch.canvas }),
-        ...(patch.orphan === true && { orphan: true }),
-        createdAt: now,
-        modifiedAt: now,
-      };
+    // The prompt's OWN timestamp moves only when the prompt text actually
+    // changes — never on canvas drags / kind patches / re-saves of the same
+    // text. It anchors the brief's freshness comparison (focus assembleItems),
+    // which `modifiedAt` cannot (every write bumps it).
+    const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
+    const promptAt = promptChanged ? now : existing?.promptModifiedAt;
 
-  await writeBadge(ctx.fs, root, next);
+    const merged: BadgeFile = existing
+      ? {
+          bhVersion: 1,
+          file: existing.file,
+          kind: existing.kind,
+          ...(patch.prompt !== undefined
+            ? { prompt: patch.prompt }
+            : existing.prompt !== undefined && { prompt: existing.prompt }),
+          ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
+          references: patch.references ?? existing.references,
+          ...(patch.canvas !== undefined
+            ? { canvas: patch.canvas }
+            : existing.canvas !== undefined && { canvas: existing.canvas }),
+          // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
+          // deleted file must not silently un-orphan it (that would let a vanished
+          // path back into the agent's brief). Cleared only by an explicit
+          // `orphan:false` (the watcher's add when the file re-appears); set only by
+          // badge.markOrphan.
+          ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
+          createdAt: existing.createdAt,
+          modifiedAt: now,
+        }
+      : {
+          bhVersion: 1,
+          file: args.file,
+          kind,
+          ...(patch.prompt !== undefined && { prompt: patch.prompt }),
+          ...(patch.prompt !== undefined && { promptModifiedAt: now }),
+          references: patch.references ?? [],
+          ...(patch.canvas !== undefined && { canvas: patch.canvas }),
+          ...(patch.orphan === true && { orphan: true }),
+          createdAt: now,
+          modifiedAt: now,
+        };
+
+    await writeBadge(ctx.fs, root, merged);
+    return { next: merged, existed: existing !== null };
+  });
+
   // Only reconcile focus.md when the edit actually changes the INLINED BRIEF
   // (prompt or refs). A kind-only / canvas-only patch — e.g. every eager
   // materialize badge.set on workspace open, or a canvas drag of a focused
@@ -196,7 +220,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
     // A brand-NEW file may have appeared under a focused folder — pull it into
     // the brief. Gated on creation so the idempotent re-materialize on re-open
     // (badges already exist) stays off the focus.md path.
-    if (!existing) await reconcileNewFile(ctx, args.file);
+    if (!existed) await reconcileNewFile(ctx, args.file);
   }
   return next;
 };
@@ -224,7 +248,9 @@ export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) =
 
 export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const deleted = await removeBadge(ctx.fs, root, args.file, args.kind ?? 'file');
+  const deleted = await withBadgeLock(root, () =>
+    removeBadge(ctx.fs, root, args.file, args.kind ?? 'file'),
+  );
   return { deleted };
 };
 
@@ -242,28 +268,31 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
   validateSide(args.toSide, 'toSide');
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
-  const existing = await readBadge(ctx.fs, root, args.file, kind);
-  const base: BadgeFile = existing ?? {
-    bhVersion: 1,
-    file: args.file,
-    kind,
-    references: [],
-    createdAt: new Date().toISOString(),
-    modifiedAt: new Date().toISOString(),
-  };
-  const newRef = {
-    to: args.to,
-    ...(args.note !== undefined && { note: args.note }),
-    ...(args.fromSide !== undefined && { fromSide: args.fromSide }),
-    ...(args.toSide !== undefined && { toSide: args.toSide }),
-  };
-  const without = base.references.filter((r) => r.to !== args.to);
-  const next: BadgeFile = {
-    ...base,
-    references: [...without, newRef],
-    modifiedAt: new Date().toISOString(),
-  };
-  await writeBadge(ctx.fs, root, next);
+  const next = await withBadgeLock(root, async () => {
+    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const base: BadgeFile = existing ?? {
+      bhVersion: 1,
+      file: args.file,
+      kind,
+      references: [],
+      createdAt: new Date().toISOString(),
+      modifiedAt: new Date().toISOString(),
+    };
+    const newRef = {
+      to: args.to,
+      ...(args.note !== undefined && { note: args.note }),
+      ...(args.fromSide !== undefined && { fromSide: args.fromSide }),
+      ...(args.toSide !== undefined && { toSide: args.toSide }),
+    };
+    const without = base.references.filter((r) => r.to !== args.to);
+    const merged: BadgeFile = {
+      ...base,
+      references: [...without, newRef],
+      modifiedAt: new Date().toISOString(),
+    };
+    await writeBadge(ctx.fs, root, merged);
+    return merged;
+  });
   // Inbound index sync — best-effort; AR-PR11-2 lands the module.
   try {
     await ctx.run('inbound.addRef', { from: args.file, to: args.to, note: args.note });
@@ -278,16 +307,19 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
 export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
-  const existing = await readBadge(ctx.fs, root, args.file, kind);
-  if (!existing) {
-    throw new Error(`Badge not found: ${args.file}`);
-  }
-  const next: BadgeFile = {
-    ...existing,
-    references: existing.references.filter((r) => r.to !== args.to),
-    modifiedAt: new Date().toISOString(),
-  };
-  await writeBadge(ctx.fs, root, next);
+  const next = await withBadgeLock(root, async () => {
+    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    if (!existing) {
+      throw new Error(`Badge not found: ${args.file}`);
+    }
+    const merged: BadgeFile = {
+      ...existing,
+      references: existing.references.filter((r) => r.to !== args.to),
+      modifiedAt: new Date().toISOString(),
+    };
+    await writeBadge(ctx.fs, root, merged);
+    return merged;
+  });
   try {
     await ctx.run('inbound.removeRef', { from: args.file, to: args.to });
   } catch (err) {
@@ -339,14 +371,18 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
 ) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
-  const existing = await readBadge(ctx.fs, root, args.file, kind);
-  if (!existing) return null;
-  const next: BadgeFile = {
-    ...existing,
-    orphan: true,
-    modifiedAt: new Date().toISOString(),
-  };
-  await writeBadge(ctx.fs, root, next);
+  const next = await withBadgeLock(root, async () => {
+    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    if (!existing) return null;
+    const merged: BadgeFile = {
+      ...existing,
+      orphan: true,
+      modifiedAt: new Date().toISOString(),
+    };
+    await writeBadge(ctx.fs, root, merged);
+    return merged;
+  });
+  if (next === null) return null;
   // Cascade to focus.md: a focused file that just vanished must leave the brief,
   // exactly like badge.rename cascades via renameActiveFile. File badges only —
   // a folder badge is never an active focus item.
@@ -382,38 +418,46 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     throw new Error(`badge.rename: from and to are the same (${args.from})`);
   }
 
-  const source = await readBadge(ctx.fs, root, args.from, kind);
-  if (!source) {
-    throw new Error(`badge.rename: no badge at ${args.from}`);
-  }
-  const collision = await readBadge(ctx.fs, root, args.to, kind);
-  if (collision) {
-    throw new Error(`badge.rename: badge already exists at ${args.to}`);
-  }
+  // Steps 1-2 — the badge-file move itself — are the read-modify-write that
+  // must be serialized against concurrent badge.set/addRef on the same root.
+  // The cascade below (2b/3/4) calls ctx.run('inbound.*' / 'badge.*' /
+  // 'focus.*'), which take other locks or re-enter badge.* — so they run AFTER
+  // the lock releases (holding it across them would nest locks → deadlock).
+  const moved = await withBadgeLock(root, async () => {
+    const source = await readBadge(ctx.fs, root, args.from, kind);
+    if (!source) {
+      throw new Error(`badge.rename: no badge at ${args.from}`);
+    }
+    const collision = await readBadge(ctx.fs, root, args.to, kind);
+    if (collision) {
+      throw new Error(`badge.rename: badge already exists at ${args.to}`);
+    }
 
-  // 1. Write a copy at the new path, preserving the user's prompt /
-  // references / canvas position / createdAt. Clear orphan since the
-  // underlying file just (re)appeared under a new name.
-  const now = new Date().toISOString();
-  const moved: BadgeFile = {
-    bhVersion: 1,
-    file: args.to,
-    kind,
-    ...(source.prompt !== undefined && { prompt: source.prompt }),
-    // A rename moves the prompt unchanged — its freshness anchor moves with it.
-    ...(source.promptModifiedAt !== undefined && { promptModifiedAt: source.promptModifiedAt }),
-    references: source.references,
-    ...(source.canvas !== undefined && { canvas: source.canvas }),
-    createdAt: source.createdAt,
-    modifiedAt: now,
-  };
-  await writeBadge(ctx.fs, root, moved);
+    // 1. Write a copy at the new path, preserving the user's prompt /
+    // references / canvas position / createdAt. Clear orphan since the
+    // underlying file just (re)appeared under a new name.
+    const now = new Date().toISOString();
+    const copy: BadgeFile = {
+      bhVersion: 1,
+      file: args.to,
+      kind,
+      ...(source.prompt !== undefined && { prompt: source.prompt }),
+      // A rename moves the prompt unchanged — its freshness anchor moves with it.
+      ...(source.promptModifiedAt !== undefined && { promptModifiedAt: source.promptModifiedAt }),
+      references: source.references,
+      ...(source.canvas !== undefined && { canvas: source.canvas }),
+      createdAt: source.createdAt,
+      modifiedAt: now,
+    };
+    await writeBadge(ctx.fs, root, copy);
 
-  // 2. Delete the source badge file. (We intentionally write the new one
-  // BEFORE deleting the source so a crash between steps leaves both —
-  // bad — over a crash with neither, which loses the user's prompt and
-  // references entirely.)
-  await removeBadge(ctx.fs, root, args.from, kind);
+    // 2. Delete the source badge file. (We intentionally write the new one
+    // BEFORE deleting the source so a crash between steps leaves both —
+    // bad — over a crash with neither, which loses the user's prompt and
+    // references entirely.)
+    await removeBadge(ctx.fs, root, args.from, kind);
+    return copy;
+  });
 
   // 2b. Migrate the inbound index for the moved badge's OWN outbound refs.
   // The moved badge keeps its references (copied in step 1), but they were

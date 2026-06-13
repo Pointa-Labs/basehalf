@@ -140,6 +140,12 @@ function badgeToNode(
     id: badge.file,
     type: 'badge',
     position: { x, y },
+    // A card maps to a file/folder on disk and its badge note — pressing
+    // Delete/Backspace while a card is selected must never delete the node (and,
+    // worse, cascade-delete its reference edges + their human-written notes, an
+    // irreplaceable asset). Only EDGES are deletable from the keyboard; the card
+    // is removed by deleting the underlying file, not a keystroke.
+    deletable: false,
     // initialWidth/Height give onlyRenderVisibleElements (see <ReactFlow>) the
     // node bounds for viewport culling BEFORE the DOM is measured — without them
     // the first frame can't tell which nodes fall inside the viewport.
@@ -698,35 +704,6 @@ export const Canvas = (): JSX.Element => {
     [folderScope],
   );
 
-  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
-  // removed edges here. Each edge's id is `${source}__${target}` (see the
-  // canvasConnections module) so we can derive the badge.removeRef args from id alone.
-  const onEdgesDelete = useCallback(
-    async (deleted: Edge[]) => {
-      const deletedIds = new Set(deleted.map((edge) => edge.id));
-      setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
-      try {
-        for (const e of deleted) {
-          await badgeMutations.removeRef(
-            {
-              file: e.source,
-              to: e.target,
-              kind: nodeBadgeKind(nodesRef.current, e.source),
-            },
-            'canvas',
-          );
-        }
-        const { badges } = (await window.bh.run('workspace.listCanvas', {
-          folder: folderScope,
-        })) as WorkspaceListCanvasResult;
-        setEdges(connectionEdges(badges, nodesRef.current));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [folderScope],
-  );
-
   const resetReferenceEdgesFromCore = useCallback(async (): Promise<void> => {
     const { badges } = (await window.bh.run('workspace.listCanvas', {
       folder: folderScope,
@@ -750,6 +727,36 @@ export const Canvas = (): JSX.Element => {
       }),
     );
   }, [folderScope]);
+
+  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
+  // removed edges here. Each edge's id is `${source}__${target}` (see the
+  // canvasConnections module) so we can derive the badge.removeRef args from id alone.
+  const onEdgesDelete = useCallback(
+    async (deleted: Edge[]) => {
+      const deletedIds = new Set(deleted.map((edge) => edge.id));
+      setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
+      try {
+        for (const e of deleted) {
+          await badgeMutations.removeRef(
+            {
+              file: e.source,
+              to: e.target,
+              kind: nodeBadgeKind(nodesRef.current, e.source),
+            },
+            'canvas',
+          );
+        }
+        // Re-derive edges AND each card's noted-refs count from core: a removed
+        // noted edge otherwise leaves the source card's "carries noted
+        // connections" dot stale (the 'canvas'-origin write is ignored by the
+        // bus listener) until an unrelated reload.
+        await resetReferenceEdgesFromCore();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [resetReferenceEdgesFromCore],
+  );
 
   const commitReferenceEdgeUpdate = useCallback(
     (update: ReferenceEdgeUpdate): void => {
