@@ -149,6 +149,15 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
       }
       return;
     }
+    case 'proposals.list':
+    case 'proposals.dismiss':
+      renderProposals(result as { proposals: { line: number; raw: string }[] });
+      return;
+    case 'proposals.clear': {
+      const n = (result as { cleared: number }).cleared;
+      process.stdout.write(n === 0 ? 'No proposals to clear.\n' : `Cleared ${n} proposal(s).\n`);
+      return;
+    }
     default:
       // Fallback: pretty-print whatever we got.
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -365,6 +374,21 @@ function renderInboundGet(r: { entries: { from: string; note?: string }[] }): vo
 
 function renderInboundRebuild(r: { rebuildAt: string; entryCount: number }): void {
   process.stdout.write(`Rebuilt inbound index: ${r.entryCount} targets at ${r.rebuildAt}\n`);
+}
+
+// ── proposals ─────────────────────────────────────────────────────────────────
+
+function renderProposals(r: { proposals: { line: number; raw: string }[] }): void {
+  if (r.proposals.length === 0) {
+    process.stdout.write('(no agent proposals)\n');
+    return;
+  }
+  for (const p of r.proposals) {
+    process.stdout.write(`[${p.line}] ${p.raw}\n`);
+  }
+  process.stdout.write(
+    `\n${r.proposals.length} proposal(s). Dismiss with: bh proposals dismiss <n>\n`,
+  );
 }
 
 // ── focus ───────────────────────────────────────────────────────────────────

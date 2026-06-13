@@ -319,6 +319,46 @@ const inbound = defineCommand({
   subCommands: { get: inboundGet, rebuild: inboundRebuild },
 });
 
+// ── proposals.* ──────────────────────────────────────────────────────────────
+
+const proposalsList = defineCommand({
+  meta: {
+    name: 'list',
+    description: 'List agent observations written to .bh/cache/proposals.md',
+  },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('proposals.list', {});
+    render('proposals.list', result, Boolean(args.json));
+  },
+});
+
+const proposalsDismiss = defineCommand({
+  meta: { name: 'dismiss', description: 'Remove one proposal by its index (from `list`)' },
+  args: {
+    line: { type: 'positional', description: 'The proposal index to dismiss', required: true },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('proposals.dismiss', { line: Number(args.line) });
+    render('proposals.dismiss', result, Boolean(args.json));
+  },
+});
+
+const proposalsClear = defineCommand({
+  meta: { name: 'clear', description: 'Clear all agent proposals' },
+  args: { json: { type: 'boolean', description: 'JSON output' } },
+  async run({ args }) {
+    const result = await core.run('proposals.clear', {});
+    render('proposals.clear', result, Boolean(args.json));
+  },
+});
+
+const proposals = defineCommand({
+  meta: { name: 'proposals', description: 'Triage agent observations (the write-back leg)' },
+  subCommands: { list: proposalsList, dismiss: proposalsDismiss, clear: proposalsClear },
+});
+
 // ── focus.* ────────────────────────────────────────────────────────────────
 
 const focusSet = defineCommand({
@@ -501,7 +541,7 @@ const main = defineCommand({
     version: '0.0.1',
     description: 'BaseHalf — local-first compound thinking workspace (pre-alpha CLI)',
   },
-  subCommands: { init, workspace, badge, inbound, focus, search },
+  subCommands: { init, workspace, badge, inbound, focus, search, proposals },
 });
 
 // citty's runMain handles --help/--version/argv parsing. We wrap to translate
