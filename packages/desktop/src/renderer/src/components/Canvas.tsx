@@ -181,6 +181,29 @@ function debounce<TArgs extends unknown[]>(
   };
 }
 
+// Per-key debounce: one independent timer PER key, not a single shared one.
+// Position/size writes are debounced, but a plain debounce keeps only the LAST
+// call's args — so moving card A then card B inside the window dropped A's write
+// entirely and A snapped back to its stale on-disk position on the next reload.
+// Keying by file id means each card flushes its own pending write.
+function keyedDebounce<TArgs extends unknown[]>(
+  fn: (key: string, ...args: TArgs) => void,
+  ms: number,
+): (key: string, ...args: TArgs) => void {
+  const timers = new Map<string, ReturnType<typeof setTimeout>>();
+  return (key, ...args) => {
+    const existing = timers.get(key);
+    if (existing) clearTimeout(existing);
+    timers.set(
+      key,
+      setTimeout(() => {
+        timers.delete(key);
+        fn(key, ...args);
+      }, ms),
+    );
+  };
+}
+
 function cardWidth(node: Node<BadgeNodeData> | undefined): number | undefined {
   if (typeof node?.width === 'number') return node.width;
   const width = node?.style?.width;
@@ -231,6 +254,7 @@ export const Canvas = (): JSX.Element => {
   // pan/zoom can't cull the editing tile mid-edit (which would cancel its
   // unsaved autosave). Boolean selector → re-renders only on the 0↔1 transition.
   const cardEditing = useWorkspaceStore((s) => s.canvasEditingCardIds.size > 0);
+  const sidebarInset = useLayoutStore((s) => (s.sidebarOpen ? s.sidebarWidth : 0));
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
@@ -328,70 +352,82 @@ export const Canvas = (): JSX.Element => {
     const seq = ++loadSeqRef.current;
     const fresh = (): boolean => seq === loadSeqRef.current;
     try {
+      // PHASE 1 — render THIS folder's cards immediately. listCanvas is one
+      // readdir (cheap), so the canvas paints as fast as the folder switch. The
+      // indicators (coverage bars, first-annotation hint) need a whole-workspace
+      // walk and used to block this render — that was the folder-entry lag. They
+      // now land in PHASE 2 below, after the cards are already on screen.
       const { badges } = (await window.bh.run('workspace.listCanvas', {
         folder: folderScope,
       })) as WorkspaceListCanvasResult;
-      // The annotation layer alongside the visible folder level: the sparse
+      if (!fresh()) return;
+      const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
+      setNodes(nextNodes);
+      setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+      setSnapGuides([]);
+      setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
+      setError('');
+      await reloadFocus();
+      if (!fresh()) return;
+
+      // PHASE 2 — the annotation layer, computed AFTER first paint. The sparse
       // badge overlay (cheap — only annotated files have one) derives the
       // first-annotation hint; the supported-file census (a full tree walk,
-      // fetched only when folder cards are visible to price) derives each
-      // folder card's coverage bar. Both are best-effort: a transient failure
-      // degrades the indicators, never the canvas itself.
-      let prompted = new Set<string>();
-      let anyPrompt = true; // fail safe: never flash the hint card on a failed read
-      let filesAll: string[] = [];
+      // fetched only when folder cards are visible to price) derives each folder
+      // card's coverage bar. Both are best-effort: a transient failure leaves
+      // the cards rendered, just without the indicators.
       try {
         const badgesAll = (await window.bh.run('badge.list', {})) as {
           badges: { file: string; kind: string; prompt?: string }[];
         };
-        prompted = new Set(
+        const prompted = new Set(
           badgesAll.badges
             .filter((b) => b.kind === 'file' && b.prompt !== undefined && b.prompt.trim() !== '')
             .map((b) => b.file),
         );
-        anyPrompt = badgesAll.badges.some((b) => b.prompt !== undefined && b.prompt.trim() !== '');
+        const anyPrompt = badgesAll.badges.some(
+          (b) => b.prompt !== undefined && b.prompt.trim() !== '',
+        );
+        let filesAll: string[] = [];
         if (badges.some((b) => b.kind === 'folder')) {
           const res = (await window.bh.run('workspace.listSupportedFiles', {
             folder: null,
           })) as { files: string[] };
           filesAll = res.files;
         }
-      } catch {
-        // Indicators degrade (no coverage bars, no hint card) — canvas renders.
-      }
-      if (!fresh()) return;
-      const coverageFor = (folder: string): { annotated: number; total: number } | undefined => {
-        if (filesAll.length === 0) return undefined;
-        const prefix = `${folder}/`;
-        let annotated = 0;
-        let total = 0;
-        for (const f of filesAll) {
-          if (!f.startsWith(prefix)) continue;
-          total++;
-          if (prompted.has(f)) annotated++;
+        if (!fresh()) return;
+        const coverageFor = (folder: string): { annotated: number; total: number } | undefined => {
+          if (filesAll.length === 0) return undefined;
+          const prefix = `${folder}/`;
+          let annotated = 0;
+          let total = 0;
+          for (const f of filesAll) {
+            if (!f.startsWith(prefix)) continue;
+            total++;
+            if (prompted.has(f)) annotated++;
+          }
+          return { annotated, total };
+        };
+        // The hint card invites the FIRST note: it shows only while the whole
+        // workspace is annotation-free (any saved prompt — file or folder —
+        // retires it for good, no dismissal state to persist).
+        setWorkspaceHasAnyPrompt(anyPrompt);
+        // Patch coverage onto the already-rendered folder cards in place — only
+        // when there's a census to apply, so a transient failure leaves them as-is.
+        if (filesAll.length > 0) {
+          setNodes((prev) =>
+            prev.map((n) => {
+              const data = n.data as unknown as BadgeNodeData;
+              if (data.kind !== 'folder') return n;
+              const coverage = coverageFor(n.id);
+              if (coverage === undefined) return n;
+              return { ...n, data: { ...data, coverage } };
+            }),
+          );
         }
-        return { annotated, total };
-      };
-      const nextNodes = badges.map((b, i) =>
-        badgeToNode(
-          b,
-          i,
-          badges.length,
-          undefined,
-          b.kind === 'folder' ? coverageFor(b.file) : undefined,
-        ),
-      );
-      setNodes(nextNodes);
-      setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
-      setSnapGuides([]);
-      setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
-      // The hint card invites the FIRST note: it shows only while the whole
-      // workspace is annotation-free (any saved prompt — file or folder —
-      // retires it for good, no dismissal state to persist).
-      setWorkspaceHasAnyPrompt(anyPrompt);
-      await reloadFocus();
-      if (!fresh()) return;
-      setError('');
+      } catch {
+        // Indicators degrade (no coverage bars, no hint card) — cards stay.
+      }
     } catch (err) {
       if (!fresh()) return;
       setError(err instanceof Error ? err.message : String(err));
@@ -544,7 +580,7 @@ export const Canvas = (): JSX.Element => {
 
   const persistCanvas = useMemo(
     () =>
-      debounce(
+      keyedDebounce(
         (file: string, kind: BadgeKind, x: number, y: number, width?: number, height?: number) => {
           // A drag updates the badge's canonical canvas position via badge.set
           // (on the main canvas and inside a folder scope alike).
@@ -571,7 +607,7 @@ export const Canvas = (): JSX.Element => {
 
   const persistSize = useMemo(
     () =>
-      debounce(
+      keyedDebounce(
         (file: string, kind: BadgeKind, x: number, y: number, width: number, height: number) => {
           void window.bh
             .run('badge.set', {
@@ -1172,14 +1208,18 @@ export const Canvas = (): JSX.Element => {
           collide with the centered context chip. */}
       {folderScope && (
         <div
+          data-testid="folder-scope-chrome"
           style={{
             position: 'absolute',
             top: 56,
-            left: space[3],
+            left: sidebarInset + space[3],
+            right: space[3],
             zIndex: 8,
             display: 'flex',
             alignItems: 'center',
             gap: space[2],
+            minWidth: 0,
+            overflow: 'hidden',
           }}
         >
           <Button
