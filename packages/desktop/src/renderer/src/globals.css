@@ -176,6 +176,14 @@ header::-webkit-scrollbar {
   display: none;
 }
 
+/* The terminal dock's tab row scrolls horizontally when tabs overflow (VS-Code
+ * tab logic). Hide the scrollbar in the 32px strip — wheel/trackpad still
+ * scrolls — so it doesn't eat the tab height. */
+[data-term-tabs]::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
 .react-flow__node-badge .react-flow__handle.bh-connect-point-handle[data-active="true"] {
   opacity: 1;
   pointer-events: auto;

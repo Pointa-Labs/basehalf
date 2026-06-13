@@ -275,18 +275,25 @@ const PaneDivider = ({
 };
 
 // ── Tab strip ────────────────────────────────────────────────────────────────
-// Modelled on Ghostty's tab bar (window-show-tab-bar = auto):
-//   • Hidden entirely with a single tab — one terminal needs no strip (⌘T still
-//     makes a new one). It appears only once there are 2+.
-//   • WIDE tabs: each fills an equal share of the strip (gtk-wide-tabs = true),
-//     rectangular, no rounded "browser tab" tops.
-//   • Active vs inactive is conveyed by ELEVATION, not a top accent line — the
-//     active tab sits at the terminal background (raised, bright text); inactive
-//     tabs recede to the darker chrome tone with dimmed text.
-//   • The close ✕ is revealed on hover or for the active tab, not always-on.
+// VS-Code tab LOGIC, Ghostty STYLING.
+//   Logic (the editor's tab model):
+//   • Always visible, so the + button (new tab) is always reachable by mouse,
+//     not only via ⌘T.
+//   • Content-width tabs, left-aligned, in a horizontally-scrollable row — they
+//     fit their title and overflow into a scroll rather than squashing equally.
+//   • The + sits in a fixed slot at the right, never scrolling out of reach.
+//   • Each tab is independently closable; the ✕ shows on hover or the active
+//     tab. The lone tab hides its ✕ (the dock always keeps one terminal).
+//   Styling (Ghostty's look):
+//   • Dark One-Dark chrome; active vs inactive conveyed by ELEVATION, not a top
+//     accent line — the active tab rises to the terminal background (bright
+//     text), inactive tabs recede to the darker chrome tone (dimmed), separated
+//     by hairline dividers.
 //   • Each tab is named by its focused pane's live title (the running program),
 //     falling back to "Terminal".
 const TAB_BAR_HEIGHT = 32;
+const TAB_MIN_WIDTH = 92;
+const TAB_MAX_WIDTH = 180;
 
 const TermTabBar = ({
   tabs,
@@ -302,9 +309,8 @@ const TermTabBar = ({
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onAdd: () => void;
-}): JSX.Element | null => {
-  // Ghostty's `auto`: no strip while there's a single terminal.
-  if (tabs.length <= 1) return null;
+}): JSX.Element => {
+  const closable = tabs.length > 1;
   return (
     <div
       style={{
@@ -317,16 +323,32 @@ const TermTabBar = ({
         overflow: 'hidden',
       }}
     >
-      {tabs.map((t, i) => (
-        <TermTab
-          key={t.id}
-          title={titles[t.focusedLeafId] ?? 'Terminal'}
-          active={t.id === activeTabId}
-          first={i === 0}
-          onSelect={() => onSelect(t.id)}
-          onClose={() => onClose(t.id)}
-        />
-      ))}
+      {/* Tabs scroll horizontally when they overflow; the + stays pinned right. */}
+      <div
+        data-term-tabs
+        style={{
+          display: 'flex',
+          alignItems: 'stretch',
+          flex: 1,
+          minWidth: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          // Thin, unobtrusive scrollbar (WebKit) — the row scrolls, not squashes.
+          scrollbarWidth: 'thin',
+        }}
+      >
+        {tabs.map((t, i) => (
+          <TermTab
+            key={t.id}
+            title={titles[t.focusedLeafId] ?? 'Terminal'}
+            active={t.id === activeTabId}
+            first={i === 0}
+            closable={closable}
+            onSelect={() => onSelect(t.id)}
+            onClose={() => onClose(t.id)}
+          />
+        ))}
+      </div>
       <button
         type="button"
         title="New terminal tab (⌘T)"
@@ -336,6 +358,7 @@ const TermTabBar = ({
           flexShrink: 0,
           width: TAB_BAR_HEIGHT,
           border: 'none',
+          borderLeft: `1px solid ${color.border}`,
           background: 'transparent',
           color: color.textTertiary,
           cursor: 'pointer',
@@ -353,12 +376,14 @@ const TermTab = ({
   title,
   active,
   first,
+  closable,
   onSelect,
   onClose,
 }: {
   title: string;
   active: boolean;
   first: boolean;
+  closable: boolean;
   onSelect: () => void;
   onClose: () => void;
 }): JSX.Element => {
@@ -370,12 +395,14 @@ const TermTab = ({
       onMouseLeave={() => setHover(false)}
       style={{
         position: 'relative',
-        // Equal share of the strip — Ghostty's wide tabs.
-        flex: 1,
-        minWidth: 0,
+        // Content-width, left-aligned — the editor's tab sizing. Tabs fit their
+        // title (bounded) and the row scrolls when they overflow.
+        flexShrink: 0,
+        minWidth: TAB_MIN_WIDTH,
+        maxWidth: TAB_MAX_WIDTH,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
+        justifyContent: 'space-between',
         gap: space[1],
         padding: `0 ${space[2]}px`,
         cursor: 'default',
@@ -393,6 +420,8 @@ const TermTab = ({
     >
       <span
         style={{
+          flex: 1,
+          minWidth: 0,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -400,33 +429,35 @@ const TermTab = ({
       >
         {title}
       </span>
-      <button
-        type="button"
-        title="Close tab"
-        aria-label="Close tab"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        style={{
-          flexShrink: 0,
-          border: 'none',
-          background: 'transparent',
-          color: 'inherit',
-          cursor: 'pointer',
-          fontSize: 13,
-          lineHeight: 1,
-          padding: 0,
-          width: 16,
-          height: 16,
-          borderRadius: radius.sm,
-          // Revealed on hover or for the active tab (Ghostty/macOS behaviour).
-          opacity: hover || active ? 0.75 : 0,
-          transition: transition(['opacity']),
-        }}
-      >
-        ×
-      </button>
+      {closable && (
+        <button
+          type="button"
+          title="Close tab"
+          aria-label="Close tab"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          style={{
+            flexShrink: 0,
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            fontSize: 13,
+            lineHeight: 1,
+            padding: 0,
+            width: 16,
+            height: 16,
+            borderRadius: radius.sm,
+            // Revealed on hover or for the active tab (Ghostty/macOS behaviour).
+            opacity: hover || active ? 0.75 : 0,
+            transition: transition(['opacity']),
+          }}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 };
