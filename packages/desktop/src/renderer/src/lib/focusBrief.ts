@@ -34,6 +34,11 @@ export interface BriefRef {
   readonly to: string;
   readonly note?: string;
 }
+/** One backlink inlined under a focused file: who points AT it + why. */
+export interface BriefBacklink {
+  readonly from: string;
+  readonly note?: string;
+}
 /** One focused file as the brief presents it: the file, its prompt, its refs. */
 export interface BriefItem {
   readonly file: string;
@@ -43,6 +48,8 @@ export interface BriefItem {
    *  the agent reads it ("what your agent reads" can't omit a trust signal). */
   readonly stale?: string;
   readonly refs: readonly BriefRef[];
+  /** Who points AT this file (the other direction of the graph). */
+  readonly inbound: readonly BriefBacklink[];
 }
 /** The brief, parsed into the shape the in-app preview renders. */
 export interface BriefDisplay {
@@ -66,8 +73,20 @@ export function parseBriefForDisplay(raw: string): BriefDisplay {
   const lines = briefForClipboard(raw).split('\n');
   let intent: string | undefined;
   let empty = false;
-  const items: { file: string; prompt?: string; stale?: string; refs: BriefRef[] }[] = [];
-  let cur: { file: string; prompt?: string; stale?: string; refs: BriefRef[] } | null = null;
+  const items: {
+    file: string;
+    prompt?: string;
+    stale?: string;
+    refs: BriefRef[];
+    inbound: BriefBacklink[];
+  }[] = [];
+  let cur: {
+    file: string;
+    prompt?: string;
+    stale?: string;
+    refs: BriefRef[];
+    inbound: BriefBacklink[];
+  } | null = null;
   for (const line of lines) {
     const intentM = /^intent: (.+)$/.exec(line);
     if (intentM?.[1] !== undefined) {
@@ -76,7 +95,7 @@ export function parseBriefForDisplay(raw: string): BriefDisplay {
     }
     const itemM = /^ {2}- (.+)$/.exec(line);
     if (itemM?.[1] !== undefined) {
-      cur = { file: itemM[1], refs: [] };
+      cur = { file: itemM[1], refs: [], inbound: [] };
       items.push(cur);
       continue;
     }
@@ -99,8 +118,16 @@ export function parseBriefForDisplay(raw: string): BriefDisplay {
     if (to !== undefined && cur) {
       const note = refM?.[2];
       cur.refs.push(note !== undefined ? { to, note } : { to });
+      continue;
     }
-    // Everything else (`# bh focus`, blanks, `active:`, `refs:`) is structure.
+    const backM = /^ {8}<- (.+?)(?: {2}\(note: (.+)\))?$/.exec(line);
+    const from = backM?.[1];
+    if (from !== undefined && cur) {
+      const note = backM?.[2];
+      cur.inbound.push(note !== undefined ? { from, note } : { from });
+    }
+    // Everything else (`# bh focus`, blanks, `active:`, `refs:`/`referenced-by:`)
+    // is structure.
   }
   return { intent, items, empty };
 }

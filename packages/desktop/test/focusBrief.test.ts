@@ -95,8 +95,27 @@ describe('parseBriefForDisplay — structures the brief for the in-app preview',
       file: 'a.md',
       prompt: 'about a',
       refs: [{ to: 'b.md', note: 'why b' }, { to: 'c.md' }],
+      inbound: [],
     });
-    expect(d.items[1]).toEqual({ file: 'd.md', refs: [] }); // no prompt, no refs
+    expect(d.items[1]).toEqual({ file: 'd.md', refs: [], inbound: [] }); // no prompt, no refs
+  });
+
+  it('parses referenced-by backlinks (who points AT a focused file)', () => {
+    const raw = [
+      '# bh focus',
+      '',
+      'active:',
+      '  - hub.md',
+      '      referenced-by:',
+      '        <- a.md  (note: builds on this)',
+      '        <- b.md',
+      '',
+    ].join('\n');
+    const d = parseBriefForDisplay(raw);
+    expect(d.items[0]?.inbound).toEqual([
+      { from: 'a.md', note: 'builds on this' },
+      { from: 'b.md' },
+    ]);
   });
 
   it('flags an empty active block', () => {

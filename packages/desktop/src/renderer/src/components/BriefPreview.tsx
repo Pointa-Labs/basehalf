@@ -532,6 +532,26 @@ export const BriefPreview = ({
                           ))}
                         </div>
                       )}
+                      {item.inbound.length > 0 && (
+                        <div
+                          style={{
+                            marginTop: space[1],
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 2,
+                          }}
+                        >
+                          {item.inbound.map((b) => (
+                            <div
+                              key={b.from}
+                              style={{ color: color.textTertiary, lineHeight: 1.45 }}
+                            >
+                              <span style={{ color: color.textSecondary }}>← {b.from}</span>
+                              {b.note ? `  ${b.note}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

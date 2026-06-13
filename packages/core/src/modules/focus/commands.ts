@@ -114,11 +114,28 @@ async function assembleItems(
         };
       }
     }
+    // The other half of the graph: who points AT this file, and why. Inlined so
+    // the brief carries both directions of the human's relationships in one read.
+    // Best-effort (inbound module may be absent in tests) and only kept when a
+    // note exists or there's a backlink at all — a bare backlink is still signal.
+    let inbound: { from: string; note?: string }[] = [];
+    try {
+      const got = await ctx.run<{ file: string }, InboundGetMinimal>('inbound.get', { file });
+      inbound = (got.entries ?? [])
+        .filter((e) => e.from)
+        .map((e) => ({
+          from: e.from,
+          ...(e.note !== undefined && e.note !== '' && { note: e.note }),
+        }));
+    } catch {
+      inbound = [];
+    }
     items.push({
       file,
       ...(promptText !== undefined && { prompt: promptText }),
       ...(promptStale !== undefined && { promptStale }),
       ...(refs.length > 0 && { refs }),
+      ...(inbound.length > 0 && { inbound }),
     });
   }
   return items;
@@ -171,6 +188,9 @@ interface BadgeGetMinimal {
   readonly promptModifiedAt?: string;
   readonly orphan?: boolean;
   readonly references?: readonly { readonly to: string; readonly note?: string }[];
+}
+interface InboundGetMinimal {
+  readonly entries?: readonly { readonly from: string; readonly note?: string }[];
 }
 /**
  * Gather every supported FILE under a folder — the folder IS the grouping, so
@@ -515,9 +535,47 @@ export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (args, ctx
         /* best-effort: the served receipt is non-load-bearing */
       }
     }
-    return { brief: raw ?? '' };
+    const base = raw ?? '';
+    if (args.portable !== true) return { brief: base };
+    // Portable variant: append a capped excerpt of each focused file's content so
+    // a chat that can't open the user's disk gets the actual material, not just
+    // filenames + notes. Read via workspace.readFile (bounded), best-effort.
+    const excerpts = await assembleExcerpts(ctx, root);
+    return { brief: excerpts ? `${base.replace(/\n+$/, '')}\n\n${excerpts}\n` : base };
   });
 };
+
+/** Max characters of each focused file inlined into the portable brief. */
+const PORTABLE_EXCERPT_CHARS = 2000;
+
+/**
+ * Build the "file contents" section appended to the PORTABLE brief: each focused
+ * file's content, capped, fenced. Reads the active list from focus.md and pulls
+ * each file via workspace.readFile (bounded). Skips binary files and anything
+ * unreadable. Returns '' when there's nothing to inline.
+ */
+async function assembleExcerpts(ctx: Parameters<Handler>[1], root: string): Promise<string> {
+  const { active } = await readFocusBrief(ctx.fs, root);
+  if (active.length === 0) return '';
+  const blocks: string[] = [];
+  for (const file of active) {
+    try {
+      const res = await ctx.run<
+        { path: string; maxChars: number },
+        { content: string; truncated?: boolean; binary?: boolean }
+      >('workspace.readFile', { path: file, maxChars: PORTABLE_EXCERPT_CHARS });
+      if (res.binary === true) continue; // binary content is noise in a chat paste
+      const body = res.content.trimEnd();
+      if (body === '') continue;
+      const tail = res.truncated === true ? '\n… (truncated)' : '';
+      blocks.push(`### ${file}\n\`\`\`\n${body}${tail}\n\`\`\``);
+    } catch {
+      /* unreadable file — skip it rather than fail the whole brief */
+    }
+  }
+  if (blocks.length === 0) return '';
+  return `# file contents (excerpts for a chat that can't open your files)\n\n${blocks.join('\n\n')}`;
+}
 
 export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);

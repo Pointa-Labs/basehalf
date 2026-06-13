@@ -376,9 +376,16 @@ const focusBrief = defineCommand({
     name: 'brief',
     description: 'Print the current turn brief (.bh/focus.md) — what the agent reads',
   },
-  args: { json: { type: 'boolean', description: 'JSON output' } },
+  args: {
+    json: { type: 'boolean', description: 'JSON output' },
+    portable: {
+      type: 'boolean',
+      description:
+        "Append capped file excerpts (for pasting into a chat that can't open your disk)",
+    },
+  },
   async run({ args }) {
-    const result = await core.run('focus.brief', {});
+    const result = await core.run('focus.brief', { portable: Boolean(args.portable) });
     render('focus.brief', result, Boolean(args.json));
   },
 });

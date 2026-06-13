@@ -43,12 +43,33 @@ export function createDemoAtDefault(): Promise<void> {
  *  happened). Returns false when there was nothing to copy (empty focus), so
  *  callers can skip their "Copied ✓" confirmation. Shared by the focus chip
  *  and the ⌘K "Copy agent brief" action — one copy path, one stamping rule. */
+/** Marker that begins the PORTABLE brief's appended file-contents section (must
+ *  match assembleExcerpts in core/focus). Used to split structural brief (which
+ *  gets cleaned for chat) from file content (appended verbatim — running the
+ *  footer-stripping cleaner over arbitrary file text would corrupt it). */
+const EXCERPTS_MARKER = '# file contents (excerpts';
+
 export async function copyAgentBrief(): Promise<boolean> {
-  const { brief } = (await window.bh.run('focus.brief', { stamp: false })) as { brief: string };
-  const clean = briefForClipboard(brief);
-  if (clean.length === 0) return false;
-  await navigator.clipboard.writeText(clean);
-  void window.bh.run('focus.brief', { stamp: true }).catch(() => undefined);
+  // PORTABLE: include capped file excerpts so a chat that can't open the user's
+  // disk (ChatGPT/Claude.ai) gets the actual material, not just filenames + notes
+  // about content it can't see. Peek without stamping; stamp only after the
+  // clipboard write succeeds.
+  const { brief } = (await window.bh.run('focus.brief', { stamp: false, portable: true })) as {
+    brief: string;
+  };
+  // Clean ONLY the structural focus.md part (strip bh-internal provenance +
+  // footer); append the excerpt section verbatim — it may contain `# (...)`
+  // lines that briefForClipboard would mistake for the footer.
+  const idx = brief.indexOf(EXCERPTS_MARKER);
+  const structural = idx >= 0 ? brief.slice(0, idx) : brief;
+  const excerpts = idx >= 0 ? brief.slice(idx) : '';
+  const cleanStructural = briefForClipboard(structural);
+  if (cleanStructural.length === 0 && excerpts === '') return false;
+  const out = excerpts
+    ? `${cleanStructural.replace(/\n+$/, '')}\n\n${excerpts.trimEnd()}\n`
+    : cleanStructural;
+  await navigator.clipboard.writeText(out);
+  void window.bh.run('focus.brief', { stamp: true, portable: true }).catch(() => undefined);
   return true;
 }
 

@@ -241,6 +241,53 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
     expect(md).not.toContain('prompt:');
     expect(md).not.toContain('refs:');
   });
+
+  it('inlines who points AT a focused file (referenced-by, with note)', async () => {
+    // other.md → focused.md (with a note). Focusing focused.md should surface the
+    // backlink so the agent sees BOTH directions of the human's relationships.
+    await ctx.core.run('badge.addRef', {
+      file: 'other.md',
+      to: 'focused.md',
+      note: 'builds on this',
+    });
+    await ctx.core.run('focus.set', { files: ['focused.md'] });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('referenced-by:');
+    expect(md).toContain('<- other.md  (note: builds on this)');
+    // Still round-trips to the bare active list.
+    const got = await ctx.core.run('focus.get', {});
+    expect(got.active).toEqual(['focused.md']);
+  });
+
+  it('an empty brief carries a next-step hint instead of being a dead read', async () => {
+    await ctx.core.run('focus.set', { files: [] });
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).toContain('(none)');
+    expect(md).toContain('bh search');
+    // The hint is a comment — parseFocus still reads an empty active list.
+    const got = await ctx.core.run('focus.get', {});
+    expect(got.active).toEqual([]);
+  });
+
+  it('portable brief appends capped file excerpts; on-disk focus.md stays paths+notes', async () => {
+    ctx.files.set('/work/note.md', '# Title\n\nthe actual content lives on disk');
+    await ctx.core.run('badge.set', { file: 'note.md', patch: { prompt: 'read this first' } });
+    await ctx.core.run('focus.set', { files: ['note.md'] });
+
+    // The on-disk brief never inlines content (an in-repo agent reads files itself).
+    const onDisk = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(onDisk).not.toContain('the actual content lives on disk');
+
+    // The non-portable brief equals the file; the portable one appends excerpts.
+    const plain = (await ctx.core.run('focus.brief', { stamp: false })) as { brief: string };
+    expect(plain.brief).not.toContain('the actual content lives on disk');
+    const portable = (await ctx.core.run('focus.brief', { stamp: false, portable: true })) as {
+      brief: string;
+    };
+    expect(portable.brief).toContain('# file contents');
+    expect(portable.brief).toContain('### note.md');
+    expect(portable.brief).toContain('the actual content lives on disk');
+  });
 });
 
 describe('focus.resync (core reconcile of focus.md after badge edits)', () => {

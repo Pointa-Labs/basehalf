@@ -51,6 +51,11 @@ export interface FocusItem {
    *  fs reports mtimes; absent otherwise (no guessing). */
   readonly promptStale?: { readonly notedAt: string; readonly fileChangedAt: string };
   readonly refs?: readonly { readonly to: string; readonly note?: string }[];
+  /** The OTHER half of the typed graph: files whose badges point AT this file,
+   *  with the connection note. Inlined so the brief carries both directions of
+   *  the human's curated relationships in one read (the search --brief surface
+   *  already does this; the curated brief was missing it). */
+  readonly inbound?: readonly { readonly from: string; readonly note?: string }[];
 }
 
 export type FocusGetArgs = Record<string, never>;
@@ -133,6 +138,12 @@ export interface FocusBriefArgs {
    *  `bh focus brief`, the desktop Copy-brief, or a future MCP get_brief are
    *  genuine hand-offs and DO stamp. */
   readonly stamp?: boolean;
+  /** When true, APPEND a capped excerpt of each focused file's content to the
+   *  brief. The on-disk focus.md stays paths+notes (an in-repo agent reads the
+   *  files itself); this variant is for "Copy brief → paste into a web chat" that
+   *  can't open the user's disk — so the brief it receives isn't just filenames
+   *  and notes about content it can't see. Default false. */
+  readonly portable?: boolean;
 }
 export interface FocusBriefResult {
   /** The current `.bh/focus.md` content VERBATIM — the exact turn brief the

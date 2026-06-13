@@ -71,6 +71,10 @@ export function renderFocus(
   lines.push('active:');
   if (items.length === 0) {
     lines.push('  (none)');
+    // A `#` comment (ignored by parseFocus) so an empty brief isn't a dead read:
+    // tell the agent what to do instead of handing back a blank turn.
+    lines.push('  # no files are focused this turn — ask the user to select files on the');
+    lines.push('  # canvas, or run `bh search <query>` to find relevant notes yourself.');
   } else {
     for (const item of items) {
       lines.push(`  - ${item.file}`);
@@ -93,6 +97,16 @@ export function renderFocus(
         for (const r of refs) {
           const note = r.note ? oneLine(r.note) : '';
           lines.push(note ? `        -> ${r.to}  (note: ${note})` : `        -> ${r.to}`);
+        }
+      }
+      // The other direction: who points AT this file, with the connection note.
+      // Indent 6 keeps it invisible to parseFocus (a sub-line), like refs.
+      const inbound = (item.inbound ?? []).filter((b) => b.from);
+      if (inbound.length > 0) {
+        lines.push('      referenced-by:');
+        for (const b of inbound) {
+          const note = b.note ? oneLine(b.note) : '';
+          lines.push(note ? `        <- ${b.from}  (note: ${note})` : `        <- ${b.from}`);
         }
       }
     }
