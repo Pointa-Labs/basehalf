@@ -32,6 +32,11 @@ import type { SetupReport } from './types.js';
  */
 
 const HINT_MARKER = '<!-- bh:workspace-hint -->';
+// Closing marker (added 2026-06): lets `bh init` re-run UPGRADE the section in
+// place (replace strictly between the open + close markers) instead of skipping
+// every existing install forever. Legacy installs carry only the open marker
+// (the section ran to EOF); we upgrade those too. See installHint.
+const HINT_END_MARKER = '<!-- /bh:workspace-hint -->';
 const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
 
 // A SHORT pointer, not a 60-line essay: the shorter the hint, the more reliably an
@@ -61,6 +66,10 @@ shell — drive the \`bh\` CLI (reads accept \`--json\`):
 - \`bh search <query> --json\` — full-text search across the workspace's text files
 - \`bh search <query> --brief\` — assemble a paste-ready context brief from the matches (each hydrated with its prompt + reference notes)
 
+If you have a shell, read the brief with \`bh focus brief\` instead of opening the
+file: it returns the same content AND records that the brief was delivered, so the
+app can tell the user their context reached you (a raw file read is invisible to it).
+
 While working, if you discover a file relationship or a key fact that no badge
 note records (e.g. "touching X breaks Y's test"), append one line to
 \`.bh/cache/proposals.md\`: \`[file] -> [target or fact]: [reason]\`. The user
@@ -71,9 +80,10 @@ never \`.bh/*\` (the app and \`bh\` CLI own it; the proposals file above is the
 ONE exception). \`.bh/cache/\` is gitignored; it is rebuildable EXCEPT the
 proposals file, which holds your observations.`;
 
-// Prepended newline so appending to an existing file leaves a blank line before
-// the marker; trailing newline so the file ends clean.
-const HINT_SECTION = `\n${HINT_MARKER}\n${HINT_BODY}\n`;
+// The marker-delimited block written into a target file. Open marker, body, close
+// marker — the close marker is what lets a later `bh init` find and replace the
+// section precisely. No surrounding newlines here; installHint owns the spacing.
+const HINT_BLOCK = `${HINT_MARKER}\n${HINT_BODY}\n${HINT_END_MARKER}`;
 
 /** One agent-hint file to install. Same body, two landing spots. */
 interface HintTarget {
@@ -154,11 +164,59 @@ async function updateGitignore(
 }
 
 /**
- * Install the workspace hint into one target file (idempotent + non-destructive).
- * Skips if the marker (or the target's legacy marker) is already present; creates
- * the file from `emptyBase` when missing; appends otherwise. A symlinked target
- * (or symlinked parent dir) is refused via the realpath guards and reported as a
- * skip, never a clobber.
+ * Compute the new file content with the hint section installed or UPGRADED,
+ * preserving every byte of the user's own content. Pure (no I/O) so it's unit
+ * testable. Returns null when the content already matches (nothing to write).
+ *
+ * Cases, in order:
+ *  - open + close markers present → replace strictly between them (the precise
+ *    upgrade path; same body → null, so re-running `bh init` is idempotent).
+ *  - open marker but NO close marker (a legacy install — the section was appended
+ *    to EOF) → replace from the open marker to end of file. Content the user
+ *    added AFTER the hint is the one edge this can't preserve; legacy installs
+ *    appended the hint last, so in practice there's nothing after it.
+ *  - a legacy recall marker (pre-pivot) and no current marker → same EOF replace.
+ *  - no marker at all → append a fresh blank-line-separated block.
+ */
+function applyHint(current: string | null, target: HintTarget): string | null {
+  if (current === null) {
+    const base = target.emptyBase.endsWith('\n') ? target.emptyBase : `${target.emptyBase}\n`;
+    return `${base}\n${HINT_BLOCK}\n`;
+  }
+  const openIdx = current.indexOf(HINT_MARKER);
+  if (openIdx !== -1) {
+    const endIdx = current.indexOf(HINT_END_MARKER, openIdx);
+    if (endIdx !== -1) {
+      const before = current.slice(0, openIdx);
+      const after = current.slice(endIdx + HINT_END_MARKER.length);
+      const next = `${before}${HINT_BLOCK}${after}`;
+      return next === current ? null : next;
+    }
+    // Legacy: open marker, no close → the old section ran to EOF.
+    const before = current.slice(0, openIdx).replace(/\n+$/, '');
+    const next = `${before}\n\n${HINT_BLOCK}\n`;
+    return next === current ? null : next;
+  }
+  const legacyMarker = target.legacyMarker;
+  if (legacyMarker !== undefined) {
+    const legacyIdx = current.indexOf(legacyMarker);
+    if (legacyIdx !== -1) {
+      const before = current.slice(0, legacyIdx).replace(/\n+$/, '');
+      const next = `${before}\n\n${HINT_BLOCK}\n`;
+      return next === current ? null : next;
+    }
+  }
+  const base = current.replace(/\n+$/, '');
+  return `${base}\n\n${HINT_BLOCK}\n`;
+}
+
+/**
+ * Install OR upgrade the workspace hint in one target file (non-destructive +
+ * idempotent). Creates the file from `emptyBase` when missing; replaces the
+ * marker-delimited section in place when present (so a `bh init` re-run refreshes
+ * an out-of-date hint instead of skipping forever); appends when absent. A
+ * symlinked target (or symlinked parent dir) is refused via the realpath guards
+ * and reported as a skip, never a clobber.
  */
 async function installHint(
   fs: FsLike,
@@ -171,16 +229,10 @@ async function installHint(
       fs,
       await assertReadContained(fs, workspaceRoot, lexical),
     );
-    if (
-      current?.includes(HINT_MARKER) ||
-      (target.legacyMarker !== undefined && current?.includes(target.legacyMarker))
-    ) {
-      return { updated: false, skipped: true };
-    }
+    const next = applyHint(current, target);
+    if (next === null) return { updated: false, skipped: true };
     const writeAbs = await assertWriteContained(fs, workspaceRoot, lexical);
-    const base = current ?? target.emptyBase;
-    const trailingNewline = base.endsWith('\n') ? '' : '\n';
-    await writeMaybeNoFollow(fs, writeAbs, `${base}${trailingNewline}${HINT_SECTION}`);
+    await writeMaybeNoFollow(fs, writeAbs, next);
     return { updated: true, skipped: false };
   } catch (err) {
     if (err instanceof Error && err.name === 'PathEscape') {

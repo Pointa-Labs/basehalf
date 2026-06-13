@@ -870,12 +870,13 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(after).toContain('bh:workspace-hint');
   });
 
-  it('skips CLAUDE.md when current marker already present (idempotent)', async () => {
+  it('UPGRADES a legacy (open-marker-only) hint section in place, preserving user content', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
+    // A pre-2026-06 install: open marker, NO close marker, the old body ran to EOF.
     files.set(
       '/work/CLAUDE.md',
-      '# Top\n\n<!-- bh:workspace-hint -->\n## BaseHalf workspace\n\nold content\n',
+      '# Top\n\nUser rule: use tabs.\n\n<!-- bh:workspace-hint -->\n## BaseHalf workspace\n\nstale old hint body\n',
     );
     const core = createCore({ fs, configDir: '/cfg' });
     const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
@@ -883,15 +884,41 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
       name: 'w',
       setup: true,
     });
-    expect(r.setup.claudeMdSkipped).toBe(true);
-    expect(r.setup.claudeMdUpdated).toBe(false);
+    expect(r.setup.claudeMdUpdated).toBe(true);
+    const after = files.get('/work/CLAUDE.md') as string;
+    // User content above the hint is preserved; the stale body is gone; the fresh
+    // body (now close-marker-delimited) is in.
+    expect(after).toContain('User rule: use tabs.');
+    expect(after).not.toContain('stale old hint body');
+    expect(after).toContain('<!-- /bh:workspace-hint -->');
+    expect(after).toContain('bh focus brief'); // the new receipt instruction
+    // Exactly one open + one close marker — no stacking.
+    expect(after.match(/<!-- bh:workspace-hint -->/g)).toHaveLength(1);
+    expect(after.match(/<!-- \/bh:workspace-hint -->/g)).toHaveLength(1);
   });
 
-  it('skips CLAUDE.md when legacy bh:recall-hint marker present (backward compat)', async () => {
+  it('is idempotent on the current (close-marker) format: a second init skips', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
-    // Older workspaces had a `bh:recall-hint` marker. Re-running `bh init`
-    // should detect it and skip — we don't want to stack two hint sections.
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+    const afterFirst = files.get('/work/CLAUDE.md') as string;
+    // Re-run setup via a re-add (idempotent path): no marker churn, reported as skip.
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.claudeMdSkipped).toBe(true);
+    expect(r.setup.claudeMdUpdated).toBe(false);
+    expect(files.get('/work/CLAUDE.md')).toBe(afterFirst); // byte-identical
+  });
+
+  it('UPGRADES a legacy bh:recall-hint section to the current hint', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    // Older workspaces had a pre-pivot `bh:recall-hint` marker. Re-running init
+    // should REPLACE it with the current hint, not stack a second section.
     files.set(
       '/work/CLAUDE.md',
       '# Top\n\n<!-- bh:recall-hint -->\n## Using bh\n\nlegacy decisions-recall guide\n',
@@ -902,14 +929,18 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
       name: 'w',
       setup: true,
     });
-    expect(r.setup.claudeMdSkipped).toBe(true);
-    expect(r.setup.claudeMdUpdated).toBe(false);
+    expect(r.setup.claudeMdUpdated).toBe(true);
+    const after = files.get('/work/CLAUDE.md') as string;
+    expect(after).toContain('# Top');
+    expect(after).not.toContain('legacy decisions-recall guide');
+    expect(after).toContain('<!-- bh:workspace-hint -->');
+    expect(after).toContain('<!-- /bh:workspace-hint -->');
   });
 
-  it('skips a hint file per-file: marker in AGENTS.md only, others still install', async () => {
+  it('upgrades each hint file independently (legacy AGENTS.md + fresh CLAUDE.md)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');
-    // AGENTS.md was already curated by a prior init; CLAUDE.md fresh.
+    // AGENTS.md was curated by a prior (legacy) init; CLAUDE.md is fresh.
     files.set(
       '/work/AGENTS.md',
       '# AGENTS.md\n\n<!-- bh:workspace-hint -->\n## BaseHalf workspace\n\nold\n',
@@ -920,10 +951,11 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
       name: 'w',
       setup: true,
     });
-    expect(r.setup.agentsMdSkipped).toBe(true);
-    expect(r.setup.agentsMdUpdated).toBe(false);
-    // Skip is independent per file — the other still gets installed.
+    // Both end up with the current hint: AGENTS.md upgraded, CLAUDE.md created.
+    expect(r.setup.agentsMdUpdated).toBe(true);
     expect(r.setup.claudeMdUpdated).toBe(true);
+    expect(files.get('/work/AGENTS.md')).toContain('<!-- /bh:workspace-hint -->');
+    expect(files.get('/work/AGENTS.md')).not.toContain('\n\nold\n');
   });
 
   it('appends to an existing AGENTS.md (preserves prior content)', async () => {
