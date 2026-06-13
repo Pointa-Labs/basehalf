@@ -191,7 +191,12 @@ interface WorkspaceState {
   /** Clear the pending search-match target (FilePreview calls this once it has
    *  landed on the match or given up retrying). */
   clearOpenMatchQuery: () => void;
-  setFolderScope: (path: string | null) => void;
+  /** Change the canvas folder scope. Async + flush-gated like a tab/workspace
+   *  switch: a scope change replaces the canvas node set, unmounting any card
+   *  being edited inline — so it must flush pending edits first and ABORT (leave
+   *  the scope unchanged) if a flush is blocked by an open conflict / failed
+   *  write, exactly so a disk conflict can't be navigated away from into data loss. */
+  setFolderScope: (path: string | null) => Promise<void>;
   /** Create an empty MD note (writes a workspace-relative file) and open it
    * in the preview. The watcher picks it up and the canvas re-reads the folder,
    * so the note appears as a tile — no badge is created until you annotate it. */
@@ -920,7 +925,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     clearOpenMatchQuery: () => set({ openMatchQuery: null }),
 
-    setFolderScope: (path: string | null) => set({ folderScope: path }),
+    setFolderScope: async (path: string | null) => {
+      // Flush (and gate on) every mounted editor before swapping the canvas: an
+      // inline-editing card whose file leaves the new scope unmounts, and an
+      // un-flushed / conflicted edit would vanish. A blocked flush aborts the
+      // scope change — same rule as tab close / workspace switch.
+      if ((await flushAll()) === false) return;
+      set({ folderScope: path });
+    },
 
     createNote: async (relPath: string) => {
       try {

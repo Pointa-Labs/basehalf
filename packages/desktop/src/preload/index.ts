@@ -117,6 +117,20 @@ const bh = {
     ipcRenderer.on('menu:close-tab', wrapped);
     return () => ipcRenderer.off('menu:close-tab', wrapped);
   },
+  /** Quit handshake: main asks the renderer to flush all editors before the
+   *  window closes. The handler returns whether the flush succeeded (false =
+   *  blocked by a conflict / failed write → main cancels the quit). Returns an
+   *  unsubscribe function. */
+  onFlushRequest: (handler: () => Promise<boolean>): (() => void) => {
+    const wrapped = (): void => {
+      void handler().then(
+        (ok) => ipcRenderer.send('app:flush-reply', ok),
+        () => ipcRenderer.send('app:flush-reply', true), // a flush error must not trap quit
+      );
+    };
+    ipcRenderer.on('app:flush-request', wrapped);
+    return () => ipcRenderer.off('app:flush-request', wrapped);
+  },
   /** Self-update state machine lives in MAIN (background checks run before any
    *  window exists); these mirror it. See main/updater.ts for the states. */
   updateGetState: (): Promise<unknown> => ipcRenderer.invoke('update:get-state'),

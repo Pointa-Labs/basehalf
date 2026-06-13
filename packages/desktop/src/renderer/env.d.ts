@@ -41,6 +41,9 @@ interface Window {
     /** Subscribe to the File ▸ Close Tab (⌘W) action (relayed by main).
      *  Returns an unsubscribe function. */
     onMenuCloseTab(handler: () => void): () => void;
+    /** Quit handshake: flush all editors before the window closes; resolve false
+     *  to cancel the quit (a conflict is blocking). Returns an unsubscribe fn. */
+    onFlushRequest(handler: () => Promise<boolean>): () => void;
     /** Self-update bridge — main owns the state machine (main/updater.ts);
      *  the renderer narrows the `unknown` states where it consumes them. */
     updateGetState(): Promise<unknown>;

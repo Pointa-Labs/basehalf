@@ -14,6 +14,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { TitleBar } from './components/TitleBar.js';
 import { color, font, motion, radius, space } from './design.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
+import { flushAll } from './lib/editorFlush.js';
 import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
 import { useLayoutStore } from './store/layout.js';
 import { useWorkspaceStore } from './store/workspace.js';
@@ -110,6 +111,12 @@ export const App = (): JSX.Element => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Quit handshake: main intercepts the window close and asks us to flush every
+  // editor before quitting (the auto-save debounce could otherwise drop the last
+  // keystrokes). Returning the flush result lets main cancel the quit when a
+  // conflict / failed write is blocking, so those edits aren't lost on ⌘Q.
+  useEffect(() => window.bh.onFlushRequest(() => flushAll()), []);
 
   // External links (in a Markdown preview or note) open in the system browser,
   // never in-app. The main process refuses all in-renderer navigation (so a

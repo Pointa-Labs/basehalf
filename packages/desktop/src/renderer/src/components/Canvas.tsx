@@ -532,7 +532,7 @@ export const Canvas = (): JSX.Element => {
       if (data.kind === 'folder') {
         // Double-clicking a folder badge scopes INTO it — the canvas shows just
         // that folder's contents, and the toolbar offers an explicit context action.
-        setFolderScope(node.id);
+        void setFolderScope(node.id);
         return;
       }
       // File card → the formal editor surface. The card itself is the canvas
@@ -1184,7 +1184,7 @@ export const Canvas = (): JSX.Element => {
         >
           <Button
             variant="ghost"
-            onClick={() => setFolderScope(parentScope(folderScope))}
+            onClick={() => void setFolderScope(parentScope(folderScope))}
             title="Up one level"
           >
             ← /{folderScope}
@@ -1413,7 +1413,7 @@ export const Canvas = (): JSX.Element => {
                     return;
                   }
                   const firstFolder = nodes.find((n) => n.data.kind === 'folder');
-                  if (firstFolder) setFolderScope(firstFolder.id);
+                  if (firstFolder) void setFolderScope(firstFolder.id);
                 }}
               >
                 Add a badge

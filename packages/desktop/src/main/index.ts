@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
-import { BrowserWindow, Menu, app, screen } from 'electron';
+import { BrowserWindow, Menu, app, ipcMain, screen } from 'electron';
 import {
   registerBhRunHandler,
   registerPathKindHandler,
@@ -144,6 +144,39 @@ async function createWindow(): Promise<void> {
     event.preventDefault();
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+  // Quit handshake: the renderer auto-saves on a ~400ms debounce, so a bare
+  // ⌘Q / window-close could drop the last keystrokes (and, with a write-failed
+  // banner up, everything since the last successful save). On first close we
+  // ask the renderer to flush every editor and WAIT for it before quitting.
+  //  - reply ok  → all edits persisted → quit.
+  //  - reply !ok → a conflict / failed write is blocking → CANCEL the quit so the
+  //    user can resolve it (the renderer is already showing the banner), instead
+  //    of silently losing those edits. They ⌘Q again once resolved.
+  //  - no reply within the timeout → a hung/dead renderer must never trap the
+  //    user in an un-quittable app → quit anyway.
+  let flushedForQuit = false;
+  mainWindow.on('close', (e) => {
+    const win = mainWindow;
+    if (flushedForQuit || !win || win.isDestroyed()) return;
+    e.preventDefault();
+    const finishQuit = (): void => {
+      flushedForQuit = true;
+      if (!win.isDestroyed()) win.close();
+    };
+    const timer = setTimeout(finishQuit, 3000);
+    ipcMain.once('app:flush-reply', (_evt, ok: unknown) => {
+      clearTimeout(timer);
+      if (ok === false) return; // blocked by a conflict — cancel quit, let user resolve
+      finishQuit();
+    });
+    try {
+      win.webContents.send('app:flush-request');
+    } catch {
+      clearTimeout(timer);
+      finishQuit();
+    }
+  });
 
   // Native right-click menu (Open Folder… everywhere; clipboard roles in the
   // block editor). Per-window because it binds to this webContents.
