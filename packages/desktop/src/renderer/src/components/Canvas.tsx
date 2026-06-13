@@ -1278,12 +1278,14 @@ export const Canvas = (): JSX.Element => {
           {error}
         </div>
       )}
-      {/* First-annotation invitation: a workspace full of files but ZERO notes
+      {/* First-annotation invitation: a workspace full of files but ZERO badges
           is the product's null state — the brief the agent would read is empty,
-          and nothing on a quiet canvas says why that matters. One dismissible
-          card teaches the single act everything else builds on. It retires
-          itself permanently the moment any note is saved (the condition flips),
-          so no dismissal state needs persisting. Root canvas only. */}
+          and nothing on a quiet canvas says why that matters. A file's badge
+          (its prompt) is the agent-facing annotation; a "note" here is the file
+          itself, never this. One dismissible card teaches the single act
+          everything else builds on. It retires itself permanently the moment any
+          badge is saved (the condition flips), so no dismissal state needs
+          persisting. Root canvas only. */}
       {folderScope === null &&
         !workspaceHasAnyPrompt &&
         !annotateHintDismissed &&
@@ -1312,7 +1314,8 @@ export const Canvas = (): JSX.Element => {
               animation: `bh-banner-in ${motion.normal}`,
             }}
           >
-            These files have no notes yet. Add one sentence to a file — it's what your agent reads.
+            These files don't have badges yet. A file's badge — one honest sentence — is what your
+            agent reads.
             <div
               style={{
                 marginTop: space[3],
@@ -1337,7 +1340,7 @@ export const Canvas = (): JSX.Element => {
                   if (firstFolder) setFolderScope(firstFolder.id);
                 }}
               >
-                Add a note
+                Add a badge
               </Button>
               <Button variant="ghost" onClick={() => setAnnotateHintDismissed(true)}>
                 Not now

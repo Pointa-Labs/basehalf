@@ -449,9 +449,9 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     className="nodrag nopan"
                     title={
                       d.prompt && (d.notedRefs ?? 0) > 0
-                        ? `Has a note + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit File Badge`
+                        ? `Has a badge + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit it`
                         : d.prompt
-                          ? 'Has a note — edit File Badge'
+                          ? 'Has a badge — edit it'
                           : 'Edit File Badge'
                     }
                     aria-label={`Edit File Badge for ${d.label}`}

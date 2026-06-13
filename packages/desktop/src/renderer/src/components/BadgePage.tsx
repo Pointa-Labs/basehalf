@@ -221,8 +221,8 @@ export const BadgePage = ({ file, paneId }: { file: string; paneId: string }): J
                 }}
               >
                 {fb.isFocused
-                  ? 'Your agent reads this note when it works this turn.'
-                  : 'Add it so your agent reads this note when it works this turn.'}
+                  ? 'Your agent reads this badge when it works this turn.'
+                  : 'Add it so your agent reads this badge when it works this turn.'}
               </div>
             </div>
             <Button

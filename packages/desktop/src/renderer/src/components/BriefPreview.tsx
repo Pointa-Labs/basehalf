@@ -124,7 +124,7 @@ const GhostPromptEditor = ({
           textAlign: 'left',
         }}
       >
-        No note yet — click to add one.
+        No badge yet — click to add one.
       </button>
     );
   }
@@ -372,7 +372,7 @@ export const BriefPreview = ({
               style={{ color: color.warning, textTransform: 'none', letterSpacing: 0 }}
             >
               {' '}
-              — {noteless} {noteless === 1 ? 'file has' : 'files have'} no notes yet
+              — {noteless} {noteless === 1 ? 'file has' : 'files have'} no badge yet
             </span>
           )}
         </div>

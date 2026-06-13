@@ -337,7 +337,7 @@ const AgentNoteStrip = ({
             cursor: 'pointer',
           }}
         >
-          Add agent note
+          Add a badge
         </button>
       </div>
     );
