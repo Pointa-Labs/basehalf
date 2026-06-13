@@ -6,6 +6,18 @@
  * scrollbar styling, focus rings on inputs we render with native tags).
  */
 
+/* Bundled monospace face for the embedded terminal — SIL Open Font License 1.1
+ * (license text + origin: assets/fonts/OFL.txt). Aliased to a neutral family so
+ * the terminal renders the same regardless of what's installed on the machine,
+ * and bundled so it ships in the packaged app. */
+@font-face {
+  font-family: "BH Mono";
+  src: url("./assets/fonts/bh-mono-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
 :root {
   --bh-accent: #0078d4;
   --bh-text-ghost: #6e6e6e;

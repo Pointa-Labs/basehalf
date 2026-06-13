@@ -7,31 +7,42 @@ import '@xterm/xterm/css/xterm.css';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, space } from '../design.js';
 
-// xterm palette mapped onto the app's Dark Modern tokens so the terminal reads
-// as part of the product, not a foreign box. ANSI 16 ≈ the editor's terminal
-// theme (close enough that TUI agents look at home).
+// Ghostty's exact default palette, ported from its source
+// (reference/ghostty: src/config/Config.zig background/foreground +
+// src/terminal/color.zig Name.default). We can't embed Ghostty (native app),
+// so we reproduce its look in xterm: the One-Dark-family scheme it ships with,
+// a foreground-colored block cursor, and an inverted-ish selection. This is the
+// "Ghostty zone" — deliberately its own surface, distinct from the app chrome.
+export const TERMINAL_BG = '#282c34';
+// A half-step darker than TERMINAL_BG, from the same One-Dark family — used for
+// the dock's tab strip so the active terminal (at TERMINAL_BG) reads as raised.
+export const TERMINAL_CHROME_BG = '#21252b';
 const THEME = {
-  background: color.surfaceMuted,
-  foreground: color.textPrimary,
-  cursor: color.accent,
-  cursorAccent: color.surfaceMuted,
-  selectionBackground: color.accentSoft,
-  black: '#1e1e1e',
-  red: '#f14c4c',
-  green: '#4ec9b0',
-  yellow: '#cca700',
-  blue: '#3794ff',
-  magenta: '#c586c0',
-  cyan: '#29b8db',
-  white: '#cccccc',
-  brightBlack: '#808080',
-  brightRed: '#f14c4c',
-  brightGreen: '#73c991',
-  brightYellow: '#e2c08d',
-  brightBlue: '#3794ff',
-  brightMagenta: '#d7a3e0',
-  brightCyan: '#29b8db',
-  brightWhite: '#ffffff',
+  background: TERMINAL_BG,
+  foreground: '#ffffff',
+  // Ghostty: cursor-color defaults to the cell foreground → a bright block; the
+  // glyph under it shows in the background color (cursorAccent).
+  cursor: '#ffffff',
+  cursorAccent: TERMINAL_BG,
+  // Ghostty inverts selection; a translucent light reads the same but keeps text
+  // legible without forcing a foreground swap.
+  selectionBackground: 'rgba(255,255,255,0.22)',
+  black: '#1d1f21',
+  red: '#cc6666',
+  green: '#b5bd68',
+  yellow: '#f0c674',
+  blue: '#81a2be',
+  magenta: '#b294bb',
+  cyan: '#8abeb7',
+  white: '#c5c8c6',
+  brightBlack: '#666666',
+  brightRed: '#d54e53',
+  brightGreen: '#b9ca4a',
+  brightYellow: '#e7c547',
+  brightBlue: '#7aa6da',
+  brightMagenta: '#c397d8',
+  brightCyan: '#70c0b1',
+  brightWhite: '#eaeaea',
 } as const;
 
 /**
@@ -60,11 +71,26 @@ export const TerminalView = ({
     if (!host) return;
 
     const term = new XTerm({
-      fontFamily: font.mono,
+      // Bundled "BH Mono" first (the terminal's signature face, shipped so it
+      // renders identically everywhere), then the app's system-mono fallbacks.
+      fontFamily: `"BH Mono", ${font.mono}`,
       fontSize: 13,
-      lineHeight: 1.2,
+      // Roomier leading reads calmer (closer to a native terminal's default).
+      lineHeight: 1.25,
+      fontWeight: 400,
+      fontWeightBold: 600,
       theme: THEME,
+      // A solid block cursor that blinks when focused and hollows out when not —
+      // the same legibility cue native terminals (iTerm/Ghostty) use so you can
+      // tell at a glance which pane has keyboard focus.
       cursorBlink: true,
+      cursorStyle: 'block',
+      cursorInactiveStyle: 'outline',
+      // Momentum scroll instead of instant jumps — feels less jarring on a wheel.
+      smoothScrollDuration: 90,
+      // Powerline / wide glyphs that overflow their cell get scaled to fit,
+      // so prompts and TUI borders line up instead of clipping.
+      rescaleOverlappingGlyphs: true,
       // unicode11 + webgl are "proposed" APIs in xterm v6 — opt in explicitly.
       allowProposedApi: true,
       scrollback: 10_000,
@@ -109,6 +135,19 @@ export const TerminalView = ({
         return;
       }
       idRef.current = id;
+    });
+
+    // The bundled "BH Mono" face may still be loading on first paint; xterm
+    // measures glyph width at open time, so refit once the font is ready to
+    // correct the cell metrics (and the pty's cols/rows via onResize).
+    void document.fonts?.ready?.then(() => {
+      if (!disposed && host.clientWidth > 0 && host.clientHeight > 0) {
+        try {
+          fit.fit();
+        } catch {
+          // transient layout — ignore
+        }
+      }
     });
 
     const offData = window.bh.terminal.onData((id, data) => {
@@ -182,9 +221,13 @@ export const TerminalView = ({
         style={{
           position: 'absolute',
           inset: 0,
-          // xterm paints its own background; pad so glyphs don't kiss the edge.
-          padding: `${space[1]}px ${space[2]}px`,
-          background: color.surfaceMuted,
+          // Roomy, even gutter on all sides (native terminals breathe; glyphs
+          // kissing the chrome reads cheap).
+          padding: `${space[2]}px ${space[3]}px`,
+          // Match the xterm theme bg so the gutter is seamless with the canvas.
+          background: TERMINAL_BG,
+          // Crisper glyph edges on the GPU/DOM renderer.
+          WebkitFontSmoothing: 'antialiased',
         }}
       />
       {exitCode !== null && (

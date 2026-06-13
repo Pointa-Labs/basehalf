@@ -2,7 +2,7 @@ import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useSta
 import { color, font, radius, space, transition } from '../design.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
-import { TerminalView } from './Terminal.js';
+import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
 
 interface Session {
   /** Stable id — tracks which tab is active across add/close, independent of
@@ -71,7 +71,7 @@ export const TerminalDock = (): JSX.Element => {
         width,
         height: '100%',
         borderLeft: `1px solid ${color.border}`,
-        background: color.surfaceMuted,
+        background: TERMINAL_BG,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -126,7 +126,7 @@ const TerminalTabs = ({
         alignItems: 'stretch',
         height: 34,
         flexShrink: 0,
-        background: color.surfaceMuted,
+        background: TERMINAL_CHROME_BG,
         borderBottom: `1px solid ${color.border}`,
         paddingLeft: space[1],
         gap: 2,
@@ -149,8 +149,8 @@ const TerminalTabs = ({
               userSelect: 'none',
               fontFamily: font.sans,
               fontSize: font.size.caption,
-              color: isActive ? color.textPrimary : color.textTertiary,
-              background: isActive ? color.bg : 'transparent',
+              color: isActive ? '#ffffff' : color.textTertiary,
+              background: isActive ? TERMINAL_BG : 'transparent',
               borderTop: `2px solid ${isActive ? color.accent : 'transparent'}`,
               transition: transition(['color', 'background']),
             }}
