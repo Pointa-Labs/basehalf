@@ -10,6 +10,7 @@
 import type {
   BadgeAddRefArgs,
   BadgeFile,
+  BadgeKind,
   BadgeReconnectRefArgs,
   BadgeReconnectRefResult,
   BadgeRemoveRefArgs,
@@ -34,6 +35,10 @@ export const badgeMutations = {
     origin: BadgeChangeOrigin,
   ): Promise<BadgeReconnectRefResult> => mutate('badge.reconnectRef', args, origin),
 
-  setPrompt: (file: string, prompt: string, origin: BadgeChangeOrigin): Promise<BadgeFile> =>
-    mutate('badge.set', { file, kind: 'file', patch: { prompt } }, origin),
+  setPrompt: (
+    file: string,
+    prompt: string,
+    origin: BadgeChangeOrigin,
+    kind: BadgeKind = 'file',
+  ): Promise<BadgeFile> => mutate('badge.set', { file, patch: { kind, prompt } }, origin),
 };

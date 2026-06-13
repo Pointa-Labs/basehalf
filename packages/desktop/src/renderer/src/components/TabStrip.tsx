@@ -1,16 +1,14 @@
 import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import type { LeafPane } from '../lib/paneTree.js';
-import { isBadgeTab, panelTabFile } from '../lib/panelTab.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 
+// A tab IS a workspace-relative file path now (no badge:// tabs).
 const basenameOf = (rel: string): string => rel.slice(rel.lastIndexOf('/') + 1);
-const tabTitle = (tab: string): string =>
-  isBadgeTab(tab) ? `File Badge · ${panelTabFile(tab)}` : tab;
-const tabLabel = (tab: string): string => basenameOf(panelTabFile(tab));
-const tabCloseLabel = (tab: string): string =>
-  isBadgeTab(tab) ? `Close File Badge ${tabLabel(tab)}` : `Close ${tabLabel(tab)}`;
+const tabTitle = (tab: string): string => tab;
+const tabLabel = (tab: string): string => basenameOf(tab);
+const tabCloseLabel = (tab: string): string => `Close ${tabLabel(tab)}`;
 
 // The DnD type marker for a tab drag. A CUSTOM type (not 'Files') so the
 // App-level folder-drop overlay — which keys off the 'Files' type — ignores it.
@@ -28,7 +26,6 @@ export const TAB_DND_TYPE = 'application/bh-tab';
  */
 export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const pinTab = useWorkspaceStore((s) => s.pinTab);
   const dropTabOnStrip = useWorkspaceStore((s) => s.dropTabOnStrip);
   const closeTab = useWorkspaceStore((s) => s.closeTab);
@@ -89,8 +86,6 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
         const isPreview = tab === pane.previewFile;
         const showClose = active || hoveredFile === tab;
         const indicate = dropTarget?.index === index ? dropTarget.side : null;
-        const badge = isBadgeTab(tab);
-        const file = panelTabFile(tab);
         return (
           // biome-ignore lint/a11y/useKeyWithClickEvents: the tab strip isn't keyboard-focusable yet (no roving tabindex); activation is a pointer affordance — keyboard tab nav is a separate concern.
           <div
@@ -114,10 +109,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               // drop. The pane still focuses on mousedown via Pane's capture handler.
             }}
             onClick={(e) => {
-              if (e.button === 0) {
-                if (badge) openBadgeInPanel(file, { paneId });
-                else openInPanel(file, { paneId });
-              }
+              if (e.button === 0) openInPanel(tab, { paneId });
             }}
             onDoubleClick={() => pinTab(paneId, tab)}
             onMouseEnter={() => setHoveredFile(tab)}
@@ -183,7 +175,7 @@ export const TabStrip = ({ pane }: { pane: LeafPane }): JSX.Element => {
               />
             )}
             <FileGlyph
-              type={badge ? 'badge' : badgeType(basenameOf(file), false)}
+              type={badgeType(basenameOf(tab), false)}
               tone={active ? color.accent : color.textGhost}
               size={13}
             />

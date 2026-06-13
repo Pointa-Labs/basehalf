@@ -7,7 +7,6 @@ import {
   findLeaf,
   leafCount,
 } from '../src/renderer/src/lib/paneTree.js';
-import { badgeTabId } from '../src/renderer/src/lib/panelTab.js';
 import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
 
 // regionFor (the drop-region geometry shared by tab drops and the canvas badge
@@ -46,15 +45,6 @@ describe('store.dockBadge', () => {
     store.setState({ paneTree: tree, activePaneId, current: 'ws', error: '' });
 
   beforeEach(() => store.setState({ error: '', canvasDockDrag: null }));
-
-  it('openBadgeInPanel opens a BaseHalf badge page tab for the file', async () => {
-    setTree(leaf('p1', [], null), 'p1');
-    store.getState().openBadgeInPanel('b.md', { paneId: 'p1' });
-    await tick();
-    expect(findLeaf(store.getState().paneTree, 'p1')?.tabs).toEqual([badgeTabId('b.md')]);
-    expect(store.getState().currentFile).toBe(badgeTabId('b.md'));
-    expect(store.getState().rightPanelOpen).toBe(true);
-  });
 
   it("CENTER opens the badge as a tab in the target pane (it's a reference open)", async () => {
     setTree(leaf('p1', ['a.md'], 'a.md'), 'p1');

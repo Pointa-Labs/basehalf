@@ -20,7 +20,6 @@ import {
   splitLeaf,
   updateLeaf,
 } from '../src/renderer/src/lib/paneTree.js';
-import { badgeTabId } from '../src/renderer/src/lib/panelTab.js';
 
 const leaf = (
   id: string,
@@ -196,18 +195,6 @@ describe('paneTree — renameInLeaf', () => {
       previewFile: 'a.md',
     };
     expect(renameInLeaf(l, 'a.md', 'c.md').previewFile).toBe('c.md');
-  });
-  it('rebinds badge tabs for the renamed file', () => {
-    const l: LeafPane = {
-      type: 'leaf',
-      id: 'p',
-      tabs: ['a.md', badgeTabId('a.md')],
-      activeFile: badgeTabId('a.md'),
-      previewFile: null,
-    };
-    const out = renameInLeaf(l, 'a.md', 'c.md');
-    expect(out.tabs).toEqual(['c.md', badgeTabId('c.md')]);
-    expect(out.activeFile).toBe(badgeTabId('c.md'));
   });
 });
 

@@ -58,10 +58,21 @@ describe('badgeMutations', () => {
     const unsub = subscribeBadgeChange(() => {});
     await badgeMutations.setPrompt('a.md', 'hello', 'panel');
     unsub();
+    // kind lives INSIDE the patch (badge.set reads patch.kind) so the same path
+    // serves both file and folder badges.
     expect(runMock).toHaveBeenCalledWith('badge.set', {
       file: 'a.md',
-      kind: 'file',
-      patch: { prompt: 'hello' },
+      patch: { kind: 'file', prompt: 'hello' },
+    });
+  });
+
+  it('setPrompt threads a folder kind into the patch', async () => {
+    const unsub = subscribeBadgeChange(() => {});
+    await badgeMutations.setPrompt('notes', 'hi', 'panel', 'folder');
+    unsub();
+    expect(runMock).toHaveBeenCalledWith('badge.set', {
+      file: 'notes',
+      patch: { kind: 'folder', prompt: 'hi' },
     });
   });
 });
