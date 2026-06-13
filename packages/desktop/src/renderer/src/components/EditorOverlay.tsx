@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useEffect } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { isImeComposing } from '../lib/imeGuard.js';
+import { useLayoutStore } from '../store/layout.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { FilePreview } from './FilePreview.js';
 
@@ -31,6 +32,14 @@ function splitPath(rel: string): { dirname: string; basename: string } {
 export const EditorOverlay = (): JSX.Element | null => {
   const openFile = useWorkspaceStore((s) => s.openFile);
   const closeEditor = useWorkspaceStore((s) => s.closeEditor);
+  // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
+  // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
+  // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
+  // document sits BESIDE the nav — a nav + page layout — and the sidebar stays
+  // usable to switch files. When the sidebar is closed the overlay fills fully.
+  const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
+  const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
+  const leftInset = sidebarOpen ? sidebarWidth : 0;
 
   // Esc / ⌘W close the overlay. Read the store imperatively so the listener
   // isn't rebound per open-file change. Skip Esc when an editable surface has
@@ -74,7 +83,12 @@ export const EditorOverlay = (): JSX.Element | null => {
       data-testid="editor-overlay"
       style={{
         position: 'absolute',
-        inset: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        // Sit beside the floating Sidebar (see leftInset) rather than under it.
+        left: leftInset,
+        transition: transition(['left']),
         // Above the canvas + its chrome, below the Sidebar (z-index 6) so the nav
         // stays clickable while a file is open.
         zIndex: 5,
