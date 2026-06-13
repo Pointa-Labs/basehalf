@@ -76,30 +76,23 @@ describe('canvas card editor CSS', () => {
     expect(mdRenderSource).toMatch(/sanitizeHtml\(await editor\.blocksToHTMLLossy/);
   });
 
-  it('mounts the heavy card editor only while inline-editing, not for the resting preview', () => {
-    expect(badgeNodeSource).toContain(
-      'const usesMarkdownCardSurface = canInlineEdit && showPreview;',
-    );
-    // The live BlockNote+Yjs editor mounts ONLY while inline-editing — mounting it
-    // for the resting preview would put one ProseMirror editor on every .md card
-    // and jank a large workspace. At rest, markdown renders through BadgePreview
-    // as a static HTML string (cheap, shared converter), never a mounted editor.
-    expect(badgeNodeSource).toMatch(
-      /usesMarkdownCardSurface && inlineEditing \? \([\s\S]*<MdEditor[\s\S]*cardEditable=\{inlineEditing\}/,
-    );
+  it('cards only DISPLAY — no heavy editor ever mounts per tile (edit is the overlay)', () => {
+    // The card body is either the badge face or a static preview — never a live
+    // BlockNote+Yjs editor. Editing a file happens in the full-canvas editor
+    // overlay (double-click), so no ProseMirror editor mounts per .md card (which
+    // would jank a large workspace). The card no longer imports MdEditor at all.
+    expect(badgeNodeSource).not.toContain('MdEditor');
+    expect(badgeNodeSource).not.toContain('inlineEditing');
+    expect(badgeNodeSource).toMatch(/showBadgeFace && canShowBadgeFace \? \(\s*<CardBadgeFace/);
     expect(badgeNodeSource).toMatch(/\) : showPreview \? \(\s*<BadgePreview/);
     // Size-aware level-of-detail: the WHEN-to-show-what decision is delegated to
     // the pure, unit-tested lib/cardLod policy; the component just feeds it the
-    // node's measured height × zoom. The heavy body renders only in the 'full'
-    // tier — a card too small ON SCREEN (shrunk or zoomed out) collapses to a
-    // centred title chip with no count and no body.
+    // node's measured height × zoom. A card too small ON SCREEN (shrunk or zoomed
+    // out) collapses to a centred title chip with no count and no body.
     expect(badgeNodeSource).toContain("import { cardLodForHeight } from '../lib/cardLod.js';");
     expect(badgeNodeSource).toMatch(/return cardLodForHeight\(h, s\.transform\[2\]\);/);
     expect(badgeNodeSource).toMatch(/\{lod === 'mini' \? null :/);
     expect(badgeNodeSource).toMatch(/lod === 'mini' \? \(\s*\/\/[\s\S]*?<CardTitleChip/);
-    expect(filePreviewSource).toContain('cardEditable = true');
-    expect(filePreviewSource).toMatch(/autoFocus=\{compact && compactEditable\}/);
-    expect(filePreviewSource).toMatch(/editable=\{!viewOnly && seedReady && compactEditable\}/);
     expect(filePreviewSource).toMatch(/ownerPriority:\s*\(\)\s*=>\s*ownerPriorityRef\.current/);
   });
 
@@ -236,28 +229,6 @@ describe('canvas card editor CSS', () => {
     expect(css).toMatch(
       /\.bh-md-editor-card\s+\.bh-md-editor-scroll::-webkit-scrollbar[\s\S]*width:\s*0/,
     );
-  });
-
-  it('keeps wheel gestures inside an active card editor', () => {
-    expect(badgeNodeSource).toContain('routeInlineEditorWheel');
-    expect(badgeNodeSource).toContain("className={inlineEditing ? 'nowheel' : undefined}");
-    expect(badgeNodeSource).toContain('onWheelCapture={inlineEditing ? routeInlineEditorWheel');
-    expect(badgeNodeSource).toContain("querySelector<HTMLElement>('.bh-md-editor-scroll')");
-    expect(badgeNodeSource).toContain('event.preventDefault();');
-    expect(badgeNodeSource).toContain('scroller.scrollTop += event.deltaY');
-    // The card editor wrapper renders only while inline-editing, so it is
-    // unconditionally nodrag/nopan/nowheel — gestures stay inside the editor.
-    expect(badgeNodeSource).toContain('className="nodrag nopan nowheel"');
-  });
-
-  it('focuses the compact editor when a card enters edit mode', () => {
-    expect(filePreviewSource).toContain('surfaceRef');
-    expect(filePreviewSource).toContain(
-      'if (!compact || !compactEditable || viewOnly || !seedReady) return;',
-    );
-    expect(filePreviewSource).toContain('(editor as { focus?: () => void }).focus?.();');
-    expect(filePreviewSource).toContain('.bn-editor[contenteditable="true"]');
-    expect(filePreviewSource).toContain('focus({ preventScroll: true })');
   });
 
   it('stabilizes compact BlockNote vertical rhythm and disables block transitions', () => {

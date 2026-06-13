@@ -6,7 +6,7 @@ import {
   openCommandPalette,
 } from './components/CommandPalette.js';
 import { DialogHost, confirm } from './components/Dialog.js';
-import { EditorSpace } from './components/EditorSpace.js';
+import { EditorOverlay } from './components/EditorOverlay.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { SettingsHost, openSettings, wireUpdateBridge } from './components/Settings.js';
@@ -238,14 +238,14 @@ export const App = (): JSX.Element => {
     >
       <TitleBar />
       <FdaTip />
-      {/* Docked regions, left → right: Canvas (the spatial map, takes the
-          middle) | EditorSpace (the editor, opens/closes) | TerminalDock (a
-          FIXED right-most home for the embedded terminal — where TUI agents
-          run). The Sidebar (nav) is NOT a flex sibling — it floats OVER the
-          canvas, so toggling it never reflows the map.
-          NOTE (transitional): the editor is still docked here. The sibling
-          editor-float track relocates it to a canvas float, after which the
-          final shape is `canvas (+ floating editor) | terminal`. */}
+      {/* Docked regions, left → right: the canvas region (the spatial map, takes
+          whatever the terminal leaves) | TerminalDock (a FIXED right-most home
+          for the embedded terminal — where TUI agents run). Opening a file mounts
+          the EditorOverlay INSIDE the canvas region: a full-canvas editor over the
+          canvas (z-index 5 — above the canvas + its chrome, below the Sidebar's 6
+          so the nav stays clickable). The Sidebar (nav) floats OVER the canvas, so
+          toggling it never reflows the map. Net shape when a file is open:
+          `Sidebar | full-canvas editor over canvas | Terminal`. */}
       <div
         style={{
           display: 'flex',
@@ -256,15 +256,17 @@ export const App = (): JSX.Element => {
           position: 'relative',
         }}
       >
-        {/* The canvas region — flex:1 so it takes whatever the editor leaves.
+        {/* The canvas region — flex:1 so it takes whatever the terminal leaves.
             position:relative anchors the canvas's own absolute chrome (New-note
-            button, context chip, empty hint) AND the floating Sidebar overlay,
-            whose overflow:hidden clips the sidebar to this region. */}
+            button, context chip, empty hint), the EditorOverlay (inset:0 over the
+            canvas) AND the floating Sidebar overlay, whose overflow:hidden clips
+            the sidebar to this region. The EditorOverlay sits between the canvas
+            and the sidebar in DOM order + z-index. */}
         <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <Canvas />
+          <EditorOverlay />
           <Sidebar />
         </main>
-        <EditorSpace />
         <TerminalDock />
       </div>
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
