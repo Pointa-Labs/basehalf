@@ -1,70 +1,62 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { type TermNode, leafRects, splitDividers } from '../lib/terminalTree.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
+import { useTerminalStore } from '../store/terminal.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
 
-interface Session {
-  /** Stable id — tracks which tab is active across add/close, independent of
-   *  array position. (The TerminalView's React *key* is a composite that also
-   *  folds in the workspace + restart generation, so a re-root or a Restart
-   *  remounts the view — the idiomatic way to reset it — while this id stays put.) */
-  key: string;
-  label: string;
-  /** Bumped by Restart to remount this session's TerminalView (fresh pty). */
-  gen: number;
-}
-
 /**
- * The RIGHT-most region: a fixed home for the embedded terminal — where TUI
- * agents (Claude Code, Codex) run. Always present (unlike the editor, which
- * comes and goes); drag its left sash to rebalance against the canvas.
+ * The RIGHT-most region: a fixed home for the embedded terminal, modelled on
+ * Ghostty — TABS, each holding a recursive SPLIT TREE of panes (one pty each).
+ * Not the VS-Code tab strip: splits are first-class (⌘D right, ⌘⇧D down), with
+ * ⌘[ ⌘] / ⌘⌥arrows to move focus, ⌘⌃arrows to resize, ⌘⇧↵ to zoom, ⌘T new tab,
+ * ⌘⇧[ ⌘⇧] to switch tabs, ⌘W to close the focused split. The keymap only fires
+ * while focus is in the dock (so it never steals the app's shortcuts).
  *
- * Tabs let several shells run side by side (one agent each). Every session stays
- * mounted so a background agent keeps running while you look at another tab —
- * only the active one is visible (an inactive xterm is display:none, where it
- * can't measure itself; TerminalView refits on re-show).
+ * Every pane in every tab stays mounted (an inactive tab / unfocused split keeps
+ * its agent running); visibility is CSS. Panes are absolutely positioned from
+ * the tree geometry so a single mount per pane supports splits, zoom, and
+ * draggable dividers without ever remounting (which would kill the pty).
  */
 export const TerminalDock = (): JSX.Element => {
   const width = useLayoutStore((s) => s.terminalWidth);
-  // The active workspace name. Folding it into each TerminalView's key remounts
-  // the shells when the workspace switches, so they re-root at the new
-  // workspace's path (main resolves cwd from workspace.current at spawn time).
+  const tabs = useTerminalStore((s) => s.tabs);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
+  const setActiveTab = useTerminalStore((s) => s.setActiveTab);
+  const newTab = useTerminalStore((s) => s.newTab);
+  const closeTab = useTerminalStore((s) => s.closeTab);
+  const setFocused = useTerminalStore((s) => s.setFocused);
+
+  // Folding the workspace name into each pane's React key re-roots every shell
+  // when the workspace switches (main resolves cwd from workspace.current at
+  // spawn). Restart bumps a per-pane generation, also folded into the key.
   const workspaceKey = useWorkspaceStore((s) => s.current);
+  const [gens, setGens] = useState<Record<string, number>>({});
+  const restart = (leafId: string): void =>
+    setGens((g) => ({ ...g, [leafId]: (g[leafId] ?? 0) + 1 }));
 
-  const seq = useRef(1);
-  const [sessions, setSessions] = useState<Session[]>(() => [
-    { key: 't1', label: 'Terminal', gen: 0 },
-  ]);
-  const [activeKey, setActiveKey] = useState('t1');
+  useTerminalKeymap();
 
-  const addSession = (): void => {
-    seq.current += 1;
-    const key = `t${seq.current}`;
-    setSessions((prev) => [...prev, { key, label: 'Terminal', gen: 0 }]);
-    setActiveKey(key);
-  };
-
-  const restartSession = (key: string): void => {
-    setSessions((prev) => prev.map((s) => (s.key === key ? { ...s, gen: s.gen + 1 } : s)));
-  };
-
-  const closeSession = (key: string): void => {
-    setSessions((prev) => {
-      if (prev.length <= 1) return prev; // keep at least one terminal
-      const idx = prev.findIndex((s) => s.key === key);
-      const next = prev.filter((s) => s.key !== key);
-      // If the closed tab was active, fall to its neighbour.
-      if (key === activeKey) {
-        const fallback = next[Math.max(0, idx - 1)];
-        if (fallback) setActiveKey(fallback.key);
-      }
-      return next;
-    });
-  };
+  // ⌘W (File ▸ Close Tab, owned by the main-process accelerator) closes the
+  // focused split when the terminal is focused. The editor overlay yields via a
+  // matching `focused` guard, so ⌘W never closes both.
+  useEffect(
+    () =>
+      window.bh.onMenuCloseTab(() => {
+        if (useTerminalStore.getState().focused) useTerminalStore.getState().closeFocusedLeaf();
+      }),
+    [],
+  );
 
   return (
     <aside
+      data-terminal-dock
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(e) => {
+        // Focus left the dock entirely (not just moved between panes).
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocused(false);
+      }}
       style={{
         position: 'relative',
         flexShrink: 0,
@@ -78,26 +70,30 @@ export const TerminalDock = (): JSX.Element => {
       }}
     >
       <TerminalSash />
-      <TerminalTabs
-        sessions={sessions}
-        activeKey={activeKey}
-        onSelect={setActiveKey}
-        onClose={closeSession}
-        onAdd={addSession}
+      <TermTabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelect={setActiveTab}
+        onClose={closeTab}
+        onAdd={newTab}
       />
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex' }}>
-        {sessions.map((s) => (
-          // The composite key (id + workspace + restart gen) makes a workspace
-          // switch or a Restart remount the view → fresh pty at the right root.
+      <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        {tabs.map((tab) => (
           <div
-            key={`${s.key}:${workspaceKey ?? 'none'}:${s.gen}`}
+            key={tab.id}
             style={{
               position: 'absolute',
               inset: 0,
-              display: s.key === activeKey ? 'flex' : 'none',
+              display: tab.id === activeTabId ? 'block' : 'none',
             }}
           >
-            <TerminalView active={s.key === activeKey} onRestart={() => restartSession(s.key)} />
+            <TermPaneArea
+              tab={tab}
+              isActiveTab={tab.id === activeTabId}
+              workspaceKey={workspaceKey}
+              gens={gens}
+              onRestart={restart}
+            />
           </div>
         ))}
       </div>
@@ -105,20 +101,187 @@ export const TerminalDock = (): JSX.Element => {
   );
 };
 
-const TerminalTabs = ({
-  sessions,
-  activeKey,
+// ── One tab's split tree, absolutely positioned from the geometry ────────────
+const DIVIDER_HIT = 6; // px grab strip over the 1px line
+
+const TermPaneArea = ({
+  tab,
+  isActiveTab,
+  workspaceKey,
+  gens,
+  onRestart,
+}: {
+  tab: { id: string; tree: TermNode; focusedLeafId: string };
+  isActiveTab: boolean;
+  workspaceKey: string | null;
+  gens: Record<string, number>;
+  onRestart: (leafId: string) => void;
+}): JSX.Element => {
+  const zoomedLeafId = useTerminalStore((s) => s.zoomedLeafId);
+  const focusLeaf = useTerminalStore((s) => s.focusLeaf);
+  const areaRef = useRef<HTMLDivElement | null>(null);
+  const zoomed = isActiveTab ? zoomedLeafId : null;
+
+  const rects = leafRects(tab.tree);
+  const dividers = zoomed ? [] : splitDividers(tab.tree);
+
+  return (
+    <div ref={areaRef} style={{ position: 'absolute', inset: 0 }}>
+      {[...rects.entries()].map(([leafId, r]) => {
+        const isFocused = isActiveTab && leafId === tab.focusedLeafId;
+        // When zoomed, the zoomed pane fills the area; the rest stay mounted but
+        // hidden (their ptys keep running).
+        const full = zoomed === leafId;
+        const hidden = zoomed != null && !full;
+        const pos = full
+          ? { left: 0, top: 0, width: '100%', height: '100%' }
+          : {
+              left: `${r.x * 100}%`,
+              top: `${r.y * 100}%`,
+              width: `${r.w * 100}%`,
+              height: `${r.h * 100}%`,
+            };
+        return (
+          <div
+            key={leafId}
+            onMouseDownCapture={() => {
+              if (!isFocused) focusLeaf(tab.id, leafId);
+            }}
+            style={{
+              position: 'absolute',
+              ...pos,
+              display: hidden ? 'none' : 'flex',
+              padding: 3,
+              boxSizing: 'border-box',
+            }}
+          >
+            <div
+              style={{
+                position: 'relative',
+                flex: 1,
+                minWidth: 0,
+                minHeight: 0,
+                borderRadius: radius.sm,
+                overflow: 'hidden',
+                // The focused split wears a subtle accent ring (Ghostty's
+                // split-focus cue) — only meaningful with more than one pane.
+                boxShadow:
+                  isFocused && tab.tree.type !== 'leaf'
+                    ? `inset 0 0 0 1px ${color.accent}`
+                    : 'none',
+              }}
+            >
+              <TerminalView
+                key={`${leafId}:${workspaceKey ?? 'none'}:${gens[leafId] ?? 0}`}
+                active={isFocused}
+                onRestart={() => onRestart(leafId)}
+              />
+            </div>
+          </div>
+        );
+      })}
+      {dividers.map((d) => (
+        <PaneDivider key={d.splitId} divider={d} areaRef={areaRef} />
+      ))}
+    </div>
+  );
+};
+
+const PaneDivider = ({
+  divider,
+  areaRef,
+}: {
+  divider: { splitId: string; dir: 'row' | 'column'; rect: { x: number; y: number } };
+  areaRef: React.RefObject<HTMLDivElement | null>;
+}): JSX.Element => {
+  const setSplitFraction = useTerminalStore((s) => s.setSplitFraction);
+  const [active, setActive] = useState(false);
+  const [hover, setHover] = useState(false);
+  const row = divider.dir === 'row'; // vertical line, horizontal drag
+
+  const onMouseDown = (e: ReactMouseEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActive(true);
+    const onMove = (ev: MouseEvent): void => {
+      const area = areaRef.current;
+      if (!area) return;
+      const box = area.getBoundingClientRect();
+      // Fraction of the WHOLE area; the split's fraction is of its own subrect,
+      // but at the top level (the common case) they coincide. For nested splits
+      // this is a close-enough drag — clamped by setFraction.
+      const f = row ? (ev.clientX - box.left) / box.width : (ev.clientY - box.top) / box.height;
+      setSplitFraction(divider.splitId, f);
+    };
+    const onUp = (): void => {
+      setActive(false);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = row ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const lit = active ? color.accent : hover ? color.borderStrong : 'transparent';
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: 'absolute',
+        cursor: row ? 'col-resize' : 'row-resize',
+        zIndex: 3,
+        ...(row
+          ? {
+              left: `${divider.rect.x * 100}%`,
+              top: 0,
+              height: '100%',
+              width: DIVIDER_HIT,
+              transform: `translateX(-${DIVIDER_HIT / 2}px)`,
+            }
+          : {
+              top: `${divider.rect.y * 100}%`,
+              left: 0,
+              width: '100%',
+              height: DIVIDER_HIT,
+              transform: `translateY(-${DIVIDER_HIT / 2}px)`,
+            }),
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          background: lit,
+          transition: active ? 'none' : transition(['background']),
+          ...(row
+            ? { left: '50%', top: 0, bottom: 0, width: 1, transform: 'translateX(-0.5px)' }
+            : { top: '50%', left: 0, right: 0, height: 1, transform: 'translateY(-0.5px)' }),
+        }}
+      />
+    </div>
+  );
+};
+
+// ── Tab strip ────────────────────────────────────────────────────────────────
+const TermTabBar = ({
+  tabs,
+  activeTabId,
   onSelect,
   onClose,
   onAdd,
 }: {
-  sessions: Session[];
-  activeKey: string;
-  onSelect: (key: string) => void;
-  onClose: (key: string) => void;
+  tabs: { id: string }[];
+  activeTabId: string;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
   onAdd: () => void;
 }): JSX.Element => {
-  const multiple = sessions.length > 1;
+  const multiple = tabs.length > 1;
   return (
     <div
       style={{
@@ -133,12 +296,12 @@ const TerminalTabs = ({
         overflow: 'hidden',
       }}
     >
-      {sessions.map((s, i) => {
-        const isActive = s.key === activeKey;
+      {tabs.map((t, i) => {
+        const isActive = t.id === activeTabId;
         return (
           <div
-            key={s.key}
-            onMouseDown={() => onSelect(s.key)}
+            key={t.id}
+            onMouseDown={() => onSelect(t.id)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -156,16 +319,15 @@ const TerminalTabs = ({
             }}
           >
             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {s.label}
-              {multiple ? ` ${i + 1}` : ''}
+              Terminal{multiple ? ` ${i + 1}` : ''}
             </span>
             {multiple && (
               <button
                 type="button"
-                title="Close terminal"
+                title="Close tab"
                 onMouseDown={(e) => {
                   e.stopPropagation();
-                  onClose(s.key);
+                  onClose(t.id);
                 }}
                 style={{
                   border: 'none',
@@ -189,7 +351,7 @@ const TerminalTabs = ({
       })}
       <button
         type="button"
-        title="New terminal"
+        title="New terminal tab (⌘T)"
         onClick={onAdd}
         style={{
           border: 'none',
@@ -207,9 +369,53 @@ const TerminalTabs = ({
   );
 };
 
-// The terminal dock's left-edge grab strip: drag left to widen (narrower
-// canvas), right to narrow. Mirrors EditorSash — a 6px hit area over a 2px
-// accent line that lights on hover / drag.
+// ── Ghostty keymap, scoped to terminal focus ─────────────────────────────────
+function useTerminalKeymap(): void {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!e.metaKey) return;
+      const s = useTerminalStore.getState();
+      if (!s.focused) return; // only when the terminal owns focus
+      const k = e.key.toLowerCase();
+      // Pick the matching Ghostty action, if any.
+      let action: (() => void) | null = null;
+      const dir =
+        e.key === 'ArrowLeft'
+          ? 'left'
+          : e.key === 'ArrowRight'
+            ? 'right'
+            : e.key === 'ArrowUp'
+              ? 'up'
+              : e.key === 'ArrowDown'
+                ? 'down'
+                : null;
+      if (k === 't' && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+        action = s.newTab; // ⌘T new tab
+      } else if (k === 'd' && !e.altKey && !e.ctrlKey) {
+        action = () => s.splitFocused(e.shiftKey ? 'down' : 'right'); // ⌘D / ⌘⇧D
+      } else if (e.key === 'Enter' && e.shiftKey) {
+        action = s.toggleZoom; // ⌘⇧↵
+      } else if (e.code === 'BracketLeft') {
+        action = () => (e.shiftKey ? s.switchTab(-1) : s.gotoRing(-1)); // ⌘⇧[ / ⌘[
+      } else if (e.code === 'BracketRight') {
+        action = () => (e.shiftKey ? s.switchTab(1) : s.gotoRing(1)); // ⌘⇧] / ⌘]
+      } else if (dir && e.altKey && !e.ctrlKey) {
+        action = () => s.gotoDir(dir); // ⌘⌥arrow move focus
+      } else if (dir && e.ctrlKey && !e.altKey) {
+        action = () => s.resizeFocused(dir); // ⌘⌃arrow resize
+      }
+      if (!action) return;
+      e.preventDefault();
+      e.stopImmediatePropagation(); // beat xterm's own key handler
+      action();
+    };
+    // Capture phase so we win before xterm's textarea handler sees the key.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, []);
+}
+
+// ── The dock's left-edge resize sash ─────────────────────────────────────────
 const TerminalSash = (): JSX.Element => {
   const terminalWidth = useLayoutStore((s) => s.terminalWidth);
   const setTerminalWidth = useLayoutStore((s) => s.setTerminalWidth);
@@ -222,7 +428,6 @@ const TerminalSash = (): JSX.Element => {
     const startX = e.clientX;
     const startWidth = terminalWidth;
     const onMove = (ev: MouseEvent): void => {
-      // Dock is on the right: pointer moving LEFT (clientX decreases) widens it.
       setTerminalWidth(Math.max(TERMINAL_MIN_WIDTH, startWidth - (ev.clientX - startX)));
     };
     const onUp = (): void => {

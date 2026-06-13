@@ -2,6 +2,7 @@ import { type JSX, useCallback, useEffect } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { isImeComposing } from '../lib/imeGuard.js';
 import { useLayoutStore } from '../store/layout.js';
+import { useTerminalStore } from '../store/terminal.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { FilePreview } from './FilePreview.js';
 
@@ -71,8 +72,17 @@ export const EditorOverlay = (): JSX.Element | null => {
   }, [close]);
 
   // ⌘W (File ▸ Close Tab) → close the overlay. Main owns the accelerator so it
-  // can't close the window; we run the same close path as Esc / the ✕.
-  useEffect(() => window.bh.onMenuCloseTab(close), [close]);
+  // can't close the window; we run the same close path as Esc / the ✕. But when
+  // the terminal dock has focus, ⌘W belongs to it (close the focused split) —
+  // yield so a single ⌘W never closes both the split AND the document behind it.
+  useEffect(
+    () =>
+      window.bh.onMenuCloseTab(() => {
+        if (useTerminalStore.getState().focused) return;
+        close();
+      }),
+    [close],
+  );
 
   if (openFile === null) return null;
 
