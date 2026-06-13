@@ -21,6 +21,7 @@ import {
   unregisterDocFlusher,
   unregisterFlusher,
 } from '../lib/editorFlush.js';
+import { fileUrl } from '../lib/fileUrl.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
   type LiveDocView,
@@ -226,7 +227,7 @@ export const FilePreview = ({
             >
               {basename}
             </div>
-            <audio controls src={`file://${absPath}`} style={{ width: '100%', maxWidth: 360 }}>
+            <audio controls src={fileUrl(absPath)} style={{ width: '100%', maxWidth: 360 }}>
               <track kind="captions" />
             </audio>
           </div>
@@ -246,7 +247,7 @@ export const FilePreview = ({
           >
             <video
               controls
-              src={`file://${absPath}`}
+              src={fileUrl(absPath)}
               style={{
                 width: '100%',
                 maxHeight: '100%',
@@ -1185,7 +1186,7 @@ const UnsupportedFileViewer = ({
 const PdfViewer = ({ absPath }: { absPath: string }): JSX.Element => (
   <iframe
     title="PDF"
-    src={`file://${absPath}`}
+    src={fileUrl(absPath)}
     style={{ width: '100%', height: '100%', border: 'none' }}
   />
 );
@@ -1216,7 +1217,7 @@ const ImageViewer = ({ absPath }: { absPath: string }): JSX.Element => {
       }}
     >
       <img
-        src={`file://${absPath}`}
+        src={fileUrl(absPath)}
         alt={absPath}
         // width/height 100% (not max-) so small images scale UP to fill
         // the panel — a 16×16 favicon was rendering as an unfindable dot.

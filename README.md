@@ -78,8 +78,9 @@ flowchart LR
 ```
 
 A **badge** is a file plus a small backpack of metadata: prompt, references, and
-canvas position. Badges are materialized
-automatically when you open a workspace.
+canvas position. Badges are a sparse overlay, created lazily the first time you
+annotate a file — a fresh workspace has none, and the canvas reads the
+filesystem directly and overlays only the badges that exist.
 
 The protocol is deliberately simple:
 

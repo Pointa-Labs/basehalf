@@ -227,6 +227,36 @@ describe('badge.delete', () => {
     expect(result.deleted).toBe(false);
   });
 
+  it('cascades: clears the deleted badge’s outbound entries from the inbound index', async () => {
+    // a.md → target.md; deleting a.md must drop target.md's backlink from a.md
+    // (no phantom backlink from a badge that no longer exists).
+    await ctx.core.run('badge.set', { file: 'target.md' });
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'target.md', note: 'see' });
+    expect(
+      (
+        (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
+          entries: { from: string }[];
+        }
+      ).entries.map((e) => e.from),
+    ).toEqual(['a.md']);
+
+    await ctx.core.run('badge.delete', { file: 'a.md' });
+
+    expect(
+      ((await ctx.core.run('inbound.get', { file: 'target.md' })) as { entries: unknown[] })
+        .entries,
+    ).toEqual([]);
+  });
+
+  it('cascades: a deleted focused file drops out of the brief', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'note' } });
+    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    await ctx.core.run('badge.delete', { file: 'a.md' });
+    // a.md's badge is gone; the brief should no longer inline its (now absent) note.
+    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
+    expect(md).not.toContain('prompt: note');
+  });
+
   it('deletes folder badge from .badge.json path', async () => {
     await ctx.core.run('badge.set', { file: 'pics', patch: { kind: 'folder' } });
     const result = (await ctx.core.run('badge.delete', {

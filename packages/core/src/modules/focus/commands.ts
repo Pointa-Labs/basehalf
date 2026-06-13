@@ -382,7 +382,7 @@ export const toggleActiveFile: Handler<
 export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
-    const { active, intent: currentIntent } = await readFocusBrief(ctx.fs, root);
+    const { active, intent: currentIntent, source } = await readFocusBrief(ctx.fs, root);
     // Focus changed underneath this edit (e.g. the editor was dismissed by a
     // click that selected another file or cleared focus) — don't write the old
     // question into the new focus; leave it untouched.
@@ -397,7 +397,12 @@ export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = asyn
     }
     const trimmed = args.intent?.trim();
     const intent = trimmed ? trimmed : undefined;
-    await writeBrief(ctx, root, active, intent, undefined); // manual intent → no source provenance
+    // A manual NON-EMPTY intent is the user's own → drop the folder provenance so
+    // editing the folder prompt doesn't overwrite their question. But CLEARING the
+    // intent (empty) must PRESERVE provenance: a folder-sourced focus whose intent
+    // box is emptied should fall back to the folder prompt, not sever the link.
+    const nextSource = intent === undefined ? source : undefined;
+    await writeBrief(ctx, root, active, intent, nextSource);
     return { intent: intent ?? null };
   });
 };
@@ -593,13 +598,20 @@ export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ct
  */
 export const init: Handler<FocusInitArgs, FocusInitResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const existing = await readMaybeNoFollow(
-    ctx.fs,
-    await assertReadContained(ctx.fs, root, focusPath(root)),
-  );
-  if (existing !== null) return { created: false };
-  await writeFocus(ctx.fs, root, []);
-  return { created: true };
+  // Check-then-write UNDER the lock (like inbound.init): a concurrent focus
+  // writer — e.g. a watcher-buffered reconcile landing during workspace
+  // bootstrap — that populates focus.md between the read and the write would
+  // otherwise be clobbered by this empty template. focus.init was the one focus
+  // writer outside the lock.
+  return withFocusLock(root, async () => {
+    const existing = await readMaybeNoFollow(
+      ctx.fs,
+      await assertReadContained(ctx.fs, root, focusPath(root)),
+    );
+    if (existing !== null) return { created: false };
+    await writeFocus(ctx.fs, root, []);
+    return { created: true };
+  });
 };
 
 export function commands(): ReadonlyArray<

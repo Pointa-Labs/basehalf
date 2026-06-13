@@ -95,6 +95,11 @@ export function render(commandName: string, result: unknown, asJson: boolean): v
         },
       );
       return;
+    case 'badge.delete': {
+      const r = result as { deleted: boolean };
+      process.stdout.write(r.deleted ? 'Badge deleted.\n' : 'No badge to delete.\n');
+      return;
+    }
     case 'inbound.get':
       renderInboundGet(result as { entries: { from: string; note?: string }[] });
       return;

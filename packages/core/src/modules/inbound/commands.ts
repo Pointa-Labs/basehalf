@@ -100,25 +100,29 @@ export const removeRef: Handler<InboundRemoveRefArgs, InboundGetResult> = async 
  */
 export const rebuild: Handler<InboundRebuildArgs, InboundRebuildResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  // badge.list is a pure read; gather it before taking the lock so we hold
-  // the write queue for the minimum time. The full-index overwrite itself
-  // runs inside the lock so it can't interleave with a concurrent
-  // addRef/removeRef (which would otherwise be lost or resurrected).
-  const { badges } = await ctx.run<Record<string, never>, BadgeListResult>('badge.list', {});
-
-  const entries: Record<string, InboundEntry[]> = {};
-  for (const badge of badges) {
-    for (const ref of badge.references) {
-      const list = entries[ref.to] ?? [];
-      const entry: InboundEntry =
-        ref.note !== undefined ? { from: badge.file, note: ref.note } : { from: badge.file };
-      list.push(entry);
-      entries[ref.to] = list;
+  // Take the SNAPSHOT (badge.list) and the overwrite TOGETHER under the lock, so
+  // an addRef/removeRef that lands between them can't be lost: previously the
+  // snapshot ran before the lock, so a concurrent addRef completing in that gap
+  // was overwritten by the stale rebuild (present in the badge, absent from the
+  // index until the next rebuild). badge.list is a pure read with no inbound
+  // lock, so holding withIndexLock across it can't deadlock.
+  const { rebuildAt, entryCount } = await withIndexLock(root, async () => {
+    const { badges } = await ctx.run<Record<string, never>, BadgeListResult>('badge.list', {});
+    const entries: Record<string, InboundEntry[]> = {};
+    for (const badge of badges) {
+      for (const ref of badge.references) {
+        const list = entries[ref.to] ?? [];
+        const entry: InboundEntry =
+          ref.note !== undefined ? { from: badge.file, note: ref.note } : { from: badge.file };
+        list.push(entry);
+        entries[ref.to] = list;
+      }
     }
-  }
-  const rebuildAt = new Date().toISOString();
-  await withIndexLock(root, () => writeInbound(ctx.fs, root, { bhVersion: 1, entries, rebuildAt }));
-  return { rebuildAt, entryCount: Object.keys(entries).length };
+    const at = new Date().toISOString();
+    await writeInbound(ctx.fs, root, { bhVersion: 1, entries, rebuildAt: at });
+    return { rebuildAt: at, entryCount: Object.keys(entries).length };
+  });
+  return { rebuildAt, entryCount };
 };
 
 /**

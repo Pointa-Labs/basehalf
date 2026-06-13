@@ -253,9 +253,29 @@ export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) =
 
 export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const deleted = await withBadgeLock(root, () =>
-    removeBadge(ctx.fs, root, args.file, args.kind ?? 'file'),
-  );
+  const kind = args.kind ?? 'file';
+  // Capture the badge's outbound refs (under the lock) BEFORE deleting, so we can
+  // clean them out of the inbound index afterward. Without this, deleting a badge
+  // left phantom backlinks in inbound.json pointing FROM a badge that no longer
+  // exists — the delete path was systematically weaker than rename's cascade.
+  const { deleted, refs } = await withBadgeLock(root, async () => {
+    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const removed = await removeBadge(ctx.fs, root, args.file, kind);
+    return { deleted: removed, refs: existing?.references ?? [] };
+  });
+  if (deleted) {
+    // Cascade OUTSIDE the lock (inbound/focus take their own locks): drop this
+    // badge's outbound entries from the index, and refresh the brief if the
+    // deleted file was focused — matching the discipline badge.rename already has.
+    for (const ref of refs) {
+      try {
+        await ctx.run('inbound.removeRef', { from: args.file, to: ref.to });
+      } catch (err) {
+        if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+      }
+    }
+    if (kind === 'file') await reconcileFocus(ctx, args.file);
+  }
   return { deleted };
 };
 

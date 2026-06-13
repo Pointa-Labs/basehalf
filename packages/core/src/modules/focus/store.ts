@@ -11,7 +11,8 @@ import type { FocusItem, FocusSource } from './types.js';
 const FOCUS_FILE = '.bh/focus.md';
 
 const TEMPLATE_FOOTER = `
-# (Updated automatically by bh GUI. Agent should read this at every message.
+# (Kept fresh automatically by BaseHalf — the app, the bh CLI, and agent edits
+# all reconcile it. Agent should read this at every message.
 # 'active' = files the user is focused on, with their prompts + reference notes
 # inlined above. Follow the refs deeper in .bh/badges/ + .bh/index/inbound.json
 # on your own budget if you need more.)

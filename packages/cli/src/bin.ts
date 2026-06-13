@@ -24,7 +24,7 @@ const wsAdd = defineCommand({
     setup: {
       type: 'boolean',
       description:
-        'Also add .bh/ to .gitignore + append a recall hint to CLAUDE.md (non-destructive)',
+        'Also add .bh/cache/ to .gitignore + install the agent hint in CLAUDE.md and AGENTS.md (non-destructive)',
     },
     json: { type: 'boolean', description: 'JSON output' },
   },
@@ -279,6 +279,25 @@ const badgeRename = defineCommand({
   },
 });
 
+const badgeDelete = defineCommand({
+  meta: {
+    name: 'delete',
+    description: 'Delete a badge (cascade: drop its inbound entries + refresh the brief)',
+  },
+  args: {
+    file: { type: 'positional', description: 'Relative path in workspace', required: true },
+    kind: { type: 'string', description: 'file|folder (default: file)' },
+    json: { type: 'boolean', description: 'JSON output' },
+  },
+  async run({ args }) {
+    const result = await core.run('badge.delete', {
+      file: args.file,
+      ...(args.kind && { kind: args.kind }),
+    });
+    render('badge.delete', result, Boolean(args.json));
+  },
+});
+
 const badge = defineCommand({
   meta: { name: 'badge', description: 'Manage badge JSON (file + backpack)' },
   subCommands: {
@@ -288,6 +307,7 @@ const badge = defineCommand({
     addRef: badgeAddRef,
     removeRef: badgeRemoveRef,
     rename: badgeRename,
+    delete: badgeDelete,
   },
 });
 
@@ -373,22 +393,49 @@ const focusSet = defineCommand({
       description:
         'A folder path: focus all supported files under it, with the folder prompt as the intent',
     },
+    intent: { type: 'string', description: 'Set the turn intent alongside the files' },
     json: { type: 'boolean', description: 'JSON output' },
   },
   async run({ args }) {
-    if (typeof args.folder === 'string' && args.folder.length > 0) {
-      const result = await core.run('focus.set', { folder: args.folder });
+    const hasFolder = typeof args.folder === 'string' && args.folder.length > 0;
+    const hasFiles = typeof args.files === 'string' && args.files.length > 0;
+    const hasIntent = typeof args.intent === 'string' && args.intent.length > 0;
+    // A bare `bh focus set` (no flags) would resolve to files:[] and SILENTLY
+    // CLEAR the user's curated focus + intent — a destructive no-op trap for the
+    // exact agent/scripting flows the hint invites. Refuse it; `focus clear` is
+    // the explicit way to empty the focus.
+    if (!hasFolder && !hasFiles && !hasIntent) {
+      process.stderr.write(
+        'bh focus set: nothing to set. Pass --files <csv>, --folder <path>, and/or --intent <text>.\n' +
+          'To empty the focus, use `bh focus clear`.\n',
+      );
+      process.exit(1);
+    }
+    if (hasFolder) {
+      const result = await core.run('focus.set', {
+        folder: args.folder,
+        ...(hasIntent && { intent: args.intent }),
+      });
       render('focus.set', result, Boolean(args.json));
       return;
     }
-    const files =
-      typeof args.files === 'string' && args.files.length > 0
-        ? args.files
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : [];
-    const result = await core.run('focus.set', { files });
+    const files = hasFiles
+      ? (args.files as string)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    // If only --intent was given (no files), set the intent without touching the
+    // active set, instead of clearing it to []. Otherwise set the files (+ intent).
+    if (!hasFiles && hasIntent) {
+      const result = await core.run('focus.setIntent', { intent: args.intent });
+      render('focus.setIntent', result, Boolean(args.json));
+      return;
+    }
+    const result = await core.run('focus.set', {
+      files,
+      ...(hasIntent && { intent: args.intent }),
+    });
     render('focus.set', result, Boolean(args.json));
   },
 });
@@ -503,7 +550,7 @@ const init = defineCommand({
   meta: {
     name: 'init',
     description:
-      'Register the current directory as a workspace + setup (.gitignore + agent hints: CLAUDE.md / AGENTS.md / copilot-instructions.md)',
+      'Register the current directory as a workspace + setup (.gitignore + agent hints: CLAUDE.md and AGENTS.md)',
   },
   args: {
     name: { type: 'string', description: 'Override workspace name (default: cwd basename)' },

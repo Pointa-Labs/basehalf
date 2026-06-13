@@ -33,6 +33,12 @@ export async function readInbound(fs: FsLike, workspaceRoot: string): Promise<In
     return JSON.parse(raw) as InboundIndex;
   } catch {
     // Corrupt index: behave as if missing — next rebuild / write recreates it.
+    // WARN rather than vanish silently: the whole reverse graph reading empty is
+    // a surprising, debuggable event (an agent following inbound suddenly finds
+    // nothing), and `bh inbound rebuild` is the one-command repair.
+    console.warn(
+      `[bh:inbound] index at ${inboundPath(workspaceRoot)} is corrupt — treating as empty; run \`bh inbound rebuild\` to repair`,
+    );
     return EMPTY();
   }
 }

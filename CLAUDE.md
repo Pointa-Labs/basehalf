@@ -71,7 +71,11 @@ on Linux, `%APPDATA%/basehalf` on Windows.
 A *badge* is a file (or folder) plus a "backpack" — prompt, references to
 other files, and a canvas position. Badges live at
 `<workspace>/.bh/badges/<rel-path>.json` (`.bh/badges/<folder>/.badge.json`
-for folder kind). Materialized eagerly on workspace open.
+for folder kind). They are a **sparse overlay created lazily on first
+annotation** — there is no eager materialization (a fresh workspace has zero
+badge files; the canvas reads the filesystem and overlays only the badges that
+exist). On workspace open, `badge.pruneDangling` marks any badge whose file is
+gone as orphan so the graph stays as live as the brief.
 
 ```bash
 bh badge list [--kind file|folder] [--query <substr>] [--json]

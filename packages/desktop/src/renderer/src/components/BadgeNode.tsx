@@ -13,6 +13,7 @@ import { CanvasConnectionHandles, useCanvasConnectionHandles } from '../canvasCo
 import { color, font, radius, shadow, space, transition } from '../design.js';
 import { cardLodForHeight } from '../lib/cardLod.js';
 import { flushDoc } from '../lib/editorFlush.js';
+import { fileUrl } from '../lib/fileUrl.js';
 import { docKeyFor } from '../lib/liveDoc.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -661,7 +662,7 @@ const BadgePreview = ({
     return (
       <div style={frame}>
         <img
-          src={`file://${wsPath}/${label}`}
+          src={fileUrl(`${wsPath}/${label}`)}
           alt=""
           draggable={false}
           style={{
