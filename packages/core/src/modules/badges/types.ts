@@ -144,6 +144,16 @@ export interface BadgeRenameResult {
   readonly focusUpdated: boolean;
 }
 
+export interface BadgePruneDanglingArgs {
+  // No args — sweeps the whole current workspace.
+  readonly _?: never;
+}
+export interface BadgePruneDanglingResult {
+  /** Files whose underlying disk file/folder is gone and whose badge was
+   *  freshly marked orphan by this sweep (already-orphan badges aren't counted). */
+  readonly orphaned: readonly string[];
+}
+
 /**
  * AR-PR11-7: thrown when a badge JSON on disk fails to parse. UI / list
  * callers should catch and skip; never crash on a single bad file.

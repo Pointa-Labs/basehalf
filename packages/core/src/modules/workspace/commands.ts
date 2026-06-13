@@ -402,6 +402,18 @@ async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<
     if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }
+  try {
+    // Re-entry liveness for the DEEP graph (badges + inbound), the analog of
+    // focus.pruneDangling above: a badge whose file was deleted while the watcher
+    // wasn't running carries no orphan flag, so an agent following the hint into
+    // .bh/badges/ + inbound.json would be pointed at files that don't exist. Mark
+    // them orphan on open so the graph stays as live as the brief.
+    await ctx.run('badge.pruneDangling', {});
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return;
+    if (err instanceof Error && err.name === 'PathEscape') return;
+    throw err;
+  }
 }
 
 /**

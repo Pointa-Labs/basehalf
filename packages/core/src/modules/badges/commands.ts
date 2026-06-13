@@ -1,4 +1,5 @@
-import { type Handler, createKeyedMutex } from '../../kernel/index.js';
+import { join } from 'node:path';
+import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
 import type { InboundGetResult } from '../inbound/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
@@ -14,6 +15,8 @@ import type {
   BadgeListResult,
   BadgeMarkOrphanArgs,
   BadgeMarkOrphanResult,
+  BadgePruneDanglingArgs,
+  BadgePruneDanglingResult,
   BadgeReconnectRefArgs,
   BadgeReconnectRefResult,
   BadgeRemoveRefArgs,
@@ -390,6 +393,56 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   return next;
 };
 
+/** Stat the disk target behind a badge: a file badge → its file, a folder
+ *  badge → its directory. Containment-guarded; any error reads as "gone". */
+async function badgeTargetExists(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  file: string,
+  kind: BadgeKind,
+): Promise<boolean> {
+  try {
+    const abs = await assertReadContained(ctx.fs, root, join(root, file));
+    const st = await ctx.fs.stat(abs);
+    if (st === null) return false;
+    return kind === 'folder' ? st.isDirectory === true : st.isFile === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stat-based liveness sweep for the WHOLE badge graph — the badges analog of
+ * focus.pruneDangling. The brief layer self-heals on workspace open, but badges
+ * and the inbound index had NO such discipline: a file deleted while the watcher
+ * wasn't running (app closed, git checkout) left its badge + inbound entries
+ * behind with no orphan flag, so an agent following the CLAUDE.md hint into
+ * `.bh/badges/` + `inbound.json` got pointed at files that don't exist — worse
+ * than grep. Run on workspace open: mark every badge whose disk target is gone
+ * as orphan (markOrphan preserves the human note and excludes it from briefs +
+ * lets the canvas show MISSING), so the deep graph stays as live as the brief.
+ * Already-orphan badges are skipped (no churn). Best-effort per badge.
+ */
+export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingResult> = async (
+  _args,
+  ctx,
+) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const badges = await listBadges(ctx.fs, root);
+  const orphaned: string[] = [];
+  for (const badge of badges) {
+    if (badge.orphan === true) continue;
+    if (await badgeTargetExists(ctx, root, badge.file, badge.kind)) continue;
+    try {
+      const res = await ctx.run('badge.markOrphan', { file: badge.file, kind: badge.kind });
+      if (res !== null) orphaned.push(badge.file);
+    } catch {
+      /* best-effort: a cascade hiccup must not fail the whole sweep */
+    }
+  }
+  return { orphaned };
+};
+
 /**
  * Atomic rename: move the badge from `from` to `to`, rewrite every
  * inbound reference (other badges pointing at `from` get rewritten to
@@ -411,38 +464,60 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
  *  - Throws if a badge already exists at `to` (collision; caller must
  *    resolve before calling).
  */
-export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  const kind: BadgeKind = args.kind ?? 'file';
-  if (args.from === args.to) {
-    throw new Error(`badge.rename: from and to are the same (${args.from})`);
-  }
+/**
+ * Read a badge whose KIND we don't know from the inbound index (entries carry
+ * no kind). Try file first (the common case), then folder — so a folder badge
+ * that references a file (canvas folder→file edge) is found when its target is
+ * renamed, instead of silently dropping the dead ref (the old code hard-coded
+ * 'file' and lost folder referrers).
+ */
+async function readBadgeEitherKind(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  file: string,
+): Promise<BadgeFile | null> {
+  return (
+    (await readBadge(ctx.fs, root, file, 'file')) ?? (await readBadge(ctx.fs, root, file, 'folder'))
+  );
+}
 
-  // Steps 1-2 — the badge-file move itself — are the read-modify-write that
-  // must be serialized against concurrent badge.set/addRef on the same root.
-  // The cascade below (2b/3/4) calls ctx.run('inbound.*' / 'badge.*' /
-  // 'focus.*'), which take other locks or re-enter badge.* — so they run AFTER
-  // the lock releases (holding it across them would nest locks → deadlock).
+/**
+ * Move ONE badge's JSON from `from` to `to` (lock-protected RMW) and cascade
+ * the reference graph: migrate the moved badge's own outbound inbound entries,
+ * then rewrite every OTHER badge that referenced `from` to point at `to`. Does
+ * NOT touch focus.md (the caller does that once, at the right granularity).
+ *
+ * Returns the moved badge + the list of referrers rewritten, or moved:null when
+ * no badge existed at `from` (a missing descendant during a folder rename — skip
+ * it rather than abort the whole folder move).
+ */
+async function moveBadgeAndCascadeRefs(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  from: string,
+  to: string,
+  kind: BadgeKind,
+): Promise<{ moved: BadgeFile | null; updatedRefs: string[] }> {
+  // The badge-file move itself is the RMW that must be serialized against
+  // concurrent badge.set/addRef on the same root. The cascade below calls
+  // ctx.run('inbound.*' / 'badge.*'), which take other locks or re-enter
+  // badge.* — so they run AFTER the lock releases (holding it across them would
+  // nest locks → deadlock).
   const moved = await withBadgeLock(root, async () => {
-    const source = await readBadge(ctx.fs, root, args.from, kind);
-    if (!source) {
-      throw new Error(`badge.rename: no badge at ${args.from}`);
-    }
-    const collision = await readBadge(ctx.fs, root, args.to, kind);
+    const source = await readBadge(ctx.fs, root, from, kind);
+    if (!source) return null;
+    const collision = await readBadge(ctx.fs, root, to, kind);
     if (collision) {
-      throw new Error(`badge.rename: badge already exists at ${args.to}`);
+      throw new Error(`badge.rename: badge already exists at ${to}`);
     }
-
-    // 1. Write a copy at the new path, preserving the user's prompt /
-    // references / canvas position / createdAt. Clear orphan since the
-    // underlying file just (re)appeared under a new name.
+    // Write a copy at the new path, preserving the user's prompt / references /
+    // canvas / createdAt; orphan is dropped since the file just (re)appeared.
     const now = new Date().toISOString();
     const copy: BadgeFile = {
       bhVersion: 1,
-      file: args.to,
+      file: to,
       kind,
       ...(source.prompt !== undefined && { prompt: source.prompt }),
-      // A rename moves the prompt unchanged — its freshness anchor moves with it.
       ...(source.promptModifiedAt !== undefined && { promptModifiedAt: source.promptModifiedAt }),
       references: source.references,
       ...(source.canvas !== undefined && { canvas: source.canvas }),
@@ -450,27 +525,20 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
       modifiedAt: now,
     };
     await writeBadge(ctx.fs, root, copy);
-
-    // 2. Delete the source badge file. (We intentionally write the new one
-    // BEFORE deleting the source so a crash between steps leaves both —
-    // bad — over a crash with neither, which loses the user's prompt and
-    // references entirely.)
-    await removeBadge(ctx.fs, root, args.from, kind);
+    // Write the new one BEFORE deleting the source so a crash between leaves
+    // both (recoverable) rather than neither (the user's note lost).
+    await removeBadge(ctx.fs, root, from, kind);
     return copy;
   });
+  if (moved === null) return { moved: null, updatedRefs: [] };
 
-  // 2b. Migrate the inbound index for the moved badge's OWN outbound refs.
-  // The moved badge keeps its references (copied in step 1), but they were
-  // written via writeBadge, which does NOT cascade to the inbound index — so
-  // each target's inbound entry still records the OLD name (`from`), a
-  // phantom backlink to a badge that no longer exists. Re-point each entry
-  // from `from` to `to` directly on the index (the badge files are already
-  // correct). Self-refs can't occur here — badge.addRef rejects them.
+  // Migrate the inbound index for the moved badge's OWN outbound refs: writeBadge
+  // doesn't cascade, so each target's inbound entry still records the OLD name.
   for (const ref of moved.references) {
     try {
-      await ctx.run('inbound.removeRef', { from: args.from, to: ref.to });
+      await ctx.run('inbound.removeRef', { from, to: ref.to });
       await ctx.run('inbound.addRef', {
-        from: args.to,
+        from: to,
         to: ref.to,
         ...(ref.note !== undefined && { note: ref.note }),
       });
@@ -479,44 +547,76 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // 3. Rewrite every inbound reference: for each badge that pointed at
-  // `from`, removeRef(from) + addRef(to, note). Each pair cascades the
-  // inbound index update via badge.addRef's existing inbound.addRef
-  // sync. Inbound module may not be registered (tests wiring just
-  // badges); swallow UnknownCommand the same way the rest of the module
-  // does.
+  // Rewrite every badge that pointed AT `from` to point at `to` (removeRef +
+  // addRef, which cascade the inbound index). Inbound module may not be
+  // registered (tests wiring just badges); swallow UnknownCommand.
   const updatedRefs: string[] = [];
   let inbound: InboundGetResult = { entries: [] };
   try {
-    inbound = await ctx.run<{ file: string }, InboundGetResult>('inbound.get', {
-      file: args.from,
-    });
+    inbound = await ctx.run<{ file: string }, InboundGetResult>('inbound.get', { file: from });
   } catch (err) {
     if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
   }
   for (const entry of inbound.entries) {
     try {
-      const referringBadge = await readBadge(ctx.fs, root, entry.from, 'file');
-      const oldRef = referringBadge?.references.find((r) => r.to === args.from);
-      await ctx.run('badge.removeRef', { file: entry.from, to: args.from });
+      const referringBadge = await readBadgeEitherKind(ctx, root, entry.from);
+      const oldRef = referringBadge?.references.find((r) => r.to === from);
+      await ctx.run('badge.removeRef', {
+        file: entry.from,
+        to: from,
+        ...(referringBadge?.kind !== undefined && { kind: referringBadge.kind }),
+      });
       await ctx.run('badge.addRef', {
         file: entry.from,
-        to: args.to,
+        to,
+        ...(referringBadge?.kind !== undefined && { kind: referringBadge.kind }),
         ...(entry.note !== undefined && { note: entry.note }),
         ...(oldRef?.fromSide !== undefined && { fromSide: oldRef.fromSide }),
         ...(oldRef?.toSide !== undefined && { toSide: oldRef.toSide }),
       });
       updatedRefs.push(entry.from);
     } catch (err) {
-      // A neighbour badge might have been deleted concurrently; don't
-      // abort the whole rename — leave the orphan ref for the user to
-      // notice in the canvas (we mark them visually).
+      // A neighbour badge might have been deleted concurrently; don't abort the
+      // whole rename — leave the orphan ref for the user to notice on the canvas.
       if (!(err instanceof Error)) throw err;
       console.warn(`[bh:badges] rename: failed to rewrite ref on ${entry.from}:`, err.message);
     }
   }
+  return { moved, updatedRefs };
+}
 
-  // 4. Update focus.md if `from` is focused. A FILE rename remaps the exact
+export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const kind: BadgeKind = args.kind ?? 'file';
+  if (args.from === args.to) {
+    throw new Error(`badge.rename: from and to are the same (${args.from})`);
+  }
+
+  // Move the badge itself (folder's .badge.json, or the file badge) + its refs.
+  const { moved, updatedRefs } = await moveBadgeAndCascadeRefs(ctx, root, args.from, args.to, kind);
+  if (moved === null) {
+    throw new Error(`badge.rename: no badge at ${args.from}`);
+  }
+
+  // A FOLDER rename must carry every CHILD badge with it. The folder's own
+  // .badge.json move above leaves all `<from>/<child>.json` stranded at the old
+  // path: their files now live under `<to>/`, but their badges (prompt + refs)
+  // would vanish from the canvas and the brief, and their referrers would dangle.
+  // Enumerate every descendant badge and move it too — flat (listBadges returns
+  // all descendants), so nested folders and their files are each moved exactly
+  // once by string-prefix remap, no recursion / double-processing.
+  if (kind === 'folder') {
+    const prefix = `${args.from}/`;
+    const all = await listBadges(ctx.fs, root);
+    const descendants = all.filter((b) => b.file.startsWith(prefix));
+    for (const child of descendants) {
+      const childTo = `${args.to}/${child.file.slice(prefix.length)}`;
+      const res = await moveBadgeAndCascadeRefs(ctx, root, child.file, childTo, child.kind);
+      updatedRefs.push(...res.updatedRefs);
+    }
+  }
+
+  // Update focus.md if `from` is focused. A FILE rename remaps the exact
   // active path; a FOLDER rename remaps every active CHILD path under it AND
   // re-stamps the `# source-folder:` provenance (else editing the renamed
   // folder's prompt would stop refreshing the brief). Both preserve the turn
@@ -556,6 +656,7 @@ export function commands(): ReadonlyArray<
     ['badge.removeRef', removeRef as unknown as Handler<never, unknown>],
     ['badge.reconnectRef', reconnectRef as unknown as Handler<never, unknown>],
     ['badge.markOrphan', markOrphan as unknown as Handler<never, unknown>],
+    ['badge.pruneDangling', pruneDangling as unknown as Handler<never, unknown>],
     ['badge.rename', rename as unknown as Handler<never, unknown>],
   ];
 }

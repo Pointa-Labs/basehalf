@@ -552,6 +552,61 @@ describe('badge.rename', () => {
     })) as { badge: BadgeFile };
     expect(result.badge.orphan).toBeUndefined();
   });
+
+  it('folder rename carries every CHILD badge to the new path (prompt + refs preserved)', async () => {
+    // docs/ with two annotated children + a nested folder with its own child.
+    await ctx.core.run('badge.set', { file: 'docs', patch: { kind: 'folder', prompt: 'chapter' } });
+    await ctx.core.run('badge.set', { file: 'docs/a.md', patch: { prompt: 'intro' } });
+    await ctx.core.run('badge.set', { file: 'docs/b.md', patch: { prompt: 'detail' } });
+    await ctx.core.run('badge.set', {
+      file: 'docs/sub',
+      patch: { kind: 'folder', prompt: 'aside' },
+    });
+    await ctx.core.run('badge.set', { file: 'docs/sub/c.md', patch: { prompt: 'nested' } });
+
+    await ctx.core.run('badge.rename', { from: 'docs', to: 'guide', kind: 'folder' });
+
+    // Every child badge now lives under the new prefix, with its prompt intact…
+    expect(((await ctx.core.run('badge.get', { file: 'guide/a.md' })) as BadgeFile).prompt).toBe(
+      'intro',
+    );
+    expect(((await ctx.core.run('badge.get', { file: 'guide/b.md' })) as BadgeFile).prompt).toBe(
+      'detail',
+    );
+    expect(
+      ((await ctx.core.run('badge.get', { file: 'guide/sub/c.md' })) as BadgeFile).prompt,
+    ).toBe('nested');
+    // …and nothing is stranded at the old path.
+    expect(await ctx.core.run('badge.get', { file: 'docs/a.md' })).toBeNull();
+    expect(await ctx.core.run('badge.get', { file: 'docs/sub/c.md' })).toBeNull();
+  });
+
+  it('folder rename re-points an intra-folder reference to the new child paths', async () => {
+    await ctx.core.run('badge.set', { file: 'docs', patch: { kind: 'folder' } });
+    await ctx.core.run('badge.set', { file: 'docs/a.md' });
+    await ctx.core.run('badge.set', { file: 'docs/b.md' });
+    await ctx.core.run('badge.addRef', { file: 'docs/a.md', to: 'docs/b.md', note: 'see' });
+
+    await ctx.core.run('badge.rename', { from: 'docs', to: 'guide', kind: 'folder' });
+
+    const a = (await ctx.core.run('badge.get', { file: 'guide/a.md' })) as BadgeFile;
+    expect(a.references).toEqual([{ to: 'guide/b.md', note: 'see' }]);
+    const inbound = (await ctx.core.run('inbound.get', { file: 'guide/b.md' })) as {
+      entries: { from: string }[];
+    };
+    expect(inbound.entries.map((e) => e.from)).toEqual(['guide/a.md']);
+  });
+
+  it('folder rename rewrites an OUTSIDE referrer of a child to the new child path', async () => {
+    await ctx.core.run('badge.set', { file: 'docs', patch: { kind: 'folder' } });
+    await ctx.core.run('badge.set', { file: 'docs/a.md' });
+    await ctx.core.run('badge.addRef', { file: 'outside.md', to: 'docs/a.md', note: 'ref' });
+
+    await ctx.core.run('badge.rename', { from: 'docs', to: 'guide', kind: 'folder' });
+
+    const outside = (await ctx.core.run('badge.get', { file: 'outside.md' })) as BadgeFile;
+    expect(outside.references).toEqual([{ to: 'guide/a.md', note: 'ref' }]);
+  });
 });
 
 describe('promptModifiedAt (freshness anchor)', () => {
@@ -629,6 +684,36 @@ describe('promptModifiedAt (freshness anchor)', () => {
       badge: BadgeFile;
     };
     expect(result.badge.promptModifiedAt).toBe(created.promptModifiedAt);
+  });
+});
+
+describe('badge.pruneDangling (graph liveness sweep)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('marks a badge whose file is gone as orphan, leaves a live one alone', async () => {
+    // gone.md has a badge but no file on disk; live.md has both.
+    ctx.files.set('/work/live.md', '# live');
+    await ctx.core.run('badge.set', { file: 'gone.md', patch: { prompt: 'was here' } });
+    await ctx.core.run('badge.set', { file: 'live.md', patch: { prompt: 'still here' } });
+
+    const res = (await ctx.core.run('badge.pruneDangling', {})) as { orphaned: string[] };
+    expect(res.orphaned).toEqual(['gone.md']);
+
+    const gone = (await ctx.core.run('badge.get', { file: 'gone.md' })) as BadgeFile;
+    const live = (await ctx.core.run('badge.get', { file: 'live.md' })) as BadgeFile;
+    expect(gone.orphan).toBe(true);
+    expect(gone.prompt).toBe('was here'); // note preserved — never deleted
+    expect(live.orphan).toBeUndefined();
+  });
+
+  it('is idempotent: a second sweep re-orphans nothing', async () => {
+    await ctx.core.run('badge.set', { file: 'gone.md' });
+    await ctx.core.run('badge.pruneDangling', {});
+    const res = (await ctx.core.run('badge.pruneDangling', {})) as { orphaned: string[] };
+    expect(res.orphaned).toEqual([]);
   });
 });
 
