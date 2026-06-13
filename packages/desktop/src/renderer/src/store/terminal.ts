@@ -36,6 +36,10 @@ interface TerminalState {
   /** Whether keyboard focus is inside the terminal dock — gates the Ghostty
    *  keymap and arbitrates ⌘W against the editor overlay. */
   focused: boolean;
+  /** Live terminal title per pane (the running program's OSC title, e.g.
+   *  "claude", "zsh", a cwd). A tab shows its focused pane's title — Ghostty's
+   *  tabs name the running program, not "Terminal N". */
+  titles: Record<string, string>;
 
   newTab: () => void;
   setActiveTab: (id: string) => void;
@@ -52,6 +56,7 @@ interface TerminalState {
   toggleZoom: () => void;
   setSplitFraction: (splitId: string, fraction: number) => void;
   setFocused: (focused: boolean) => void;
+  setTitle: (leafId: string, title: string) => void;
 }
 
 let seq = 0;
@@ -72,6 +77,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   activeTabId: initialTab.id,
   zoomedLeafId: null,
   focused: false,
+  titles: {},
 
   newTab: () => {
     const tab = freshTab();
@@ -196,6 +202,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     }),
 
   setFocused: (focused) => set({ focused }),
+
+  setTitle: (leafId, title) =>
+    set((s) => {
+      const next = title.trim();
+      if (!next || s.titles[leafId] === next) return s;
+      return { titles: { ...s.titles, [leafId]: next } };
+    }),
 }));
 
 // Local helper (the tree module exposes leaf finders; splits we look up here).

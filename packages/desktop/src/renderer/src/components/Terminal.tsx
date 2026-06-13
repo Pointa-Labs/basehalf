@@ -59,12 +59,21 @@ const THEME = {
 export const TerminalView = ({
   active,
   onRestart,
-}: { active: boolean; onRestart: () => void }): JSX.Element => {
+  onTitle,
+}: {
+  active: boolean;
+  onRestart: () => void;
+  onTitle?: (title: string) => void;
+}): JSX.Element => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const idRef = useRef<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  // Held in a ref so the mount-once effect always calls the latest callback
+  // without re-running (which would respawn the pty).
+  const onTitleRef = useRef(onTitle);
+  onTitleRef.current = onTitle;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -162,6 +171,9 @@ export const TerminalView = ({
     const resizeSub = term.onResize(({ cols, rows }) => {
       if (idRef.current) window.bh.terminal.resize(idRef.current, cols, rows);
     });
+    // The running program's OSC 0/2 title (e.g. "claude", "zsh", a cwd) — the
+    // dock names each tab by its focused pane's title, the way Ghostty does.
+    const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
 
     const ro = new ResizeObserver(() => {
       // Skip while hidden (display:none → 0×0): fit on a zero box throws and
@@ -183,6 +195,7 @@ export const TerminalView = ({
       offExit();
       inputSub.dispose();
       resizeSub.dispose();
+      titleSub.dispose();
       if (idRef.current) {
         window.bh.terminal.kill(idRef.current);
         idRef.current = null;
