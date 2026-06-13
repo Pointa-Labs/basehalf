@@ -158,6 +158,9 @@ const TermPaneArea = ({
             <div
               style={{
                 position: 'relative',
+                // display:flex so the child TerminalView's flex:1 actually fills
+                // this box — without it the terminal collapses to a 1-row sliver.
+                display: 'flex',
                 flex: 1,
                 minWidth: 0,
                 minHeight: 0,
