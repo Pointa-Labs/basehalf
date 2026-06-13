@@ -1,18 +1,8 @@
-const BADGE_TAB_PREFIX = 'badge://';
+// A panel tab is identified by its workspace-relative file path. (Badge tabs —
+// the old `badge://` prefix that opened a file's badge in the right panel — were
+// removed once the badge editor moved INTO the canvas card itself; the badge no
+// longer has a panel tab.)
 
-export type PanelTabKind = 'file' | 'badge';
-
-export const badgeTabId = (file: string): string => `${BADGE_TAB_PREFIX}${file}`;
-
-export const isBadgeTab = (tab: string): boolean => tab.startsWith(BADGE_TAB_PREFIX);
-
-export const panelTabKind = (tab: string): PanelTabKind => (isBadgeTab(tab) ? 'badge' : 'file');
-
-export const panelTabFile = (tab: string): string =>
-  isBadgeTab(tab) ? tab.slice(BADGE_TAB_PREFIX.length) : tab;
-
-export const renamePanelTab = (tab: string, fromPath: string, toPath: string): string => {
-  const file = panelTabFile(tab);
-  if (file !== fromPath) return tab;
-  return isBadgeTab(tab) ? badgeTabId(toPath) : toPath;
-};
+/** Remap a tab when its underlying file is renamed. No-op for other tabs. */
+export const renamePanelTab = (tab: string, fromPath: string, toPath: string): string =>
+  tab === fromPath ? toPath : tab;

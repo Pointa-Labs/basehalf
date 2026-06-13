@@ -10,10 +10,8 @@ import { color, font, radius, space, transition } from '../design.js';
 import { isImeComposing } from '../lib/imeGuard.js';
 import { regionFor } from '../lib/paneDrop.js';
 import type { LeafPane, PaneNode, SplitPane } from '../lib/paneTree.js';
-import { isBadgeTab, panelTabFile } from '../lib/panelTab.js';
 import { EDITOR_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { type DropRegion, useWorkspaceStore } from '../store/workspace.js';
-import { BadgePage } from './BadgePage.js';
 import { FilePreview } from './FilePreview.js';
 import { TAB_DND_TYPE, TabStrip } from './TabStrip.js';
 
@@ -201,11 +199,7 @@ const Pane = ({
       {hasTabs && <TabStrip pane={leaf} />}
       <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex' }}>
         {hasTabs && leaf.activeFile !== null ? (
-          isBadgeTab(leaf.activeFile) ? (
-            <BadgePage file={panelTabFile(leaf.activeFile)} paneId={leaf.id} />
-          ) : (
-            <FilePreview file={leaf.activeFile} paneId={leaf.id} isActive={isActive} />
-          )
+          <FilePreview file={leaf.activeFile} paneId={leaf.id} isActive={isActive} />
         ) : singlePane ? (
           // The big empty watermark is a PANEL-level state: shown only when the panel
           // is a single empty pane (mirrors a mature editor, where the watermark means

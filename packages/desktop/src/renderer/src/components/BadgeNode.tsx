@@ -17,6 +17,7 @@ import { fileUrl } from '../lib/fileUrl.js';
 import { docKeyFor } from '../lib/liveDoc.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { CardBadgeFace } from './CardBadgeFace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
 import { MdEditor } from './FilePreview.js';
 
@@ -127,13 +128,16 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const type = badgeType(d.label, isFolder);
   const canInlineEdit = !isFolder && !orphan && /\.(md|markdown)$/i.test(d.label);
   const inlinePaneId = `canvas-card:${d.label}`;
+  // The in-card badge face's flush key. Synthetic (not a real pane) — the hook
+  // registers a flusher under it AND flushes its debounced prompt edit on unmount,
+  // so an in-card edit persists even though the badge face has no editor pane.
+  const badgeFacePaneId = `canvas-badge:${d.label}`;
 
   const wsPath = useWorkspaceStore((s) => {
     const w = s.workspaces.find((ws) => ws.name === s.current);
     return w?.path ?? '';
   });
   const inlineDocKey = docKeyFor(wsPath, d.label);
-  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
   // Size-aware level-of-detail: a card shows less as it gets smaller ON SCREEN —
@@ -149,6 +153,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     return cardLodForHeight(h, s.transform[2]);
   });
   const [nodeHover, setNodeHover] = useState(false);
+  const [showBadgeFace, setShowBadgeFace] = useState(false);
   const [inlineEditing, setInlineEditing] = useState(false);
   const [inlineClosing, setInlineClosing] = useState(false);
   const [inlineError, setInlineError] = useState('');
@@ -160,8 +165,14 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // and folders have nothing to preview.
   const previewable = type === 'image' || type === 'text' || type === 'code';
   const showPreview = previewable && !orphan && !isFolder;
-  // Inline-editing always forces full detail — you can't edit a collapsed chip.
-  const lod = inlineEditing ? 'full' : sizeLod;
+  // Inline-editing AND the badge face always force full detail — you can't edit a
+  // collapsed chip.
+  const lod = inlineEditing || showBadgeFace ? 'full' : sizeLod;
+  // The badge face (in-card prompt + refs + inbound + focus) replaces the body
+  // when toggled on. Offered at full detail only (the mini chip has no room),
+  // never WHILE inline-editing the markdown (one card-flip surface at a time),
+  // and not for an orphan folder (a missing folder has no contents to annotate).
+  const canShowBadgeFace = lod === 'full' && !inlineEditing && !(isFolder && orphan);
   const usesMarkdownCardSurface = canInlineEdit && showPreview;
 
   // Orphan = file referenced but missing on disk. We want the badge to read
@@ -378,7 +389,10 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
               gap: space[2],
               alignItems: 'flex-start',
               padding: `${space[2]}px ${space[3]}px`,
-              borderBottom: showPreview || inlineEditing ? `1px solid ${color.border}` : 'none',
+              borderBottom:
+                showPreview || inlineEditing || (showBadgeFace && canShowBadgeFace)
+                  ? `1px solid ${color.border}`
+                  : 'none',
               minHeight: 42,
               flexShrink: 0,
             }}
@@ -444,18 +458,27 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     />
                   </button>
                 )}
-                {!isFolder && (
+                {/* Badge toggle: flips the card body between its content preview
+                    and the in-card badge face (prompt + refs + inbound + focus).
+                    Offered at full detail only (the mini chip has no room) — the
+                    badge UI no longer opens a separate panel tab. Works for both
+                    file and folder kinds; an orphan folder has no badge face. */}
+                {canShowBadgeFace && (
                   <button
                     type="button"
                     className="nodrag nopan"
                     title={
-                      d.prompt && (d.notedRefs ?? 0) > 0
-                        ? `Has a badge + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit it`
-                        : d.prompt
-                          ? 'Has a badge — edit it'
-                          : 'Edit File Badge'
+                      showBadgeFace
+                        ? 'Hide the badge — back to the preview'
+                        : d.prompt && (d.notedRefs ?? 0) > 0
+                          ? `Has a badge + ${d.notedRefs} explained connection${d.notedRefs === 1 ? '' : 's'} — edit it`
+                          : d.prompt
+                            ? 'Has a badge — edit it'
+                            : 'Edit Badge'
                     }
-                    aria-label={`Edit File Badge for ${d.label}`}
+                    aria-label={`${showBadgeFace ? 'Hide' : 'Show'} badge for ${d.label}`}
+                    aria-pressed={showBadgeFace}
+                    data-testid={`canvas-badge-toggle-${d.label}`}
                     onPointerDown={stopNodeGesture}
                     onMouseDown={stopNodeGesture}
                     onDoubleClick={stopNodeGesture}
@@ -463,9 +486,9 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                       e.preventDefault();
                       e.stopPropagation();
                       selectThisNode();
-                      openBadgeInPanel(d.label);
+                      setShowBadgeFace((v) => !v);
                     }}
-                    style={chromeButton(false, d.prompt !== undefined && d.prompt !== '')}
+                    style={chromeButton(showBadgeFace, d.prompt !== undefined && d.prompt !== '')}
                   >
                     {/* "Has a note" is signalled by the accent-toned glyph (kept
                     visible at rest via `lit`). A file whose connections ALSO
@@ -473,25 +496,30 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
                     from most — earns the small corner dot on top. */}
                     <FileGlyph
                       type="badge"
-                      tone={d.prompt ? color.accent : color.textTertiary}
+                      tone={
+                        showBadgeFace ? color.accent : d.prompt ? color.accent : color.textTertiary
+                      }
                       size={15}
                     />
-                    {d.prompt !== undefined && d.prompt !== '' && (d.notedRefs ?? 0) > 0 && (
-                      <span
-                        aria-hidden
-                        data-testid={`badge-coverage-dot-${d.label}`}
-                        style={{
-                          position: 'absolute',
-                          top: -2,
-                          right: -2,
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          background: color.accent,
-                          border: `1.5px solid ${baseBg}`,
-                        }}
-                      />
-                    )}
+                    {!showBadgeFace &&
+                      d.prompt !== undefined &&
+                      d.prompt !== '' &&
+                      (d.notedRefs ?? 0) > 0 && (
+                        <span
+                          aria-hidden
+                          data-testid={`badge-coverage-dot-${d.label}`}
+                          style={{
+                            position: 'absolute',
+                            top: -2,
+                            right: -2,
+                            width: 7,
+                            height: 7,
+                            borderRadius: '50%',
+                            background: color.accent,
+                            border: `1.5px solid ${baseBg}`,
+                          }}
+                        />
+                      )}
                   </button>
                 )}
                 {orphan && <KindChip label="MISSING" tone="danger" />}
@@ -520,7 +548,13 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
           on the canvas mounts its own ProseMirror editor (e.g. ~48 at once inside
           a decisions/ folder), janking the whole canvas. At rest, markdown falls
           through to the cheap BadgePreview excerpt below (it is type 'text'). */}
-        {lod === 'mini' ? null : usesMarkdownCardSurface && inlineEditing ? (
+        {lod === 'mini' ? null : showBadgeFace && canShowBadgeFace ? (
+          <CardBadgeFace
+            file={d.label}
+            kind={isFolder ? 'folder' : 'file'}
+            paneId={badgeFacePaneId}
+          />
+        ) : usesMarkdownCardSurface && inlineEditing ? (
           <div
             className="nodrag nopan nowheel"
             data-testid={`canvas-inline-editor-${d.label}`}

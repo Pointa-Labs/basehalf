@@ -26,7 +26,7 @@ import {
   splitLeaf,
   updateLeaf,
 } from '../lib/paneTree.js';
-import { badgeTabId, isBadgeTab, renamePanelTab } from '../lib/panelTab.js';
+import { renamePanelTab } from '../lib/panelTab.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
 
 /** Where a dragged tab lands on a pane: the center (move in as a tab) or one of
@@ -101,8 +101,6 @@ interface WorkspaceState {
     file: string,
     opts?: { pinned?: boolean; matchQuery?: string | null; paneId?: string },
   ) => void;
-  /** Open this file's BaseHalf-defined File Badge page as a right-panel tab. */
-  openBadgeInPanel: (file: string, opts?: { paneId?: string }) => void;
   /** Promote a pane's preview tab to a permanent (pinned) tab. */
   pinTab: (paneId: string, file: string) => void;
   /** Drop the currently-dragged tab (store.tabDrag) onto a pane's TAB STRIP at
@@ -266,7 +264,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           openMatchQuery: opts.matchQuery ?? null,
         };
       });
-      if (current !== null && !isBadgeTab(tab)) noteOpenedFile(current, tab);
+      if (current !== null) noteOpenedFile(current, tab);
     };
     // Flush the target pane's editor/page (still mounted/alive) BEFORE switching
     // its active tab — last keystrokes persist. A `false` resolution = an
@@ -625,9 +623,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
 
     openInPanel: (file, opts = {}) => openPanelTab(file, opts),
 
-    openBadgeInPanel: (file, opts = {}) =>
-      openPanelTab(badgeTabId(file), { paneId: opts.paneId, pinned: true }),
-
     pinTab: (paneId, file) =>
       set((s) => ({ paneTree: updateLeaf(s.paneTree, paneId, (l) => pinInLeaf(l, file)) })),
 
@@ -733,7 +728,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           rightPanelOpen: true,
         }));
         const cur = get().current;
-        if (cur !== null && !isBadgeTab(file)) noteOpenedFile(cur, file);
+        if (cur !== null) noteOpenedFile(cur, file);
       };
       // Restructuring the tree unmounts + remounts the source pane's editor, which
       // cancels its debounced autosave — flush it first or its last edits are

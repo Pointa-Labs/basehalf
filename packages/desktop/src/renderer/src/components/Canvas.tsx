@@ -220,7 +220,6 @@ export const Canvas = (): JSX.Element => {
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  const openBadgeInPanel = useWorkspaceStore((s) => s.openBadgeInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   const setCanvasDockDrag = useWorkspaceStore((s) => s.setCanvasDockDrag);
   const dockBadge = useWorkspaceStore((s) => s.dockBadge);
@@ -1403,13 +1402,19 @@ export const Canvas = (): JSX.Element => {
               <Button
                 variant="primary"
                 onClick={() => {
-                  // Root has direct files → open the first one's badge panel.
-                  // Folder-only root (files all nested) → step INTO the first
-                  // folder; the editor strip and folder chrome take it from
-                  // there.
+                  // Root has direct files → SELECT the first one's card so the
+                  // user spots its badge toggle (the badge now lives in the card,
+                  // not a panel). Folder-only root (files all nested) → step INTO
+                  // the first folder; its chrome takes it from there.
                   const firstFile = nodes.find((n) => n.data.kind === 'file');
                   if (firstFile) {
-                    openBadgeInPanel(firstFile.id);
+                    setNodes((ns) =>
+                      ns.map((n) => {
+                        const sel = n.id === firstFile.id;
+                        return n.selected === sel ? n : { ...n, selected: sel };
+                      }),
+                    );
+                    setCanvasSelection({ kind: 'file', files: [firstFile.id], source: 'canvas' });
                     return;
                   }
                   const firstFolder = nodes.find((n) => n.data.kind === 'folder');

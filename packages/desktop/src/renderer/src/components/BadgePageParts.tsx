@@ -1,9 +1,9 @@
 import { type JSX, type ReactNode, useEffect, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { Button } from './primitives/Button.js';
 
-// Presentational atoms for the File Badge panel (BadgePage). No data/IO — pure
-// render + local input state. Kept here so BadgePage reads as layout.
+// Presentational atoms for the badge editor (now the in-card badge face,
+// CardBadgeFace). No data/IO — pure render + local input state. Kept here so the
+// badge face reads as layout.
 
 export const sectionStyle = {
   padding: `${space[4]}px ${space[5]}px`,
@@ -88,14 +88,12 @@ export const ReferenceRow = ({
   to,
   note,
   onOpen,
-  onOpenBadge,
   onRemove,
   onNoteCommit,
 }: {
   to: string;
   note: string;
   onOpen: () => void;
-  onOpenBadge: () => void;
   onRemove: () => void;
   onNoteCommit: (note: string) => void;
 }): JSX.Element => {
@@ -128,9 +126,6 @@ export const ReferenceRow = ({
         placeholder="note"
         style={noteInputStyle}
       />
-      <Button variant="ghost" size="sm" onClick={onOpenBadge}>
-        Badge
-      </Button>
       <button
         type="button"
         onClick={onRemove}
@@ -149,11 +144,9 @@ export const ReferenceRow = ({
 export const InboundRow = ({
   entry,
   onOpen,
-  onOpenBadge,
 }: {
   entry: { from: string; note?: string };
   onOpen: () => void;
-  onOpenBadge: () => void;
 }): JSX.Element => (
   <li data-testid="file-badge-inbound-row" style={inboundRowStyle}>
     <span aria-hidden style={arrowStyle}>
@@ -178,9 +171,6 @@ export const InboundRow = ({
         {entry.note}
       </span>
     )}
-    <Button variant="ghost" size="sm" onClick={onOpenBadge}>
-      Badge
-    </Button>
   </li>
 );
 
