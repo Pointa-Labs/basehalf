@@ -22,7 +22,16 @@
   --bh-card-h2-size: 13px;
   --bh-card-h3-size: 12px;
   --bh-card-h4-size: 11px;
+  /* Block rhythm shared by BOTH card render paths — the live BlockNote editor
+     (.bh-card-editor) AND the static resting preview (.bh-md-preview). They
+     are different DOM (ProseMirror blocks vs. lossy semantic HTML), so the
+     ONLY way they stay visually identical is to read every spacing value from
+     the same token. Block padding is symmetric (top+bottom), so the gap
+     between two adjacent blocks is 2× this. */
   --bh-card-block-pad-y: 1.5px;
+  /* Extra breathing room ABOVE a heading, so a section break reads as one in
+     both the editor and the preview. */
+  --bh-card-heading-pad-top: 6px;
 }
 
 html,
@@ -284,15 +293,24 @@ header::-webkit-scrollbar {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.bh-md-preview > :first-child {
-  margin-top: 0;
-}
+/* Block rhythm MUST match the live editor's (.bh-card-editor .bn-block-content,
+   padding: var(--bh-card-block-pad-y) 0). The editor spaces blocks with
+   symmetric vertical PADDING, not bottom margin — so the preview does too, off
+   the same token. Using margin here (the old `margin-bottom: font-size`) made a
+   resting .md tile noticeably looser than the same note under the cursor. */
 .bh-md-preview p,
 .bh-md-preview ul,
 .bh-md-preview ol,
 .bh-md-preview pre,
 .bh-md-preview blockquote {
-  margin: 0 0 var(--bh-card-font-size) 0;
+  margin: 0;
+  padding: var(--bh-card-block-pad-y) 0;
+}
+/* First/last block sit flush to the card edge (mirrors the editor's
+   first-block padding-top:0 and keeps the fade mask doing the bottom). */
+.bh-md-preview > :first-child {
+  margin-top: 0;
+  padding-top: 0;
 }
 .bh-md-preview h1,
 .bh-md-preview h2,
@@ -303,7 +321,9 @@ header::-webkit-scrollbar {
   color: var(--bh-card-strong-text);
   font-weight: var(--bh-card-heading-weight);
   line-height: var(--bh-card-heading-line-height);
-  margin: 0 0 4px 0;
+  /* Same section-break rhythm as the editor's headings. */
+  margin: 0;
+  padding: var(--bh-card-heading-pad-top) 0 var(--bh-card-block-pad-y) 0;
 }
 .bh-md-preview h1 {
   font-size: var(--bh-card-h1-size);
@@ -329,13 +349,21 @@ header::-webkit-scrollbar {
 }
 .bh-md-preview ul,
 .bh-md-preview ol {
-  padding-left: 1.3em;
+  /* The list ITEMS carry the block rhythm (below); the container itself adds
+     only the indent, so a list's top/bottom gap equals the inter-paragraph
+     gap — same as the editor, where list items are just more blocks. */
+  padding: 0 0 0 1.3em;
 }
 .bh-md-preview li {
-  margin: 1px 0;
+  /* List items carry the block rhythm too (editor: every .bn-block-content,
+     list items included, is padded by the same token). */
+  margin: 0;
+  padding: var(--bh-card-block-pad-y) 0;
 }
 .bh-md-preview li > p {
+  /* The <li> already owns the block padding; a nested <p> must not double it. */
   margin: 0;
+  padding: 0;
 }
 .bh-md-preview code {
   font-family: var(--bh-card-mono-font);
@@ -404,7 +432,7 @@ header::-webkit-scrollbar {
 }
 
 .bh-card-editor [data-content-type="heading"] {
-  padding-top: 6px;
+  padding-top: var(--bh-card-heading-pad-top);
   color: var(--bh-card-strong-text);
   font-family: var(--bh-card-font);
   line-height: var(--bh-card-heading-line-height);
