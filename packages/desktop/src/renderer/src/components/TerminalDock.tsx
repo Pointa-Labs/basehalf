@@ -27,6 +27,7 @@ export const TerminalDock = (): JSX.Element => {
   const newTab = useTerminalStore((s) => s.newTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const setFocused = useTerminalStore((s) => s.setFocused);
+  const titles = useTerminalStore((s) => s.titles);
 
   // Folding the workspace name into each pane's React key re-roots every shell
   // when the workspace switches (main resolves cwd from workspace.current at
@@ -73,6 +74,7 @@ export const TerminalDock = (): JSX.Element => {
       <TermTabBar
         tabs={tabs}
         activeTabId={activeTabId}
+        titles={titles}
         onSelect={setActiveTab}
         onClose={closeTab}
         onAdd={newTab}
@@ -119,6 +121,7 @@ const TermPaneArea = ({
 }): JSX.Element => {
   const zoomedLeafId = useTerminalStore((s) => s.zoomedLeafId);
   const focusLeaf = useTerminalStore((s) => s.focusLeaf);
+  const setTitle = useTerminalStore((s) => s.setTitle);
   const areaRef = useRef<HTMLDivElement | null>(null);
   const zoomed = isActiveTab ? zoomedLeafId : null;
 
@@ -178,6 +181,7 @@ const TermPaneArea = ({
                 key={`${leafId}:${workspaceKey ?? 'none'}:${gens[leafId] ?? 0}`}
                 active={isFocused}
                 onRestart={() => onRestart(leafId)}
+                onTitle={(t) => setTitle(leafId, t)}
               />
             </div>
           </div>
@@ -271,102 +275,157 @@ const PaneDivider = ({
 };
 
 // ── Tab strip ────────────────────────────────────────────────────────────────
+// Modelled on Ghostty's tab bar (window-show-tab-bar = auto):
+//   • Hidden entirely with a single tab — one terminal needs no strip (⌘T still
+//     makes a new one). It appears only once there are 2+.
+//   • WIDE tabs: each fills an equal share of the strip (gtk-wide-tabs = true),
+//     rectangular, no rounded "browser tab" tops.
+//   • Active vs inactive is conveyed by ELEVATION, not a top accent line — the
+//     active tab sits at the terminal background (raised, bright text); inactive
+//     tabs recede to the darker chrome tone with dimmed text.
+//   • The close ✕ is revealed on hover or for the active tab, not always-on.
+//   • Each tab is named by its focused pane's live title (the running program),
+//     falling back to "Terminal".
+const TAB_BAR_HEIGHT = 32;
+
 const TermTabBar = ({
   tabs,
   activeTabId,
+  titles,
   onSelect,
   onClose,
   onAdd,
 }: {
-  tabs: { id: string }[];
+  tabs: { id: string; focusedLeafId: string }[];
   activeTabId: string;
+  titles: Record<string, string>;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onAdd: () => void;
-}): JSX.Element => {
-  const multiple = tabs.length > 1;
+}): JSX.Element | null => {
+  // Ghostty's `auto`: no strip while there's a single terminal.
+  if (tabs.length <= 1) return null;
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'stretch',
-        height: 34,
+        height: TAB_BAR_HEIGHT,
         flexShrink: 0,
         background: TERMINAL_CHROME_BG,
         borderBottom: `1px solid ${color.border}`,
-        paddingLeft: space[1],
-        gap: 2,
         overflow: 'hidden',
       }}
     >
-      {tabs.map((t, i) => {
-        const isActive = t.id === activeTabId;
-        return (
-          <div
-            key={t.id}
-            onMouseDown={() => onSelect(t.id)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: space[1],
-              padding: `0 ${space[2]}px`,
-              maxWidth: 160,
-              cursor: 'default',
-              userSelect: 'none',
-              fontFamily: font.sans,
-              fontSize: font.size.caption,
-              color: isActive ? '#ffffff' : color.textTertiary,
-              background: isActive ? TERMINAL_BG : 'transparent',
-              borderTop: `2px solid ${isActive ? color.accent : 'transparent'}`,
-              transition: transition(['color', 'background']),
-            }}
-          >
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              Terminal{multiple ? ` ${i + 1}` : ''}
-            </span>
-            {multiple && (
-              <button
-                type="button"
-                title="Close tab"
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  onClose(t.id);
-                }}
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  color: 'inherit',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  lineHeight: 1,
-                  padding: 0,
-                  width: 16,
-                  height: 16,
-                  borderRadius: radius.sm,
-                  opacity: 0.7,
-                }}
-              >
-                ×
-              </button>
-            )}
-          </div>
-        );
-      })}
+      {tabs.map((t, i) => (
+        <TermTab
+          key={t.id}
+          title={titles[t.focusedLeafId] ?? 'Terminal'}
+          active={t.id === activeTabId}
+          first={i === 0}
+          onSelect={() => onSelect(t.id)}
+          onClose={() => onClose(t.id)}
+        />
+      ))}
       <button
         type="button"
         title="New terminal tab (⌘T)"
+        aria-label="New terminal tab"
         onClick={onAdd}
         style={{
+          flexShrink: 0,
+          width: TAB_BAR_HEIGHT,
           border: 'none',
           background: 'transparent',
           color: color.textTertiary,
           cursor: 'pointer',
-          fontSize: 16,
+          fontSize: 17,
           lineHeight: 1,
-          padding: `0 ${space[2]}px`,
         }}
       >
         +
+      </button>
+    </div>
+  );
+};
+
+const TermTab = ({
+  title,
+  active,
+  first,
+  onSelect,
+  onClose,
+}: {
+  title: string;
+  active: boolean;
+  first: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}): JSX.Element => {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseDown={onSelect}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        position: 'relative',
+        // Equal share of the strip — Ghostty's wide tabs.
+        flex: 1,
+        minWidth: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: space[1],
+        padding: `0 ${space[2]}px`,
+        cursor: 'default',
+        userSelect: 'none',
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+        color: active ? '#ffffff' : color.textTertiary,
+        // Elevation cue: active rises to the terminal surface; inactive recedes.
+        background: active ? TERMINAL_BG : 'transparent',
+        // A hairline divider before each tab but the first, so adjacent inactive
+        // tabs read as distinct without a heavy border.
+        boxShadow: first || active ? 'none' : `inset 1px 0 0 ${color.border}`,
+        transition: transition(['color', 'background']),
+      }}
+    >
+      <span
+        style={{
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {title}
+      </span>
+      <button
+        type="button"
+        title="Close tab"
+        aria-label="Close tab"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        style={{
+          flexShrink: 0,
+          border: 'none',
+          background: 'transparent',
+          color: 'inherit',
+          cursor: 'pointer',
+          fontSize: 13,
+          lineHeight: 1,
+          padding: 0,
+          width: 16,
+          height: 16,
+          borderRadius: radius.sm,
+          // Revealed on hover or for the active tab (Ghostty/macOS behaviour).
+          opacity: hover || active ? 0.75 : 0,
+          transition: transition(['opacity']),
+        }}
+      >
+        ×
       </button>
     </div>
   );
