@@ -118,6 +118,41 @@ export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<rea
   return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
+/**
+ * A CHEAP signature of the badge store — file count + newest mtime — without
+ * parsing any JSON. Lets a UI poll detect that an EXTERNAL writer (the `bh` CLI,
+ * an agent) touched `.bh/badges/` (which the watcher ignores) and reload only
+ * then, instead of re-walking + re-parsing every badge every poll. A content
+ * edit bumps a file's mtime; an add/remove changes the count — both move the
+ * signature. Robust to a hostile/symlinked badges dir (returns the zero
+ * signature), same as listBadges.
+ */
+export async function badgesRevision(
+  fs: FsLike,
+  workspaceRoot: string,
+): Promise<{ count: number; maxMtimeMs: number }> {
+  const badgesDir = join(workspaceRoot, BADGES_DIR);
+  let realRoot: string;
+  let realBadgesDir: string;
+  try {
+    realRoot = await canonicalize(fs, workspaceRoot);
+    realBadgesDir = await canonicalize(fs, badgesDir);
+  } catch {
+    return { count: 0, maxMtimeMs: 0 };
+  }
+  if (!isContained(realRoot, realBadgesDir)) return { count: 0, maxMtimeMs: 0 };
+  let count = 0;
+  let maxMtimeMs = 0;
+  const visited = new Set<string>();
+  await walk(fs, realRoot, badgesDir, realBadgesDir, visited, async (absPath) => {
+    if (!absPath.endsWith('.json')) return;
+    count++;
+    const st = await fs.stat(absPath);
+    if (st?.mtimeMs !== undefined && st.mtimeMs > maxMtimeMs) maxMtimeMs = st.mtimeMs;
+  });
+  return { count, maxMtimeMs };
+}
+
 async function walk(
   fs: FsLike,
   realRoot: string,

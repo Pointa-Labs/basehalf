@@ -47,6 +47,7 @@ import {
   snapFlowNodeChanges,
 } from '../lib/canvasFlowSnap.js';
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
+import { focusMutations } from '../lib/focusMutations.js';
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { regionFor } from '../lib/paneDrop.js';
 import { useLayoutStore } from '../store/layout.js';
@@ -279,10 +280,23 @@ export const Canvas = (): JSX.Element => {
   // Clear) still own single-file and override flows.
   // Debounce timer for that mirror (see mirrorSelectionToFocus).
   const focusMirrorTimer = useRef<number | null>(null);
+  // The focus the user had curated BEFORE a multi-select mirror overwrote it.
+  // Captured on the first mirror of a "session" and restored when the selection
+  // drops below 2 — so a navigation-grade gesture (shift-selecting cards to move
+  // them) no longer silently, permanently replaces an explicit Agent Context.
+  // null = no mirror session active. Cleared by any EXPLICIT focus change
+  // (Clear / folder / panel toggle), which the user owns and deselect must not undo.
+  const mirrorPrevFocus = useRef<readonly string[] | null>(null);
+  // Live mirror of focusActive for the selection callback (avoids a stale closure).
+  const focusActiveRef = useRef<readonly string[]>([]);
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    focusActiveRef.current = focusActive;
+  }, [focusActive]);
 
   // Read focus state only (cheap: one file). Updates the agent-context chip
   // without re-walking every badge — folder navigation never needs this.
@@ -411,6 +425,11 @@ export const Canvas = (): JSX.Element => {
   // reflects an agent reading the brief between refreshes.
   useEffect(() => {
     if (!current || !currentReachable) return;
+    // Remember the badge-store signature so we reload the canvas only when an
+    // EXTERNAL writer (the `bh` CLI, an agent) touched .bh/badges/ — which the
+    // watcher ignores. Re-walking every badge each poll would be needless churn;
+    // the cheap stat-only revision gates it.
+    let lastBadgeRev = '';
     const id = window.setInterval(() => {
       void (async () => {
         try {
@@ -420,13 +439,24 @@ export const Canvas = (): JSX.Element => {
           };
           setFocusActive(r.active);
           setBriefServedAt(r.lastBriefServedAt);
+          const rev = (await window.bh.run('badge.revision', {})) as {
+            count: number;
+            maxMtimeMs: number;
+          };
+          const sig = `${rev.count}:${rev.maxMtimeMs}`;
+          if (lastBadgeRev === '') {
+            lastBadgeRev = sig; // first read establishes the baseline; no reload
+          } else if (sig !== lastBadgeRev) {
+            lastBadgeRev = sig;
+            void loadData(); // an out-of-app badge edit landed — refresh the canvas
+          }
         } catch {
           /* transient — keep the last known values */
         }
       })();
     }, 5000);
     return () => window.clearInterval(id);
-  }, [current, currentReachable]);
+  }, [current, currentReachable, loadData]);
 
   // Live-update the canvas when files are added / removed / renamed on disk
   // (the file manager, the `bh` CLI, an AI agent writing a file). Without
@@ -853,7 +883,10 @@ export const Canvas = (): JSX.Element => {
   const clearFocus = useCallback(() => {
     void (async () => {
       try {
-        await window.bh.run('focus.clear', {});
+        // Explicit user action — end any mirror session so a later deselect
+        // doesn't restore a focus the user just deliberately cleared.
+        mirrorPrevFocus.current = null;
+        await focusMutations.clear('canvas'); // emit → open badge panels refresh
         setFocusActive([]);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -939,11 +972,17 @@ export const Canvas = (): JSX.Element => {
   // single-file and override flows. focus.set({files}) is files-sourced, so it
   // carries no folder provenance and the user's chat message supplies the intent.
   const mirrorSelectionToFocus = useCallback((files: readonly string[]) => {
+    // Capture the user's curated focus the FIRST time a mirror overwrites it this
+    // session, so dropping the selection can restore it (decision: keep the
+    // selection-as-deixis convenience, lose the silent permanent overwrite).
+    if (mirrorPrevFocus.current === null) {
+      mirrorPrevFocus.current = [...focusActiveRef.current];
+    }
     if (focusMirrorTimer.current !== null) window.clearTimeout(focusMirrorTimer.current);
     focusMirrorTimer.current = window.setTimeout(() => {
       void (async () => {
         try {
-          await window.bh.run('focus.set', { files });
+          await focusMutations.setFiles(files, 'canvas'); // emit → panels refresh
           setFocusActive(files); // chip reflects the new agent context immediately
           // focus.set cleared the on-disk served receipt (the new brief was never
           // served); drop the local stamp too so the chip doesn't show the new
@@ -956,6 +995,24 @@ export const Canvas = (): JSX.Element => {
     }, FOCUS_MIRROR_DEBOUNCE);
   }, []);
 
+  // Restore the pre-mirror focus when a mirror session ends (selection dropped
+  // below the 2-file mirror threshold). Routed through focusMutations so open
+  // panels re-sync too. No-op when no session is active.
+  const endMirrorSession = useCallback(() => {
+    const prev = mirrorPrevFocus.current;
+    if (prev === null) return;
+    mirrorPrevFocus.current = null;
+    void (async () => {
+      try {
+        await focusMutations.setFiles(prev, 'canvas');
+        setFocusActive(prev);
+        setBriefServedAt(undefined);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, []);
+
   const onSelectionChange = useCallback<OnSelectionChangeFunc<Node<BadgeNodeData>, Edge>>(
     ({ nodes: selectedNodes }) => {
       // Any selection change cancels a pending mirror; only a >=2 set below
@@ -966,13 +1023,16 @@ export const Canvas = (): JSX.Element => {
         window.clearTimeout(focusMirrorTimer.current);
         focusMirrorTimer.current = null;
       }
+      const files = selectedNodes
+        .filter((node) => (node.data as unknown as BadgeNodeData).kind !== 'folder')
+        .map((node) => node.id);
+      // Selection dropped below the 2-file mirror threshold → end the session and
+      // restore the focus the mirror overwrote (deselect / narrow to one card).
+      if (files.length < 2) endMirrorSession();
       if (selectedNodes.length === 0) {
         setCanvasSelection(null);
         return;
       }
-      const files = selectedNodes
-        .filter((node) => (node.data as unknown as BadgeNodeData).kind !== 'folder')
-        .map((node) => node.id);
       if (files.length > 0) {
         setCanvasSelection({ kind: 'file', files, source: 'canvas' });
         // Phase 0 (selection-as-deixis): >=2 selected files is an intentional
@@ -985,7 +1045,7 @@ export const Canvas = (): JSX.Element => {
       const folder = selectedNodes[0]?.id;
       setCanvasSelection(folder ? { kind: 'folder', folder, source: 'canvas' } : null);
     },
-    [setCanvasSelection, mirrorSelectionToFocus],
+    [setCanvasSelection, mirrorSelectionToFocus, endMirrorSession],
   );
 
   if (!current || currentReachable === false) {
@@ -1023,7 +1083,8 @@ export const Canvas = (): JSX.Element => {
   const handleFocusFolder = async (): Promise<void> => {
     if (!folderScope) return;
     try {
-      await window.bh.run('focus.set', { folder: folderScope });
+      mirrorPrevFocus.current = null; // explicit action — no deselect restore after
+      await focusMutations.setFolder(folderScope, 'canvas'); // emit → panels refresh
       void reloadFocus(); // re-read focus → agent-context chip
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1210,24 +1271,26 @@ export const Canvas = (): JSX.Element => {
                 whiteSpace: 'nowrap',
               }}
             >
+              Agent Context ·{' '}
               <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
                 {focusedCount}
               </strong>{' '}
-              Agent Context · {focusedCount} {focusedCount === 1 ? 'file' : 'files'} ·{' '}
+              {focusedCount === 1 ? 'file' : 'files'} ·{' '}
               <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
               {briefServedAt === undefined && (
                 // No served receipt for the CURRENT brief = it changed since it
-                // was last copied / read (or was never handed off). Clears the
-                // moment a copy or an agent pull stamps the receipt. "not sent"
-                // (vs the old "served Ns ago" ticker) names the missing ACTION,
-                // not a fake precision.
+                // was last delivered through a channel bh can OBSERVE (Copy brief,
+                // or a shell agent's `bh focus brief`). A raw in-repo file read is
+                // invisible by design (D14), so this never claims the agent didn't
+                // read it — only that no observable delivery is on record since the
+                // last change. Honest wording, not "you forgot to send".
                 <span
                   data-testid="focus-chip-updated"
-                  title="This brief hasn't been handed to your agent since it last changed — Copy brief sends the update"
+                  title="Changed since the last delivery bh can see (Copy brief, or a shell agent running `bh focus brief`). An in-repo agent that reads the file directly is invisible here."
                   style={{ color: color.warning, whiteSpace: 'nowrap' }}
                 >
                   {' '}
-                  · not sent
+                  · not yet delivered
                 </span>
               )}
             </span>

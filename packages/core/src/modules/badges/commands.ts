@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
 import type { InboundGetResult } from '../inbound/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
-import { listBadges, readBadge, removeBadge, writeBadge } from './store.js';
+import { badgesRevision, listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
   BadgeAddRefArgs,
   BadgeDeleteArgs,
@@ -22,6 +22,8 @@ import type {
   BadgeRemoveRefArgs,
   BadgeRenameArgs,
   BadgeRenameResult,
+  BadgeRevisionArgs,
+  BadgeRevisionResult,
   BadgeSetArgs,
   BadgeSetResult,
 } from './types.js';
@@ -423,6 +425,12 @@ async function badgeTargetExists(
  * lets the canvas show MISSING), so the deep graph stays as live as the brief.
  * Already-orphan badges are skipped (no churn). Best-effort per badge.
  */
+/** Cheap badge-store signature (count + newest mtime) for an external-edit poll. */
+export const revision: Handler<BadgeRevisionArgs, BadgeRevisionResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return badgesRevision(ctx.fs, root);
+};
+
 export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingResult> = async (
   _args,
   ctx,
@@ -657,6 +665,7 @@ export function commands(): ReadonlyArray<
     ['badge.reconnectRef', reconnectRef as unknown as Handler<never, unknown>],
     ['badge.markOrphan', markOrphan as unknown as Handler<never, unknown>],
     ['badge.pruneDangling', pruneDangling as unknown as Handler<never, unknown>],
+    ['badge.revision', revision as unknown as Handler<never, unknown>],
     ['badge.rename', rename as unknown as Handler<never, unknown>],
   ];
 }

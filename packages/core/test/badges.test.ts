@@ -717,6 +717,29 @@ describe('badge.pruneDangling (graph liveness sweep)', () => {
   });
 });
 
+describe('badge.revision (cheap external-edit signature)', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('count grows as badges are added; an edit moves the signature', async () => {
+    const empty = (await ctx.core.run('badge.revision', {})) as {
+      count: number;
+      maxMtimeMs: number;
+    };
+    expect(empty.count).toBe(0);
+
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'v1' } });
+    const one = (await ctx.core.run('badge.revision', {})) as { count: number };
+    expect(one.count).toBe(1);
+
+    await ctx.core.run('badge.set', { file: 'b.md' });
+    const two = (await ctx.core.run('badge.revision', {})) as { count: number };
+    expect(two.count).toBe(2);
+  });
+});
+
 describe('badge.set concurrency (keyed mutex)', () => {
   let ctx: TestContext;
   beforeEach(async () => {

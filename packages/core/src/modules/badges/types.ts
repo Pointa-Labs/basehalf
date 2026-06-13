@@ -144,6 +144,18 @@ export interface BadgeRenameResult {
   readonly focusUpdated: boolean;
 }
 
+export interface BadgeRevisionArgs {
+  readonly _?: never;
+}
+export interface BadgeRevisionResult {
+  /** Number of badge JSON files. */
+  readonly count: number;
+  /** Newest badge mtime (epoch ms); 0 when there are none. Together with count,
+   *  a cheap signature a UI poll compares to detect external `.bh/badges/` edits
+   *  (the `bh` CLI / an agent) without re-parsing every badge. */
+  readonly maxMtimeMs: number;
+}
+
 export interface BadgePruneDanglingArgs {
   // No args — sweeps the whole current workspace.
   readonly _?: never;
