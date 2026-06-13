@@ -147,6 +147,41 @@ describe('watcher module', { retry: 2 }, () => {
     expect(badge?.references).toEqual([{ to: 'other.md' }]);
   });
 
+  it('a buffered unlink does NOT orphan the SAME-named file after a workspace switch', async () => {
+    // The cross-workspace race: delete a file in A, switch to B (whose same
+    // relative path has a live badge) within the buffer window. The buffered
+    // unlink's finalize must NOT mark B's live file orphan.
+    const wsB = await mkdtemp(join(tmpdir(), 'bh-watcher-wsB-'));
+    try {
+      // A has shared.md (annotated); B has its own shared.md (annotated, live).
+      await writeFile(join(workspaceRoot, 'shared.md'), 'A');
+      await core.run('workspace.use', { name: 'w' });
+      await core.run('badge.set', { file: 'shared.md', patch: { prompt: 'A note' } });
+      await core.run('workspace.add', { path: wsB, name: 'b' });
+      await writeFile(join(wsB, 'shared.md'), 'B');
+      await core.run('workspace.use', { name: 'b' });
+      await core.run('badge.set', { file: 'shared.md', patch: { prompt: 'B note' } });
+
+      // Watch A, delete A/shared.md, then immediately switch to B + watch it.
+      await core.run('workspace.use', { name: 'w' });
+      await core.run('watcher.start', {});
+      await unlink(join(workspaceRoot, 'shared.md'));
+      await core.run('workspace.use', { name: 'b' }); // current → B
+      await core.run('watcher.start', {}); // flushes A's buffers under the B context
+
+      // Give any straggler finalize time to (not) misfire, then assert B is clean.
+      const bBadge = (await waitFor(
+        () => core.run('badge.get', { file: 'shared.md' }),
+        () => false, // never "done" — poll for the full window, return last value
+        500,
+      )) as BadgeFile | null;
+      expect(bBadge?.orphan).toBeUndefined();
+      expect(bBadge?.prompt).toBe('B note');
+    } finally {
+      await rm(wsB, { recursive: true, force: true });
+    }
+  });
+
   it('ignores .bh/ writes (would otherwise infinite-loop on our own badge writes)', async () => {
     await core.run('watcher.start', {});
     // Trigger a badge.set ourselves — chokidar should NOT re-fire since .bh

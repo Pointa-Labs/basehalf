@@ -208,6 +208,28 @@ async function emitRename(
  * Buffering both directions handles macOS FSEvents delivering events
  * out of order or with variable latency.
  */
+/**
+ * Skip a buffered finalize whose workspace the user switched away from. The
+ * unlink/add cascades (markOrphan / pruneDangling / focus.reconcileNewFile)
+ * resolve `workspace.current` internally; if a delete arrives in workspace A and
+ * the user switches to B within the 600ms buffer window, running the finalize
+ * would apply A's relative path against B's root — falsely flagging B's
+ * same-named file MISSING (and dropping it from B's brief) with no auto-heal.
+ * Guard: only proceed when the workspace this event belongs to is STILL current.
+ * The workspace it belonged to self-heals on its next open via pruneDangling.
+ */
+async function stillCurrent(ctx: Parameters<Handler>[1], eventRoot: string): Promise<boolean> {
+  try {
+    const cur = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
+      'workspace.current',
+      {},
+    );
+    return cur.current?.path === eventRoot;
+  } catch {
+    return false;
+  }
+}
+
 async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Promise<void> {
   if (event.type === 'rename') {
     // Synthetic events never come back through here — they're only
@@ -215,6 +237,9 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
     watcherEvents.emit('event', event);
     return;
   }
+  // The workspace this event belongs to — captured NOW so a finalize that fires
+  // after a workspace switch can refuse to apply A's event to B (see stillCurrent).
+  const eventRoot = runningRoot;
   // Side-channel for hosts (Electron main) to react to FS events.
   watcherEvents.emit('event', event);
   try {
@@ -233,6 +258,8 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       // If no unlink arrives in time, finalize the add.
       const finalize = async (): Promise<void> => {
         pendingAdds.delete(event.relPath);
+        // Don't apply A's add (orphan-clear / folder-rejoin) to current workspace B.
+        if (eventRoot !== null && !(await stillCurrent(ctx, eventRoot))) return;
         try {
           const kind = event.isDir ? 'folder' : 'file';
           // No eager materialization: a brand-new file gets NO badge — badges are
@@ -292,6 +319,8 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       // timer fires markOrphan as before.
       const finalize = async (): Promise<void> => {
         pendingUnlinks.delete(event.relPath);
+        // Don't apply A's delete to whatever workspace is current now (B).
+        if (eventRoot !== null && !(await stillCurrent(ctx, eventRoot))) return;
         try {
           const orphaned = (await ctx.run('badge.markOrphan', {
             file: event.relPath,
