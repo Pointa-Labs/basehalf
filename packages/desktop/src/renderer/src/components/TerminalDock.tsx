@@ -1,6 +1,12 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { type TermNode, leafRects, splitDividers } from '../lib/terminalTree.js';
+import {
+  type FocusDir,
+  type TermNode,
+  dropEdge,
+  leafRects,
+  splitDividers,
+} from '../lib/terminalTree.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useTerminalStore } from '../store/terminal.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -28,6 +34,10 @@ export const TerminalDock = (): JSX.Element => {
   const closeTab = useTerminalStore((s) => s.closeTab);
   const setFocused = useTerminalStore((s) => s.setFocused);
   const titles = useTerminalStore((s) => s.titles);
+  const zoomed = useTerminalStore((s) => s.zoomedLeafId != null);
+  const toggleZoom = useTerminalStore((s) => s.toggleZoom);
+  const reorderTab = useTerminalStore((s) => s.reorderTab);
+  const setTabTitle = useTerminalStore((s) => s.setTabTitle);
 
   // Folding the workspace name into each pane's React key re-roots every shell
   // when the workspace switches (main resolves cwd from workspace.current at
@@ -75,9 +85,13 @@ export const TerminalDock = (): JSX.Element => {
         tabs={tabs}
         activeTabId={activeTabId}
         titles={titles}
+        zoomed={zoomed}
         onSelect={setActiveTab}
         onClose={closeTab}
         onAdd={newTab}
+        onReorder={reorderTab}
+        onRename={setTabTitle}
+        onResetZoom={toggleZoom}
       />
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         {tabs.map((tab) => (
@@ -120,76 +134,293 @@ const TermPaneArea = ({
   onRestart: (leafId: string) => void;
 }): JSX.Element => {
   const zoomedLeafId = useTerminalStore((s) => s.zoomedLeafId);
-  const focusLeaf = useTerminalStore((s) => s.focusLeaf);
-  const setTitle = useTerminalStore((s) => s.setTitle);
   const areaRef = useRef<HTMLDivElement | null>(null);
   const zoomed = isActiveTab ? zoomedLeafId : null;
 
   const rects = leafRects(tab.tree);
   const dividers = zoomed ? [] : splitDividers(tab.tree);
+  const isSplit = tab.tree.type !== 'leaf';
 
   return (
     <div ref={areaRef} style={{ position: 'absolute', inset: 0 }}>
-      {[...rects.entries()].map(([leafId, r]) => {
-        const isFocused = isActiveTab && leafId === tab.focusedLeafId;
-        // When zoomed, the zoomed pane fills the area; the rest stay mounted but
-        // hidden (their ptys keep running).
-        const full = zoomed === leafId;
-        const hidden = zoomed != null && !full;
-        const pos = full
-          ? { left: 0, top: 0, width: '100%', height: '100%' }
-          : {
-              left: `${r.x * 100}%`,
-              top: `${r.y * 100}%`,
-              width: `${r.w * 100}%`,
-              height: `${r.h * 100}%`,
-            };
-        return (
-          <div
-            key={leafId}
-            onMouseDownCapture={() => {
-              if (!isFocused) focusLeaf(tab.id, leafId);
-            }}
-            style={{
-              position: 'absolute',
-              ...pos,
-              display: hidden ? 'none' : 'flex',
-              padding: 3,
-              boxSizing: 'border-box',
-            }}
-          >
-            <div
-              style={{
-                position: 'relative',
-                // display:flex so the child TerminalView's flex:1 actually fills
-                // this box — without it the terminal collapses to a 1-row sliver.
-                display: 'flex',
-                flex: 1,
-                minWidth: 0,
-                minHeight: 0,
-                borderRadius: radius.sm,
-                overflow: 'hidden',
-                // The focused split wears a subtle accent ring (Ghostty's
-                // split-focus cue) — only meaningful with more than one pane.
-                boxShadow:
-                  isFocused && tab.tree.type !== 'leaf'
-                    ? `inset 0 0 0 1px ${color.accent}`
-                    : 'none',
-              }}
-            >
-              <TerminalView
-                key={`${leafId}:${workspaceKey ?? 'none'}:${gens[leafId] ?? 0}`}
-                active={isFocused}
-                onRestart={() => onRestart(leafId)}
-                onTitle={(t) => setTitle(leafId, t)}
-              />
-            </div>
-          </div>
-        );
-      })}
+      {[...rects.entries()].map(([leafId, r]) => (
+        <TermPane
+          key={leafId}
+          tab={tab}
+          leafId={leafId}
+          r={r}
+          isActiveTab={isActiveTab}
+          isSplit={isSplit}
+          zoomed={zoomed}
+          workspaceKey={workspaceKey}
+          gen={gens[leafId] ?? 0}
+          onRestart={onRestart}
+        />
+      ))}
       {dividers.map((d) => (
         <PaneDivider key={d.splitId} divider={d} areaRef={areaRef} />
       ))}
+      {isActiveTab && isSplit && <ResizeHud focusedLeafId={tab.focusedLeafId} />}
+    </div>
+  );
+};
+
+// One pane: its terminal, the unfocused dim, the drag-to-split grab handle, and
+// the drop-zone preview. Single mount keyed by leafId so moving the pane in the
+// tree (drag-to-split) never remounts it (which would kill its pty).
+const TermPane = ({
+  tab,
+  leafId,
+  r,
+  isActiveTab,
+  isSplit,
+  zoomed,
+  workspaceKey,
+  gen,
+  onRestart,
+}: {
+  tab: { id: string; focusedLeafId: string };
+  leafId: string;
+  r: { x: number; y: number; w: number; h: number };
+  isActiveTab: boolean;
+  isSplit: boolean;
+  zoomed: string | null;
+  workspaceKey: string | null;
+  gen: number;
+  onRestart: (leafId: string) => void;
+}): JSX.Element => {
+  const focusLeaf = useTerminalStore((s) => s.focusLeaf);
+  const setTitle = useTerminalStore((s) => s.setTitle);
+  const setDims = useTerminalStore((s) => s.setDims);
+  const dragLeafId = useTerminalStore((s) => s.dragLeafId);
+  const setDragLeaf = useTerminalStore((s) => s.setDragLeaf);
+  const moveLeafBeside = useTerminalStore((s) => s.moveLeafBeside);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [hover, setHover] = useState(false);
+  const [dropZone, setDropZone] = useState<FocusDir | null>(null);
+
+  const isFocused = isActiveTab && leafId === tab.focusedLeafId;
+  const full = zoomed === leafId;
+  const hidden = zoomed != null && !full;
+  // Ghostty dims every UNFOCUSED split (no focus border — the dim is the cue).
+  const dimmed = isActiveTab && isSplit && !isFocused && !full && !hidden;
+  const isDragSource = dragLeafId === leafId;
+  const isDropCandidate = isActiveTab && dragLeafId != null && dragLeafId !== leafId && !hidden;
+
+  const pos = full
+    ? { left: 0, top: 0, width: '100%', height: '100%' }
+    : {
+        left: `${r.x * 100}%`,
+        top: `${r.y * 100}%`,
+        width: `${r.w * 100}%`,
+        height: `${r.h * 100}%`,
+      };
+
+  return (
+    <div
+      onMouseDownCapture={() => {
+        if (!isFocused) focusLeaf(tab.id, leafId);
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onDragOver={
+        isDropCandidate
+          ? (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const box = ref.current?.getBoundingClientRect();
+              if (!box || box.width === 0 || box.height === 0) return;
+              setDropZone(
+                dropEdge((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height),
+              );
+            }
+          : undefined
+      }
+      onDragLeave={
+        isDropCandidate
+          ? (e) => {
+              // Only clear when leaving the pane entirely (not crossing a child).
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropZone(null);
+            }
+          : undefined
+      }
+      onDrop={
+        isDropCandidate
+          ? (e) => {
+              e.preventDefault();
+              if (dropZone && dragLeafId) moveLeafBeside(dragLeafId, leafId, dropZone);
+              setDropZone(null);
+            }
+          : undefined
+      }
+      style={{
+        position: 'absolute',
+        ...pos,
+        display: hidden ? 'none' : 'flex',
+        padding: 3,
+        boxSizing: 'border-box',
+        opacity: isDragSource ? 0.4 : 1,
+      }}
+    >
+      <div
+        ref={ref}
+        style={{
+          position: 'relative',
+          // display:flex so the child TerminalView's flex:1 fills this box —
+          // without it the terminal collapses to a 1-row sliver.
+          display: 'flex',
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          borderRadius: radius.sm,
+          overflow: 'hidden',
+        }}
+      >
+        <TerminalView
+          key={`${leafId}:${workspaceKey ?? 'none'}:${gen}`}
+          active={isFocused}
+          onRestart={() => onRestart(leafId)}
+          onTitle={(t) => setTitle(leafId, t)}
+          onDims={(c, rr) => setDims(leafId, c, rr)}
+        />
+        {dimmed && (
+          // unfocused-split-opacity 0.7 (bg over the pane); pointerEvents:none so
+          // the click that focuses it still lands.
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              background: TERMINAL_BG,
+              opacity: 0.7,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {isSplit && isActiveTab && !hidden && (
+          <GrabHandle
+            leafId={leafId}
+            visible={hover && dragLeafId == null}
+            onStart={() => setDragLeaf(leafId)}
+            onEnd={() => setDragLeaf(null)}
+          />
+        )}
+        {dropZone && <DropZoneOverlay edge={dropZone} />}
+      </div>
+    </div>
+  );
+};
+
+// The drag-to-split grab handle (Ghostty's top-edge surface handle). Only the
+// handle is draggable, so dragging never fights xterm's text selection.
+const GrabHandle = ({
+  leafId,
+  visible,
+  onStart,
+  onEnd,
+}: {
+  leafId: string;
+  visible: boolean;
+  onStart: () => void;
+  onEnd: () => void;
+}): JSX.Element => (
+  <div
+    draggable
+    title="Drag to move / split this pane"
+    onDragStart={(e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('application/x-bh-term-leaf', leafId);
+      onStart();
+    }}
+    onDragEnd={onEnd}
+    style={{
+      position: 'absolute',
+      top: 0,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      width: 44,
+      height: 14,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'grab',
+      zIndex: 4,
+      background: TERMINAL_CHROME_BG,
+      color: color.textTertiary,
+      borderRadius: `0 0 ${radius.sm}px ${radius.sm}px`,
+      fontSize: 11,
+      lineHeight: 1,
+      letterSpacing: 1,
+      opacity: visible ? 0.85 : 0,
+      transition: transition(['opacity']),
+    }}
+  >
+    ⋯
+  </div>
+);
+
+// The half-pane accent preview shown on the target pane while dragging — tells
+// you which side the dropped pane will land on.
+const DropZoneOverlay = ({ edge }: { edge: FocusDir }): JSX.Element => {
+  const half =
+    edge === 'left'
+      ? { left: 0, top: 0, width: '50%', height: '100%' }
+      : edge === 'right'
+        ? { right: 0, top: 0, width: '50%', height: '100%' }
+        : edge === 'up'
+          ? { left: 0, top: 0, width: '100%', height: '50%' }
+          : { left: 0, bottom: 0, width: '100%', height: '50%' };
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        ...half,
+        background: `${color.accent}33`,
+        border: `1.5px solid ${color.accent}`,
+        borderRadius: radius.sm,
+        pointerEvents: 'none',
+        zIndex: 5,
+        transition: transition(['left', 'right', 'top', 'bottom', 'width', 'height']),
+      }}
+    />
+  );
+};
+
+// The transient "cols × rows" HUD shown over the focused pane on resize
+// (Ghostty's resize overlay) — auto-hides after a beat.
+const ResizeHud = ({ focusedLeafId }: { focusedLeafId: string }): JSX.Element | null => {
+  const resizeTick = useTerminalStore((s) => s.resizeTick);
+  const dims = useTerminalStore((s) => s.dims[focusedLeafId]);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (resizeTick === 0) return; // no resize yet — don't flash on mount
+    setShow(true);
+    const id = window.setTimeout(() => setShow(false), 750);
+    return () => window.clearTimeout(id);
+  }, [resizeTick]);
+
+  if (!show || !dims) return null;
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        left: '50%',
+        top: '50%',
+        transform: 'translate(-50%, -50%)',
+        padding: `${space[1]}px ${space[3]}px`,
+        background: 'rgba(0,0,0,0.72)',
+        color: '#fff',
+        fontFamily: font.mono,
+        fontSize: font.size.ui,
+        borderRadius: radius.md,
+        pointerEvents: 'none',
+        zIndex: 6,
+      }}
+    >
+      {dims.cols} × {dims.rows}
     </div>
   );
 };
@@ -202,6 +433,7 @@ const PaneDivider = ({
   areaRef: React.RefObject<HTMLDivElement | null>;
 }): JSX.Element => {
   const setSplitFraction = useTerminalStore((s) => s.setSplitFraction);
+  const equalizeSplits = useTerminalStore((s) => s.equalizeSplits);
   const [active, setActive] = useState(false);
   const [hover, setHover] = useState(false);
   const row = divider.dir === 'row'; // vertical line, horizontal drag
@@ -233,10 +465,12 @@ const PaneDivider = ({
     document.body.style.userSelect = 'none';
   };
 
-  const lit = active ? color.accent : hover ? color.borderStrong : 'transparent';
+  // Ghostty shows a faint static divider always; it brightens on hover/drag.
+  const lit = active ? color.accent : hover ? color.borderStrong : 'rgba(255,255,255,0.07)';
   return (
     <div
       onMouseDown={onMouseDown}
+      onDoubleClick={equalizeSplits} // Ghostty: double-click a divider → equalize
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -299,18 +533,27 @@ const TermTabBar = ({
   tabs,
   activeTabId,
   titles,
+  zoomed,
   onSelect,
   onClose,
   onAdd,
+  onReorder,
+  onRename,
+  onResetZoom,
 }: {
-  tabs: { id: string; focusedLeafId: string }[];
+  tabs: { id: string; focusedLeafId: string; titleOverride?: string }[];
   activeTabId: string;
   titles: Record<string, string>;
+  zoomed: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onAdd: () => void;
+  onReorder: (tabId: string, toIndex: number) => void;
+  onRename: (tabId: string, title: string) => void;
+  onResetZoom: () => void;
 }): JSX.Element => {
   const closable = tabs.length > 1;
+  const [dragId, setDragId] = useState<string | null>(null);
   return (
     <div
       style={{
@@ -340,15 +583,49 @@ const TermTabBar = ({
         {tabs.map((t, i) => (
           <TermTab
             key={t.id}
-            title={titles[t.focusedLeafId] ?? 'Terminal'}
+            title={t.titleOverride ?? titles[t.focusedLeafId] ?? 'Terminal'}
+            hasOverride={t.titleOverride != null}
             active={t.id === activeTabId}
             first={i === 0}
             closable={closable}
+            dragging={dragId === t.id}
             onSelect={() => onSelect(t.id)}
             onClose={() => onClose(t.id)}
+            onRename={(title) => onRename(t.id, title)}
+            onDragStart={() => setDragId(t.id)}
+            onDragEnd={() => setDragId(null)}
+            onDropHere={() => {
+              if (dragId && dragId !== t.id) onReorder(dragId, i);
+              setDragId(null);
+            }}
           />
         ))}
       </div>
+      {zoomed && (
+        <button
+          type="button"
+          title="Reset zoom (⌘⇧↵)"
+          aria-label="Reset split zoom"
+          onClick={onResetZoom}
+          style={{
+            flexShrink: 0,
+            padding: `0 ${space[2]}px`,
+            border: 'none',
+            borderLeft: `1px solid ${color.border}`,
+            background: 'transparent',
+            color: color.accent,
+            cursor: 'pointer',
+            fontSize: 13,
+            lineHeight: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[1],
+            fontFamily: font.sans,
+          }}
+        >
+          ⤢
+        </button>
+      )}
       <button
         type="button"
         title="New terminal tab (⌘T)"
@@ -374,25 +651,64 @@ const TermTabBar = ({
 
 const TermTab = ({
   title,
+  hasOverride,
   active,
   first,
   closable,
+  dragging,
   onSelect,
   onClose,
+  onRename,
+  onDragStart,
+  onDragEnd,
+  onDropHere,
 }: {
   title: string;
+  hasOverride: boolean;
   active: boolean;
   first: boolean;
   closable: boolean;
+  dragging: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onRename: (title: string) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDropHere: () => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+
+  const beginEdit = (): void => {
+    // Seed the field with the current override (blank if it's a live title), so
+    // an empty commit clears back to the running program's name.
+    setDraft(hasOverride ? title : '');
+    setEditing(true);
+  };
+  const commit = (): void => {
+    setEditing(false);
+    onRename(draft);
+  };
+
   return (
     <div
-      onMouseDown={onSelect}
+      draggable={!editing}
+      onMouseDown={editing ? undefined : onSelect}
+      onDoubleClick={beginEdit}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/x-bh-term-tab', '1');
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDropHere();
+      }}
       style={{
         position: 'relative',
         // Content-width, left-aligned — the editor's tab sizing. Tabs fit their
@@ -407,6 +723,7 @@ const TermTab = ({
         padding: `0 ${space[2]}px`,
         cursor: 'default',
         userSelect: 'none',
+        opacity: dragging ? 0.4 : 1,
         fontFamily: font.sans,
         fontSize: font.size.caption,
         color: active ? '#ffffff' : color.textTertiary,
@@ -415,21 +732,50 @@ const TermTab = ({
         // A hairline divider before each tab but the first, so adjacent inactive
         // tabs read as distinct without a heavy border.
         boxShadow: first || active ? 'none' : `inset 1px 0 0 ${color.border}`,
-        transition: transition(['color', 'background']),
+        transition: transition(['color', 'background', 'opacity']),
       }}
     >
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {title}
-      </span>
-      {closable && (
+      {editing ? (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: a rename field should take focus.
+          autoFocus
+          value={draft}
+          placeholder="Terminal"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            else if (e.key === 'Escape') setEditing(false);
+            e.stopPropagation();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            border: `1px solid ${color.accent}`,
+            borderRadius: radius.sm,
+            background: TERMINAL_BG,
+            color: '#fff',
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            padding: `1px ${space[1]}px`,
+            outline: 'none',
+          }}
+        />
+      ) : (
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {title}
+        </span>
+      )}
+      {closable && !editing && (
         <button
           type="button"
           title="Close tab"
@@ -496,6 +842,12 @@ function useTerminalKeymap(): void {
         action = () => s.gotoDir(dir); // ⌘⌥arrow move focus
       } else if (dir && e.ctrlKey && !e.altKey) {
         action = () => s.resizeFocused(dir); // ⌘⌃arrow resize
+      } else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === '=' || e.code === 'Equal')) {
+        action = s.equalizeSplits; // ⌘⌃= equalize splits
+      } else if (!e.shiftKey && !e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key)) {
+        // ⌘1–8 jump to tab N (clamped to last); ⌘9 jumps to the last tab.
+        const n = Number(e.key);
+        action = n === 9 ? s.lastTab : () => s.gotoTab(n);
       }
       if (!action) return;
       e.preventDefault();

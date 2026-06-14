@@ -57,32 +57,43 @@ export function splitLeaf(
   return replace(root);
 }
 
+/** Remove `leafId`; the parent split collapses into the sibling subtree.
+ *  null when the closed leaf was the whole tree. */
+function removeLeaf(root: TermNode, leafId: string): TermNode | null {
+  if (root.type === 'leaf') return root.id === leafId ? null : root;
+  if (root.a.type === 'leaf' && root.a.id === leafId) return root.b;
+  if (root.b.type === 'leaf' && root.b.id === leafId) return root.a;
+  const inA = containsLeaf(root.a, leafId);
+  if (!inA && !containsLeaf(root.b, leafId)) return root; // not found
+  const collapsed = removeLeaf(inA ? root.a : root.b, leafId);
+  // `side` has >1 leaf here, so collapse never nulls it.
+  if (collapsed === null) return root;
+  return inA ? { ...root, a: collapsed } : { ...root, b: collapsed };
+}
+
+/** The id to focus after `leafId` closes — Ghostty's rule
+ *  (BaseTerminalController: "previous leaf, unless we were the leftmost, then
+ *  next"), computed over the PRE-close in-order leaf list. The result survives
+ *  the removal (it's never the closed leaf). null if `leafId` is the whole tree. */
+function focusAfterClose(root: TermNode, leafId: string): string | null {
+  const ids = orderedLeafIds(root);
+  if (ids.length <= 1) return null;
+  const i = ids.indexOf(leafId);
+  if (i < 0) return null;
+  return i === 0 ? (ids[1] ?? null) : (ids[i - 1] ?? null);
+}
+
 /** Remove `leafId`. The parent split collapses into the sibling subtree.
- *  Returns the new root (null if the closed leaf was the whole tree) and the
- *  id to focus next (the sibling's first leaf). */
+ *  Returns the new root (null if the closed leaf was the whole tree) and the id
+ *  to focus next — Ghostty's previous-unless-leftmost-then-next rule. */
 export function closeLeaf(
   root: TermNode,
   leafId: string,
 ): { root: TermNode | null; focusId: string | null } {
-  if (root.type === 'leaf') {
-    return root.id === leafId ? { root: null, focusId: null } : { root, focusId: null };
-  }
-  // Direct child is the target → collapse to the other child.
-  if (root.a.type === 'leaf' && root.a.id === leafId) {
-    return { root: root.b, focusId: firstLeaf(root.b).id };
-  }
-  if (root.b.type === 'leaf' && root.b.id === leafId) {
-    return { root: root.a, focusId: firstLeaf(root.a).id };
-  }
-  // Recurse both sides.
-  const inA = containsLeaf(root.a, leafId);
-  const side = inA ? root.a : root.b;
-  const res = closeLeaf(side, leafId);
-  if (res.root === null) return { root, focusId: null }; // not found / no-op
-  return {
-    root: inA ? { ...root, a: res.root } : { ...root, b: res.root },
-    focusId: res.focusId,
-  };
+  if (!containsLeaf(root, leafId)) return { root, focusId: null };
+  const focusId = focusAfterClose(root, leafId);
+  const next = removeLeaf(root, leafId);
+  return { root: next, focusId: next ? focusId : null };
 }
 
 export function setFraction(root: TermNode, splitId: string, fraction: number): TermNode {
@@ -181,47 +192,41 @@ export function splitDividers(root: TermNode): Divider[] {
   return out;
 }
 
-/** The nearest leaf in a spatial direction (Ghostty's goto_split:dir). Picks
- *  the candidate whose edge is just beyond ours and that overlaps most on the
- *  perpendicular axis; null if there's nothing that way. */
+/** The nearest leaf in a spatial direction — Ghostty's `goto_split:dir`
+ *  algorithm (SplitTree.swift): keep only candidates lying ENTIRELY beyond our
+ *  edge in `dir` (a half-plane filter — NO perpendicular-overlap gate, so a
+ *  diagonal pane still qualifies), then pick the one whose TOP-LEFT corner is
+ *  Euclidean-nearest to ours. No wrap — null at the edge. */
 export function directionalNeighbor(root: TermNode, leafId: string, dir: FocusDir): string | null {
   const rects = leafRects(root);
   const me = rects.get(leafId);
   if (!me) return null;
-  const horizontal = dir === 'left' || dir === 'right';
-  const meCenterPerp = horizontal ? me.y + me.h / 2 : me.x + me.w / 2;
-  let best: { id: string; gap: number; overlap: number } | null = null;
+  const E = 1e-9;
+  let best: string | null = null;
+  let bestDist = Number.POSITIVE_INFINITY;
   for (const [id, r] of rects) {
     if (id === leafId) continue;
-    // Must lie on the requested side (with a small epsilon for shared edges).
-    const onSide =
-      dir === 'right'
-        ? r.x >= me.x + me.w - 1e-6
-        : dir === 'left'
-          ? r.x + r.w <= me.x + 1e-6
-          : dir === 'down'
-            ? r.y >= me.y + me.h - 1e-6
-            : r.y + r.h <= me.y + 1e-6;
-    if (!onSide) continue;
-    // Overlap on the perpendicular axis (so we don't jump to a diagonal pane).
-    const overlap = horizontal
-      ? Math.min(me.y + me.h, r.y + r.h) - Math.max(me.y, r.y)
-      : Math.min(me.x + me.w, r.x + r.w) - Math.max(me.x, r.x);
-    if (overlap <= 0) continue;
-    const gap = horizontal ? Math.abs(r.x - me.x) : Math.abs(r.y - me.y);
-    const perpDist = Math.abs((horizontal ? r.y + r.h / 2 : r.x + r.w / 2) - meCenterPerp);
-    // Prefer the closest along the travel axis, then the best perpendicular
-    // alignment (encoded by subtracting a tiny perpDist tiebreak from overlap).
-    const score = overlap - perpDist * 0.001;
-    if (
-      !best ||
-      gap < best.gap - 1e-9 ||
-      (Math.abs(gap - best.gap) < 1e-9 && score > best.overlap)
-    ) {
-      best = { id, gap, overlap: score };
+    // Half-plane: candidate entirely beyond our edge (maxX ≤ refMinX for left,
+    // minX ≥ refMaxX for right, etc. — at-or-beyond, shared edges count).
+    const beyond =
+      dir === 'left'
+        ? r.x + r.w <= me.x + E
+        : dir === 'right'
+          ? r.x + E >= me.x + me.w
+          : dir === 'up'
+            ? r.y + r.h <= me.y + E
+            : r.y + E >= me.y + me.h;
+    if (!beyond) continue;
+    // Nearest by Euclidean distance between TOP-LEFT corners (Ghostty's metric).
+    const dx = r.x - me.x;
+    const dy = r.y - me.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < bestDist - E) {
+      bestDist = dist;
+      best = id;
     }
   }
-  return best?.id ?? null;
+  return best;
 }
 
 /** The id of the split parent whose axis matches `dir`, for resizing — the
@@ -249,4 +254,77 @@ export function resizeTarget(
   };
   walk(root);
   return found;
+}
+
+/** Direction-aware leaf weight (Ghostty's `equalized()` helper): a leaf weighs
+ *  1; a split nested along the SAME axis contributes the sum of its children's
+ *  weights; a split along the PERPENDICULAR axis counts as 1. */
+function weightForDir(node: TermNode, dir: 'row' | 'column'): number {
+  if (node.type === 'leaf') return 1;
+  if (node.dir === dir) return weightForDir(node.a, dir) + weightForDir(node.b, dir);
+  return 1;
+}
+
+/** Reset every split's fraction so panes are evenly sized by leaf weight —
+ *  Ghostty's `equalize_splits` (⌘⌃= / double-click a divider). Children are
+ *  equalized first, then each split's fraction = left weight / total weight. */
+export function equalize(root: TermNode): TermNode {
+  if (root.type === 'leaf') return root;
+  const a = equalize(root.a);
+  const b = equalize(root.b);
+  const wa = weightForDir(a, root.dir);
+  const wb = weightForDir(b, root.dir);
+  return { ...root, a, b, fraction: clampFraction(wa / (wa + wb)) };
+}
+
+/** Split `targetId` in two, placing leaf `newId` beside it on `side`. `left`/`up`
+ *  put the new pane on the NEAR side (a); `right`/`down` on the FAR side (b).
+ *  Drives drag-to-split (the dragged pane keeps its id, so its pty survives the
+ *  move). `left`/`right` → a row; `up`/`down` → a column. */
+export function insertBeside(
+  root: TermNode,
+  targetId: string,
+  side: FocusDir,
+  newId: string,
+  splitId: string,
+): TermNode {
+  const dir: 'row' | 'column' = side === 'left' || side === 'right' ? 'row' : 'column';
+  const near = side === 'left' || side === 'up';
+  const replace = (node: TermNode): TermNode => {
+    if (node.type === 'leaf') {
+      if (node.id !== targetId) return node;
+      const created = leaf(newId);
+      return {
+        type: 'split',
+        id: splitId,
+        dir,
+        a: near ? created : node,
+        b: near ? node : created,
+        fraction: 0.5,
+      };
+    }
+    return { ...node, a: replace(node.a), b: replace(node.b) };
+  };
+  return replace(root);
+}
+
+/** Which drop-zone edge a point in a pane's [0..1] space lands in — the nearest
+ *  edge (Ghostty's 4-triangle partition), ties broken left→right→up→down, exact
+ *  center → left. Drives drag-to-split previews + drops. */
+export function dropEdge(px: number, py: number): FocusDir {
+  const candidates: ReadonlyArray<readonly [FocusDir, number]> = [
+    ['left', px],
+    ['right', 1 - px],
+    ['up', py],
+    ['down', 1 - py],
+  ];
+  let best: FocusDir = 'left';
+  let bestD = Number.POSITIVE_INFINITY;
+  for (const [edge, d] of candidates) {
+    if (d < bestD - 1e-9) {
+      bestD = d;
+      best = edge;
+    }
+  }
+  return best;
 }

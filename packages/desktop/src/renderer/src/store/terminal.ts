@@ -5,7 +5,10 @@ import {
   type TermNode,
   closeLeaf,
   directionalNeighbor,
+  equalize,
+  findLeaf,
   firstLeaf,
+  insertBeside,
   leaf,
   resizeTarget,
   ringNeighbor,
@@ -26,6 +29,9 @@ interface TermTab {
   id: string;
   tree: TermNode;
   focusedLeafId: string;
+  /** A user-set tab name (double-click to rename, Ghostty's `set_tab_title`).
+   *  When set it overrides the live program title; empty/undefined → live title. */
+  titleOverride?: string;
 }
 
 interface TerminalState {
@@ -40,6 +46,14 @@ interface TerminalState {
    *  "claude", "zsh", a cwd). A tab shows its focused pane's title — Ghostty's
    *  tabs name the running program, not "Terminal N". */
   titles: Record<string, string>;
+  /** Live cols×rows per pane (from xterm onResize) — drives the resize HUD. */
+  dims: Record<string, { cols: number; rows: number }>;
+  /** Bumped on every split resize (key or divider drag) so the dock can flash
+   *  the dimensions HUD (Ghostty's resize overlay). */
+  resizeTick: number;
+  /** The leaf being drag-moved (grab handle), or null. Gates the per-pane
+   *  drop-zone overlays so they only show during a drag. */
+  dragLeafId: string | null;
 
   newTab: () => void;
   setActiveTab: (id: string) => void;
@@ -52,11 +66,25 @@ interface TerminalState {
   gotoDir: (dir: FocusDir) => void;
   gotoRing: (delta: 1 | -1) => void;
   switchTab: (delta: 1 | -1) => void;
+  /** Activate tab by 1-based index, clamped to the last (Ghostty `goto_tab:N`). */
+  gotoTab: (index: number) => void;
+  /** Activate the last tab (Ghostty `last_tab`, ⌘9). */
+  lastTab: () => void;
   resizeFocused: (dir: FocusDir) => void;
+  equalizeSplits: () => void;
   toggleZoom: () => void;
   setSplitFraction: (splitId: string, fraction: number) => void;
   setFocused: (focused: boolean) => void;
   setTitle: (leafId: string, title: string) => void;
+  setDims: (leafId: string, cols: number, rows: number) => void;
+  /** Rename the active (or given) tab; empty string clears back to the live title. */
+  setTabTitle: (tabId: string, title: string) => void;
+  /** Reorder a tab to a new index (drag-to-reorder). */
+  reorderTab: (tabId: string, toIndex: number) => void;
+  setDragLeaf: (leafId: string | null) => void;
+  /** Move a pane (keeping its pty) to sit beside another on the given edge —
+   *  the drag-to-split drop. */
+  moveLeafBeside: (sourceId: string, targetId: string, edge: FocusDir) => void;
 }
 
 let seq = 0;
@@ -78,6 +106,9 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   zoomedLeafId: null,
   focused: false,
   titles: {},
+  dims: {},
+  resizeTick: 0,
+  dragLeafId: null,
 
   newTab: () => {
     const tab = freshTab();
@@ -177,11 +208,40 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       if (!target) return s;
       const split = findSplit(tab.tree, target.splitId);
       if (!split) return s;
-      // Grow the side the focused pane is on when moving "outward".
-      const grow = dir === 'right' || dir === 'down';
-      const delta = (grow === target.onSideA ? 1 : -1) * RESIZE_STEP;
+      // Ghostty maps direction → divider ABSOLUTELY, independent of which side
+      // the focused pane sits on: right/down move the divider right/down (grow
+      // side-a), left/up move it back (shrink side-a). Resize also resets zoom.
+      const delta = (dir === 'right' || dir === 'down' ? 1 : -1) * RESIZE_STEP;
       const tree = setFractionTree(tab.tree, target.splitId, split.fraction + delta);
+      return {
+        tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)),
+        zoomedLeafId: null,
+        resizeTick: s.resizeTick + 1,
+      };
+    }),
+
+  equalizeSplits: () =>
+    set((s) => {
+      const tab = s.tabs.find((t) => t.id === s.activeTabId);
+      if (!tab || tab.tree.type === 'leaf') return s;
+      const tree = equalize(tab.tree);
+      // Ghostty preserves zoom across equalize.
       return { tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)) };
+    }),
+
+  gotoTab: (index) =>
+    set((s) => {
+      if (s.tabs.length === 0) return s;
+      // 1-based, clamp to last (Ghostty: goto_tab past the end → last tab).
+      const i = Math.min(Math.max(1, Math.floor(index)), s.tabs.length) - 1;
+      const next = s.tabs[i];
+      return next ? { activeTabId: next.id, zoomedLeafId: null } : s;
+    }),
+
+  lastTab: () =>
+    set((s) => {
+      const next = s.tabs[s.tabs.length - 1];
+      return next ? { activeTabId: next.id, zoomedLeafId: null } : s;
     }),
 
   toggleZoom: () =>
@@ -198,7 +258,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const tab = s.tabs.find((t) => t.id === s.activeTabId);
       if (!tab) return s;
       const tree = setFractionTree(tab.tree, splitId, fraction);
-      return { tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)) };
+      return {
+        tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)),
+        resizeTick: s.resizeTick + 1,
+      };
     }),
 
   setFocused: (focused) => set({ focused }),
@@ -208,6 +271,59 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const next = title.trim();
       if (!next || s.titles[leafId] === next) return s;
       return { titles: { ...s.titles, [leafId]: next } };
+    }),
+
+  setDims: (leafId, cols, rows) =>
+    set((s) => {
+      const cur = s.dims[leafId];
+      if (cur && cur.cols === cols && cur.rows === rows) return s;
+      return { dims: { ...s.dims, [leafId]: { cols, rows } } };
+    }),
+
+  setTabTitle: (tabId, title) =>
+    set((s) => {
+      const override = title.trim();
+      return {
+        tabs: s.tabs.map((t) =>
+          t.id === tabId ? { ...t, titleOverride: override || undefined } : t,
+        ),
+      };
+    }),
+
+  reorderTab: (tabId, toIndex) =>
+    set((s) => {
+      const from = s.tabs.findIndex((t) => t.id === tabId);
+      if (from < 0) return s;
+      const to = Math.min(Math.max(0, Math.floor(toIndex)), s.tabs.length - 1);
+      if (from === to) return s;
+      const tabs = [...s.tabs];
+      const [moved] = tabs.splice(from, 1);
+      if (!moved) return s;
+      tabs.splice(to, 0, moved);
+      return { tabs };
+    }),
+
+  setDragLeaf: (leafId) => set({ dragLeafId: leafId }),
+
+  moveLeafBeside: (sourceId, targetId, edge) =>
+    set((s) => {
+      if (sourceId === targetId) return { dragLeafId: null };
+      const tab = s.tabs.find((t) => t.id === s.activeTabId);
+      if (!tab) return { dragLeafId: null };
+      if (!findLeaf(tab.tree, sourceId) || !findLeaf(tab.tree, targetId)) {
+        return { dragLeafId: null };
+      }
+      // Remove the source (collapse its parent), then re-insert it beside the
+      // target using the SAME leaf id, so React keeps the keyed mount and the
+      // pane's pty/xterm survives the move (no remount = no killed shell).
+      const { root: without } = closeLeaf(tab.tree, sourceId);
+      if (!without || !findLeaf(without, targetId)) return { dragLeafId: null };
+      const tree = insertBeside(without, targetId, edge, sourceId, mint('s'));
+      return {
+        tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree, focusedLeafId: sourceId } : t)),
+        zoomedLeafId: null,
+        dragLeafId: null,
+      };
     }),
 }));
 
