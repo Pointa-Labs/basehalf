@@ -756,12 +756,41 @@ const TabContextMenu = ({
 // ── Pane drag-to-rearrange: a grab handle (⋯) + edge drop zones ───────────────
 // Mirrors the reference terminal: a handle appears at the top of a split pane;
 // drag it onto another pane's edge to move it there (re-splitting on that edge).
+// The reveal band, as a fraction of pane height (matches the reference terminal's
+// hoverHeightFactor) — the ⋯ fades in only while the mouse is near the pane top.
+const HANDLE_REVEAL_FACTOR = 0.2;
+
 const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
   const setPaneDrag = useTerminalStore((s) => s.setPaneDrag);
+  const dragging = useTerminalStore((s) => s.paneDrag?.paneId === paneId);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [nearTop, setNearTop] = useState(false);
   const [hover, setHover] = useState(false);
+
+  // Watch the parent pane for mouse proximity to its top edge — passively (a
+  // mousemove listener, no event-capturing overlay), so the terminal underneath
+  // keeps all its clicks/selection. The ⋯ becomes grabbable only once revealed.
+  useEffect(() => {
+    const pane = ref.current?.parentElement;
+    if (!pane) return;
+    const onMove = (e: MouseEvent): void => {
+      const box = pane.getBoundingClientRect();
+      setNearTop(e.clientY - box.top <= Math.max(24, box.height * HANDLE_REVEAL_FACTOR));
+    };
+    const onLeave = (): void => setNearTop(false);
+    pane.addEventListener('mousemove', onMove);
+    pane.addEventListener('mouseleave', onLeave);
+    return () => {
+      pane.removeEventListener('mousemove', onMove);
+      pane.removeEventListener('mouseleave', onLeave);
+    };
+  }, []);
+
+  const shown = nearTop || hover || dragging;
   return (
     <div
-      draggable
+      ref={ref}
+      draggable={shown}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('application/x-bh-term-pane', paneId);
@@ -774,26 +803,25 @@ const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
       aria-label="Move pane"
       style={{
         position: 'absolute',
-        top: 0,
+        top: 1,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 46,
-        height: 14,
+        width: 36,
+        height: 13,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'grab',
-        // A small grip chip with its OWN backdrop, so it stays legible over the
-        // shell's cursor / output instead of being washed out by them. Always
-        // visible (like the reference terminal's handle); brighter on hover.
-        background: hover ? color.borderStrong : color.border,
-        color: hover ? color.textSecondary : color.textTertiary,
-        borderRadius: '0 0 6px 6px',
-        transition: transition(['background', 'color']),
+        color: '#fff',
+        // Just the glyph — no backdrop. Fades in only near the top; stays out of
+        // the way (no pointer events) otherwise so it never blocks the text.
+        opacity: shown ? (hover ? 0.8 : 0.3) : 0,
+        pointerEvents: shown ? 'auto' : 'none',
+        transition: transition(['opacity']),
         zIndex: 4,
       }}
     >
-      <span aria-hidden style={{ fontSize: 13, lineHeight: 1, letterSpacing: 2, marginTop: -1 }}>
+      <span aria-hidden style={{ fontSize: 13, lineHeight: 1, letterSpacing: 1 }}>
         ⋯
       </span>
     </div>
