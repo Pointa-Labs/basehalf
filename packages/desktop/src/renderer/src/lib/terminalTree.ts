@@ -1,14 +1,14 @@
-// Pure split tree for the terminal dock: a tab holds a recursive tree of split
-// panes; each leaf is one terminal (one pty). Kept PURE + deterministic (ids are
-// passed in, never generated here) so it's unit-testable and the store owns id
-// minting. The split model follows tiling-terminal conventions.
+// Pure split tree for the terminal dock's layout: a recursive tree of cells;
+// each LEAF is a positioned cell (a terminal group). Kept PURE + deterministic
+// (ids are passed in, never generated here) so it's unit-testable and the store
+// owns id minting.
 //
 // dir 'row'    → side-by-side  (a = left,  b = right)  ← "split right" (⌘D)
 // dir 'column' → stacked       (a = top,   b = bottom) ← "split down"  (⌘⇧D)
 
 export interface TermLeaf {
   readonly type: 'leaf';
-  /** The pane id — also the key of the terminal session (one pty) it hosts. */
+  /** The cell id — a terminal group id in the layout. */
   readonly id: string;
 }
 export interface TermSplit {
