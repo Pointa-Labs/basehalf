@@ -35,6 +35,7 @@ export const TerminalDock = (): JSX.Element => {
   const titles = useTerminalStore((s) => s.titles);
   const activity = useTerminalStore((s) => s.activity);
   const dims = useTerminalStore((s) => s.dims);
+  const focused = useTerminalStore((s) => s.focused);
   const setFocused = useTerminalStore((s) => s.setFocused);
   const focusPane = useTerminalStore((s) => s.focusPane);
   const setTitle = useTerminalStore((s) => s.setTitle);
@@ -71,6 +72,9 @@ export const TerminalDock = (): JSX.Element => {
   const activeRects: Map<string, Rect> = activeTab ? leafRects(activeTab.tree) : new Map();
   const zoomedPaneId = activeTab?.zoomedPaneId ?? null;
   const dividers = activeTab && !zoomedPaneId ? splitDividers(activeTab.tree) : [];
+  // Dim the non-focused panes of a multi-pane tab so the active one stands out
+  // (mirrors the reference terminal's unfocused-split-opacity).
+  const dimUnfocused = !!activeTab && activeTab.tree.type === 'split' && !zoomedPaneId;
 
   // Flat mount list: every pane of every tab, plus soft-closed tabs'/panes' panes.
   const mounts: Array<{ paneId: string; tab: TermTab | null }> = [];
@@ -95,6 +99,9 @@ export const TerminalDock = (): JSX.Element => {
         width,
         height: '100%',
         borderLeft: `1px solid ${color.border}`,
+        // An accent bar on the left edge when the terminal owns keyboard focus —
+        // so the precondition for its shortcuts (⌘D, ⌘W, arrows…) is visible.
+        boxShadow: focused ? `inset 2px 0 0 0 ${color.accent}` : 'none',
         background: TERMINAL_BG,
         display: 'flex',
         flexDirection: 'column',
@@ -133,6 +140,19 @@ export const TerminalDock = (): JSX.Element => {
                 onDims={(c, rr) => setDims(paneId, c, rr)}
                 onActivity={() => markActivity(paneId)}
               />
+              {visible && dimUnfocused && paneId !== activeTab?.activePaneId && (
+                <div
+                  aria-hidden
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: TERMINAL_BG,
+                    opacity: 0.32,
+                    pointerEvents: 'none',
+                    zIndex: 1,
+                  }}
+                />
+              )}
             </div>
           );
         })}
@@ -978,11 +998,31 @@ function useTerminalKeymap(): void {
     const onKey = (e: KeyboardEvent): void => {
       if (!e.metaKey) return;
       const s = useTerminalStore.getState();
-      if (!s.focused) return; // only when the terminal owns focus
-      // Yield while a tab-rename <input> holds focus. xterm's own input is a
-      // <textarea>, so terminal shortcuts still fire when the shell is focused.
+      // A focused text field / rich editor keeps its keys. xterm's own input is a
+      // <textarea>, so terminal shortcuts still fire while the shell is focused.
       const ae = document.activeElement;
-      if (ae instanceof HTMLElement && (ae.tagName === 'INPUT' || ae.isContentEditable)) return;
+      const inField = ae instanceof HTMLElement && (ae.tagName === 'INPUT' || ae.isContentEditable);
+
+      // ⌘1–9 switch tabs WINDOW-WIDE (not gated on dock focus): the terminal panel
+      // is always visible and the app binds no ⌘-digit, mirroring the reference
+      // terminal's window-level goto-tab key-equivalents. Match the PHYSICAL key
+      // (e.code) so it works on layouts where the number row needs Shift.
+      const digit =
+        e.code.length === 6 && e.code.startsWith('Digit')
+          ? Number(e.code.slice(5))
+          : /^[1-9]$/.test(e.key)
+            ? Number(e.key)
+            : 0;
+      if (digit >= 1 && digit <= 9 && !e.shiftKey && !e.altKey && !e.ctrlKey && !inField) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (digit === 9) s.lastTab();
+        else s.gotoTab(digit); // ⌘1–8 select tab N; ⌘9 last tab
+        return;
+      }
+
+      // Every other shortcut acts only when the dock owns focus.
+      if (!s.focused || inField) return;
       const k = e.key.toLowerCase();
       let action: (() => void) | null = null;
       const dir =
@@ -995,11 +1035,12 @@ function useTerminalKeymap(): void {
               : e.key === 'ArrowDown'
                 ? 'down'
                 : null;
-      if (k === 't' && !e.shiftKey && !e.altKey && !e.ctrlKey) {
+      // Letter shortcuts match the produced char OR the physical key (layout-safe).
+      if ((k === 't' || e.code === 'KeyT') && !e.shiftKey && !e.altKey && !e.ctrlKey) {
         action = s.newTab; // ⌘T new tab
-      } else if (k === 'w' && e.altKey && !e.shiftKey && !e.ctrlKey) {
+      } else if ((k === 'w' || e.code === 'KeyW') && e.altKey && !e.shiftKey && !e.ctrlKey) {
         action = () => s.closeTab(s.activeTabId); // ⌘⌥W close whole tab
-      } else if (k === 'd' && !e.altKey && !e.ctrlKey) {
+      } else if ((k === 'd' || e.code === 'KeyD') && !e.altKey && !e.ctrlKey) {
         action = () => s.splitPane(e.shiftKey ? 'down' : 'right'); // ⌘D / ⌘⇧D split pane
       } else if (e.key === 'Enter' && e.shiftKey) {
         action = s.toggleZoom; // ⌘⇧↵ zoom pane
@@ -1014,9 +1055,6 @@ function useTerminalKeymap(): void {
         action = () => s.resizePane(dir); // ⌘⌃arrow resize panes
       } else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === '=' || e.code === 'Equal')) {
         action = s.equalizePanes; // ⌘⌃= equalize panes
-      } else if (!e.shiftKey && !e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key)) {
-        const n = Number(e.key); // ⌘1–8 select tab N; ⌘9 last tab
-        action = n === 9 ? s.lastTab : () => s.gotoTab(n);
       }
       if (!action) return;
       e.preventDefault();
