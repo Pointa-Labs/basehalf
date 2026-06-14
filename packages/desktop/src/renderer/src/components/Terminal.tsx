@@ -7,25 +7,23 @@ import '@xterm/xterm/css/xterm.css';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, space } from '../design.js';
 
-// Ghostty's exact default palette, ported from its source
-// (reference/ghostty: src/config/Config.zig background/foreground +
-// src/terminal/color.zig Name.default). We can't embed Ghostty (native app),
-// so we reproduce its look in xterm: the One-Dark-family scheme it ships with,
-// a foreground-colored block cursor, and an inverted-ish selection. This is the
-// "Ghostty zone" — deliberately its own surface, distinct from the app chrome.
+// The terminal's default palette — a dark, editor-style scheme reproduced in
+// xterm: a foreground-colored block cursor and a translucent selection.
+// Deliberately its own surface, distinct from the app chrome, so the terminal
+// reads as a focused zone.
 export const TERMINAL_BG = '#282c34';
-// A half-step darker than TERMINAL_BG, from the same One-Dark family — used for
-// the dock's tab strip so the active terminal (at TERMINAL_BG) reads as raised.
+// A half-step darker than TERMINAL_BG, same family — used for the dock's tab
+// strip so the active terminal (at TERMINAL_BG) reads as raised.
 export const TERMINAL_CHROME_BG = '#21252b';
 const THEME = {
   background: TERMINAL_BG,
   foreground: '#ffffff',
-  // Ghostty: cursor-color defaults to the cell foreground → a bright block; the
-  // glyph under it shows in the background color (cursorAccent).
+  // Cursor defaults to the cell foreground → a bright block; the glyph under it
+  // shows in the background color (cursorAccent).
   cursor: '#ffffff',
   cursorAccent: TERMINAL_BG,
-  // Ghostty inverts selection; a translucent light reads the same but keeps text
-  // legible without forcing a foreground swap.
+  // A translucent light selection reads clearly without forcing a foreground
+  // swap.
   selectionBackground: 'rgba(255,255,255,0.22)',
   black: '#1d1f21',
   red: '#cc6666',
@@ -61,11 +59,13 @@ export const TerminalView = ({
   onRestart,
   onTitle,
   onDims,
+  onActivity,
 }: {
   active: boolean;
   onRestart: () => void;
   onTitle?: (title: string) => void;
   onDims?: (cols: number, rows: number) => void;
+  onActivity?: () => void;
 }): JSX.Element => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -78,6 +78,11 @@ export const TerminalView = ({
   onTitleRef.current = onTitle;
   const onDimsRef = useRef(onDims);
   onDimsRef.current = onDims;
+  const onActivityRef = useRef(onActivity);
+  onActivityRef.current = onActivity;
+  // Throttle activity pings — output can arrive in a flood; one ping per ~200ms
+  // is plenty to light a tab's dot without a render storm.
+  const lastActivityRef = useRef(0);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -94,8 +99,8 @@ export const TerminalView = ({
       fontWeightBold: 600,
       theme: THEME,
       // A solid block cursor that blinks when focused and hollows out when not —
-      // the same legibility cue native terminals (iTerm/Ghostty) use so you can
-      // tell at a glance which pane has keyboard focus.
+      // the same legibility cue native terminals use so you can tell at a glance
+      // which pane has keyboard focus.
       cursorBlink: true,
       cursorStyle: 'block',
       cursorInactiveStyle: 'outline',
@@ -164,7 +169,13 @@ export const TerminalView = ({
     });
 
     const offData = window.bh.terminal.onData((id, data) => {
-      if (id === idRef.current) term.write(data);
+      if (id !== idRef.current) return;
+      term.write(data);
+      const now = performance.now();
+      if (now - lastActivityRef.current > 200) {
+        lastActivityRef.current = now;
+        onActivityRef.current?.();
+      }
     });
     const offExit = window.bh.terminal.onExit((id, code) => {
       if (id === idRef.current) setExitCode(code);
@@ -177,7 +188,7 @@ export const TerminalView = ({
       onDimsRef.current?.(cols, rows);
     });
     // The running program's OSC 0/2 title (e.g. "claude", "zsh", a cwd) — the
-    // dock names each tab by its focused pane's title, the way Ghostty does.
+    // dock names each tab by its focused pane's title.
     const titleSub = term.onTitleChange((t) => onTitleRef.current?.(t));
 
     const ro = new ResizeObserver(() => {

@@ -14,6 +14,8 @@ import {
   resizeTarget,
   ringNeighbor,
   setFraction,
+  splitBounds,
+  splitDividers,
   splitLeaf,
 } from '../src/renderer/src/lib/terminalTree.js';
 
@@ -61,10 +63,10 @@ describe('terminalTree', () => {
     expect(focusId).toBe('b');
   });
 
-  it('focus-after-close = previous leaf in-order (Ghostty rule)', () => {
+  it('focus-after-close = previous leaf in-order', () => {
     // a | (b | c). Closing the MIDDLE leaf b focuses the PREVIOUS leaf (a) —
-    // NOT firstLeaf(sibling)=c. This is where the Ghostty rule diverges from a
-    // naive "focus the sibling".
+    // NOT firstLeaf(sibling)=c. This is where the previous-leaf rule diverges
+    // from a naive "focus the sibling".
     let t = splitLeaf(leaf('a'), 'a', 'right', 'b', 's1');
     t = splitLeaf(t, 'b', 'right', 'c', 's2');
     const { root, focusId } = closeLeaf(t, 'b');
@@ -110,7 +112,7 @@ describe('terminalTree', () => {
     expect(directionalNeighbor(t, 'a', 'up')).toBeNull();
   });
 
-  it('directionalNeighbor moves within a stacked column (Ghostty spatial)', () => {
+  it('directionalNeighbor moves within a stacked column (spatial nav)', () => {
     // Layout: a | (b / c) — a is full height on the left; b top-right, c bottom-right.
     let t = splitLeaf(leaf('a'), 'a', 'right', 'b', 's1');
     t = splitLeaf(t, 'b', 'down', 'c', 's2');
@@ -190,5 +192,30 @@ describe('terminalTree', () => {
     let t = splitLeaf(leaf('a'), 'a', 'right', 'b', 's1');
     t = splitLeaf(t, 'a', 'down', 'c', 's2'); // (a / c) | b
     expect(firstLeaf(t).id).toBe('a');
+  });
+
+  it("splitBounds returns a split node's enclosing sub-rectangle", () => {
+    // a | (b | c): root row s1 spans the whole area; the inner row s2 is the
+    // right half.
+    let t = splitLeaf(leaf('a'), 'a', 'right', 'b', 's1');
+    t = splitLeaf(t, 'b', 'right', 'c', 's2');
+    expect(splitBounds(t, 's1')).toEqual({ x: 0, y: 0, w: 1, h: 1 });
+    expect(splitBounds(t, 's2')).toEqual({ x: 0.5, y: 0, w: 0.5, h: 1 });
+    expect(splitBounds(t, 'missing')).toBeNull();
+  });
+
+  it('splitDividers carries each split bounds, enabling correct nested drag', () => {
+    // a | (b | c). The inner divider sits at AREA x = 0.5 + 0.5*0.5 = 0.75, but a
+    // drag must convert that to a fraction of the split's OWN [0.5..1] span:
+    // (0.75 - 0.5) / 0.5 = 0.5. Regression guard for the nested divider-drag fix
+    // (scaling by the whole area instead of the split's bounds was the bug).
+    let t = splitLeaf(leaf('a'), 'a', 'right', 'b', 's1');
+    t = splitLeaf(t, 'b', 'right', 'c', 's2');
+    const inner = splitDividers(t).find((d) => d.splitId === 's2');
+    expect(inner).toBeDefined();
+    if (!inner) return;
+    expect(inner.bounds).toEqual({ x: 0.5, y: 0, w: 0.5, h: 1 });
+    const local = (inner.rect.x - inner.bounds.x) / inner.bounds.w;
+    expect(local).toBeCloseTo(0.5, 6);
   });
 });

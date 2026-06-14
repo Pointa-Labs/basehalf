@@ -13,12 +13,13 @@ import {
   resizeTarget,
   ringNeighbor,
   setFraction as setFractionTree,
+  splitBounds,
   splitLeaf,
 } from '../lib/terminalTree.js';
 
-// Ghostty-style terminal layout: a set of TABS, each holding a recursive SPLIT
-// TREE of panes. Each leaf id doubles as the key of the terminal session (one
-// pty) it hosts — creating a leaf mounts a pty, removing it kills it.
+// Terminal dock layout: a set of TABS, each holding a recursive SPLIT TREE of
+// panes. Each leaf id doubles as the key of the terminal session (one pty) it
+// hosts — creating a leaf mounts a pty, removing it kills it.
 //
 // NOT persisted across reload: the ptys live in main and don't survive a
 // renderer reload, so restoring a stale tree would point at dead sessions. Each
@@ -29,8 +30,8 @@ interface TermTab {
   id: string;
   tree: TermNode;
   focusedLeafId: string;
-  /** A user-set tab name (double-click to rename, Ghostty's `set_tab_title`).
-   *  When set it overrides the live program title; empty/undefined → live title. */
+  /** A user-set tab name (double-click to rename). When set it overrides the
+   *  live program title; empty/undefined → live title. */
   titleOverride?: string;
 }
 
@@ -39,25 +40,36 @@ interface TerminalState {
   activeTabId: string;
   /** When set, the active tab shows only this leaf full-bleed (⌘⇧↵ zoom). */
   zoomedLeafId: string | null;
-  /** Whether keyboard focus is inside the terminal dock — gates the Ghostty
-   *  keymap and arbitrates ⌘W against the editor overlay. */
+  /** Whether keyboard focus is inside the terminal dock — gates the dock keymap
+   *  and arbitrates ⌘W against the editor overlay. */
   focused: boolean;
   /** Live terminal title per pane (the running program's OSC title, e.g.
-   *  "claude", "zsh", a cwd). A tab shows its focused pane's title — Ghostty's
-   *  tabs name the running program, not "Terminal N". */
+   *  "claude", "zsh", a cwd). A tab shows its focused pane's title — tabs name
+   *  the running program, not "Terminal N". */
   titles: Record<string, string>;
   /** Live cols×rows per pane (from xterm onResize) — drives the resize HUD. */
   dims: Record<string, { cols: number; rows: number }>;
   /** Bumped on every split resize (key or divider drag) so the dock can flash
-   *  the dimensions HUD (Ghostty's resize overlay). */
+   *  the dimensions HUD (the resize overlay). */
   resizeTick: number;
   /** The leaf being drag-moved (grab handle), or null. Gates the per-pane
    *  drop-zone overlays so they only show during a drag. */
   dragLeafId: string | null;
+  /** Tab ids with unseen output since they were last active — drives the
+   *  activity dot. Set when a pane in a NON-active tab emits output; cleared
+   *  when that tab becomes active. */
+  activity: Record<string, boolean>;
 
   newTab: () => void;
   setActiveTab: (id: string) => void;
   closeTab: (id: string) => void;
+  /** Close every tab but `tabId` (right-click ▸ Close Others). */
+  closeOtherTabs: (tabId: string) => void;
+  /** Close every tab to the right of `tabId` (right-click ▸ Close to the Right). */
+  closeTabsToRight: (tabId: string) => void;
+  /** Flag the tab containing `leafId` as having unseen output (no-op if that
+   *  tab is already active or already flagged). */
+  markActivity: (leafId: string) => void;
   /** Close the focused split; collapse its parent; close the tab if it was the
    *  last split; always keep at least one terminal alive in the dock. */
   closeFocusedLeaf: () => void;
@@ -66,9 +78,9 @@ interface TerminalState {
   gotoDir: (dir: FocusDir) => void;
   gotoRing: (delta: 1 | -1) => void;
   switchTab: (delta: 1 | -1) => void;
-  /** Activate tab by 1-based index, clamped to the last (Ghostty `goto_tab:N`). */
+  /** Activate tab by 1-based index, clamped to the last. */
   gotoTab: (index: number) => void;
-  /** Activate the last tab (Ghostty `last_tab`, ⌘9). */
+  /** Activate the last tab (⌘9). */
   lastTab: () => void;
   resizeFocused: (dir: FocusDir) => void;
   equalizeSplits: () => void;
@@ -96,7 +108,11 @@ const freshTab = (): TermTab => {
   return { id, tree: leaf(leafId), focusedLeafId: leafId };
 };
 
-const RESIZE_STEP = 0.04; // fraction per ⌘⌃arrow press
+// Fraction of the WHOLE dock area the divider moves per ⌘⌃arrow press. We scale
+// this by the target split's own normalized size so a small nested split and the
+// root split move by the same on-screen amount (≈ constant pixels), instead of a
+// flat per-split fraction that feels faster in small splits.
+const AREA_RESIZE_STEP = 0.04;
 
 const initialTab = freshTab();
 
@@ -109,13 +125,15 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   dims: {},
   resizeTick: 0,
   dragLeafId: null,
+  activity: {},
 
   newTab: () => {
     const tab = freshTab();
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id, zoomedLeafId: null }));
   },
 
-  setActiveTab: (id) => set({ activeTabId: id, zoomedLeafId: null }),
+  setActiveTab: (id) =>
+    set((s) => ({ activeTabId: id, zoomedLeafId: null, activity: clearActivity(s.activity, id) })),
 
   closeTab: (id) =>
     set((s) => {
@@ -124,7 +142,35 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const tabs = s.tabs.filter((t) => t.id !== id);
       const fallback = tabs[Math.max(0, idx - 1)] ?? tabs[0];
       const activeTabId = s.activeTabId === id ? (fallback?.id ?? s.activeTabId) : s.activeTabId;
-      return { tabs, activeTabId, zoomedLeafId: null };
+      return { tabs, activeTabId, zoomedLeafId: null, activity: clearActivity(s.activity, id) };
+    }),
+
+  closeOtherTabs: (tabId) =>
+    set((s) => {
+      const keep = s.tabs.find((t) => t.id === tabId);
+      if (!keep || s.tabs.length <= 1) return s;
+      return { tabs: [keep], activeTabId: tabId, zoomedLeafId: null, activity: {} };
+    }),
+
+  closeTabsToRight: (tabId) =>
+    set((s) => {
+      const idx = s.tabs.findIndex((t) => t.id === tabId);
+      if (idx < 0 || idx >= s.tabs.length - 1) return s;
+      const tabs = s.tabs.slice(0, idx + 1);
+      const activeStillThere = tabs.some((t) => t.id === s.activeTabId);
+      return {
+        tabs,
+        activeTabId: activeStillThere ? s.activeTabId : tabId,
+        zoomedLeafId: null,
+      };
+    }),
+
+  markActivity: (leafId) =>
+    set((s) => {
+      const tab = s.tabs.find((t) => findLeaf(t.tree, leafId));
+      // Output in the active tab is visible → not "unseen". Already-flagged → no-op.
+      if (!tab || tab.id === s.activeTabId || s.activity[tab.id]) return s;
+      return { activity: { ...s.activity, [tab.id]: true } };
     }),
 
   closeFocusedLeaf: () =>
@@ -173,6 +219,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set((s) => ({
       activeTabId: tabId,
       tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, focusedLeafId: leafId } : t)),
+      activity: clearActivity(s.activity, tabId),
     })),
 
   gotoDir: (dir) =>
@@ -197,7 +244,8 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       if (s.tabs.length <= 1) return s;
       const i = s.tabs.findIndex((t) => t.id === s.activeTabId);
       const next = s.tabs[(i + delta + s.tabs.length) % s.tabs.length];
-      return { activeTabId: next?.id ?? s.activeTabId, zoomedLeafId: null };
+      const id = next?.id ?? s.activeTabId;
+      return { activeTabId: id, zoomedLeafId: null, activity: clearActivity(s.activity, id) };
     }),
 
   resizeFocused: (dir) =>
@@ -208,10 +256,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       if (!target) return s;
       const split = findSplit(tab.tree, target.splitId);
       if (!split) return s;
-      // Ghostty maps direction → divider ABSOLUTELY, independent of which side
-      // the focused pane sits on: right/down move the divider right/down (grow
+      // Direction maps to the divider ABSOLUTELY, independent of which side the
+      // focused pane sits on: right/down move the divider right/down (grow
       // side-a), left/up move it back (shrink side-a). Resize also resets zoom.
-      const delta = (dir === 'right' || dir === 'down' ? 1 : -1) * RESIZE_STEP;
+      // Scale the step by the split's own axis size so nested and root splits
+      // move by the same on-screen amount.
+      const bounds = splitBounds(tab.tree, target.splitId);
+      const axis = Math.max(0.05, split.dir === 'row' ? (bounds?.w ?? 1) : (bounds?.h ?? 1));
+      const delta = ((dir === 'right' || dir === 'down' ? 1 : -1) * AREA_RESIZE_STEP) / axis;
       const tree = setFractionTree(tab.tree, target.splitId, split.fraction + delta);
       return {
         tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)),
@@ -225,23 +277,27 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const tab = s.tabs.find((t) => t.id === s.activeTabId);
       if (!tab || tab.tree.type === 'leaf') return s;
       const tree = equalize(tab.tree);
-      // Ghostty preserves zoom across equalize.
+      // Equalize preserves zoom.
       return { tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, tree } : t)) };
     }),
 
   gotoTab: (index) =>
     set((s) => {
       if (s.tabs.length === 0) return s;
-      // 1-based, clamp to last (Ghostty: goto_tab past the end → last tab).
+      // 1-based, clamp to last (goto past the end → the last tab).
       const i = Math.min(Math.max(1, Math.floor(index)), s.tabs.length) - 1;
       const next = s.tabs[i];
-      return next ? { activeTabId: next.id, zoomedLeafId: null } : s;
+      return next
+        ? { activeTabId: next.id, zoomedLeafId: null, activity: clearActivity(s.activity, next.id) }
+        : s;
     }),
 
   lastTab: () =>
     set((s) => {
       const next = s.tabs[s.tabs.length - 1];
-      return next ? { activeTabId: next.id, zoomedLeafId: null } : s;
+      return next
+        ? { activeTabId: next.id, zoomedLeafId: null, activity: clearActivity(s.activity, next.id) }
+        : s;
     }),
 
   toggleZoom: () =>
@@ -326,6 +382,14 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       };
     }),
 }));
+
+/** Drop a tab's activity flag (it just became active → its output is now seen).
+ *  Returns the SAME object when nothing changes, so it never forces a render. */
+function clearActivity(act: Record<string, boolean>, tabId: string): Record<string, boolean> {
+  if (!act[tabId]) return act;
+  const { [tabId]: _drop, ...rest } = act;
+  return rest;
+}
 
 // Local helper (the tree module exposes leaf finders; splits we look up here).
 function findSplit(root: TermNode, id: string): Extract<TermNode, { type: 'split' }> | null {

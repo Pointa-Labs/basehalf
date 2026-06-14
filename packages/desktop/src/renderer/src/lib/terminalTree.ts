@@ -1,7 +1,7 @@
-// Ghostty-style split tree for the terminal — ported in spirit from
-// reference/ghostty (a tab holds a recursive tree of split panes; each leaf is
-// one terminal/pty). Kept PURE + deterministic (ids are passed in, never
-// generated here) so it's unit-testable and the store owns id minting.
+// Pure split tree for the terminal dock: a tab holds a recursive tree of split
+// panes; each leaf is one terminal (one pty). Kept PURE + deterministic (ids are
+// passed in, never generated here) so it's unit-testable and the store owns id
+// minting. The split model follows tiling-terminal conventions.
 //
 // dir 'row'    → side-by-side  (a = left,  b = right)  ← "split right" (⌘D)
 // dir 'column' → stacked       (a = top,   b = bottom) ← "split down"  (⌘⇧D)
@@ -71,10 +71,10 @@ function removeLeaf(root: TermNode, leafId: string): TermNode | null {
   return inA ? { ...root, a: collapsed } : { ...root, b: collapsed };
 }
 
-/** The id to focus after `leafId` closes — Ghostty's rule
- *  (BaseTerminalController: "previous leaf, unless we were the leftmost, then
- *  next"), computed over the PRE-close in-order leaf list. The result survives
- *  the removal (it's never the closed leaf). null if `leafId` is the whole tree. */
+/** The id to focus after `leafId` closes — the convention: the previous leaf,
+ *  unless we closed the leftmost (then the next) — computed over the PRE-close
+ *  in-order leaf list. The result survives the removal (it's never the closed
+ *  leaf). null if `leafId` is the whole tree. */
 function focusAfterClose(root: TermNode, leafId: string): string | null {
   const ids = orderedLeafIds(root);
   if (ids.length <= 1) return null;
@@ -85,7 +85,7 @@ function focusAfterClose(root: TermNode, leafId: string): string | null {
 
 /** Remove `leafId`. The parent split collapses into the sibling subtree.
  *  Returns the new root (null if the closed leaf was the whole tree) and the id
- *  to focus next — Ghostty's previous-unless-leftmost-then-next rule. */
+ *  to focus next — the previous-unless-leftmost-then-next rule. */
 export function closeLeaf(
   root: TermNode,
   leafId: string,
@@ -162,28 +162,68 @@ export function leafRects(root: TermNode): Map<string, Rect> {
   return out;
 }
 
+/** The normalized [0..1] rect of a split node (its enclosing sub-rectangle) —
+ *  the scale a divider drag / keyboard resize must be measured against, so a
+ *  nested split moves relative to its OWN bounds, not the whole area. */
+export function splitBounds(root: TermNode, splitId: string): Rect | null {
+  let found: Rect | null = null;
+  const walk = (node: TermNode, r: Rect): void => {
+    if (found || node.type === 'leaf') return;
+    if (node.id === splitId) {
+      found = r;
+      return;
+    }
+    if (node.dir === 'row') {
+      const wa = r.w * node.fraction;
+      walk(node.a, { x: r.x, y: r.y, w: wa, h: r.h });
+      walk(node.b, { x: r.x + wa, y: r.y, w: r.w - wa, h: r.h });
+    } else {
+      const ha = r.h * node.fraction;
+      walk(node.a, { x: r.x, y: r.y, w: r.w, h: ha });
+      walk(node.b, { x: r.x, y: r.y + ha, w: r.w, h: r.h - ha });
+    }
+  };
+  walk(root, { x: 0, y: 0, w: 1, h: 1 });
+  return found;
+}
+
 export interface Divider {
   readonly splitId: string;
   readonly dir: 'row' | 'column';
   /** A zero-width (row) / zero-height (column) line in [0..1] space; the UI
    *  draws a fixed-thickness grab strip centered on it. */
   readonly rect: Rect;
+  /** The enclosing split's full [0..1] sub-rectangle — the denominator a drag
+   *  must scale by so nested splits resize relative to their own bounds. */
+  readonly bounds: Rect;
 }
 
 /** The draggable boundary line for every split, in normalized [0..1] space —
- *  drives the resize handles. */
+ *  drives the resize handles. Each divider also carries its split's enclosing
+ *  `bounds` so a drag scales by the split's own sub-rectangle (not the whole
+ *  area), which is what makes nested same-axis splits resize correctly. */
 export function splitDividers(root: TermNode): Divider[] {
   const out: Divider[] = [];
   const walk = (node: TermNode, r: Rect): void => {
     if (node.type === 'leaf') return;
     if (node.dir === 'row') {
       const wa = r.w * node.fraction;
-      out.push({ splitId: node.id, dir: 'row', rect: { x: r.x + wa, y: r.y, w: 0, h: r.h } });
+      out.push({
+        splitId: node.id,
+        dir: 'row',
+        rect: { x: r.x + wa, y: r.y, w: 0, h: r.h },
+        bounds: r,
+      });
       walk(node.a, { x: r.x, y: r.y, w: wa, h: r.h });
       walk(node.b, { x: r.x + wa, y: r.y, w: r.w - wa, h: r.h });
     } else {
       const ha = r.h * node.fraction;
-      out.push({ splitId: node.id, dir: 'column', rect: { x: r.x, y: r.y + ha, w: r.w, h: 0 } });
+      out.push({
+        splitId: node.id,
+        dir: 'column',
+        rect: { x: r.x, y: r.y + ha, w: r.w, h: 0 },
+        bounds: r,
+      });
       walk(node.a, { x: r.x, y: r.y, w: r.w, h: ha });
       walk(node.b, { x: r.x, y: r.y + ha, w: r.w, h: r.h - ha });
     }
@@ -192,11 +232,13 @@ export function splitDividers(root: TermNode): Divider[] {
   return out;
 }
 
-/** The nearest leaf in a spatial direction — Ghostty's `goto_split:dir`
- *  algorithm (SplitTree.swift): keep only candidates lying ENTIRELY beyond our
- *  edge in `dir` (a half-plane filter — NO perpendicular-overlap gate, so a
- *  diagonal pane still qualifies), then pick the one whose TOP-LEFT corner is
- *  Euclidean-nearest to ours. No wrap — null at the edge. */
+/** The nearest leaf in a spatial direction — the directional split-focus
+ *  algorithm: keep only candidates lying ENTIRELY beyond our edge in `dir` (a
+ *  half-plane filter — NO perpendicular-overlap gate, so a diagonal pane still
+ *  qualifies), then pick the one whose TOP-LEFT corner is Euclidean-nearest to
+ *  ours. No wrap — null at the edge. (Equivalent to the reference model that
+ *  ranks all split + leaf slots by distance and takes the first leaf, since a
+ *  split only ever passes the filter when its own leaves do.) */
 export function directionalNeighbor(root: TermNode, leafId: string, dir: FocusDir): string | null {
   const rects = leafRects(root);
   const me = rects.get(leafId);
@@ -217,7 +259,7 @@ export function directionalNeighbor(root: TermNode, leafId: string, dir: FocusDi
             ? r.y + r.h <= me.y + E
             : r.y + E >= me.y + me.h;
     if (!beyond) continue;
-    // Nearest by Euclidean distance between TOP-LEFT corners (Ghostty's metric).
+    // Nearest by Euclidean distance between TOP-LEFT corners.
     const dx = r.x - me.x;
     const dy = r.y - me.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -256,9 +298,9 @@ export function resizeTarget(
   return found;
 }
 
-/** Direction-aware leaf weight (Ghostty's `equalized()` helper): a leaf weighs
- *  1; a split nested along the SAME axis contributes the sum of its children's
- *  weights; a split along the PERPENDICULAR axis counts as 1. */
+/** Direction-aware leaf weight: a leaf weighs 1; a split nested along the SAME
+ *  axis contributes the sum of its children's weights; a split along the
+ *  PERPENDICULAR axis counts as 1. */
 function weightForDir(node: TermNode, dir: 'row' | 'column'): number {
   if (node.type === 'leaf') return 1;
   if (node.dir === dir) return weightForDir(node.a, dir) + weightForDir(node.b, dir);
@@ -266,8 +308,8 @@ function weightForDir(node: TermNode, dir: 'row' | 'column'): number {
 }
 
 /** Reset every split's fraction so panes are evenly sized by leaf weight —
- *  Ghostty's `equalize_splits` (⌘⌃= / double-click a divider). Children are
- *  equalized first, then each split's fraction = left weight / total weight. */
+ *  the equalize-splits action (⌘⌃=). Children are equalized first, then each
+ *  split's fraction = left weight / total weight. */
 export function equalize(root: TermNode): TermNode {
   if (root.type === 'leaf') return root;
   const a = equalize(root.a);
@@ -309,8 +351,8 @@ export function insertBeside(
 }
 
 /** Which drop-zone edge a point in a pane's [0..1] space lands in — the nearest
- *  edge (Ghostty's 4-triangle partition), ties broken left→right→up→down, exact
- *  center → left. Drives drag-to-split previews + drops. */
+ *  edge (a 4-triangle partition), ties broken left→right→up→down, exact center
+ *  → left. Drives drag-to-split previews + drops. */
 export function dropEdge(px: number, py: number): FocusDir {
   const candidates: ReadonlyArray<readonly [FocusDir, number]> = [
     ['left', px],

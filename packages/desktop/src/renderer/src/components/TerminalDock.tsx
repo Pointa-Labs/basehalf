@@ -1,5 +1,6 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
-import { color, font, radius, space, transition } from '../design.js';
+import { createPortal } from 'react-dom';
+import { color, font, radius, shadow, space, transition } from '../design.js';
 import {
   type FocusDir,
   type TermNode,
@@ -13,12 +14,12 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
 
 /**
- * The RIGHT-most region: a fixed home for the embedded terminal, modelled on
- * Ghostty — TABS, each holding a recursive SPLIT TREE of panes (one pty each).
- * Not the VS-Code tab strip: splits are first-class (⌘D right, ⌘⇧D down), with
- * ⌘[ ⌘] / ⌘⌥arrows to move focus, ⌘⌃arrows to resize, ⌘⇧↵ to zoom, ⌘T new tab,
- * ⌘⇧[ ⌘⇧] to switch tabs, ⌘W to close the focused split. The keymap only fires
- * while focus is in the dock (so it never steals the app's shortcuts).
+ * The RIGHT-most region: a fixed home for the embedded terminal — TABS, each
+ * holding a recursive SPLIT TREE of panes (one pty each). Splits are first-class
+ * (⌘D right, ⌘⇧D down), with ⌘[ ⌘] / ⌘⌥arrows to move focus, ⌘⌃arrows to resize,
+ * ⌘⇧↵ to zoom, ⌘T new tab, ⌘⇧[ ⌘⇧] to switch tabs, ⌘W to close the focused
+ * split. The keymap only fires while focus is in the dock (so it never steals
+ * the app's shortcuts).
  *
  * Every pane in every tab stays mounted (an inactive tab / unfocused split keeps
  * its agent running); visibility is CSS. Panes are absolutely positioned from
@@ -32,8 +33,11 @@ export const TerminalDock = (): JSX.Element => {
   const setActiveTab = useTerminalStore((s) => s.setActiveTab);
   const newTab = useTerminalStore((s) => s.newTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
+  const closeOtherTabs = useTerminalStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useTerminalStore((s) => s.closeTabsToRight);
   const setFocused = useTerminalStore((s) => s.setFocused);
   const titles = useTerminalStore((s) => s.titles);
+  const activity = useTerminalStore((s) => s.activity);
   const zoomed = useTerminalStore((s) => s.zoomedLeafId != null);
   const toggleZoom = useTerminalStore((s) => s.toggleZoom);
   const reorderTab = useTerminalStore((s) => s.reorderTab);
@@ -85,9 +89,12 @@ export const TerminalDock = (): JSX.Element => {
         tabs={tabs}
         activeTabId={activeTabId}
         titles={titles}
+        activity={activity}
         zoomed={zoomed}
         onSelect={setActiveTab}
         onClose={closeTab}
+        onCloseOthers={closeOtherTabs}
+        onCloseToRight={closeTabsToRight}
         onAdd={newTab}
         onReorder={reorderTab}
         onRename={setTabTitle}
@@ -119,6 +126,7 @@ export const TerminalDock = (): JSX.Element => {
 
 // ── One tab's split tree, absolutely positioned from the geometry ────────────
 const DIVIDER_HIT = 6; // px grab strip over the 1px line
+const MIN_PANE_PX = 48; // smallest a pane may be dragged to (absolute floor)
 
 const TermPaneArea = ({
   tab,
@@ -192,6 +200,7 @@ const TermPane = ({
   const focusLeaf = useTerminalStore((s) => s.focusLeaf);
   const setTitle = useTerminalStore((s) => s.setTitle);
   const setDims = useTerminalStore((s) => s.setDims);
+  const markActivity = useTerminalStore((s) => s.markActivity);
   const dragLeafId = useTerminalStore((s) => s.dragLeafId);
   const setDragLeaf = useTerminalStore((s) => s.setDragLeaf);
   const moveLeafBeside = useTerminalStore((s) => s.moveLeafBeside);
@@ -202,7 +211,7 @@ const TermPane = ({
   const isFocused = isActiveTab && leafId === tab.focusedLeafId;
   const full = zoomed === leafId;
   const hidden = zoomed != null && !full;
-  // Ghostty dims every UNFOCUSED split (no focus border — the dim is the cue).
+  // Dim every UNFOCUSED split (no focus border — the dim is the cue).
   const dimmed = isActiveTab && isSplit && !isFocused && !full && !hidden;
   const isDragSource = dragLeafId === leafId;
   const isDropCandidate = isActiveTab && dragLeafId != null && dragLeafId !== leafId && !hidden;
@@ -282,6 +291,7 @@ const TermPane = ({
           onRestart={() => onRestart(leafId)}
           onTitle={(t) => setTitle(leafId, t)}
           onDims={(c, rr) => setDims(leafId, c, rr)}
+          onActivity={() => markActivity(leafId)}
         />
         {dimmed && (
           // unfocused-split-opacity 0.7 (bg over the pane); pointerEvents:none so
@@ -311,8 +321,8 @@ const TermPane = ({
   );
 };
 
-// The drag-to-split grab handle (Ghostty's top-edge surface handle). Only the
-// handle is draggable, so dragging never fights xterm's text selection.
+// The drag-to-split grab handle (a top-edge surface handle). Only the handle is
+// draggable, so dragging never fights xterm's text selection.
 const GrabHandle = ({
   leafId,
   visible,
@@ -387,8 +397,8 @@ const DropZoneOverlay = ({ edge }: { edge: FocusDir }): JSX.Element => {
   );
 };
 
-// The transient "cols × rows" HUD shown over the focused pane on resize
-// (Ghostty's resize overlay) — auto-hides after a beat.
+// The transient "cols × rows" HUD shown over the focused pane on resize —
+// auto-hides after a beat.
 const ResizeHud = ({ focusedLeafId }: { focusedLeafId: string }): JSX.Element | null => {
   const resizeTick = useTerminalStore((s) => s.resizeTick);
   const dims = useTerminalStore((s) => s.dims[focusedLeafId]);
@@ -429,11 +439,15 @@ const PaneDivider = ({
   divider,
   areaRef,
 }: {
-  divider: { splitId: string; dir: 'row' | 'column'; rect: { x: number; y: number } };
+  divider: {
+    splitId: string;
+    dir: 'row' | 'column';
+    rect: { x: number; y: number };
+    bounds: { x: number; y: number; w: number; h: number };
+  };
   areaRef: React.RefObject<HTMLDivElement | null>;
 }): JSX.Element => {
   const setSplitFraction = useTerminalStore((s) => s.setSplitFraction);
-  const equalizeSplits = useTerminalStore((s) => s.equalizeSplits);
   const [active, setActive] = useState(false);
   const [hover, setHover] = useState(false);
   const row = divider.dir === 'row'; // vertical line, horizontal drag
@@ -446,11 +460,23 @@ const PaneDivider = ({
       const area = areaRef.current;
       if (!area) return;
       const box = area.getBoundingClientRect();
-      // Fraction of the WHOLE area; the split's fraction is of its own subrect,
-      // but at the top level (the common case) they coincide. For nested splits
-      // this is a close-enough drag — clamped by setFraction.
-      const f = row ? (ev.clientX - box.left) / box.width : (ev.clientY - box.top) / box.height;
-      setSplitFraction(divider.splitId, f);
+      if (box.width === 0 || box.height === 0) return;
+      const b = divider.bounds;
+      // Cursor as a fraction of the WHOLE area, re-expressed as a fraction of the
+      // split's OWN sub-rectangle — so a nested split resizes relative to its own
+      // bounds, not the whole dock (otherwise the divider snaps/accelerates).
+      const areaFrac = row
+        ? (ev.clientX - box.left) / box.width
+        : (ev.clientY - box.top) / box.height;
+      const span = row ? b.w : b.h;
+      const origin = row ? b.x : b.y;
+      let local = span > 0 ? (areaFrac - origin) / span : 0.5;
+      // Absolute min-pixel floor so a pane can't be dragged to an unusable
+      // sliver, on top of setSplitFraction's [0.1,0.9] clamp.
+      const splitPx = span * (row ? box.width : box.height);
+      const floor = splitPx > 0 ? Math.min(0.45, MIN_PANE_PX / splitPx) : 0.1;
+      local = Math.max(floor, Math.min(1 - floor, local));
+      setSplitFraction(divider.splitId, local);
     };
     const onUp = (): void => {
       setActive(false);
@@ -465,12 +491,12 @@ const PaneDivider = ({
     document.body.style.userSelect = 'none';
   };
 
-  // Ghostty shows a faint static divider always; it brightens on hover/drag.
+  // A faint static divider, brightening on hover/drag.
   const lit = active ? color.accent : hover ? color.borderStrong : 'rgba(255,255,255,0.07)';
   return (
     <div
       onMouseDown={onMouseDown}
-      onDoubleClick={equalizeSplits} // Ghostty: double-click a divider → equalize
+      onDoubleClick={() => setSplitFraction(divider.splitId, 0.5)} // reset this split to 50/50
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
@@ -509,22 +535,24 @@ const PaneDivider = ({
 };
 
 // ── Tab strip ────────────────────────────────────────────────────────────────
-// VS-Code tab LOGIC, Ghostty STYLING.
-//   Logic (the editor's tab model):
+// Editor-style tab logic on the terminal surface.
+//   Logic (a code editor's tab model):
 //   • Always visible, so the + button (new tab) is always reachable by mouse,
 //     not only via ⌘T.
 //   • Content-width tabs, left-aligned, in a horizontally-scrollable row — they
 //     fit their title and overflow into a scroll rather than squashing equally.
+//     The active tab scrolls into view on change.
 //   • The + sits in a fixed slot at the right, never scrolling out of reach.
-//   • Each tab is independently closable; the ✕ shows on hover or the active
-//     tab. The lone tab hides its ✕ (the dock always keeps one terminal).
-//   Styling (Ghostty's look):
-//   • Dark One-Dark chrome; active vs inactive conveyed by ELEVATION, not a top
-//     accent line — the active tab rises to the terminal background (bright
-//     text), inactive tabs recede to the darker chrome tone (dimmed), separated
-//     by hairline dividers.
+//   • Each tab is independently closable (✕ on hover / active, middle-click, or
+//     the right-click menu); the lone tab hides its ✕ (the dock always keeps one
+//     terminal). Double-click a tab to rename, the empty strip to add one.
+//   Styling:
+//   • Dark chrome; active vs inactive conveyed by ELEVATION, not a top accent
+//     line — the active tab rises to the terminal background (bright text),
+//     inactive tabs recede to the darker chrome tone (dimmed), separated by
+//     hairline dividers.
 //   • Each tab is named by its focused pane's live title (the running program),
-//     falling back to "Terminal".
+//     falling back to "Terminal"; an inactive tab with unseen output shows a dot.
 const TAB_BAR_HEIGHT = 32;
 const TAB_MIN_WIDTH = 92;
 const TAB_MAX_WIDTH = 180;
@@ -533,9 +561,12 @@ const TermTabBar = ({
   tabs,
   activeTabId,
   titles,
+  activity,
   zoomed,
   onSelect,
   onClose,
+  onCloseOthers,
+  onCloseToRight,
   onAdd,
   onReorder,
   onRename,
@@ -544,9 +575,12 @@ const TermTabBar = ({
   tabs: { id: string; focusedLeafId: string; titleOverride?: string }[];
   activeTabId: string;
   titles: Record<string, string>;
+  activity: Record<string, boolean>;
   zoomed: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onCloseOthers: (id: string) => void;
+  onCloseToRight: (id: string) => void;
   onAdd: () => void;
   onReorder: (tabId: string, toIndex: number) => void;
   onRename: (tabId: string, title: string) => void;
@@ -554,6 +588,12 @@ const TermTabBar = ({
 }): JSX.Element => {
   const closable = tabs.length > 1;
   const [dragId, setDragId] = useState<string | null>(null);
+  // Rename + context menu are lifted to the strip so the right-click menu can
+  // trigger a rename on the right tab, and only one menu is ever open.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
+  const menuIdx = menu ? tabs.findIndex((t) => t.id === menu.tabId) : -1;
+
   return (
     <div
       style={{
@@ -569,6 +609,12 @@ const TermTabBar = ({
       {/* Tabs scroll horizontally when they overflow; the + stays pinned right. */}
       <div
         data-term-tabs
+        role="tablist"
+        aria-label="Terminal tabs"
+        onDoubleClick={(e) => {
+          // Double-click the empty strip area (not a tab) → new tab.
+          if (e.target === e.currentTarget) onAdd();
+        }}
         style={{
           display: 'flex',
           alignItems: 'stretch',
@@ -589,9 +635,17 @@ const TermTabBar = ({
             first={i === 0}
             closable={closable}
             dragging={dragId === t.id}
+            editing={editingId === t.id}
+            activity={!!activity[t.id] && t.id !== activeTabId}
             onSelect={() => onSelect(t.id)}
             onClose={() => onClose(t.id)}
-            onRename={(title) => onRename(t.id, title)}
+            onContextMenu={(x, y) => setMenu({ tabId: t.id, x, y })}
+            onEditStart={() => setEditingId(t.id)}
+            onEditCommit={(title) => {
+              setEditingId(null);
+              onRename(t.id, title);
+            }}
+            onEditCancel={() => setEditingId(null)}
             onDragStart={() => setDragId(t.id)}
             onDragEnd={() => setDragId(null)}
             onDropHere={() => {
@@ -645,6 +699,36 @@ const TermTabBar = ({
       >
         +
       </button>
+      {menu && (
+        <TabContextMenu
+          x={menu.x}
+          y={menu.y}
+          canClose={closable}
+          canCloseOthers={tabs.length > 1}
+          canCloseToRight={menuIdx >= 0 && menuIdx < tabs.length - 1}
+          onRename={() => {
+            setEditingId(menu.tabId);
+            setMenu(null);
+          }}
+          onClose={() => {
+            onClose(menu.tabId);
+            setMenu(null);
+          }}
+          onCloseOthers={() => {
+            onCloseOthers(menu.tabId);
+            setMenu(null);
+          }}
+          onCloseToRight={() => {
+            onCloseToRight(menu.tabId);
+            setMenu(null);
+          }}
+          onNewTab={() => {
+            onAdd();
+            setMenu(null);
+          }}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 };
@@ -656,9 +740,14 @@ const TermTab = ({
   first,
   closable,
   dragging,
+  editing,
+  activity,
   onSelect,
   onClose,
-  onRename,
+  onContextMenu,
+  onEditStart,
+  onEditCommit,
+  onEditCancel,
   onDragStart,
   onDragEnd,
   onDropHere,
@@ -669,33 +758,59 @@ const TermTab = ({
   first: boolean;
   closable: boolean;
   dragging: boolean;
+  editing: boolean;
+  activity: boolean;
   onSelect: () => void;
   onClose: () => void;
-  onRename: (title: string) => void;
+  onContextMenu: (x: number, y: number) => void;
+  onEditStart: () => void;
+  onEditCommit: (title: string) => void;
+  onEditCancel: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
   onDropHere: () => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(title);
+  const [draft, setDraft] = useState('');
+  const ref = useRef<HTMLDivElement | null>(null);
 
-  const beginEdit = (): void => {
-    // Seed the field with the current override (blank if it's a live title), so
-    // an empty commit clears back to the running program's name.
-    setDraft(hasOverride ? title : '');
-    setEditing(true);
-  };
-  const commit = (): void => {
-    setEditing(false);
-    onRename(draft);
-  };
+  // Seed the rename field when editing begins — blank if the title is the live
+  // program name, so an empty commit clears back to it.
+  useEffect(() => {
+    if (editing) setDraft(hasOverride ? title : '');
+  }, [editing, hasOverride, title]);
+
+  // Reveal the active tab when it changes — keyboard tab nav (⌘1-9 / ⌘⇧[ ]) must
+  // scroll it back into view once tabs overflow the strip.
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [active]);
+
+  const showX = closable && (hover || active);
 
   return (
     <div
+      ref={ref}
+      role="tab"
+      aria-selected={active}
       draggable={!editing}
-      onMouseDown={editing ? undefined : onSelect}
-      onDoubleClick={beginEdit}
+      onMouseDown={(e) => {
+        if (editing) return;
+        if (e.button === 1) {
+          // Middle-click closes (the standard tab gesture); preventDefault stops
+          // the OS auto-scroll/paste.
+          e.preventDefault();
+          if (closable) onClose();
+          return;
+        }
+        if (e.button === 0) onSelect();
+      }}
+      onDoubleClick={onEditStart}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e.clientX, e.clientY);
+      }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onDragStart={(e) => {
@@ -711,8 +826,8 @@ const TermTab = ({
       }}
       style={{
         position: 'relative',
-        // Content-width, left-aligned — the editor's tab sizing. Tabs fit their
-        // title (bounded) and the row scrolls when they overflow.
+        // Content-width, left-aligned — an editor-style tab sizing. Tabs fit
+        // their title (bounded) and the row scrolls when they overflow.
         flexShrink: 0,
         minWidth: TAB_MIN_WIDTH,
         maxWidth: TAB_MAX_WIDTH,
@@ -742,10 +857,10 @@ const TermTab = ({
           value={draft}
           placeholder="Terminal"
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onBlur={() => onEditCommit(draft)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commit();
-            else if (e.key === 'Escape') setEditing(false);
+            if (e.key === 'Enter') onEditCommit(draft);
+            else if (e.key === 'Escape') onEditCancel();
             e.stopPropagation();
           }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -775,40 +890,182 @@ const TermTab = ({
           {title}
         </span>
       )}
-      {closable && !editing && (
-        <button
-          type="button"
-          title="Close tab"
-          aria-label="Close tab"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-          style={{
-            flexShrink: 0,
-            border: 'none',
-            background: 'transparent',
-            color: 'inherit',
-            cursor: 'pointer',
-            fontSize: 13,
-            lineHeight: 1,
-            padding: 0,
-            width: 16,
-            height: 16,
-            borderRadius: radius.sm,
-            // Revealed on hover or for the active tab (Ghostty/macOS behaviour).
-            opacity: hover || active ? 0.75 : 0,
-            transition: transition(['opacity']),
-          }}
-        >
-          ×
-        </button>
+      {/* Trailing 16px slot: the ✕ (hover/active) stacked over the activity dot
+          (inactive + unseen output) so neither shifts the layout. */}
+      {!editing && (
+        <span style={{ position: 'relative', flexShrink: 0, width: 16, height: 16 }}>
+          {closable && (
+            <button
+              type="button"
+              title="Close tab"
+              aria-label="Close tab"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                border: 'none',
+                background: 'transparent',
+                color: 'inherit',
+                cursor: 'pointer',
+                fontSize: 13,
+                lineHeight: 1,
+                padding: 0,
+                borderRadius: radius.sm,
+                // Revealed on hover or for the active tab.
+                opacity: showX ? 0.75 : 0,
+                transition: transition(['opacity']),
+              }}
+            >
+              ×
+            </button>
+          )}
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'none',
+              // The dot yields to the ✕ on hover/active.
+              opacity: activity && !showX ? 1 : 0,
+              transition: transition(['opacity']),
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color.accent }} />
+          </span>
+        </span>
       )}
     </div>
   );
 };
 
-// ── Ghostty keymap, scoped to terminal focus ─────────────────────────────────
+// Right-click tab menu — portalled to the body so an overflow:hidden / transformed
+// ancestor can't clip it. An invisible backdrop catches the dismissing click.
+const TAB_MENU_WIDTH = 188;
+const TabContextMenu = ({
+  x,
+  y,
+  canClose,
+  canCloseOthers,
+  canCloseToRight,
+  onRename,
+  onClose,
+  onCloseOthers,
+  onCloseToRight,
+  onNewTab,
+  onDismiss,
+}: {
+  x: number;
+  y: number;
+  canClose: boolean;
+  canCloseOthers: boolean;
+  canCloseToRight: boolean;
+  onRename: () => void;
+  onClose: () => void;
+  onCloseOthers: () => void;
+  onCloseToRight: () => void;
+  onNewTab: () => void;
+  onDismiss: () => void;
+}): JSX.Element => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onDismiss();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onDismiss]);
+
+  const left = Math.max(4, Math.min(x, window.innerWidth - TAB_MENU_WIDTH - 6));
+  const top = Math.min(y, window.innerHeight - 216);
+  const items: Array<
+    { key: string; label: string; on: () => void; enabled: boolean } | { key: string; sep: true }
+  > = [
+    { key: 'new', label: 'New Terminal Tab', on: onNewTab, enabled: true },
+    { key: 'sep1', sep: true },
+    { key: 'rename', label: 'Rename…', on: onRename, enabled: true },
+    { key: 'sep2', sep: true },
+    { key: 'close', label: 'Close', on: onClose, enabled: canClose },
+    { key: 'others', label: 'Close Others', on: onCloseOthers, enabled: canCloseOthers },
+    { key: 'right', label: 'Close to the Right', on: onCloseToRight, enabled: canCloseToRight },
+  ];
+
+  return createPortal(
+    <>
+      <div
+        onMouseDown={onDismiss}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onDismiss();
+        }}
+        style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+      />
+      <div
+        role="menu"
+        style={{
+          position: 'fixed',
+          left,
+          top,
+          zIndex: 41,
+          minWidth: TAB_MENU_WIDTH,
+          background: color.surface,
+          border: `1px solid ${color.borderStrong}`,
+          borderRadius: radius.md,
+          padding: space[1],
+          boxShadow: shadow.floating,
+        }}
+      >
+        {items.map((it) =>
+          'sep' in it ? (
+            <div
+              key={it.key}
+              style={{ height: 1, background: color.border, margin: `${space[1]}px 0` }}
+            />
+          ) : (
+            <button
+              key={it.key}
+              type="button"
+              role="menuitem"
+              disabled={!it.enabled}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                if (it.enabled) it.on();
+              }}
+              onMouseEnter={(e) => {
+                if (it.enabled) e.currentTarget.style.background = color.divider;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                border: 'none',
+                background: 'transparent',
+                color: it.enabled ? color.textPrimary : color.textGhost,
+                cursor: it.enabled ? 'pointer' : 'default',
+                padding: `${space[1]}px ${space[2]}px`,
+                borderRadius: radius.sm,
+                fontFamily: font.sans,
+                fontSize: font.size.ui,
+              }}
+            >
+              {it.label}
+            </button>
+          ),
+        )}
+      </div>
+    </>,
+    document.body,
+  );
+};
+
+// ── Dock keymap, scoped to terminal focus ────────────────────────────────────
 function useTerminalKeymap(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -816,7 +1073,7 @@ function useTerminalKeymap(): void {
       const s = useTerminalStore.getState();
       if (!s.focused) return; // only when the terminal owns focus
       const k = e.key.toLowerCase();
-      // Pick the matching Ghostty action, if any.
+      // Pick the matching action, if any.
       let action: (() => void) | null = null;
       const dir =
         e.key === 'ArrowLeft'
