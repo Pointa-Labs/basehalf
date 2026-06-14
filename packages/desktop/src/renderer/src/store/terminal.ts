@@ -18,141 +18,142 @@ import {
   splitLeaf,
 } from '../lib/terminalTree.js';
 
-// Editor-groups terminal layout. The dock is a GRID of GROUPS: one recursive
-// split tree (terminalTree) whose every LEAF id is a GROUP id. Each group owns a
-// tab strip of single-terminal TABS (one pty per tab). Splitting happens at the
-// GROUP level (like a code editor's editor groups), not inside a tab.
+// Terminal dock layout, modeled on a native tabbed terminal: the dock is a list
+// of TABS shown in one strip at the top (auto-hidden when there's a single tab).
+// Each tab owns its OWN pane split-tree (terminalTree) whose leaves are PANES
+// (one pty each) — splitting divides a pane within the current tab, never the
+// tabs. Tabs are the top-level container; splits live inside a tab.
 //
 // NOT persisted across reload: the ptys live in main and don't survive a renderer
 // reload, so restoring a stale layout would point at dead sessions. Each load
-// starts fresh with one group + one tab. (The dock WIDTH is persisted separately
-// in the layout store.)
+// starts fresh with one tab holding one pane. (The dock WIDTH is persisted
+// separately in the layout store.)
 
-/** One terminal = one pty. The tab id doubles as the pty session key. */
+/** One tab: a name override plus its own pane split-tree (one pty per leaf). */
 export interface TermTab {
   id: string;
+  /** Split tree of panes; every leaf id is a pane(=pty) id. */
+  tree: TermNode;
+  /** The focused pane within this tab. */
+  activePaneId: string;
+  /** When set, this pane fills the tab area (⌘⇧↵ zoom); the tree is preserved. */
+  zoomedPaneId: string | null;
   /** A user-set tab name (double-click / context-menu rename). When set it
    *  overrides the live program title; empty/undefined → live title. */
   titleOverride?: string;
 }
 
-/** A group is a leaf in the layout tree: its own tab strip of single-pty tabs. */
-export interface TermGroup {
-  id: string;
-  tabs: TermTab[];
-  activeTabId: string;
-}
-
-/** A soft-closed tab: kept MOUNTED (hidden) so its pty keeps running and can be
- *  restored intact, until a grace timer (or dismiss) finalizes it. */
+/** A soft-closed tab — the whole tab, kept MOUNTED (hidden) so its panes keep
+ *  running and can be restored intact until a grace timer (or dismiss). */
 interface ClosingTab {
   key: string;
+  kind: 'tab';
   tab: TermTab;
-  groupId: string;
-  tabIndex: number;
-  /** The layout captured BEFORE this close — used to recreate the group leaf on
-   *  undo when closing the group's last tab collapsed it. */
-  layoutSnapshot: TermNode;
+  index: number;
 }
 
+/** A soft-closed pane inside a surviving tab — kept MOUNTED (hidden) so its pty
+ *  keeps running. `treeSnapshot` is the tab's tree BEFORE the close, so undo can
+ *  restore the pane on its original side. */
+interface ClosingPane {
+  key: string;
+  kind: 'pane';
+  tabId: string;
+  paneId: string;
+  treeSnapshot: TermNode;
+}
+
+type ClosingEntry = ClosingTab | ClosingPane;
+
 interface TerminalState {
-  /** Split tree of GROUPS; every leaf id is a group id. */
-  layout: TermNode;
-  groups: Record<string, TermGroup>;
-  activeGroupId: string;
-  /** When set, the active tab of this group fills the dock (⌘⇧↵ zoom). */
-  zoomedGroupId: string | null;
+  /** Ordered tabs shown in the strip. */
+  tabs: TermTab[];
+  activeTabId: string;
   /** Whether keyboard focus is inside the terminal dock — gates the dock keymap
    *  and arbitrates ⌘W against the editor overlay. */
   focused: boolean;
-  /** Live terminal title per tab (pty OSC title). A tab shows its own title;
-   *  falls back to "Terminal". Keyed by tab(=pty) id. */
+  /** Live terminal title per PANE (pty OSC title). Keyed by pane(=pty) id. */
   titles: Record<string, string>;
-  /** Live cols×rows per tab (from xterm onResize) — drives the resize HUD. */
+  /** Live cols×rows per pane (from xterm onResize) — drives the resize HUD. */
   dims: Record<string, { cols: number; rows: number }>;
-  /** Bumped on every group resize (key or divider drag) so the dock can flash
+  /** Bumped on every pane resize (key or divider drag) so the dock can flash
    *  the dimensions HUD. */
   resizeTick: number;
-  /** Tab ids with unseen output — drives the activity dot. Set when a tab that
-   *  isn't the active tab of the active group emits output; cleared when it
-   *  becomes active. */
+  /** Tab ids with unseen output — drives the tab activity dot. Set when a pane in
+   *  a non-active tab emits output; cleared when the tab becomes active. */
   activity: Record<string, boolean>;
-  /** Soft-closed tabs awaiting finalize (panes stay mounted + running). */
-  closing: ClosingTab[];
-  /** The tab being dragged (to reorder, move to another group, or split a group
-   *  by dropping on its edge), or null. */
-  drag: { tabId: string; fromGroupId: string } | null;
+  /** Soft-closed tabs/panes awaiting finalize (stay mounted + running). */
+  closing: ClosingEntry[];
+  /** The tab being dragged to reorder within the strip, or null. */
+  drag: { tabId: string } | null;
 
-  // Tabs within a group ────────────────────────────────────────────────────
+  // Tabs ──────────────────────────────────────────────────────────────────────
+  /** ⌘T: new tab (one fresh pane), inserted after the active tab + focused. */
   newTab: () => void;
-  focusTab: (groupId: string, tabId: string) => void;
-  setActiveGroup: (groupId: string) => void;
+  selectTab: (tabId: string) => void;
+  /** ⌘⇧[ / ⌘⇧]: previous / next tab, wrapping. */
   switchTab: (delta: 1 | -1) => void;
-  /** Select tab by 1-based index within the active group, clamped to the last. */
+  /** ⌘1–8: select tab by 1-based index, clamped to the last. */
   gotoTab: (index: number) => void;
-  /** Select the last tab in the active group (⌘9). */
+  /** ⌘9: select the last tab. */
   lastTab: () => void;
-  setTabTitle: (groupId: string, tabId: string, title: string) => void;
-  reorderTab: (groupId: string, tabId: string, toIndex: number) => void;
+  setTabTitle: (tabId: string, title: string) => void;
+  reorderTab: (tabId: string, toIndex: number) => void;
 
-  // Group structure ─────────────────────────────────────────────────────────
-  /** ⌘D / ⌘⇧D: split the active group, new group gets a fresh terminal. */
-  splitGroupWithNewTab: (dir: SplitDir) => void;
-  /** Drag-to-edge: split `targetGroupId` on `side`, MOVING the dragged tab into
-   *  the new group (pty kept alive). Collapses the source group if it empties. */
-  splitGroupWithTab: (
-    targetGroupId: string,
-    side: FocusDir,
-    tabId: string,
-    fromGroupId: string,
-  ) => void;
-  /** Move a tab to a group (reorder if same group; append/insert if different);
-   *  collapse the source group if it empties. */
-  moveTab: (tabId: string, fromGroupId: string, toGroupId: string, toIndex: number) => void;
-  gotoGroupDir: (dir: FocusDir) => void;
-  gotoGroupRing: (delta: 1 | -1) => void;
-  resizeFocusedGroup: (dir: FocusDir) => void;
-  equalizeGroups: () => void;
+  // Panes within the active tab ────────────────────────────────────────────────
+  /** ⌘D / ⌘⇧D: split the active pane; the new pane takes focus. */
+  splitPane: (dir: SplitDir) => void;
+  focusPane: (tabId: string, paneId: string) => void;
+  /** ⌘⌥arrow: move pane focus spatially within the active tab. */
+  gotoPaneDir: (dir: FocusDir) => void;
+  /** ⌘[ / ⌘]: cycle pane focus in tree order within the active tab. */
+  gotoPaneRing: (delta: 1 | -1) => void;
+  /** ⌘⌃arrow: resize the split around the active pane. */
+  resizePane: (dir: FocusDir) => void;
+  /** ⌘⌃=: even out all splits in the active tab. */
+  equalizePanes: () => void;
+  /** ⌘⇧↵: zoom/unzoom the active pane within its tab. */
   toggleZoom: () => void;
   setSplitFraction: (splitId: string, fraction: number) => void;
 
   // Closing (soft) ──────────────────────────────────────────────────────────
-  closeTab: (groupId: string, tabId: string) => void;
-  /** ⌘W: soft-close the active group's active tab. */
-  closeActiveTab: () => void;
-  closeOtherTabs: (groupId: string, tabId: string) => void;
-  closeTabsToRight: (groupId: string, tabId: string) => void;
+  /** Close one pane in the active tab; the last pane closing closes the tab. */
+  closePane: (paneId?: string) => void;
+  /** ⌘W: close the active pane (close the tab if it's the last pane). */
+  closeActivePane: () => void;
+  /** ⌘⌥W / the tab's × : close the whole tab (all its panes). */
+  closeTab: (tabId: string) => void;
+  closeOtherTabs: (tabId: string) => void;
+  closeTabsToRight: (tabId: string) => void;
   undoClose: (key: string) => void;
   finalizeClose: (key: string) => void;
 
   // Plumbing ────────────────────────────────────────────────────────────────
   setFocused: (focused: boolean) => void;
-  setTitle: (tabId: string, title: string) => void;
-  setDims: (tabId: string, cols: number, rows: number) => void;
-  markActivity: (tabId: string) => void;
-  setDrag: (drag: { tabId: string; fromGroupId: string } | null) => void;
+  setTitle: (paneId: string, title: string) => void;
+  setDims: (paneId: string, cols: number, rows: number) => void;
+  markActivity: (paneId: string) => void;
+  setDrag: (drag: { tabId: string } | null) => void;
 }
 
 let seq = 0;
 const mint = (prefix: string): string => `${prefix}${++seq}`;
 
-const freshGroup = (): TermGroup => {
-  const id = mint('g');
-  const tabId = mint('t');
-  return { id, tabs: [{ id: tabId }], activeTabId: tabId };
+const freshTab = (): TermTab => {
+  const id = mint('tab');
+  const paneId = mint('p');
+  return { id, tree: leaf(paneId), activePaneId: paneId, zoomedPaneId: null };
 };
 
-// Fraction of the WHOLE dock area a divider moves per ⌘⌃arrow press, scaled by
-// the split's own size so nested and root group splits move by the same amount.
+// Fraction of the WHOLE tab area a divider moves per ⌘⌃arrow press, scaled by the
+// split's own size so nested and root splits move by the same visual amount.
 const AREA_RESIZE_STEP = 0.04;
 
-const initialGroup = freshGroup();
+const initialTab = freshTab();
 
 export const useTerminalStore = create<TerminalState>((set) => ({
-  layout: leaf(initialGroup.id),
-  groups: { [initialGroup.id]: initialGroup },
-  activeGroupId: initialGroup.id,
-  zoomedGroupId: null,
+  tabs: [initialTab],
+  activeTabId: initialTab.id,
   focused: false,
   titles: {},
   dims: {},
@@ -163,351 +164,232 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
   newTab: () =>
     set((s) => {
-      const g = s.groups[s.activeGroupId];
-      if (!g) return s;
-      const id = mint('t');
-      return {
-        groups: { ...s.groups, [g.id]: { ...g, tabs: [...g.tabs, { id }], activeTabId: id } },
-        zoomedGroupId: null,
-      };
+      const tab = freshTab();
+      const at = s.tabs.findIndex((t) => t.id === s.activeTabId);
+      const tabs = [...s.tabs];
+      tabs.splice(at < 0 ? tabs.length : at + 1, 0, tab);
+      return { tabs, activeTabId: tab.id };
     }),
 
-  focusTab: (groupId, tabId) =>
-    set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
-      return {
-        activeGroupId: groupId,
-        groups: { ...s.groups, [groupId]: { ...g, activeTabId: tabId } },
-        activity: clearActivity(s.activity, tabId),
-      };
-    }),
-
-  setActiveGroup: (groupId) =>
-    set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
-      return { activeGroupId: groupId, activity: clearActivity(s.activity, g.activeTabId) };
-    }),
+  selectTab: (tabId) =>
+    set((s) =>
+      s.tabs.some((t) => t.id === tabId)
+        ? { activeTabId: tabId, activity: clearActivity(s.activity, tabId) }
+        : s,
+    ),
 
   switchTab: (delta) =>
     set((s) => {
-      const g = s.groups[s.activeGroupId];
-      if (!g || g.tabs.length <= 1) return s;
-      const i = g.tabs.findIndex((t) => t.id === g.activeTabId);
-      const next = g.tabs[(i + delta + g.tabs.length) % g.tabs.length];
+      if (s.tabs.length <= 1) return s;
+      const i = s.tabs.findIndex((t) => t.id === s.activeTabId);
+      const next = s.tabs[(i + delta + s.tabs.length) % s.tabs.length];
       if (!next) return s;
-      return {
-        groups: { ...s.groups, [g.id]: { ...g, activeTabId: next.id } },
-        activity: clearActivity(s.activity, next.id),
-      };
+      return { activeTabId: next.id, activity: clearActivity(s.activity, next.id) };
     }),
 
   gotoTab: (index) =>
     set((s) => {
-      const g = s.groups[s.activeGroupId];
-      if (!g) return s;
-      const i = Math.min(Math.max(1, Math.floor(index)), g.tabs.length) - 1;
-      const next = g.tabs[i];
+      const i = Math.min(Math.max(1, Math.floor(index)), s.tabs.length) - 1;
+      const next = s.tabs[i];
       if (!next) return s;
-      return {
-        groups: { ...s.groups, [g.id]: { ...g, activeTabId: next.id } },
-        activity: clearActivity(s.activity, next.id),
-      };
+      return { activeTabId: next.id, activity: clearActivity(s.activity, next.id) };
     }),
 
   lastTab: () =>
     set((s) => {
-      const g = s.groups[s.activeGroupId];
-      if (!g) return s;
-      const next = g.tabs[g.tabs.length - 1];
+      const next = s.tabs[s.tabs.length - 1];
       if (!next) return s;
-      return {
-        groups: { ...s.groups, [g.id]: { ...g, activeTabId: next.id } },
-        activity: clearActivity(s.activity, next.id),
-      };
+      return { activeTabId: next.id, activity: clearActivity(s.activity, next.id) };
     }),
 
-  setTabTitle: (groupId, tabId, title) =>
+  setTabTitle: (tabId, title) =>
     set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
       const override = title.trim();
       return {
-        groups: {
-          ...s.groups,
-          [groupId]: {
-            ...g,
-            tabs: g.tabs.map((t) =>
-              t.id === tabId ? { ...t, titleOverride: override || undefined } : t,
-            ),
-          },
-        },
+        tabs: s.tabs.map((t) =>
+          t.id === tabId ? { ...t, titleOverride: override || undefined } : t,
+        ),
       };
     }),
 
-  reorderTab: (groupId, tabId, toIndex) =>
+  reorderTab: (tabId, toIndex) =>
     set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
-      const from = g.tabs.findIndex((t) => t.id === tabId);
+      const from = s.tabs.findIndex((t) => t.id === tabId);
       if (from < 0) return s;
-      const tabs = [...g.tabs];
+      const tabs = [...s.tabs];
       const [moved] = tabs.splice(from, 1);
       if (!moved) return s;
-      tabs.splice(Math.min(Math.max(0, toIndex), tabs.length), 0, moved);
-      return { groups: { ...s.groups, [groupId]: { ...g, tabs } } };
+      const adjusted = from < toIndex ? toIndex - 1 : toIndex;
+      tabs.splice(Math.min(Math.max(0, adjusted), tabs.length), 0, moved);
+      return { tabs, drag: null };
     }),
 
-  splitGroupWithNewTab: (dir) =>
-    set((s) => {
-      const newGroupId = mint('g');
-      const newTabId = mint('t');
-      const layout = splitLeaf(s.layout, s.activeGroupId, dir, newGroupId, mint('s'));
-      return {
-        layout,
-        groups: {
-          ...s.groups,
-          [newGroupId]: { id: newGroupId, tabs: [{ id: newTabId }], activeTabId: newTabId },
-        },
-        activeGroupId: newGroupId,
-        zoomedGroupId: null,
-      };
-    }),
-
-  splitGroupWithTab: (targetGroupId, side, tabId, fromGroupId) =>
-    set((s) => {
-      const from = s.groups[fromGroupId];
-      const tab = from?.tabs.find((t) => t.id === tabId);
-      if (!from || !tab) return { drag: null };
-      // Moving a group's ONLY tab beside itself would split then re-collapse → no-op.
-      if (fromGroupId === targetGroupId && from.tabs.length <= 1) return { drag: null };
-      const newGroupId = mint('g');
-      let layout = insertBeside(s.layout, targetGroupId, side, newGroupId, mint('s'));
-      const groups: Record<string, TermGroup> = {
-        ...s.groups,
-        [newGroupId]: { id: newGroupId, tabs: [tab], activeTabId: tab.id },
-      };
-      const fromRemaining = from.tabs.filter((t) => t.id !== tabId);
-      if (fromRemaining.length === 0) {
-        const { root } = closeLeaf(layout, fromGroupId);
-        layout = root ?? layout;
-        delete groups[fromGroupId];
-      } else {
-        groups[fromGroupId] = {
-          ...from,
-          tabs: fromRemaining,
-          activeTabId:
-            from.activeTabId === tabId
-              ? (fromRemaining[0]?.id ?? from.activeTabId)
-              : from.activeTabId,
-        };
-      }
-      return { layout, groups, activeGroupId: newGroupId, zoomedGroupId: null, drag: null };
-    }),
-
-  moveTab: (tabId, fromGroupId, toGroupId, toIndex) =>
-    set((s) => {
-      const from = s.groups[fromGroupId];
-      const tab = from?.tabs.find((t) => t.id === tabId);
-      if (!from || !tab) return { drag: null };
-      if (fromGroupId === toGroupId) {
-        const others = from.tabs.filter((t) => t.id !== tabId);
-        others.splice(Math.min(Math.max(0, toIndex), others.length), 0, tab);
+  splitPane: (dir) =>
+    set((s) =>
+      updateActiveTab(s, (tab) => {
+        const paneId = mint('p');
         return {
-          groups: { ...s.groups, [fromGroupId]: { ...from, tabs: others, activeTabId: tabId } },
-          activeGroupId: fromGroupId,
-          drag: null,
+          ...tab,
+          tree: splitLeaf(tab.tree, tab.activePaneId, dir, paneId, mint('s')),
+          activePaneId: paneId,
+          zoomedPaneId: null,
         };
-      }
-      const to = s.groups[toGroupId];
-      if (!to) return { drag: null };
-      const toTabs = [...to.tabs];
-      toTabs.splice(Math.min(Math.max(0, toIndex), toTabs.length), 0, tab);
-      const groups: Record<string, TermGroup> = {
-        ...s.groups,
-        [toGroupId]: { ...to, tabs: toTabs, activeTabId: tabId },
-      };
-      let layout = s.layout;
-      const fromRemaining = from.tabs.filter((t) => t.id !== tabId);
-      if (fromRemaining.length === 0) {
-        const { root } = closeLeaf(s.layout, fromGroupId);
-        layout = root ?? s.layout;
-        delete groups[fromGroupId];
-      } else {
-        groups[fromGroupId] = {
-          ...from,
-          tabs: fromRemaining,
-          activeTabId:
-            from.activeTabId === tabId
-              ? (fromRemaining[0]?.id ?? from.activeTabId)
-              : from.activeTabId,
-        };
-      }
-      return { layout, groups, activeGroupId: toGroupId, zoomedGroupId: null, drag: null };
-    }),
+      }),
+    ),
 
-  gotoGroupDir: (dir) =>
+  focusPane: (tabId, paneId) =>
     set((s) => {
-      const next = directionalNeighbor(s.layout, s.activeGroupId, dir);
-      if (!next) return s;
-      const g = s.groups[next];
+      const tab = s.tabs.find((t) => t.id === tabId);
+      if (!tab || !findLeaf(tab.tree, paneId)) return s;
       return {
-        activeGroupId: next,
-        zoomedGroupId: null,
-        activity: g ? clearActivity(s.activity, g.activeTabId) : s.activity,
+        activeTabId: tabId,
+        tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, activePaneId: paneId } : t)),
+        activity: clearActivity(s.activity, tabId),
       };
     }),
 
-  gotoGroupRing: (delta) =>
-    set((s) => {
-      const next = ringNeighbor(s.layout, s.activeGroupId, delta);
-      const g = s.groups[next];
-      return {
-        activeGroupId: next,
-        zoomedGroupId: null,
-        activity: g ? clearActivity(s.activity, g.activeTabId) : s.activity,
-      };
-    }),
+  gotoPaneDir: (dir) =>
+    set((s) =>
+      updateActiveTab(s, (tab) => {
+        const next = directionalNeighbor(tab.tree, tab.activePaneId, dir);
+        return next ? { ...tab, activePaneId: next, zoomedPaneId: null } : tab;
+      }),
+    ),
 
-  resizeFocusedGroup: (dir) =>
+  gotoPaneRing: (delta) =>
+    set((s) =>
+      updateActiveTab(s, (tab) => ({
+        ...tab,
+        activePaneId: ringNeighbor(tab.tree, tab.activePaneId, delta),
+        zoomedPaneId: null,
+      })),
+    ),
+
+  resizePane: (dir) =>
     set((s) => {
-      const target = resizeTarget(s.layout, s.activeGroupId, dir);
+      const tab = activeTab(s);
+      if (!tab) return s;
+      const target = resizeTarget(tab.tree, tab.activePaneId, dir);
       if (!target) return s;
-      const split = findSplit(s.layout, target.splitId);
+      const split = findSplit(tab.tree, target.splitId);
       if (!split) return s;
-      const bounds = splitBounds(s.layout, target.splitId);
+      const bounds = splitBounds(tab.tree, target.splitId);
       const axis = Math.max(0.05, split.dir === 'row' ? (bounds?.w ?? 1) : (bounds?.h ?? 1));
       const delta = ((dir === 'right' || dir === 'down' ? 1 : -1) * AREA_RESIZE_STEP) / axis;
       return {
-        layout: setFractionTree(s.layout, target.splitId, split.fraction + delta),
-        zoomedGroupId: null,
+        tabs: replaceTab(s.tabs, tab.id, {
+          ...tab,
+          tree: setFractionTree(tab.tree, target.splitId, split.fraction + delta),
+          zoomedPaneId: null,
+        }),
         resizeTick: s.resizeTick + 1,
       };
     }),
 
-  equalizeGroups: () => set((s) => (s.layout.type === 'leaf' ? s : { layout: equalize(s.layout) })),
+  equalizePanes: () =>
+    set((s) => {
+      const tab = activeTab(s);
+      if (!tab || tab.tree.type === 'leaf') return s;
+      return {
+        // Rebalancing reveals the whole layout, so unzoom (matches resizePane).
+        tabs: replaceTab(s.tabs, tab.id, { ...tab, tree: equalize(tab.tree), zoomedPaneId: null }),
+        resizeTick: s.resizeTick + 1,
+      };
+    }),
 
   toggleZoom: () =>
-    set((s) => {
-      if (s.layout.type === 'leaf') return { zoomedGroupId: null };
-      return { zoomedGroupId: s.zoomedGroupId ? null : s.activeGroupId };
-    }),
+    set((s) =>
+      updateActiveTab(s, (tab) =>
+        tab.tree.type === 'leaf'
+          ? { ...tab, zoomedPaneId: null }
+          : { ...tab, zoomedPaneId: tab.zoomedPaneId ? null : tab.activePaneId },
+      ),
+    ),
 
   setSplitFraction: (splitId, fraction) =>
-    set((s) => ({
-      layout: setFractionTree(s.layout, splitId, fraction),
-      resizeTick: s.resizeTick + 1,
-    })),
-
-  closeTab: (groupId, tabId) =>
     set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
-      const tabIndex = g.tabs.findIndex((t) => t.id === tabId);
-      const tab = g.tabs[tabIndex];
+      const tab = activeTab(s);
       if (!tab) return s;
-      const entry: ClosingTab = {
-        key: mint('close'),
-        tab,
-        groupId,
-        tabIndex,
-        layoutSnapshot: s.layout,
-      };
-      const closing = [...s.closing, entry];
-      const activity = clearActivity(s.activity, tabId);
-      const remaining = g.tabs.filter((t) => t.id !== tabId);
-
-      if (remaining.length > 0) {
-        const activeTabId =
-          g.activeTabId === tabId
-            ? ((remaining[Math.max(0, tabIndex - 1)] ?? remaining[0])?.id ?? g.activeTabId)
-            : g.activeTabId;
-        return {
-          groups: { ...s.groups, [groupId]: { ...g, tabs: remaining, activeTabId } },
-          activity,
-          closing,
-        };
-      }
-
-      // Last tab → collapse the group.
-      if (Object.keys(s.groups).length <= 1) {
-        const fg = freshGroup();
-        return {
-          layout: leaf(fg.id),
-          groups: { [fg.id]: fg },
-          activeGroupId: fg.id,
-          zoomedGroupId: null,
-          activity,
-          closing,
-        };
-      }
-      const { root, focusId } = closeLeaf(s.layout, groupId);
-      const nextLayout = root ?? s.layout;
-      const { [groupId]: _gone, ...rest } = s.groups;
-      const nextActive = focusId ?? firstLeaf(nextLayout).id;
       return {
-        layout: nextLayout,
-        groups: rest,
-        activeGroupId: nextActive,
-        zoomedGroupId: s.zoomedGroupId === groupId ? null : s.zoomedGroupId,
-        activity,
-        closing,
+        tabs: replaceTab(s.tabs, tab.id, {
+          ...tab,
+          tree: setFractionTree(tab.tree, splitId, fraction),
+        }),
+        resizeTick: s.resizeTick + 1,
       };
     }),
 
-  closeActiveTab: () => {
-    const s = useTerminalStore.getState();
-    const g = s.groups[s.activeGroupId];
-    if (g) s.closeTab(g.id, g.activeTabId);
-  },
-
-  closeOtherTabs: (groupId, tabId) =>
+  closePane: (paneId) =>
     set((s) => {
-      const g = s.groups[groupId];
-      const keep = g?.tabs.find((t) => t.id === tabId);
-      if (!g || !keep || g.tabs.length <= 1) return s;
-      const removed = g.tabs.map((tab, i) => ({ tab, i })).filter(({ tab }) => tab.id !== tabId);
+      const tab = activeTab(s);
+      if (!tab) return s;
+      const pid = paneId ?? tab.activePaneId;
+      if (!findLeaf(tab.tree, pid)) return s;
+      // Last pane → closing it closes the whole tab (soft).
+      if (orderedLeafIds(tab.tree).length <= 1) return closeTabState(s, tab.id);
+
+      const entry: ClosingPane = {
+        key: mint('close'),
+        kind: 'pane',
+        tabId: tab.id,
+        paneId: pid,
+        treeSnapshot: tab.tree,
+      };
+      const { root, focusId } = closeLeaf(tab.tree, pid);
+      const tree = root ?? tab.tree;
+      const activePaneId =
+        tab.activePaneId === pid ? (focusId ?? firstLeaf(tree).id) : tab.activePaneId;
       return {
-        groups: { ...s.groups, [groupId]: { ...g, tabs: [keep], activeTabId: tabId } },
-        activeGroupId: groupId,
-        zoomedGroupId: null,
+        tabs: replaceTab(s.tabs, tab.id, {
+          ...tab,
+          tree,
+          activePaneId,
+          zoomedPaneId: tab.zoomedPaneId === pid ? null : tab.zoomedPaneId,
+        }),
+        closing: [...s.closing, entry],
+      };
+    }),
+
+  closeActivePane: () => useTerminalStore.getState().closePane(),
+
+  closeTab: (tabId) => set((s) => closeTabState(s, tabId)),
+
+  closeOtherTabs: (tabId) =>
+    set((s) => {
+      const keep = s.tabs.find((t) => t.id === tabId);
+      if (!keep || s.tabs.length <= 1) return s;
+      const removed = s.tabs
+        .map((tab, index) => ({ tab, index }))
+        .filter(({ tab }) => tab.id !== tabId);
+      return {
+        tabs: [keep],
+        activeTabId: tabId,
         activity: removed.reduce((a, { tab }) => clearActivity(a, tab.id), s.activity),
         closing: [
           ...s.closing,
-          ...removed.map(({ tab, i }) => ({
-            key: mint('close'),
-            tab,
-            groupId,
-            tabIndex: i,
-            layoutSnapshot: s.layout,
-          })),
+          ...removed.map(
+            ({ tab, index }): ClosingTab => ({ key: mint('close'), kind: 'tab', tab, index }),
+          ),
         ],
       };
     }),
 
-  closeTabsToRight: (groupId, tabId) =>
+  closeTabsToRight: (tabId) =>
     set((s) => {
-      const g = s.groups[groupId];
-      if (!g) return s;
-      const idx = g.tabs.findIndex((t) => t.id === tabId);
-      if (idx < 0 || idx >= g.tabs.length - 1) return s;
-      const kept = g.tabs.slice(0, idx + 1);
-      const removed = g.tabs.slice(idx + 1).map((tab, k) => ({ tab, i: idx + 1 + k }));
-      const activeTabId = kept.some((t) => t.id === g.activeTabId) ? g.activeTabId : tabId;
+      const idx = s.tabs.findIndex((t) => t.id === tabId);
+      if (idx < 0 || idx >= s.tabs.length - 1) return s;
+      const kept = s.tabs.slice(0, idx + 1);
+      const removed = s.tabs.slice(idx + 1).map((tab, k) => ({ tab, index: idx + 1 + k }));
+      const activeTabId = kept.some((t) => t.id === s.activeTabId) ? s.activeTabId : tabId;
       return {
-        groups: { ...s.groups, [groupId]: { ...g, tabs: kept, activeTabId } },
-        zoomedGroupId: null,
+        tabs: kept,
+        activeTabId,
         activity: removed.reduce((a, { tab }) => clearActivity(a, tab.id), s.activity),
         closing: [
           ...s.closing,
-          ...removed.map(({ tab, i }) => ({
-            key: mint('close'),
-            tab,
-            groupId,
-            tabIndex: i,
-            layoutSnapshot: s.layout,
-          })),
+          ...removed.map(
+            ({ tab, index }): ClosingTab => ({ key: mint('close'), kind: 'tab', tab, index }),
+          ),
         ],
       };
     }),
@@ -517,36 +399,34 @@ export const useTerminalStore = create<TerminalState>((set) => ({
       const entry = s.closing.find((c) => c.key === key);
       if (!entry) return s;
       const closing = s.closing.filter((c) => c.key !== key);
-      const existing = s.groups[entry.groupId];
-      if (existing && findLeaf(s.layout, entry.groupId)) {
-        // Group still present → splice the tab back in.
-        const tabs = [...existing.tabs];
-        tabs.splice(Math.min(Math.max(0, entry.tabIndex), tabs.length), 0, entry.tab);
+
+      if (entry.kind === 'tab') {
+        const tabs = [...s.tabs];
+        tabs.splice(Math.min(Math.max(0, entry.index), tabs.length), 0, entry.tab);
+        return { tabs, activeTabId: entry.tab.id, closing };
+      }
+
+      // Pane: restore into its tab if it still exists, else as a fresh tab.
+      const tab = s.tabs.find((t) => t.id === entry.tabId);
+      if (tab) {
         return {
-          groups: {
-            ...s.groups,
-            [entry.groupId]: { ...existing, tabs, activeTabId: entry.tab.id },
-          },
-          activeGroupId: entry.groupId,
-          zoomedGroupId: null,
+          tabs: replaceTab(s.tabs, tab.id, {
+            ...tab,
+            tree: reinsertPaneLeaf(tab.tree, entry.treeSnapshot, entry.paneId),
+            activePaneId: entry.paneId,
+            zoomedPaneId: null,
+          }),
+          activeTabId: tab.id,
           closing,
         };
       }
-      // Group collapsed → re-insert its leaf into the CURRENT layout (never
-      // overwrite the whole layout with the stale snapshot — that would discard
-      // any splits made during the grace window and orphan their groups). Place
-      // it where it used to be when that sibling still exists, else beside the
-      // first group.
-      return {
-        layout: reinsertGroupLeaf(s.layout, entry.layoutSnapshot, entry.groupId),
-        groups: {
-          ...s.groups,
-          [entry.groupId]: { id: entry.groupId, tabs: [entry.tab], activeTabId: entry.tab.id },
-        },
-        activeGroupId: entry.groupId,
-        zoomedGroupId: null,
-        closing,
+      const restored: TermTab = {
+        id: mint('tab'),
+        tree: leaf(entry.paneId),
+        activePaneId: entry.paneId,
+        zoomedPaneId: null,
       };
+      return { tabs: [...s.tabs, restored], activeTabId: restored.id, closing };
     }),
 
   finalizeClose: (key) =>
@@ -558,37 +438,65 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
   setFocused: (focused) => set({ focused }),
 
-  setTitle: (tabId, title) =>
+  setTitle: (paneId, title) =>
     set((s) => {
       const next = title.trim();
-      if (!next || s.titles[tabId] === next) return s;
-      return { titles: { ...s.titles, [tabId]: next } };
+      if (!next || s.titles[paneId] === next) return s;
+      return { titles: { ...s.titles, [paneId]: next } };
     }),
 
-  setDims: (tabId, cols, rows) =>
+  setDims: (paneId, cols, rows) =>
     set((s) => {
-      const cur = s.dims[tabId];
+      const cur = s.dims[paneId];
       if (cur && cur.cols === cols && cur.rows === rows) return s;
-      return { dims: { ...s.dims, [tabId]: { cols, rows } } };
+      return { dims: { ...s.dims, [paneId]: { cols, rows } } };
     }),
 
-  markActivity: (tabId) =>
+  markActivity: (paneId) =>
     set((s) => {
-      let owner: TermGroup | undefined;
-      for (const g of Object.values(s.groups)) {
-        if (g.tabs.some((t) => t.id === tabId)) {
-          owner = g;
-          break;
-        }
-      }
-      if (!owner) return s; // a closing tab, or unknown → ignore
-      const visible = owner.id === s.activeGroupId && owner.activeTabId === tabId;
-      if (visible || s.activity[tabId]) return s;
-      return { activity: { ...s.activity, [tabId]: true } };
+      const owner = s.tabs.find((t) => findLeaf(t.tree, paneId));
+      if (!owner) return s; // a closing pane, or unknown → ignore
+      if (owner.id === s.activeTabId || s.activity[owner.id]) return s;
+      return { activity: { ...s.activity, [owner.id]: true } };
     }),
 
   setDrag: (drag) => set({ drag }),
 }));
+
+const activeTab = (s: TerminalState): TermTab | undefined =>
+  s.tabs.find((t) => t.id === s.activeTabId);
+
+const replaceTab = (tabs: TermTab[], tabId: string, next: TermTab): TermTab[] =>
+  tabs.map((t) => (t.id === tabId ? next : t));
+
+/** Apply a pure transform to the active tab; no-op if there is none. */
+function updateActiveTab(s: TerminalState, fn: (tab: TermTab) => TermTab): Partial<TerminalState> {
+  const tab = activeTab(s);
+  if (!tab) return s;
+  const next = fn(tab);
+  return next === tab ? s : { tabs: replaceTab(s.tabs, tab.id, next) };
+}
+
+/** Soft-close a whole tab; the dock keeps ≥1 tab (a fresh one if it was last). */
+function closeTabState(s: TerminalState, tabId: string): Partial<TerminalState> {
+  const index = s.tabs.findIndex((t) => t.id === tabId);
+  const tab = s.tabs[index];
+  if (!tab) return s;
+  const entry: ClosingTab = { key: mint('close'), kind: 'tab', tab, index };
+  const closing = [...s.closing, entry];
+  const activity = clearActivity(s.activity, tabId);
+  const remaining = s.tabs.filter((t) => t.id !== tabId);
+
+  if (remaining.length === 0) {
+    const fresh = freshTab();
+    return { tabs: [fresh], activeTabId: fresh.id, activity, closing };
+  }
+  const activeTabId =
+    s.activeTabId === tabId
+      ? (remaining[Math.min(index, remaining.length - 1)]?.id ?? s.activeTabId)
+      : s.activeTabId;
+  return { tabs: remaining, activeTabId, activity, closing };
+}
 
 /** Drop a tab's activity flag (it became active → its output is now seen).
  *  Returns the SAME object when nothing changes, so it never forces a render. */
@@ -616,20 +524,20 @@ function locateLeaf(
   return locateLeaf(root.a, leafId) ?? locateLeaf(root.b, leafId);
 }
 
-/** Re-insert a collapsed group's leaf into the CURRENT layout, restoring its old
- *  spot when a former sibling still exists (else beside the first group). Never
- *  replaces the whole layout, so concurrent splits during the undo grace survive. */
-function reinsertGroupLeaf(current: TermNode, snapshot: TermNode, groupId: string): TermNode {
+/** Re-insert a soft-closed pane's leaf into the tab's CURRENT tree, restoring its
+ *  old spot when a former sibling still exists (else beside the first pane). Never
+ *  replaces the whole tree, so panes split during the undo grace survive. */
+function reinsertPaneLeaf(current: TermNode, snapshot: TermNode, paneId: string): TermNode {
   const splitId = mint('s');
-  const loc = locateLeaf(snapshot, groupId);
+  const loc = locateLeaf(snapshot, paneId);
   if (loc) {
     const wasA = loc.side === 'a';
     const side: FocusDir =
       loc.split.dir === 'row' ? (wasA ? 'left' : 'right') : wasA ? 'up' : 'down';
     const sibling = wasA ? loc.split.b : loc.split.a;
     const anchor = orderedLeafIds(sibling).find((id) => findLeaf(current, id));
-    if (anchor) return insertBeside(current, anchor, side, groupId, splitId);
+    if (anchor) return insertBeside(current, anchor, side, paneId, splitId);
   }
   // Snapshot had it as the whole tree, or no former sibling survives → append.
-  return insertBeside(current, firstLeaf(current).id, 'right', groupId, splitId);
+  return insertBeside(current, firstLeaf(current).id, 'right', paneId, splitId);
 }

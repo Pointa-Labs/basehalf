@@ -1,14 +1,14 @@
-// Pure split tree for the terminal dock's layout: a recursive tree of cells;
-// each LEAF is a positioned cell (a terminal group). Kept PURE + deterministic
-// (ids are passed in, never generated here) so it's unit-testable and the store
-// owns id minting.
+// Pure split tree for ONE tab's panes: a recursive tree whose every LEAF is a
+// terminal PANE (a single pty). Each tab owns its own tree; splitting divides a
+// pane in two. Kept PURE + deterministic (ids are passed in, never generated
+// here) so it's unit-testable and the store owns id minting.
 //
 // dir 'row'    → side-by-side  (a = left,  b = right)  ← "split right" (⌘D)
 // dir 'column' → stacked       (a = top,   b = bottom) ← "split down"  (⌘⇧D)
 
 export interface TermLeaf {
   readonly type: 'leaf';
-  /** The cell id — a terminal group id in the layout. */
+  /** The pane id — one terminal pty. */
   readonly id: string;
 }
 export interface TermSplit {
@@ -321,8 +321,8 @@ export function equalize(root: TermNode): TermNode {
 
 /** Split `targetId` in two, placing leaf `newId` beside it on `side`. `left`/`up`
  *  put the new pane on the NEAR side (a); `right`/`down` on the FAR side (b).
- *  Drives drag-to-split (the dragged pane keeps its id, so its pty survives the
- *  move). `left`/`right` → a row; `up`/`down` → a column. */
+ *  Used to restore a soft-closed pane on its original side when undoing a close.
+ *  `left`/`right` → a row; `up`/`down` → a column. */
 export function insertBeside(
   root: TermNode,
   targetId: string,
@@ -348,32 +348,4 @@ export function insertBeside(
     return { ...node, a: replace(node.a), b: replace(node.b) };
   };
   return replace(root);
-}
-
-/** The outer frame (as a fraction of each side) that triggers a split when a tab
- *  is dropped over a group body; the inner area merges. A point inside the inner
- *  `1 - 2*SPLIT_EDGE` box is "center". */
-export const SPLIT_EDGE = 0.18;
-
-/** Where a dropped tab lands, given a point in a group body's [0..1] space.
- *
- *  The interior is one large **merge** zone (drop the tab into this group); only
- *  a frame at the edges **splits**. The geometry mirrors the familiar
- *  editor-group model, and the two non-obvious choices are what make it feel
- *  wide instead of finicky:
- *
- *  - The left/right zones are **full-height side columns**, and the corners
- *    resolve to left/right (a horizontal-split bias). So a side split has a tall,
- *    stable target that never pinches — unlike a nearest-edge partition, whose
- *    side wedges shrink to nothing toward the corners.
- *  - Up/down only claim the **middle third** of the top/bottom frame.
- *
- *  Drives the drag-to-split preview + the actual drop. */
-export function dropTarget(px: number, py: number): FocusDir | 'center' {
-  const onEdge =
-    px <= SPLIT_EDGE || px >= 1 - SPLIT_EDGE || py <= SPLIT_EDGE || py >= 1 - SPLIT_EDGE;
-  if (!onEdge) return 'center';
-  if (px < 1 / 3) return 'left';
-  if (px > 2 / 3) return 'right';
-  return py < 0.5 ? 'up' : 'down';
 }

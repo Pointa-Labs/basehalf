@@ -1,189 +1,213 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { findLeaf, leaf } from '../src/renderer/src/lib/terminalTree.js';
+import { findLeaf, leaf, orderedLeafIds } from '../src/renderer/src/lib/terminalTree.js';
 import { useTerminalStore } from '../src/renderer/src/store/terminal.js';
 
-// Reset the singleton store to one group ("g0") with one tab ("t0") before each
-// test. Actions mint fresh ids internally, so post-reset ids never collide.
+// Reset the singleton store to one tab ("tab0") holding one pane ("p0") before
+// each test. Actions mint fresh ids internally, so post-reset ids never collide.
 const reset = (): void => {
   useTerminalStore.setState({
-    layout: leaf('g0'),
-    groups: { g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' } },
-    activeGroupId: 'g0',
-    zoomedGroupId: null,
+    tabs: [{ id: 'tab0', tree: leaf('p0'), activePaneId: 'p0', zoomedPaneId: null }],
+    activeTabId: 'tab0',
+    focused: false,
     titles: {},
     dims: {},
     resizeTick: 0,
     activity: {},
     closing: [],
     drag: null,
-    focused: false,
   });
 };
 
-describe('terminal store — editor groups', () => {
+const g = () => useTerminalStore.getState();
+const activeTab = () => g().tabs.find((t) => t.id === g().activeTabId);
+const activeTree = () => activeTab()?.tree ?? leaf('x');
+
+describe('terminal store — Ghostty tabs + panes', () => {
   beforeEach(reset);
 
-  it('splitGroupWithNewTab makes a second group with a fresh single tab', () => {
-    useTerminalStore.getState().splitGroupWithNewTab('right');
-    const s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toHaveLength(2);
-    expect(s.layout.type).toBe('split');
-    expect(s.activeGroupId).not.toBe('g0');
-    expect(s.groups[s.activeGroupId]?.tabs).toHaveLength(1);
+  it('newTab inserts a single-pane tab after the active one and focuses it', () => {
+    g().newTab();
+    const s = g();
+    expect(s.tabs).toHaveLength(2);
+    expect(s.tabs[0]?.id).toBe('tab0'); // inserted AFTER tab0
+    expect(s.activeTabId).not.toBe('tab0');
+    expect(activeTab()?.tree.type).toBe('leaf');
+    expect(orderedLeafIds(activeTree())).toHaveLength(1);
   });
 
-  it('splitGroupWithTab moves a tab into a new group beside the target', () => {
-    useTerminalStore.setState({
-      groups: { g0: { id: 'g0', tabs: [{ id: 't0' }, { id: 't1' }], activeTabId: 't1' } },
-    });
-    useTerminalStore.getState().splitGroupWithTab('g0', 'right', 't1', 'g0');
-    const s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toHaveLength(2);
-    expect(s.groups.g0?.tabs.map((t) => t.id)).toEqual(['t0']);
-    const moved = Object.values(s.groups).find((g) => g.id !== 'g0');
-    expect(moved?.tabs.map((t) => t.id)).toEqual(['t1']);
-    expect(s.activeGroupId).toBe(moved?.id);
+  it('switchTab wraps both ways', () => {
+    g().newTab(); // [tab0, new] active=new
+    const newId = g().activeTabId;
+    g().selectTab('tab0');
+    g().switchTab(-1); // wrap left → last
+    expect(g().activeTabId).toBe(newId);
+    g().switchTab(1); // wrap right → first
+    expect(g().activeTabId).toBe('tab0');
   });
 
-  it('splitGroupWithTab on a single-tab group is a no-op (would split then collapse)', () => {
-    useTerminalStore.getState().splitGroupWithTab('g0', 'right', 't0', 'g0');
-    expect(Object.keys(useTerminalStore.getState().groups)).toEqual(['g0']);
+  it('gotoTab clamps; lastTab selects the last', () => {
+    g().newTab();
+    g().newTab(); // 3 tabs
+    g().gotoTab(99);
+    expect(g().activeTabId).toBe(g().tabs[2]?.id);
+    g().gotoTab(2);
+    expect(g().activeTabId).toBe(g().tabs[1]?.id);
+    g().gotoTab(1);
+    expect(g().activeTabId).toBe('tab0');
+    g().lastTab();
+    expect(g().activeTabId).toBe(g().tabs[2]?.id);
   });
 
-  it('moveTab across groups collapses an emptied source group', () => {
-    useTerminalStore.setState({
-      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
-      groups: {
-        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
-        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
-      },
-      activeGroupId: 'gB',
-    });
-    useTerminalStore.getState().moveTab('t1', 'gB', 'g0', 1);
-    const s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toEqual(['g0']); // gB collapsed
-    expect(s.layout).toEqual(leaf('g0'));
-    expect(s.groups.g0?.tabs.map((t) => t.id)).toEqual(['t0', 't1']);
-    expect(s.activeGroupId).toBe('g0');
+  it('reorderTab moves a tab within the strip', () => {
+    g().newTab();
+    g().newTab(); // [tab0, A, B]
+    const ids = g().tabs.map((t) => t.id);
+    g().reorderTab('tab0', 3); // drop tab0 at the end
+    expect(g().tabs.map((t) => t.id)).toEqual([ids[1], ids[2], 'tab0']);
   });
 
-  it('moveTab within a group reorders', () => {
-    useTerminalStore.setState({
-      groups: {
-        g0: { id: 'g0', tabs: [{ id: 't0' }, { id: 't1' }, { id: 't2' }], activeTabId: 't0' },
-      },
-    });
-    useTerminalStore.getState().moveTab('t2', 'g0', 'g0', 0);
-    expect(useTerminalStore.getState().groups.g0?.tabs.map((t) => t.id)).toEqual([
-      't2',
-      't0',
-      't1',
-    ]);
+  it('splitPane splits the active pane and focuses the new one', () => {
+    g().splitPane('right');
+    const t = activeTab();
+    expect(t?.tree.type).toBe('split');
+    expect(orderedLeafIds(activeTree())).toHaveLength(2);
+    expect(t?.activePaneId).not.toBe('p0'); // the new pane took focus
   });
 
-  it('closeTab collapses a group on its last tab; undo restores the group intact', () => {
-    useTerminalStore.setState({
-      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
-      groups: {
-        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
-        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
-      },
-      activeGroupId: 'gB',
-    });
-    useTerminalStore.getState().closeTab('gB', 't1');
-    let s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toEqual(['g0']); // collapsed
-    expect(s.closing).toHaveLength(1); // soft-closed → pty kept alive
-    const key = s.closing[0]?.key;
-    expect(key).toBeDefined();
-    if (!key) return;
-    useTerminalStore.getState().undoClose(key);
-    s = useTerminalStore.getState();
-    expect(s.closing).toHaveLength(0);
-    expect(s.groups.gB?.tabs.map((t) => t.id)).toEqual(['t1']);
-    expect(s.activeGroupId).toBe('gB');
+  it('gotoPaneRing + gotoPaneDir move focus among panes', () => {
+    g().splitPane('right'); // row [p0, pNew], active pNew
+    g().gotoPaneRing(-1);
+    expect(activeTab()?.activePaneId).toBe('p0');
+    g().gotoPaneDir('right');
+    expect(activeTab()?.activePaneId).not.toBe('p0');
   });
 
-  it('closeTab on the lone group keeps the dock non-empty + keeps the old undoable', () => {
-    useTerminalStore.getState().closeTab('g0', 't0');
-    const s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toHaveLength(1);
-    expect(s.activeGroupId).not.toBe('g0'); // a fresh group
-    expect(s.closing).toHaveLength(1); // the old one is restorable
+  it('closePane collapses to the sibling; undo restores the pane', () => {
+    g().splitPane('right'); // [p0, pNew] active pNew
+    const pNew = activeTab()?.activePaneId as string;
+    g().closePane(pNew);
+    expect(orderedLeafIds(activeTree())).toEqual(['p0']);
+    expect(g().closing).toHaveLength(1);
+    expect(g().closing[0]?.kind).toBe('pane');
+    const key = g().closing[0]?.key as string;
+    g().undoClose(key);
+    expect(g().closing).toHaveLength(0);
+    const ids = orderedLeafIds(activeTree());
+    expect(ids).toContain('p0');
+    expect(ids).toContain(pNew);
+    expect(activeTab()?.activePaneId).toBe(pNew);
   });
 
-  it('closeTab on a multi-tab group keeps the group, picks a new active tab', () => {
-    useTerminalStore.setState({
-      groups: { g0: { id: 'g0', tabs: [{ id: 't0' }, { id: 't1' }], activeTabId: 't1' } },
-    });
-    useTerminalStore.getState().closeTab('g0', 't1');
-    const s = useTerminalStore.getState();
-    expect(Object.keys(s.groups)).toEqual(['g0']);
-    expect(s.groups.g0?.tabs.map((t) => t.id)).toEqual(['t0']);
-    expect(s.groups.g0?.activeTabId).toBe('t0');
+  it('closing the last pane closes the tab (soft, undoable)', () => {
+    g().closePane(); // p0 is the only pane → closes tab0
+    const s = g();
+    expect(s.tabs).toHaveLength(1); // a fresh tab
+    expect(s.activeTabId).not.toBe('tab0');
+    expect(s.closing).toHaveLength(1);
+    expect(s.closing[0]?.kind).toBe('tab');
   });
 
-  it('undoClose re-inserts into the CURRENT layout (no clobber of concurrent splits)', () => {
-    useTerminalStore.setState({
-      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
-      groups: {
-        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
-        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
-      },
-      activeGroupId: 'gB',
-    });
-    useTerminalStore.getState().closeTab('gB', 't1'); // gB collapses
-    const key = useTerminalStore.getState().closing[0]?.key;
-    expect(key).toBeDefined();
-    if (!key) return;
-    // During the grace window, split g0 → a new group gC appears.
-    useTerminalStore.getState().setActiveGroup('g0');
-    useTerminalStore.getState().splitGroupWithNewTab('right');
-    expect(Object.keys(useTerminalStore.getState().groups)).toHaveLength(2); // g0 + gC
-    // Undo gB → gB returns AND gC is kept; every group is a live leaf.
-    useTerminalStore.getState().undoClose(key);
-    const s = useTerminalStore.getState();
-    const ids = Object.keys(s.groups);
-    expect(ids).toHaveLength(3);
-    for (const id of ids) expect(findLeaf(s.layout, id)).not.toBeNull();
-    expect(s.activeGroupId).toBe('gB');
-    expect(s.groups.gB?.tabs.map((t) => t.id)).toEqual(['t1']);
+  it('closeTab removes the tab, picks the next to the right, and undo restores its slot', () => {
+    g().newTab();
+    g().newTab(); // [tab0, A, B]
+    const [, a, b] = g().tabs;
+    g().selectTab(a?.id as string); // active = middle
+    g().closeTab(a?.id as string);
+    expect(g().tabs.map((t) => t.id)).toEqual(['tab0', b?.id]);
+    expect(g().activeTabId).toBe(b?.id); // next to the right
+    const key = g().closing[0]?.key as string;
+    g().undoClose(key);
+    expect(g().tabs.map((t) => t.id)).toEqual(['tab0', a?.id, b?.id]); // back in its slot
+    expect(g().activeTabId).toBe(a?.id);
   });
 
-  it('toggleZoom zooms with >1 group, is a no-op alone, and a split clears it', () => {
-    useTerminalStore.getState().toggleZoom(); // single group → no-op
-    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
-    useTerminalStore.getState().splitGroupWithNewTab('right'); // 2 groups
-    const target = useTerminalStore.getState().activeGroupId;
-    useTerminalStore.getState().toggleZoom();
-    expect(useTerminalStore.getState().zoomedGroupId).toBe(target);
-    useTerminalStore.getState().splitGroupWithNewTab('down'); // split clears zoom
-    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
+  it('closeTab on the lone tab keeps a fresh tab + leaves the old undoable', () => {
+    g().closeTab('tab0');
+    expect(g().tabs).toHaveLength(1);
+    expect(g().activeTabId).not.toBe('tab0');
+    expect(g().closing).toHaveLength(1);
   });
 
-  it('collapsing the zoomed group clears zoom', () => {
-    useTerminalStore.setState({
-      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
-      groups: {
-        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
-        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
-      },
-      activeGroupId: 'gB',
-      zoomedGroupId: 'gB',
-    });
-    useTerminalStore.getState().closeTab('gB', 't1'); // collapses the zoomed group
-    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
+  it('closeOtherTabs / closeTabsToRight soft-close the rest', () => {
+    g().newTab();
+    g().newTab(); // [tab0, A, B]
+    const a = g().tabs[1];
+    g().closeOtherTabs(a?.id as string);
+    expect(g().tabs.map((t) => t.id)).toEqual([a?.id]);
+    expect(g().closing).toHaveLength(2);
+
+    reset();
+    g().newTab();
+    g().newTab(); // [tab0, A, B]
+    g().closeTabsToRight('tab0');
+    expect(g().tabs.map((t) => t.id)).toEqual(['tab0']);
+    expect(g().closing).toHaveLength(2);
   });
 
-  it('markActivity flags a non-active tab; ignores the active one; clears on focus', () => {
-    useTerminalStore.setState({
-      groups: { g0: { id: 'g0', tabs: [{ id: 't0' }, { id: 't1' }], activeTabId: 't0' } },
-    });
-    useTerminalStore.getState().markActivity('t1');
-    expect(useTerminalStore.getState().activity.t1).toBe(true);
-    useTerminalStore.getState().markActivity('t0'); // active tab of active group → ignored
-    expect(useTerminalStore.getState().activity.t0).toBeUndefined();
-    useTerminalStore.getState().focusTab('g0', 't1');
-    expect(useTerminalStore.getState().activity.t1).toBeUndefined();
+  it('undoClose re-inserts a pane into the CURRENT tree (no clobber of concurrent splits)', () => {
+    // Pane ids are minted with a module-global counter (not reset per test), so
+    // capture them rather than assuming names.
+    g().splitPane('right'); // p0 | p1, active p1
+    const p1 = activeTab()?.activePaneId as string;
+    g().splitPane('down'); // p1 → (p1 / p2), active p2; tree = p0 | (p1/p2)
+    const p2 = activeTab()?.activePaneId as string;
+    g().closePane('p0'); // close p0 → tree = (p1/p2)
+    const key = g().closing[0]?.key as string;
+    g().splitPane('right'); // during grace: active p2 → p2 | p3
+    const p3 = activeTab()?.activePaneId as string;
+    g().undoClose(key); // p0 returns; p1,p2,p3 kept
+    const tree = activeTree();
+    expect(orderedLeafIds(tree)).toHaveLength(4);
+    for (const id of ['p0', p1, p2, p3]) expect(findLeaf(tree, id)).not.toBeNull();
+  });
+
+  it('toggleZoom is a no-op on a lone pane, zooms with a split, and a split clears it', () => {
+    g().toggleZoom();
+    expect(activeTab()?.zoomedPaneId).toBeNull();
+    g().splitPane('right');
+    const active = activeTab()?.activePaneId;
+    g().toggleZoom();
+    expect(activeTab()?.zoomedPaneId).toBe(active);
+    g().splitPane('down'); // splitting clears zoom
+    expect(activeTab()?.zoomedPaneId).toBeNull();
+  });
+
+  it('closing the zoomed pane clears the zoom', () => {
+    g().splitPane('right'); // [p0, p1] active p1
+    g().toggleZoom();
+    expect(activeTab()?.zoomedPaneId).toBe(activeTab()?.activePaneId);
+    g().closePane(activeTab()?.activePaneId); // close the zoomed pane
+    expect(activeTab()?.zoomedPaneId).toBeNull();
+  });
+
+  it('markActivity flags a non-active tab; ignores the active one; clears on select', () => {
+    g().newTab(); // new tab active
+    const other = g().activeTabId;
+    const otherPane = activeTab()?.activePaneId as string;
+    g().selectTab('tab0'); // tab0 active again
+    g().markActivity(otherPane);
+    expect(g().activity[other]).toBe(true);
+    g().markActivity('p0'); // active tab's pane → ignored
+    expect(g().activity.tab0).toBeUndefined();
+    g().selectTab(other);
+    expect(g().activity[other]).toBeUndefined();
+  });
+
+  it('equalizePanes evens nested same-axis splits by leaf weight', () => {
+    g().splitPane('right'); // p0 | p1, active p1
+    g().splitPane('right'); // p0 | (p1 | p2)
+    g().equalizePanes();
+    const tree = activeTab()?.tree;
+    // Outer split: left weight 1 (p0), right weight 2 (p1,p2) → 1/3.
+    expect(tree?.type).toBe('split');
+    if (tree?.type === 'split') expect(tree.fraction).toBeCloseTo(1 / 3, 5);
+  });
+
+  it('resizePane shifts the surrounding split fraction', () => {
+    g().splitPane('right'); // row [p0, p1] frac 0.5, active p1
+    g().resizePane('left'); // p1 is side b → grow p1 / shrink p0
+    const tree = activeTab()?.tree;
+    expect(g().resizeTick).toBe(1);
+    if (tree?.type === 'split') expect(tree.fraction).not.toBe(0.5);
   });
 });

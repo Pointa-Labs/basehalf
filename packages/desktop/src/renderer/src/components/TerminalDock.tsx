@@ -1,75 +1,83 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { color, font, radius, shadow, space, transition } from '../design.js';
-import { type FocusDir, dropTarget, leafRects, splitDividers } from '../lib/terminalTree.js';
+import { type Rect, leafRects, orderedLeafIds, splitDividers } from '../lib/terminalTree.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
-import { type TermGroup, useTerminalStore } from '../store/terminal.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { type TermTab, useTerminalStore } from '../store/terminal.js';
 import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
 
 /**
- * The RIGHT-most region: an editor-groups terminal. The dock is a GRID of GROUPS
- * (one split tree whose leaves are groups); each group has its own tab strip and
- * holds single-terminal tabs. Splits are first-class at the GROUP level: ⌘D / ⌘⇧D
- * split the active group, or drag a tab onto another group's edge. ⌘⌥arrows move
- * focus between groups, ⌘⌃arrows resize, ⌘⇧↵ zooms the active group, ⌘[ ⌘] switch
- * tabs in the group, ⌘⇧[ ⌘⇧] cycle groups, ⌘W closes the active tab. The keymap
- * only fires while focus is in the dock (so it never steals the app's shortcuts).
+ * The RIGHT-most region: a tabbed terminal. The dock holds a list of TABS shown
+ * in one strip across the top — auto-hidden when there's a single tab. Each tab
+ * owns its own pane SPLIT TREE (one pty per pane): ⌘D / ⌘⇧D split the focused
+ * pane, ⌘⌥arrows move focus between panes, ⌘⌃arrows resize, ⌘⇧↵ zooms a pane,
+ * ⌘[ ⌘] cycle panes, ⌘⇧[ ⌘⇧] switch tabs, ⌘T new tab, ⌘W close pane (closes the
+ * tab on its last pane), ⌘⌥W close tab. The keymap only fires while focus is in
+ * the dock (so it never steals the app's shortcuts).
  *
- * Pty survival: every terminal is mounted exactly ONCE in a flat keyed list
- * (keyed by tab id) positioned by its group's rect, so moving a tab between
- * groups — or collapsing a group — never remounts it (which would kill the pty).
- * The group chrome (tab strips, dividers, drop zones) is drawn separately.
+ * Pty survival: every pane of every tab (plus soft-closed ones) is mounted EXACTLY
+ * ONCE in a flat list keyed by pane id, positioned by its tab's pane rect; the
+ * inactive tabs' panes are hidden, not unmounted, so switching tabs — or
+ * restructuring a split — never remounts a terminal (which would kill its pty).
+ * The chrome (tab strip, dividers) is drawn separately.
  */
 const TAB_BAR_HEIGHT = 32;
 
 export const TerminalDock = (): JSX.Element => {
   const width = useLayoutStore((s) => s.terminalWidth);
-  const layout = useTerminalStore((s) => s.layout);
-  const groups = useTerminalStore((s) => s.groups);
-  const activeGroupId = useTerminalStore((s) => s.activeGroupId);
-  const zoomedGroupId = useTerminalStore((s) => s.zoomedGroupId);
+  const tabs = useTerminalStore((s) => s.tabs);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
   const closing = useTerminalStore((s) => s.closing);
-  const drag = useTerminalStore((s) => s.drag);
   const titles = useTerminalStore((s) => s.titles);
   const activity = useTerminalStore((s) => s.activity);
   const dims = useTerminalStore((s) => s.dims);
   const setFocused = useTerminalStore((s) => s.setFocused);
-  const setActiveGroup = useTerminalStore((s) => s.setActiveGroup);
+  const focusPane = useTerminalStore((s) => s.focusPane);
   const setTitle = useTerminalStore((s) => s.setTitle);
   const setDims = useTerminalStore((s) => s.setDims);
   const markActivity = useTerminalStore((s) => s.markActivity);
 
-  // Folding the workspace name into each terminal's React key re-roots every
-  // shell when the workspace switches (main resolves cwd at spawn). Restart
-  // bumps a per-tab generation, also folded into the key.
-  const workspaceKey = useWorkspaceStore((s) => s.current);
+  // A pane's pty is spawned once and lives in main for the pane's whole life, so
+  // its React key must stay stable. Main resolves each new pty's cwd from the
+  // current workspace AT SPAWN TIME, so a terminal is independent of the workspace
+  // pointer afterward — we deliberately do NOT fold the workspace into the key:
+  // doing so killed every running shell (agents and all) whenever the active
+  // workspace changed or was removed. Restart bumps a per-pane generation to
+  // remount a single pane on demand.
   const [gens, setGens] = useState<Record<string, number>>({});
-  const restart = (tabId: string): void => setGens((g) => ({ ...g, [tabId]: (g[tabId] ?? 0) + 1 }));
+  const restart = (paneId: string): void =>
+    setGens((g) => ({ ...g, [paneId]: (g[paneId] ?? 0) + 1 }));
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   useTerminalKeymap();
 
-  // ⌘W (File ▸ Close Tab) closes the active tab when the terminal is focused.
+  // The app menu's ⌘W (File ▸ Close) closes the focused PANE when the terminal is
+  // focused (closing the tab when it's the pane's last). ⌘⌥W (close tab) lives in
+  // the dock keymap.
   useEffect(
     () =>
       window.bh.onMenuCloseTab(() => {
-        if (useTerminalStore.getState().focused) useTerminalStore.getState().closeActiveTab();
+        if (useTerminalStore.getState().focused) useTerminalStore.getState().closeActivePane();
       }),
     [],
   );
 
-  const rects = leafRects(layout);
-  const dividers = zoomedGroupId ? [] : splitDividers(layout);
-  const groupList = Object.values(groups);
-  const multiGroup = groupList.length > 1;
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const showTabBar = tabs.length > 1;
+  const activeRects: Map<string, Rect> = activeTab ? leafRects(activeTab.tree) : new Map();
+  const zoomedPaneId = activeTab?.zoomedPaneId ?? null;
+  const dividers = activeTab && !zoomedPaneId ? splitDividers(activeTab.tree) : [];
 
-  // Flat mount list: every tab in every group, plus soft-closed tabs (hidden).
-  const mounts: Array<{ tab: { id: string }; group: TermGroup | undefined; closing: boolean }> = [];
-  for (const g of groupList)
-    for (const t of g.tabs) mounts.push({ tab: t, group: g, closing: false });
-  for (const c of closing) mounts.push({ tab: c.tab, group: groups[c.groupId], closing: true });
+  // Flat mount list: every pane of every tab, plus soft-closed tabs'/panes' panes.
+  const mounts: Array<{ paneId: string; tab: TermTab | null }> = [];
+  for (const t of tabs)
+    for (const paneId of orderedLeafIds(t.tree)) mounts.push({ paneId, tab: t });
+  for (const c of closing) {
+    if (c.kind === 'tab')
+      for (const paneId of orderedLeafIds(c.tab.tree)) mounts.push({ paneId, tab: c.tab });
+    else mounts.push({ paneId: c.paneId, tab: null });
+  }
 
   return (
     <aside
@@ -91,253 +99,106 @@ export const TerminalDock = (): JSX.Element => {
       }}
     >
       <TerminalSash />
+      {showTabBar && (
+        <TerminalTabBar tabs={tabs} activeTabId={activeTabId} titles={titles} activity={activity} />
+      )}
       <div ref={bodyRef} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        {/* Layer 0: terminals — one mount per tab, positioned at its group's rect. */}
-        {mounts.map(({ tab, group, closing: isClosing }) => {
-          const rect = group ? rects.get(group.id) : undefined;
-          const zoomedHere = zoomedGroupId != null && group?.id === zoomedGroupId;
-          const groupVisible = !zoomedGroupId || zoomedHere;
-          const visible =
-            !isClosing && !!group && group.activeTabId === tab.id && groupVisible && !!rect;
-          const pos = zoomedHere
-            ? { left: 0, top: 0, width: '100%', height: '100%' }
-            : rect
-              ? {
+        {/* Layer 0: terminals — one mount per pane, positioned at its tab's rect. */}
+        {mounts.map(({ paneId, tab }) => {
+          const isActiveTab = !!tab && tab.id === activeTabId;
+          const rect = isActiveTab ? activeRects.get(paneId) : undefined;
+          const zoomedHere = isActiveTab && zoomedPaneId === paneId;
+          const visible = isActiveTab && (!zoomedPaneId || zoomedHere) && (!!rect || zoomedHere);
+          const pos =
+            zoomedHere || !rect
+              ? { left: 0, top: 0, width: '100%', height: '100%' }
+              : {
                   left: `${rect.x * 100}%`,
                   top: `${rect.y * 100}%`,
                   width: `${rect.w * 100}%`,
                   height: `${rect.h * 100}%`,
-                }
-              : { left: 0, top: 0, width: '100%', height: '100%' };
+                };
           return (
             <div
-              key={tab.id}
-              onMouseDownCapture={() => group && setActiveGroup(group.id)}
-              style={{
-                position: 'absolute',
-                ...pos,
-                display: visible ? 'flex' : 'none',
-                // Leave room for the group's tab strip (drawn above in layer 1).
-                paddingTop: TAB_BAR_HEIGHT,
-                boxSizing: 'border-box',
-              }}
+              key={paneId}
+              onMouseDownCapture={() => tab && focusPane(tab.id, paneId)}
+              style={{ position: 'absolute', ...pos, display: visible ? 'flex' : 'none' }}
             >
               <TerminalView
-                key={`${tab.id}:${workspaceKey ?? 'none'}:${gens[tab.id] ?? 0}`}
-                active={visible && group?.id === activeGroupId}
-                onRestart={() => restart(tab.id)}
-                onTitle={(t) => setTitle(tab.id, t)}
-                onDims={(c, rr) => setDims(tab.id, c, rr)}
-                onActivity={() => markActivity(tab.id)}
+                key={`${paneId}:${gens[paneId] ?? 0}`}
+                active={visible && paneId === activeTab?.activePaneId}
+                onRestart={() => restart(paneId)}
+                onTitle={(t) => setTitle(paneId, t)}
+                onDims={(c, rr) => setDims(paneId, c, rr)}
+                onActivity={() => markActivity(paneId)}
               />
             </div>
           );
         })}
 
-        {/* Layer 1: group chrome — tab strips, focus ring, drop zones. */}
-        {groupList.map((g) => {
-          const rect = rects.get(g.id);
-          if (!rect) return null;
-          const zoomedHere = zoomedGroupId === g.id;
-          if (zoomedGroupId && !zoomedHere) return null;
-          const pos = zoomedHere
-            ? { left: 0, top: 0, width: '100%', height: '100%' }
-            : {
-                left: `${rect.x * 100}%`,
-                top: `${rect.y * 100}%`,
-                width: `${rect.w * 100}%`,
-                height: `${rect.h * 100}%`,
-              };
-          return (
-            <GroupChrome
-              key={g.id}
-              group={g}
-              pos={pos}
-              isActive={g.id === activeGroupId}
-              multiGroup={multiGroup}
-              dragging={drag != null}
-              titles={titles}
-              activity={activity}
-            />
-          );
-        })}
-
-        {/* Layer 2: dividers between groups. */}
+        {/* Layer 1: dividers between panes of the active tab. */}
         {dividers.map((d) => (
           <PaneDivider key={d.splitId} divider={d} areaRef={bodyRef} />
         ))}
 
-        {/* Layer 3: resize HUD for the active group. */}
-        {multiGroup && !zoomedGroupId && (
+        {/* Layer 2: resize HUD + zoom badge for the active tab. */}
+        {activeTab && activeTab.tree.type === 'split' && (
           <ResizeHud
-            tabId={groups[activeGroupId]?.activeTabId}
-            rect={rects.get(activeGroupId)}
+            paneId={activeTab.activePaneId}
+            rect={activeRects.get(activeTab.activePaneId)}
             dims={dims}
           />
         )}
-
-        {zoomedGroupId && <ZoomBadge />}
+        {zoomedPaneId && <ZoomBadge />}
       </div>
       <TerminalCloseToasts />
     </aside>
   );
 };
 
-// ── One group's chrome: its tab strip on top + drop zones over its body ───────
-const GroupChrome = ({
-  group,
-  pos,
-  isActive,
-  multiGroup,
-  dragging,
+// ── The single tab strip across the top of the dock ───────────────────────────
+const TAB_MIN_WIDTH = 56;
+const TAB_MAX_WIDTH = 200;
+
+const TerminalTabBar = ({
+  tabs,
+  activeTabId,
   titles,
   activity,
 }: {
-  group: TermGroup;
-  pos: {
-    left: number | string;
-    top: number | string;
-    width: number | string;
-    height: number | string;
-  };
-  isActive: boolean;
-  multiGroup: boolean;
-  dragging: boolean;
+  tabs: TermTab[];
+  activeTabId: string;
   titles: Record<string, string>;
   activity: Record<string, boolean>;
 }): JSX.Element => {
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        ...pos,
-        // Chrome sits above terminals; only the strip + (during a drag) the drop
-        // zones are interactive, so terminal mouse/selection passes through.
-        pointerEvents: 'none',
-        // The focused group wears a subtle accent ring (only with >1 group).
-        boxShadow: isActive && multiGroup ? `inset 0 0 0 1px ${color.accent}` : 'none',
-        zIndex: 1,
-      }}
-    >
-      <div style={{ pointerEvents: 'auto' }}>
-        <GroupTabBar group={group} titles={titles} activity={activity} />
-      </div>
-      {dragging && <GroupDropZones group={group} />}
-    </div>
-  );
-};
-
-// ── Edge / center drop zones, shown over a group body during a tab drag ───────
-// Edge → split this group in that direction (move the dragged tab into the new
-// group). Center → move the dragged tab into this group. (Tab-bar drops, handled
-// by the strip itself, reorder/insert.)
-const GroupDropZones = ({ group }: { group: TermGroup }): JSX.Element => {
-  const drag = useTerminalStore((s) => s.drag);
-  const splitGroupWithTab = useTerminalStore((s) => s.splitGroupWithTab);
-  const moveTab = useTerminalStore((s) => s.moveTab);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const [target, setTarget] = useState<FocusDir | 'center' | null>(null);
-
-  return (
-    <div
-      ref={ref}
-      onDragOver={(e) => {
-        if (!drag) return;
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        const box = ref.current?.getBoundingClientRect();
-        if (!box || box.width === 0 || box.height === 0) return;
-        setTarget(
-          dropTarget((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height),
-        );
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTarget(null);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        const d = useTerminalStore.getState().drag;
-        if (d && target) {
-          if (target === 'center') moveTab(d.tabId, d.fromGroupId, group.id, group.tabs.length);
-          else splitGroupWithTab(group.id, target, d.tabId, d.fromGroupId);
-        }
-        setTarget(null);
-      }}
-      style={{
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        top: TAB_BAR_HEIGHT,
-        bottom: 0,
-        pointerEvents: 'auto',
-        zIndex: 2,
-      }}
-    >
-      {target && <DropZonePreview target={target} />}
-    </div>
-  );
-};
-
-const DropZonePreview = ({ target }: { target: FocusDir | 'center' }): JSX.Element => {
-  const box: React.CSSProperties =
-    target === 'center'
-      ? { left: 0, top: 0, right: 0, bottom: 0 }
-      : target === 'left'
-        ? { left: 0, top: 0, bottom: 0, width: '50%' }
-        : target === 'right'
-          ? { right: 0, top: 0, bottom: 0, width: '50%' }
-          : target === 'up'
-            ? { left: 0, right: 0, top: 0, height: '50%' }
-            : { left: 0, right: 0, bottom: 0, height: '50%' };
-  return (
-    <div
-      aria-hidden
-      style={{
-        position: 'absolute',
-        ...box,
-        background: `${color.accent}33`,
-        border: `1.5px solid ${color.accent}`,
-        borderRadius: radius.sm,
-        pointerEvents: 'none',
-        transition: transition(['left', 'right', 'top', 'bottom', 'width', 'height']),
-      }}
-    />
-  );
-};
-
-// ── A group's tab strip (editor-style: content-width, left-aligned, scrolls) ──
-const TAB_MIN_WIDTH = 92;
-const TAB_MAX_WIDTH = 180;
-
-const GroupTabBar = ({
-  group,
-  titles,
-  activity,
-}: {
-  group: TermGroup;
-  titles: Record<string, string>;
-  activity: Record<string, boolean>;
-}): JSX.Element => {
-  const focusTab = useTerminalStore((s) => s.focusTab);
+  const selectTab = useTerminalStore((s) => s.selectTab);
   const closeTab = useTerminalStore((s) => s.closeTab);
   const closeOtherTabs = useTerminalStore((s) => s.closeOtherTabs);
   const closeTabsToRight = useTerminalStore((s) => s.closeTabsToRight);
   const newTab = useTerminalStore((s) => s.newTab);
-  const setActiveGroup = useTerminalStore((s) => s.setActiveGroup);
   const setTabTitle = useTerminalStore((s) => s.setTabTitle);
-  const moveTab = useTerminalStore((s) => s.moveTab);
+  const reorderTab = useTerminalStore((s) => s.reorderTab);
+  const splitPane = useTerminalStore((s) => s.splitPane);
   const setDrag = useTerminalStore((s) => s.setDrag);
   const toggleZoom = useTerminalStore((s) => s.toggleZoom);
-  const zoomedHere = useTerminalStore((s) => s.zoomedGroupId === group.id);
+  const zoomed = useTerminalStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.zoomedPaneId != null,
+  );
 
-  const closable = group.tabs.length > 1;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ tabId: string; x: number; y: number } | null>(null);
-  const menuIdx = menu ? group.tabs.findIndex((t) => t.id === menu.tabId) : -1;
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const menuIdx = menu ? tabs.findIndex((t) => t.id === menu.tabId) : -1;
 
-  const dropToGroup = (toIndex: number): void => {
+  const dropAt = (toIndex: number): void => {
     const d = useTerminalStore.getState().drag;
-    if (d) moveTab(d.tabId, d.fromGroupId, group.id, toIndex);
+    if (d) reorderTab(d.tabId, toIndex);
+    setDropIndex(null);
+  };
+  // Split a tab's active pane from its menu (select it first so the split lands there).
+  const splitTab = (tabId: string, dir: 'right' | 'down'): void => {
+    selectTab(tabId);
+    splitPane(dir);
   };
 
   return (
@@ -346,6 +207,7 @@ const GroupTabBar = ({
         display: 'flex',
         alignItems: 'stretch',
         height: TAB_BAR_HEIGHT,
+        flexShrink: 0,
         background: TERMINAL_CHROME_BG,
         borderBottom: `1px solid ${color.border}`,
         overflow: 'hidden',
@@ -355,17 +217,19 @@ const GroupTabBar = ({
         data-term-tabs
         role="tablist"
         aria-label="Terminal tabs"
-        onMouseDown={() => setActiveGroup(group.id)}
         onDoubleClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setActiveGroup(group.id);
-            newTab();
-          }
+          if (e.target === e.currentTarget) newTab();
         }}
-        onDragOver={(e) => e.preventDefault()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (e.target === e.currentTarget) setDropIndex(tabs.length);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropIndex(null);
+        }}
         onDrop={(e) => {
           e.preventDefault();
-          dropToGroup(group.tabs.length); // dropped on empty strip area → append
+          if (e.target === e.currentTarget) dropAt(tabs.length);
         }}
         style={{
           display: 'flex',
@@ -377,32 +241,37 @@ const GroupTabBar = ({
           scrollbarWidth: 'thin',
         }}
       >
-        {group.tabs.map((t, i) => (
-          <TermTab
+        {tabs.map((t, i) => (
+          <TermTabView
             key={t.id}
-            title={t.titleOverride ?? titles[t.id] ?? 'Terminal'}
+            title={t.titleOverride ?? titles[t.activePaneId] ?? 'Terminal'}
             hasOverride={t.titleOverride != null}
-            active={t.id === group.activeTabId}
+            active={t.id === activeTabId}
             first={i === 0}
-            closable={closable}
-            activity={!!activity[t.id] && t.id !== group.activeTabId}
+            activity={!!activity[t.id]}
             editing={editingId === t.id}
-            onSelect={() => focusTab(group.id, t.id)}
-            onClose={() => closeTab(group.id, t.id)}
+            dropBefore={dropIndex === i}
+            dropAfter={dropIndex === tabs.length && i === tabs.length - 1}
+            onSelect={() => selectTab(t.id)}
+            onClose={() => closeTab(t.id)}
             onContextMenu={(x, y) => setMenu({ tabId: t.id, x, y })}
             onEditStart={() => setEditingId(t.id)}
             onEditCommit={(title) => {
               setEditingId(null);
-              setTabTitle(group.id, t.id, title);
+              setTabTitle(t.id, title);
             }}
             onEditCancel={() => setEditingId(null)}
-            onDragStart={() => setDrag({ tabId: t.id, fromGroupId: group.id })}
-            onDragEnd={() => setDrag(null)}
-            onDropHere={() => dropToGroup(i)}
+            onDragStart={() => setDrag({ tabId: t.id })}
+            onDragEnd={() => {
+              setDrag(null);
+              setDropIndex(null);
+            }}
+            onDragOverHere={(side) => setDropIndex(i + (side === 'after' ? 1 : 0))}
+            onDropHere={(side) => dropAt(i + (side === 'after' ? 1 : 0))}
           />
         ))}
       </div>
-      {zoomedHere && (
+      {zoomed && (
         <button
           type="button"
           title="Reset zoom (⌘⇧↵)"
@@ -417,10 +286,7 @@ const GroupTabBar = ({
         type="button"
         title="New terminal tab (⌘T)"
         aria-label="New terminal tab"
-        onClick={() => {
-          setActiveGroup(group.id);
-          newTab();
-        }}
+        onClick={() => newTab()}
         style={iconBtn(color.textTertiary)}
       >
         +
@@ -429,27 +295,33 @@ const GroupTabBar = ({
         <TabContextMenu
           x={menu.x}
           y={menu.y}
-          canClose={closable}
-          canCloseOthers={group.tabs.length > 1}
-          canCloseToRight={menuIdx >= 0 && menuIdx < group.tabs.length - 1}
+          canCloseOthers={tabs.length > 1}
+          canCloseToRight={menuIdx >= 0 && menuIdx < tabs.length - 1}
           onRename={() => {
             setEditingId(menu.tabId);
             setMenu(null);
           }}
           onClose={() => {
-            closeTab(group.id, menu.tabId);
+            closeTab(menu.tabId);
             setMenu(null);
           }}
           onCloseOthers={() => {
-            closeOtherTabs(group.id, menu.tabId);
+            closeOtherTabs(menu.tabId);
             setMenu(null);
           }}
           onCloseToRight={() => {
-            closeTabsToRight(group.id, menu.tabId);
+            closeTabsToRight(menu.tabId);
+            setMenu(null);
+          }}
+          onSplitRight={() => {
+            splitTab(menu.tabId, 'right');
+            setMenu(null);
+          }}
+          onSplitDown={() => {
+            splitTab(menu.tabId, 'down');
             setMenu(null);
           }}
           onNewTab={() => {
-            setActiveGroup(group.id);
             newTab();
             setMenu(null);
           }}
@@ -472,14 +344,15 @@ const iconBtn = (col: string): React.CSSProperties => ({
   lineHeight: 1,
 });
 
-const TermTab = ({
+const TermTabView = ({
   title,
   hasOverride,
   active,
   first,
-  closable,
   activity,
   editing,
+  dropBefore,
+  dropAfter,
   onSelect,
   onClose,
   onContextMenu,
@@ -488,15 +361,17 @@ const TermTab = ({
   onEditCancel,
   onDragStart,
   onDragEnd,
+  onDragOverHere,
   onDropHere,
 }: {
   title: string;
   hasOverride: boolean;
   active: boolean;
   first: boolean;
-  closable: boolean;
   activity: boolean;
   editing: boolean;
+  dropBefore: boolean;
+  dropAfter: boolean;
   onSelect: () => void;
   onClose: () => void;
   onContextMenu: (x: number, y: number) => void;
@@ -505,7 +380,8 @@ const TermTab = ({
   onEditCancel: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onDropHere: () => void;
+  onDragOverHere: (side: 'before' | 'after') => void;
+  onDropHere: (side: 'before' | 'after') => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
   const [draft, setDraft] = useState('');
@@ -518,7 +394,12 @@ const TermTab = ({
     if (active) ref.current?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }, [active]);
 
-  const showX = closable && (hover || active);
+  const showX = hover || active;
+  const dragSide = (clientX: number): 'before' | 'after' => {
+    const box = ref.current?.getBoundingClientRect();
+    if (!box) return 'before';
+    return clientX - box.left <= box.width / 2 ? 'before' : 'after';
+  };
 
   return (
     <div
@@ -530,7 +411,7 @@ const TermTab = ({
         if (editing) return;
         if (e.button === 1) {
           e.preventDefault();
-          if (closable) onClose();
+          onClose();
           return;
         }
         if (e.button === 0) onSelect();
@@ -549,15 +430,18 @@ const TermTab = ({
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => {
+        e.preventDefault();
+        onDragOverHere(dragSide(e.clientX));
+      }}
       onDrop={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        onDropHere();
+        onDropHere(dragSide(e.clientX));
       }}
       style={{
         position: 'relative',
-        flexShrink: 0,
+        flex: '1 0 0',
         minWidth: TAB_MIN_WIDTH,
         maxWidth: TAB_MAX_WIDTH,
         display: 'flex',
@@ -575,6 +459,8 @@ const TermTab = ({
         transition: transition(['color', 'background']),
       }}
     >
+      {dropBefore && <DropInsertLine side="before" />}
+      {dropAfter && <DropInsertLine side="after" />}
       {editing ? (
         <input
           // biome-ignore lint/a11y/noAutofocus: a rename field should take focus.
@@ -617,33 +503,32 @@ const TermTab = ({
       )}
       {!editing && (
         <span style={{ position: 'relative', flexShrink: 0, width: 16, height: 16 }}>
-          {closable && (
-            <button
-              type="button"
-              title="Close tab"
-              aria-label="Close tab"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                onClose();
-              }}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                border: 'none',
-                background: 'transparent',
-                color: 'inherit',
-                cursor: 'pointer',
-                fontSize: 13,
-                lineHeight: 1,
-                padding: 0,
-                borderRadius: radius.sm,
-                opacity: showX ? 0.75 : 0,
-                transition: transition(['opacity']),
-              }}
-            >
-              ×
-            </button>
-          )}
+          <button
+            type="button"
+            title="Close tab"
+            aria-label="Close tab"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              border: 'none',
+              background: 'transparent',
+              color: 'inherit',
+              cursor: 'pointer',
+              fontSize: 13,
+              lineHeight: 1,
+              padding: 0,
+              borderRadius: radius.sm,
+              opacity: showX ? 0.75 : 0,
+              transition: transition(['opacity']),
+            }}
+          >
+            ×
+          </button>
           <span
             aria-hidden
             style={{
@@ -665,31 +550,49 @@ const TermTab = ({
   );
 };
 
+const DropInsertLine = ({ side }: { side: 'before' | 'after' }): JSX.Element => (
+  <span
+    aria-hidden
+    style={{
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      [side === 'before' ? 'left' : 'right']: -1,
+      width: 2,
+      background: color.accent,
+      pointerEvents: 'none',
+      zIndex: 2,
+    }}
+  />
+);
+
 // Right-click tab menu — portalled to the body so an overflow:hidden / transformed
 // ancestor can't clip it. An invisible backdrop catches the dismissing click.
-const TAB_MENU_WIDTH = 188;
+const TAB_MENU_WIDTH = 204;
 const TabContextMenu = ({
   x,
   y,
-  canClose,
   canCloseOthers,
   canCloseToRight,
   onRename,
   onClose,
   onCloseOthers,
   onCloseToRight,
+  onSplitRight,
+  onSplitDown,
   onNewTab,
   onDismiss,
 }: {
   x: number;
   y: number;
-  canClose: boolean;
   canCloseOthers: boolean;
   canCloseToRight: boolean;
   onRename: () => void;
   onClose: () => void;
   onCloseOthers: () => void;
   onCloseToRight: () => void;
+  onSplitRight: () => void;
+  onSplitDown: () => void;
   onNewTab: () => void;
   onDismiss: () => void;
 }): JSX.Element => {
@@ -702,17 +605,24 @@ const TabContextMenu = ({
   }, [onDismiss]);
 
   const left = Math.min(Math.max(4, x), Math.max(4, window.innerWidth - TAB_MENU_WIDTH - 4));
-  const top = Math.max(4, Math.min(y, window.innerHeight - 216));
+  const top = Math.max(4, Math.min(y, window.innerHeight - 260));
   const items: Array<
     { key: string; label: string; on: () => void; enabled: boolean } | { key: string; sep: true }
   > = [
     { key: 'new', label: 'New Terminal Tab', on: onNewTab, enabled: true },
+    { key: 'split-right', label: 'Split Pane Right', on: onSplitRight, enabled: true },
+    { key: 'split-down', label: 'Split Pane Down', on: onSplitDown, enabled: true },
     { key: 'sep1', sep: true },
     { key: 'rename', label: 'Rename…', on: onRename, enabled: true },
     { key: 'sep2', sep: true },
-    { key: 'close', label: 'Close', on: onClose, enabled: canClose },
-    { key: 'others', label: 'Close Others', on: onCloseOthers, enabled: canCloseOthers },
-    { key: 'right', label: 'Close to the Right', on: onCloseToRight, enabled: canCloseToRight },
+    { key: 'close', label: 'Close Tab', on: onClose, enabled: true },
+    { key: 'others', label: 'Close Other Tabs', on: onCloseOthers, enabled: canCloseOthers },
+    {
+      key: 'right',
+      label: 'Close Tabs to the Right',
+      on: onCloseToRight,
+      enabled: canCloseToRight,
+    },
   ];
 
   return createPortal(
@@ -786,7 +696,7 @@ const TabContextMenu = ({
   );
 };
 
-// ── Divider between groups (drag to resize; double-click to reset to 50/50) ───
+// ── Divider between panes (drag to resize; double-click to reset to 50/50) ────
 const DIVIDER_HIT = 6;
 const MIN_PANE_PX = 48;
 
@@ -883,25 +793,31 @@ const PaneDivider = ({
   );
 };
 
-// The transient "cols × rows" HUD over the active group on resize.
+// The transient "cols × rows" HUD over the active pane on resize.
 const ResizeHud = ({
-  tabId,
+  paneId,
   rect,
   dims,
 }: {
-  tabId: string | undefined;
+  paneId: string | undefined;
   rect: { x: number; y: number; w: number; h: number } | undefined;
   dims: Record<string, { cols: number; rows: number }>;
 }): JSX.Element | null => {
   const resizeTick = useTerminalStore((s) => s.resizeTick);
+  const activeTabId = useTerminalStore((s) => s.activeTabId);
   const [show, setShow] = useState(false);
+  const prevTick = useRef(resizeTick);
   useEffect(() => {
-    if (resizeTick === 0) return;
+    if (resizeTick === prevTick.current) return; // only a genuine resize, not mount
+    prevTick.current = resizeTick;
     setShow(true);
     const id = window.setTimeout(() => setShow(false), 750);
     return () => window.clearTimeout(id);
   }, [resizeTick]);
-  const dim = tabId ? dims[tabId] : undefined;
+  // resizeTick is global; a tab switch must not let the HUD flash on the new tab.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hide on tab change only
+  useEffect(() => setShow(false), [activeTabId]);
+  const dim = paneId ? dims[paneId] : undefined;
   if (!show || !dim || !rect) return null;
   return (
     <div
@@ -969,18 +885,26 @@ const TerminalCloseToasts = (): JSX.Element | null => {
         zIndex: 8,
       }}
     >
-      {closing.map((c) => (
-        <CloseToast
-          key={c.key}
-          entryKey={c.key}
-          name={c.tab.titleOverride ?? titles[c.tab.id] ?? 'Terminal'}
-        />
-      ))}
+      {closing.map((c) => {
+        const name =
+          c.kind === 'tab'
+            ? (c.tab.titleOverride ?? titles[c.tab.activePaneId] ?? 'Terminal')
+            : (titles[c.paneId] ?? 'Terminal');
+        return <CloseToast key={c.key} entryKey={c.key} kind={c.kind} name={name} />;
+      })}
     </div>
   );
 };
 
-const CloseToast = ({ entryKey, name }: { entryKey: string; name: string }): JSX.Element => {
+const CloseToast = ({
+  entryKey,
+  kind,
+  name,
+}: {
+  entryKey: string;
+  kind: 'tab' | 'pane';
+  name: string;
+}): JSX.Element => {
   const undoClose = useTerminalStore((s) => s.undoClose);
   const finalizeClose = useTerminalStore((s) => s.finalizeClose);
   useEffect(() => {
@@ -1005,7 +929,7 @@ const CloseToast = ({ entryKey, name }: { entryKey: string; name: string }): JSX
       }}
     >
       <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        Closed “{name}”
+        Closed {kind === 'tab' ? 'tab' : 'pane'} “{name}”
       </span>
       <button
         type="button"
@@ -1054,6 +978,10 @@ function useTerminalKeymap(): void {
       if (!e.metaKey) return;
       const s = useTerminalStore.getState();
       if (!s.focused) return; // only when the terminal owns focus
+      // Yield while a tab-rename <input> holds focus. xterm's own input is a
+      // <textarea>, so terminal shortcuts still fire when the shell is focused.
+      const ae = document.activeElement;
+      if (ae instanceof HTMLElement && (ae.tagName === 'INPUT' || ae.isContentEditable)) return;
       const k = e.key.toLowerCase();
       let action: (() => void) | null = null;
       const dir =
@@ -1067,24 +995,26 @@ function useTerminalKeymap(): void {
                 ? 'down'
                 : null;
       if (k === 't' && !e.shiftKey && !e.altKey && !e.ctrlKey) {
-        action = s.newTab; // ⌘T new tab in the active group
+        action = s.newTab; // ⌘T new tab
+      } else if (k === 'w' && e.altKey && !e.shiftKey && !e.ctrlKey) {
+        action = () => s.closeTab(s.activeTabId); // ⌘⌥W close whole tab
       } else if (k === 'd' && !e.altKey && !e.ctrlKey) {
-        action = () => s.splitGroupWithNewTab(e.shiftKey ? 'down' : 'right'); // ⌘D / ⌘⇧D split group
+        action = () => s.splitPane(e.shiftKey ? 'down' : 'right'); // ⌘D / ⌘⇧D split pane
       } else if (e.key === 'Enter' && e.shiftKey) {
-        action = s.toggleZoom; // ⌘⇧↵ zoom group
+        action = s.toggleZoom; // ⌘⇧↵ zoom pane
       } else if (e.code === 'BracketLeft') {
-        // ⌘[ switch tab in group; ⌘⇧[ cycle groups
-        action = () => (e.shiftKey ? s.gotoGroupRing(-1) : s.switchTab(-1));
+        // ⌘[ cycle panes; ⌘⇧[ previous tab
+        action = () => (e.shiftKey ? s.switchTab(-1) : s.gotoPaneRing(-1));
       } else if (e.code === 'BracketRight') {
-        action = () => (e.shiftKey ? s.gotoGroupRing(1) : s.switchTab(1));
+        action = () => (e.shiftKey ? s.switchTab(1) : s.gotoPaneRing(1));
       } else if (dir && e.altKey && !e.ctrlKey) {
-        action = () => s.gotoGroupDir(dir); // ⌘⌥arrow move focus between groups
+        action = () => s.gotoPaneDir(dir); // ⌘⌥arrow move pane focus
       } else if (dir && e.ctrlKey && !e.altKey) {
-        action = () => s.resizeFocusedGroup(dir); // ⌘⌃arrow resize groups
+        action = () => s.resizePane(dir); // ⌘⌃arrow resize panes
       } else if (e.ctrlKey && !e.altKey && !e.shiftKey && (e.key === '=' || e.code === 'Equal')) {
-        action = s.equalizeGroups; // ⌘⌃= equalize groups
+        action = s.equalizePanes; // ⌘⌃= equalize panes
       } else if (!e.shiftKey && !e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key)) {
-        const n = Number(e.key); // ⌘1–8 select tab N in the active group; ⌘9 last tab
+        const n = Number(e.key); // ⌘1–8 select tab N; ⌘9 last tab
         action = n === 9 ? s.lastTab : () => s.gotoTab(n);
       }
       if (!action) return;
@@ -1139,20 +1069,11 @@ const TerminalSash = (): JSX.Element => {
         width: 6,
         height: '100%',
         cursor: 'col-resize',
-        zIndex: 5,
+        zIndex: 10,
+        transform: 'translateX(-3px)',
+        background: active || hover ? color.accent : 'transparent',
+        transition: active ? 'none' : transition(['background']),
       }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: 2,
-          height: '100%',
-          background: active ? color.accent : hover ? color.borderStrong : 'transparent',
-          transition: active ? 'none' : transition(['background']),
-        }}
-      />
-    </div>
+    />
   );
 };

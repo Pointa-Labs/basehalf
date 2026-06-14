@@ -101,6 +101,10 @@ export const App = (): JSX.Element => {
         // and steal focus into an obscured input — keystrokes vanish. Let the
         // palette field handle the press instead.
         if (isCommandPaletteOpen()) return;
+        // Yield to an editable surface — the note editor, an input, or the focused
+        // terminal (xterm's <textarea>) — so ⌘N never steals focus out of where
+        // the user is typing.
+        if (editable) return;
         // Instant note — a real `untitled-N.md` opens for typing right away;
         // no filename dialog up front (rename later, when it has a subject).
         // Created in the folder the canvas is scoped into, where you're looking.
