@@ -986,8 +986,10 @@ const TabContextMenu = ({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onDismiss]);
 
-  const left = Math.max(4, Math.min(x, window.innerWidth - TAB_MENU_WIDTH - 6));
-  const top = Math.min(y, window.innerHeight - 216);
+  // Clamp x into [4, innerWidth - width - 4]; the outer max keeps it on-screen
+  // even in a degenerate viewport narrower than the menu (overflow then pins left).
+  const left = Math.min(Math.max(4, x), Math.max(4, window.innerWidth - TAB_MENU_WIDTH - 4));
+  const top = Math.max(4, Math.min(y, window.innerHeight - 216));
   const items: Array<
     { key: string; label: string; on: () => void; enabled: boolean } | { key: string; sep: true }
   > = [

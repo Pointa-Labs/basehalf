@@ -166,11 +166,26 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       return { tabs, activeTabId, zoomedLeafId: null, activity, closing };
     }),
 
+  // Bulk closes are SOFT too (each removed tab → a `closing` entry with an undo
+  // toast) — "Close Others" could otherwise kill many running agents at once
+  // with no recourse, which is exactly what soft-close exists to prevent.
   closeOtherTabs: (tabId) =>
     set((s) => {
       const keep = s.tabs.find((t) => t.id === tabId);
       if (!keep || s.tabs.length <= 1) return s;
-      return { tabs: [keep], activeTabId: tabId, zoomedLeafId: null, activity: {} };
+      const removed = s.tabs
+        .map((tab, index) => ({ tab, index }))
+        .filter(({ tab }) => tab.id !== tabId);
+      return {
+        tabs: [keep],
+        activeTabId: tabId,
+        zoomedLeafId: null,
+        activity: {},
+        closing: [
+          ...s.closing,
+          ...removed.map(({ tab, index }) => ({ key: mint('close'), tab, index })),
+        ],
+      };
     }),
 
   closeTabsToRight: (tabId) =>
@@ -178,11 +193,16 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const idx = s.tabs.findIndex((t) => t.id === tabId);
       if (idx < 0 || idx >= s.tabs.length - 1) return s;
       const tabs = s.tabs.slice(0, idx + 1);
+      const removed = s.tabs.slice(idx + 1).map((tab, k) => ({ tab, index: idx + 1 + k }));
       const activeStillThere = tabs.some((t) => t.id === s.activeTabId);
       return {
         tabs,
         activeTabId: activeStillThere ? s.activeTabId : tabId,
         zoomedLeafId: null,
+        closing: [
+          ...s.closing,
+          ...removed.map(({ tab, index }) => ({ key: mint('close'), tab, index })),
+        ],
       };
     }),
 
