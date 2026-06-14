@@ -350,23 +350,30 @@ export function insertBeside(
   return replace(root);
 }
 
-/** Which drop-zone edge a point in a pane's [0..1] space lands in — the nearest
- *  edge (a 4-triangle partition), ties broken left→right→up→down, exact center
- *  → left. Drives drag-to-split previews + drops. */
-export function dropEdge(px: number, py: number): FocusDir {
-  const candidates: ReadonlyArray<readonly [FocusDir, number]> = [
-    ['left', px],
-    ['right', 1 - px],
-    ['up', py],
-    ['down', 1 - py],
-  ];
-  let best: FocusDir = 'left';
-  let bestD = Number.POSITIVE_INFINITY;
-  for (const [edge, d] of candidates) {
-    if (d < bestD - 1e-9) {
-      bestD = d;
-      best = edge;
-    }
-  }
-  return best;
+/** The outer frame (as a fraction of each side) that triggers a split when a tab
+ *  is dropped over a group body; the inner area merges. A point inside the inner
+ *  `1 - 2*SPLIT_EDGE` box is "center". */
+export const SPLIT_EDGE = 0.18;
+
+/** Where a dropped tab lands, given a point in a group body's [0..1] space.
+ *
+ *  The interior is one large **merge** zone (drop the tab into this group); only
+ *  a frame at the edges **splits**. The geometry mirrors the familiar
+ *  editor-group model, and the two non-obvious choices are what make it feel
+ *  wide instead of finicky:
+ *
+ *  - The left/right zones are **full-height side columns**, and the corners
+ *    resolve to left/right (a horizontal-split bias). So a side split has a tall,
+ *    stable target that never pinches — unlike a nearest-edge partition, whose
+ *    side wedges shrink to nothing toward the corners.
+ *  - Up/down only claim the **middle third** of the top/bottom frame.
+ *
+ *  Drives the drag-to-split preview + the actual drop. */
+export function dropTarget(px: number, py: number): FocusDir | 'center' {
+  const onEdge =
+    px <= SPLIT_EDGE || px >= 1 - SPLIT_EDGE || py <= SPLIT_EDGE || py >= 1 - SPLIT_EDGE;
+  if (!onEdge) return 'center';
+  if (px < 1 / 3) return 'left';
+  if (px > 2 / 3) return 'right';
+  return py < 0.5 ? 'up' : 'down';
 }

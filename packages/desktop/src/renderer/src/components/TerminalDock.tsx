@@ -1,7 +1,7 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { color, font, radius, shadow, space, transition } from '../design.js';
-import { type FocusDir, dropEdge, leafRects, splitDividers } from '../lib/terminalTree.js';
+import { type FocusDir, dropTarget, leafRects, splitDividers } from '../lib/terminalTree.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { type TermGroup, useTerminalStore } from '../store/terminal.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -304,14 +304,6 @@ const DropZonePreview = ({ target }: { target: FocusDir | 'center' }): JSX.Eleme
     />
   );
 };
-
-// Central region (the inner 50%) → move into the group; outer bands → split on
-// the nearest edge.
-function dropTarget(px: number, py: number): FocusDir | 'center' {
-  const m = 0.25;
-  if (px > m && px < 1 - m && py > m && py < 1 - m) return 'center';
-  return dropEdge(px, py);
-}
 
 // ── A group's tab strip (editor-style: content-width, left-aligned, scrolls) ──
 const TAB_MIN_WIDTH = 92;

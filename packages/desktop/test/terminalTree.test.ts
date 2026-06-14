@@ -3,7 +3,7 @@ import {
   type TermNode,
   closeLeaf,
   directionalNeighbor,
-  dropEdge,
+  dropTarget,
   equalize,
   findLeaf,
   firstLeaf,
@@ -171,12 +171,29 @@ describe('terminalTree', () => {
     expect((down.b as { id: string }).id).toBe('x');
   });
 
-  it('dropEdge picks the nearest edge, ties → left→right→up→down', () => {
-    expect(dropEdge(0.1, 0.5)).toBe('left');
-    expect(dropEdge(0.9, 0.5)).toBe('right');
-    expect(dropEdge(0.5, 0.1)).toBe('up');
-    expect(dropEdge(0.5, 0.9)).toBe('down');
-    expect(dropEdge(0.5, 0.5)).toBe('left'); // exact center → left
+  it('dropTarget: a large interior merges; only the edge frame splits', () => {
+    // Anywhere in the inner box → merge into the group.
+    expect(dropTarget(0.5, 0.5)).toBe('center');
+    expect(dropTarget(0.25, 0.75)).toBe('center');
+    expect(dropTarget(0.7, 0.3)).toBe('center');
+  });
+
+  it('dropTarget: left/right are full-height side columns (no corner pinch)', () => {
+    // The whole left strip → left, top to bottom — never collapses to a wedge.
+    expect(dropTarget(0.05, 0.5)).toBe('left');
+    expect(dropTarget(0.05, 0.02)).toBe('left'); // top-left corner
+    expect(dropTarget(0.05, 0.98)).toBe('left'); // bottom-left corner
+    expect(dropTarget(0.95, 0.5)).toBe('right');
+    expect(dropTarget(0.95, 0.02)).toBe('right'); // top-right corner
+    expect(dropTarget(0.95, 0.98)).toBe('right'); // bottom-right corner
+  });
+
+  it('dropTarget: up/down claim only the middle third of the top/bottom frame', () => {
+    expect(dropTarget(0.5, 0.05)).toBe('up');
+    expect(dropTarget(0.5, 0.95)).toBe('down');
+    // A point in the top frame but left of the middle third → left, not up.
+    expect(dropTarget(0.2, 0.05)).toBe('left');
+    expect(dropTarget(0.8, 0.95)).toBe('right');
   });
 
   it('resizeTarget finds the nearest ancestor split on the right axis', () => {
