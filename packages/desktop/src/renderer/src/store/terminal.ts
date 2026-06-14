@@ -86,6 +86,8 @@ interface TerminalState {
   closing: ClosingEntry[];
   /** The tab being dragged to reorder within the strip, or null. */
   drag: { tabId: string } | null;
+  /** The pane being dragged (by its grab handle) to rearrange the split, or null. */
+  paneDrag: { paneId: string } | null;
 
   // Tabs ──────────────────────────────────────────────────────────────────────
   /** ⌘T: new tab (one fresh pane), inserted after the active tab + focused. */
@@ -108,6 +110,9 @@ interface TerminalState {
   gotoPaneDir: (dir: FocusDir) => void;
   /** ⌘[ / ⌘]: cycle pane focus in tree order within the active tab. */
   gotoPaneRing: (delta: 1 | -1) => void;
+  /** Drag-rearrange: move `paneId` to sit beside `destPaneId` on `side` (both in
+   *  the active tab); the dragged pane keeps its pty (same id → no remount). */
+  movePane: (paneId: string, side: FocusDir, destPaneId: string) => void;
   /** ⌘⌃arrow: resize the split around the active pane. */
   resizePane: (dir: FocusDir) => void;
   /** ⌘⌃=: even out all splits in the active tab. */
@@ -134,6 +139,7 @@ interface TerminalState {
   setDims: (paneId: string, cols: number, rows: number) => void;
   markActivity: (paneId: string) => void;
   setDrag: (drag: { tabId: string } | null) => void;
+  setPaneDrag: (drag: { paneId: string } | null) => void;
 }
 
 let seq = 0;
@@ -161,6 +167,7 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   activity: {},
   closing: [],
   drag: null,
+  paneDrag: null,
 
   newTab: () =>
     set((s) => {
@@ -264,6 +271,28 @@ export const useTerminalStore = create<TerminalState>((set) => ({
         zoomedPaneId: null,
       })),
     ),
+
+  movePane: (paneId, side, destPaneId) =>
+    set((s) => {
+      if (paneId === destPaneId) return { paneDrag: null };
+      const tab = activeTab(s);
+      if (!tab || !findLeaf(tab.tree, paneId) || !findLeaf(tab.tree, destPaneId))
+        return { paneDrag: null };
+      // Pull the pane out (its sibling collapses up), then re-insert it beside the
+      // target on `side`. The leaf keeps its id, so the pty never remounts.
+      const { root } = closeLeaf(tab.tree, paneId);
+      if (!root) return { paneDrag: null }; // it was the only pane
+      const tree = insertBeside(root, destPaneId, side, paneId, mint('s'));
+      return {
+        tabs: replaceTab(s.tabs, tab.id, {
+          ...tab,
+          tree,
+          activePaneId: paneId,
+          zoomedPaneId: null,
+        }),
+        paneDrag: null,
+      };
+    }),
 
   resizePane: (dir) =>
     set((s) => {
@@ -461,6 +490,8 @@ export const useTerminalStore = create<TerminalState>((set) => ({
     }),
 
   setDrag: (drag) => set({ drag }),
+
+  setPaneDrag: (paneDrag) => set({ paneDrag }),
 }));
 
 const activeTab = (s: TerminalState): TermTab | undefined =>

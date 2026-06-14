@@ -161,6 +161,20 @@ describe('terminal store — Ghostty tabs + panes', () => {
     for (const id of ['p0', p1, p2, p3]) expect(findLeaf(tree, id)).not.toBeNull();
   });
 
+  it('movePane re-splits the dragged pane beside the target on the given edge', () => {
+    g().splitPane('right'); // p0 | p1, active p1
+    const p1 = activeTab()?.activePaneId as string;
+    g().movePane('p0', 'right', p1); // move p0 to the right of p1 → order swaps
+    expect(orderedLeafIds(activeTree())).toEqual([p1, 'p0']);
+    expect(activeTab()?.activePaneId).toBe('p0');
+    expect(g().paneDrag).toBeNull();
+  });
+
+  it('movePane onto itself or with a single pane is a no-op', () => {
+    g().movePane('p0', 'right', 'p0');
+    expect(orderedLeafIds(activeTree())).toEqual(['p0']);
+  });
+
   it('toggleZoom is a no-op on a lone pane, zooms with a split, and a split clears it', () => {
     g().toggleZoom();
     expect(activeTab()?.zoomedPaneId).toBeNull();

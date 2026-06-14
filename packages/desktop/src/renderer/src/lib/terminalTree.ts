@@ -349,3 +349,24 @@ export function insertBeside(
   };
   return replace(root);
 }
+
+/** Which edge of a pane a point in its [0..1] space is nearest — a 4-triangle
+ *  partition (the view's diagonals), ties broken left→right→up→down. Drives the
+ *  drag-a-pane-to-rearrange drop zones: the dropped pane lands on this edge. */
+export function dropEdge(px: number, py: number): FocusDir {
+  const candidates: ReadonlyArray<readonly [FocusDir, number]> = [
+    ['left', px],
+    ['right', 1 - px],
+    ['up', py],
+    ['down', 1 - py],
+  ];
+  let best: FocusDir = 'left';
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const [edge, dist] of candidates) {
+    if (dist < bestDist - 1e-9) {
+      bestDist = dist;
+      best = edge;
+    }
+  }
+  return best;
+}

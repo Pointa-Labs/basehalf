@@ -3,6 +3,7 @@ import {
   type TermNode,
   closeLeaf,
   directionalNeighbor,
+  dropEdge,
   equalize,
   findLeaf,
   firstLeaf,
@@ -168,6 +169,14 @@ describe('terminalTree', () => {
     >;
     expect(down.dir).toBe('column');
     expect((down.b as { id: string }).id).toBe('x');
+  });
+
+  it('dropEdge picks the nearest edge, ties → left→right→up→down', () => {
+    expect(dropEdge(0.1, 0.5)).toBe('left');
+    expect(dropEdge(0.9, 0.5)).toBe('right');
+    expect(dropEdge(0.5, 0.1)).toBe('up');
+    expect(dropEdge(0.5, 0.9)).toBe('down');
+    expect(dropEdge(0.5, 0.5)).toBe('left'); // exact center → left
   });
 
   it('resizeTarget finds the nearest ancestor split on the right axis', () => {

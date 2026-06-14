@@ -1,7 +1,14 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { color, font, radius, shadow, space, transition } from '../design.js';
-import { type Rect, leafRects, orderedLeafIds, splitDividers } from '../lib/terminalTree.js';
+import {
+  type FocusDir,
+  type Rect,
+  dropEdge,
+  leafRects,
+  orderedLeafIds,
+  splitDividers,
+} from '../lib/terminalTree.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { type TermTab, useTerminalStore } from '../store/terminal.js';
 import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
@@ -36,6 +43,7 @@ export const TerminalDock = (): JSX.Element => {
   const activity = useTerminalStore((s) => s.activity);
   const dims = useTerminalStore((s) => s.dims);
   const focused = useTerminalStore((s) => s.focused);
+  const paneDrag = useTerminalStore((s) => s.paneDrag);
   const setFocused = useTerminalStore((s) => s.setFocused);
   const focusPane = useTerminalStore((s) => s.focusPane);
   const setTitle = useTerminalStore((s) => s.setTitle);
@@ -152,6 +160,12 @@ export const TerminalDock = (): JSX.Element => {
                     zIndex: 1,
                   }}
                 />
+              )}
+              {/* Grab handle (the ⋯) to drag a pane to a new spot — only when split. */}
+              {visible && dimUnfocused && <PaneGrabHandle paneId={paneId} />}
+              {/* Drop zones over the OTHER panes while a pane is being dragged. */}
+              {visible && paneDrag && paneDrag.paneId !== paneId && (
+                <PaneDropZones destPaneId={paneId} />
               )}
             </div>
           );
@@ -736,6 +750,106 @@ const TabContextMenu = ({
       </div>
     </>,
     document.body,
+  );
+};
+
+// ── Pane drag-to-rearrange: a grab handle (⋯) + edge drop zones ───────────────
+// Mirrors the reference terminal: a handle appears at the top of a split pane;
+// drag it onto another pane's edge to move it there (re-splitting on that edge).
+const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
+  const setPaneDrag = useTerminalStore((s) => s.setPaneDrag);
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/x-bh-term-pane', paneId);
+        setPaneDrag({ paneId });
+      }}
+      onDragEnd={() => setPaneDrag(null)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Drag to move this pane"
+      aria-label="Move pane"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 88,
+        height: 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'grab',
+        color: '#fff',
+        // Faintly present so it's discoverable; brightens on hover.
+        opacity: hover ? 0.85 : 0.25,
+        transition: transition(['opacity']),
+        zIndex: 4,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 14, lineHeight: 1, letterSpacing: 2 }}>
+        ⋯
+      </span>
+    </div>
+  );
+};
+
+const PaneDropZones = ({ destPaneId }: { destPaneId: string }): JSX.Element => {
+  const movePane = useTerminalStore((s) => s.movePane);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [edge, setEdge] = useState<FocusDir | null>(null);
+  return (
+    <div
+      ref={ref}
+      onDragOver={(e) => {
+        if (!useTerminalStore.getState().paneDrag) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const box = ref.current?.getBoundingClientRect();
+        if (!box || box.width === 0 || box.height === 0) return;
+        setEdge(dropEdge((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height));
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEdge(null);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const d = useTerminalStore.getState().paneDrag;
+        if (d && edge) movePane(d.paneId, edge, destPaneId);
+        setEdge(null);
+      }}
+      style={{ position: 'absolute', inset: 0, zIndex: 5, pointerEvents: 'auto' }}
+    >
+      {edge && <PaneDropPreview edge={edge} />}
+    </div>
+  );
+};
+
+const PaneDropPreview = ({ edge }: { edge: FocusDir }): JSX.Element => {
+  const box: React.CSSProperties =
+    edge === 'left'
+      ? { left: 0, top: 0, bottom: 0, width: '50%' }
+      : edge === 'right'
+        ? { right: 0, top: 0, bottom: 0, width: '50%' }
+        : edge === 'up'
+          ? { left: 0, right: 0, top: 0, height: '50%' }
+          : { left: 0, right: 0, bottom: 0, height: '50%' };
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: 'absolute',
+        ...box,
+        background: `${color.accent}33`,
+        border: `1.5px solid ${color.accent}`,
+        borderRadius: radius.sm,
+        pointerEvents: 'none',
+        transition: transition(['left', 'right', 'top', 'bottom', 'width', 'height']),
+      }}
+    />
   );
 };
 
