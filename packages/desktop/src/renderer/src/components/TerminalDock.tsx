@@ -777,20 +777,23 @@ const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
         top: 0,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 88,
-        height: 16,
+        width: 46,
+        height: 14,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'grab',
-        color: '#fff',
-        // Faintly present so it's discoverable; brightens on hover.
-        opacity: hover ? 0.85 : 0.25,
-        transition: transition(['opacity']),
+        // A small grip chip with its OWN backdrop, so it stays legible over the
+        // shell's cursor / output instead of being washed out by them. Always
+        // visible (like the reference terminal's handle); brighter on hover.
+        background: hover ? color.borderStrong : color.border,
+        color: hover ? color.textSecondary : color.textTertiary,
+        borderRadius: '0 0 6px 6px',
+        transition: transition(['background', 'color']),
         zIndex: 4,
       }}
     >
-      <span aria-hidden style={{ fontSize: 14, lineHeight: 1, letterSpacing: 2 }}>
+      <span aria-hidden style={{ fontSize: 13, lineHeight: 1, letterSpacing: 2, marginTop: -1 }}>
         ⋯
       </span>
     </div>

@@ -7,14 +7,13 @@ import '@xterm/xterm/css/xterm.css';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, space } from '../design.js';
 
-// The terminal's default palette — a dark, editor-style scheme reproduced in
-// xterm: a foreground-colored block cursor and a translucent selection.
-// Deliberately its own surface, distinct from the app chrome, so the terminal
-// reads as a focused zone.
-export const TERMINAL_BG = '#282c34';
-// A half-step darker than TERMINAL_BG, same family — used for the dock's tab
-// strip so the active terminal (at TERMINAL_BG) reads as raised.
-export const TERMINAL_CHROME_BG = '#21252b';
+// The terminal's palette uses the app's own NEUTRAL dark surface (not a blue-gray
+// editor scheme), so the dock blends with the rest of the theme: a
+// foreground-colored block cursor and a translucent selection over the app base.
+export const TERMINAL_BG = color.bg;
+// The app's deepest chrome tone (side-bar / title-bar) for the tab strip, so the
+// active terminal (at TERMINAL_BG) reads as raised above it.
+export const TERMINAL_CHROME_BG = color.surfaceMuted;
 const THEME = {
   background: TERMINAL_BG,
   foreground: '#ffffff',
