@@ -803,25 +803,32 @@ const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
       aria-label="Move pane"
       style={{
         position: 'absolute',
-        top: 1,
+        top: 2,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 36,
+        // A TINY capsule framing the ⋯ so it reads as a grab affordance — kept
+        // very small so it barely covers any terminal content.
+        minWidth: 22,
         height: 13,
+        padding: `0 ${space[1]}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'grab',
-        color: '#fff',
-        // Just the glyph — no backdrop. Fades in only near the top; stays out of
-        // the way (no pointer events) otherwise so it never blocks the text.
-        opacity: shown ? (hover ? 0.8 : 0.3) : 0,
+        borderRadius: 999,
+        // Neutral translucent glass (no hue) so it sits on any content; fades in
+        // only near the top and carries no pointer events while hidden, so it
+        // never blocks the text.
+        color: hover ? '#fff' : 'rgba(255,255,255,0.7)',
+        background: hover ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
+        border: `1px solid rgba(255,255,255,${hover ? 0.28 : 0.14})`,
+        opacity: shown ? 1 : 0,
         pointerEvents: shown ? 'auto' : 'none',
-        transition: transition(['opacity']),
+        transition: transition(['opacity', 'background', 'border-color', 'color']),
         zIndex: 4,
       }}
     >
-      <span aria-hidden style={{ fontSize: 13, lineHeight: 1, letterSpacing: 1 }}>
+      <span aria-hidden style={{ fontSize: 11, lineHeight: 1, letterSpacing: 1 }}>
         ⋯
       </span>
     </div>
