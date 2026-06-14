@@ -70,24 +70,29 @@ interface SpawnOpts {
 }
 
 export function registerTerminalIpc(core: Core): void {
-  ipcMain.handle('terminal:spawn', async (_evt, opts: SpawnOpts = {}): Promise<string> => {
-    const id = `t${nextId++}`;
-    const cwd = await resolveCwd(core, opts.cwd);
-    const pty = ptySpawn(defaultShell(), shellArgs(), {
-      name: 'xterm-256color',
-      cols: Math.max(1, Math.floor(opts.cols ?? 80)),
-      rows: Math.max(1, Math.floor(opts.rows ?? 24)),
-      cwd,
-      env: cleanEnv(),
-    });
-    sessions.set(id, pty);
-    pty.onData((data) => broadcast('terminal:data', { id, data }));
-    pty.onExit(({ exitCode }) => {
-      sessions.delete(id);
-      broadcast('terminal:exit', { id, exitCode });
-    });
-    return id;
-  });
+  ipcMain.handle(
+    'terminal:spawn',
+    // Returns the cwd too so the renderer can seed a meaningful tab label (the
+    // working-directory name) before the shell sets any OSC title.
+    async (_evt, opts: SpawnOpts = {}): Promise<{ id: string; cwd: string }> => {
+      const id = `t${nextId++}`;
+      const cwd = await resolveCwd(core, opts.cwd);
+      const pty = ptySpawn(defaultShell(), shellArgs(), {
+        name: 'xterm-256color',
+        cols: Math.max(1, Math.floor(opts.cols ?? 80)),
+        rows: Math.max(1, Math.floor(opts.rows ?? 24)),
+        cwd,
+        env: cleanEnv(),
+      });
+      sessions.set(id, pty);
+      pty.onData((data) => broadcast('terminal:data', { id, data }));
+      pty.onExit(({ exitCode }) => {
+        sessions.delete(id);
+        broadcast('terminal:exit', { id, exitCode });
+      });
+      return { id, cwd };
+    },
+  );
 
   ipcMain.on('terminal:write', (_evt, payload: { id: string; data: string }) => {
     sessions.get(payload.id)?.write(payload.data);

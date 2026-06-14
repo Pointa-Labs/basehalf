@@ -217,9 +217,11 @@ const bh = {
    *  Bytes stream both ways: spawn/write/resize/kill out, data/exit in. */
   terminal: {
     /** Spawn a shell pty. cwd defaults to the active workspace root (resolved in
-     *  main). Resolves the new session id. */
-    spawn: (opts?: { cols?: number; rows?: number; cwd?: string }): Promise<string> =>
-      ipcRenderer.invoke('terminal:spawn', opts ?? {}),
+     *  main). Resolves the new session id and its resolved cwd. */
+    spawn: (opts?: { cols?: number; rows?: number; cwd?: string }): Promise<{
+      id: string;
+      cwd: string;
+    }> => ipcRenderer.invoke('terminal:spawn', opts ?? {}),
     /** Forward user keystrokes to a session's pty. */
     write: (id: string, data: string): void => {
       ipcRenderer.send('terminal:write', { id, data });

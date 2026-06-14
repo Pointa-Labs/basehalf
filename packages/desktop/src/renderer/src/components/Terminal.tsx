@@ -146,13 +146,17 @@ export const TerminalView = ({
     }
 
     let disposed = false;
-    void window.bh.terminal.spawn({ cols: term.cols, rows: term.rows }).then((id) => {
+    void window.bh.terminal.spawn({ cols: term.cols, rows: term.rows }).then(({ id, cwd }) => {
       // Unmounted before the id arrived — kill the orphan immediately.
       if (disposed) {
         window.bh.terminal.kill(id);
         return;
       }
       idRef.current = id;
+      // Seed the tab label with the working-directory name so it's meaningful even
+      // before the shell sets an OSC title (which then overrides it).
+      const base = cwd.replace(/\/+$/, '').split('/').pop();
+      if (base) onTitleRef.current?.(base);
     });
 
     // The bundled "BH Mono" face may still be loading on first paint; xterm

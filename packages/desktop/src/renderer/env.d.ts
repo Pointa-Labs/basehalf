@@ -95,8 +95,11 @@ interface Window {
      *  renderer can't spawn processes); xterm.js in the renderer is the view. */
     terminal: {
       /** Spawn a shell pty (cwd defaults to the active workspace root, resolved
-       *  in main). Resolves the new session id. */
-      spawn(opts?: { cols?: number; rows?: number; cwd?: string }): Promise<string>;
+       *  in main). Resolves the new session id and its resolved cwd. */
+      spawn(opts?: { cols?: number; rows?: number; cwd?: string }): Promise<{
+        id: string;
+        cwd: string;
+      }>;
       /** Forward user keystrokes to a session's pty. */
       write(id: string, data: string): void;
       /** Tell a session's pty the new viewport size (cols × rows). */
