@@ -8,8 +8,12 @@ import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
 
 /**
  * The RIGHT-most region: a tabbed terminal. The dock holds a list of TABS shown
- * in one strip across the top — auto-hidden when there's a single tab. Each tab
- * owns its own pane SPLIT TREE (one pty per pane): ⌘D / ⌘⇧D split the focused
+ * in one strip across the top, always visible (with a + to add a tab). This is a
+ * deliberate fit for an embedded side panel: unlike a full-window terminal, a lone
+ * terminal here gives no hint that tabs exist, so we keep the bar + the + visible
+ * for discoverability (matches the reference terminal's "always show tab bar"
+ * mode rather than its auto-hide default). Each tab owns its own pane SPLIT TREE
+ * (one pty per pane): ⌘D / ⌘⇧D split the focused
  * pane, ⌘⌥arrows move focus between panes, ⌘⌃arrows resize, ⌘⇧↵ zooms a pane,
  * ⌘[ ⌘] cycle panes, ⌘⇧[ ⌘⇧] switch tabs, ⌘T new tab, ⌘W close pane (closes the
  * tab on its last pane), ⌘⌥W close tab. The keymap only fires while focus is in
@@ -64,7 +68,6 @@ export const TerminalDock = (): JSX.Element => {
   );
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const showTabBar = tabs.length > 1;
   const activeRects: Map<string, Rect> = activeTab ? leafRects(activeTab.tree) : new Map();
   const zoomedPaneId = activeTab?.zoomedPaneId ?? null;
   const dividers = activeTab && !zoomedPaneId ? splitDividers(activeTab.tree) : [];
@@ -99,9 +102,7 @@ export const TerminalDock = (): JSX.Element => {
       }}
     >
       <TerminalSash />
-      {showTabBar && (
-        <TerminalTabBar tabs={tabs} activeTabId={activeTabId} titles={titles} activity={activity} />
-      )}
+      <TerminalTabBar tabs={tabs} activeTabId={activeTabId} titles={titles} activity={activity} />
       <div ref={bodyRef} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         {/* Layer 0: terminals — one mount per pane, positioned at its tab's rect. */}
         {mounts.map(({ paneId, tab }) => {

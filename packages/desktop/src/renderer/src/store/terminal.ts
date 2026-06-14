@@ -19,8 +19,8 @@ import {
 } from '../lib/terminalTree.js';
 
 // Terminal dock layout, modeled on a native tabbed terminal: the dock is a list
-// of TABS shown in one strip at the top (auto-hidden when there's a single tab).
-// Each tab owns its OWN pane split-tree (terminalTree) whose leaves are PANES
+// of TABS shown in one strip at the top (always visible, for discoverability in
+// an embedded panel). Each tab owns its OWN pane split-tree (terminalTree) whose leaves are PANES
 // (one pty each) — splitting divides a pane within the current tab, never the
 // tabs. Tabs are the top-level container; splits live inside a tab.
 //
