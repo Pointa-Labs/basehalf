@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { leaf } from '../src/renderer/src/lib/terminalTree.js';
+import { findLeaf, leaf } from '../src/renderer/src/lib/terminalTree.js';
 import { useTerminalStore } from '../src/renderer/src/store/terminal.js';
 
 // Reset the singleton store to one group ("g0") with one tab ("t0") before each
@@ -121,6 +121,58 @@ describe('terminal store — editor groups', () => {
     expect(Object.keys(s.groups)).toEqual(['g0']);
     expect(s.groups.g0?.tabs.map((t) => t.id)).toEqual(['t0']);
     expect(s.groups.g0?.activeTabId).toBe('t0');
+  });
+
+  it('undoClose re-inserts into the CURRENT layout (no clobber of concurrent splits)', () => {
+    useTerminalStore.setState({
+      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
+      groups: {
+        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
+        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
+      },
+      activeGroupId: 'gB',
+    });
+    useTerminalStore.getState().closeTab('gB', 't1'); // gB collapses
+    const key = useTerminalStore.getState().closing[0]?.key;
+    expect(key).toBeDefined();
+    if (!key) return;
+    // During the grace window, split g0 → a new group gC appears.
+    useTerminalStore.getState().setActiveGroup('g0');
+    useTerminalStore.getState().splitGroupWithNewTab('right');
+    expect(Object.keys(useTerminalStore.getState().groups)).toHaveLength(2); // g0 + gC
+    // Undo gB → gB returns AND gC is kept; every group is a live leaf.
+    useTerminalStore.getState().undoClose(key);
+    const s = useTerminalStore.getState();
+    const ids = Object.keys(s.groups);
+    expect(ids).toHaveLength(3);
+    for (const id of ids) expect(findLeaf(s.layout, id)).not.toBeNull();
+    expect(s.activeGroupId).toBe('gB');
+    expect(s.groups.gB?.tabs.map((t) => t.id)).toEqual(['t1']);
+  });
+
+  it('toggleZoom zooms with >1 group, is a no-op alone, and a split clears it', () => {
+    useTerminalStore.getState().toggleZoom(); // single group → no-op
+    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
+    useTerminalStore.getState().splitGroupWithNewTab('right'); // 2 groups
+    const target = useTerminalStore.getState().activeGroupId;
+    useTerminalStore.getState().toggleZoom();
+    expect(useTerminalStore.getState().zoomedGroupId).toBe(target);
+    useTerminalStore.getState().splitGroupWithNewTab('down'); // split clears zoom
+    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
+  });
+
+  it('collapsing the zoomed group clears zoom', () => {
+    useTerminalStore.setState({
+      layout: { type: 'split', id: 's1', dir: 'row', a: leaf('g0'), b: leaf('gB'), fraction: 0.5 },
+      groups: {
+        g0: { id: 'g0', tabs: [{ id: 't0' }], activeTabId: 't0' },
+        gB: { id: 'gB', tabs: [{ id: 't1' }], activeTabId: 't1' },
+      },
+      activeGroupId: 'gB',
+      zoomedGroupId: 'gB',
+    });
+    useTerminalStore.getState().closeTab('gB', 't1'); // collapses the zoomed group
+    expect(useTerminalStore.getState().zoomedGroupId).toBeNull();
   });
 
   it('markActivity flags a non-active tab; ignores the active one; clears on focus', () => {

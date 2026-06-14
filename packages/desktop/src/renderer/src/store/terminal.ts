@@ -10,6 +10,7 @@ import {
   firstLeaf,
   insertBeside,
   leaf,
+  orderedLeafIds,
   resizeTarget,
   ringNeighbor,
   setFraction as setFractionTree,
@@ -531,9 +532,13 @@ export const useTerminalStore = create<TerminalState>((set) => ({
           closing,
         };
       }
-      // Group collapsed → recreate it from the pre-close layout snapshot.
+      // Group collapsed → re-insert its leaf into the CURRENT layout (never
+      // overwrite the whole layout with the stale snapshot — that would discard
+      // any splits made during the grace window and orphan their groups). Place
+      // it where it used to be when that sibling still exists, else beside the
+      // first group.
       return {
-        layout: entry.layoutSnapshot,
+        layout: reinsertGroupLeaf(s.layout, entry.layoutSnapshot, entry.groupId),
         groups: {
           ...s.groups,
           [entry.groupId]: { id: entry.groupId, tabs: [entry.tab], activeTabId: entry.tab.id },
@@ -598,4 +603,33 @@ function findSplit(root: TermNode, id: string): Extract<TermNode, { type: 'split
   if (root.type === 'leaf') return null;
   if (root.id === id) return root;
   return findSplit(root.a, id) ?? findSplit(root.b, id);
+}
+
+/** The parent split of a leaf and which side it's on (for restoring position). */
+function locateLeaf(
+  root: TermNode,
+  leafId: string,
+): { split: Extract<TermNode, { type: 'split' }>; side: 'a' | 'b' } | null {
+  if (root.type === 'leaf') return null;
+  if (root.a.type === 'leaf' && root.a.id === leafId) return { split: root, side: 'a' };
+  if (root.b.type === 'leaf' && root.b.id === leafId) return { split: root, side: 'b' };
+  return locateLeaf(root.a, leafId) ?? locateLeaf(root.b, leafId);
+}
+
+/** Re-insert a collapsed group's leaf into the CURRENT layout, restoring its old
+ *  spot when a former sibling still exists (else beside the first group). Never
+ *  replaces the whole layout, so concurrent splits during the undo grace survive. */
+function reinsertGroupLeaf(current: TermNode, snapshot: TermNode, groupId: string): TermNode {
+  const splitId = mint('s');
+  const loc = locateLeaf(snapshot, groupId);
+  if (loc) {
+    const wasA = loc.side === 'a';
+    const side: FocusDir =
+      loc.split.dir === 'row' ? (wasA ? 'left' : 'right') : wasA ? 'up' : 'down';
+    const sibling = wasA ? loc.split.b : loc.split.a;
+    const anchor = orderedLeafIds(sibling).find((id) => findLeaf(current, id));
+    if (anchor) return insertBeside(current, anchor, side, groupId, splitId);
+  }
+  // Snapshot had it as the whole tree, or no former sibling survives → append.
+  return insertBeside(current, firstLeaf(current).id, 'right', groupId, splitId);
 }
