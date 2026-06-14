@@ -59,6 +59,11 @@ interface TerminalState {
    *  activity dot. Set when a pane in a NON-active tab emits output; cleared
    *  when that tab becomes active. */
   activity: Record<string, boolean>;
+  /** Tabs that have been closed but not yet finalized — soft close. Their panes
+   *  stay MOUNTED (hidden) so the ptys keep running and can be restored intact;
+   *  a grace timer (or explicit dismiss) finalizes them, which unmounts the
+   *  panes and kills the ptys. `index` is where to re-insert on undo. */
+  closing: Array<{ key: string; tab: TermTab; index: number }>;
 
   newTab: () => void;
   setActiveTab: (id: string) => void;
@@ -70,6 +75,11 @@ interface TerminalState {
   /** Flag the tab containing `leafId` as having unseen output (no-op if that
    *  tab is already active or already flagged). */
   markActivity: (leafId: string) => void;
+  /** Restore a soft-closed tab (process intact) at its original index. */
+  undoClose: (key: string) => void;
+  /** Finalize a soft-closed tab — drop it for good so its panes unmount and
+   *  their ptys are killed (grace-timer expiry or explicit dismiss). */
+  finalizeClose: (key: string) => void;
   /** Close the focused split; collapse its parent; close the tab if it was the
    *  last split; always keep at least one terminal alive in the dock. */
   closeFocusedLeaf: () => void;
@@ -126,6 +136,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   resizeTick: 0,
   dragLeafId: null,
   activity: {},
+  closing: [],
 
   newTab: () => {
     const tab = freshTab();
@@ -135,14 +146,24 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setActiveTab: (id) =>
     set((s) => ({ activeTabId: id, zoomedLeafId: null, activity: clearActivity(s.activity, id) })),
 
+  // Soft close: move the tab to `closing` (its panes stay mounted + running) and
+  // offer an undo. The lone tab is replaced by a fresh terminal so the dock is
+  // never empty, but the old one is still restorable.
   closeTab: (id) =>
     set((s) => {
-      if (s.tabs.length <= 1) return s; // keep at least one tab
       const idx = s.tabs.findIndex((t) => t.id === id);
+      const tab = s.tabs[idx];
+      if (!tab) return s;
+      const closing = [...s.closing, { key: mint('close'), tab, index: idx }];
+      const activity = clearActivity(s.activity, id);
+      if (s.tabs.length <= 1) {
+        const fresh = freshTab();
+        return { tabs: [fresh], activeTabId: fresh.id, zoomedLeafId: null, activity, closing };
+      }
       const tabs = s.tabs.filter((t) => t.id !== id);
       const fallback = tabs[Math.max(0, idx - 1)] ?? tabs[0];
       const activeTabId = s.activeTabId === id ? (fallback?.id ?? s.activeTabId) : s.activeTabId;
-      return { tabs, activeTabId, zoomedLeafId: null, activity: clearActivity(s.activity, id) };
+      return { tabs, activeTabId, zoomedLeafId: null, activity, closing };
     }),
 
   closeOtherTabs: (tabId) =>
@@ -173,23 +194,48 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       return { activity: { ...s.activity, [tab.id]: true } };
     }),
 
+  undoClose: (key) =>
+    set((s) => {
+      const entry = s.closing.find((c) => c.key === key);
+      if (!entry) return s;
+      const tabs = [...s.tabs];
+      tabs.splice(Math.min(Math.max(0, entry.index), tabs.length), 0, entry.tab);
+      return {
+        tabs,
+        activeTabId: entry.tab.id,
+        zoomedLeafId: null,
+        closing: s.closing.filter((c) => c.key !== key),
+      };
+    }),
+
+  finalizeClose: (key) =>
+    set((s) =>
+      s.closing.some((c) => c.key === key)
+        ? { closing: s.closing.filter((c) => c.key !== key) }
+        : s,
+    ),
+
   closeFocusedLeaf: () =>
     set((s) => {
       const tab = s.tabs.find((t) => t.id === s.activeTabId);
       if (!tab) return s;
       const { root, focusId } = closeLeaf(tab.tree, tab.focusedLeafId);
       if (root === null) {
-        // Closed the tab's last split. Drop the tab — unless it's the only one,
-        // in which case start a fresh terminal so the dock is never empty.
-        if (s.tabs.length <= 1) {
-          const t = freshTab();
-          return { tabs: [t], activeTabId: t.id, zoomedLeafId: null };
-        }
+        // Closed the tab's last pane → SOFT-close the whole tab (undoable). The
+        // lone tab is replaced by a fresh terminal, but the old one is kept
+        // restorable so an accidental ⌘W never silently kills a running agent.
         const idx = s.tabs.findIndex((t) => t.id === tab.id);
+        const closing = [...s.closing, { key: mint('close'), tab, index: idx }];
+        if (s.tabs.length <= 1) {
+          const fresh = freshTab();
+          return { tabs: [fresh], activeTabId: fresh.id, zoomedLeafId: null, closing };
+        }
         const tabs = s.tabs.filter((t) => t.id !== tab.id);
         const next = tabs[Math.max(0, idx - 1)] ?? tabs[0];
-        return { tabs, activeTabId: next?.id ?? s.activeTabId, zoomedLeafId: null };
+        return { tabs, activeTabId: next?.id ?? s.activeTabId, zoomedLeafId: null, closing };
       }
+      // Multi-pane: trim just the focused pane (its pty is killed when the pane
+      // unmounts). The tab and its other panes survive — a deliberate split edit.
       const updated: TermTab = {
         ...tab,
         tree: root,

@@ -38,6 +38,7 @@ export const TerminalDock = (): JSX.Element => {
   const setFocused = useTerminalStore((s) => s.setFocused);
   const titles = useTerminalStore((s) => s.titles);
   const activity = useTerminalStore((s) => s.activity);
+  const closing = useTerminalStore((s) => s.closing);
   const zoomed = useTerminalStore((s) => s.zoomedLeafId != null);
   const toggleZoom = useTerminalStore((s) => s.toggleZoom);
   const reorderTab = useTerminalStore((s) => s.reorderTab);
@@ -63,6 +64,8 @@ export const TerminalDock = (): JSX.Element => {
       }),
     [],
   );
+
+  const liveIds = new Set(tabs.map((t) => t.id));
 
   return (
     <aside
@@ -101,25 +104,28 @@ export const TerminalDock = (): JSX.Element => {
         onResetZoom={toggleZoom}
       />
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: tab.id === activeTabId ? 'block' : 'none',
-            }}
-          >
-            <TermPaneArea
-              tab={tab}
-              isActiveTab={tab.id === activeTabId}
-              workspaceKey={workspaceKey}
-              gens={gens}
-              onRestart={restart}
-            />
-          </div>
-        ))}
+        {/* Live tabs + soft-closed ones (hidden) rendered in ONE keyed list, so
+            moving a tab between the two never remounts it — that keeps its panes'
+            ptys alive for undo (and kills them only on finalize). */}
+        {[...tabs, ...closing.map((c) => c.tab)].map((tab) => {
+          const visible = liveIds.has(tab.id) && tab.id === activeTabId;
+          return (
+            <div
+              key={tab.id}
+              style={{ position: 'absolute', inset: 0, display: visible ? 'block' : 'none' }}
+            >
+              <TermPaneArea
+                tab={tab}
+                isActiveTab={visible}
+                workspaceKey={workspaceKey}
+                gens={gens}
+                onRestart={restart}
+              />
+            </div>
+          );
+        })}
       </div>
+      <TerminalCloseToasts />
     </aside>
   );
 };
@@ -1062,6 +1068,110 @@ const TabContextMenu = ({
       </div>
     </>,
     document.body,
+  );
+};
+
+// ── Soft-close undo toasts ───────────────────────────────────────────────────
+// A closed terminal tab isn't killed immediately — it lingers in `closing`
+// (panes mounted + running) with an Undo toast. Undo restores it intact; the
+// grace timer (or ✕) finalizes it, which unmounts the panes and kills the ptys.
+const CLOSE_GRACE_MS = 6000;
+
+const TerminalCloseToasts = (): JSX.Element | null => {
+  const closing = useTerminalStore((s) => s.closing);
+  const titles = useTerminalStore((s) => s.titles);
+  if (closing.length === 0) return null;
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: space[3],
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: space[1],
+        pointerEvents: 'none',
+        zIndex: 8,
+      }}
+    >
+      {closing.map((c) => (
+        <CloseToast
+          key={c.key}
+          entryKey={c.key}
+          name={c.tab.titleOverride ?? titles[c.tab.focusedLeafId] ?? 'Terminal'}
+        />
+      ))}
+    </div>
+  );
+};
+
+const CloseToast = ({ entryKey, name }: { entryKey: string; name: string }): JSX.Element => {
+  // Store actions have stable identities, so this timer is set once per toast.
+  const undoClose = useTerminalStore((s) => s.undoClose);
+  const finalizeClose = useTerminalStore((s) => s.finalizeClose);
+  useEffect(() => {
+    const id = window.setTimeout(() => finalizeClose(entryKey), CLOSE_GRACE_MS);
+    return () => window.clearTimeout(id);
+  }, [entryKey, finalizeClose]);
+  return (
+    <div
+      style={{
+        pointerEvents: 'auto',
+        display: 'flex',
+        alignItems: 'center',
+        gap: space[2],
+        maxWidth: '92%',
+        background: 'rgba(0,0,0,0.82)',
+        color: '#fff',
+        borderRadius: radius.md,
+        padding: `${space[1]}px ${space[1]}px ${space[1]}px ${space[3]}px`,
+        boxShadow: shadow.floating,
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+      }}
+    >
+      <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        Closed “{name}”
+      </span>
+      <button
+        type="button"
+        onClick={() => undoClose(entryKey)}
+        style={{
+          flexShrink: 0,
+          border: 'none',
+          background: 'transparent',
+          color: color.accentHover,
+          cursor: 'pointer',
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          fontWeight: font.weight.semibold,
+          padding: `2px ${space[1]}px`,
+        }}
+      >
+        Undo
+      </button>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => finalizeClose(entryKey)}
+        style={{
+          flexShrink: 0,
+          border: 'none',
+          background: 'transparent',
+          color: color.textTertiary,
+          cursor: 'pointer',
+          fontSize: 13,
+          lineHeight: 1,
+          width: 18,
+          height: 18,
+          borderRadius: radius.sm,
+        }}
+      >
+        ×
+      </button>
+    </div>
   );
 };
 
