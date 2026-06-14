@@ -193,6 +193,7 @@ export const TerminalDock = (): JSX.Element => {
 
 // ── The single tab strip across the top of the dock ───────────────────────────
 const TAB_MIN_WIDTH = 56;
+const TAB_MAX_WIDTH = 200;
 
 const TerminalTabBar = ({
   tabs,
@@ -305,6 +306,28 @@ const TerminalTabBar = ({
             onDropHere={(side) => dropAt(i + (side === 'after' ? 1 : 0))}
           />
         ))}
+        {/* A faint key-hint in the slack after the tabs — surfaces how to split /
+            add / close for users who don't know the terminal's shortcuts. It sits
+            in the empty space and simply scrolls away once the tabs fill the bar. */}
+        <div
+          aria-hidden
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[3],
+            margin: `0 ${space[3]}px`,
+            color: color.textGhost,
+            fontSize: font.size.micro,
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          <span>⌘D split</span>
+          <span>⌘T new</span>
+          <span>⌘W close</span>
+        </div>
       </div>
       {zoomed && (
         <button
@@ -479,8 +502,11 @@ const TermTabView = ({
       }}
       style={{
         position: 'relative',
-        flex: '1 1 0',
+        // Hug the label (so a lone tab isn't a huge near-empty block); a long
+        // title truncates at TAB_MAX_WIDTH and the strip scrolls past that.
+        flex: '0 0 auto',
         minWidth: TAB_MIN_WIDTH,
+        maxWidth: TAB_MAX_WIDTH,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -536,13 +562,13 @@ const TermTabView = ({
             overflow: 'hidden',
           }}
         >
-          {/* Leading index = the ⌘N that selects this tab (always visible so the
+          {/* Leading ⌘N badge = the shortcut that selects this tab (so the
               shortcut is discoverable and tabs stay distinct before a title lands). */}
           <span
             aria-hidden
             style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', opacity: 0.55 }}
           >
-            {index}
+            ⌘{index}
           </span>
           {title && (
             <span
@@ -803,32 +829,31 @@ const PaneGrabHandle = ({ paneId }: { paneId: string }): JSX.Element => {
       aria-label="Move pane"
       style={{
         position: 'absolute',
-        top: 2,
+        // A small "notch" hanging from the top edge: flush top, rounded bottom —
+        // it sits mostly in the terminal's top gutter so it barely covers text.
+        top: 0,
         left: '50%',
         transform: 'translateX(-50%)',
-        // A TINY capsule framing the ⋯ so it reads as a grab affordance — kept
-        // very small so it barely covers any terminal content.
-        minWidth: 22,
-        height: 13,
+        minWidth: 20,
+        height: 11,
         padding: `0 ${space[1]}px`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         cursor: 'grab',
-        borderRadius: 999,
-        // Neutral translucent glass (no hue) so it sits on any content; fades in
-        // only near the top and carries no pointer events while hidden, so it
-        // never blocks the text.
-        color: hover ? '#fff' : 'rgba(255,255,255,0.7)',
-        background: hover ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.08)',
-        border: `1px solid rgba(255,255,255,${hover ? 0.28 : 0.14})`,
+        borderRadius: '0 0 7px 7px',
+        // Light neutral glass (no hue, no border) so it reads as a subtle grip;
+        // fades in only near the top and carries no pointer events while hidden,
+        // so it never blocks the text.
+        color: hover ? '#fff' : 'rgba(255,255,255,0.6)',
+        background: hover ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.06)',
         opacity: shown ? 1 : 0,
         pointerEvents: shown ? 'auto' : 'none',
-        transition: transition(['opacity', 'background', 'border-color', 'color']),
+        transition: transition(['opacity', 'background', 'color']),
         zIndex: 4,
       }}
     >
-      <span aria-hidden style={{ fontSize: 11, lineHeight: 1, letterSpacing: 1 }}>
+      <span aria-hidden style={{ fontSize: 10, lineHeight: 1, letterSpacing: 1 }}>
         ⋯
       </span>
     </div>
