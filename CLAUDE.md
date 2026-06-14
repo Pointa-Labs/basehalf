@@ -185,28 +185,3 @@ questions about architecture or product direction, look in
   changes get an in-session adversarial review (there's no PR-time codex
   review on this path). External contributors are unchanged: branch → PR →
   CLA + checks → merge (see [CONTRIBUTING.md](CONTRIBUTING.md)).
-
-<!-- bh:workspace-hint -->
-## BaseHalf workspace
-
-This folder is a BaseHalf workspace. **At the start of every turn, read
-`.bh/focus.md`** — a self-contained turn brief the app keeps fresh (it never points
-at a deleted file). It carries an optional `intent:` (what the user is doing this
-turn) and an `active:` list of the files they're focused on, each with its
-`prompt:` (what they want you to know) and `refs:` (which files connect, and why).
-One read gives you the user's curated attention — grep can't recover those
-human-written notes.
-
-Need more than the brief? The full graph is under `.bh/`:
-`.bh/badges/<rel-path>.json` is any file's backpack (prompt + references), and
-`.bh/index/inbound.json` is who points AT a file. Follow these on your own budget.
-
-While working, if you discover a file relationship or a key fact that no badge
-note records (e.g. "touching X breaks Y's test"), append one line to
-`.bh/cache/proposals.md`: `[file] -> [target or fact]: [reason]`. The user
-triages these into real notes.
-
-MD is the truth; `.bh/` is derived — edit user files with your own tools,
-never `.bh/*` (the app and `bh` CLI own it; the proposals file above is the ONE
-exception). `.bh/cache/` is gitignored; it is rebuildable EXCEPT the proposals
-file, which holds your observations. `bh` CLI reads accept `--json`.
