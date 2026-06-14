@@ -179,7 +179,6 @@ export const TerminalDock = (): JSX.Element => {
 
 // ── The single tab strip across the top of the dock ───────────────────────────
 const TAB_MIN_WIDTH = 56;
-const TAB_MAX_WIDTH = 200;
 
 const TerminalTabBar = ({
   tabs,
@@ -265,7 +264,8 @@ const TerminalTabBar = ({
         {tabs.map((t, i) => (
           <TermTabView
             key={t.id}
-            title={t.titleOverride ?? titles[t.activePaneId] ?? 'Terminal'}
+            index={i + 1}
+            title={t.titleOverride ?? titles[t.activePaneId] ?? ''}
             hasOverride={t.titleOverride != null}
             active={t.id === activeTabId}
             first={i === 0}
@@ -366,6 +366,7 @@ const iconBtn = (col: string): React.CSSProperties => ({
 });
 
 const TermTabView = ({
+  index,
   title,
   hasOverride,
   active,
@@ -385,6 +386,7 @@ const TermTabView = ({
   onDragOverHere,
   onDropHere,
 }: {
+  index: number;
   title: string;
   hasOverride: boolean;
   active: boolean;
@@ -427,6 +429,7 @@ const TermTabView = ({
       ref={ref}
       role="tab"
       aria-selected={active}
+      aria-label={title ? `Tab ${index}: ${title}` : `Tab ${index}`}
       draggable={!editing}
       onMouseDown={(e) => {
         if (editing) return;
@@ -462,9 +465,8 @@ const TermTabView = ({
       }}
       style={{
         position: 'relative',
-        flex: '1 0 0',
+        flex: '1 1 0',
         minWidth: TAB_MIN_WIDTH,
-        maxWidth: TAB_MAX_WIDTH,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -487,7 +489,7 @@ const TermTabView = ({
           // biome-ignore lint/a11y/noAutofocus: a rename field should take focus.
           autoFocus
           value={draft}
-          placeholder="Terminal"
+          placeholder="Name this tab…"
           onChange={(e) => setDraft(e.target.value)}
           onBlur={() => onEditCommit(draft)}
           onKeyDown={(e) => {
@@ -514,12 +516,32 @@ const TermTabView = ({
           style={{
             flex: 1,
             minWidth: 0,
-            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: space[1],
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
           }}
         >
-          {title}
+          {/* Leading index = the ⌘N that selects this tab (always visible so the
+              shortcut is discoverable and tabs stay distinct before a title lands). */}
+          <span
+            aria-hidden
+            style={{ flexShrink: 0, fontVariantNumeric: 'tabular-nums', opacity: 0.55 }}
+          >
+            {index}
+          </span>
+          {title && (
+            <span
+              style={{
+                minWidth: 0,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {title}
+            </span>
+          )}
         </span>
       )}
       {!editing && (
