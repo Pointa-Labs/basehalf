@@ -28,6 +28,10 @@ const TERMINAL_WIDTH_KEY = 'bh:terminal-width';
 export const TERMINAL_DEFAULT_WIDTH = 520;
 export const TERMINAL_MIN_WIDTH = 280;
 
+// The document Badge panel's expand/collapse, persisted so it stays how the user
+// last left it (collapsed by default — the writing surface stays clean).
+const BADGE_PANEL_KEY = 'bh:badge-panel-open';
+
 const clampTerminalWidth = (n: number): number => {
   const viewport = typeof window !== 'undefined' ? window.innerWidth : 1440;
   const max = Math.max(TERMINAL_MIN_WIDTH, viewport - MIN_CANVAS_WIDTH);
@@ -68,6 +72,9 @@ interface LayoutState {
   /** Width of the right-most terminal dock (the embedded agent runner). */
   terminalWidth: number;
   setTerminalWidth: (width: number) => void;
+  /** The document Badge panel's expand/collapse (remembered across reloads). */
+  badgePanelOpen: boolean;
+  toggleBadgePanel: () => void;
 }
 
 export const useLayoutStore = create<LayoutState>((set, get) => {
@@ -97,6 +104,12 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       const w = clampTerminalWidth(width);
       persist(TERMINAL_WIDTH_KEY, String(w));
       set({ terminalWidth: w });
+    },
+    badgePanelOpen: readBool(BADGE_PANEL_KEY, false),
+    toggleBadgePanel: () => {
+      const open = !get().badgePanelOpen;
+      persist(BADGE_PANEL_KEY, open ? '1' : '0');
+      set({ badgePanelOpen: open });
     },
   };
 });

@@ -15,8 +15,9 @@ interface Window {
     /** The on-disk absolute path of a dropped File ('' when it has none).
      *  Bridges webUtils.getPathForFile, which only exists in preload. */
     pathForFile(file: File): string;
-    /** Open a workspace-relative file in the OS default app (e.g. .docx → Word)
-     *  for types bh can't render inline. Resolved inside the current workspace. */
+    /** Open a workspace-relative file in the OS default app (e.g. a .docx in a
+     *  word processor) for types bh can't render inline. Resolved inside the
+     *  current workspace. */
     openPath(relPath: string): Promise<{ ok: boolean; error?: string }>;
     /** "darwin" | "linux" | "win32" | etc. — frozen at preload time. */
     platform: string;

@@ -252,6 +252,19 @@ header::-webkit-scrollbar {
   background-color: transparent !important;
 }
 
+/* The document title input (NoteTitle.tsx). Only the placeholder color
+   needs CSS — inline styles can't target ::placeholder. Matches color.textGhost. */
+.bh-note-title::placeholder {
+  color: #6e6e6e;
+}
+
+/* The document Badge zone's prompt textarea placeholder (NoteBadge.tsx). One
+   step brighter than the title placeholder (textTertiary, not ghost) so the
+   borderless field still meets the placeholder contrast floor. */
+.bh-badge-prompt::placeholder {
+  color: #808080;
+}
+
 /* Compact BlockNote surface used only inside canvas file cards. Preview and
    edit mode share this card typography contract, so entering edit mode does
    not swap fonts, color, or text rhythm under the user's cursor. */

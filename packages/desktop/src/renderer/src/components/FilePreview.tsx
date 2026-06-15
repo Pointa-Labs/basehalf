@@ -38,6 +38,8 @@ import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegm
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { NoteBadge } from './NoteBadge.js';
+import { NoteTitle } from './NoteTitle.js';
 import { Button } from './primitives/Button.js';
 
 function debounce<TArgs extends unknown[]>(
@@ -620,6 +622,21 @@ export const MdEditor = ({
   // the TopBar before we get here.
   useEffect(() => () => scheduleSave.cancel(), [scheduleSave]);
 
+  // Pull the cursor into the body when the title input asks for it (Enter in
+  // NoteTitle). Keyed by path: only the editor mounted on the requested file
+  // claims it — so after a title rename remounts this editor on the new name,
+  // the NEW instance takes the cursor, never the old one on its way out. Panel
+  // editor only; wait for seedReady so the first block exists, then place the
+  // cursor at its start and focus. One-shot: consumed.
+  const bodyFocusPath = useWorkspaceStore((s) => s.bodyFocusPath);
+  useEffect(() => {
+    if (compact || bodyFocusPath !== file || !seedReady) return;
+    const first = editor.document[0];
+    if (first) editor.setTextCursorPosition(first.id, 'start');
+    editor.focus();
+    useWorkspaceStore.getState().consumeBodyFocus();
+  }, [compact, bodyFocusPath, file, seedReady, editor]);
+
   // Best-effort flush when the app/window is leaving focus or closing — covers
   // the small window between the last keystroke and the debounced auto-save
   // (e.g. Cmd-Q or Cmd-Tab right after typing). Fire-and-forget; on a hard
@@ -871,16 +888,30 @@ export const MdEditor = ({
         </div>
       )}
       <div className="bh-md-editor-scroll" style={{ flex: 1, overflow: 'auto' }}>
-        {/* The editor FILLS the pane (like a code editor) — just a vertical
-            rhythm + a modest horizontal gutter, no narrow centered column. The
-            pane's own width is the measure; widen the pane for a wider editor. */}
+        {/* Prose reads best in a fixed, centered measure (a comfortable reading width), not
+            full-bleed — long lines tire the eye. So the panel editor caps the
+            content column and centers it: widen the pane and the gutters grow, the
+            column stays put. The side padding is the minimum gutter when the pane
+            is narrower than the cap, so the column shrinks gracefully. Code is a
+            different surface (its own viewer below) and stays full-width — this cap
+            is for the writing surface only. The card preview (compact) is already
+            small, so it keeps its full tile width. */}
         <div
           style={{
             padding: compact
               ? `${space[2]}px ${space[3]}px ${space[3]}px`
-              : `${space[5]}px ${space[5]}px`,
+              : // Generous top gutter so the title sits well below the breadcrumb
+                // header, with room to breathe (the document-page feel).
+                `${space[10]}px ${space[5]}px ${space[8]}px`,
+            ...(compact ? null : { maxWidth: 720, margin: '0 auto' }),
           }}
         >
+          {/* The document title (filename, minus .md) heads the writing
+              column — panel editor only; canvas cards stay title-free. */}
+          {!compact && <NoteTitle file={file} />}
+          {/* The note's Badge — its agent prompt + references, collapsible.
+              Panel editor only; canvas cards carry their own badge face. */}
+          {!compact && <NoteBadge file={file} paneId={paneId} />}
           <BlockNoteView
             className={compact ? 'bh-card-editor' : undefined}
             editor={editor}

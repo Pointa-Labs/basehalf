@@ -6,6 +6,7 @@ import type {
 } from '@basehalf/core';
 import { create } from 'zustand';
 import { flushAll, flushPane } from '../lib/editorFlush.js';
+import { noteStemFromTitle } from '../lib/noteTitle.js';
 import { renamePanelTab } from '../lib/panelTab.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
 
@@ -37,6 +38,10 @@ interface WorkspaceState {
   /** Derived alias of `openFile` kept for the file-tree highlight / focus reads
    *  that still ask for "the active file". Always equals `openFile`. */
   currentFile: string | null;
+  /** A just-created note whose title input should auto-focus + select (the
+   *  the new-note flow: type the title to name the file). The title input
+   *  consumes it once, then clears it. null = no pending request. */
+  titleFocusPath: string | null;
   /** Open a file in the full-canvas editor overlay (replacing whatever was open),
    *  flush-gated: the previously-open editor flushes its pending edits first, and
    *  an unresolved disk-conflict / failed write BLOCKS the switch (the user
@@ -117,6 +122,22 @@ interface WorkspaceState {
    *  the user's folder.) `folder` scopes the new file into a workspace-relative
    *  subfolder (the canvas passes its folder scope). */
   newNote: (opts?: { folder?: string | null }) => Promise<void>;
+  /** Rename the OPEN note from a typed title — the title IS the filename (minus
+   *  `.md`). Flush-gated (the body persists to the old path first; a blocked
+   *  flush aborts), then `workspace.renameFile` moves the file and the open
+   *  editor rebinds to the landing path. No-op on a blank or unchanged title.
+   *  The badge / ref / focus cascade is the watcher's job, not this action's. */
+  renameOpenFile: (title: string) => Promise<string | null>;
+  /** Clear {@link titleFocusPath} once the title input has consumed it. */
+  consumeTitleFocus: () => void;
+  /** The path whose body editor should take the cursor next — set when the title
+   *  input commits on Enter, so focus drops into that note's first block. Keyed
+   *  by PATH (not a bare flag) so that after a title rename remounts the editor,
+   *  only the editor on the NEW path consumes it — never the old one on its way
+   *  out. The mounted panel editor consumes it once its content has seeded. */
+  bodyFocusPath: string | null;
+  requestBodyFocus: (path: string) => void;
+  consumeBodyFocus: () => void;
   setNotice: (message: string) => void;
   clearNotice: () => void;
   clearError: () => void;
@@ -184,6 +205,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     currentReachable: null,
     openFile: null,
     currentFile: null,
+    titleFocusPath: null,
+    bodyFocusPath: null,
     canvasEditingCardIds: new Set<string>(),
     canvasSelection: null,
     openMatchQuery: null,
@@ -514,6 +537,51 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }, finish);
     },
 
+    consumeTitleFocus: () => set({ titleFocusPath: null }),
+
+    requestBodyFocus: (path) => set({ bodyFocusPath: path }),
+    consumeBodyFocus: () => set({ bodyFocusPath: null }),
+
+    renameOpenFile: async (title) => {
+      const { openFile, current } = get();
+      if (openFile === null) return null;
+      const stem = noteStemFromTitle(title);
+      // Blank or unchanged title → no rename, but report the current path so the
+      // caller can still act on it (e.g. drop focus into the body on Enter).
+      if (stem === null) return openFile;
+      const slash = openFile.lastIndexOf('/');
+      const dir = slash === -1 ? '' : openFile.slice(0, slash);
+      const desired = dir === '' ? `${stem}.md` : `${dir}/${stem}.md`;
+      if (desired === openFile) return openFile;
+      // Persist the body to the OLD path before moving it — a blocked flush
+      // (open conflict / failed write) aborts so we never rename out from under
+      // unsaved edits. Same gate as closeEditor / a file switch.
+      if ((await flushPane(EDITOR_OVERLAY_PANE_ID)) === false) {
+        set({ error: "Save or resolve this file's changes before renaming it." });
+        return null;
+      }
+      try {
+        const res = (await window.bh.run('workspace.renameFile', {
+          from: openFile,
+          to: desired,
+        })) as { from: string; to: string; renamed: boolean };
+        // Workspace switched during the flush / IPC → the new root already reset
+        // the open file; don't clobber it. Rebind eagerly to the landing path so
+        // the editor follows immediately (the watcher's later 'rename' event then
+        // no-ops in renameTab, since openFile already equals `to`). The badge /
+        // ref / focus cascade rides that same watcher event.
+        if (get().current !== current) return null;
+        if (res.renamed) {
+          set({ openFile: res.to, currentFile: res.to });
+          return res.to;
+        }
+        return openFile;
+      } catch (err) {
+        set({ error: formatError(err) });
+        return null;
+      }
+    },
+
     renameTab: (from, to) =>
       set((s) => {
         // Rebind the open file's path in place. No flush — the old path is gone on
@@ -606,10 +674,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           });
           return;
         }
-        const baseName = relPath.split('/').pop() ?? relPath;
-        const title = baseName.replace(/\.md$/i, '');
-        const body = `# ${title}\n\n`;
-        await window.bh.run('workspace.writeFile', { path: relPath, content: body });
+        // Blank body — the filename IS the title now (shown in the title input;
+        // see NoteTitle), so a `# <basename>` heading would just duplicate it.
+        await window.bh.run('workspace.writeFile', { path: relPath, content: '' });
         // Open it (via openInPanel so the editor we're leaving FLUSHES its pending
         // auto-save first — a bare openFile swap remounts MdEditor, which
         // deliberately does NOT flush on unmount, silently dropping the prior
@@ -669,6 +736,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // relative name in the NEW root, hiding the note we just created in the old one.
         if (get().current !== ws) return;
         get().openInPanel(name);
+        // New-note flow: focus + select the title so typing names the file.
+        set({ titleFocusPath: name });
       } catch (err) {
         set({ error: formatError(err) });
       }
