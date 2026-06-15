@@ -18,6 +18,7 @@ import {
   type OnNodeDrag,
   type OnSelectionChangeFunc,
   ReactFlow,
+  SelectionMode,
   type Viewport,
   applyNodeChanges,
   useNodesInitialized,
@@ -62,6 +63,7 @@ import {
   DEFAULT_FOLDER_CARD_WIDTH,
   clearPreviewCache,
 } from './BadgeNode.js';
+import { Breadcrumb } from './Breadcrumb.js';
 import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
 import { CanvasSnapGuides } from './CanvasSnapGuides.js';
@@ -84,16 +86,6 @@ const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
 };
-
-// The parent folder of a scope (one level up), or null for a top-level folder
-// (whose parent is the root canvas). Powers "back" navigation up the tree. Each
-// canvas IS a folder — it shows only that folder's direct children (the one-level
-// set comes straight from workspace.listCanvas), and double-clicking a folder
-// badge opens it (the canvas becomes that folder's inside).
-function parentScope(folderScope: string): string | null {
-  const slash = folderScope.lastIndexOf('/');
-  return slash === -1 ? null : folderScope.slice(0, slash);
-}
 
 function nodeBadgeKind(nodes: readonly Node<BadgeNodeData>[], id: string): BadgeKind {
   return nodes.find((node) => node.id === id)?.data.kind ?? 'file';
@@ -220,6 +212,10 @@ export const Canvas = (): JSX.Element => {
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
+  // The editor overlay (opaque, covers this region) is up when a file is open.
+  // Its own breadcrumb header then owns navigation, so the canvas's floating
+  // chrome (breadcrumb pill, New-note button) hides rather than bleed on top.
+  const openFile = useWorkspaceStore((s) => s.openFile);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   // While a card is being inline-edited, suspend viewport virtualization so a
@@ -244,11 +240,6 @@ export const Canvas = (): JSX.Element => {
   // precision bh can't deliver — it confirms a hand-off, not comprehension —
   // and needed a live ticker just to avoid going stale.)
   const [briefServedAt, setBriefServedAt] = useState<string | undefined>(undefined);
-  // True once ANY badge in the workspace carries a prompt — gates the
-  // first-annotation hint card (derived each loadData; writing the first note
-  // retires the card permanently, so no dismissal needs persisting).
-  const [workspaceHasAnyPrompt, setWorkspaceHasAnyPrompt] = useState(true);
-  const [annotateHintDismissed, setAnnotateHintDismissed] = useState(false);
   // Monotonic sequence for loadData staleness checks (see loadData).
   const loadSeqRef = useRef(0);
   // The canvas region's DOM node — drop-position math needs its screen rect.
@@ -342,12 +333,11 @@ export const Canvas = (): JSX.Element => {
       await reloadFocus();
       if (!fresh()) return;
 
-      // PHASE 2 — the annotation layer, computed AFTER first paint. The sparse
-      // badge overlay (cheap — only annotated files have one) derives the
-      // first-annotation hint; the supported-file census (a full tree walk,
-      // fetched only when folder cards are visible to price) derives each folder
-      // card's coverage bar. Both are best-effort: a transient failure leaves
-      // the cards rendered, just without the indicators.
+      // PHASE 2 — the annotation layer, computed AFTER first paint. The
+      // supported-file census (a full tree walk, fetched only when folder cards
+      // are visible to price) derives each folder card's coverage bar.
+      // Best-effort: a transient failure leaves the cards rendered, just
+      // without the coverage indicators.
       try {
         const badgesAll = (await window.bh.run('badge.list', {})) as {
           badges: { file: string; kind: string; prompt?: string }[];
@@ -356,9 +346,6 @@ export const Canvas = (): JSX.Element => {
           badgesAll.badges
             .filter((b) => b.kind === 'file' && b.prompt !== undefined && b.prompt.trim() !== '')
             .map((b) => b.file),
-        );
-        const anyPrompt = badgesAll.badges.some(
-          (b) => b.prompt !== undefined && b.prompt.trim() !== '',
         );
         let filesAll: string[] = [];
         if (badges.some((b) => b.kind === 'folder')) {
@@ -380,10 +367,6 @@ export const Canvas = (): JSX.Element => {
           }
           return { annotated, total };
         };
-        // The hint card invites the FIRST note: it shows only while the whole
-        // workspace is annotation-free (any saved prompt — file or folder —
-        // retires it for good, no dismissal state to persist).
-        setWorkspaceHasAnyPrompt(anyPrompt);
         // Patch coverage onto the already-rendered folder cards in place — only
         // when there's a census to apply, so a transient failure leaves them as-is.
         if (filesAll.length > 0) {
@@ -398,7 +381,7 @@ export const Canvas = (): JSX.Element => {
           );
         }
       } catch {
-        // Indicators degrade (no coverage bars, no hint card) — cards stay.
+        // Indicators degrade (no coverage bars) — cards stay.
       }
     } catch (err) {
       if (!fresh()) return;
@@ -412,9 +395,6 @@ export const Canvas = (): JSX.Element => {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears per-workspace caches and reads nothing.
   useEffect(() => {
     clearPreviewCache();
-    // "Not now" on the first-annotation hint is a per-workspace answer — a
-    // different (also unannotated) workspace gets to ask again.
-    setAnnotateHintDismissed(false);
   }, [current]);
 
   useEffect(() => {
@@ -1106,33 +1086,39 @@ export const Canvas = (): JSX.Element => {
         void handleExternalDrop(droppedPaths(e.dataTransfer), { canvasPoint, folderScope });
       }}
     >
-      {/* New note — top-right of the canvas (the top bar was removed). A real
-          `untitled-N.md` opens for typing immediately (no filename dialog);
-          inside a folder scope it's created in that folder. The agent-proposals
-          chip (when an agent wrote observations back) sits to its left. */}
-      <div
-        style={{
-          position: 'absolute',
-          top: space[3],
-          right: space[3],
-          zIndex: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: space[2],
-        }}
-      >
-        <ProposalsChip current={current} />
-        <Button
-          onClick={() => void useWorkspaceStore.getState().newNote({ folder: folderScope })}
-          title="Create a new note here (⌘N)"
+      {/* New note — top-right of the canvas. A real `untitled-N.md` opens for
+          typing immediately (no filename dialog); inside a folder scope it's
+          created in that folder. The agent-proposals chip (when an agent wrote
+          observations back) sits to its left. Hidden while a file is open — the
+          editor overlay covers the canvas, so a floating button there just
+          clutters the document (the ⌘N shortcut still works). */}
+      {!openFile && (
+        <div
+          style={{
+            position: 'absolute',
+            top: space[3],
+            right: space[3],
+            zIndex: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: space[2],
+          }}
         >
-          New note
-        </Button>
-      </div>
-      {/* Folder-scope chrome — top-left, only while scoped into a folder. On
-          its own row (below the New-note / context-chip row) so the actions never
-          collide with the centered context chip. */}
-      {folderScope && (
+          <ProposalsChip current={current} />
+          <Button
+            onClick={() => void useWorkspaceStore.getState().newNote({ folder: folderScope })}
+            title="Create a new note here (⌘N)"
+          >
+            New note
+          </Button>
+        </div>
+      )}
+      {/* Folder-scope chrome — top-left, only while scoped into a folder (and no
+          file open; the editor's own breadcrumb takes over then). On its own row
+          (below the New-note / context-chip row) so the actions never collide
+          with the centered context chip. The breadcrumb pill replaces the old
+          "← /path" back button: every ancestor crumb jumps there. */}
+      {folderScope && !openFile && (
         <div
           data-testid="folder-scope-chrome"
           style={{
@@ -1148,13 +1134,7 @@ export const Canvas = (): JSX.Element => {
             overflow: 'hidden',
           }}
         >
-          <Button
-            variant="ghost"
-            onClick={() => void setFolderScope(parentScope(folderScope))}
-            title="Up one level"
-          >
-            ← /{folderScope}
-          </Button>
+          <Breadcrumb variant="floating" />
           <Button
             onClick={() => void handleFocusFolder()}
             title="Add this folder to Agent Context — your agent reads all its files, with the folder prompt as the turn intent"
@@ -1320,82 +1300,6 @@ export const Canvas = (): JSX.Element => {
           {error}
         </div>
       )}
-      {/* First-annotation invitation: a workspace full of files but ZERO badges
-          is the product's null state — the brief the agent would read is empty,
-          and nothing on a quiet canvas says why that matters. A file's badge
-          (its prompt) is the agent-facing annotation; a "note" here is the file
-          itself, never this. One dismissible card teaches the single act
-          everything else builds on. It retires itself permanently the moment any
-          badge is saved (the condition flips), so no dismissal state needs
-          persisting. Root canvas only. */}
-      {folderScope === null &&
-        !workspaceHasAnyPrompt &&
-        !annotateHintDismissed &&
-        !showGhostCard &&
-        nodes.length > 0 && (
-          <div
-            data-testid="annotate-hint-card"
-            role="status"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              maxWidth: 400,
-              padding: `${space[4]}px ${space[5]}px`,
-              background: color.surface,
-              border: `1px solid ${color.accentSoft}`,
-              borderRadius: radius.lg,
-              boxShadow: shadow.raised,
-              fontFamily: font.sans,
-              fontSize: font.size.body,
-              color: color.textSecondary,
-              textAlign: 'center',
-              lineHeight: 1.55,
-              zIndex: 5,
-              animation: `bh-banner-in ${motion.normal}`,
-            }}
-          >
-            These files don't have badges yet. A file's badge — one honest sentence — is what your
-            agent reads.
-            <div
-              style={{
-                marginTop: space[3],
-                display: 'flex',
-                gap: space[2],
-                justifyContent: 'center',
-              }}
-            >
-              <Button
-                variant="primary"
-                onClick={() => {
-                  // Root has direct files → SELECT the first one's card so the
-                  // user spots its badge toggle (the badge now lives in the card,
-                  // not a panel). Folder-only root (files all nested) → step INTO
-                  // the first folder; its chrome takes it from there.
-                  const firstFile = nodes.find((n) => n.data.kind === 'file');
-                  if (firstFile) {
-                    setNodes((ns) =>
-                      ns.map((n) => {
-                        const sel = n.id === firstFile.id;
-                        return n.selected === sel ? n : { ...n, selected: sel };
-                      }),
-                    );
-                    setCanvasSelection({ kind: 'file', files: [firstFile.id], source: 'canvas' });
-                    return;
-                  }
-                  const firstFolder = nodes.find((n) => n.data.kind === 'folder');
-                  if (firstFolder) void setFolderScope(firstFolder.id);
-                }}
-              >
-                Add a badge
-              </Button>
-              <Button variant="ghost" onClick={() => setAnnotateHintDismissed(true)}>
-                Not now
-              </Button>
-            </div>
-          </div>
-        )}
       {showGhostCard && <GhostNoteCard folderScope={folderScope} />}
       <ReactFlow
         nodes={nodes}
@@ -1415,11 +1319,27 @@ export const Canvas = (): JSX.Element => {
         onMove={onMove}
         onMoveEnd={onMoveEnd}
         onPaneClick={() => setCanvasSelection(null)}
-        panOnDrag
-        zoomOnScroll
+        // Trackpad-native viewport (the design-tool model): a two-finger swipe
+        // pans, a pinch zooms. macOS emits a pinch as a ctrl+wheel event, which
+        // React Flow routes to zoom even while panOnScroll is on; a plain
+        // two-finger swipe (no ctrl) pans. zoomOnScroll is OFF so a bare scroll
+        // never zooms out from under the user.
+        panOnScroll
+        // 1:1 finger tracking. React Flow's default panOnScrollSpeed is 0.5, so
+        // the canvas travels only half the trackpad delta — the "lagging behind
+        // my fingers" feel. 1 maps a two-finger swipe directly to the pan.
+        panOnScrollSpeed={1}
+        zoomOnScroll={false}
         zoomOnPinch
         zoomOnDoubleClick
-        selectionKeyCode="Shift"
+        // Left-drag on the empty pane now draws a selection box (panning moved to
+        // the trackpad + middle/right mouse). This feeds the ≥2-badge → focus.md
+        // mirror, so a single rubber-band hands the agent a batch of context.
+        // Partial = a card is picked when the box TOUCHES it (forgiving), not
+        // only when fully enclosed. Mouse users still pan with middle/right drag.
+        selectionOnDrag
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={[1, 2]}
         multiSelectionKeyCode="Shift"
         // All edges render through the canvasConnections ReferenceEdge (see EDGE_TYPES): the line is
         // always visible, the note reveals on hover/selection — no colliding

@@ -1,34 +1,29 @@
 import { type JSX, useCallback, useEffect } from 'react';
-import { color, font, radius, space, transition } from '../design.js';
+import { color, font, transition } from '../design.js';
 import { isImeComposing } from '../lib/imeGuard.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useTerminalStore } from '../store/terminal.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
+import { Breadcrumb } from './Breadcrumb.js';
 import { FilePreview } from './FilePreview.js';
-
-function splitPath(rel: string): { dirname: string; basename: string } {
-  const i = rel.lastIndexOf('/');
-  return i === -1
-    ? { dirname: '', basename: rel }
-    : { dirname: rel.slice(0, i), basename: rel.slice(i + 1) };
-}
 
 /**
  * The full-canvas editor overlay. When a file is open it covers the canvas
- * region like opening a full-page document: a thin top bar (✕ close + the file
- * name / relative path) over `FilePreview` filling the rest. It is NOT a
- * draggable/resizable window — `position:absolute; inset:0` fills the canvas
- * region and reflows with it. The canvas (react-flow) stays mounted UNDERNEATH
- * with its pan/zoom/scope intact, so closing reveals it unchanged.
+ * region like opening a full-page document: a breadcrumb header
+ * (`workspace / folder / … / filename` — see {@link Breadcrumb}) over
+ * `FilePreview` filling the rest. It is NOT a draggable/resizable window —
+ * `position:absolute; inset:0` fills the canvas region and reflows with it. The
+ * canvas (react-flow) stays mounted UNDERNEATH with its pan/zoom/scope intact,
+ * so leaving reveals it unchanged.
  *
  * Z-order: a sibling of `<Canvas/>` and `<Sidebar/>` inside `<main>`. The
  * overlay sits ABOVE the canvas + its chrome (it is opaque and fills the region)
  * but BELOW the Sidebar (z-index 6) so the nav stays clickable — you can click
  * another file there to switch the open file without first closing.
  *
- * Renders `null` when no file is open. Esc / the ✕ / ⌘W close it back to the
- * canvas (Esc is guarded against IME composition + an editable surface that
- * needs Esc for its own dismiss).
+ * Renders `null` when no file is open. There is no ✕: you leave by clicking an
+ * ancestor crumb, or with Esc / ⌘W (both guarded against IME composition + an
+ * editable surface that needs Esc for its own dismiss).
  */
 export const EditorOverlay = (): JSX.Element | null => {
   const openFile = useWorkspaceStore((s) => s.openFile);
@@ -86,8 +81,6 @@ export const EditorOverlay = (): JSX.Element | null => {
 
   if (openFile === null) return null;
 
-  const { dirname, basename } = splitPath(openFile);
-
   return (
     <div
       data-testid="editor-overlay"
@@ -109,88 +102,7 @@ export const EditorOverlay = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: space[2],
-          padding: `${space[1.5]}px ${space[3]}px`,
-          background: color.surfaceMuted,
-          borderBottom: `1px solid ${color.border}`,
-          flexShrink: 0,
-        }}
-      >
-        <button
-          type="button"
-          onClick={close}
-          title="Close (Esc)"
-          aria-label="Close editor"
-          data-testid="editor-overlay-close"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 24,
-            height: 24,
-            flexShrink: 0,
-            padding: 0,
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.md,
-            background: 'transparent',
-            color: color.textTertiary,
-            cursor: 'pointer',
-            transition: transition(['color', 'border-color', 'background']),
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = color.textPrimary;
-            e.currentTarget.style.borderColor = color.borderStrong;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = color.textTertiary;
-            e.currentTarget.style.borderColor = color.border;
-          }}
-        >
-          <svg width={13} height={13} viewBox="0 0 16 16" fill="none" aria-hidden>
-            <path
-              d="M4 4l8 8M12 4l-8 8"
-              stroke="currentColor"
-              strokeWidth={1.4}
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-        <span
-          style={{
-            fontSize: font.size.ui,
-            fontWeight: font.weight.semibold,
-            color: color.textPrimary,
-            letterSpacing: -0.1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-            maxWidth: '60%',
-          }}
-        >
-          {basename}
-        </span>
-        {dirname && (
-          <span
-            style={{
-              fontFamily: font.mono,
-              fontSize: font.size.micro,
-              color: color.textTertiary,
-              letterSpacing: -0.2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              minWidth: 0,
-            }}
-          >
-            {dirname}/
-          </span>
-        )}
-      </div>
+      <Breadcrumb />
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
         {/* A stable synthetic paneId keys this file's flusher in the editorFlush
             registry; FilePreview itself keys the editor by workspace-root + path,

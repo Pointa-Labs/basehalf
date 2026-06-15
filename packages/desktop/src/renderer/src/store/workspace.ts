@@ -101,6 +101,12 @@ interface WorkspaceState {
    *  the scope unchanged) if a flush is blocked by an open conflict / failed
    *  write, exactly so a disk conflict can't be navigated away from into data loss. */
   setFolderScope: (path: string | null) => Promise<void>;
+  /** Jump the canvas to a folder scope (or the workspace root, `null`) AND close
+   *  any open editor — the breadcrumb's "go to an ancestor" action. Flush-gated
+   *  exactly like {@link setFolderScope}: a blocked flush (an open conflict /
+   *  failed write) aborts the navigation and keeps the editor open, so a disk
+   *  conflict can't be navigated past into data loss. */
+  navigateToFolder: (path: string | null) => Promise<void>;
   /** Create an empty MD note (writes a workspace-relative file) and open it
    * in the overlay. The watcher picks it up and the canvas re-reads the folder,
    * so the note appears as a tile — no badge is created until you annotate it. */
@@ -546,6 +552,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // scope change — same rule as a file switch / workspace switch.
       if ((await flushAll()) === false) return;
       set({ folderScope: path });
+    },
+
+    navigateToFolder: async (path: string | null) => {
+      const current = get().current;
+      // Flush + gate every mounted editor (same rule as setFolderScope / a file
+      // switch). A blocked flush aborts — keep the editor open so the conflict is
+      // resolved rather than silently navigated past into data loss.
+      if ((await flushAll()) === false) {
+        set({ error: "Save or resolve this file's changes before leaving it." });
+        return;
+      }
+      // Workspace switched during the flush → the new root already reset scope +
+      // open file; don't clobber it.
+      if (get().current !== current) return;
+      set({ openFile: null, currentFile: null, openMatchQuery: null, folderScope: path });
     },
 
     createNote: async (relPath: string) => {

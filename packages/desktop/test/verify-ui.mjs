@@ -298,8 +298,24 @@ await step('[5-folder] Folder badge → sub-canvas (folder = the grouping) → e
     (await card('chapter/sec.md').count()) === 1,
     'Double-click scopes INTO the folder — its file badge is shown',
   );
+  const sidebarBox = await sidebarAside().boundingBox();
+  const chromeBox = await win.locator('[data-testid="folder-scope-chrome"]').boundingBox();
+  const crumbBox = await win.locator('[data-testid="breadcrumb"]').boundingBox();
+  assert(
+    sidebarBox &&
+      chromeBox &&
+      crumbBox &&
+      chromeBox.x >= sidebarBox.x + sidebarBox.width - 1 &&
+      crumbBox.x >= sidebarBox.x + sidebarBox.width - 1,
+    'Folder breadcrumb chrome clears the floating sidebar',
+  );
+  assert(
+    (await win.locator('[data-testid="breadcrumb-current"]', { hasText: 'chapter' }).count()) === 1,
+    'Breadcrumb shows the scoped folder as the current (non-clickable) crumb',
+  );
   assert((await card('note-a.md').count()) === 0, 'Root-level badges are hidden inside the scope');
-  await win.locator('button', { hasText: '/chapter' }).first().click(); // "← /chapter" exit
+  // The home/workspace crumb (the trail's only ancestor link here) returns to root.
+  await win.locator('[data-testid="breadcrumb"] button').first().click();
   await win.waitForTimeout(500);
   await card('note-a.md').waitFor({ timeout: 4000 });
   assert(
