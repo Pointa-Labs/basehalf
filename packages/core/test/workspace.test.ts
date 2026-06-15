@@ -979,6 +979,59 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     });
     expect(r.setup).toBeUndefined();
   });
+
+  it('renameFile: moves the note, returns the landing path, leaves the body verbatim', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/old.md', '# hi\n\nbody\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+
+    type R = { from: string; to: string; renamed: boolean };
+    const res = await core.run<{ from: string; to: string }, R>('workspace.renameFile', {
+      from: 'old.md',
+      to: 'new name.md',
+    });
+    expect(res).toEqual({ from: 'old.md', to: 'new name.md', renamed: true });
+    expect(files.get('/v/new name.md')).toBe('# hi\n\nbody\n'); // body untouched
+    expect(files.has('/v/old.md')).toBe(false);
+  });
+
+  it('renameFile: a name collision auto-suffixes -2 and never clobbers', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/src.md', 'B');
+    files.set('/v/taken.md', 'A');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+
+    const res = await core.run<{ from: string; to: string }, { to: string; renamed: boolean }>(
+      'workspace.renameFile',
+      { from: 'src.md', to: 'taken.md' },
+    );
+    expect(res.to).toBe('taken-2.md');
+    expect(files.get('/v/taken.md')).toBe('A'); // existing file untouched
+    expect(files.get('/v/taken-2.md')).toBe('B');
+    expect(files.has('/v/src.md')).toBe(false);
+  });
+
+  it('renameFile: unchanged path is a no-op; an escaping destination is refused', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/v');
+    files.set('/v/note.md', 'x');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/v' });
+
+    const same = await core.run<{ from: string; to: string }, { renamed: boolean }>(
+      'workspace.renameFile',
+      { from: 'note.md', to: 'note.md' },
+    );
+    expect(same.renamed).toBe(false);
+    await expect(
+      core.run('workspace.renameFile', { from: 'note.md', to: '../evil.md' }),
+    ).rejects.toThrow();
+    expect(files.get('/v/note.md')).toBe('x'); // still there, untouched
+  });
 });
 
 describe('workspace.listFiles', () => {

@@ -29,6 +29,8 @@ import type {
   WorkspaceListSupportedFilesResult,
   WorkspaceReadFileArgs,
   WorkspaceReadFileResult,
+  WorkspaceRenameFileArgs,
+  WorkspaceRenameFileResult,
   WorkspaceWriteFileArgs,
   WorkspaceWriteFileResult,
 } from './types.js';
@@ -396,6 +398,59 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   // raced onto `abs` after the guard is refused, not written through.
   await writeMaybeNoFollow(ctx.fs, abs, args.content);
   return { path: args.path, bytes: Buffer.byteLength(args.content, 'utf8') };
+};
+
+/**
+ * `workspace.renameFile({ from, to })` — move a user file within the current
+ * workspace (the in-document title rename: retitle a note → its filename follows).
+ * Both ends are realpath-contained like every other user-file touch: the source
+ * is read-contained (a planted symlink can't make us move a file from outside),
+ * the destination write-contained (its real parent is inside, no symlink leaf).
+ * A `to` that already exists is suffixed `-2`/`-3`… (the importFile convention)
+ * and the ACTUAL landing path is returned so the caller can rebind to it.
+ *
+ * Single responsibility: the file. The badge / reference / focus cascade is the
+ * watcher's job — it observes the unlink+add pair and reconciles the overlay —
+ * so this handler stays an observer-free, file-only move (per the architecture's
+ * "modules that touch user files are observers, not owners" rule for everything
+ * downstream of the bytes).
+ */
+export const renameFile: Handler<WorkspaceRenameFileArgs, WorkspaceRenameFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.from);
+  ensureInsideWorkspace(args.to);
+  if (args.from === args.to) return { from: args.from, to: args.to, renamed: false };
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = entry.path;
+  // Source must exist + resolve inside the workspace (same realpath guard as readFile).
+  const absFrom = await assertReadContained(ctx.fs, root, join(root, args.from));
+  // Collision-free destination basename in the (contained) target directory.
+  const slash = args.to.lastIndexOf('/');
+  const toDir = slash === -1 ? '' : args.to.slice(0, slash);
+  const toBase = slash === -1 ? args.to : args.to.slice(slash + 1);
+  const destDirAbs = toDir === '' ? root : join(root, toDir);
+  const freeBase = await freeImportName(ctx.fs, destDirAbs, toBase);
+  const finalRel = toDir === '' ? freeBase : toPosix(`${toDir}/${freeBase}`);
+  // Write-contain the destination (real parent inside root, leaf not a symlink),
+  // exactly like writeFile / importFile.
+  const absTo = await assertWriteContained(ctx.fs, root, join(root, finalRel));
+  if (ctx.fs.rename) {
+    await ctx.fs.rename(absFrom, absTo);
+  } else {
+    // Legacy-mock fallback: copy-string + unlink (text notes only — no binary).
+    const content = await ctx.fs.readFile(absFrom);
+    if (content === null) {
+      throw Object.assign(new Error(`Path does not exist: ${absFrom}`), { code: 'PATH_NOT_FOUND' });
+    }
+    await writeMaybeNoFollow(ctx.fs, absTo, content);
+    await ctx.fs.unlink(absFrom);
+  }
+  return { from: args.from, to: finalRel, renamed: true };
 };
 
 /** Collision-free basename in `dir`: `report.pdf`, then `report-2.pdf`,

@@ -91,6 +91,13 @@ export interface FsLike {
    * write-string ONLY for legacy mocks (which have no binary files in play).
    */
   copyFile?(src: string, dest: string, opts?: { excl?: boolean }): Promise<void>;
+  /**
+   * Atomically move/rename a file (node:fs `rename`) — a same-filesystem move.
+   * Used by `workspace.renameFile` to retitle a note in place. OPTIONAL: legacy
+   * mocks without it fall back to read-string + write + unlink, which is correct
+   * for the text notes this serves (no atomicity, but no binary in play either).
+   */
+  rename?(from: string, to: string): Promise<void>;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   stat,
   unlink,
   writeFile,
@@ -174,6 +175,9 @@ function defaultFs(): FsLike {
     },
     async copyFile(src, dest, opts) {
       await copyFile(src, dest, opts?.excl ? constants.COPYFILE_EXCL : 0);
+    },
+    async rename(from, to) {
+      await rename(from, to);
     },
   };
 }

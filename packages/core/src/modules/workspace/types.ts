@@ -233,6 +233,23 @@ export interface WorkspaceWriteFileResult {
   readonly bytes: number;
 }
 
+/** Move a user file WITHIN the current workspace (the in-document title rename:
+ * retitle a note → its filename follows). Both paths are workspace-relative
+ * POSIX. A `to` that already exists is suffixed `-2`/`-3`… (same convention as
+ * importFile / workspace-name collisions); `to` in the result is where it
+ * actually landed. */
+export interface WorkspaceRenameFileArgs {
+  readonly from: string;
+  readonly to: string;
+}
+export interface WorkspaceRenameFileResult {
+  readonly from: string;
+  /** Where the file actually landed (may differ from the requested `to` after
+   *  collision-suffixing). */
+  readonly to: string;
+  readonly renamed: boolean;
+}
+
 /** Copy an EXTERNAL file into the current workspace (the drag-a-file-onto-
  * the-canvas door). Always a copy — the source is never moved or touched;
  * the destination lands in the user's own folder where the file manager,

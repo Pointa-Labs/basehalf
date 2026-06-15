@@ -7,6 +7,7 @@ import {
   listFiles,
   listSupportedFiles,
   readFile,
+  renameFile,
   writeFile,
 } from './files.js';
 import { NAME_PATTERN, withConfigLock } from './lock.js';
@@ -444,6 +445,7 @@ export function commands(): ReadonlyArray<
     ['workspace.setViewport', setViewport as unknown as Handler<never, unknown>],
     ['workspace.readFile', readFile as unknown as Handler<never, unknown>],
     ['workspace.writeFile', writeFile as unknown as Handler<never, unknown>],
+    ['workspace.renameFile', renameFile as unknown as Handler<never, unknown>],
     ['workspace.importFile', importFile as unknown as Handler<never, unknown>],
   ];
 }
