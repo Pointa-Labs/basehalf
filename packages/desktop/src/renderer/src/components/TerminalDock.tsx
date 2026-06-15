@@ -193,7 +193,6 @@ export const TerminalDock = (): JSX.Element => {
 
 // ── The single tab strip across the top of the dock ───────────────────────────
 const TAB_MIN_WIDTH = 56;
-const TAB_MAX_WIDTH = 200;
 
 const TerminalTabBar = ({
   tabs,
@@ -306,28 +305,6 @@ const TerminalTabBar = ({
             onDropHere={(side) => dropAt(i + (side === 'after' ? 1 : 0))}
           />
         ))}
-        {/* A faint key-hint in the slack after the tabs — surfaces how to split /
-            add / close for users who don't know the terminal's shortcuts. It sits
-            in the empty space and simply scrolls away once the tabs fill the bar. */}
-        <div
-          aria-hidden
-          style={{
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: space[3],
-            margin: `0 ${space[3]}px`,
-            color: color.textGhost,
-            fontSize: font.size.micro,
-            whiteSpace: 'nowrap',
-            pointerEvents: 'none',
-            userSelect: 'none',
-          }}
-        >
-          <span>⌘D split</span>
-          <span>⌘T new</span>
-          <span>⌘W close</span>
-        </div>
       </div>
       {zoomed && (
         <button
@@ -502,14 +479,13 @@ const TermTabView = ({
       }}
       style={{
         position: 'relative',
-        // Hug the label (so a lone tab isn't a huge near-empty block); a long
-        // title truncates at TAB_MAX_WIDTH and the strip scrolls past that.
-        flex: '0 0 auto',
+        // Fill the bar equally, native-tab style; the centered title keeps even a
+        // wide tab looking intentional. Shrinks to a min then the strip scrolls.
+        flex: '1 1 0',
         minWidth: TAB_MIN_WIDTH,
-        maxWidth: TAB_MAX_WIDTH,
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
         gap: space[1],
         padding: `0 ${space[2]}px`,
         cursor: 'default',
@@ -558,8 +534,12 @@ const TermTabView = ({
             minWidth: 0,
             display: 'flex',
             alignItems: 'baseline',
+            justifyContent: 'center',
             gap: space[1],
             overflow: 'hidden',
+            // Balance the close-button gutter on the right so the label reads as
+            // centered in the tab, not nudged left.
+            paddingLeft: 16,
           }}
         >
           {/* Leading ⌘N badge = the shortcut that selects this tab (so the
