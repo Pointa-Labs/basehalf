@@ -250,6 +250,60 @@ export interface WorkspaceRenameFileResult {
   readonly renamed: boolean;
 }
 
+/** Create an EMPTY (or seeded) user file inside the current workspace — the
+ * context-menu / inline "New File" door. Never clobbers: a name collision picks
+ * `-2`/`-3` (same convention as importFile); parent folders are auto-created.
+ * `path` in the result is where it actually landed. */
+export interface WorkspaceCreateFileArgs {
+  readonly path: string;
+  /** Initial contents; defaults to empty. */
+  readonly content?: string;
+}
+export interface WorkspaceCreateFileResult {
+  /** Workspace-relative POSIX path the file was created at (collision-suffixed). */
+  readonly path: string;
+}
+
+/** Create a folder inside the current workspace — the "New Folder" door. Never
+ * clobbers (collision-suffixed like createFile). `path` is where it landed. */
+export interface WorkspaceCreateFolderArgs {
+  readonly path: string;
+}
+export interface WorkspaceCreateFolderResult {
+  readonly path: string;
+}
+
+/** Delete a user file OR folder from the current workspace — the context-menu
+ * "Delete" door. The desktop host wires `fs.trash` (recoverable, OS trash); the
+ * pure-node CLI falls back to a permanent `fs.rm`. Cascades the badge overlay:
+ * the entry's badge (and, for a folder, every descendant badge) is purged and
+ * focus.md self-heals. An explicit user action — exempt from the observer-only
+ * rule that governs background writes. */
+export interface WorkspaceDeleteEntryArgs {
+  readonly path: string;
+  readonly kind: 'file' | 'folder';
+}
+export interface WorkspaceDeleteEntryResult {
+  readonly deleted: boolean;
+}
+
+/** Rename/move a user file OR folder within the current workspace, cascading the
+ * badge overlay (refs, inbound index, focus, and — for a folder — every
+ * descendant badge) via a tolerant `badge.rename`. The complete rename the
+ * file-only `workspace.renameFile` deliberately leaves to the watcher; the
+ * context menu drives THIS for deterministic, folder-correct cascades. `to` in
+ * the result is the actual landing path (collision-suffixed). */
+export interface WorkspaceRenameEntryArgs {
+  readonly from: string;
+  readonly to: string;
+  readonly kind: 'file' | 'folder';
+}
+export interface WorkspaceRenameEntryResult {
+  readonly from: string;
+  readonly to: string;
+  readonly renamed: boolean;
+}
+
 /** Copy an EXTERNAL file into the current workspace (the drag-a-file-onto-
  * the-canvas door). Always a copy — the source is never moved or touched;
  * the destination lands in the user's own folder where the file manager,

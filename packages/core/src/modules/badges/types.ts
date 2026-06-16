@@ -133,9 +133,16 @@ export interface BadgeRenameArgs {
   readonly from: string;
   readonly to: string;
   readonly kind?: BadgeKind;
+  /** When true, a MISSING source badge is NOT an error — the call still carries
+   *  any annotated descendants (folder rename) and remaps focus, then returns
+   *  `badge: null`. Used by `workspace.renameEntry` so renaming an UNANNOTATED
+   *  file/folder (the sparse-overlay common case) succeeds quietly. Callers that
+   *  omit it (the watcher) keep the throw, which drives their sparse fallback. */
+  readonly ifExists?: boolean;
 }
 export interface BadgeRenameResult {
-  readonly badge: BadgeFile;
+  /** The moved badge, or `null` when the source had no badge and `ifExists` was set. */
+  readonly badge: BadgeFile | null;
   /** Files whose badges had an outbound reference to `from` and were
    *  updated to point at `to` instead. Useful for the watcher / desktop
    *  to know which neighbours moved. */

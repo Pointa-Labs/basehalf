@@ -2,11 +2,15 @@ import { basename, isAbsolute, resolve } from 'node:path';
 import type { Context, Handler } from '../../kernel/index.js';
 import { createDemo } from './demo.js';
 import {
+  createFile,
+  createFolder,
+  deleteEntry,
   importFile,
   listCanvas,
   listFiles,
   listSupportedFiles,
   readFile,
+  renameEntry,
   renameFile,
   writeFile,
 } from './files.js';
@@ -447,5 +451,9 @@ export function commands(): ReadonlyArray<
     ['workspace.writeFile', writeFile as unknown as Handler<never, unknown>],
     ['workspace.renameFile', renameFile as unknown as Handler<never, unknown>],
     ['workspace.importFile', importFile as unknown as Handler<never, unknown>],
+    ['workspace.createFile', createFile as unknown as Handler<never, unknown>],
+    ['workspace.createFolder', createFolder as unknown as Handler<never, unknown>],
+    ['workspace.deleteEntry', deleteEntry as unknown as Handler<never, unknown>],
+    ['workspace.renameEntry', renameEntry as unknown as Handler<never, unknown>],
   ];
 }

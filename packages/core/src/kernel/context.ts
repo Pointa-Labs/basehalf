@@ -9,6 +9,7 @@ import {
   readdir,
   realpath,
   rename,
+  rm,
   stat,
   unlink,
   writeFile,
@@ -38,8 +39,12 @@ export function createContext(opts: {
   });
 }
 
-/** Wraps `node:fs/promises` into the lean `FsLike` shape modules see. */
-function defaultFs(): FsLike {
+/**
+ * Wraps `node:fs/promises` into the lean `FsLike` shape modules see. Exported so
+ * the desktop host can COMPOSE it — e.g. `{ ...defaultFs(), trash: shell.trashItem }`
+ * — to add the Electron-only `trash` capability without core depending on Electron.
+ */
+export function defaultFs(): FsLike {
   return {
     async readFile(path) {
       try {
@@ -155,17 +160,18 @@ function defaultFs(): FsLike {
         await fh.close();
       }
     },
-    async writeFileNoFollow(path, content) {
+    async writeFileNoFollow(path, content, opts) {
+      // excl → O_EXCL (no O_TRUNC): create-or-fail, never clobber. Plain →
+      // O_TRUNC: create-or-overwrite (the original write-back semantics).
+      const flags = opts?.excl
+        ? constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW
+        : constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW;
       let fh: Awaited<ReturnType<typeof open>>;
       try {
-        fh = await open(
-          path,
-          constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-          0o666,
-        );
+        fh = await open(path, flags, 0o666);
       } catch (err) {
         if (isELOOP(err)) throw new PathEscape(path);
-        throw err;
+        throw err; // EEXIST (excl) propagates so the caller can re-pick a name
       }
       try {
         await fh.writeFile(content, 'utf8');
@@ -178,6 +184,11 @@ function defaultFs(): FsLike {
     },
     async rename(from, to) {
       await rename(from, to);
+    },
+    async rm(path, opts) {
+      // force:false — surface a real ENOENT/EACCES rather than masking a delete
+      // that didn't happen. recursive removes a non-empty dir + contents.
+      await rm(path, { recursive: opts?.recursive ?? false, force: false });
     },
   };
 }

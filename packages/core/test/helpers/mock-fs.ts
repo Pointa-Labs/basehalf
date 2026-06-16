@@ -100,6 +100,72 @@ export function mockFs(): {
       files.delete(path);
       fileBytes.delete(path);
     },
+    // Atomic move. Handles a single file AND a directory (moving every
+    // descendant file/dir by prefix) so folder rename via workspace.renameEntry
+    // is exercised under the mock, not just single-file note renames.
+    async rename(from, to) {
+      if (files.has(from)) {
+        files.set(to, files.get(from) as string);
+        files.delete(from);
+        fileBytes.delete(from);
+        addAncestors(to);
+        return;
+      }
+      if (fileBytes.has(from)) {
+        fileBytes.set(to, fileBytes.get(from) as Uint8Array);
+        fileBytes.delete(from);
+        files.delete(from);
+        addAncestors(to);
+        return;
+      }
+      if (dirs.has(from)) {
+        const prefix = `${from}/`;
+        const remap = (p: string): string => to + p.slice(from.length);
+        for (const [k, v] of [...files]) {
+          if (k.startsWith(prefix)) {
+            files.set(remap(k), v);
+            files.delete(k);
+          }
+        }
+        for (const [k, v] of [...fileBytes]) {
+          if (k.startsWith(prefix)) {
+            fileBytes.set(remap(k), v);
+            fileBytes.delete(k);
+          }
+        }
+        for (const d of [...dirs]) {
+          if (d === from || d.startsWith(prefix)) {
+            dirs.add(remap(d));
+            dirs.delete(d);
+          }
+        }
+        dirs.add(to);
+        addAncestors(to);
+        return;
+      }
+      throw Object.assign(new Error(`ENOENT: no such file, rename '${from}'`), { code: 'ENOENT' });
+    },
+    // Permanent delete. recursive removes a directory + all descendants by
+    // prefix; a file ignores recursive. Mirrors node fs.rm(force:false): a
+    // missing path throws ENOENT.
+    async rm(path, opts) {
+      let removed = files.delete(path) || fileBytes.delete(path);
+      if (dirs.has(path)) {
+        dirs.delete(path);
+        removed = true;
+        if (opts?.recursive) {
+          const prefix = `${path}/`;
+          for (const k of [...files.keys()]) if (k.startsWith(prefix)) files.delete(k);
+          for (const k of [...fileBytes.keys()]) if (k.startsWith(prefix)) fileBytes.delete(k);
+          for (const d of [...dirs]) if (d.startsWith(prefix)) dirs.delete(d);
+        }
+      }
+      if (!removed) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, rm '${path}'`), {
+          code: 'ENOENT',
+        });
+      }
+    },
     // This in-memory fs has no symlinks, so realpath is identity for an
     // existing path and ENOENT otherwise — exactly what kernel/contain.ts
     // expects (it walks up to the deepest existing ancestor on ENOENT). The
@@ -134,7 +200,12 @@ export function mockFs(): {
           : null;
       return whole === null ? null : whole.subarray(0, maxBytes);
     },
-    async writeFileNoFollow(path, content) {
+    async writeFileNoFollow(path, content, opts) {
+      if (opts?.excl && (files.has(path) || fileBytes.has(path) || dirs.has(path))) {
+        throw Object.assign(new Error(`EEXIST: file already exists, open '${path}'`), {
+          code: 'EEXIST',
+        });
+      }
       files.set(path, content);
       fileBytes.delete(path);
       addAncestors(path);

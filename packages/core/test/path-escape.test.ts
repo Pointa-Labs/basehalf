@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createCore } from '../src/index.js';
+import { createCore, defaultFs } from '../src/index.js';
 import { isContained } from '../src/kernel/contain.js';
 
 /**
@@ -324,5 +324,35 @@ describe('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCL
     await symlink(join(ws, '.bh/b2'), join(ws, '.bh/badges')); // badges -> b2
     await symlink(join(ws, '.bh/badges'), join(ws, '.bh/b2')); // b2 -> badges (ELOOP)
     await expect(core.run('badge.list', {})).resolves.toBeDefined();
+  });
+});
+
+describe('writeFileNoFollow excl — the never-clobber create primitive', () => {
+  it('refuses an existing leaf (EEXIST) instead of truncating it', async () => {
+    const fs = defaultFs();
+    const p = join(ws, 'keep.md');
+    await fs.writeFileNoFollow?.(p, 'original');
+    await expect(fs.writeFileNoFollow?.(p, 'CLOBBER', { excl: true })).rejects.toMatchObject({
+      code: 'EEXIST',
+    });
+    // The existing file is left byte-for-byte intact — no O_TRUNC under excl.
+    expect(await readFile(p, 'utf8')).toBe('original');
+  });
+
+  it('creates the leaf when absent (excl)', async () => {
+    const fs = defaultFs();
+    const p = join(ws, 'fresh.md');
+    await fs.writeFileNoFollow?.(p, 'hi', { excl: true });
+    expect(await readFile(p, 'utf8')).toBe('hi');
+  });
+
+  it('still refuses a symlink leaf under excl (PathEscape, not a follow)', async () => {
+    await symlink(join(outside, 'target'), join(ws, 'link.md')); // leaf is a symlink
+    const fs = defaultFs();
+    await expect(
+      fs.writeFileNoFollow?.(join(ws, 'link.md'), 'x', { excl: true }),
+    ).rejects.toThrow();
+    // The symlink target outside the workspace was not created/written through.
+    expect(existsSync(join(outside, 'target'))).toBe(false);
   });
 });

@@ -66,7 +66,7 @@ export function createCore(opts: CoreOptions = {}): Core {
 
 // Re-export public types/error so consumers don't reach into `./kernel`.
 export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './kernel/index.js';
-export { UnknownCommand, defaultConfigDir } from './kernel/index.js';
+export { UnknownCommand, defaultConfigDir, defaultFs } from './kernel/index.js';
 
 // Module result/args types — UI shells need these to narrow window.bh.run results.
 export type * from './modules/workspace/types.js';

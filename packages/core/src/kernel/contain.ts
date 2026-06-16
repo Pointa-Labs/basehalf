@@ -219,9 +219,17 @@ export async function readBytesCappedMaybeNoFollow(
   return whole === null ? null : whole.subarray(0, maxBytes);
 }
 
-/** Write `abs` with O_NOFOLLOW when supported, else plain write. */
-export async function writeMaybeNoFollow(fs: FsLike, abs: string, content: string): Promise<void> {
-  if (fs.writeFileNoFollow) await fs.writeFileNoFollow(abs, content);
+/** Write `abs` with O_NOFOLLOW when supported, else plain write. With
+ *  `excl` the write refuses (EEXIST) if the leaf already exists — the
+ *  never-clobber guarantee holds on the real fs; the legacy-mock fallback
+ *  has no concurrent writers, so a pre-pick stat is sufficient there. */
+export async function writeMaybeNoFollow(
+  fs: FsLike,
+  abs: string,
+  content: string,
+  opts?: { excl?: boolean },
+): Promise<void> {
+  if (fs.writeFileNoFollow) await fs.writeFileNoFollow(abs, content, opts);
   else await fs.writeFile(abs, content);
 }
 

@@ -78,10 +78,14 @@ export interface FsLike {
   /**
    * Write a file with O_NOFOLLOW on the final component — refuses (PathEscape)
    * if the leaf is a symlink at OPEN time. The symmetric write-side close of
-   * the check-then-write TOCTOU. OPTIONAL (legacy mocks fall back to
-   * writeFile).
+   * the check-then-write TOCTOU. With `excl: true` the open also adds O_EXCL
+   * (and drops O_TRUNC) so the write REFUSES (EEXIST) if the leaf already
+   * exists — the write-side twin of `copyFile({excl})`, letting a caller that
+   * pre-picks a collision-free name close the pick-then-write race instead of
+   * silently truncating a file that appeared in between. OPTIONAL (legacy mocks
+   * fall back to writeFile).
    */
-  writeFileNoFollow?(path: string, content: string): Promise<void>;
+  writeFileNoFollow?(path: string, content: string, opts?: { excl?: boolean }): Promise<void>;
   /**
    * Byte-for-byte file copy. With `excl: true` the copy REFUSES (EEXIST) if
    * `dest` already exists — callers that pre-pick a collision-free name use it
@@ -98,6 +102,24 @@ export interface FsLike {
    * for the text notes this serves (no atomicity, but no binary in play either).
    */
   rename?(from: string, to: string): Promise<void>;
+  /**
+   * Remove a file or directory (node:fs `rm`). `recursive: true` deletes a
+   * non-empty directory and its contents; for a file it's ignored. This is the
+   * PERMANENT-delete path behind `workspace.deleteEntry`: the desktop prefers
+   * `trash` (recoverable) when present and only falls back here. OPTIONAL:
+   * legacy mocks may omit it (the delete handler then falls back to `unlink`
+   * for files and refuses a folder delete). Throws ENOENT if the path is
+   * missing (no `force`).
+   */
+  rm?(path: string, opts?: { recursive?: boolean }): Promise<void>;
+  /**
+   * Move a file or directory to the OS trash / recycle bin — the RECOVERABLE
+   * delete. Backed by Electron's `shell.trashItem` in the desktop host; pure
+   * `node:fs` has no trash, so the CLI / default fs omit it and
+   * `workspace.deleteEntry` falls back to `rm` (permanent). OPTIONAL by design:
+   * its presence is exactly the "can we trash?" capability check.
+   */
+  trash?(path: string): Promise<void>;
 }
 
 /**

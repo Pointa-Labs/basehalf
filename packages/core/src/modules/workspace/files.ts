@@ -18,6 +18,12 @@ import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
   CanvasBadge,
   CanvasFolderPreview,
+  WorkspaceCreateFileArgs,
+  WorkspaceCreateFileResult,
+  WorkspaceCreateFolderArgs,
+  WorkspaceCreateFolderResult,
+  WorkspaceDeleteEntryArgs,
+  WorkspaceDeleteEntryResult,
   WorkspaceImportFileArgs,
   WorkspaceImportFileResult,
   WorkspaceListCanvasArgs,
@@ -29,6 +35,8 @@ import type {
   WorkspaceListSupportedFilesResult,
   WorkspaceReadFileArgs,
   WorkspaceReadFileResult,
+  WorkspaceRenameEntryArgs,
+  WorkspaceRenameEntryResult,
   WorkspaceRenameFileArgs,
   WorkspaceRenameFileResult,
   WorkspaceWriteFileArgs,
@@ -570,4 +578,201 @@ export const importFile: Handler<WorkspaceImportFileArgs, WorkspaceImportFileRes
   }
   const rel = toFolder === null ? name : toPosix(`${toFolder}/${name}`);
   return { path: rel, name, imported: true, supported: hasSupportedExt(name) };
+};
+
+/** Split a workspace-relative POSIX path into its parent dir (`''` at root) and
+ *  basename — the shape the create/rename collision logic works in. */
+function splitRel(rel: string): { dir: string; base: string } {
+  const slash = rel.lastIndexOf('/');
+  return slash === -1
+    ? { dir: '', base: rel }
+    : { dir: rel.slice(0, slash), base: rel.slice(slash + 1) };
+}
+
+/**
+ * `workspace.createFile({ path, content? })` — create an empty (or seeded) user
+ * file. The context-menu / inline "New File" door. Mirrors writeFile's hardening
+ * (assertWriteContained + mkdir-p parent + O_NOFOLLOW write) but NEVER clobbers:
+ * a name collision picks `-2`/`-3` via the shared `freeImportName`, the same
+ * convention as importFile / renameFile. Returns the actual landing path so the
+ * caller can open the file it really created.
+ */
+export const createFile: Handler<WorkspaceCreateFileArgs, WorkspaceCreateFileResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = entry.path;
+  const { dir, base } = splitRel(args.path);
+  const destDirAbs = dir === '' ? root : join(root, dir);
+  // Honor the "folders auto-created" promise (same as writeFile): mkdir -p the
+  // parent BEFORE picking a free name (freeImportName stats candidates in it).
+  await ctx.fs.mkdir(destDirAbs, { recursive: true });
+  // Pick a free name, then create EXCLUSIVELY: if a file appears at the picked
+  // name between the stat and the write (a racing create / import), the EXCL
+  // write fails EEXIST and we re-pick the next suffix instead of truncating it —
+  // the never-clobber contract, closed the same way importFile uses copyFile({excl}).
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const freeBase = await freeImportName(ctx.fs, destDirAbs, base);
+    const finalRel = dir === '' ? freeBase : toPosix(`${dir}/${freeBase}`);
+    const abs = await assertWriteContained(ctx.fs, root, join(root, finalRel));
+    try {
+      await writeMaybeNoFollow(ctx.fs, abs, args.content ?? '', { excl: true });
+      return { path: finalRel };
+    } catch (err) {
+      if ((err as { code?: unknown }).code === 'EEXIST' && attempt < 9) continue;
+      throw err;
+    }
+  }
+  throw new Error(`Could not create "${base}" — too many colliding files.`);
+};
+
+/**
+ * `workspace.createFolder({ path })` — create a folder. The "New Folder" door.
+ * Collision-suffixed like createFile; `assertWriteContained` proves the real
+ * parent is inside the root and refuses a symlink leaf. `freeImportName` handles
+ * extension-less names cleanly (a leading-dot name like `.config` is treated as
+ * the whole stem, so it suffixes to `.config-2`, never `.-2config`).
+ */
+export const createFolder: Handler<WorkspaceCreateFolderArgs, WorkspaceCreateFolderResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = entry.path;
+  const { dir, base } = splitRel(args.path);
+  const destDirAbs = dir === '' ? root : join(root, dir);
+  await ctx.fs.mkdir(destDirAbs, { recursive: true });
+  // Same never-clobber re-pick as createFile: the leaf mkdir is non-recursive,
+  // so an existing entry at the picked name throws EEXIST and we suffix past it
+  // (instead of surfacing a raw EEXIST or, worse, adopting someone's folder).
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const freeBase = await freeImportName(ctx.fs, destDirAbs, base);
+    const finalRel = dir === '' ? freeBase : toPosix(`${dir}/${freeBase}`);
+    const abs = await assertWriteContained(ctx.fs, root, join(root, finalRel));
+    try {
+      await ctx.fs.mkdir(abs, { recursive: false });
+      return { path: finalRel };
+    } catch (err) {
+      if ((err as { code?: unknown }).code === 'EEXIST' && attempt < 9) continue;
+      throw err;
+    }
+  }
+  throw new Error(`Could not create folder "${base}" — too many colliding entries.`);
+};
+
+/** Best-effort: drop a command's result when its module isn't registered (tests
+ *  wiring only a subset), rethrow anything else. */
+function isUnknownCommand(err: unknown): boolean {
+  return err instanceof Error && err.name === 'UnknownCommand';
+}
+
+/** Purge the badge overlay for a deleted entry. For a FOLDER, also purge every
+ *  DESCENDANT badge by `<path>/` prefix (mirrors badge.rename's folder recursion)
+ *  — else deleting an annotated folder would strand its children's badges +
+ *  inbound refs. Best-effort: a missing badge.delete module or a single bad badge
+ *  must not fail the disk delete that already happened. */
+async function purgeBadgesForDelete(
+  ctx: Parameters<Handler>[1],
+  path: string,
+  kind: 'file' | 'folder',
+): Promise<void> {
+  const purge = async (file: string, k: 'file' | 'folder'): Promise<void> => {
+    try {
+      await ctx.run('badge.delete', { file, kind: k });
+    } catch (err) {
+      if (!isUnknownCommand(err)) throw err;
+    }
+  };
+  await purge(path, kind);
+  if (kind !== 'folder') return;
+  let badges: readonly BadgeFile[] = [];
+  try {
+    ({ badges } = (await ctx.run('badge.list', {})) as { badges: BadgeFile[] });
+  } catch (err) {
+    if (!isUnknownCommand(err)) throw err;
+    return;
+  }
+  const prefix = `${path}/`;
+  for (const b of badges) {
+    if (b.file.startsWith(prefix)) await purge(b.file, b.kind);
+  }
+}
+
+/**
+ * `workspace.deleteEntry({ path, kind })` — delete a user file or folder. An
+ * explicit user action (context menu), so it's exempt from the observer-only
+ * rule that governs background writes. Hardened like every write: realpath-
+ * contained via `assertWriteContained` (proves the real parent is inside the
+ * root and refuses deleting THROUGH a symlink leaf).
+ *
+ * Disk delete prefers the host's `trash` (recoverable — Electron's
+ * `shell.trashItem`); pure-node hosts (CLI) have no trash and fall back to a
+ * permanent `rm` (recursive for folders). Then the badge overlay is purged
+ * (folder → descendants too) and focus.md self-heals via `focus.pruneDangling`.
+ */
+export const deleteEntry: Handler<WorkspaceDeleteEntryArgs, WorkspaceDeleteEntryResult> = async (
+  args,
+  ctx,
+) => {
+  ensureInsideWorkspace(args.path);
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  if (data.current === null) throw new Error('No current workspace');
+  const entry = data.workspaces[data.current];
+  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = entry.path;
+  const abs = await assertWriteContained(ctx.fs, root, join(root, args.path));
+  if (ctx.fs.trash) {
+    await ctx.fs.trash(abs);
+  } else if (ctx.fs.rm) {
+    await ctx.fs.rm(abs, { recursive: args.kind === 'folder' });
+  } else if (args.kind === 'folder') {
+    throw new Error('deleteEntry: folder delete requires fs.rm or fs.trash');
+  } else {
+    await ctx.fs.unlink(abs);
+  }
+  await purgeBadgesForDelete(ctx, args.path, args.kind);
+  try {
+    await ctx.run('focus.pruneDangling', {});
+  } catch (err) {
+    if (!isUnknownCommand(err)) throw err;
+  }
+  return { deleted: true };
+};
+
+/**
+ * `workspace.renameEntry({ from, to, kind })` — the COMPLETE rename: move the
+ * file/folder on disk (reusing renameFile's contained, collision-safe move),
+ * then cascade the badge overlay synchronously via a tolerant `badge.rename`
+ * (refs + inbound + focus + folder-descendant remap). This is the deterministic,
+ * folder-correct path the context menu drives, instead of relying on the
+ * watcher's heuristic (which `renameFile` alone leans on and which misses folder
+ * renames). `ifExists: true` keeps an UNANNOTATED entry from erroring.
+ */
+export const renameEntry: Handler<WorkspaceRenameEntryArgs, WorkspaceRenameEntryResult> = async (
+  args,
+  ctx,
+) => {
+  const moved = await renameFile({ from: args.from, to: args.to }, ctx);
+  if (moved.renamed) {
+    try {
+      await ctx.run('badge.rename', {
+        from: args.from,
+        to: moved.to,
+        kind: args.kind,
+        ifExists: true,
+      });
+    } catch (err) {
+      if (!isUnknownCommand(err)) throw err;
+    }
+  }
+  return { from: moved.from, to: moved.to, renamed: moved.renamed };
 };

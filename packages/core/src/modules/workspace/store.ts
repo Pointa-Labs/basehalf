@@ -39,5 +39,23 @@ export async function writeWorkspaces(
   data: WorkspacesFile,
 ): Promise<void> {
   await fs.mkdir(configDir, { recursive: true });
-  await fs.writeFile(workspacesFilePath(configDir), `${JSON.stringify(data, null, 2)}\n`);
+  const finalPath = workspacesFilePath(configDir);
+  const content = `${JSON.stringify(data, null, 2)}\n`;
+  // ATOMIC write: write a temp file then rename it over the target. The config
+  // mutex serializes WRITERS, but the user-file ops (readFile/writeFile/createFile/
+  // createFolder/deleteEntry/renameEntry) resolve the current workspace via a
+  // LOCK-FREE readWorkspaces — a plain writeFile truncates first, so a read landing
+  // in that window gets an empty/partial file and throws "Unexpected end of JSON
+  // input". rename(2) is atomic on the same filesystem, so a concurrent reader sees
+  // either the old or the new complete file, never a torn one. The temp name carries
+  // the pid so two app instances don't collide (same-process writers are already
+  // serialized by the mutex). Falls back to a direct write for legacy mocks lacking
+  // rename.
+  if (fs.rename) {
+    const tmpPath = `${finalPath}.${process.pid}.tmp`;
+    await fs.writeFile(tmpPath, content);
+    await fs.rename(tmpPath, finalPath);
+  } else {
+    await fs.writeFile(finalPath, content);
+  }
 }

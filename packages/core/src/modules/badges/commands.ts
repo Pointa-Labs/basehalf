@@ -622,9 +622,13 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
 
   // Move the badge itself (folder's .badge.json, or the file badge) + its refs.
   const { moved, updatedRefs } = await moveBadgeAndCascadeRefs(ctx, root, args.from, args.to, kind);
-  if (moved === null) {
+  if (moved === null && !args.ifExists) {
     throw new Error(`badge.rename: no badge at ${args.from}`);
   }
+  // With `ifExists`, a missing source badge is the SPARSE common case (most files
+  // carry no badge): don't abort. We still fall through to the descendant carry
+  // (a folder may be unannotated yet hold annotated children) and the focus remap,
+  // so the rename isn't lossy. Only the throw is gated — the cascade below is not.
 
   // A FOLDER rename must carry every CHILD badge with it. The folder's own
   // .badge.json move above leaves all `<from>/<child>.json` stranded at the old

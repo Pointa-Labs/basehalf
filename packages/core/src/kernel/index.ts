@@ -1,5 +1,5 @@
 export { Registry } from './registry.js';
-export { createContext, defaultConfigDir } from './context.js';
+export { createContext, defaultConfigDir, defaultFs } from './context.js';
 export { assertWorkspaceRelative } from './paths.js';
 export {
   PathEscape,
