@@ -11,6 +11,7 @@
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
+import { registerAdhdModule } from './modules/adhd/index.js';
 import { registerBadgesModule } from './modules/badges/index.js';
 import { registerCanvasModule } from './modules/canvas/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
@@ -56,6 +57,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerBadgesModule(core);
   registerCanvasModule(core);
   registerFocusModule(core);
+  registerAdhdModule(core);
   registerWatcherModule(core);
   registerSearchModule(core);
 
@@ -72,6 +74,8 @@ export type * from './modules/badges/types.js';
 export { BadgeCorrupt } from './modules/badges/types.js';
 export type * from './modules/canvas/types.js';
 export { CanvasCorrupt, CANVAS_ANCHORS } from './modules/canvas/types.js';
+export type * from './modules/adhd/types.js';
+export { AdhdCorrupt } from './modules/adhd/types.js';
 export type * from './modules/focus/types.js';
 export { FocusCorrupt } from './modules/focus/types.js';
 export type * from './modules/watcher/types.js';
