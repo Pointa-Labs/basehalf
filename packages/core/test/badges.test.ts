@@ -256,14 +256,16 @@ describe('badge.delete', () => {
     expect(await backlinks(ctx.core, 'target.md')).toEqual([]);
   });
 
-  it('cascades: a deleted focused file drops out of the brief', async () => {
+  it('does NOT cascade to focus: deleting a focused node leaves current_focus alone', async () => {
+    // Focus is a viewport mirror now, not a curated brief — badge.delete no
+    // longer reconciles focus. The current_focus symlink stays pointed at the
+    // node; it's `focus.pruneDangling` (run on workspace open / after deleteEntry)
+    // that clears a focus whose file is gone, not badge.delete.
     await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'note' } });
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
     await ctx.core.run('badge.delete', { file: 'a.md' });
-    // a.md's badge is gone; the brief should no longer inline its (now absent)
-    // description as a prompt line.
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).not.toContain('prompt: note');
+    const focus = (await ctx.core.run('focus.get', {})) as { path: string; kind: string } | null;
+    expect(focus).toEqual({ path: 'a.md', kind: 'file' });
   });
 
   it('deletes folder badge from its mirror node', async () => {
@@ -485,42 +487,33 @@ describe('badge.rename', () => {
     expect(await backlinks(ctx.core, 'target2.md')).toEqual([]);
   });
 
-  it('updates focus.md if `from` was in the active list', async () => {
+  it('always reports focusUpdated:false (focus no longer cascades on rename)', async () => {
+    // Moving the mirror node dir (badge + focus.yaml together) is a later step;
+    // until then badge.rename never touches focus and always reports false. The
+    // current_focus symlink still points at the old node path — a dangling focus
+    // that `focus.pruneDangling` cleans on the next workspace open.
     await ctx.core.run('badge.set', { file: 'foo.md' });
-    await ctx.core.run('focus.set', { files: ['unrelated.md', 'foo.md'] });
-    const result = (await ctx.core.run('badge.rename', {
-      from: 'foo.md',
-      to: 'foo-v2.md',
-    })) as { focusUpdated: boolean };
-    expect(result.focusUpdated).toBe(true);
-    const focus = (await ctx.core.run('focus.get', {})) as { active: string[] };
-    expect(focus.active).toEqual(['unrelated.md', 'foo-v2.md']);
-  });
-
-  it('PRESERVES the focus intent when rewriting a renamed active file', async () => {
-    await ctx.core.run('badge.set', { file: 'foo.md' });
-    await ctx.core.run('focus.set', { files: ['foo.md'], intent: 'wire up auth' });
-    const result = (await ctx.core.run('badge.rename', {
-      from: 'foo.md',
-      to: 'foo-v2.md',
-    })) as { focusUpdated: boolean };
-    expect(result.focusUpdated).toBe(true);
-    const focus = (await ctx.core.run('focus.get', {})) as { active: string[]; intent?: string };
-    expect(focus.active).toEqual(['foo-v2.md']);
-    // The intent brief must survive a rename — losing it strands the agent.
-    expect(focus.intent).toBe('wire up auth');
-  });
-
-  it('leaves focus.md alone when `from` was not in active list', async () => {
-    await ctx.core.run('badge.set', { file: 'foo.md' });
-    await ctx.core.run('focus.set', { files: ['unrelated.md'] });
+    await ctx.core.run('focus.set', { path: 'foo.md', kind: 'file' });
     const result = (await ctx.core.run('badge.rename', {
       from: 'foo.md',
       to: 'foo-v2.md',
     })) as { focusUpdated: boolean };
     expect(result.focusUpdated).toBe(false);
-    const focus = (await ctx.core.run('focus.get', {})) as { active: string[] };
-    expect(focus.active).toEqual(['unrelated.md']);
+    // The focus node was not rewritten by the rename — still the old path.
+    const focus = (await ctx.core.run('focus.get', {})) as { path: string; kind: string } | null;
+    expect(focus).toEqual({ path: 'foo.md', kind: 'file' });
+  });
+
+  it('reports focusUpdated:false even when `from` was not the focused node', async () => {
+    await ctx.core.run('badge.set', { file: 'foo.md' });
+    await ctx.core.run('focus.set', { path: 'unrelated.md', kind: 'file' });
+    const result = (await ctx.core.run('badge.rename', {
+      from: 'foo.md',
+      to: 'foo-v2.md',
+    })) as { focusUpdated: boolean };
+    expect(result.focusUpdated).toBe(false);
+    const focus = (await ctx.core.run('focus.get', {})) as { path: string; kind: string } | null;
+    expect(focus).toEqual({ path: 'unrelated.md', kind: 'file' });
   });
 
   it('throws when source badge does not exist', async () => {

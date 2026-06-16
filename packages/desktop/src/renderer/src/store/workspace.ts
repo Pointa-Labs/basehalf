@@ -211,6 +211,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         openMatchQuery: opts.matchQuery ?? null,
       });
       if (current !== null) noteOpenedFile(current, file);
+      // Focus is mirrored by Canvas's single openFile-aware effect (so closing a
+      // file repoints focus back to the folder) — not written here, to avoid a
+      // redundant double-write and keep one source of truth.
     };
     // Flush the open editor (still mounted/alive) BEFORE switching its file —
     // last keystrokes persist. A `false` resolution = an unresolved disk

@@ -54,78 +54,7 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
 // dropping a description (or a backlink). Keyed by ROOT (not per file) because
 // reference + rename ops touch several badge files at once and must be atomic
 // across them. [[bh-json-rmw-race]]
-//
-// The lock wraps the badge RMW (including the embedded referenced_by writes, all
-// direct fs ops). It must NOT wrap a `ctx.run('focus.*')` cascade — that takes
-// the focus lock / re-enters and could nest. Acquire → RMW → release → cascade.
 const withBadgeLock = createKeyedMutex();
-
-/**
- * Reconcile focus.md after a badge edit: if `file` is in the active list,
- * focus.resync re-inlines the fresh description/refs so the agent's turn brief
- * doesn't go stale. Best-effort + tolerant — the badge write already succeeded,
- * so a focus refresh failure (module not registered, a hostile symlinked
- * focus.md → PathEscape) must never fail the badge op. focus.resync no-ops when
- * `file` isn't active, so edits to unfocused badges stay cheap.
- */
-async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promise<void> {
-  try {
-    await ctx.run('focus.resync', { file });
-  } catch (err) {
-    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
-      return;
-    }
-    console.warn('[bh:badges] focus.resync after badge edit failed (non-fatal):', err);
-  }
-}
-
-/**
- * The FOLDER analog: a folder badge's description IS its agent-facing intent, so
- * a folder-sourced focus's brief must refresh when that description changes. Same
- * best-effort tolerance as reconcileFocus.
- */
-async function reconcileFolderIntent(ctx: Parameters<Handler>[1], folder: string): Promise<void> {
-  try {
-    await ctx.run('focus.refreshFolderIntent', { folder });
-  } catch (err) {
-    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
-      return;
-    }
-    console.warn(
-      '[bh:badges] focus.refreshFolderIntent after folder-badge edit failed (non-fatal):',
-      err,
-    );
-  }
-}
-
-/**
- * After a brand-NEW file badge is materialized, pull it into a folder-sourced
- * brief when it landed under the focused folder. focus.reconcileNewFile no-ops
- * unless a containing folder is the active focus source, so this is cheap.
- */
-async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Promise<void> {
-  try {
-    await ctx.run('focus.reconcileNewFile', { file });
-  } catch (err) {
-    if (err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape')) {
-      return;
-    }
-    console.warn('[bh:badges] focus.reconcileNewFile after new-file materialize failed:', err);
-  }
-}
-
-/**
- * A focused file's badge just went orphan (its file was deleted on disk).
- * Re-render the brief so the agent never reads a vanished file. Best-effort —
- * focus.resync no-ops when the file isn't focused.
- */
-async function resyncFocusAfterOrphan(ctx: Parameters<Handler>[1], file: string): Promise<void> {
-  try {
-    await ctx.run('focus.resync', { file });
-  } catch (err) {
-    console.warn('[bh:badges] focus.resync after markOrphan failed (non-fatal):', err);
-  }
-}
 
 // ── Embedded reverse-index (referenced_by) helpers ──────────────────────────
 // These replace the old .bh/index/inbound.json module: a reference A→B is now
@@ -204,11 +133,9 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   // patchMirror = atomic field-scoped RMW under the mirror file lock, so a
   // concurrent EXTERNAL writer to this badge.yaml (an agent editing .bh/mirror)
   // can't be clobbered. withBadgeLock(root) still serializes app-level badge ops
-  // (rename / addRef touch several files). `existed` is captured from the patch.
-  let existed = false;
+  // (rename / addRef touch several files).
   const next = (await withBadgeLock(root, () =>
     patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
-      existed = existing !== null;
       if (existing) {
         const nextDescription =
           patch.description !== undefined ? patch.description : existing.description;
@@ -239,16 +166,8 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
       };
     }),
   )) as BadgeFile;
-
-  // Only reconcile focus when the edit changes the INLINED BRIEF (the description;
-  // references no longer arrive through set()). A kind-only patch leaves the brief
-  // identical — skip.
-  if (kind === 'folder') {
-    if (patch.description !== undefined) await reconcileFolderIntent(ctx, args.file);
-  } else {
-    if (patch.description !== undefined) await reconcileFocus(ctx, args.file);
-    if (!existed) await reconcileNewFile(ctx, args.file);
-  }
+  // Focus is a viewport mirror now (not a curated brief), so a badge edit no
+  // longer reconciles focus — the agent reads the badge.yaml fresh each turn.
   return next;
 };
 
@@ -271,7 +190,6 @@ export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) =
 
 export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const kind = args.kind ?? 'file';
   // Under the lock: remove the badge, then scrub THIS file's backlink out of each
   // of its outbound targets (so a deleted badge leaves no phantom referenced_by
   // entry pointing FROM a badge that no longer exists). We do NOT rewrite
@@ -287,7 +205,6 @@ export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx
     }
     return removed;
   });
-  if (deleted && kind === 'file') await reconcileFocus(ctx, args.file);
   return { deleted };
 };
 
@@ -310,7 +227,6 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
     await addBacklinkTo(ctx, root, args.to, args.file);
     return merged;
   });
-  await reconcileFocus(ctx, args.file);
   return next;
 };
 
@@ -325,7 +241,6 @@ export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ct
     await removeBacklinkFrom(ctx, root, args.to, args.file);
     return merged;
   });
-  await reconcileFocus(ctx, args.file);
   return next;
 };
 
@@ -340,16 +255,11 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   ctx,
 ) => {
   const root = await currentWorkspaceRoot(ctx);
-  const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, () =>
     patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) =>
       existing === null ? null : { ...existing, orphan: true },
     ),
   );
-  if (next === null) return null;
-  // A focused file that just vanished must leave the brief. File badges only —
-  // a folder badge is never an active focus item.
-  if (kind === 'file') await resyncFocusAfterOrphan(ctx, args.file);
   return next;
 };
 
@@ -511,23 +421,11 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // Update focus.md if `from` is focused. Best-effort (tolerate missing module /
-  // a hostile symlinked focus.md → PathEscape), exactly like reconcileFocus.
-  let focusUpdated = false;
-  try {
-    const cmd = kind === 'folder' ? 'focus.renameActiveFolder' : 'focus.renameActiveFile';
-    const res = await ctx.run<{ from: string; to: string }, { renamed: boolean }>(cmd, {
-      from: args.from,
-      to: args.to,
-    });
-    focusUpdated = res.renamed;
-  } catch (err) {
-    if (!(err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape'))) {
-      throw err;
-    }
-  }
-
-  return { badge: moved, updatedRefs, focusUpdated };
+  // Focus is a viewport mirror now: a rename doesn't rewrite a curated list.
+  // Moving the whole mirror NODE dir (badge + canvas + focus.yaml) together — and
+  // repointing current_focus if it pointed at `from` — is the watcher-cascade
+  // step's job (deferred); until then focusUpdated is always false.
+  return { badge: moved, updatedRefs, focusUpdated: false };
 };
 
 export function commands(): ReadonlyArray<

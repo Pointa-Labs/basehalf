@@ -29,12 +29,7 @@ import type { SearchQueryResult } from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import {
-  copyAgentBrief,
-  createDemoAtDefault,
-  promptForNewNote,
-  tildifyPath,
-} from '../lib/actions.js';
+import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../lib/actions.js';
 import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { isImeComposing } from '../lib/imeGuard.js';
@@ -66,7 +61,7 @@ export function closeCommandPalette(): void {
 
 // Workspace management (rename / remove) deliberately does NOT live here — those
 // are rare, destructive ops, and the palette's job is the everyday loop (open a
-// file, copy the brief). They live in the File menu (see lib/actions.ts).
+// file). They live in the File menu (see lib/actions.ts).
 
 interface Action {
   /** Stable id used as React key and for navigation focus. */
@@ -222,29 +217,6 @@ export const CommandPalette = (): JSX.Element | null => {
     };
   }, [open, current]);
 
-  // How many files are in the agent context (focus.md) — fetched on open so the
-  // "Copy agent brief" action only shows when there is actually a brief to copy
-  // (copying an empty focus would put nothing on the clipboard and read as a
-  // broken action).
-  const [focusCount, setFocusCount] = useState(0);
-  useEffect(() => {
-    if (!open) return;
-    setFocusCount(0);
-    if (current === null) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = (await window.bh.run('focus.get', {})) as { active: string[] };
-        if (!cancelled) setFocusCount(r.active.length);
-      } catch {
-        // Leave 0 — the action simply doesn't show this open.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, current]);
-
   const [query, setQuery] = useState('');
   // Debounced full-text content search. Fires only once the user pauses (180ms)
   // on a query of ≥3 chars in a real workspace — so we don't read every file's
@@ -381,19 +353,6 @@ export const CommandPalette = (): JSX.Element | null => {
       });
     }
     if (current !== null) {
-      // The loop's most important step, one keystroke away: copy exactly what
-      // the agent reads and paste it into any chat. Only offered when the
-      // context is non-empty (see focusCount above). The chip's "updated" dot
-      // clears when the stamp lands, so the copy confirms itself there.
-      if (focusCount > 0) {
-        out.push({
-          id: 'action:copy-brief',
-          label: 'Copy agent brief',
-          hint: `${focusCount} ${focusCount === 1 ? 'file' : 'files'} in context`,
-          category: 'Action',
-          run: () => void copyAgentBrief().catch(() => undefined),
-        });
-      }
       // Primary "New note" is INSTANT — a real untitled-N.md opens for typing,
       // no filename dialog. The path-choosing dialog survives as the
       // secondary, for the "I know exactly where this goes" case.
@@ -420,7 +379,7 @@ export const CommandPalette = (): JSX.Element | null => {
     });
 
     return out;
-  }, [workspaces, current, files, filesWorkspace, focusCount, use, openInPanel, pickAndAdd]);
+  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
 
   // The visible name/prompt rows + the highlight ranges for each row's label.
   // Two modes:
@@ -451,17 +410,7 @@ export const CommandPalette = (): JSX.Element | null => {
         .filter((a) => a.category === 'File' && rank.has(fileId(a)))
         .sort((a, b) => (rank.get(fileId(a)) ?? 0) - (rank.get(fileId(b)) ?? 0))
         .slice(0, EMPTY_RECENT_CAP);
-      // "Copy agent brief" owns the zero-query TOP slot when a context exists:
-      // ⌘K → Enter → paste is the loop's tightest path, so it must not hide
-      // behind the recents — and with NO recents it must still lead the
-      // fallback (which already contains it among the actions; reorder, don't
-      // duplicate).
-      const copyBrief = actions.find((a) => a.id === 'action:copy-brief');
-      const head = copyBrief ? [copyBrief] : [];
-      const rows =
-        recents.length > 0
-          ? [...head, ...recents]
-          : [...head, ...fallback().filter((a) => a.id !== 'action:copy-brief')];
+      const rows = recents.length > 0 ? recents : fallback();
       return { filtered: rows, matchMap: new Map() };
     }
 

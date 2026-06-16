@@ -8,21 +8,15 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import { registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
-import { focusMutations } from '../lib/focusMutations.js';
 import { type PickOption, pick } from './Dialog.js';
 
 // Everything about ONE badge (file OR folder) — load, autosave, references,
-// inbound, focus, and cross-surface sync — lives here, so the badge UI (the
-// in-card badge face) stays a pure layout. The component reads this controller's
-// fields and wires its handlers to the UI; it never touches IPC or the badge bus
+// inbound, and cross-surface sync — lives here, so the badge UI (the in-card
+// badge face) stays a pure layout. The component reads this controller's fields
+// and wires its handlers to the UI; it never touches IPC or the badge bus
 // directly.
 //
-// File vs folder differ in exactly two places, gated on `kind`:
-//   - focus: a file toggles in/out of the active set (focus.toggleActiveFile); a
-//     folder IS the grouping, so its focus action sets the whole folder
-//     (focus.set({folder})) — a one-way "Add to Context", matching the canvas's
-//     folder-scope button. `isFocused` for a folder = its derived files are all
-//     present in the active set.
+// File vs folder differ in exactly one place, gated on `kind`:
 //   - reference picking: a folder's add-reference picker lists from the folder's
 //     OWN level (its direct contents), a file's from its parent folder.
 
@@ -40,12 +34,10 @@ export interface FileBadgeController {
   /** Outbound references — plain workspace-relative paths (no per-ref note). */
   readonly refs: readonly string[];
   readonly inbound: InboundEntries;
-  readonly isFocused: boolean;
   readonly onPromptChange: (value: string) => void;
   readonly flushPrompt: () => Promise<boolean>;
   readonly removeRef: (to: string) => Promise<void>;
   readonly addReference: () => Promise<void>;
-  readonly toggleFocus: () => Promise<void>;
 }
 
 export function useFileBadge(
@@ -59,7 +51,6 @@ export function useFileBadge(
   const [badge, setBadge] = useState<BadgeFile | null>(null);
   const [prompt, setPrompt] = useState('');
   const [inbound, setInbound] = useState<InboundEntries>([]);
-  const [focusActive, setFocusActive] = useState<readonly string[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   // Autosave is silent by nature — surface a quiet Saving…/Saved so the user
@@ -69,31 +60,17 @@ export function useFileBadge(
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPrompt = useRef<string | null>(null);
 
-  // For a folder badge, "focused" means its derived files are all in the active
-  // set — so we cache the folder's supported files alongside the graph data.
-  const [folderFiles, setFolderFiles] = useState<readonly string[]>([]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setSaveError(null);
     try {
-      const [b, focus, ff] = await Promise.all([
-        window.bh.run('badge.get', { file, kind }) as Promise<BadgeGetResult>,
-        window.bh.run('focus.get', {}) as Promise<{ active: string[] }>,
-        kind === 'folder'
-          ? (window.bh.run('workspace.listSupportedFiles', { folder: file }) as Promise<{
-              files: string[];
-            }>)
-          : Promise.resolve({ files: [] as string[] }),
-      ]);
+      const b = (await window.bh.run('badge.get', { file, kind })) as BadgeGetResult;
       setBadge(b);
       setPrompt(b?.description ?? '');
       pendingPrompt.current = null;
       setSaveState('idle');
       // Backlinks come from the badge's embedded referenced_by (plain paths).
       setInbound(b?.referenced_by ?? []);
-      setFocusActive(focus.active);
-      setFolderFiles(ff.files);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -105,20 +82,16 @@ export function useFileBadge(
     void load();
   }, [load]);
 
-  // Re-pull the graph data (references + inbound + focus) when the OTHER surface
-  // edits this badge — e.g. a drag-to-connect on the canvas. Keeps the panel in
-  // sync without a manual reload. Guarded so an in-progress prompt edit is never
+  // Re-pull the graph data (references + inbound) when the OTHER surface edits
+  // this badge — e.g. a drag-to-connect on the canvas. Keeps the panel in sync
+  // without a manual reload. Guarded so an in-progress prompt edit is never
   // stomped: the prompt textarea is locally owned (autosave), so only sync it
   // when nothing is pending.
   const refreshGraph = useCallback(async () => {
     try {
-      const [b, focus] = await Promise.all([
-        window.bh.run('badge.get', { file, kind }) as Promise<BadgeGetResult>,
-        window.bh.run('focus.get', {}) as Promise<{ active: string[] }>,
-      ]);
+      const b = (await window.bh.run('badge.get', { file, kind })) as BadgeGetResult;
       setBadge(b);
       setInbound(b?.referenced_by ?? []);
-      setFocusActive(focus.active);
       if (pendingPrompt.current === null) setPrompt(b?.description ?? '');
     } catch {
       // Transient refresh failure: keep current state, don't flash a save error.
@@ -238,36 +211,6 @@ export function useFileBadge(
     }
   }, [file, kind, badge, flushPrompt, sourceId]);
 
-  const toggleFocus = useCallback(async () => {
-    if (!(await flushPrompt())) return;
-    try {
-      if (kind === 'folder') {
-        // A folder IS the grouping: set the WHOLE folder as the context (its files
-        // + the folder prompt as the turn intent), matching the canvas's folder
-        // button. One-way "Add to Context" — folder un-focus is "Clear" elsewhere.
-        const after = await focusMutations.setFolder(file, sourceId);
-        setFocusActive(after.active);
-      } else {
-        const after = await focusMutations.toggleActiveFile(file, sourceId);
-        setFocusActive(after.active);
-      }
-      // focusMutations already emits on the badge bus so the canvas re-derives its
-      // focused-card highlight; our own listener ignores the sourceId.
-    } catch (err) {
-      setSaveError(
-        `Couldn't update Agent Context: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-  }, [file, kind, flushPrompt, sourceId]);
-
-  // A file is focused when it's in the active set. A folder is focused when ALL
-  // its derived files are active (and it has some) — i.e. the whole folder was
-  // added to context. Empty folders can't be "focused".
-  const isFocused =
-    kind === 'folder'
-      ? folderFiles.length > 0 && folderFiles.every((f) => focusActive.includes(f))
-      : focusActive.includes(file);
-
   return {
     kind,
     loading,
@@ -276,11 +219,9 @@ export function useFileBadge(
     saveError,
     refs: badge?.references ?? [],
     inbound,
-    isFocused,
     onPromptChange,
     flushPrompt,
     removeRef,
     addReference,
-    toggleFocus,
   };
 }

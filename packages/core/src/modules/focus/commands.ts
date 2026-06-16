@@ -1,47 +1,22 @@
 import { join } from 'node:path';
-import {
-  type Handler,
-  assertReadContained,
-  createKeyedMutex,
-  readMaybeNoFollow,
-} from '../../kernel/index.js';
+import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import {
-  focusPath,
-  readBriefServedAt,
-  readFocusBrief,
-  stampBriefServed,
-  writeFocus,
+  clearCurrentFocus,
+  readCurrentFocus,
+  repointCurrentFocus,
+  writeFocusNode,
 } from './store.js';
 import type {
-  FocusBriefArgs,
-  FocusBriefResult,
   FocusClearArgs,
   FocusClearResult,
   FocusGetArgs,
   FocusGetResult,
-  FocusInitArgs,
-  FocusInitResult,
-  FocusItem,
+  FocusNode,
   FocusPruneDanglingArgs,
   FocusPruneDanglingResult,
-  FocusReconcileNewFileArgs,
-  FocusReconcileNewFileResult,
-  FocusRefreshFolderIntentArgs,
-  FocusRefreshFolderIntentResult,
-  FocusRenameActiveFileArgs,
-  FocusRenameActiveFileResult,
-  FocusRenameActiveFolderArgs,
-  FocusRenameActiveFolderResult,
-  FocusResyncArgs,
-  FocusResyncResult,
   FocusSetArgs,
-  FocusSetIntentArgs,
-  FocusSetIntentResult,
   FocusSetResult,
-  FocusSource,
-  FocusToggleActiveFileArgs,
-  FocusToggleActiveFileResult,
 } from './types.js';
 
 async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
@@ -55,509 +30,108 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   return current.current.path;
 }
 
-// Serialize every WRITE to a workspace's focus.md. focus.resync is a genuine
-// read-modify-write (read the active list, re-render with fresh badge data,
-// write back), so two concurrent badge edits racing resync could interleave a
-// stale read with a fresh write and lose the newer brief. set/clear take the
-// same lock so a resync can't clobber a just-issued set (or vice versa). Same
-// kernel mutex the inbound index uses for its RMW. [[bh-json-rmw-race]]
+// Serialize focus writes per workspace ROOT. focus.set writes the node's
+// focus.yaml AND repoints the current_focus symlink (a two-step unlink+symlink);
+// clear/prune touch the symlink. One lock keeps a set from racing a clear so the
+// symlink is never observed torn between its unlink and re-creation.
 const withFocusLock = createKeyedMutex();
 
-/**
- * Assemble the brief items for a desired active list — the SINGLE liveness choke
- * point. Each surviving file inlines its curated MEANING (prompt + outbound
- * ref-notes) so the agent reads the whole brief in one pass instead of re-reading
- * N badge JSONs. Composed via ctx.run only (module isolation); a file with no
- * badge (or a folder) contributes its bare path. Shared by EVERY writer (set /
- * resync / toggle / rename / folder) so they assemble identical, live briefs.
- *
- * Liveness invariant (by construction): a file the badge graph KNOWS is gone —
- * orphan-flagged by the watcher's markOrphan — is EXCLUDED here, so no writer can
- * publish a brief that points at a deleted file. A file with no badge or a
- * non-orphan badge is kept. Disk deletes the graph hasn't flagged yet (app was
- * closed / git checkout) carry no orphan flag, so they're healed on re-entry by
- * focus.pruneDangling (stat-based) instead.
- */
-async function assembleItems(
-  ctx: Parameters<Handler>[1],
-  _root: string,
-  files: readonly string[],
-): Promise<FocusItem[]> {
-  const items: FocusItem[] = [];
-  for (const file of files) {
-    let badge: BadgeGetMinimal | null = null;
-    try {
-      badge = await ctx.run<{ file: string }, BadgeGetMinimal | null>('badge.get', { file });
-    } catch {
-      badge = null;
-    }
-    if (badge?.orphan === true) continue; // known-deleted → never reaches the brief
-    // References / backlinks are now PLAIN PATHS (the edge note/anchors moved to
-    // canvas.yaml). Inline them as bare topology so the agent still reads both
-    // directions of the graph in one pass.
-    const refs = (badge?.references ?? []).filter((r) => r).map((to) => ({ to }));
-    const promptText =
-      badge?.description !== undefined && badge.description !== '' ? badge.description : undefined;
-    const inbound = (badge?.referenced_by ?? []).filter((f) => f).map((from) => ({ from }));
-    items.push({
-      file,
-      ...(promptText !== undefined && { prompt: promptText }),
-      ...(refs.length > 0 && { refs }),
-      ...(inbound.length > 0 && { inbound }),
-    });
+/** Build the per-node focus.yaml object, keeping only the fields that apply to
+ *  the node's kind and were actually provided (state is OPTIONAL this round). */
+function buildNode(args: FocusSetArgs): FocusNode {
+  if (args.kind === 'folder') {
+    return {
+      path: args.path,
+      kind: 'folder',
+      ...(args.viewport_center !== undefined && { viewport_center: args.viewport_center }),
+      ...(args.zoom !== undefined && { zoom: args.zoom }),
+    };
   }
-  return items;
+  return {
+    path: args.path,
+    kind: 'file',
+    ...(args.visible_lines !== undefined && { visible_lines: args.visible_lines }),
+    ...(args.cursor !== undefined && { cursor: args.cursor }),
+  };
 }
 
-/**
- * Assemble + write a brief through assembleItems (the liveness choke point) in one
- * step, so EVERY writer drops known-deleted (orphan) files identically and reports
- * the drop count for the heal note. Returns the LIVE active set actually written
- * (orphans removed) so callers echo the real result. The one place focus.md is
- * produced from a desired active list — there is no second assembly path.
- */
-async function writeBrief(
+/** Does the focused node still exist on disk (containment-guarded)? */
+async function nodeExists(
   ctx: Parameters<Handler>[1],
   root: string,
-  files: readonly string[],
-  intent: string | undefined,
-  source: FocusSource | undefined,
-): Promise<string[]> {
-  const items = await assembleItems(ctx, root, files);
-  // writeFocus clears any now-stale served receipt at the single write choke point.
-  await writeFocus(ctx.fs, root, items, intent, source, files.length - items.length);
-  return items.map((i) => i.file);
-}
-
-// Minimal shapes for the cross-module reads focus.set composes via ctx.run
-// (never imports another module's internals — keeps the dep arrow one-way).
-interface BadgeGetMinimal {
-  readonly description?: string;
-  readonly orphan?: boolean;
-  readonly references?: readonly string[];
-  readonly referenced_by?: readonly string[];
-}
-/**
- * Gather every supported FILE under a folder — the folder IS the grouping, so
- * its members are derived (no manual selection). Walks the FILESYSTEM (via
- * workspace.listSupportedFiles) so it sees every supported file on disk under
- * the folder — annotated or not — including nested descendants (matching what
- * the canvas shows). Already sorted for a deterministic brief.
- */
-async function filesUnderFolder(
-  ctx: Parameters<Handler>[1],
-  folder: string,
-): Promise<readonly string[]> {
-  const { files } = await ctx.run<{ folder: string }, { readonly files: readonly string[] }>(
-    'workspace.listSupportedFiles',
-    { folder },
-  );
-  return files;
-}
-
-/** Read a folder badge's description — the folder's agent-facing intent. */
-async function folderPrompt(
-  ctx: Parameters<Handler>[1],
-  folder: string,
-): Promise<string | undefined> {
-  const badge = await ctx.run<{ file: string; kind: 'folder' }, BadgeGetMinimal | null>(
-    'badge.get',
-    { file: folder, kind: 'folder' },
-  );
-  return badge?.description !== undefined && badge.description.trim() !== ''
-    ? badge.description
-    : undefined;
-}
-
-export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  let files: readonly string[];
-  let intent: string | undefined = args.intent;
-  let source: FocusSource | undefined;
-  if (args.folder !== undefined) {
-    // The folder IS the grouping: gather its supported files automatically and
-    // carry the folder badge's prompt as the intent — no hand-picked selection.
-    files = await filesUnderFolder(ctx, args.folder);
-    if (intent === undefined) intent = await folderPrompt(ctx, args.folder);
-    // Record provenance ONLY when the intent is folder-DERIVED (no manual
-    // override) — so a later prompt edit can refresh this brief by identity, but
-    // a hand-set intent override is never auto-clobbered. Recorded even when the
-    // folder's prompt is currently blank, so editing it later still refreshes.
-    if (args.intent === undefined) source = { kind: 'folder', id: args.folder };
-  } else {
-    files = args.files ?? [];
-  }
-
-  const active = await withFocusLock(root, () => writeBrief(ctx, root, files, intent, source));
-  return { active };
-};
-
-/**
- * Re-publish focus.md's `intent:` from a FOLDER whose badge prompt just changed.
- * ONLY fires when focus.md's
- * `# source-folder:` provenance is exactly this folder (so a folder-sourced
- * focus's brief stays live as you edit the folder prompt), atomically under the
- * focus lock. The active list is preserved verbatim — only the intent is
- * refreshed to the folder's new prompt, provenance re-stamped.
- */
-export const refreshFolderIntent: Handler<
-  FocusRefreshFolderIntentArgs,
-  FocusRefreshFolderIntentResult
-> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, source } = await readFocusBrief(ctx.fs, root);
-    if (source?.kind !== 'folder' || source.id !== args.folder) return { refreshed: false };
-    const newIntent = await folderPrompt(ctx, args.folder);
-    await writeBrief(ctx, root, active, newIntent, { kind: 'folder', id: args.folder });
-    return { refreshed: true };
-  });
-};
-
-/**
- * Remap a renamed file in the active list IN PLACE, preserving the intent AND
- * the `# source-folder:` provenance. badge.rename used to round-trip through the
- * public focus.get/focus.set shapes, which strip provenance — so after renaming
- * a focused file, editing the source folder's prompt stopped refreshing the
- * brief. This keeps the focus live-linked to its source folder across a rename.
- * Atomic under the focus lock; no-op when `from` isn't focused.
- */
-export const renameActiveFile: Handler<
-  FocusRenameActiveFileArgs,
-  FocusRenameActiveFileResult
-> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    if (!active.includes(args.from)) return { renamed: false };
-    // writeFocus asserts every active path (incl. the new `to`) before writing.
-    const next = active.map((f) => (f === args.from ? args.to : f));
-    await writeBrief(ctx, root, next, intent, source);
-    return { renamed: true };
-  });
-};
-
-/**
- * Pull a newly-appeared file into a FOLDER-sourced brief. A folder focus's
- * active list is derived once at focus.set({folder}); a file added later would
- * stay out of the brief — breaking "Focus this folder = read all its files" —
- * until a manual refocus. Re-derives the folder's files (so the new one joins)
- * ONLY when focus.md is folder-sourced and `file` is under that folder and not
- * already listed. Intent + provenance preserved. Atomic under the focus lock.
- */
-export const reconcileNewFile: Handler<
-  FocusReconcileNewFileArgs,
-  FocusReconcileNewFileResult
-> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    if (source?.kind !== 'folder') return { added: false };
-    const prefix = source.id.endsWith('/') ? source.id : `${source.id}/`;
-    if (!args.file.startsWith(prefix) || active.includes(args.file)) return { added: false };
-    const files = await filesUnderFolder(ctx, source.id);
-    await writeBrief(ctx, root, files, intent, source);
-    return { added: true };
-  });
-};
-
-/**
- * Remap a renamed FOLDER across the active brief: every active child path under
- * `from/` shifts to `to/`, and a `# source-folder:` provenance equal to `from`
- * re-stamps to `to`. Without this, renaming a focused folder leaves focus.md
- * pointing at the old name — so editing the (now-renamed) folder's prompt stops
- * refreshing the brief, and the active paths dangle at the vanished location.
- * Atomic under the focus lock; no-op when nothing references `from`.
- */
-export const renameActiveFolder: Handler<
-  FocusRenameActiveFolderArgs,
-  FocusRenameActiveFolderResult
-> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    const fromPrefix = args.from.endsWith('/') ? args.from : `${args.from}/`;
-    const toPrefix = args.to.endsWith('/') ? args.to : `${args.to}/`;
-    const nextActive = active.map((f) =>
-      f.startsWith(fromPrefix) ? toPrefix + f.slice(fromPrefix.length) : f,
-    );
-    const nextSource: FocusSource | undefined =
-      source?.kind === 'folder' && source.id === args.from
-        ? { kind: 'folder', id: args.to }
-        : source;
-    if (!nextActive.some((f, i) => f !== active[i]) && nextSource === source) {
-      return { renamed: false };
-    }
-    await writeBrief(ctx, root, nextActive, intent, nextSource);
-    return { renamed: true };
-  });
-};
-
-/**
- * Add (if absent) or remove (if present) one file from the active set,
- * PRESERVING the intent + `# source-folder:` provenance. Shift+click on the canvas
- * refines an existing focus set; routing that through focus.set({files}) would
- * drop both the curated `intent:` and the provenance — severing a folder-sourced
- * focus's refresh link and silently losing the turn intent. Atomic under the
- * focus lock; returns the new active set so the caller skips a re-read.
- */
-export const toggleActiveFile: Handler<
-  FocusToggleActiveFileArgs,
-  FocusToggleActiveFileResult
-> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    const toggled = active.includes(args.file)
-      ? active.filter((f) => f !== args.file)
-      : [...active, args.file];
-    const next = await writeBrief(ctx, root, toggled, intent, source); // preserve BOTH
-    return { active: next };
-  });
-};
-
-/**
- * Set (or clear) the turn intent — the user's question for this focus — WITHOUT
- * touching the active set or its per-file prompts/refs. The dominant ad-hoc flow
- * (click a few badges, then ask) had no way to author the most load-bearing line
- * of the brief; this is it. A manually-typed intent is the user's OWN, so it
- * CLEARS the `# source-folder:` provenance (the intent is no longer folder-derived
- * — editing that folder's prompt must not overwrite the user's question). An
- * empty/whitespace intent clears the line. Atomic under the focus lock; reads the
- * authoritative active set from focus.md (never trusts a caller-supplied list).
- */
-export const setIntent: Handler<FocusSetIntentArgs, FocusSetIntentResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent: currentIntent, source } = await readFocusBrief(ctx.fs, root);
-    // Focus changed underneath this edit (e.g. the editor was dismissed by a
-    // click that selected another file or cleared focus) — don't write the old
-    // question into the new focus; leave it untouched.
-    if (
-      args.expectedActive !== undefined &&
-      !(
-        args.expectedActive.length === active.length &&
-        args.expectedActive.every((f, i) => f === active[i])
-      )
-    ) {
-      return { intent: currentIntent ?? null, skipped: true };
-    }
-    const trimmed = args.intent?.trim();
-    const intent = trimmed ? trimmed : undefined;
-    // A manual NON-EMPTY intent is the user's own → drop the folder provenance so
-    // editing the folder prompt doesn't overwrite their question. But CLEARING the
-    // intent (empty) must PRESERVE provenance: a folder-sourced focus whose intent
-    // box is emptied should fall back to the folder prompt, not sever the link.
-    const nextSource = intent === undefined ? source : undefined;
-    await writeBrief(ctx, root, active, intent, nextSource);
-    return { intent: intent ?? null };
-  });
-};
-
-/**
- * Re-render focus.md from its CURRENT active list with FRESH badge data,
- * preserving the `intent:` line. This is the core reconcile the renderer used
- * to fake in `resyncFocusForFile`: an in-app / CLI / agent edit to a badge's
- * prompt or refs (`badge.set/addRef/removeRef`) doesn't touch focus.md, so the
- * agent would keep reading the OLD inlined brief until the user re-set focus.
- * Wiring badge edits to focus.resync keeps the brief fresh everywhere, not
- * just in the desktop. No-op (no write) unless `args.file` is in the active
- * list, so badge writes on unfocused files don't churn focus.md.
- */
-export const resync: Handler<FocusResyncArgs, FocusResyncResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  return withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    if (active.length === 0) return { resynced: false };
-    if (args.file !== undefined && !active.includes(args.file)) return { resynced: false };
-    // Re-render through writeBrief (the liveness choke point): a badge edit
-    // re-inlines fresh prompts/refs, AND any now-orphan file drops with a heal
-    // note — so resync self-heals an orphaned brief. This is exactly the watcher's
-    // markOrphan→resync cascade. Provenance + intent preserved so a folder-sourced
-    // focus keeps refreshing as its prompt changes.
-    await writeBrief(ctx, root, active, intent, source);
-    return { resynced: true };
-  });
-};
-
-/**
- * Is a workspace-relative file still a live FILE on disk? Routed through the
- * realpath containment guard so a planted symlink can't make a vanished file look
- * live. Requires isFile — a path replaced by a DIRECTORY (e.g. a branch checkout
- * while the app was closed) is no longer a focusable file and must be pruned. Any
- * error (PathEscape, stat failure) is treated as "gone" — fail toward pruning a
- * dangling item, never toward keeping one.
- */
-async function fileStillExists(
-  ctx: Parameters<Handler>[1],
-  root: string,
-  file: string,
+  node: FocusNode,
 ): Promise<boolean> {
   try {
-    const abs = await assertReadContained(ctx.fs, root, join(root, file));
+    const abs = await assertReadContained(ctx.fs, root, join(root, node.path));
     const st = await ctx.fs.stat(abs);
-    return st !== null && st.isFile === true;
+    if (st === null) return false;
+    return node.kind === 'folder' ? st.isDirectory === true : st.isFile === true;
   } catch {
     return false;
   }
 }
 
 /**
- * Re-validate the active list against disk and drop any file that no longer
- * exists (git checkout, external rm, a delete that happened while the watcher
- * wasn't running). The stat-based counterpart to the watcher-driven dropOrphan,
- * meant to run on re-entry (workspace open). Cheap when nothing dangles (one stat
- * per active file; focus sets are small). Intent + provenance preserved; a heal
- * note records the count. Atomic under the lock.
+ * Mirror the user's current viewport: write the node's focus.yaml and repoint
+ * `.bh/current_focus.yaml` at it. The single signal the agent reads to know what
+ * the user is looking at.
+ */
+export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
+  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
+    'workspace.current',
+    {},
+  );
+  if (current.current === null) {
+    throw new Error('No current workspace; call workspace.use first');
+  }
+  const node = buildNode(args);
+  // The desktop fires focus.set un-awaited; if the user switched workspaces while
+  // it was in flight (the root resolves late, here), SKIP rather than plant this
+  // workspace's relative path under the now-current one. Mirrors the watcher's
+  // eventRoot/stillCurrent guard. [[pr113-followup]] Report the node either way.
+  if (args.workspace !== undefined && current.current.name !== args.workspace) {
+    return node;
+  }
+  const root = current.current.path;
+  return withFocusLock(root, async () => {
+    await writeFocusNode(ctx.fs, root, node);
+    await repointCurrentFocus(ctx.fs, root, args.path);
+    return node;
+  });
+};
+
+/** Read the node `.bh/current_focus.yaml` points at (null when nothing focused). */
+export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  // Read UNDER the focus lock so a concurrent focus.set's non-atomic symlink
+  // retarget (unlink → symlink) is never observed mid-gap as a spurious "no focus".
+  return withFocusLock(root, () => readCurrentFocus(ctx.fs, root));
+};
+
+/** Drop the current focus (remove the symlink). The per-node focus.yaml files are
+ *  left as each node's last-known viewport. */
+export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const cleared = await withFocusLock(root, () => clearCurrentFocus(ctx.fs, root));
+  return { cleared };
+};
+
+/**
+ * Clear the current focus if it points at a node whose file/folder is gone on
+ * disk (a delete / external rm / git checkout). The viewport-mirror analog of the
+ * old brief's dangling-prune; called on workspace open + after deleteEntry.
  */
 export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingResult> = async (
   _args,
   ctx,
 ) => {
   const root = await currentWorkspaceRoot(ctx);
-  const missing = await withFocusLock(root, async () => {
-    const { active, intent, source } = await readFocusBrief(ctx.fs, root);
-    if (active.length === 0) return [] as string[];
-    const live: string[] = [];
-    for (const f of active) {
-      if (await fileStillExists(ctx, root, f)) live.push(f);
-    }
-    if (live.length === active.length) return [] as string[];
-    const items = await assembleItems(ctx, root, live);
-    await writeFocus(ctx.fs, root, items, intent, source, active.length - live.length);
-    return active.filter((f) => !live.includes(f));
-  });
-  // Mark each pruned file's badge orphan so its canvas card shows MISSING and can't
-  // be multi-selected back into a brief (assembleItems excludes orphan badges).
-  // OUTSIDE the focus lock: badge.markOrphan cascades to focus.resync, which takes
-  // the SAME lock — re-entering here would deadlock. The cascade no-ops now (the
-  // file is already out of focus.md), so this only repairs the badge graph.
-  for (const f of missing) {
-    try {
-      await ctx.run('badge.markOrphan', { file: f });
-    } catch {
-      /* best-effort: a missing badge / cascade hiccup must not fail the prune */
-    }
-  }
-  return { pruned: missing.length };
-};
-
-export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  // Strip the internal source provenance — focus.get's contract is the
-  // round-trippable active list + intent.
-  const { active, intent } = await readFocusBrief(ctx.fs, root);
-  // The brief-read receipt (when an agent last pulled focus.brief), so the chip
-  // can show "agent read your context Ns ago". A read, never a stamp.
-  const lastBriefServedAt = await readBriefServedAt(ctx.fs, root);
-  return {
-    active,
-    ...(intent !== undefined && { intent }),
-    ...(lastBriefServedAt !== undefined && { lastBriefServedAt }),
-  };
-};
-
-/**
- * Return `.bh/focus.md` verbatim — the exact turn brief the agent reads. This
- * is the same file `focus.get` parses, but `get` returns the round-trippable
- * state (active paths + intent) whereas `brief` returns the human-readable
- * Markdown the agent actually consumes, so the desktop can offer "copy what my
- * agent sees" for pasting into any chat. Read-only; empty string when absent.
- */
-export const brief: Handler<FocusBriefArgs, FocusBriefResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  // Lock the read+stamp TOGETHER: a concurrent focus.set/clear/prune must not slip
-  // between them — otherwise a writer clears the receipt after we re-stamp, leaving
-  // the NEW focus marked "served" while we returned the OLD brief. Serializing with
-  // every writer keeps the stamp tied to exactly the brief this call returns.
   return withFocusLock(root, async () => {
-    const raw = await readMaybeNoFollow(
-      ctx.fs,
-      await assertReadContained(ctx.fs, root, focusPath(root)),
-    );
-    // CONFIRM (serve-and-confirm): record a genuine agent PULL so the desktop can
-    // show "served Ns ago". `stamp:false` (the in-app preview's peek) reads WITHOUT
-    // stamping — a peek is not a delivery. Best-effort; honest: records a hand-off
-    // through the command interface, not comprehension (a raw focus.md file read is
-    // unobservable by design — D14).
-    if (args.stamp !== false) {
-      try {
-        await stampBriefServed(ctx.fs, root);
-      } catch {
-        /* best-effort: the served receipt is non-load-bearing */
-      }
-    }
-    const base = raw ?? '';
-    if (args.portable !== true) return { brief: base };
-    // Portable variant: append a capped excerpt of each focused file's content so
-    // a chat that can't open the user's disk gets the actual material, not just
-    // filenames + notes. Read via workspace.readFile (bounded), best-effort.
-    const excerpts = await assembleExcerpts(ctx, root);
-    return { brief: excerpts ? `${base.replace(/\n+$/, '')}\n\n${excerpts}\n` : base };
-  });
-};
-
-/** Max characters of each focused file inlined into the portable brief. */
-const PORTABLE_EXCERPT_CHARS = 2000;
-
-/**
- * Build the "file contents" section appended to the PORTABLE brief: each focused
- * file's content, capped, fenced. Reads the active list from focus.md and pulls
- * each file via workspace.readFile (bounded). Skips binary files and anything
- * unreadable. Returns '' when there's nothing to inline.
- */
-async function assembleExcerpts(ctx: Parameters<Handler>[1], root: string): Promise<string> {
-  const { active } = await readFocusBrief(ctx.fs, root);
-  if (active.length === 0) return '';
-  const blocks: string[] = [];
-  for (const file of active) {
-    try {
-      const res = await ctx.run<
-        { path: string; maxChars: number },
-        { content: string; truncated?: boolean; binary?: boolean }
-      >('workspace.readFile', { path: file, maxChars: PORTABLE_EXCERPT_CHARS });
-      if (res.binary === true) continue; // binary content is noise in a chat paste
-      const body = res.content.trimEnd();
-      if (body === '') continue;
-      const tail = res.truncated === true ? '\n… (truncated)' : '';
-      blocks.push(`### ${file}\n\`\`\`\n${body}${tail}\n\`\`\``);
-    } catch {
-      /* unreadable file — skip it rather than fail the whole brief */
-    }
-  }
-  if (blocks.length === 0) return '';
-  return `# file contents (excerpts for a chat that can't open your files)\n\n${blocks.join('\n\n')}`;
-}
-
-export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  await withFocusLock(root, () => writeFocus(ctx.fs, root, []));
-  return { cleared: true };
-};
-
-/**
- * Seed `.bh/focus.md` with the empty template if it doesn't exist yet.
- * Idempotent — re-running on a workspace with a populated focus.md is a
- * no-op so user state is never clobbered. Called by workspace.add/use so
- * the agent contract surface always exists; without it an agent following
- * the CLAUDE.md hint and reading focus.md on a brand-new workspace gets
- * ENOENT before any UI click ever happens.
- */
-export const init: Handler<FocusInitArgs, FocusInitResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
-  // Check-then-write UNDER the lock (like inbound.init): a concurrent focus
-  // writer — e.g. a watcher-buffered reconcile landing during workspace
-  // bootstrap — that populates focus.md between the read and the write would
-  // otherwise be clobbered by this empty template. focus.init was the one focus
-  // writer outside the lock.
-  return withFocusLock(root, async () => {
-    const existing = await readMaybeNoFollow(
-      ctx.fs,
-      await assertReadContained(ctx.fs, root, focusPath(root)),
-    );
-    if (existing !== null) return { created: false };
-    await writeFocus(ctx.fs, root, []);
-    return { created: true };
+    const node = await readCurrentFocus(ctx.fs, root);
+    if (node === null) return { cleared: false };
+    if (await nodeExists(ctx, root, node)) return { cleared: false };
+    const cleared = await clearCurrentFocus(ctx.fs, root);
+    return { cleared };
   });
 };
 
@@ -567,16 +141,7 @@ export function commands(): ReadonlyArray<
   return [
     ['focus.set', set as unknown as Handler<never, unknown>],
     ['focus.get', get as unknown as Handler<never, unknown>],
-    ['focus.brief', brief as unknown as Handler<never, unknown>],
-    ['focus.refreshFolderIntent', refreshFolderIntent as unknown as Handler<never, unknown>],
-    ['focus.renameActiveFile', renameActiveFile as unknown as Handler<never, unknown>],
-    ['focus.renameActiveFolder', renameActiveFolder as unknown as Handler<never, unknown>],
-    ['focus.reconcileNewFile', reconcileNewFile as unknown as Handler<never, unknown>],
-    ['focus.toggleActiveFile', toggleActiveFile as unknown as Handler<never, unknown>],
-    ['focus.setIntent', setIntent as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
-    ['focus.resync', resync as unknown as Handler<never, unknown>],
     ['focus.pruneDangling', pruneDangling as unknown as Handler<never, unknown>],
-    ['focus.init', init as unknown as Handler<never, unknown>],
   ];
 }

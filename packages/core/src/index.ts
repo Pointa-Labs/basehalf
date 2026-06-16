@@ -73,6 +73,7 @@ export { BadgeCorrupt } from './modules/badges/types.js';
 export type * from './modules/canvas/types.js';
 export { CanvasCorrupt, CANVAS_ANCHORS } from './modules/canvas/types.js';
 export type * from './modules/focus/types.js';
+export { FocusCorrupt } from './modules/focus/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';
 export { _resetWatcherForTests, watcherEvents } from './modules/watcher/index.js';

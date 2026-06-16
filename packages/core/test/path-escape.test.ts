@@ -38,7 +38,8 @@ async function setup(): Promise<void> {
   const cfg = join(base, 'cfg');
   await mkdir(cfg, { recursive: true });
   core = createCore({ configDir: cfg });
-  // Registers ws as current + materializes (empty) + seeds focus.md + inbound.json.
+  // Registers ws as current. Focus needs no seeding now: current_focus is a
+  // symlink that's simply absent until the first node is focused.
   await core.run('workspace.add', { path: ws, name: 'ws' });
 }
 
@@ -141,15 +142,36 @@ describe('badges store', () => {
 });
 
 describe('focus store', () => {
-  it('refuses read AND write through a symlinked .bh/focus.md, never clobbering the target', async () => {
-    await rm(join(ws, '.bh/focus.md'));
-    await writeFile(join(outside, 'ftarget.md'), 'EXTERNAL FOCUS DATA');
-    await symlink(join(outside, 'ftarget.md'), join(ws, '.bh/focus.md'));
-    await expect(core.run('focus.set', { files: ['a.md'] })).rejects.toThrow(
-      /outside the workspace/,
-    );
-    expect(await readFile(join(outside, 'ftarget.md'), 'utf8')).toBe('EXTERNAL FOCUS DATA');
-    await expect(core.run('focus.get', {})).rejects.toThrow(/outside the workspace/);
+  it('focus.get REFUSES a current_focus symlink repointed OUTSIDE the workspace (returns null, no leak)', async () => {
+    // Focus is now a viewport mirror: `.bh/current_focus.yaml` is a symlink to
+    // the active node's `.bh/mirror/<path>/focus.yaml`. A hostile agent could
+    // repoint that symlink anywhere; focus.get readlinks the RAW target, resolves
+    // it against `.bh/`, realpath-canonicalizes + containment-checks BEFORE
+    // reading a byte, and returns null on escape — it must never read/leak the
+    // outside file's contents.
+    await writeFile(join(outside, 'ftarget.yaml'), 'path: ../../../secret\nkind: file\n');
+    await mkdir(join(ws, '.bh'), { recursive: true });
+    await symlink(join(outside, 'ftarget.yaml'), join(ws, '.bh/current_focus.yaml'));
+    await expect(core.run('focus.get', {})).resolves.toBeNull();
+  });
+
+  it('focus.get refuses a current_focus symlink whose RELATIVE target escapes via ..', async () => {
+    // A relative target (resolved against `.bh/`) that climbs out with `..` is the
+    // same escape by another route — also null, never followed.
+    await writeFile(join(outside, 'leak.yaml'), 'path: x\nkind: file\n');
+    await mkdir(join(ws, '.bh'), { recursive: true });
+    await symlink('../../outside/leak.yaml', join(ws, '.bh/current_focus.yaml'));
+    await expect(core.run('focus.get', {})).resolves.toBeNull();
+  });
+
+  it('focus.set then focus.get round-trips a legitimate in-workspace node (no false rejection)', async () => {
+    await writeFile(join(ws, 'a.md'), '# A\n');
+    const set = (await core.run('focus.set', { path: 'a.md', kind: 'file' })) as {
+      path: string;
+      kind: string;
+    };
+    expect(set).toEqual({ path: 'a.md', kind: 'file' });
+    await expect(core.run('focus.get', {})).resolves.toEqual({ path: 'a.md', kind: 'file' });
   });
 });
 

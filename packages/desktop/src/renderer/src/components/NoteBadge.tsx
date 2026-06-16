@@ -5,7 +5,6 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import {
   AddRefButton,
   BadgePrompt,
-  ContextPill,
   ErrorNote,
   InboundRow,
   InboundToggle,
@@ -37,16 +36,15 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const [inboundOpen, setInboundOpen] = useState(false);
 
-  const hasContent = fb.prompt.trim() !== '' || fb.refs.length > 0 || fb.isFocused;
+  const hasContent = fb.prompt.trim() !== '' || fb.refs.length > 0;
 
   const summary = useMemo(() => {
     const parts: string[] = [];
     const p = fb.prompt.trim();
     if (p) parts.push(p.length > 26 ? `${p.slice(0, 26)}…` : p);
     if (fb.refs.length > 0) parts.push(`${fb.refs.length} 引用`);
-    if (fb.isFocused) parts.push('已加入');
     return parts.join(' · ');
-  }, [fb.prompt, fb.refs.length, fb.isFocused]);
+  }, [fb.prompt, fb.refs.length]);
 
   return (
     <div style={{ marginBottom: space[6], fontFamily: font.sans }}>
@@ -140,13 +138,6 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: space[1] }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: space[3] }}>
-              <ContextPill
-                active={fb.isFocused}
-                onToggle={() => void fb.toggleFocus()}
-                activeLabel="已加入上下文"
-                addLabel="加入上下文"
-                testId="note-badge-focus-toggle"
-              />
               {fb.inbound.length > 0 && (
                 <span style={{ marginLeft: 'auto' }}>
                   <InboundToggle

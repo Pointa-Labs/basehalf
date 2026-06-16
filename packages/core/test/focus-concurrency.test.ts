@@ -3,17 +3,21 @@ import { createCore } from '../src/index.js';
 import type { FsLike } from '../src/index.js';
 
 // fs mock that yields a macrotask inside every op (mimicking real disk I/O
-// scheduling) so concurrent unawaited operations interleave between read and
-// write — what makes a lost-update race deterministically observable. No
-// realpath/lstat/*NoFollow, so the focus store's containment guards degrade to
-// the lexical path (correct: no symlinks here) and still hit readFile/writeFile
-// where the yield lives. Mirrors inbound-concurrency.test.ts.
-function yieldingFs(hooks?: {
-  onReadFile?: (path: string, content: string | null) => Promise<string | null> | string | null;
-  onWriteFile?: (path: string, content: string) => Promise<void> | void;
-}): { fs: FsLike; files: Map<string, string>; dirs: Set<string> } {
+// scheduling) so concurrent unawaited operations interleave between the symlink
+// unlink and re-create — the window where a torn current_focus would be
+// observable. It models a minimal symlink table (links) so focus.set's
+// unlink-then-symlink retarget and focus.get's readlink-resolve run end to end.
+// No realpath/lstat/*NoFollow, so the focus store's containment guards degrade to
+// the lexical path (correct: no symlinks-to-outside here).
+function yieldingFs(): {
+  fs: FsLike;
+  files: Map<string, string>;
+  links: Map<string, string>;
+  dirs: Set<string>;
+} {
   const files = new Map<string, string>();
   const dirs = new Set<string>();
+  const links = new Map<string, string>();
   const tick = () => new Promise<void>((r) => setTimeout(r, 0));
   function addAncestors(path: string): void {
     let parent = path;
@@ -25,14 +29,12 @@ function yieldingFs(hooks?: {
   const fs: FsLike = {
     async readFile(path) {
       await tick();
-      const content = files.has(path) ? (files.get(path) as string) : null;
-      return hooks?.onReadFile ? hooks.onReadFile(path, content) : content;
+      return files.has(path) ? (files.get(path) as string) : null;
     },
     async writeFile(path, content) {
       await tick();
       files.set(path, content);
       addAncestors(path);
-      await hooks?.onWriteFile?.(path, content);
     },
     async mkdir(path, opts) {
       await tick();
@@ -70,107 +72,88 @@ function yieldingFs(hooks?: {
     },
     async unlink(path) {
       await tick();
-      files.delete(path);
+      const removed = files.delete(path) || links.delete(path);
+      if (!removed) throw Object.assign(new Error(`ENOENT ${path}`), { code: 'ENOENT' });
+    },
+    async symlink(target, path) {
+      await tick();
+      if (files.has(path) || links.has(path)) {
+        throw Object.assign(new Error(`EEXIST ${path}`), { code: 'EEXIST' });
+      }
+      links.set(path, target);
+      addAncestors(path);
+    },
+    async readlink(path) {
+      await tick();
+      return links.has(path) ? (links.get(path) as string) : null;
     },
   };
-  return { fs, files, dirs };
+  return { fs, files, links, dirs };
 }
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-// Regression for the focus.md lost-update race: focus.resync is a
-// read-modify-write on the single .bh/focus.md (read the active list, re-inline
-// fresh badge data, write back). Racing a focus.set, resync's STALE read of the
-// old active list would write it back and clobber the set's newer list —
-// silently dropping a file from the agent-contract surface. focus/commands.ts
-// serializes all focus.md writes (set/clear/resync) per workspace root with a
-// focus-file mutex; this proves the final state is deterministic.
-describe('focus.md lost-update race', () => {
-  it('concurrent focus.set + focus.resync: resync must not clobber the newer set', async () => {
-    const { fs, dirs } = yieldingFs();
+// Regression for a TORN current_focus symlink. focus.set is a two-step retarget
+// (unlink the old symlink, then create the new one) plus the node focus.yaml
+// write — all under the per-workspace-root focus mutex. Without the mutex, two
+// racing sets could interleave their unlink/symlink steps: one set's symlink
+// creation could EEXIST against the other's, or a concurrent get could land in
+// the gap and see no symlink. The mutex makes the outcome deterministic:
+// last-writer-wins, and get always returns exactly one valid node.
+describe('current_focus torn-symlink race', () => {
+  it('two concurrent focus.set: last writer wins, no tear, no EEXIST', async () => {
+    const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
-    await core.run('focus.set', { files: ['a.md'] }); // seed: active = [a.md]
-    // Fire concurrently WITHOUT awaiting the first — the race window. The set
-    // widens the active list to [a.md, b.md]; the resync re-renders whatever
-    // active list it reads. Without the mutex, resync can read the stale [a.md]
-    // and write it back over the set's [a.md, b.md].
-    const setP = core.run('focus.set', { files: ['a.md', 'b.md'] });
-    const resyncP = core.run('focus.resync', {});
-    await Promise.all([setP, resyncP]);
+    // Fire both WITHOUT awaiting the first — the interleave window. Serialized by
+    // the focus mutex, neither tears the symlink nor throws EEXIST.
+    const aP = core.run('focus.set', { path: 'a.md', kind: 'file' });
+    const bP = core.run('focus.set', { path: 'b.md', kind: 'file' });
+    await expect(Promise.all([aP, bP])).resolves.toBeDefined();
 
-    const got = (await core.run('focus.get', {})) as { active: string[] };
-    expect(got.active).toEqual(['a.md', 'b.md']);
+    // Exactly one symlink exists and it resolves to a valid node.
+    expect(links.size).toBe(1);
+    const got = (await core.run('focus.get', {})) as { path: string; kind: string };
+    expect(['a.md', 'b.md']).toContain(got.path);
+    expect(got.kind).toBe('file');
+    // The winning symlink points at the node get returned (no mismatch / tear).
+    expect(links.get('/work/.bh/current_focus.yaml')).toBe(`mirror/${got.path}/focus.yaml`);
   });
 
-  it('concurrent badge.addRef (auto-resync) + focus.set keep the wider active list', async () => {
-    const { fs, dirs } = yieldingFs();
+  it('focus.set racing focus.clear: get is either the set node or null, never torn', async () => {
+    const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
-    await core.run('focus.set', { files: ['a.md'] });
-    // badge.addRef on the active a.md cascades into focus.resync; race it with
-    // a focus.set that widens the list. The full UI path (badge edit + focus
-    // change at once) must not lose b.md.
-    const editP = core.run('badge.addRef', { file: 'a.md', to: 'dep.md' });
-    const setP = core.run('focus.set', { files: ['a.md', 'b.md'] });
-    await Promise.all([editP, setP]);
+    await core.run('focus.set', { path: 'seed.md', kind: 'file' });
+    // Race a retarget against a clear. The mutex serializes them; the final state
+    // is one of the two deterministic outcomes, never a half-applied symlink.
+    const setP = core.run('focus.set', { path: 'next.md', kind: 'file' });
+    const clearP = core.run('focus.clear', {});
+    await Promise.all([setP, clearP]);
 
-    const got = (await core.run('focus.get', {})) as { active: string[] };
-    expect(got.active).toEqual(['a.md', 'b.md']);
+    const got = (await core.run('focus.get', {})) as { path: string } | null;
+    if (got === null) {
+      expect(links.has('/work/.bh/current_focus.yaml')).toBe(false);
+    } else {
+      expect(got.path).toBe('next.md');
+      expect(links.get('/work/.bh/current_focus.yaml')).toBe('mirror/next.md/focus.yaml');
+    }
   });
 
-  it('concurrent badge edit + focus.set keep the fresh inlined prompt', async () => {
-    const oldBadgeReadStarted = deferred();
-    const releaseOldBadgeRead = deferred();
-    const freshFocusWritten = deferred();
-    let blockNextBadgeRead = false;
-    const { fs, files, dirs } = yieldingFs({
-      async onReadFile(path, content) {
-        if (blockNextBadgeRead && path === '/work/.bh/mirror/a.md/badge.yaml') {
-          blockNextBadgeRead = false;
-          oldBadgeReadStarted.resolve();
-          await releaseOldBadgeRead.promise;
-        }
-        return content;
-      },
-      onWriteFile(path, content) {
-        if (path === '/work/.bh/focus.md' && content.includes('prompt: FRESH prompt')) {
-          freshFocusWritten.resolve();
-        }
-      },
-    });
+  it('many concurrent focus.set settle to a single intact symlink', async () => {
+    const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
-    await core.run('badge.set', { file: 'a.md', patch: { description: 'OLD prompt' } });
-    await core.run('focus.set', { files: ['a.md'] });
+    const paths = ['p0.md', 'p1.md', 'p2.md', 'p3.md', 'p4.md', 'p5.md'];
+    await Promise.all(paths.map((p) => core.run('focus.set', { path: p, kind: 'file' })));
 
-    blockNextBadgeRead = true;
-    const setP = core.run('focus.set', { files: ['a.md'] });
-    await oldBadgeReadStarted.promise;
-
-    const editP = core.run('badge.set', { file: 'a.md', patch: { description: 'FRESH prompt' } });
-    await Promise.race([freshFocusWritten.promise, sleep(50)]);
-    releaseOldBadgeRead.resolve();
-    await Promise.all([setP, editP]);
-
-    const md = files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('prompt: FRESH prompt');
-    expect(md).not.toContain('prompt: OLD prompt');
+    expect(links.size).toBe(1);
+    const got = (await core.run('focus.get', {})) as { path: string };
+    expect(paths).toContain(got.path);
+    expect(links.get('/work/.bh/current_focus.yaml')).toBe(`mirror/${got.path}/focus.yaml`);
   });
 });

@@ -370,10 +370,9 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
  * annotation. Tolerant of a module not being registered (tests can wire only
  * the workspace module; production createCore always has all five).
  *
- * Why focus.init lives here: an agent following the CLAUDE.md hint and reading
- * .bh/focus.md on a brand-new workspace used to get ENOENT before any UI click
- * ever happened. Seeding the empty template on every open means the contract
- * surface always exists.
+ * Focus needs no seeding: `.bh/current_focus.yaml` is simply absent until the
+ * first node is focused, and `focus.get` returns null for an absent symlink — no
+ * ENOENT contract surface to pre-create.
  */
 async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<void> {
   // If the workspace folder vanished between add/use (e.g. user moved it in
@@ -385,18 +384,14 @@ async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<
   if (!rootStat) return;
 
   try {
-    await ctx.run('focus.init', {});
-    // Re-entry liveness: prune any active file that vanished while we weren't
-    // watching (git checkout, external rm, a delete with the app closed). The
-    // watcher-driven dropOrphan handles LIVE deletes; this is the on-open
-    // stat-based catch-up so a stale focus.md self-heals instead of pointing the
-    // agent at deleted files. Badges are a sparse overlay (no open-time
-    // materialization), so only truly-gone paths are pruned here.
+    // Re-entry liveness: if the current focus points at a node whose file/folder
+    // vanished while we weren't watching (git checkout, external rm, a delete with
+    // the app closed), clear the dangling current_focus symlink.
     await ctx.run('focus.pruneDangling', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;
-    // A planted symlink at .bh/focus.md escapes — skip seeding rather than
-    // abort the whole workspace open (the hostile surface is neutralized).
+    // A planted symlink at .bh/current_focus.yaml escapes — skip rather than abort
+    // the whole workspace open (the hostile surface is neutralized).
     if (err instanceof Error && err.name === 'PathEscape') return;
     throw err;
   }

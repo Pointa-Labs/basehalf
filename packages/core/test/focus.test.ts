@@ -1,22 +1,45 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { createCore } from '../src/index.js';
-import { parseFocus, parseIntent, renderFocus } from '../src/modules/focus/store.js';
 import { mockFs } from './helpers/mock-fs.js';
+
+/**
+ * Focus is a VIEWPORT MIRROR now (was a curated `.bh/focus.md` brief). Each
+ * node owns `.bh/mirror/<path>/focus.yaml` (root folder → `.bh/mirror/focus.yaml`)
+ * and `.bh/current_focus.yaml` is a RELATIVE SYMLINK to the active node's file.
+ *
+ *   focus.set({ path, kind, ...viewport state }) → writes the node focus.yaml AND
+ *                                                   repoints current_focus at it
+ *   focus.get()          → reads current_focus SECURELY (null when absent/escaping/dangling)
+ *   focus.clear()        → removes the symlink
+ *   focus.pruneDangling()→ clears the symlink iff the focused node's file/folder is gone
+ *
+ * Functional cases run against the in-memory mock (which now models symlinks);
+ * the symlink-ESCAPE security case needs a real fs + real symlink (path-escape.test.ts).
+ */
 
 interface TestContext {
   files: Map<string, string>;
+  links: Map<string, string>;
   dirs: Set<string>;
   // biome-ignore lint/suspicious/noExplicitAny: cross-test core handle
   core: any;
 }
 
 async function seed(): Promise<TestContext> {
-  const { fs, files, dirs } = mockFs();
+  const { fs, files, links, dirs } = mockFs();
   dirs.add('/work');
   const core = createCore({ fs, configDir: '/cfg' });
   await core.run('workspace.add', { path: '/work', name: 'w' });
-  return { files, dirs, core };
+  return { files, links, dirs, core };
 }
+
+const LINK = '/work/.bh/current_focus.yaml';
+const mirrorFocus = (rel: string): string =>
+  rel === '' ? '/work/.bh/mirror/focus.yaml' : `/work/.bh/mirror/${rel}/focus.yaml`;
 
 describe('focus.set', () => {
   let ctx: TestContext;
@@ -24,23 +47,88 @@ describe('focus.set', () => {
     ctx = await seed();
   });
 
-  it('writes an explicit file list', async () => {
-    const result = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    expect(result.active).toEqual(['a.md', 'b.md']);
-    const written = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(written).toContain('- a.md');
-    expect(written).toContain('- b.md');
+  it('writes a FILE node focus.yaml and points current_focus at it', async () => {
+    const result = await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    expect(result).toEqual({ path: 'a.md', kind: 'file' });
+    // The node's focus.yaml carries path + kind.
+    const yaml = parse(ctx.files.get(mirrorFocus('a.md')) ?? '');
+    expect(yaml).toEqual({ path: 'a.md', kind: 'file' });
+    // current_focus is a RELATIVE symlink resolved against `.bh/`.
+    expect(ctx.links.get(LINK)).toBe('mirror/a.md/focus.yaml');
   });
 
-  it('writes (none) marker for empty file list', async () => {
-    await ctx.core.run('focus.set', { files: [] });
-    const written = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(written).toContain('(none)');
+  it('writes a FOLDER node focus.yaml (root folder → mirror/focus.yaml)', async () => {
+    const result = await ctx.core.run('focus.set', { path: '', kind: 'folder' });
+    expect(result).toEqual({ path: '', kind: 'folder' });
+    const yaml = parse(ctx.files.get(mirrorFocus('')) ?? '');
+    expect(yaml).toEqual({ path: '', kind: 'folder' });
+    expect(ctx.links.get(LINK)).toBe('mirror/focus.yaml');
   });
 
-  it('omitting both files and folder is treated as clear (active=[])', async () => {
-    const result = await ctx.core.run('focus.set', {});
-    expect(result.active).toEqual([]);
+  it('persists OPTIONAL file viewport state (visible_lines + cursor) when provided', async () => {
+    await ctx.core.run('focus.set', {
+      path: 'docs/ch1.md',
+      kind: 'file',
+      visible_lines: { start: 12 },
+      cursor: { line: 28, column: 6 },
+    });
+    const yaml = parse(ctx.files.get(mirrorFocus('docs/ch1.md')) ?? '');
+    expect(yaml).toEqual({
+      path: 'docs/ch1.md',
+      kind: 'file',
+      visible_lines: { start: 12 },
+      cursor: { line: 28, column: 6 },
+    });
+  });
+
+  it('persists OPTIONAL folder viewport state (viewport_center + zoom) when provided', async () => {
+    await ctx.core.run('focus.set', {
+      path: 'docs',
+      kind: 'folder',
+      viewport_center: { x: 800, y: 420 },
+      zoom: 1.2,
+    });
+    const yaml = parse(ctx.files.get(mirrorFocus('docs')) ?? '');
+    expect(yaml).toEqual({
+      path: 'docs',
+      kind: 'folder',
+      viewport_center: { x: 800, y: 420 },
+      zoom: 1.2,
+    });
+  });
+
+  it('drops folder fields on a FILE node and vice-versa (kind decides the shape)', async () => {
+    // Pass a folder field to a file node: it is ignored.
+    await ctx.core.run('focus.set', {
+      path: 'a.md',
+      kind: 'file',
+      viewport_center: { x: 1, y: 2 },
+      zoom: 3,
+      cursor: { line: 5, column: 0 },
+    });
+    expect(parse(ctx.files.get(mirrorFocus('a.md')) ?? '')).toEqual({
+      path: 'a.md',
+      kind: 'file',
+      cursor: { line: 5, column: 0 },
+    });
+    // Pass a file field to a folder node: it is ignored.
+    await ctx.core.run('focus.set', {
+      path: 'docs',
+      kind: 'folder',
+      cursor: { line: 9, column: 9 },
+      visible_lines: { start: 4 },
+      zoom: 2,
+    });
+    expect(parse(ctx.files.get(mirrorFocus('docs')) ?? '')).toEqual({
+      path: 'docs',
+      kind: 'folder',
+      zoom: 2,
+    });
+  });
+
+  it('a state-less node-switch writes just { path, kind }', async () => {
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    expect(parse(ctx.files.get(mirrorFocus('a.md')) ?? '')).toEqual({ path: 'a.md', kind: 'file' });
   });
 });
 
@@ -50,32 +138,77 @@ describe('focus.get', () => {
     ctx = await seed();
   });
 
-  it('returns empty for a freshly-seeded workspace (active: (none))', async () => {
-    // seed() runs workspace.add → materializeWithFallback → focus.init,
-    // so focus.md exists with the empty template (`active:\n  (none)`).
-    // focus.get parses that to an empty active list.
-    const result = await ctx.core.run('focus.get', {});
-    expect(result.active).toEqual([]);
+  it('returns null on a freshly-opened workspace (no current_focus symlink yet)', async () => {
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
   });
 
-  it('returns empty when focus.md is missing on disk (tolerant read)', async () => {
-    // Cover the path where the file was deleted externally between seed
-    // and get — the handler must still return empty without throwing.
-    ctx.files.delete('/work/.bh/focus.md');
-    const result = await ctx.core.run('focus.get', {});
-    expect(result.active).toEqual([]);
+  it('round-trips a FILE node set via focus.set', async () => {
+    await ctx.core.run('focus.set', {
+      path: 'x.md',
+      kind: 'file',
+      visible_lines: { start: 3 },
+    });
+    expect(await ctx.core.run('focus.get', {})).toEqual({
+      path: 'x.md',
+      kind: 'file',
+      visible_lines: { start: 3 },
+    });
   });
 
-  it('round-trips a list set via focus.set', async () => {
-    await ctx.core.run('focus.set', { files: ['x.md', 'y.md'] });
-    const result = await ctx.core.run('focus.get', {});
-    expect(result.active).toEqual(['x.md', 'y.md']);
+  it('round-trips a FOLDER node set via focus.set', async () => {
+    await ctx.core.run('focus.set', { path: 'docs', kind: 'folder', zoom: 1.5 });
+    expect(await ctx.core.run('focus.get', {})).toEqual({
+      path: 'docs',
+      kind: 'folder',
+      zoom: 1.5,
+    });
   });
 
-  it('parses paths with spaces and CJK characters', async () => {
-    await ctx.core.run('focus.set', { files: ['供需弹性.md', 'note with space.md'] });
-    const result = await ctx.core.run('focus.get', {});
-    expect(result.active).toEqual(['供需弹性.md', 'note with space.md']);
+  it('round-trips paths with spaces and CJK characters', async () => {
+    await ctx.core.run('focus.set', { path: '供需弹性.md', kind: 'file' });
+    expect(await ctx.core.run('focus.get', {})).toEqual({ path: '供需弹性.md', kind: 'file' });
+    await ctx.core.run('focus.set', { path: 'note with space.md', kind: 'file' });
+    expect(await ctx.core.run('focus.get', {})).toEqual({
+      path: 'note with space.md',
+      kind: 'file',
+    });
+  });
+
+  it('returns null when the symlink target focus.yaml is DANGLING (deleted externally)', async () => {
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    // Delete the node's focus.yaml out from under the still-present symlink.
+    ctx.files.delete(mirrorFocus('a.md'));
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
+  });
+
+  it('returns null when current_focus is a regular FILE, not a symlink', async () => {
+    // readlink returns null for a non-symlink; focus.get treats that as "no focus".
+    ctx.files.set(LINK, 'path: a.md\nkind: file\n');
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
+  });
+});
+
+describe('switching nodes repoints current_focus', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('a second focus.set retargets the symlink (last node wins)', async () => {
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    expect(ctx.links.get(LINK)).toBe('mirror/a.md/focus.yaml');
+    await ctx.core.run('focus.set', { path: 'b.md', kind: 'file' });
+    expect(ctx.links.get(LINK)).toBe('mirror/b.md/focus.yaml');
+    expect(await ctx.core.run('focus.get', {})).toEqual({ path: 'b.md', kind: 'file' });
+    // The first node's focus.yaml is left behind as its last-known viewport.
+    expect(ctx.files.has(mirrorFocus('a.md'))).toBe(true);
+  });
+
+  it('switching from a folder to a file node retargets cleanly', async () => {
+    await ctx.core.run('focus.set', { path: 'docs', kind: 'folder' });
+    expect(await ctx.core.run('focus.get', {})).toEqual({ path: 'docs', kind: 'folder' });
+    await ctx.core.run('focus.set', { path: 'docs/a.md', kind: 'file' });
+    expect(await ctx.core.run('focus.get', {})).toEqual({ path: 'docs/a.md', kind: 'file' });
   });
 });
 
@@ -85,691 +218,159 @@ describe('focus.clear', () => {
     ctx = await seed();
   });
 
-  it('writes the (none) marker and a subsequent get returns empty', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const cleared = await ctx.core.run('focus.clear', {});
+  it('removes the symlink and a subsequent get returns null', async () => {
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    const cleared = (await ctx.core.run('focus.clear', {})) as { cleared: boolean };
     expect(cleared.cleared).toBe(true);
-    const result = await ctx.core.run('focus.get', {});
-    expect(result.active).toEqual([]);
+    expect(ctx.links.has(LINK)).toBe(false);
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
+    // The node's focus.yaml is left as its last-known viewport, not deleted.
+    expect(ctx.files.has(mirrorFocus('a.md'))).toBe(true);
+  });
+
+  it('reports cleared:false when there was no current focus', async () => {
+    const cleared = (await ctx.core.run('focus.clear', {})) as { cleared: boolean };
+    expect(cleared.cleared).toBe(false);
   });
 });
 
-describe('focus.init (seed contract surface)', () => {
+describe('focus.pruneDangling', () => {
   let ctx: TestContext;
   beforeEach(async () => {
     ctx = await seed();
   });
 
-  it('writes the empty template when focus.md does not yet exist', async () => {
-    // seed() runs workspace.add → materializeWithFallback → focus.init,
-    // so focus.md should already be on disk after seeding.
-    const file = ctx.files.get('/work/.bh/focus.md');
-    expect(file).toBeDefined();
-    expect(file).toMatch(/^# bh focus/);
-    expect(file).toMatch(/active:\s*\n\s*\(none\)/);
+  it('clears the symlink when the focused FILE is gone on disk', async () => {
+    await ctx.core.run('workspace.writeFile', { path: 'a.md', content: 'hi' });
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    // Delete the user file; the focus now points at a node that no longer exists.
+    ctx.files.delete('/work/a.md');
+    const pruned = (await ctx.core.run('focus.pruneDangling', {})) as { cleared: boolean };
+    expect(pruned.cleared).toBe(true);
+    expect(ctx.links.has(LINK)).toBe(false);
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
   });
 
-  it('is a no-op when focus.md already has content (idempotent — user state preserved)', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    const before = ctx.files.get('/work/.bh/focus.md');
-    const result = await ctx.core.run('focus.init', {});
-    expect(result.created).toBe(false);
-    const after = ctx.files.get('/work/.bh/focus.md');
-    expect(after).toBe(before);
+  it('clears the symlink when the focused FOLDER is gone on disk', async () => {
+    ctx.dirs.add('/work/docs');
+    await ctx.core.run('focus.set', { path: 'docs', kind: 'folder' });
+    ctx.dirs.delete('/work/docs');
+    const pruned = (await ctx.core.run('focus.pruneDangling', {})) as { cleared: boolean };
+    expect(pruned.cleared).toBe(true);
+    expect(await ctx.core.run('focus.get', {})).toBeNull();
   });
 
-  it('rewrites the template when focus.md is missing on a re-call (e.g. user deleted it)', async () => {
-    ctx.files.delete('/work/.bh/focus.md');
-    const result = await ctx.core.run('focus.init', {});
-    expect(result.created).toBe(true);
-    const after = ctx.files.get('/work/.bh/focus.md');
-    expect(after).toBeDefined();
-    expect(after).toMatch(/active:/);
-  });
-});
-
-describe('parseFocus / renderFocus (pure helpers)', () => {
-  it('roundtrips an empty list', () => {
-    const rendered = renderFocus([]);
-    expect(parseFocus(rendered)).toEqual([]);
+  it('leaves the symlink when the focused node still exists', async () => {
+    await ctx.core.run('workspace.writeFile', { path: 'a.md', content: 'hi' });
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    const pruned = (await ctx.core.run('focus.pruneDangling', {})) as { cleared: boolean };
+    expect(pruned.cleared).toBe(false);
+    expect(await ctx.core.run('focus.get', {})).toEqual({ path: 'a.md', kind: 'file' });
   });
 
-  it('roundtrips a populated list', () => {
-    const rendered = renderFocus(['a.md', 'b.md']);
-    expect(parseFocus(rendered)).toEqual(['a.md', 'b.md']);
+  it('does NOT confuse kinds: a file focus whose path is a DIRECTORY on disk prunes', async () => {
+    // node.kind is file but the path resolves to a directory → not the same node → prune.
+    ctx.dirs.add('/work/a');
+    await ctx.core.run('focus.set', { path: 'a', kind: 'file' });
+    const pruned = (await ctx.core.run('focus.pruneDangling', {})) as { cleared: boolean };
+    expect(pruned.cleared).toBe(true);
   });
 
-  it('ignores non-list lines under active:', () => {
-    const md = '# bh focus\n\nactive:\n  - real.md\nsome footer\n  - too-late.md\n';
-    expect(parseFocus(md)).toEqual(['real.md']);
-  });
-
-  it('returns empty when active: section is missing', () => {
-    expect(parseFocus('# random file\n\nno active section here\n')).toEqual([]);
-  });
-
-  it('parseIntent round-trips the intent line (and is undefined when absent)', () => {
-    const withIntent = renderFocus(['a.md'], 'derive theorem 2');
-    expect(parseIntent(withIntent)).toBe('derive theorem 2');
-    const noIntent = renderFocus(['a.md']);
-    expect(parseIntent(noIntent)).toBeUndefined();
-    // A `- intent:`-looking line inside the active block is NOT mistaken for it.
-    expect(parseIntent('# bh focus\n\nactive:\n  - intent.md\n')).toBeUndefined();
-  });
-
-  // focus.md is line-delimited; a newline in a path can't round-trip. Before
-  // the guard, focus.set({files:['a\nb.md']}) wrote a 2-line list item and
-  // focus.get read back only 'a', silently dropping the rest of the list.
-  it('rejects a path with a newline rather than corrupt the round-trip', async () => {
-    const ctx = await seed();
-    await expect(ctx.core.run('focus.set', { files: ['file\nname.md'] })).rejects.toThrow(
-      /newline/i,
-    );
-    await expect(
-      ctx.core.run('focus.set', { files: ['ok.md', 'bad\rcarriage.md'] }),
-    ).rejects.toThrow(/newline/i);
-  });
-
-  it('still accepts adversarial-but-representable names (colon, hash, parens, leading dash)', async () => {
-    const ctx = await seed();
-    const tricky = ['a:b.md', '#hash.md', '(none)', '-dash.md', 'notes/中文.md'];
-    const result = await ctx.core.run('focus.set', { files: tricky });
-    expect(result.active).toEqual(tricky);
-    // And they survive the on-disk round-trip via focus.get.
-    const got = await ctx.core.run('focus.get', {});
-    expect(got.active).toEqual(tricky);
-  });
-
-  it('parseFocus skips inlined prompt/refs sub-lines and still collects every path', () => {
-    const md = renderFocus(
-      [
-        { file: 'a.md', prompt: 'about a', refs: [{ to: 'b.md', note: 'why a→b' }] },
-        { file: 'b.md' },
-      ],
-      'do the thing',
-    );
-    expect(md).toContain('intent: do the thing');
-    expect(md).toContain('prompt: about a');
-    expect(md).toContain('-> b.md  (note: why a→b)');
-    // Both paths survive — the deep-indented sub-lines must not end the block.
-    expect(parseFocus(md)).toEqual(['a.md', 'b.md']);
-  });
-
-  it('collapses a multi-line prompt so it cannot inject a fake list item', () => {
-    const md = renderFocus(
-      [{ file: 'a.md', prompt: 'line1\nline2\n- not a real item' }, { file: 'b.md' }],
-      undefined,
-    );
-    expect(md).toContain('prompt: line1 line2 - not a real item');
-    // The injected "- not a real item" was flattened onto the prompt line, so
-    // it is NOT parsed as an active item; b.md is still found.
-    expect(parseFocus(md)).toEqual(['a.md', 'b.md']);
+  it('is a no-op (cleared:false) when nothing is focused', async () => {
+    const pruned = (await ctx.core.run('focus.pruneDangling', {})) as { cleared: boolean };
+    expect(pruned.cleared).toBe(false);
   });
 });
 
-describe('focus brief (compound-thinking payload inlined into focus.md)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it("inlines each active file's prompt + reference paths as a turn brief", async () => {
-    await ctx.core.run('badge.set', {
-      file: 'chapter-03.md',
-      kind: 'file',
-      patch: { description: 'teacher emphasized ch 1, 3, 6' },
-    });
-    // References are now plain paths (the edge note moved to canvas.yaml).
-    await ctx.core.run('badge.addRef', {
-      file: 'chapter-03.md',
-      to: 'supply.md',
-    });
-    await ctx.core.run('focus.set', { files: ['chapter-03.md'] });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- chapter-03.md');
-    expect(md).toContain('prompt: teacher emphasized ch 1, 3, 6');
-    expect(md).toContain('-> supply.md');
-    // The round-trippable path list is unaffected by the inlined meaning.
-    const got = await ctx.core.run('focus.get', {});
-    expect(got.active).toEqual(['chapter-03.md']);
-  });
-
-  it('a file with no badge contributes just its bare path (no empty prompt/refs)', async () => {
-    await ctx.core.run('focus.set', { files: ['no-badge.md'] });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- no-badge.md');
-    expect(md).not.toContain('prompt:');
-    expect(md).not.toContain('refs:');
-  });
-
-  it('inlines who points AT a focused file (referenced-by)', async () => {
-    // other.md → focused.md. Focusing focused.md should surface the backlink so
-    // the agent sees BOTH directions of the human's relationships (plain paths;
-    // the per-edge note moved to canvas.yaml).
-    await ctx.core.run('badge.addRef', {
-      file: 'other.md',
-      to: 'focused.md',
-    });
-    await ctx.core.run('focus.set', { files: ['focused.md'] });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('referenced-by:');
-    expect(md).toContain('<- other.md');
-    // Still round-trips to the bare active list.
-    const got = await ctx.core.run('focus.get', {});
-    expect(got.active).toEqual(['focused.md']);
-  });
-
-  it('an empty brief carries a next-step hint instead of being a dead read', async () => {
-    await ctx.core.run('focus.set', { files: [] });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('(none)');
-    expect(md).toContain('bh search');
-    // The hint is a comment — parseFocus still reads an empty active list.
-    const got = await ctx.core.run('focus.get', {});
-    expect(got.active).toEqual([]);
-  });
-
-  it('portable brief appends capped file excerpts; on-disk focus.md stays paths+notes', async () => {
-    ctx.files.set('/work/note.md', '# Title\n\nthe actual content lives on disk');
-    await ctx.core.run('badge.set', { file: 'note.md', patch: { description: 'read this first' } });
-    await ctx.core.run('focus.set', { files: ['note.md'] });
-
-    // The on-disk brief never inlines content (an in-repo agent reads files itself).
-    const onDisk = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(onDisk).not.toContain('the actual content lives on disk');
-
-    // The non-portable brief equals the file; the portable one appends excerpts.
-    const plain = (await ctx.core.run('focus.brief', { stamp: false })) as { brief: string };
-    expect(plain.brief).not.toContain('the actual content lives on disk');
-    const portable = (await ctx.core.run('focus.brief', { stamp: false, portable: true })) as {
-      brief: string;
-    };
-    expect(portable.brief).toContain('# file contents');
-    expect(portable.brief).toContain('### note.md');
-    expect(portable.brief).toContain('the actual content lives on disk');
-  });
-});
-
-describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('badge.set on an ACTIVE file auto-refreshes the inlined prompt, preserving intent', async () => {
-    // Focus FIRST, then edit the badge — the case the renderer used to patch
-    // with resyncFocusForFile and badge.rename used to drop the intent on.
-    await ctx.core.run('focus.set', { files: ['ch.md'], intent: 'study for the exam' });
-    await ctx.core.run('badge.set', {
-      file: 'ch.md',
-      patch: { description: 'NEW inlined prompt' },
-    });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('prompt: NEW inlined prompt'); // refreshed without a re-focus
-    expect(md).toContain('intent: study for the exam'); // intent survived the resync
-  });
-
-  it('badge.addRef on an ACTIVE file inlines the new reference into the brief', async () => {
-    await ctx.core.run('focus.set', { files: ['ch.md'] });
-    await ctx.core.run('badge.addRef', { file: 'ch.md', to: 'supply.md' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('-> supply.md');
-  });
-
-  it('a badge edit on an UNfocused file does NOT rewrite focus.md (no churn)', async () => {
-    await ctx.core.run('focus.set', { files: ['ch.md'] });
-    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
-    await ctx.core.run('badge.set', { file: 'other.md', patch: { description: 'irrelevant' } });
-    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(after).toBe(before);
-  });
-
-  it('a no-description badge.set on an ACTIVE file does NOT touch the brief', async () => {
-    await ctx.core.run('badge.set', { file: 'ch.md', patch: { description: 'keep' } });
-    await ctx.core.run('focus.set', { files: ['ch.md'] });
-    const before = ctx.files.get('/work/.bh/focus.md') ?? '';
-    // A badge.set that doesn't change the description (canvas/position now lives
-    // in canvas.yaml, not the badge) → no resync of the inlined brief.
-    await ctx.core.run('badge.set', { file: 'ch.md', patch: { kind: 'file' } });
-    const after = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(after).toBe(before);
-    expect(after).toContain('prompt: keep'); // brief intact
-  });
-
-  it('focus.resync is a no-op (resynced:false) when focus is empty', async () => {
-    const res = await ctx.core.run('focus.resync', { file: 'anything.md' });
-    expect(res.resynced).toBe(false);
-  });
-
-  it('focus.resync with no file arg re-renders the whole active list', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const res = await ctx.core.run('focus.resync', {});
-    expect(res.resynced).toBe(true);
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('prompt: P-a');
-  });
-});
-
-describe('focus.brief', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('returns the verbatim focus.md content (what the agent reads)', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'about A' } });
-    await ctx.core.run('focus.set', { files: ['a.md'], intent: 'do the thing' });
-    const res = await ctx.core.run('focus.brief', {});
-    const onDisk = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(res.brief).toBe(onDisk); // byte-for-byte what's on disk
-    expect(res.brief).toContain('intent: do the thing');
-    expect(res.brief).toContain('- a.md');
-    expect(res.brief).toContain('prompt: about A');
-  });
-
-  it('returns the (none) brief when focus is empty (not an error)', async () => {
-    await ctx.core.run('focus.set', { files: [] });
-    const res = await ctx.core.run('focus.brief', {});
-    expect(res.brief).toContain('active:');
-    expect(res.brief).toContain('(none)');
-  });
-
-  it('returns an empty string (not a throw) when focus.md is absent on disk', async () => {
-    ctx.files.delete('/work/.bh/focus.md'); // e.g. user deleted it externally
-    const res = await ctx.core.run('focus.brief', {});
-    expect(res.brief).toBe('');
-  });
-
-  it('throws when there is no current workspace', async () => {
+describe('no current workspace', () => {
+  it('focus.get throws when no workspace is current', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
-    await expect(core.run('focus.brief', {})).rejects.toThrow(/No current workspace/i);
+    await expect(core.run('focus.get', {})).rejects.toThrow(/No current workspace/i);
+  });
+
+  it('focus.set throws when no workspace is current', async () => {
+    const { fs } = mockFs();
+    const core = createCore({ fs, configDir: '/cfg' });
+    await expect(core.run('focus.set', { path: 'a.md', kind: 'file' })).rejects.toThrow(
+      /No current workspace/i,
+    );
   });
 });
 
-describe('focus provenance preservation through rename / toggle', () => {
-  let ctx: TestContext;
+// The symlink-ESCAPE security case (an agent repoints current_focus OUTSIDE the
+// workspace → focus.get must return null, never read it) needs a real symlink the
+// in-memory mock can't model. Run it against the REAL fs.
+describe('focus.get security: a current_focus repointed outside the workspace (real fs)', () => {
+  let base: string;
+  let ws: string;
+  let outside: string;
+  // biome-ignore lint/suspicious/noExplicitAny: test-local core handle
+  let core: any;
+
   beforeEach(async () => {
-    ctx = await seed();
-    // Files on disk — focus.set({folder}) now gathers folder members from the
-    // filesystem (workspace.listSupportedFiles), not the badge mirror.
-    ctx.dirs.add('/work/notes');
-    ctx.files.set('/work/notes/a.md', 'A body');
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
-    await ctx.core.run('badge.set', {
-      file: 'notes',
-      patch: { kind: 'folder', description: 'folder intent' },
+    base = await mkdtemp(join(tmpdir(), 'bh-focus-esc-'));
+    ws = join(base, 'workspace');
+    outside = join(base, 'outside');
+    await mkdir(ws, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    const cfg = join(base, 'cfg');
+    await mkdir(cfg, { recursive: true });
+    core = createCore({ configDir: cfg });
+    await core.run('workspace.add', { path: ws, name: 'ws' });
+  });
+  afterEach(async () => {
+    await rm(base, { recursive: true, force: true });
+  });
+
+  it('returns null (never reads the outside file) when the symlink escapes', async () => {
+    await writeFile(join(outside, 'leak.yaml'), 'path: pwned\nkind: file\n');
+    await mkdir(join(ws, '.bh'), { recursive: true });
+    await symlink(join(outside, 'leak.yaml'), join(ws, '.bh/current_focus.yaml'));
+    expect(await core.run('focus.get', {})).toBeNull();
+    // The outside file was not touched.
+    expect(await readFile(join(outside, 'leak.yaml'), 'utf8')).toBe('path: pwned\nkind: file\n');
+  });
+
+  it('round-trips a legitimate in-workspace focus end to end (real symlink)', async () => {
+    await writeFile(join(ws, 'a.md'), '# A\n');
+    await core.run('focus.set', { path: 'a.md', kind: 'file', visible_lines: { start: 7 } });
+    expect(await core.run('focus.get', {})).toEqual({
+      path: 'a.md',
+      kind: 'file',
+      visible_lines: { start: 7 },
     });
-  });
-
-  it('focus.renameActiveFile remaps the path AND preserves the source-folder marker', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' }); // active [notes/a.md], source notes
-    const res = await ctx.core.run('focus.renameActiveFile', {
-      from: 'notes/a.md',
-      to: 'notes/a2.md',
-    });
-    expect(res.renamed).toBe(true);
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- notes/a2.md');
-    expect(md).not.toContain('- notes/a.md');
-    expect(md).toContain('# source-folder: notes'); // provenance survives the rename
-  });
-
-  it('focus.renameActiveFile is a no-op when the file is not focused', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    const res = await ctx.core.run('focus.renameActiveFile', { from: 'nope.md', to: 'x.md' });
-    expect(res.renamed).toBe(false);
-  });
-
-  it('focus.toggleActiveFile adds/removes a file while PRESERVING intent + provenance', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' }); // active [notes/a.md], intent + source
-    const added = await ctx.core.run('focus.toggleActiveFile', { file: 'b.md' });
-    expect([...added.active].sort()).toEqual(['b.md', 'notes/a.md']);
-    let md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('# source-folder: notes'); // provenance kept
-    expect(md).toContain('intent: folder intent'); // intent kept
-
-    const removed = await ctx.core.run('focus.toggleActiveFile', { file: 'notes/a.md' });
-    expect(removed.active).toEqual(['b.md']);
-    md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('# source-folder: notes');
-    expect(md).toContain('intent: folder intent');
+    // The symlink really points into .bh/mirror/.
+    const real = await core.run('focus.get', {});
+    expect(real.path).toBe('a.md');
   });
 });
 
-describe('focus source-folder provenance (folder = the grouping)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-    // Real files on disk: focus.set({folder}) gathers a folder's members from the
-    // FILESYSTEM (workspace.listSupportedFiles), so they must exist — two under
-    // notes/, one outside. Their prompts are a sparse badge overlay on top.
-    ctx.dirs.add('/work/notes');
-    ctx.dirs.add('/work/other');
-    ctx.files.set('/work/notes/a.md', 'A body');
-    ctx.files.set('/work/notes/b.md', 'B body');
-    ctx.files.set('/work/other/c.md', 'C body');
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
-    await ctx.core.run('badge.set', { file: 'notes/b.md', patch: { description: 'B' } });
-    await ctx.core.run('badge.set', { file: 'other/c.md', patch: { description: 'C' } });
-    // The folder badge with a description — its agent-facing intent.
-    await ctx.core.run('badge.set', {
-      file: 'notes',
-      patch: { kind: 'folder', description: 'Chapter 3 notes' },
-    });
-  });
+describe('focus.set cross-workspace guard', () => {
+  // The desktop fires focus.set un-awaited; if the user switches workspaces while
+  // it is in flight, the late root resolution must NOT plant workspace A's path
+  // under workspace B. The optional `workspace` arg (the name A's path belongs to)
+  // makes focus.set SKIP when it is no longer current. [[pr113-followup]]
+  it('skips the write when `workspace` is no longer the current one', async () => {
+    const { fs, files, links, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'wa' });
+    await core.run('workspace.add', { path: '/b', name: 'wb' });
+    await core.run('workspace.use', { name: 'wb' }); // make wb the current workspace
 
-  it('focus.set({folder}) gathers supported files under it + uses the folder prompt as intent', async () => {
-    const res = await ctx.core.run('focus.set', { folder: 'notes' });
-    expect(res.active).toEqual(['notes/a.md', 'notes/b.md']); // sorted; other/c.md excluded
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- notes/a.md');
-    expect(md).toContain('- notes/b.md');
-    expect(md).not.toContain('other/c.md');
-    expect(md).toContain('intent: Chapter 3 notes');
-    expect(md).toContain('# source-folder: notes');
-  });
+    // A stale set tagged for 'wa' lands while 'wb' is current → skipped: returns
+    // the node, but writes NOTHING under /b (no focus.yaml, no current_focus).
+    const node = await core.run('focus.set', { path: 'a/sub', kind: 'folder', workspace: 'wa' });
+    expect(node).toEqual({ path: 'a/sub', kind: 'folder' });
+    expect(files.get('/b/.bh/mirror/a/sub/focus.yaml')).toBeUndefined();
+    expect(links.get('/b/.bh/current_focus.yaml')).toBeUndefined();
+    expect(await core.run('focus.get', {})).toBeNull();
 
-  it('editing the folder badge prompt refreshes a folder-sourced brief (by identity)', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.set', {
-      file: 'notes',
-      patch: { kind: 'folder', description: 'Chapter 3 — proof focus' },
-    });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('intent: Chapter 3 — proof focus');
-    expect(md).not.toContain('Chapter 3 notes');
-    expect(md).toContain('# source-folder: notes'); // provenance kept
-  });
-
-  it('editing a DIFFERENT folder prompt does NOT refresh (exact identity, no inference)', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.set', {
-      file: 'other',
-      patch: { kind: 'folder', description: 'unrelated' },
-    });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: Chapter 3 notes');
-  });
-
-  it('a per-file badge edit under the folder resyncs AND preserves the source-folder marker', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A revised' } });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('prompt: A revised'); // re-inlined
-    expect(md).toContain('# source-folder: notes'); // provenance survived
-    expect(md).toContain('intent: Chapter 3 notes'); // intent survived
-  });
-
-  it('focus.set({files}) strips a previously-written source-folder marker', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('focus.set', { files: ['notes/a.md'] });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('# source-folder');
-  });
-
-  it('a manual intent override on a folder focus records NO provenance', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes', intent: 'my own question' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('intent: my own question');
-    expect(md).not.toContain('# source-folder');
-  });
-
-  it('focus.get does NOT leak the source provenance', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    const got = (await ctx.core.run('focus.get', {})) as Record<string, unknown>;
-    expect(Object.keys(got)).not.toContain('source');
-    expect(Object.keys(got)).not.toContain('sourceView');
-  });
-
-  // A folder focus must keep meaning "read ALL its files" as files appear.
-  it('a NEW file under a focused folder joins the brief automatically', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
-    // A new file appears on disk; the watcher calls focus.reconcileNewFile (NO
-    // badge is created — badges are a sparse overlay). The folder brief, which
-    // gathers from the filesystem, pulls it in.
-    ctx.files.set('/work/notes/d.md', 'D body');
-    await ctx.core.run('focus.reconcileNewFile', { file: 'notes/d.md' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- notes/d.md'); // pulled in, not stale
-    expect(md).toContain('# source-folder: notes'); // provenance kept
-    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
-  });
-
-  it('a new file OUTSIDE the focused folder is left out of the brief', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.set', { file: 'other/d.md' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('other/d.md');
-  });
-
-  it('a new file does NOT touch a files-sourced (non-folder) focus', async () => {
-    await ctx.core.run('focus.set', { files: ['notes/a.md'] });
-    await ctx.core.run('badge.set', { file: 'notes/d.md' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('notes/d.md');
-  });
-
-  // Renaming a focused folder must keep the brief live-linked to it.
-  it('renaming a focused folder remaps active child paths AND the source-folder provenance', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('- docs/a.md');
-    expect(md).toContain('- docs/b.md');
-    expect(md).not.toContain('notes/a.md');
-    expect(md).toContain('# source-folder: docs'); // re-stamped to the new name
-    expect(md).toContain('intent: Chapter 3 notes'); // intent kept
-  });
-
-  it('after a folder rename, editing the renamed folder prompt still refreshes the brief', async () => {
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
-    await ctx.core.run('badge.set', {
-      file: 'docs',
-      patch: { kind: 'folder', description: 'renamed-folder intent' },
-    });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: renamed-folder intent');
+    // A set tagged for the CURRENT workspace ('wb') writes normally.
+    await core.run('focus.set', { path: 'x.md', kind: 'file', workspace: 'wb' });
+    expect(links.get('/b/.bh/current_focus.yaml')).toBe('mirror/x.md/focus.yaml');
+    expect(await core.run('focus.get', {})).toEqual({ path: 'x.md', kind: 'file' });
   });
 });
-
-describe('focus.setIntent (author the turn intent without touching the active set)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('writes the intent line and preserves the active set', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    const res = await ctx.core.run('focus.setIntent', { intent: 'compare the two approaches' });
-    expect(res.intent).toBe('compare the two approaches');
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('intent: compare the two approaches');
-    expect(md).toContain('- a.md');
-    expect(md).toContain('- b.md'); // active untouched
-  });
-
-  it('an empty / whitespace intent clears the line (returns null)', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'], intent: 'old question' });
-    const res = await ctx.core.run('focus.setIntent', { intent: '   ' });
-    expect(res.intent).toBeNull();
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).not.toContain('intent:');
-    expect(md).toContain('- a.md'); // still focused, just no intent
-  });
-
-  it('a manually-typed intent CLEARS folder provenance (no longer folder-derived)', async () => {
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
-    await ctx.core.run('badge.set', {
-      file: 'notes',
-      patch: { kind: 'folder', description: 'folder intent' },
-    });
-    await ctx.core.run('focus.set', { folder: 'notes' });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-folder: notes');
-    await ctx.core.run('focus.setIntent', { intent: 'my own question' });
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('intent: my own question');
-    expect(md).not.toContain('# source-folder'); // provenance dropped on manual override
-  });
-
-  it('SKIPS the write when expectedActive no longer matches (focus changed underneath)', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const res = await ctx.core.run('focus.setIntent', {
-      intent: 'late question for the old focus',
-      expectedActive: ['x.md'], // != current ['a.md']
-    });
-    expect(res.skipped).toBe(true);
-    // The old question is NOT stamped onto the changed focus.
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('late question');
-  });
-
-  it('WRITES when expectedActive still matches the current focus', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    const res = await ctx.core.run('focus.setIntent', {
-      intent: 'matched question',
-      expectedActive: ['a.md', 'b.md'],
-    });
-    expect(res.skipped).toBeUndefined();
-    expect(res.intent).toBe('matched question');
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: matched question');
-  });
-});
-
-describe('brief liveness: orphan-flagged files never reach the brief (by construction)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('badge.markOrphan on a focused file cascades (via resync): it drops from the brief, with a heal note', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'compare them' });
-    // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.resync,
-    // which re-assembles through the liveness choke point and excludes the orphan.
-    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
-    const after = await ctx.core.run('focus.get', {});
-    expect(after.active).toEqual(['b.md']); // a.md left the brief
-    expect(after.intent).toBe('compare them'); // intent preserved
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).not.toContain('- a.md');
-    expect(md).toContain('# note:'); // visible heal receipt
-  });
-
-  it('focus.set NEVER writes a known-deleted (orphan) file — dropped at the write', async () => {
-    // The canvas multi-select can include an orphan badge (a MISSING card); the
-    // brief must still never point at it. assembleItems excludes orphan-flagged
-    // files for EVERY writer, so a dead pick is dropped (with a heal note) by
-    // construction — not patched out afterwards.
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
-    await ctx.core.run('badge.markOrphan', { file: 'a.md' }); // a.md deleted on disk
-    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    expect(res.active).toEqual(['b.md']); // orphan a.md dropped at the write
-    const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).not.toContain('- a.md');
-    expect(md).toContain('# note:');
-  });
-
-  it('a metadata edit on an orphan file keeps it orphan — it does NOT re-enter the brief', async () => {
-    // The liveness invariant relies on the orphan flag PERSISTING: editing a
-    // deleted file's prompt (panel / CLI badge.set) must not silently un-orphan
-    // it, or a later focus.set could publish a brief pointing at the dead file.
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
-    await ctx.core.run('badge.markOrphan', { file: 'a.md' });
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'edited while gone' } });
-    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBe(true); // survived the edit
-    const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    expect(res.active).toEqual(['b.md']); // still excluded
-    // An explicit orphan:false (the watcher's add when the file re-appears) clears it.
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { kind: 'file', orphan: false } });
-    expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBeUndefined();
-  });
-});
-
-describe('focus.pruneDangling (re-entry: drop active files gone from disk)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('drops an active file whose disk file vanished (git checkout / external rm), with a note', async () => {
-    ctx.files.set('/work/a.md', '# a');
-    ctx.files.set('/work/b.md', '# b');
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'study' });
-    ctx.files.delete('/work/b.md'); // deleted on disk with NO watcher event
-    const r = await ctx.core.run('focus.pruneDangling', {});
-    expect(r.pruned).toBe(1);
-    const after = await ctx.core.run('focus.get', {});
-    expect(after.active).toEqual(['a.md']); // self-healed
-    expect(after.intent).toBe('study'); // intent preserved
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# note:');
-  });
-
-  it('is a no-op (pruned:0) when every active file still exists on disk', async () => {
-    ctx.files.set('/work/a.md', '# a');
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const r = await ctx.core.run('focus.pruneDangling', {});
-    expect(r.pruned).toBe(0);
-  });
-
-  it('workspace.use re-validates on re-open: a stale focus.md self-heals', async () => {
-    ctx.files.set('/work/keep.md', '# keep');
-    ctx.files.set('/work/gone.md', '# gone');
-    await ctx.core.run('focus.set', { files: ['keep.md', 'gone.md'] });
-    ctx.files.delete('/work/gone.md');
-    // Re-open the workspace → materializeWithFallback → focus.pruneDangling.
-    await ctx.core.run('workspace.use', { name: 'w' });
-    const after = await ctx.core.run('focus.get', {});
-    expect(after.active).toEqual(['keep.md']);
-  });
-});
-
-describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
-  let ctx: TestContext;
-  beforeEach(async () => {
-    ctx = await seed();
-  });
-
-  it('focus.brief stamps a served receipt in .bh/cache/; focus.get reads it back; the brief stays clean', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined(); // never served
-    await ctx.core.run('focus.brief', {}); // an agent pulls the brief
-    const after = await ctx.core.run('focus.get', {});
-    expect(typeof after.lastBriefServedAt).toBe('string'); // receipt stamped + read back
-    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(true); // in gitignored cache
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('servedAt'); // not in the brief
-  });
-
-  it('a focus CHANGE invalidates the receipt — "served Ns ago" never claims a stale set', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    await ctx.core.run('focus.brief', {}); // agent pulls THIS set
-    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
-    // User re-curates → the prior pull was of the OLD set; the receipt must clear.
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
-  });
-
-  it('a {stamp:false} read (the in-app preview peek) does NOT record a delivery', async () => {
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    await ctx.core.run('focus.brief', { stamp: false }); // peek, not a hand-off
-    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
-    expect(ctx.files.has('/work/.bh/cache/focus-served.json')).toBe(false);
-  });
-
-  it('a heal (focus.pruneDangling) also invalidates the receipt — every focus.md write clears it', async () => {
-    ctx.files.set('/work/a.md', '# a');
-    ctx.files.set('/work/b.md', '# b');
-    await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
-    await ctx.core.run('focus.brief', {}); // agent pulled THIS (2-file) set
-    expect(typeof (await ctx.core.run('focus.get', {})).lastBriefServedAt).toBe('string');
-    ctx.files.delete('/work/b.md'); // gone while the watcher wasn't running
-    await ctx.core.run('focus.pruneDangling', {}); // re-entry heal rewrites focus.md
-    // The pulled set is no longer current → "served Ns ago" must not survive the heal.
-    expect((await ctx.core.run('focus.get', {})).lastBriefServedAt).toBeUndefined();
-  });
-});
-
-// The "brief freshness marker (note vs file mtime)" suite is REMOVED: the new
-// badge model dropped promptModifiedAt (and the file mtimeMs anchor), so the
-// brief no longer auto-flags a "(note may be stale: …)" line. The feature is
-// gone with no replacement, so these cases (end-to-end flagging + the pure
-// promptStale render round-trip) are deleted rather than ported.

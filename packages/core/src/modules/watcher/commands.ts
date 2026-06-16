@@ -160,28 +160,12 @@ async function emitRename(
     // the rename side-channel below.
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     console.warn('[bh:watcher] badge.rename fell back:', err);
-    // markOrphan returns the badge it flagged, or null when there was NO source
-    // badge (the sparse case). It cascades a focus resync when a badge existed —
-    // so it fully covers BOTH a genuine sparse rename and a rare destination
-    // collision (source badge exists → flagged + resynced here). Only the sparse
-    // case (null) needs the extra focus remap, since no cascade ran.
-    const orphaned = (await ctx.run('badge.markOrphan', { file: from, kind })) as {
-      orphan?: boolean;
-    } | null;
-    if (orphaned === null) {
-      // Sparse: no source badge, so badge.rename's focus cascade never fired.
-      // Remap any focus entry to the new path so a FOCUSED unannotated file doesn't
-      // dangle. (Inbound refs pointing AT an unbadged renamed target are a narrower
-      // case that self-heals via inbound.rebuild, so we don't rewrite them here.)
-      try {
-        await ctx.run(add.isDir ? 'focus.renameActiveFolder' : 'focus.renameActiveFile', {
-          from,
-          to,
-        });
-      } catch (e) {
-        if (!(e instanceof Error && e.name === 'UnknownCommand')) throw e;
-      }
-    }
+    // markOrphan flags the source badge as gone (or no-ops when there was none).
+    // Focus is a viewport mirror now, so there is no curated list to remap here;
+    // a focused node that was renamed dangles until the watcher-cascade step moves
+    // the whole mirror node + repoints current_focus (deferred). focus.pruneDangling
+    // (run on workspace open) clears a current_focus left pointing at the gone file.
+    await ctx.run('badge.markOrphan', { file: from, kind });
   }
   // Side-channel: tell hosts a rename happened (NavTree refresh, currentFile
   // rebinding, canvas re-render). Emitted for BOTH the badged-rename and the
@@ -210,8 +194,8 @@ async function emitRename(
  */
 /**
  * Skip a buffered finalize whose workspace the user switched away from. The
- * unlink/add cascades (markOrphan / pruneDangling / focus.reconcileNewFile)
- * resolve `workspace.current` internally; if a delete arrives in workspace A and
+ * unlink/add cascades (markOrphan / focus.pruneDangling) resolve
+ * `workspace.current` internally; if a delete arrives in workspace A and
  * the user switches to B within the 600ms buffer window, running the finalize
  * would apply A's relative path against B's root — falsely flagging B's
  * same-named file MISSING (and dropping it from B's brief) with no auto-heal.
@@ -263,26 +247,18 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         try {
           const kind = event.isDir ? 'folder' : 'file';
           // No eager materialization: a brand-new file gets NO badge — badges are
-          // a sparse overlay, created lazily only on first annotation. The
-          // renderer re-reads the folder on this event and shows the file from the
-          // filesystem with defaults. The ONE thing to do here: if a previously
-          // deleted but ANNOTATED file re-appeared at the same path, clear its
-          // orphan flag (so it stops being excluded from briefs) and re-join any
-          // folder-sourced focus (badge.set's reconcileNewFile only fires for
-          // brand-new badges, so do it explicitly).
+          // a sparse overlay, created lazily only on first annotation. The renderer
+          // re-reads the folder on this event and shows the file from the filesystem
+          // with defaults. The ONE thing to do here: if a previously deleted but
+          // ANNOTATED file re-appeared at the same path, clear its orphan flag so it
+          // is live again. (Focus is a viewport mirror — there is no folder brief to
+          // re-join, so a brand-new unannotated file needs nothing further.)
           const existing = (await ctx.run('badge.get', {
             file: event.relPath,
             kind,
           })) as { orphan?: boolean } | null;
           if (existing?.orphan === true) {
-            // Re-appeared annotated file: clear orphan, then re-join its folder brief.
             await ctx.run('badge.set', { file: event.relPath, patch: { kind, orphan: false } });
-            await ctx.run('focus.reconcileNewFile', { file: event.relPath });
-          } else if (!existing) {
-            // Brand-new unannotated file: NO badge is created (sparse overlay), but
-            // if it sits under a focused FOLDER it must join that folder's brief —
-            // a folder means "read ALL its files," and the file is now on disk.
-            await ctx.run('focus.reconcileNewFile', { file: event.relPath });
           }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
@@ -322,17 +298,13 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         // Don't apply A's delete to whatever workspace is current now (B).
         if (eventRoot !== null && !(await stillCurrent(ctx, eventRoot))) return;
         try {
-          const orphaned = (await ctx.run('badge.markOrphan', {
+          await ctx.run('badge.markOrphan', {
             file: event.relPath,
             kind: event.isDir ? 'folder' : 'file',
-          })) as { orphan?: boolean } | null;
-          // A sparse (unbadged) file has no badge for markOrphan to flag, so it
-          // never resyncs focus. If the deleted file was in a focus brief, drop it
-          // now (stat-based prune) — otherwise the LIVE brief keeps pointing at a
-          // vanished file until the next on-open prune.
-          if (orphaned === null) {
-            await ctx.run('focus.pruneDangling', {});
-          }
+          });
+          // If the deleted node was the CURRENT focus, clear the now-dangling
+          // current_focus symlink (cheap: one readlink + one stat; no-ops otherwise).
+          await ctx.run('focus.pruneDangling', {});
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
           console.error('[bh:watcher] markOrphan failed on buffered unlink', event, err);

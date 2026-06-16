@@ -15,6 +15,12 @@ export function mockFs(): {
   files: Map<string, string>;
   fileBytes: Map<string, Uint8Array>;
   dirs: Set<string>;
+  /** In-memory symlink table: path → raw target string. The mock has no real
+   *  symlink resolution (realpath stays identity), but focus.get resolves the
+   *  current_focus target MANUALLY via readlink, so in-bounds focus round-trips
+   *  work. A symlink ESCAPE (target outside the workspace) can't be simulated
+   *  here — those cases use a real fs temp dir (see path-escape.test.ts). */
+  links: Map<string, string>;
   /** Optional per-file mtime (epoch ms) returned by `stat`. Empty by default —
    *  seeding via `files.set` leaves mtime ABSENT (stat omits `mtimeMs`), so
    *  freshness-comparing code degrades instead of firing on every legacy test.
@@ -26,6 +32,7 @@ export function mockFs(): {
   const files = new Map<string, string>();
   const fileBytes = new Map<string, Uint8Array>();
   const dirs = new Set<string>();
+  const links = new Map<string, string>();
   const mtimes = new Map<string, number>();
   const capRequests: number[] = [];
 
@@ -97,8 +104,15 @@ export function mockFs(): {
       return Array.from(childNames).sort((a, b) => a.localeCompare(b));
     },
     async unlink(path) {
-      files.delete(path);
-      fileBytes.delete(path);
+      // Real fs.unlink throws ENOENT on a missing path — focus.clear relies on
+      // that to report cleared:false when no current_focus symlink exists. A
+      // symlink is removed by unlink too (so focus.clear / repoint works).
+      const removed = files.delete(path) || fileBytes.delete(path) || links.delete(path);
+      if (!removed) {
+        throw Object.assign(new Error(`ENOENT: no such file, unlink '${path}'`), {
+          code: 'ENOENT',
+        });
+      }
     },
     // Atomic move. Handles a single file AND a directory (moving every
     // descendant file/dir by prefix) so folder rename via workspace.renameEntry
@@ -210,7 +224,25 @@ export function mockFs(): {
       fileBytes.delete(path);
       addAncestors(path);
     },
+    // ── Minimal in-memory symlinks (focus current_focus support) ──────────────
+    // Record links[path] = target. The real fs throws EEXIST when `path` is
+    // already taken by a file or link; the focus store always unlinks first, so
+    // matching that contract keeps focus.set's (unlink-then-symlink) cycle happy.
+    async symlink(target, path) {
+      if (files.has(path) || fileBytes.has(path) || links.has(path)) {
+        throw Object.assign(new Error(`EEXIST: file already exists, symlink '${path}'`), {
+          code: 'EEXIST',
+        });
+      }
+      links.set(path, target);
+      addAncestors(path);
+    },
+    // Return the raw target if `path` is a symlink; null for ENOENT (absent) or
+    // EINVAL (a regular file / dir, not a symlink) — matches defaultFs.readlink.
+    async readlink(path) {
+      return links.has(path) ? (links.get(path) as string) : null;
+    },
   };
 
-  return { fs, files, fileBytes, dirs, mtimes, capRequests };
+  return { fs, files, fileBytes, dirs, links, mtimes, capRequests };
 }

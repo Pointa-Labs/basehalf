@@ -5,7 +5,6 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import {
   AddRefButton,
   BadgePrompt,
-  ContextPill,
   ErrorNote,
   InboundRow,
   InboundToggle,
@@ -16,7 +15,7 @@ import { useFileBadge } from './useFileBadge.js';
 
 // The badge face shown INSIDE a canvas card (BadgeNode) when the user flips it
 // over with the card's badge toggle. It is the full badge editor — prompt +
-// references + inbound + focus — laid out for the card's narrow body. Reuses the
+// references + inbound — laid out for the card's narrow body. Reuses the
 // SAME controller (useFileBadge) and the SAME light presentational atoms
 // (BadgePageParts) as the document Badge zone (NoteBadge), so there is one
 // badge-editing code path AND one visual language, not two.
@@ -95,18 +94,9 @@ export const CardBadgeFace = ({
             />
           </div>
 
-          {/* Agent-context state + referenced-by (read-only). */}
+          {/* Referenced-by (read-only). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: space[1] }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: space[3] }}>
-              <ContextPill
-                active={fb.isFocused}
-                onToggle={() => void fb.toggleFocus()}
-                activeLabel="In context"
-                addLabel="Add to Context"
-                // A folder IS the grouping — once added it can't be partially removed here.
-                disabled={kind === 'folder' && fb.isFocused}
-                testId="card-badge-focus-toggle"
-              />
               {fb.inbound.length > 0 && (
                 <span style={{ marginLeft: 'auto' }}>
                   <InboundToggle

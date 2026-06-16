@@ -50,7 +50,7 @@ import {
   sideFromHandle,
 } from '../canvasConnections/index.js';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { copyAgentBrief, createDemoAtDefault } from '../lib/actions.js';
+import { createDemoAtDefault } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import {
@@ -60,7 +60,6 @@ import {
 } from '../lib/canvasFlowSnap.js';
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
 import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
-import { focusMutations } from '../lib/focusMutations.js';
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
 import { openContextMenu } from '../store/contextMenu.js';
@@ -78,23 +77,18 @@ import {
   clearPreviewCache,
 } from './BadgeNode.js';
 import { Breadcrumb } from './Breadcrumb.js';
-import { BriefPreview } from './BriefPreview.js';
 import { CanvasControls } from './CanvasControls.js';
 import { CanvasSnapGuides } from './CanvasSnapGuides.js';
 import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { Onboarding } from './Onboarding.js';
 import { Button } from './primitives/Button.js';
-import { usePopover } from './primitives/Popover.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
 const DRAG_DEBOUNCE = 300;
 const RESIZE_DEBOUNCE = 300;
 const VIEWPORT_DEBOUNCE = 1000;
-// Settle a canvas multi-selection before mirroring it into focus.md, so a marquee
-// drag (which fires onSelectionChange repeatedly) writes once on release.
-const FOCUS_MIRROR_DEBOUNCE = 250;
 const CONNECTION_EDGE_SIZE_DEFAULTS = {
   defaultWidth: DEFAULT_FILE_CARD_WIDTH,
   defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
@@ -241,18 +235,6 @@ export const Canvas = (): JSX.Element => {
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
   const [error, setError] = useState<string>('');
   const nodesRef = useRef<Node<BadgeNodeData>[]>([]);
-  // The FULL workspace agent-context set (stored in focus.md / focus.get),
-  // independent of ordinary canvas selection. Selection is object state
-  // (resize/move/connect); this set is what external agents read.
-  const [focusActive, setFocusActive] = useState<readonly string[]>([]);
-  // When the agent last pulled the turn brief (focus.brief stamps it; the
-  // receipt is cleared whenever the brief changes). The chip shows its ABSENCE
-  // as a binary freshness signal: no receipt + a non-empty context = the
-  // CURRENT brief was never handed off → an "updated" marker that clears on
-  // the next copy / agent read. (The old "served 47s ago" string implied a
-  // precision bh can't deliver — it confirms a hand-off, not comprehension —
-  // and needed a live ticker just to avoid going stale.)
-  const [briefServedAt, setBriefServedAt] = useState<string | undefined>(undefined);
   // Monotonic sequence for loadData staleness checks (see loadData).
   const loadSeqRef = useRef(0);
   // The canvas region's DOM node — drop-position math needs its screen rect.
@@ -272,23 +254,6 @@ export const Canvas = (): JSX.Element => {
   // a saved viewport is never mistaken for "none" mid-load.
   const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 });
-  // Canvas selection and agent context are mostly distinct: a SINGLE selection is
-  // object state only (resize/move/connect) and never touches focus.md. A
-  // MULTI-selection (>=2 badges) is an intentional "treat these as a group"
-  // gesture, so it mirrors into focus.md as agent context (Phase 0:
-  // selection-as-deixis). Explicit context actions (Add to Context / folder /
-  // Clear) still own single-file and override flows.
-  // Debounce timer for that mirror (see mirrorSelectionToFocus).
-  const focusMirrorTimer = useRef<number | null>(null);
-  // The focus the user had curated BEFORE a multi-select mirror overwrote it.
-  // Captured on the first mirror of a "session" and restored when the selection
-  // drops below 2 — so a navigation-grade gesture (shift-selecting cards to move
-  // them) no longer silently, permanently replaces an explicit Agent Context.
-  // null = no mirror session active. Cleared by any EXPLICIT focus change
-  // (Clear / folder / panel toggle), which the user owns and deselect must not undo.
-  const mirrorPrevFocus = useRef<readonly string[] | null>(null);
-  // Live mirror of focusActive for the selection callback (avoids a stale closure).
-  const focusActiveRef = useRef<readonly string[]>([]);
   // Live mirror of folderScope for the keyed-debounced card persisters — they
   // are created once (empty-dep useMemo, to keep their per-key timers across
   // renders), so they read the CURRENT canvas folder from this ref rather than a
@@ -303,24 +268,23 @@ export const Canvas = (): JSX.Element => {
     folderScopeRef.current = folderScope;
   }, [folderScope]);
 
+  // Mirror what the user is looking at into the coarse focus signal — the SINGLE
+  // authority for current_focus. An OPEN file IS the focus node; with no file
+  // open, the scoped folder is (root = ''). Keyed on openFile too, so CLOSING a
+  // file (openFile → null) repoints focus back to the folder instead of leaving
+  // the agent stuck on the closed file, and a same-workspace refresh re-asserts
+  // the open file rather than clobbering it with the folder. Best-effort — a
+  // failed focus write must never block navigation.
   useEffect(() => {
-    focusActiveRef.current = focusActive;
-  }, [focusActive]);
-
-  // Read focus state only (cheap: one file). Updates the agent-context chip
-  // without re-walking every badge — folder navigation never needs this.
-  const reloadFocus = useCallback(async () => {
-    try {
-      const r = (await window.bh.run('focus.get', {})) as {
-        active: string[];
-        lastBriefServedAt?: string;
-      };
-      setFocusActive(r.active); // chip reports the full set, not scope-filtered nodes
-      setBriefServedAt(r.lastBriefServedAt);
-    } catch {
-      /* transient — keep the last known values */
-    }
-  }, []);
+    if (!current || !currentReachable) return;
+    const node = openFile
+      ? { path: openFile, kind: 'file' as const }
+      : { path: folderScope ?? '', kind: 'folder' as const };
+    // Pass the workspace name we captured: this fire is un-awaited, so if the user
+    // switches workspaces before it lands, core SKIPS it rather than planting this
+    // workspace's path under the new one.
+    void window.bh.run('focus.set', { ...node, workspace: current }).catch(() => undefined);
+  }, [current, currentReachable, folderScope, openFile]);
 
   // Load THIS folder's canvas. The filesystem IS the tree, so we read ONE level
   // on demand (workspace.listCanvas) — the direct children of folderScope (null =
@@ -352,7 +316,6 @@ export const Canvas = (): JSX.Element => {
       setSnapGuides([]);
       setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
       setError('');
-      await reloadFocus();
       if (!fresh()) return;
 
       // PHASE 2 — the annotation layer, computed AFTER first paint. The
@@ -412,7 +375,7 @@ export const Canvas = (): JSX.Element => {
       if (!fresh()) return;
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [current, folderScope, reloadFocus]);
+  }, [current, folderScope]);
 
   // Drop cached previews when the active workspace changes — the cache is keyed
   // by workspace-relative path, so a path present in two workspaces (README.md)
@@ -432,26 +395,16 @@ export const Canvas = (): JSX.Element => {
     }
   }, [current, currentReachable, loadData]);
 
-  // Poll the brief-served receipt so the chip's "updated" dot clears when an
-  // agent pulls the brief out-of-band. The stamp lands in .bh/cache/
-  // (watcher-ignored, no push), so a light 5s poll of focus.get is how the chip
-  // reflects an agent reading the brief between refreshes.
+  // Reload the canvas when an EXTERNAL writer (the `bh` CLI, an agent) touches
+  // .bh/badges/ — which the watcher ignores. Re-walking every badge each poll
+  // would be needless churn; the cheap stat-only revision gates a reload to when
+  // the badge store actually changed.
   useEffect(() => {
     if (!current || !currentReachable) return;
-    // Remember the badge-store signature so we reload the canvas only when an
-    // EXTERNAL writer (the `bh` CLI, an agent) touched .bh/badges/ — which the
-    // watcher ignores. Re-walking every badge each poll would be needless churn;
-    // the cheap stat-only revision gates it.
     let lastBadgeRev = '';
     const id = window.setInterval(() => {
       void (async () => {
         try {
-          const r = (await window.bh.run('focus.get', {})) as {
-            active: string[];
-            lastBriefServedAt?: string;
-          };
-          setFocusActive(r.active);
-          setBriefServedAt(r.lastBriefServedAt);
           const rev = (await window.bh.run('badge.revision', {})) as {
             count: number;
             maxMtimeMs: number;
@@ -972,76 +925,6 @@ export const Canvas = (): JSX.Element => {
     [setCanvasSelection],
   );
 
-  const clearFocus = useCallback(() => {
-    void (async () => {
-      try {
-        // Explicit user action — end any mirror session so a later deselect
-        // doesn't restore a focus the user just deliberately cleared.
-        mirrorPrevFocus.current = null;
-        await focusMutations.clear('canvas'); // emit → open badge panels refresh
-        setFocusActive([]);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, []);
-
-  // Copy the turn brief (.bh/focus.md verbatim) to the clipboard so the user can
-  // paste exactly what their agent reads into ANY chat — making the otherwise
-  // invisible payoff of curation tangible and portable (not just the
-  // Claude-Code-auto-read-in-repo path). Transient "Copied" confirmation.
-  const [briefCopied, setBriefCopied] = useState(false);
-  // The Agent Context chip's text expands into a read-only preview of the assembled
-  // brief (BriefPreview) — so "your agent reads …" is something you can actually
-  // SEE, not just a file count.
-  const briefPopover = usePopover({ align: 'left', gap: 6 });
-  const copyResetTimer = useRef<number | null>(null);
-  const copyBrief = useCallback(() => {
-    void (async () => {
-      try {
-        // The shared copy path (lib/actions): peek without stamping, clean the
-        // bh-internal noise, copy, and stamp the served receipt only once the
-        // clipboard write actually succeeded. False = nothing to copy (focus.md
-        // absent under a still-visible chip) — no misleading "Copied ✓".
-        if (!(await copyAgentBrief())) return;
-        setBriefCopied(true);
-        // The hand-off just happened — clear the "updated" dot immediately
-        // rather than waiting for the next 5s receipt poll.
-        setBriefServedAt(new Date().toISOString());
-        // Reset the confirmation; clear any prior timer so a rapid re-click
-        // doesn't let an earlier timer flip the label back early.
-        if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
-        copyResetTimer.current = window.setTimeout(() => setBriefCopied(false), 1600);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, []);
-  useEffect(
-    () => () => {
-      if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
-      if (focusMirrorTimer.current !== null) window.clearTimeout(focusMirrorTimer.current);
-    },
-    [],
-  );
-
-  // Cancel a pending selection→focus mirror when the workspace changes. <Canvas/>
-  // stays mounted across workspace.use, so a debounce in flight from the OLD
-  // workspace must NOT fire focus.set against the NEW workspace's focus.md — that
-  // would write the previous workspace's selection into the wrong brief.
-  // `current` is a pure TRIGGER: the body touches only the timer ref, but we want
-  // the cleanup to run on every workspace change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: current is a deliberate trigger — re-run cleanup to cancel a pending mirror on workspace switch
-  useEffect(
-    () => () => {
-      if (focusMirrorTimer.current !== null) {
-        window.clearTimeout(focusMirrorTimer.current);
-        focusMirrorTimer.current = null;
-      }
-    },
-    [current],
-  );
-
   // Publish the live zoom to CSS as --bh-zoom so size-aware card chrome (the mini
   // chip's counter-scaled label, see BadgeNode/cardLod) can react to zoom in pure
   // CSS — one DOM write per frame here, zero per-node React re-renders. The var
@@ -1075,86 +958,23 @@ export const Canvas = (): JSX.Element => {
     [writeZoomVar],
   );
 
-  // Mirror a canvas MULTI-selection into focus.md as agent context — debounced so
-  // a marquee drag writes once on release. Single selections never call this (they
-  // stay object-state only); explicit Add-to-Context / folder / Clear still own
-  // single-file and override flows. focus.set({files}) is files-sourced, so it
-  // carries no folder provenance and the user's chat message supplies the intent.
-  const mirrorSelectionToFocus = useCallback((files: readonly string[]) => {
-    // Capture the user's curated focus the FIRST time a mirror overwrites it this
-    // session, so dropping the selection can restore it (decision: keep the
-    // selection-as-deixis convenience, lose the silent permanent overwrite).
-    if (mirrorPrevFocus.current === null) {
-      mirrorPrevFocus.current = [...focusActiveRef.current];
-    }
-    if (focusMirrorTimer.current !== null) window.clearTimeout(focusMirrorTimer.current);
-    focusMirrorTimer.current = window.setTimeout(() => {
-      void (async () => {
-        try {
-          await focusMutations.setFiles(files, 'canvas'); // emit → panels refresh
-          setFocusActive(files); // chip reflects the new agent context immediately
-          // focus.set cleared the on-disk served receipt (the new brief was never
-          // served); drop the local stamp too so the chip doesn't show the new
-          // selection as "served Ns ago" until the next poll catches up.
-          setBriefServedAt(undefined);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })();
-    }, FOCUS_MIRROR_DEBOUNCE);
-  }, []);
-
-  // Restore the pre-mirror focus when a mirror session ends (selection dropped
-  // below the 2-file mirror threshold). Routed through focusMutations so open
-  // panels re-sync too. No-op when no session is active.
-  const endMirrorSession = useCallback(() => {
-    const prev = mirrorPrevFocus.current;
-    if (prev === null) return;
-    mirrorPrevFocus.current = null;
-    void (async () => {
-      try {
-        await focusMutations.setFiles(prev, 'canvas');
-        setFocusActive(prev);
-        setBriefServedAt(undefined);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-  }, []);
-
   const onSelectionChange = useCallback<OnSelectionChangeFunc<Node<BadgeNodeData>, Edge>>(
     ({ nodes: selectedNodes }) => {
-      // Any selection change cancels a pending mirror; only a >=2 set below
-      // reschedules one. Without this, a debounced mirror could land AFTER the
-      // user narrowed back to a single card (or cleared) within the debounce
-      // window — writing a group they'd already abandoned into focus.md.
-      if (focusMirrorTimer.current !== null) {
-        window.clearTimeout(focusMirrorTimer.current);
-        focusMirrorTimer.current = null;
-      }
       const files = selectedNodes
         .filter((node) => (node.data as unknown as BadgeNodeData).kind !== 'folder')
         .map((node) => node.id);
-      // Selection dropped below the 2-file mirror threshold → end the session and
-      // restore the focus the mirror overwrote (deselect / narrow to one card).
-      if (files.length < 2) endMirrorSession();
       if (selectedNodes.length === 0) {
         setCanvasSelection(null);
         return;
       }
       if (files.length > 0) {
         setCanvasSelection({ kind: 'file', files, source: 'canvas' });
-        // Phase 0 (selection-as-deixis): >=2 selected files is an intentional
-        // "these as a group" gesture — mirror it into focus.md so the agent shares
-        // the user's attention with zero extra action. A single file stays UI-only
-        // ("operate on this one"): no focus write.
-        if (files.length >= 2) mirrorSelectionToFocus(files);
         return;
       }
       const folder = selectedNodes[0]?.id;
       setCanvasSelection(folder ? { kind: 'folder', folder, source: 'canvas' } : null);
     },
-    [setCanvasSelection, mirrorSelectionToFocus, endMirrorSession],
+    [setCanvasSelection],
   );
 
   if (!current || currentReachable === false) {
@@ -1173,20 +993,6 @@ export const Canvas = (): JSX.Element => {
   // names the other first move: drop files in (they're copied, originals
   // stay put). Inside a folder scope the note is created in THAT folder.
   const showGhostCard = nodes.length === 0;
-
-  // Derived from the FULL agent-context set (focusActive), NOT the rendered
-  // nodes — inside a folder scope the set can include files that aren't on
-  // screen, and the chip must still name everything the agent reads.
-  const focusedFiles = focusActive;
-  const focusedCount = focusedFiles.length;
-  const baseName = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
-  const focusedNames = focusedFiles.map(baseName);
-  const focusedLabel =
-    focusedCount === 1
-      ? (focusedNames[0] ?? '')
-      : `${focusedNames.slice(0, 3).join(', ')}${
-          focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
-        }`;
 
   // Edit the prompt for the CURRENT folder — a scoped subfolder, OR the workspace
   // root itself (the main-canvas prompt). Both are folder badges, so one path
@@ -1330,134 +1136,6 @@ export const Canvas = (): JSX.Element => {
           />
         </div>
       )}
-      {focusedCount > 0 && (
-        // Witnessed payoff: name the context the human explicitly handed the
-        // agent. Ordinary canvas selection never mutates this.
-        <div
-          data-testid="focus-chip"
-          style={{
-            position: 'absolute',
-            // Clear the breadcrumb header bar (always docked at top:0).
-            top: 52,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: space[2],
-            background: color.surface,
-            border: `1px solid ${color.accentSoft}`,
-            borderRadius: radius.pill,
-            padding: `${space[1]}px ${space[1]}px ${space[1]}px ${space[3]}px`,
-            boxShadow: shadow.raised,
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            color: color.textSecondary,
-            animation: `bh-banner-in ${motion.normal}`,
-          }}
-        >
-          <button
-            type="button"
-            ref={briefPopover.triggerRef}
-            onClick={briefPopover.toggle}
-            title="See exactly what your agent reads"
-            aria-expanded={briefPopover.open}
-            data-testid="focus-chip-trigger"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: space[1.5],
-              minWidth: 0,
-              maxWidth: 460,
-              border: 'none',
-              background: 'transparent',
-              padding: 0,
-              margin: 0,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              fontSize: 'inherit',
-              color: 'inherit',
-              textAlign: 'left',
-            }}
-          >
-            <span
-              aria-hidden
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: color.accent,
-                flexShrink: 0,
-              }}
-            />
-            <span
-              style={{
-                minWidth: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Agent Context ·{' '}
-              <strong style={{ color: color.textPrimary, fontWeight: font.weight.semibold }}>
-                {focusedCount}
-              </strong>{' '}
-              {focusedCount === 1 ? 'file' : 'files'} ·{' '}
-              <span style={{ color: color.textPrimary }}>{focusedLabel}</span>
-              {briefServedAt === undefined && (
-                // No served receipt for the CURRENT brief = it changed since it
-                // was last delivered through a channel bh can OBSERVE (Copy brief,
-                // or a shell agent's `bh focus brief`). A raw in-repo file read is
-                // invisible by design (D14), so this never claims the agent didn't
-                // read it — only that no observable delivery is on record since the
-                // last change. Honest wording, not "you forgot to send".
-                <span
-                  data-testid="focus-chip-updated"
-                  title="Changed since the last delivery bh can see (Copy brief, or a shell agent running `bh focus brief`). An in-repo agent that reads the file directly is invisible here."
-                  style={{ color: color.warning, whiteSpace: 'nowrap' }}
-                >
-                  {' '}
-                  · not yet delivered
-                </span>
-              )}
-            </span>
-            <span
-              aria-hidden
-              style={{
-                flexShrink: 0,
-                color: color.textTertiary,
-                fontSize: 10,
-                transform: briefPopover.open ? 'rotate(180deg)' : 'none',
-                transition: transition(['transform']),
-              }}
-            >
-              ▾
-            </span>
-          </button>
-          {/* Copy lives INSIDE the preview panel ("look, then send") — so a copy
-              always reflects the brief you're looking at, including a just-typed
-              intent. The chip is summary + open + clear. */}
-          <button
-            type="button"
-            onClick={clearFocus}
-            title="Clear Agent Context"
-            data-testid="focus-clear"
-            style={{
-              border: 'none',
-              background: 'transparent',
-              color: color.textTertiary,
-              fontFamily: font.sans,
-              fontSize: font.size.caption,
-              cursor: 'pointer',
-              padding: `${space[0.5]}px ${space[2]}px`,
-              borderRadius: radius.pill,
-            }}
-          >
-            Clear
-          </button>
-          <BriefPreview controller={briefPopover} onCopy={copyBrief} copied={briefCopied} />
-        </div>
-      )}
       {error && (
         <div
           style={{
@@ -1515,11 +1193,10 @@ export const Canvas = (): JSX.Element => {
         zoomOnScroll={false}
         zoomOnPinch
         zoomOnDoubleClick
-        // Left-drag on the empty pane now draws a selection box (panning moved to
-        // the trackpad + middle/right mouse). This feeds the ≥2-badge → focus.md
-        // mirror, so a single rubber-band hands the agent a batch of context.
-        // Partial = a card is picked when the box TOUCHES it (forgiving), not
-        // only when fully enclosed. Mouse users still pan with middle/right drag.
+        // Left-drag on the empty pane draws a selection box (panning moved to the
+        // trackpad + middle/right mouse). Partial = a card is picked when the box
+        // TOUCHES it (forgiving), not only when fully enclosed. Mouse users still
+        // pan with middle/right drag.
         selectionOnDrag
         selectionMode={SelectionMode.Partial}
         panOnDrag={[1, 2]}

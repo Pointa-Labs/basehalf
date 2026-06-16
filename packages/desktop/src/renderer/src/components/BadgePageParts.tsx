@@ -1,5 +1,5 @@
 import { type JSX, type ReactNode, useEffect, useRef, useState } from 'react';
-import { color, font, radius, space, transition } from '../design.js';
+import { color, font, space, transition } from '../design.js';
 
 // Presentational atoms for the badge editor, shared by BOTH surfaces that edit a
 // badge: the document Badge zone (NoteBadge, under the note title) and the canvas
@@ -220,56 +220,6 @@ export const AddRefButton = ({
     }}
   >
     {label}
-  </button>
-);
-
-/** The "Add to Context" state — a quiet pill, not a boxed row. Active shows an
- *  accent dot + the active label; inactive shows the add label. */
-export const ContextPill = ({
-  active,
-  onToggle,
-  activeLabel,
-  addLabel,
-  disabled,
-  testId,
-}: {
-  active: boolean;
-  onToggle: () => void;
-  activeLabel: string;
-  addLabel: string;
-  disabled?: boolean;
-  testId?: string;
-}): JSX.Element => (
-  <button
-    type="button"
-    data-testid={testId}
-    disabled={disabled}
-    onClick={onToggle}
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: space[1.5],
-      padding: 0,
-      border: 'none',
-      background: 'transparent',
-      cursor: disabled ? 'default' : 'pointer',
-      opacity: disabled ? 0.7 : 1,
-      fontSize: font.size.caption,
-      color: active ? color.textSecondary : color.textTertiary,
-      transition: transition(['color']),
-    }}
-  >
-    {active ? (
-      <>
-        <span
-          aria-hidden
-          style={{ width: 6, height: 6, borderRadius: radius.pill, background: color.accent }}
-        />
-        {activeLabel}
-      </>
-    ) : (
-      `+ ${addLabel}`
-    )}
   </button>
 );
 

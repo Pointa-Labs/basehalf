@@ -550,11 +550,11 @@ describe('workspace module (mock FS)', () => {
     expect(introCard).toBeDefined();
     expect(typeof introCard?.x).toBe('number');
     expect(typeof introCard?.y).toBe('number');
-    // focus.md points at intro.md (so an agent's first read returns useful info)
-    // AND carries an intent, so the demo showcases the full turn brief (#91).
-    const focus = (await core.run('focus.get', {})) as { active: string[]; intent?: string };
-    expect(focus.active).toEqual(['intro.md']);
-    expect(focus.intent).toBeTruthy();
+    // current_focus points at intro.md (so an agent's first read of
+    // `.bh/current_focus.yaml` returns a useful node instead of null — the
+    // viewport-mirror equivalent of "the user is looking at intro.md").
+    const focus = (await core.run('focus.get', {})) as { path: string; kind: string } | null;
+    expect(focus).toEqual({ path: 'intro.md', kind: 'file' });
   });
 
   it('createDemo: does NOT overwrite existing files with the same name', async () => {
