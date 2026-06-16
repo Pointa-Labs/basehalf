@@ -19,10 +19,14 @@
  * The agent's single entry point is `.bh/current_focus.yaml` — a SYMLINK to the
  * active node's focus.yaml. The desktop repoints it as the user switches nodes.
  *
- * THIS ROUND (structural-first): focus.yaml is written on node OPEN/SWITCH only
- * (coarse — which node is active). The live state fields (`visible_lines`,
- * `cursor`, `viewport_center`, `zoom`) are OPTIONAL — wired to scroll/cursor/pan
- * events in the next round; for now a node-switch may write just `path` + `kind`.
+ * focus.set is a FIELD-SCOPED merge (see store.patchFocusNode): the desktop wires
+ * the live state fields to real events — a file's `visible_lines.start` to editor
+ * scroll, a folder's `viewport_center`/`zoom` to canvas pan/zoom — and each arrives
+ * as its own focus.set, so the write must preserve the sibling fields rather than
+ * overwrite the whole node. All state fields stay OPTIONAL: a bare node-switch may
+ * write just `path` + `kind` (and then keeps the node's last-known viewport).
+ * (`cursor` on a read-only/line-less viewer has no clean source yet — see the
+ * desktop focus-sync wiring for which fields each viewer actually emits.)
  */
 
 export type FocusKind = 'file' | 'folder';
@@ -81,6 +85,28 @@ export type FocusPruneDanglingArgs = Record<string, never>;
 export interface FocusPruneDanglingResult {
   /** True when the current focus pointed at a node whose file/folder is gone on
    *  disk and the symlink was therefore cleared. */
+  readonly cleared: boolean;
+}
+
+/** Rename cascade: move the subtree's focus.yaml + repoint current_focus. */
+export interface FocusRelocateArgs {
+  readonly from: string;
+  readonly to: string;
+}
+export interface FocusRelocateResult {
+  /** Number of focus.yaml files relocated. */
+  readonly moved: number;
+  /** True when current_focus pointed inside the moved subtree and was repointed at
+   *  the relocated node (so the agent keeps tracking it across the rename). */
+  readonly repointed: boolean;
+}
+
+/** Delete cascade: reap the subtree's focus.yaml + clear current_focus if inside. */
+export interface FocusPurgeNodeArgs {
+  readonly path: string;
+}
+export interface FocusPurgeNodeResult {
+  readonly removed: number;
   readonly cleared: boolean;
 }
 

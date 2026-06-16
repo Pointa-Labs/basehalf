@@ -225,6 +225,66 @@ export async function listMirror<T = unknown>(
   return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
+/** True when `rel` is the node `root` itself or a descendant of it (prefix on a
+ *  path boundary, so `docs` matches `docs` and `docs/a` but not `docs-2`). */
+export function isMirrorSubtree(rel: string, root: string): boolean {
+  return rel === root || rel.startsWith(`${root}/`);
+}
+
+/** Re-root a subtree rel from under `from` to under `to` (`from` → `to`,
+ *  `from/x` → `to/x`). Caller guarantees `isMirrorSubtree(rel, from)`. */
+export function remapSubtreeRel(rel: string, from: string, to: string): string {
+  return rel === from ? to : `${to}${rel.slice(from.length)}`;
+}
+
+/**
+ * Move every `<kind>.yaml` in the subtree rooted at `from` to the matching
+ * location under `to`, applying `remap` (default: just rewrite the top-level
+ * `path` field to the new location-derived rel). Used by the rename cascade so a
+ * node's canvas/focus/adhd mirror files follow the file/folder when it moves
+ * (badge.yaml + the reference graph are moved separately by badge.rename). Returns
+ * the {from,to} rel pairs actually moved. The old (now-empty) node directories are
+ * left in place — harmless, since the mirror is sparse and read by walking for
+ * yaml, not dirs.
+ */
+export async function relocateMirrorKind<T extends { path: string }>(
+  fs: FsLike,
+  workspaceRoot: string,
+  kind: MirrorKind,
+  from: string,
+  to: string,
+  remap?: (data: T, newRel: string) => T,
+): Promise<Array<{ from: string; to: string }>> {
+  const all = await listMirror<T>(fs, workspaceRoot, kind);
+  const moved: Array<{ from: string; to: string }> = [];
+  for (const { rel, data } of all) {
+    if (!isMirrorSubtree(rel, from)) continue;
+    const newRel = remapSubtreeRel(rel, from, to);
+    const next = remap ? remap(data, newRel) : ({ ...data, path: newRel } as T);
+    await writeMirror(fs, workspaceRoot, newRel, kind, next);
+    await removeMirror(fs, workspaceRoot, rel, kind);
+    moved.push({ from: rel, to: newRel });
+  }
+  return moved;
+}
+
+/** Remove every `<kind>.yaml` in the subtree rooted at `path` (a node + its
+ *  descendants). Returns how many files were removed. */
+export async function purgeMirrorKind(
+  fs: FsLike,
+  workspaceRoot: string,
+  kind: MirrorKind,
+  path: string,
+): Promise<number> {
+  const all = await listMirror<{ path: string }>(fs, workspaceRoot, kind);
+  let removed = 0;
+  for (const { rel } of all) {
+    if (!isMirrorSubtree(rel, path)) continue;
+    if (await removeMirror(fs, workspaceRoot, rel, kind)) removed++;
+  }
+  return removed;
+}
+
 /**
  * A CHEAP signature of a kind across the mirror tree — file count + newest
  * mtime — without parsing any YAML. Lets a UI poll detect that an external

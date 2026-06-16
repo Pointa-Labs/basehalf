@@ -487,24 +487,23 @@ describe('badge.rename', () => {
     expect(await backlinks(ctx.core, 'target2.md')).toEqual([]);
   });
 
-  it('always reports focusUpdated:false (focus no longer cascades on rename)', async () => {
-    // Moving the mirror node dir (badge + focus.yaml together) is a later step;
-    // until then badge.rename never touches focus and always reports false. The
-    // current_focus symlink still points at the old node path — a dangling focus
-    // that `focus.pruneDangling` cleans on the next workspace open.
+  it('cascades focus: focusUpdated:true + current_focus follows the renamed node', async () => {
+    // The mirror-node cascade moves the focus.yaml subtree together with the badge
+    // and repoints current_focus when it pointed inside the renamed node, so the
+    // agent keeps tracking what the user is looking at across the rename.
     await ctx.core.run('badge.set', { file: 'foo.md' });
     await ctx.core.run('focus.set', { path: 'foo.md', kind: 'file' });
     const result = (await ctx.core.run('badge.rename', {
       from: 'foo.md',
       to: 'foo-v2.md',
     })) as { focusUpdated: boolean };
-    expect(result.focusUpdated).toBe(false);
-    // The focus node was not rewritten by the rename — still the old path.
+    expect(result.focusUpdated).toBe(true);
+    // The focus.yaml moved and current_focus resolves to the NEW path.
     const focus = (await ctx.core.run('focus.get', {})) as { path: string; kind: string } | null;
-    expect(focus).toEqual({ path: 'foo.md', kind: 'file' });
+    expect(focus).toEqual({ path: 'foo-v2.md', kind: 'file' });
   });
 
-  it('reports focusUpdated:false even when `from` was not the focused node', async () => {
+  it('reports focusUpdated:false when `from` was not the focused node', async () => {
     await ctx.core.run('badge.set', { file: 'foo.md' });
     await ctx.core.run('focus.set', { path: 'unrelated.md', kind: 'file' });
     const result = (await ctx.core.run('badge.rename', {

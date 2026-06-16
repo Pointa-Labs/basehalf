@@ -1,11 +1,19 @@
 import { join } from 'node:path';
-import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
+import {
+  type Handler,
+  assertReadContained,
+  createKeyedMutex,
+  isMirrorSubtree,
+  purgeMirrorKind,
+  relocateMirrorKind,
+  remapSubtreeRel,
+} from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import {
   clearCurrentFocus,
+  patchFocusNode,
   readCurrentFocus,
   repointCurrentFocus,
-  writeFocusNode,
 } from './store.js';
 import type {
   FocusClearArgs,
@@ -15,6 +23,10 @@ import type {
   FocusNode,
   FocusPruneDanglingArgs,
   FocusPruneDanglingResult,
+  FocusPurgeNodeArgs,
+  FocusPurgeNodeResult,
+  FocusRelocateArgs,
+  FocusRelocateResult,
   FocusSetArgs,
   FocusSetResult,
 } from './types.js';
@@ -94,9 +106,12 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
   }
   const root = current.current.path;
   return withFocusLock(root, async () => {
-    await writeFocusNode(ctx.fs, root, node);
+    // Field-scoped merge (not a clobbering overwrite): a scroll-only or
+    // cursor-only live update must not wipe the sibling viewport field. See
+    // patchFocusNode. The returned node reflects what's now on disk.
+    const written = await patchFocusNode(ctx.fs, root, node);
     await repointCurrentFocus(ctx.fs, root, args.path);
-    return node;
+    return written;
   });
 };
 
@@ -135,6 +150,48 @@ export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingRe
   });
 };
 
+/**
+ * RENAME CASCADE: a node (file or folder) moved `from` → `to` on disk. Carry the
+ * subtree's focus.yaml files to the new location (path field re-rooted) and, if
+ * `.bh/current_focus.yaml` was pointing inside the moved subtree, repoint it at the
+ * relocated node so the agent keeps tracking what the user is looking at across a
+ * rename. Called by badge.rename (the shared rename choke point). Best-effort and
+ * idempotent: a subtree with no focus.yaml just moves nothing.
+ */
+export const relocate: Handler<FocusRelocateArgs, FocusRelocateResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    // Resolve the symlink BEFORE moving the files (after, its target is gone).
+    const focused = await readCurrentFocus(ctx.fs, root);
+    const moved = await relocateMirrorKind<FocusNode>(ctx.fs, root, 'focus', args.from, args.to);
+    let repointed = false;
+    if (focused !== null && isMirrorSubtree(focused.path, args.from)) {
+      await repointCurrentFocus(ctx.fs, root, remapSubtreeRel(focused.path, args.from, args.to));
+      repointed = true;
+    }
+    return { moved: moved.length, repointed };
+  });
+};
+
+/**
+ * DELETE CASCADE: a node was deleted. Remove the subtree's focus.yaml files and,
+ * if current_focus pointed inside it, clear the symlink (the viewport it mirrored
+ * is gone). pruneDangling covers the same symlink case via disk liveness; this
+ * additionally reaps the now-orphaned focus.yaml files.
+ */
+export const purgeNode: Handler<FocusPurgeNodeArgs, FocusPurgeNodeResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  return withFocusLock(root, async () => {
+    const focused = await readCurrentFocus(ctx.fs, root);
+    const removed = await purgeMirrorKind(ctx.fs, root, 'focus', args.path);
+    let cleared = false;
+    if (focused !== null && isMirrorSubtree(focused.path, args.path)) {
+      cleared = await clearCurrentFocus(ctx.fs, root);
+    }
+    return { removed, cleared };
+  });
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -143,5 +200,7 @@ export function commands(): ReadonlyArray<
     ['focus.get', get as unknown as Handler<never, unknown>],
     ['focus.clear', clear as unknown as Handler<never, unknown>],
     ['focus.pruneDangling', pruneDangling as unknown as Handler<never, unknown>],
+    ['focus.relocate', relocate as unknown as Handler<never, unknown>],
+    ['focus.purgeNode', purgeNode as unknown as Handler<never, unknown>],
   ];
 }

@@ -130,6 +130,59 @@ describe('focus.set', () => {
     await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
     expect(parse(ctx.files.get(mirrorFocus('a.md')) ?? '')).toEqual({ path: 'a.md', kind: 'file' });
   });
+
+  it('MERGES live fields field-scoped: a cursor-only set preserves visible_lines', async () => {
+    // The live-sync path fires scroll and cursor as SEPARATE focus.set calls.
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file', visible_lines: { start: 12 } });
+    // A later cursor-only update must NOT wipe the just-written visible_lines.
+    const merged = await ctx.core.run('focus.set', {
+      path: 'a.md',
+      kind: 'file',
+      cursor: { line: 28, column: 6 },
+    });
+    expect(merged).toEqual({
+      path: 'a.md',
+      kind: 'file',
+      visible_lines: { start: 12 },
+      cursor: { line: 28, column: 6 },
+    });
+    expect(parse(ctx.files.get(mirrorFocus('a.md')) ?? '')).toEqual({
+      path: 'a.md',
+      kind: 'file',
+      visible_lines: { start: 12 },
+      cursor: { line: 28, column: 6 },
+    });
+    // And a scroll-only update overwrites ONLY visible_lines, keeping the cursor.
+    const rescrolled = await ctx.core.run('focus.set', {
+      path: 'a.md',
+      kind: 'file',
+      visible_lines: { start: 40 },
+    });
+    expect(rescrolled).toEqual({
+      path: 'a.md',
+      kind: 'file',
+      visible_lines: { start: 40 },
+      cursor: { line: 28, column: 6 },
+    });
+  });
+
+  it('a node-switch (path+kind only) keeps the node its own last-known viewport', async () => {
+    await ctx.core.run('focus.set', {
+      path: 'docs',
+      kind: 'folder',
+      viewport_center: { x: 800, y: 420 },
+      zoom: 1.2,
+    });
+    // Switch away and back with a bare node-switch: the folder keeps its viewport.
+    await ctx.core.run('focus.set', { path: 'a.md', kind: 'file' });
+    const back = await ctx.core.run('focus.set', { path: 'docs', kind: 'folder' });
+    expect(back).toEqual({
+      path: 'docs',
+      kind: 'folder',
+      viewport_center: { x: 800, y: 420 },
+      zoom: 1.2,
+    });
+  });
 });
 
 describe('focus.get', () => {

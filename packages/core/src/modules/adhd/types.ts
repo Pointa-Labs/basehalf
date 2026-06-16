@@ -86,6 +86,23 @@ export interface AdhdRevisionResult {
   readonly maxMtimeMs: number;
 }
 
+/** Rename cascade: move the subtree's adhd.yaml to the new location. */
+export interface AdhdRelocateArgs {
+  readonly from: string;
+  readonly to: string;
+}
+export interface AdhdRelocateResult {
+  readonly moved: number;
+}
+
+/** Delete cascade: reap the subtree's adhd.yaml. */
+export interface AdhdPurgeNodeArgs {
+  readonly path: string;
+}
+export interface AdhdPurgeNodeResult {
+  readonly removed: number;
+}
+
 /** Thrown when an adhd.yaml on disk won't parse. */
 export class AdhdCorrupt extends Error {
   override readonly name = 'AdhdCorrupt';

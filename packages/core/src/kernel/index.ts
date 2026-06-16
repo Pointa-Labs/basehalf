@@ -22,6 +22,10 @@ export {
   patchMirror,
   removeMirror,
   listMirror,
+  relocateMirrorKind,
+  purgeMirrorKind,
+  isMirrorSubtree,
+  remapSubtreeRel,
   mirrorRevision,
 } from './mirror.js';
 export type { MirrorKind } from './mirror.js';

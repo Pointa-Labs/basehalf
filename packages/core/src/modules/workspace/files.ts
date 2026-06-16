@@ -756,9 +756,11 @@ async function purgeBadgesForDelete(
  * root and refuses deleting THROUGH a symlink leaf).
  *
  * Disk delete prefers the host's `trash` (recoverable — Electron's
- * `shell.trashItem`); pure-node hosts (CLI) have no trash and fall back to a
- * permanent `rm` (recursive for folders). Then the badge overlay is purged
- * (folder → descendants too) and focus.md self-heals via `focus.pruneDangling`.
+ * `shell.trashItem`); pure-node hosts have no trash and fall back to a permanent
+ * `rm` (recursive for folders). Then the whole mirror node is reaped — badge
+ * overlay + reference graph, then the canvas card/edges, focus.yaml viewport, and
+ * adhd reading aids for the node and (folders) every descendant — and the
+ * current_focus symlink self-heals via `focus.pruneDangling`.
  */
 export const deleteEntry: Handler<WorkspaceDeleteEntryArgs, WorkspaceDeleteEntryResult> = async (
   args,
@@ -781,6 +783,12 @@ export const deleteEntry: Handler<WorkspaceDeleteEntryArgs, WorkspaceDeleteEntry
     await ctx.fs.unlink(abs);
   }
   await purgeBadgesForDelete(ctx, args.path, args.kind);
+  // Reap the rest of the mirror node (folder → descendants too). Best-effort: a
+  // module not registered (a test wiring a subset) or a missing file must not fail
+  // the disk delete that already happened.
+  await purgeMirrorNode(ctx, 'canvas.purgeNode', { path: args.path, kind: args.kind });
+  await purgeMirrorNode(ctx, 'adhd.purgeNode', { path: args.path });
+  await purgeMirrorNode(ctx, 'focus.purgeNode', { path: args.path });
   try {
     await ctx.run('focus.pruneDangling', {});
   } catch (err) {
@@ -788,6 +796,21 @@ export const deleteEntry: Handler<WorkspaceDeleteEntryArgs, WorkspaceDeleteEntry
   }
   return { deleted: true };
 };
+
+/** Run one delete-cascade command, tolerating an unregistered module and never
+ *  letting a derived-state cleanup hiccup fail the disk delete already done. */
+async function purgeMirrorNode(
+  ctx: Parameters<Handler>[1],
+  command: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await ctx.run(command, args);
+  } catch (err) {
+    if (isUnknownCommand(err)) return;
+    console.warn(`[bh] delete cascade ${command} failed:`, err);
+  }
+}
 
 /**
  * `workspace.renameEntry({ from, to, kind })` — the COMPLETE rename: move the

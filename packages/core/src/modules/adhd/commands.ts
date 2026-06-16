@@ -1,4 +1,9 @@
-import { type Handler, createKeyedMutex } from '../../kernel/index.js';
+import {
+  type Handler,
+  createKeyedMutex,
+  purgeMirrorKind,
+  relocateMirrorKind,
+} from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { mergeRange, normalizeRanges, subtractRange } from './ranges.js';
 import { adhdRevision, patchAdhd, readAdhd } from './store.js';
@@ -12,6 +17,10 @@ import type {
   AdhdMarkReadResult,
   AdhdMarkUnreadArgs,
   AdhdMarkUnreadResult,
+  AdhdPurgeNodeArgs,
+  AdhdPurgeNodeResult,
+  AdhdRelocateArgs,
+  AdhdRelocateResult,
   AdhdRemoveKeywordArgs,
   AdhdRemoveKeywordResult,
   AdhdRevisionArgs,
@@ -145,6 +154,23 @@ export const revision: Handler<AdhdRevisionArgs, AdhdRevisionResult> = async (_a
   return adhdRevision(ctx.fs, root);
 };
 
+/** RENAME CASCADE: carry the subtree's adhd.yaml (reading aids) to the new
+ *  location when a file/folder moves. Called by badge.rename. */
+export const relocate: Handler<AdhdRelocateArgs, AdhdRelocateResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const moved = await withAdhdLock(root, () =>
+    relocateMirrorKind<AdhdFile>(ctx.fs, root, 'adhd', args.from, args.to),
+  );
+  return { moved: moved.length };
+};
+
+/** DELETE CASCADE: reap the subtree's adhd.yaml when a file/folder is deleted. */
+export const purgeNode: Handler<AdhdPurgeNodeArgs, AdhdPurgeNodeResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const removed = await withAdhdLock(root, () => purgeMirrorKind(ctx.fs, root, 'adhd', args.path));
+  return { removed };
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -156,5 +182,7 @@ export function commands(): ReadonlyArray<
     ['adhd.markRead', markRead as unknown as Handler<never, unknown>],
     ['adhd.markUnread', markUnread as unknown as Handler<never, unknown>],
     ['adhd.revision', revision as unknown as Handler<never, unknown>],
+    ['adhd.relocate', relocate as unknown as Handler<never, unknown>],
+    ['adhd.purgeNode', purgeNode as unknown as Handler<never, unknown>],
   ];
 }

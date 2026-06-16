@@ -3,6 +3,7 @@ import { parse } from 'yaml';
 import {
   type FsLike,
   assertReadContained,
+  patchMirror,
   readMaybeNoFollow,
   readMirror,
   removeMirror,
@@ -40,6 +41,29 @@ export async function writeFocusNode(
   node: FocusNode,
 ): Promise<void> {
   await writeMirror(fs, workspaceRoot, node.path, 'focus', node);
+}
+
+/**
+ * FIELD-SCOPED write: merge `node`'s provided fields onto whatever the node's
+ * focus.yaml already holds, atomically (read-modify-write under the mirror lock).
+ * The spec requires "写回时只更新对应字段，避免覆盖同一文件中其他来源刚写入的内容":
+ * scroll (visible_lines) and cursor-move (cursor) arrive as SEPARATE focus.set
+ * calls, so a whole-file overwrite would let a cursor update wipe the just-written
+ * visible_lines (and vice-versa). `node` carries only the fields the caller meant
+ * to change (buildNode already drops cross-kind + un-provided fields), so spreading
+ * it over the prior value preserves the rest. A node-switch (path+kind only) keeps
+ * the node's last-known viewport until a real scroll/move refreshes it. Kind never
+ * changes for a given path (a path is a file XOR a folder); if it somehow differs
+ * (a path reused as the other kind), we start clean from `node`. */
+export async function patchFocusNode(
+  fs: FsLike,
+  workspaceRoot: string,
+  node: FocusNode,
+): Promise<FocusNode> {
+  const written = await patchMirror<FocusNode>(fs, workspaceRoot, node.path, 'focus', (prev) =>
+    prev && prev.kind === node.kind ? ({ ...prev, ...node } as FocusNode) : node,
+  );
+  return written ?? node;
 }
 
 export async function readFocusNode(

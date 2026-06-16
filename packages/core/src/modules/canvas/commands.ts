@@ -1,4 +1,11 @@
-import { type Handler, createKeyedMutex } from '../../kernel/index.js';
+import {
+  type Handler,
+  createKeyedMutex,
+  isMirrorSubtree,
+  purgeMirrorKind,
+  relocateMirrorKind,
+  remapSubtreeRel,
+} from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { canvasRel, canvasRevision, patchCanvas, readCanvas } from './store.js';
 import {
@@ -13,8 +20,12 @@ import {
   type CanvasFile,
   type CanvasGetArgs,
   type CanvasGetResult,
+  type CanvasPurgeNodeArgs,
+  type CanvasPurgeNodeResult,
   type CanvasReconnectArgs,
   type CanvasReconnectResult,
+  type CanvasRelocateArgs,
+  type CanvasRelocateResult,
   type CanvasRemoveCardArgs,
   type CanvasRemoveCardResult,
   type CanvasSetCardArgs,
@@ -22,6 +33,12 @@ import {
   type CanvasSetSizeArgs,
   type CanvasSetSizeResult,
 } from './types.js';
+
+/** The folder a node lives in (its parent), as a canvas rel (`''` = root). */
+function parentRel(rel: string): string {
+  const i = rel.lastIndexOf('/');
+  return i === -1 ? '' : rel.slice(0, i);
+}
 
 async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
   const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
@@ -266,6 +283,98 @@ export const revision: Handler<{ _?: never }, { count: number; maxMtimeMs: numbe
   return canvasRevision(ctx.fs, root);
 };
 
+/**
+ * RENAME CASCADE: a node moved `from` → `to`. Carry the visual layer:
+ *  - the node's OWN canvas.yaml subtree (a folder's child layout) re-roots to the
+ *    new location, with every card path + edge endpoint inside the subtree swapped
+ *    `from` → `to`;
+ *  - the PARENT folder's canvas card for this node is renamed in place (geometry
+ *    kept) when the parent is unchanged, or pulled out and dropped (bare, for
+ *    auto-layout) into the new parent on a cross-folder move.
+ * Called by badge.rename. The badge reference graph (and thus the DERIVED edges in
+ * listCanvas) is moved separately by badge.rename — this only carries the stored
+ * card geometry + anchor/label styling that would otherwise go stale.
+ */
+export const relocate: Handler<CanvasRelocateArgs, CanvasRelocateResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const { from, to } = args;
+  const swap = (p: string): string => (isMirrorSubtree(p, from) ? remapSubtreeRel(p, from, to) : p);
+  return withCanvasLock(root, async () => {
+    // The node's own subtree canvas.yaml files (folders only; a file has none).
+    const moved = await relocateMirrorKind<CanvasFile>(
+      ctx.fs,
+      root,
+      'canvas',
+      from,
+      to,
+      (data) => ({
+        ...data,
+        path: remapSubtreeRel(data.path, from, to),
+        cards: data.cards.map((c) => ({ ...c, path: swap(c.path) })),
+        edges: data.edges.map((e) => ({ ...e, from: swap(e.from), to: swap(e.to) })),
+      }),
+    );
+
+    // The parent folder's card for this node.
+    const oldParent = parentRel(from);
+    const newParent = parentRel(to);
+    if (oldParent === newParent) {
+      await patchCanvas(ctx.fs, root, oldParent, (cur) => {
+        if (!cur) return null;
+        const cards = cur.cards.map((c) => (c.path === from ? { ...c, path: to } : c));
+        const edges = cur.edges.map((e) => ({
+          ...e,
+          from: e.from === from ? to : e.from,
+          to: e.to === from ? to : e.to,
+        }));
+        const next: CanvasFile = { ...cur, cards, edges };
+        return isEmptyCanvas(next) ? null : next;
+      });
+    } else {
+      let carried: CanvasCard | undefined;
+      await patchCanvas(ctx.fs, root, oldParent, (cur) => {
+        if (!cur) return null;
+        carried = cur.cards.find((c) => c.path === from);
+        const cards = cur.cards.filter((c) => c.path !== from);
+        // Cross-folder move breaks any in-parent edge to this node — its siblings changed.
+        const edges = cur.edges.filter((e) => e.from !== from && e.to !== from);
+        const next: CanvasFile = { ...cur, cards, edges };
+        return isEmptyCanvas(next) ? null : next;
+      });
+      if (carried) {
+        const placed: CanvasCard = { ...carried, path: to };
+        await patchCanvas(ctx.fs, root, newParent, (cur) => {
+          const base = cur ?? emptyCanvas(canvasRel(newParent));
+          return { ...base, cards: upsertCard(base.cards, placed) };
+        });
+      }
+    }
+    return { moved: moved.length };
+  });
+};
+
+/**
+ * DELETE CASCADE: a node was deleted. Drop the visual layer:
+ *  - remove the node's own canvas.yaml subtree;
+ *  - remove the parent folder's card for it + any edges touching it.
+ * The derived reference edges fall away with the badges (purgeBadgesForDelete).
+ */
+export const purgeNode: Handler<CanvasPurgeNodeArgs, CanvasPurgeNodeResult> = async (args, ctx) => {
+  const root = await currentWorkspaceRoot(ctx);
+  const { path } = args;
+  return withCanvasLock(root, async () => {
+    const removed = await purgeMirrorKind(ctx.fs, root, 'canvas', path);
+    await patchCanvas(ctx.fs, root, parentRel(path), (cur) => {
+      if (!cur) return null;
+      const cards = cur.cards.filter((c) => c.path !== path);
+      const edges = cur.edges.filter((e) => e.from !== path && e.to !== path);
+      const next: CanvasFile = { ...cur, cards, edges };
+      return isEmptyCanvas(next) ? null : next;
+    });
+    return { removed };
+  });
+};
+
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]
 > {
@@ -278,5 +387,7 @@ export function commands(): ReadonlyArray<
     ['canvas.disconnect', disconnect as unknown as Handler<never, unknown>],
     ['canvas.reconnect', reconnect as unknown as Handler<never, unknown>],
     ['canvas.revision', revision as unknown as Handler<never, unknown>],
+    ['canvas.relocate', relocate as unknown as Handler<never, unknown>],
+    ['canvas.purgeNode', purgeNode as unknown as Handler<never, unknown>],
   ];
 }

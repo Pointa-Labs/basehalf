@@ -421,12 +421,47 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     }
   }
 
-  // Focus is a viewport mirror now: a rename doesn't rewrite a curated list.
-  // Moving the whole mirror NODE dir (badge + canvas + focus.yaml) together — and
-  // repointing current_focus if it pointed at `from` — is the watcher-cascade
-  // step's job (deferred); until then focusUpdated is always false.
-  return { badge: moved, updatedRefs, focusUpdated: false };
+  // ── Carry the REST of the mirror node to the new location ──────────────────
+  // badge.yaml + the reference graph moved above; the node's visual layer
+  // (canvas card geometry + the parent's card/edges), its focus.yaml viewport
+  // (+ the current_focus symlink), and its adhd reading aids must follow too, or
+  // they go stale at the old path. Orchestrated HERE because badge.rename is the
+  // single rename choke point (workspace.renameEntry AND the watcher both route
+  // through it). Each owning module does its own subtree recursion, so one call
+  // per kind covers a folder's descendants. Best-effort: an unregistered module
+  // (a test wiring a subset) or a missing file must never fail the rename the
+  // badge layer already committed.
+  await cascadeRename(ctx, 'canvas.relocate', { from: args.from, to: args.to, kind });
+  await cascadeRename(ctx, 'adhd.relocate', { from: args.from, to: args.to });
+  const focusRes = (await cascadeRename(ctx, 'focus.relocate', {
+    from: args.from,
+    to: args.to,
+  })) as { moved: number; repointed: boolean } | undefined;
+
+  return { badge: moved, updatedRefs, focusUpdated: focusRes?.repointed ?? false };
 };
+
+/**
+ * Run one rename-cascade command, tolerating a module that isn't registered (tests
+ * wire a subset) and never letting a cascade hiccup fail the already-committed
+ * badge rename. A non-`UnknownCommand` error is logged, not thrown — the cascade
+ * touches DERIVED state (canvas geometry / focus viewport / reading aids) that
+ * degrades gracefully when stale, whereas throwing here would surface a confusing
+ * error after the file + badge already moved.
+ */
+async function cascadeRename(
+  ctx: Parameters<Handler>[1],
+  command: string,
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  try {
+    return await ctx.run(command, args);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'UnknownCommand') return undefined;
+    console.warn(`[bh] rename cascade ${command} failed:`, err);
+    return undefined;
+  }
+}
 
 export function commands(): ReadonlyArray<
   readonly [name: string, handler: Handler<never, unknown>]

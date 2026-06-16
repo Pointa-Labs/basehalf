@@ -135,6 +135,28 @@ export interface CanvasReconnectArgs {
 }
 export type CanvasReconnectResult = CanvasFile;
 
+/** Rename cascade: re-root the node's own canvas subtree + fix the parent card. */
+export interface CanvasRelocateArgs {
+  readonly from: string;
+  readonly to: string;
+  /** Node kind (file has no own canvas; folder does). Advisory — the relocate
+   *  works off what exists, so it's optional. */
+  readonly kind?: 'file' | 'folder';
+}
+export interface CanvasRelocateResult {
+  /** Number of canvas.yaml files relocated (the node's own subtree). */
+  readonly moved: number;
+}
+
+/** Delete cascade: drop the node's own canvas subtree + the parent's card/edges. */
+export interface CanvasPurgeNodeArgs {
+  readonly path: string;
+  readonly kind?: 'file' | 'folder';
+}
+export interface CanvasPurgeNodeResult {
+  readonly removed: number;
+}
+
 /**
  * Thrown when a canvas.yaml on disk fails to parse. Re-skinned from the kernel's
  * MirrorCorrupt so canvas callers catch by a name they own.
