@@ -1,4 +1,4 @@
-import type { BadgeFile, BadgeGetResult, BadgeKind, InboundGetResult } from '@basehalf/core';
+import type { BadgeFile, BadgeGetResult, BadgeKind } from '@basehalf/core';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
@@ -71,9 +71,8 @@ export function useFileBadge(
     setLoading(true);
     setSaveError(null);
     try {
-      const [b, ib, focus, ff] = await Promise.all([
+      const [b, focus, ff] = await Promise.all([
         window.bh.run('badge.get', { file, kind }) as Promise<BadgeGetResult>,
-        window.bh.run('inbound.get', { file }) as Promise<InboundGetResult>,
         window.bh.run('focus.get', {}) as Promise<{ active: string[] }>,
         kind === 'folder'
           ? (window.bh.run('workspace.listSupportedFiles', { folder: file }) as Promise<{
@@ -85,7 +84,8 @@ export function useFileBadge(
       setPrompt(b?.prompt ?? '');
       pendingPrompt.current = null;
       setSaveState('idle');
-      setInbound(ib.entries);
+      // Backlinks come from the badge's embedded referenced_by (was inbound.get).
+      setInbound(b?.referenced_by ?? []);
       setFocusActive(focus.active);
       setFolderFiles(ff.files);
     } catch (err) {
@@ -106,13 +106,12 @@ export function useFileBadge(
   // when nothing is pending.
   const refreshGraph = useCallback(async () => {
     try {
-      const [b, ib, focus] = await Promise.all([
+      const [b, focus] = await Promise.all([
         window.bh.run('badge.get', { file, kind }) as Promise<BadgeGetResult>,
-        window.bh.run('inbound.get', { file }) as Promise<InboundGetResult>,
         window.bh.run('focus.get', {}) as Promise<{ active: string[] }>,
       ]);
       setBadge(b);
-      setInbound(ib.entries);
+      setInbound(b?.referenced_by ?? []);
       setFocusActive(focus.active);
       if (pendingPrompt.current === null) setPrompt(b?.prompt ?? '');
     } catch {

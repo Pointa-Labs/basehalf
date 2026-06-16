@@ -71,6 +71,6 @@ describe('badge path traversal is rejected', () => {
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
     await core.run('badge.set', { file: 'notes/chapter-3.md', patch: { prompt: 'ok' } });
-    expect(files.has('/work/.bh/badges/notes/chapter-3.md.json')).toBe(true);
+    expect(files.has('/work/.bh/mirror/notes/chapter-3.md/badge.yaml')).toBe(true);
   });
 });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { parse, stringify } from 'yaml';
 import { createCore } from '../src/index.js';
 import { parseFocus, parseIntent, renderFocus } from '../src/modules/focus/store.js';
 import { mockFs } from './helpers/mock-fs.js';
@@ -808,9 +809,10 @@ describe('brief freshness marker (note vs file mtime)', () => {
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');
 
     // Legacy badge: prompt exists but promptModifiedAt is absent (pre-D1 data).
-    const raw = JSON.parse(ctx.files.get('/work/.bh/badges/a.md.json') ?? '{}');
+    const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
+    const raw = parse(ctx.files.get(badgePath) ?? '{}') as Record<string, unknown>;
     raw.promptModifiedAt = undefined;
-    ctx.files.set('/work/.bh/badges/a.md.json', JSON.stringify(raw));
+    ctx.files.set(badgePath, stringify(raw));
     ctx.mtimes.set('/work/a.md', Date.now() + 60_000);
     await ctx.core.run('focus.resync', {});
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');

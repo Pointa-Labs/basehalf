@@ -140,7 +140,7 @@ describe('focus.md lost-update race', () => {
     let blockNextBadgeRead = false;
     const { fs, files, dirs } = yieldingFs({
       async onReadFile(path, content) {
-        if (blockNextBadgeRead && path === '/work/.bh/badges/a.md.json') {
+        if (blockNextBadgeRead && path === '/work/.bh/mirror/a.md/badge.yaml') {
           blockNextBadgeRead = false;
           oldBadgeReadStarted.resolve();
           await releaseOldBadgeRead.promise;

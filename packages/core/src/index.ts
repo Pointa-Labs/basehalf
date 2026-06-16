@@ -13,7 +13,6 @@ import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
 import { registerBadgesModule } from './modules/badges/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
-import { registerInboundModule } from './modules/inbound/index.js';
 import { registerSearchModule } from './modules/search/index.js';
 import { registerWatcherModule } from './modules/watcher/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
@@ -54,7 +53,6 @@ export function createCore(opts: CoreOptions = {}): Core {
   // plugins arrive they'll go through the same registry — just dynamic.
   registerWorkspaceModule(core);
   registerBadgesModule(core);
-  registerInboundModule(core);
   registerFocusModule(core);
   registerWatcherModule(core);
   registerSearchModule(core);
@@ -70,7 +68,6 @@ export { UnknownCommand, defaultConfigDir, defaultFs } from './kernel/index.js';
 export type * from './modules/workspace/types.js';
 export type * from './modules/badges/types.js';
 export { BadgeCorrupt } from './modules/badges/types.js';
-export type * from './modules/inbound/types.js';
 export type * from './modules/focus/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';

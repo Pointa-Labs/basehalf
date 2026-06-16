@@ -290,6 +290,7 @@ export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, c
       type HydratedBadge = {
         prompt?: string;
         references?: { to: string; note?: string }[];
+        referenced_by?: { from: string; note?: string }[];
       } | null;
       let badge: HydratedBadge = null;
       try {
@@ -297,15 +298,8 @@ export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, c
       } catch {
         badge = null;
       }
-      let inboundEntries: { from: string; note?: string }[] = [];
-      try {
-        const ib = (await ctx.run('inbound.get', { file: hit.file })) as {
-          entries: { from: string; note?: string }[];
-        };
-        inboundEntries = [...ib.entries];
-      } catch {
-        inboundEntries = [];
-      }
+      // Backlinks come from the badge's EMBEDDED referenced_by (was inbound.json).
+      const inboundEntries: { from: string; note?: string }[] = [...(badge?.referenced_by ?? [])];
       const prompt = badge?.prompt?.trim();
       if (prompt !== undefined && prompt !== '') lines.push(`      prompt: ${prompt}`);
       for (const m of hit.matches) {

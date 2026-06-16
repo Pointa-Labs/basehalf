@@ -401,14 +401,7 @@ async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<
     throw err;
   }
   try {
-    await ctx.run('inbound.init', {});
-  } catch (err) {
-    if (err instanceof Error && err.name === 'UnknownCommand') return;
-    if (err instanceof Error && err.name === 'PathEscape') return;
-    throw err;
-  }
-  try {
-    // Re-entry liveness for the DEEP graph (badges + inbound), the analog of
+    // Re-entry liveness for the DEEP graph (badges + embedded referenced_by), the analog of
     // focus.pruneDangling above: a badge whose file was deleted while the watcher
     // wasn't running carries no orphan flag, so an agent following the hint into
     // .bh/badges/ + inbound.json would be pointed at files that don't exist. Mark

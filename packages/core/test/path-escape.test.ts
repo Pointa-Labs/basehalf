@@ -101,37 +101,31 @@ describe('workspace.writeFile', () => {
 });
 
 describe('badges store', () => {
-  it('refuses badge.get through a symlinked badge JSON pointing outside', async () => {
-    await mkdir(join(ws, '.bh/badges'), { recursive: true });
-    await writeFile(
-      join(outside, 'leak.json'),
-      JSON.stringify({ file: 'intro.md', kind: 'file', prompt: 'LEAKED' }),
-    );
-    await symlink(join(outside, 'leak.json'), join(ws, '.bh/badges/intro.md.json'));
+  it('refuses badge.get through a symlinked badge.yaml pointing outside', async () => {
+    await mkdir(join(ws, '.bh/mirror/intro.md'), { recursive: true });
+    await writeFile(join(outside, 'leak.yaml'), 'file: intro.md\nkind: file\nprompt: LEAKED\n');
+    await symlink(join(outside, 'leak.yaml'), join(ws, '.bh/mirror/intro.md/badge.yaml'));
     await expect(core.run('badge.get', { file: 'intro.md' })).rejects.toThrow(
       /outside the workspace/,
     );
   });
 
-  it('badge.list does NOT descend a directory-symlink planted in .bh/badges/', async () => {
-    await mkdir(join(ws, '.bh/badges'), { recursive: true });
-    await mkdir(join(outside, 'sub'), { recursive: true });
-    await writeFile(
-      join(outside, 'sub', 'ext.json'),
-      JSON.stringify({ file: 'ext', kind: 'file' }),
-    );
-    await symlink(outside, join(ws, '.bh/badges/escape')); // dir symlink inside badges
+  it('badge.list does NOT descend a directory-symlink planted in .bh/mirror/', async () => {
+    await mkdir(join(ws, '.bh/mirror'), { recursive: true });
+    await mkdir(join(outside, 'ext'), { recursive: true });
+    await writeFile(join(outside, 'ext', 'badge.yaml'), 'file: ext\nkind: file\n');
+    await symlink(outside, join(ws, '.bh/mirror/escape')); // dir symlink inside mirror
     const { badges } = await core.run('badge.list', {});
     expect(badges.find((b: { file: string }) => b.file === 'ext')).toBeUndefined();
   });
 
-  it('refuses badge.set whose JSON path routes through a symlinked dir in .bh/badges/', async () => {
-    await mkdir(join(ws, '.bh/badges'), { recursive: true });
-    await symlink(outside, join(ws, '.bh/badges/out')); // out -> outside
+  it('refuses badge.set whose node path routes through a symlinked dir in .bh/mirror/', async () => {
+    await mkdir(join(ws, '.bh/mirror'), { recursive: true });
+    await symlink(outside, join(ws, '.bh/mirror/out')); // out -> outside
     await expect(core.run('badge.set', { file: 'out/pwned', patch: {} })).rejects.toThrow(
       /outside the workspace/,
     );
-    expect(existsSync(join(outside, 'pwned.json'))).toBe(false);
+    expect(existsSync(join(outside, 'pwned', 'badge.yaml'))).toBe(false);
   });
 
   it('still lists legitimately created badges (no false rejection)', async () => {
@@ -153,18 +147,6 @@ describe('focus store', () => {
     );
     expect(await readFile(join(outside, 'ftarget.md'), 'utf8')).toBe('EXTERNAL FOCUS DATA');
     await expect(core.run('focus.get', {})).rejects.toThrow(/outside the workspace/);
-  });
-});
-
-describe('inbound store', () => {
-  it('refuses to write through a symlinked .bh/index/inbound.json (no outside clobber)', async () => {
-    await rm(join(ws, '.bh/index/inbound.json'));
-    await writeFile(join(outside, 'idx.json'), 'EXTERNAL INDEX');
-    await symlink(join(outside, 'idx.json'), join(ws, '.bh/index/inbound.json'));
-    await expect(core.run('inbound.addRef', { from: 'a.md', to: 'b.md' })).rejects.toThrow(
-      /outside the workspace/,
-    );
-    expect(await readFile(join(outside, 'idx.json'), 'utf8')).toBe('EXTERNAL INDEX');
   });
 });
 
@@ -190,15 +172,15 @@ describe('materialize walk', () => {
     await expect(core.run('workspace.add', { path: fresh, name: 'ws3' })).resolves.toBeDefined();
   });
 
-  it('opens a workspace with a symlink LOOP at a DERIVED .bh/badges/<name> path (no ELOOP crash)', async () => {
-    // Re-verify residual: a loop at the badge path (not the user tree) is
+  it('opens a workspace with a symlink LOOP at a DERIVED .bh/mirror/<name> path (no ELOOP crash)', async () => {
+    // Re-verify residual: a loop at the mirror path (not the user tree) is
     // reached via badge.get->readBadge->canonicalize, which must map ELOOP to
     // a skip rather than abort materialize/open.
     const fresh = join(base, 'ws4');
     await mkdir(join(fresh, 'docs'), { recursive: true }); // real user folder
     await writeFile(join(fresh, 'docs', 'a.md'), '# a');
-    await mkdir(join(fresh, '.bh/badges'), { recursive: true });
-    await symlink(join(fresh, '.bh/badges/docs'), join(fresh, '.bh/badges/docs')); // self-loop
+    await mkdir(join(fresh, '.bh/mirror'), { recursive: true });
+    await symlink(join(fresh, '.bh/mirror/docs'), join(fresh, '.bh/mirror/docs')); // self-loop
     await expect(core.run('workspace.add', { path: fresh, name: 'ws4' })).resolves.toBeDefined();
   });
 });
@@ -282,16 +264,16 @@ describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () =
 });
 
 describe('.bh metadata DIRECTORY itself a symlink', () => {
-  it('listBadges does not enumerate through a symlinked .bh/badges directory', async () => {
+  it('listBadges does not enumerate through a symlinked .bh/mirror directory', async () => {
     const fresh = join(base, 'wsbsym');
     await mkdir(join(fresh, '.bh'), { recursive: true });
-    const outBadges = join(base, 'outbadges');
-    await mkdir(outBadges, { recursive: true });
+    const outMirror = join(base, 'outmirror');
+    await mkdir(join(outMirror, 'x.md'), { recursive: true });
     await writeFile(
-      join(outBadges, 'x.md.json'),
-      JSON.stringify({ file: 'x.md', kind: 'file', prompt: 'LEAK' }),
+      join(outMirror, 'x.md', 'badge.yaml'),
+      'file: x.md\nkind: file\nprompt: LEAK\n',
     );
-    await symlink(outBadges, join(fresh, '.bh/badges')); // .bh/badges -> outside dir
+    await symlink(outMirror, join(fresh, '.bh/mirror')); // .bh/mirror -> outside dir
     await core.run('workspace.add', { path: fresh, name: 'wsbsym' });
     const { badges } = await core.run('badge.list', {});
     expect(badges.find((b: { file: string }) => b.file === 'x.md')).toBeUndefined();
@@ -319,10 +301,10 @@ describe('workspace.listFiles metadata oracle', () => {
 });
 
 describe('anchor ELOOP robustness — the .bh metadata dir itself a symlink CYCLE', () => {
-  it('badge.list returns gracefully (no PathEscape throw) when .bh/badges is a symlink cycle', async () => {
+  it('badge.list returns gracefully (no PathEscape throw) when .bh/mirror is a symlink cycle', async () => {
     await mkdir(join(ws, '.bh'), { recursive: true });
-    await symlink(join(ws, '.bh/b2'), join(ws, '.bh/badges')); // badges -> b2
-    await symlink(join(ws, '.bh/badges'), join(ws, '.bh/b2')); // b2 -> badges (ELOOP)
+    await symlink(join(ws, '.bh/b2'), join(ws, '.bh/mirror')); // mirror -> b2
+    await symlink(join(ws, '.bh/mirror'), join(ws, '.bh/b2')); // b2 -> mirror (ELOOP)
     await expect(core.run('badge.list', {})).resolves.toBeDefined();
   });
 });

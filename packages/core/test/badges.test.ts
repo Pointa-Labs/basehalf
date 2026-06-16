@@ -1,6 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { stringify } from 'yaml';
 import { BadgeCorrupt, type BadgeFile, createCore } from '../src/index.js';
 import { mockFs } from './helpers/mock-fs.js';
+
+/** On-disk path of a badge.yaml under the new mirror tree. */
+const badgeYaml = (file: string) => `/work/.bh/mirror/${file}/badge.yaml`;
+
+/** Seed a badge.yaml directly (the new YAML mirror layout). */
+function seedBadge(files: Map<string, string>, badge: Record<string, unknown>): void {
+  files.set(badgeYaml(badge.file as string), stringify(badge));
+}
+
+/** Read a badge's embedded reverse links (the old inbound.get, now in-badge). */
+// biome-ignore lint/suspicious/noExplicitAny: cross-test core handle
+async function backlinks(core: any, file: string): Promise<{ from: string; note?: string }[]> {
+  const b = (await core.run('badge.get', { file })) as BadgeFile | null;
+  return [...(b?.referenced_by ?? [])];
+}
 
 /**
  * Badge module unit tests. All run against an in-memory FsLike + an injected
@@ -36,34 +52,28 @@ describe('badge.get', () => {
   });
 
   it('reads and returns an existing badge', async () => {
-    ctx.files.set(
-      '/work/.bh/badges/foo.md.json',
-      JSON.stringify({
-        bhVersion: 1,
-        file: 'foo.md',
-        kind: 'file',
-        references: [{ to: 'bar.md' }],
-        createdAt: '2026-01-01T00:00:00.000Z',
-        modifiedAt: '2026-01-01T00:00:00.000Z',
-      }),
-    );
+    seedBadge(ctx.files, {
+      bhVersion: 1,
+      file: 'foo.md',
+      kind: 'file',
+      references: [{ to: 'bar.md' }],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+    });
     const result = (await ctx.core.run('badge.get', { file: 'foo.md' })) as BadgeFile;
     expect(result.file).toBe('foo.md');
     expect(result.references).toEqual([{ to: 'bar.md' }]);
   });
 
-  it('reads folder badge from .badge.json path', async () => {
-    ctx.files.set(
-      '/work/.bh/badges/images/.badge.json',
-      JSON.stringify({
-        bhVersion: 1,
-        file: 'images',
-        kind: 'folder',
-        references: [],
-        createdAt: '2026-01-01T00:00:00.000Z',
-        modifiedAt: '2026-01-01T00:00:00.000Z',
-      }),
-    );
+  it('reads folder badge from its mirror node', async () => {
+    seedBadge(ctx.files, {
+      bhVersion: 1,
+      file: 'images',
+      kind: 'folder',
+      references: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+    });
     const result = (await ctx.core.run('badge.get', {
       file: 'images',
       kind: 'folder',
@@ -71,8 +81,8 @@ describe('badge.get', () => {
     expect(result.kind).toBe('folder');
   });
 
-  it('throws BadgeCorrupt when JSON is malformed', async () => {
-    ctx.files.set('/work/.bh/badges/broken.md.json', '{ this is not json }');
+  it('throws BadgeCorrupt when the YAML is malformed', async () => {
+    ctx.files.set(badgeYaml('broken.md'), 'key: [unterminated');
     await expect(ctx.core.run('badge.get', { file: 'broken.md' })).rejects.toBeInstanceOf(
       BadgeCorrupt,
     );
@@ -95,7 +105,7 @@ describe('badge.set', () => {
     expect(result.prompt).toBe('hello');
     expect(result.references).toEqual([]);
     expect(result.createdAt).toBe(result.modifiedAt);
-    expect(ctx.files.has('/work/.bh/badges/note.md.json')).toBe(true);
+    expect(ctx.files.has(badgeYaml('note.md'))).toBe(true);
   });
 
   it('updates an existing badge: preserves createdAt, bumps modifiedAt', async () => {
@@ -113,13 +123,12 @@ describe('badge.set', () => {
     expect(second.prompt).toBe('v2');
   });
 
-  it('writes folder badges to .bh/badges/<rel>/.badge.json', async () => {
+  it('writes folder badges to .bh/mirror/<rel>/badge.yaml', async () => {
     await ctx.core.run('badge.set', {
       file: 'pics',
       patch: { kind: 'folder', prompt: 'all images' },
     });
-    expect(ctx.files.has('/work/.bh/badges/pics/.badge.json')).toBe(true);
-    expect(ctx.files.has('/work/.bh/badges/pics.json')).toBe(false);
+    expect(ctx.files.has(badgeYaml('pics'))).toBe(true);
   });
 
   it('honors canvas position when set', async () => {
@@ -196,9 +205,9 @@ describe('badge.list', () => {
     expect(badges).toHaveLength(1);
   });
 
-  it('skips corrupt badge JSON without crashing the listing', async () => {
+  it('skips a corrupt badge.yaml without crashing the listing', async () => {
     await ctx.core.run('badge.set', { file: 'ok.md' });
-    ctx.files.set('/work/.bh/badges/bad.md.json', 'not json');
+    ctx.files.set(badgeYaml('bad.md'), 'key: [unterminated');
     const { badges } = (await ctx.core.run('badge.list', {})) as { badges: BadgeFile[] };
     expect(badges.map((b) => b.file)).toEqual(['ok.md']);
   });
@@ -212,12 +221,12 @@ describe('badge.delete', () => {
 
   it('returns deleted:true and removes the file when badge exists', async () => {
     await ctx.core.run('badge.set', { file: 'a.md' });
-    expect(ctx.files.has('/work/.bh/badges/a.md.json')).toBe(true);
+    expect(ctx.files.has(badgeYaml('a.md'))).toBe(true);
     const result = (await ctx.core.run('badge.delete', { file: 'a.md' })) as {
       deleted: boolean;
     };
     expect(result.deleted).toBe(true);
-    expect(ctx.files.has('/work/.bh/badges/a.md.json')).toBe(false);
+    expect(ctx.files.has(badgeYaml('a.md'))).toBe(false);
   });
 
   it('returns deleted:false when badge is missing', async () => {
@@ -227,25 +236,16 @@ describe('badge.delete', () => {
     expect(result.deleted).toBe(false);
   });
 
-  it('cascades: clears the deleted badge’s outbound entries from the inbound index', async () => {
+  it('cascades: clears the deleted badge’s backlink from each target', async () => {
     // a.md → target.md; deleting a.md must drop target.md's backlink from a.md
     // (no phantom backlink from a badge that no longer exists).
     await ctx.core.run('badge.set', { file: 'target.md' });
     await ctx.core.run('badge.addRef', { file: 'a.md', to: 'target.md', note: 'see' });
-    expect(
-      (
-        (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
-          entries: { from: string }[];
-        }
-      ).entries.map((e) => e.from),
-    ).toEqual(['a.md']);
+    expect((await backlinks(ctx.core, 'target.md')).map((e) => e.from)).toEqual(['a.md']);
 
     await ctx.core.run('badge.delete', { file: 'a.md' });
 
-    expect(
-      ((await ctx.core.run('inbound.get', { file: 'target.md' })) as { entries: unknown[] })
-        .entries,
-    ).toEqual([]);
+    expect(await backlinks(ctx.core, 'target.md')).toEqual([]);
   });
 
   it('cascades: a deleted focused file drops out of the brief', async () => {
@@ -257,14 +257,14 @@ describe('badge.delete', () => {
     expect(md).not.toContain('prompt: note');
   });
 
-  it('deletes folder badge from .badge.json path', async () => {
+  it('deletes folder badge from its mirror node', async () => {
     await ctx.core.run('badge.set', { file: 'pics', patch: { kind: 'folder' } });
     const result = (await ctx.core.run('badge.delete', {
       file: 'pics',
       kind: 'folder',
     })) as { deleted: boolean };
     expect(result.deleted).toBe(true);
-    expect(ctx.files.has('/work/.bh/badges/pics/.badge.json')).toBe(false);
+    expect(ctx.files.has(badgeYaml('pics'))).toBe(false);
   });
 });
 
@@ -324,9 +324,11 @@ describe('badge.addRef', () => {
     ).rejects.toThrow(/fromSide must be one of top, right, bottom, left/);
   });
 
-  it('tolerates inbound module not registered (UnknownCommand swallowed)', async () => {
-    // No inbound module exists in PR 11-1. addRef should still succeed.
-    await expect(ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' })).resolves.toBeDefined();
+  it('embeds the reverse link on the target badge (referenced_by)', async () => {
+    // No separate inbound index any more — addRef records the backlink on the
+    // TARGET badge, materializing a minimal badge for an unannotated target.
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md', note: 'see' });
+    expect(await backlinks(ctx.core, 'b.md')).toEqual([{ from: 'a.md', note: 'see' }]);
   });
 
   it('rejects a self-reference (file === to)', async () => {
@@ -454,12 +456,12 @@ describe('badge.rename', () => {
     expect(result.badge.references).toEqual([{ to: 'bar.md' }]);
     expect(result.badge.canvas).toEqual({ x: 42, y: 17, collapsed: false });
     expect(result.badge.createdAt).toBe(before.createdAt);
-    // Old badge file gone, new one exists.
-    expect(ctx.files.has('/work/.bh/badges/foo.md.json')).toBe(false);
-    expect(ctx.files.has('/work/.bh/badges/foo-v2.md.json')).toBe(true);
+    // Old badge node gone, new one exists.
+    expect(ctx.files.has(badgeYaml('foo.md'))).toBe(false);
+    expect(ctx.files.has(badgeYaml('foo-v2.md'))).toBe(true);
   });
 
-  it('cascades inbound refs: badges that pointed at `from` now point at `to`', async () => {
+  it('cascades refs: badges that pointed at `from` now point at `to`', async () => {
     // a.md → foo.md, b.md → foo.md (with note)
     await ctx.core.run('badge.set', { file: 'foo.md' });
     await ctx.core.run('badge.addRef', { file: 'a.md', to: 'foo.md' });
@@ -473,43 +475,31 @@ describe('badge.rename', () => {
     const b = (await ctx.core.run('badge.get', { file: 'b.md' })) as BadgeFile;
     expect(a.references).toEqual([{ to: 'foo-v2.md' }]);
     expect(b.references).toEqual([{ to: 'foo-v2.md', note: 'why' }]);
-    // inbound index now reflects the new target.
-    const inbound = (await ctx.core.run('inbound.get', { file: 'foo-v2.md' })) as {
-      entries: { from: string }[];
-    };
-    expect(inbound.entries.map((e) => e.from).sort()).toEqual(['a.md', 'b.md']);
-    // Old target has no inbound refs.
-    const stale = (await ctx.core.run('inbound.get', { file: 'foo.md' })) as {
-      entries: unknown[];
-    };
-    expect(stale.entries).toEqual([]);
+    // The new target's embedded backlinks reflect both referrers.
+    expect((await backlinks(ctx.core, 'foo-v2.md')).map((e) => e.from).sort()).toEqual([
+      'a.md',
+      'b.md',
+    ]);
+    // Old target has no badge (and so no backlinks) any more.
+    expect(await ctx.core.run('badge.get', { file: 'foo.md' })).toBeNull();
   });
 
-  it("migrates the moved badge's OWN outbound refs in the inbound index (from→to)", async () => {
+  it("migrates the moved badge's OWN outbound backlinks (from→to)", async () => {
     // foo.md → target.md (with note). Renaming foo.md must re-point
-    // target.md's inbound entry from foo.md to foo-v2.md, not leave a
-    // phantom backlink from the deleted old name.
+    // target.md's backlink from foo.md to foo-v2.md, not leave a phantom
+    // backlink from the deleted old name.
     await ctx.core.run('badge.set', { file: 'target.md' });
     await ctx.core.run('badge.addRef', { file: 'foo.md', to: 'target.md', note: 'see' });
-    expect(
-      (
-        (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
-          entries: { from: string }[];
-        }
-      ).entries.map((e) => e.from),
-    ).toEqual(['foo.md']);
+    expect((await backlinks(ctx.core, 'target.md')).map((e) => e.from)).toEqual(['foo.md']);
 
     await ctx.core.run('badge.rename', { from: 'foo.md', to: 'foo-v2.md' });
 
     // The moved badge keeps its outbound ref...
     const moved = (await ctx.core.run('badge.get', { file: 'foo-v2.md' })) as BadgeFile;
     expect(moved.references).toEqual([{ to: 'target.md', note: 'see' }]);
-    // ...and target.md's inbound index now records the NEW name, with the
-    // note preserved, and no phantom entry from the deleted old name.
-    const inTarget = (await ctx.core.run('inbound.get', { file: 'target.md' })) as {
-      entries: { from: string; note?: string }[];
-    };
-    expect(inTarget.entries).toEqual([{ from: 'foo-v2.md', note: 'see' }]);
+    // ...and target.md's embedded backlink now records the NEW name, note
+    // preserved, with no phantom entry from the deleted old name.
+    expect(await backlinks(ctx.core, 'target.md')).toEqual([{ from: 'foo-v2.md', note: 'see' }]);
   });
 
   it('updates focus.md if `from` was in the active list', async () => {
@@ -621,10 +611,7 @@ describe('badge.rename', () => {
 
     const a = (await ctx.core.run('badge.get', { file: 'guide/a.md' })) as BadgeFile;
     expect(a.references).toEqual([{ to: 'guide/b.md', note: 'see' }]);
-    const inbound = (await ctx.core.run('inbound.get', { file: 'guide/b.md' })) as {
-      entries: { from: string }[];
-    };
-    expect(inbound.entries.map((e) => e.from)).toEqual(['guide/a.md']);
+    expect((await backlinks(ctx.core, 'guide/b.md')).map((e) => e.from)).toEqual(['guide/a.md']);
   });
 
   it('folder rename rewrites an OUTSIDE referrer of a child to the new child path', async () => {

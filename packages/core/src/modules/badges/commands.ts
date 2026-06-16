@@ -1,6 +1,5 @@
 import { join } from 'node:path';
 import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
-import type { InboundGetResult } from '../inbound/types.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { badgesRevision, listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
@@ -54,31 +53,28 @@ async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string
   return current.current.path;
 }
 
-// Serialize the read-modify-write of each workspace's badge JSONs. Badge files
-// were the one .bh/ store without this guard, so concurrent writers — a canvas
-// drag's `badge.set {canvas}` racing a prompt blur's `badge.set {prompt}`, or
-// the watcher's add-finalize `badge.set {orphan:false}` — each read the same
-// pre-write badge and the second write resurrected the first's stale fields,
-// silently dropping the user's just-typed note (or new position). Same kernel
-// mutex inbound/focus/workspaces.json use. [[bh-json-rmw-race]]
+// Serialize the read-modify-write of each workspace's badge.yaml files. A
+// reference edit now writes TWO badges (the source's `references` and the
+// target's `referenced_by`); a canvas drag's `badge.set {canvas}` may race a
+// prompt blur's `badge.set {prompt}`; the watcher's add-finalize races a user
+// edit. Without one lock the second write resurrects the first's stale fields,
+// silently dropping the user's note (or a backlink). Keyed by ROOT (not per
+// file) because reference + rename ops touch several badge files at once and
+// must be atomic across them. [[bh-json-rmw-race]]
 //
-// CRITICAL — the lock wraps ONLY the badge JSON RMW, never the cascade. The
-// cascade (ctx.run('focus.resync' / 'inbound.addRef' / 'badge.addRef' …)) takes
-// OTHER locks (focus, inbound) or re-enters badge.* — holding the badge lock
-// across it would nest locks and can deadlock. Acquire → RMW → release → then
-// cascade. Keyed by root: rename touches multiple badge files at once, so
-// root-level (not per-file) is the safe granularity.
+// The lock wraps the badge RMW (now including the embedded referenced_by
+// writes, all direct fs ops). It must NOT wrap a `ctx.run('focus.*')` cascade —
+// that takes the focus lock / re-enters and could nest. Acquire → RMW →
+// release → then cascade to focus.
 const withBadgeLock = createKeyedMutex();
 
 /**
- * Reconcile focus.md after a badge edit, exactly like badge.addRef/removeRef
- * already reconcile the inbound index: if `file` is in the active list,
+ * Reconcile focus.md after a badge edit: if `file` is in the active list,
  * focus.resync re-inlines the fresh prompt/refs so the agent's turn brief
- * doesn't go stale. Best-effort + tolerant — the badge write already
- * succeeded, so a focus refresh failure (module not registered, a hostile
- * symlinked focus.md → PathEscape, etc.) must never fail the badge op.
- * focus.resync itself no-ops when `file` isn't active, so edits to unfocused
- * badges stay cheap.
+ * doesn't go stale. Best-effort + tolerant — the badge write already succeeded,
+ * so a focus refresh failure (module not registered, a hostile symlinked
+ * focus.md → PathEscape) must never fail the badge op. focus.resync no-ops when
+ * `file` isn't active, so edits to unfocused badges stay cheap.
  */
 async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promise<void> {
   try {
@@ -93,11 +89,8 @@ async function reconcileFocus(ctx: Parameters<Handler>[1], file: string): Promis
 
 /**
  * The FOLDER analog: a folder badge's prompt IS its agent-facing intent, so a
- * folder-sourced focus's brief must refresh when that prompt changes. focus.md's
- * active list is per-FILE, so focus.resync (keyed on the folder path) would
- * no-op — refreshFolderIntent re-reads the folder prompt by `# source-folder:`
- * identity instead. Same best-effort tolerance as reconcileFocus: a derived-.bh/
- * failure must never fail the badge write.
+ * folder-sourced focus's brief must refresh when that prompt changes. Same
+ * best-effort tolerance as reconcileFocus.
  */
 async function reconcileFolderIntent(ctx: Parameters<Handler>[1], folder: string): Promise<void> {
   try {
@@ -115,10 +108,8 @@ async function reconcileFolderIntent(ctx: Parameters<Handler>[1], folder: string
 
 /**
  * After a brand-NEW file badge is materialized, pull it into a folder-sourced
- * brief when it landed under the focused folder — so "Focus this folder" keeps
- * meaning "read all its files" as files appear mid-session. focus.reconcileNewFile
- * no-ops unless a containing folder is the active focus source, so this is cheap.
- * Same best-effort tolerance as reconcileFocus.
+ * brief when it landed under the focused folder. focus.reconcileNewFile no-ops
+ * unless a containing folder is the active focus source, so this is cheap.
  */
 async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Promise<void> {
   try {
@@ -132,11 +123,9 @@ async function reconcileNewFile(ctx: Parameters<Handler>[1], file: string): Prom
 }
 
 /**
- * A focused file's badge just went orphan (its file was deleted on disk). Re-render
- * the brief so the agent never reads a vanished file: focus.resync re-assembles
- * through the liveness choke point, which now EXCLUDES the just-orphaned file (and
- * leaves a heal note). Best-effort — a derived-.bh/ hiccup must never fail the badge
- * op. focus.resync no-ops when the file isn't focused.
+ * A focused file's badge just went orphan (its file was deleted on disk).
+ * Re-render the brief so the agent never reads a vanished file. Best-effort —
+ * focus.resync no-ops when the file isn't focused.
  */
 async function resyncFocusAfterOrphan(ctx: Parameters<Handler>[1], file: string): Promise<void> {
   try {
@@ -146,9 +135,78 @@ async function resyncFocusAfterOrphan(ctx: Parameters<Handler>[1], file: string)
   }
 }
 
+// ── Embedded reverse-index (referenced_by) helpers ──────────────────────────
+// These replace the old .bh/index/inbound.json module: a reference A→B is now
+// recorded on BOTH A's badge (references[]) and B's badge (referenced_by[]).
+// All run UNDER the root badge lock (the callers acquire it), using direct
+// fs reads/writes — never ctx.run('badge.*') (that would re-enter the lock).
+
+function newBadge(file: string, kind: BadgeKind, now: string): BadgeFile {
+  return { bhVersion: 1, file, kind, references: [], createdAt: now, modifiedAt: now };
+}
+
+/** A badge that carries no human-authored content — only its identity. Such a
+ *  stub (materialized solely to hold a backlink) is pruned when its last
+ *  backlink goes, keeping the overlay sparse. */
+function isEmptyBadge(b: BadgeFile): boolean {
+  return (
+    b.prompt === undefined &&
+    b.references.length === 0 &&
+    (b.referenced_by?.length ?? 0) === 0 &&
+    b.canvas === undefined &&
+    b.orphan !== true
+  );
+}
+
+/**
+ * Upsert `from`'s backlink onto the TARGET badge, MATERIALIZING a minimal badge
+ * if the target had none — so "who points at me?" stays answerable for a sparse
+ * (un-annotated) target, exactly as the old inbound.json recorded backlinks for
+ * files without badges. Target kind defaults to 'file' (unknown here; the common
+ * canvas folder→file edge is unaffected).
+ */
+async function addBacklinkTo(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  target: string,
+  from: string,
+  note: string | undefined,
+  now: string,
+): Promise<void> {
+  const existing = await readBadge(ctx.fs, root, target);
+  const base = existing ?? newBadge(target, 'file', now);
+  const links = (base.referenced_by ?? []).filter((b) => b.from !== from);
+  links.push({ from, ...(note !== undefined && { note }) });
+  await writeBadge(ctx.fs, root, { ...base, referenced_by: links, modifiedAt: now });
+}
+
+/**
+ * Remove `from`'s backlink from the TARGET badge. If that empties a stub badge
+ * that existed only to hold backlinks, delete its badge.yaml to keep the overlay
+ * sparse.
+ */
+async function removeBacklinkFrom(
+  ctx: Parameters<Handler>[1],
+  root: string,
+  target: string,
+  from: string,
+  now: string,
+): Promise<void> {
+  const existing = await readBadge(ctx.fs, root, target);
+  if (!existing) return;
+  const links = (existing.referenced_by ?? []).filter((b) => b.from !== from);
+  const { referenced_by: _dropped, ...rest } = existing;
+  const nextBadge: BadgeFile =
+    links.length > 0
+      ? { ...rest, referenced_by: links, modifiedAt: now }
+      : { ...rest, modifiedAt: now };
+  if (isEmptyBadge(nextBadge)) await removeBadge(ctx.fs, root, target);
+  else await writeBadge(ctx.fs, root, nextBadge);
+}
+
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  return readBadge(ctx.fs, root, args.file, args.kind ?? 'file');
+  return readBadge(ctx.fs, root, args.file);
 };
 
 export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
@@ -156,17 +214,13 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   const kind: BadgeKind = args.patch?.kind ?? 'file';
   const patch = args.patch ?? {};
 
-  // Lock the read→merge→write so a concurrent set on the same badge can't
-  // interleave a stale read with a fresh write and drop a field. `existing` is
-  // captured here too — derive `!existing` from the result for the cascade.
   const { next, existed } = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const existing = await readBadge(ctx.fs, root, args.file);
     const now = new Date().toISOString();
 
     // The prompt's OWN timestamp moves only when the prompt text actually
-    // changes — never on canvas drags / kind patches / re-saves of the same
-    // text. It anchors the brief's freshness comparison (focus assembleItems),
-    // which `modifiedAt` cannot (every write bumps it).
+    // changes — never on canvas drags / kind patches. It anchors the brief's
+    // freshness comparison, which `modifiedAt` cannot (every write bumps it).
     const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
     const promptAt = promptChanged ? now : existing?.promptModifiedAt;
 
@@ -180,14 +234,16 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
             : existing.prompt !== undefined && { prompt: existing.prompt }),
           ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
           references: patch.references ?? existing.references,
+          // PRESERVE embedded backlinks — set() never touches them (addRef/
+          // removeRef/rename do), so a prompt/canvas edit must not drop them.
+          ...(existing.referenced_by !== undefined &&
+            existing.referenced_by.length > 0 && { referenced_by: existing.referenced_by }),
           ...(patch.canvas !== undefined
             ? { canvas: patch.canvas }
             : existing.canvas !== undefined && { canvas: existing.canvas }),
           // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
-          // deleted file must not silently un-orphan it (that would let a vanished
-          // path back into the agent's brief). Cleared only by an explicit
-          // `orphan:false` (the watcher's add when the file re-appears); set only by
-          // badge.markOrphan.
+          // deleted file must not silently un-orphan it. Cleared only by an explicit
+          // `orphan:false` (the watcher's add when the file re-appears).
           ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
           createdAt: existing.createdAt,
           modifiedAt: now,
@@ -209,22 +265,14 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
     return { next: merged, existed: existing !== null };
   });
 
-  // Only reconcile focus.md when the edit actually changes the INLINED BRIEF
-  // (prompt or refs). A kind-only / canvas-only patch — e.g. every eager
-  // materialize badge.set on workspace open, or a canvas drag of a focused
-  // badge — leaves the brief identical, so skip the focus.md read+rewrite
-  // entirely (no churn, no added latency on the hot open path).
+  // Only reconcile focus.md when the edit changes the INLINED BRIEF (prompt or
+  // refs). A kind-only / canvas-only patch leaves the brief identical — skip.
   if (kind === 'folder') {
-    // A folder badge's prompt is the intent of a folder-sourced focus; its
-    // refs/canvas don't feed the brief. Refresh only on a prompt change.
     if (patch.prompt !== undefined) await reconcileFolderIntent(ctx, args.file);
   } else {
     if (patch.prompt !== undefined || patch.references !== undefined) {
       await reconcileFocus(ctx, args.file);
     }
-    // A brand-NEW file may have appeared under a focused folder — pull it into
-    // the brief. Gated on creation so the idempotent re-materialize on re-open
-    // (badges already exist) stays off the focus.md path.
     if (!existed) await reconcileNewFile(ctx, args.file);
   }
   return next;
@@ -233,10 +281,8 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
 export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   let badges = await listBadges(ctx.fs, root);
-  // BadgeListArgs is fully optional — be defensive in case a caller
-  // (CLI / MCP / a renderer that forgot the args object) hands us
-  // undefined instead of {}. core.run normalizes, but a stray call
-  // straight through ctx.run can still arrive bare.
+  // BadgeListArgs is fully optional — be defensive in case a caller hands us
+  // undefined instead of {}.
   const kind = args?.kind;
   if (kind) {
     badges = badges.filter((b) => b.kind === kind);
@@ -254,38 +300,30 @@ export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) =
 export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
-  // Capture the badge's outbound refs (under the lock) BEFORE deleting, so we can
-  // clean them out of the inbound index afterward. Without this, deleting a badge
-  // left phantom backlinks in inbound.json pointing FROM a badge that no longer
-  // exists — the delete path was systematically weaker than rename's cascade.
-  const { deleted, refs } = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file, kind);
-    const removed = await removeBadge(ctx.fs, root, args.file, kind);
-    return { deleted: removed, refs: existing?.references ?? [] };
-  });
-  if (deleted) {
-    // Cascade OUTSIDE the lock (inbound/focus take their own locks): drop this
-    // badge's outbound entries from the index, and refresh the brief if the
-    // deleted file was focused — matching the discipline badge.rename already has.
-    for (const ref of refs) {
-      try {
-        await ctx.run('inbound.removeRef', { from: args.file, to: ref.to });
-      } catch (err) {
-        if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
+  // Under the lock: remove the badge, then scrub THIS file's backlink out of
+  // each of its outbound targets (so a deleted badge leaves no phantom
+  // referenced_by entry pointing FROM a badge that no longer exists). We do NOT
+  // rewrite referrers' references[] — that matches the old delete (a dangling
+  // ref to a now-badge-less file is fine in the sparse overlay).
+  const deleted = await withBadgeLock(root, async () => {
+    const now = new Date().toISOString();
+    const existing = await readBadge(ctx.fs, root, args.file);
+    const removed = await removeBadge(ctx.fs, root, args.file);
+    if (existing) {
+      for (const ref of existing.references) {
+        await removeBacklinkFrom(ctx, root, ref.to, args.file, now);
       }
     }
-    if (kind === 'file') await reconcileFocus(ctx, args.file);
-  }
+    return removed;
+  });
+  if (deleted && kind === 'file') await reconcileFocus(ctx, args.file);
   return { deleted };
 };
 
 export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => {
-  // A badge referencing itself is meaningless for the agent neighbourhood
-  // walk (you're already at that file) and breaks badge.rename — the
-  // self-ref's `to` doesn't get remapped, so the renamed badge keeps a dead
-  // reference to its old name. This guard lived only in the desktop "+ Add"
-  // dialog (a thin shell); per the one-door rule it belongs in core so the
-  // canvas self-drag, the CLI, and any agent all enforce it.
+  // A badge referencing itself is meaningless for the agent neighbourhood walk
+  // and breaks badge.rename (the self-ref's `to` doesn't get remapped). This
+  // guard belongs in core so the canvas self-drag, agents, all enforce it.
   if (args.to === args.file) {
     throw new Error(`Badge cannot reference itself: ${args.file}`);
   }
@@ -294,15 +332,9 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file, kind);
-    const base: BadgeFile = existing ?? {
-      bhVersion: 1,
-      file: args.file,
-      kind,
-      references: [],
-      createdAt: new Date().toISOString(),
-      modifiedAt: new Date().toISOString(),
-    };
+    const now = new Date().toISOString();
+    const existing = await readBadge(ctx.fs, root, args.file);
+    const base = existing ?? newBadge(args.file, kind, now);
     const newRef = {
       to: args.to,
       ...(args.note !== undefined && { note: args.note }),
@@ -310,46 +342,34 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
       ...(args.toSide !== undefined && { toSide: args.toSide }),
     };
     const without = base.references.filter((r) => r.to !== args.to);
-    const merged: BadgeFile = {
-      ...base,
-      references: [...without, newRef],
-      modifiedAt: new Date().toISOString(),
-    };
+    const merged: BadgeFile = { ...base, references: [...without, newRef], modifiedAt: now };
     await writeBadge(ctx.fs, root, merged);
+    // Embed the reverse link on the TARGET badge (the old inbound.addRef).
+    await addBacklinkTo(ctx, root, args.to, args.file, args.note, now);
     return merged;
   });
-  // Inbound index sync — best-effort; AR-PR11-2 lands the module.
-  try {
-    await ctx.run('inbound.addRef', { from: args.file, to: args.to, note: args.note });
-  } catch (err) {
-    // Inbound module may not be registered yet (PR11-2). Don't fail the badge op.
-    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
-  }
   await reconcileFocus(ctx, args.file);
   return next;
 };
 
 export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
-  const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const now = new Date().toISOString();
+    const existing = await readBadge(ctx.fs, root, args.file);
     if (!existing) {
       throw new Error(`Badge not found: ${args.file}`);
     }
     const merged: BadgeFile = {
       ...existing,
       references: existing.references.filter((r) => r.to !== args.to),
-      modifiedAt: new Date().toISOString(),
+      modifiedAt: now,
     };
     await writeBadge(ctx.fs, root, merged);
+    // Drop the reverse link from the TARGET badge (the old inbound.removeRef).
+    await removeBacklinkFrom(ctx, root, args.to, args.file, now);
     return merged;
   });
-  try {
-    await ctx.run('inbound.removeRef', { from: args.file, to: args.to });
-  } catch (err) {
-    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
-  }
   await reconcileFocus(ctx, args.file);
   return next;
 };
@@ -386,9 +406,9 @@ export const reconnectRef: Handler<BadgeReconnectRefArgs, BadgeReconnectRefResul
 
 /**
  * Mark an existing badge as orphan (its underlying file was deleted on disk).
- * Preserves prompt / references / inbound so nothing is lost — the user can
- * either re-create the file or explicitly badge.delete to scrub. Called by
- * the watcher module on `unlink` events; no-op if the badge doesn't exist.
+ * Preserves prompt / references / referenced_by so nothing is lost — the user
+ * can re-create the file or explicitly badge.delete to scrub. Called by the
+ * watcher on `unlink`; no-op if the badge doesn't exist.
  */
 export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = async (
   args,
@@ -397,7 +417,7 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file, kind);
+    const existing = await readBadge(ctx.fs, root, args.file);
     if (!existing) return null;
     const merged: BadgeFile = {
       ...existing,
@@ -408,8 +428,7 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
     return merged;
   });
   if (next === null) return null;
-  // Cascade to focus.md: a focused file that just vanished must leave the brief,
-  // exactly like badge.rename cascades via renameActiveFile. File badges only —
+  // A focused file that just vanished must leave the brief. File badges only —
   // a folder badge is never an active focus item.
   if (kind === 'file') await resyncFocusAfterOrphan(ctx, args.file);
   return next;
@@ -433,24 +452,18 @@ async function badgeTargetExists(
   }
 }
 
-/**
- * Stat-based liveness sweep for the WHOLE badge graph — the badges analog of
- * focus.pruneDangling. The brief layer self-heals on workspace open, but badges
- * and the inbound index had NO such discipline: a file deleted while the watcher
- * wasn't running (app closed, git checkout) left its badge + inbound entries
- * behind with no orphan flag, so an agent following the CLAUDE.md hint into
- * `.bh/badges/` + `inbound.json` got pointed at files that don't exist — worse
- * than grep. Run on workspace open: mark every badge whose disk target is gone
- * as orphan (markOrphan preserves the human note and excludes it from briefs +
- * lets the canvas show MISSING), so the deep graph stays as live as the brief.
- * Already-orphan badges are skipped (no churn). Best-effort per badge.
- */
 /** Cheap badge-store signature (count + newest mtime) for an external-edit poll. */
 export const revision: Handler<BadgeRevisionArgs, BadgeRevisionResult> = async (_args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   return badgesRevision(ctx.fs, root);
 };
 
+/**
+ * Stat-based liveness sweep for the whole badge graph (the badges analog of
+ * focus.pruneDangling). Run on workspace open: mark every badge whose disk
+ * target is gone as orphan (preserving the human note + excluding it from
+ * briefs). Already-orphan badges are skipped. Best-effort per badge.
+ */
 export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingResult> = async (
   _args,
   ctx,
@@ -472,147 +485,73 @@ export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingRe
 };
 
 /**
- * Atomic rename: move the badge from `from` to `to`, rewrite every
- * inbound reference (other badges pointing at `from` get rewritten to
- * point at `to`), and update focus.md if `from` was in the active list.
- *
- * Why all three updates in one command:
- *  - Leaving inbound refs stale would silently break the agent's
- *    neighbourhood walk: links to a missing badge are dead-ends.
- *  - Leaving focus.md stale points the agent at a badge that no longer
- *    exists.
- * Anything less would make rename an attractive nuisance.
- *
- * Used by the watcher's rename heuristic (Stage 2) but also exposable as
- * a deliberate user action ("rename this file via bh") if we ever want
- * a CLI/UI affordance.
- *
- * Errors:
- *  - Throws if the source badge doesn't exist.
- *  - Throws if a badge already exists at `to` (collision; caller must
- *    resolve before calling).
- */
-/**
- * Read a badge whose KIND we don't know from the inbound index (entries carry
- * no kind). Try file first (the common case), then folder — so a folder badge
- * that references a file (canvas folder→file edge) is found when its target is
- * renamed, instead of silently dropping the dead ref (the old code hard-coded
- * 'file' and lost folder referrers).
- */
-async function readBadgeEitherKind(
-  ctx: Parameters<Handler>[1],
-  root: string,
-  file: string,
-): Promise<BadgeFile | null> {
-  return (
-    (await readBadge(ctx.fs, root, file, 'file')) ?? (await readBadge(ctx.fs, root, file, 'folder'))
-  );
-}
-
-/**
- * Move ONE badge's JSON from `from` to `to` (lock-protected RMW) and cascade
- * the reference graph: migrate the moved badge's own outbound inbound entries,
- * then rewrite every OTHER badge that referenced `from` to point at `to`. Does
- * NOT touch focus.md (the caller does that once, at the right granularity).
- *
- * Returns the moved badge + the list of referrers rewritten, or moved:null when
- * no badge existed at `from` (a missing descendant during a folder rename — skip
- * it rather than abort the whole folder move).
+ * Move ONE badge from `from` to `to` (lock-protected) and cascade the reference
+ * graph via the EMBEDDED backlinks — no inbound index any more:
+ *  - the moved badge's OUTBOUND refs: rewrite each target's referenced_by entry
+ *    `from` → `to`;
+ *  - the moved badge's INBOUND backlinks: rewrite each referrer's references[]
+ *    entry `to: from` → `to: to` (preserving note + sides).
+ * Both the copy and every neighbour edit happen under one root lock with direct
+ * fs writes. Returns the moved badge + the referrers rewritten, or moved:null
+ * when no badge existed at `from` (a missing descendant in a folder rename).
+ * Does NOT touch focus.md (the caller does that once, at the right granularity).
  */
 async function moveBadgeAndCascadeRefs(
   ctx: Parameters<Handler>[1],
   root: string,
   from: string,
   to: string,
-  kind: BadgeKind,
 ): Promise<{ moved: BadgeFile | null; updatedRefs: string[] }> {
-  // The badge-file move itself is the RMW that must be serialized against
-  // concurrent badge.set/addRef on the same root. The cascade below calls
-  // ctx.run('inbound.*' / 'badge.*'), which take other locks or re-enter
-  // badge.* — so they run AFTER the lock releases (holding it across them would
-  // nest locks → deadlock).
-  const moved = await withBadgeLock(root, async () => {
-    const source = await readBadge(ctx.fs, root, from, kind);
-    if (!source) return null;
-    const collision = await readBadge(ctx.fs, root, to, kind);
+  return withBadgeLock(root, async () => {
+    const source = await readBadge(ctx.fs, root, from);
+    if (!source) return { moved: null, updatedRefs: [] };
+    const collision = await readBadge(ctx.fs, root, to);
     if (collision) {
       throw new Error(`badge.rename: badge already exists at ${to}`);
     }
-    // Write a copy at the new path, preserving the user's prompt / references /
-    // canvas / createdAt; orphan is dropped since the file just (re)appeared.
     const now = new Date().toISOString();
-    const copy: BadgeFile = {
-      bhVersion: 1,
-      file: to,
-      kind,
-      ...(source.prompt !== undefined && { prompt: source.prompt }),
-      ...(source.promptModifiedAt !== undefined && { promptModifiedAt: source.promptModifiedAt }),
-      references: source.references,
-      ...(source.canvas !== undefined && { canvas: source.canvas }),
-      createdAt: source.createdAt,
-      modifiedAt: now,
-    };
-    await writeBadge(ctx.fs, root, copy);
-    // Write the new one BEFORE deleting the source so a crash between leaves
+    // Copy to the new path, preserving prompt / references / referenced_by /
+    // canvas / createdAt; orphan is dropped (the file just (re)appeared).
+    const { orphan: _orphan, ...rest } = source;
+    const copy: BadgeFile = { ...rest, file: to, modifiedAt: now };
+    // Write the new badge BEFORE deleting the source so a crash between leaves
     // both (recoverable) rather than neither (the user's note lost).
-    await removeBadge(ctx.fs, root, from, kind);
-    return copy;
+    await writeBadge(ctx.fs, root, copy);
+    await removeBadge(ctx.fs, root, from);
+
+    // Outbound: each target's backlink FROM `from` becomes FROM `to`.
+    for (const ref of source.references) {
+      const target = await readBadge(ctx.fs, root, ref.to);
+      if (!target) continue;
+      const links = (target.referenced_by ?? []).map((b) =>
+        b.from === from ? { ...b, from: to } : b,
+      );
+      await writeBadge(ctx.fs, root, { ...target, referenced_by: links, modifiedAt: now });
+    }
+
+    // Inbound: each referrer's reference TO `from` becomes TO `to` (note + sides
+    // preserved by the spread).
+    const updatedRefs: string[] = [];
+    for (const back of source.referenced_by ?? []) {
+      const referrer = await readBadge(ctx.fs, root, back.from);
+      if (!referrer) continue;
+      const refs = referrer.references.map((r) => (r.to === from ? { ...r, to } : r));
+      await writeBadge(ctx.fs, root, { ...referrer, references: refs, modifiedAt: now });
+      updatedRefs.push(back.from);
+    }
+    return { moved: copy, updatedRefs };
   });
-  if (moved === null) return { moved: null, updatedRefs: [] };
-
-  // Migrate the inbound index for the moved badge's OWN outbound refs: writeBadge
-  // doesn't cascade, so each target's inbound entry still records the OLD name.
-  for (const ref of moved.references) {
-    try {
-      await ctx.run('inbound.removeRef', { from, to: ref.to });
-      await ctx.run('inbound.addRef', {
-        from: to,
-        to: ref.to,
-        ...(ref.note !== undefined && { note: ref.note }),
-      });
-    } catch (err) {
-      if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
-    }
-  }
-
-  // Rewrite every badge that pointed AT `from` to point at `to` (removeRef +
-  // addRef, which cascade the inbound index). Inbound module may not be
-  // registered (tests wiring just badges); swallow UnknownCommand.
-  const updatedRefs: string[] = [];
-  let inbound: InboundGetResult = { entries: [] };
-  try {
-    inbound = await ctx.run<{ file: string }, InboundGetResult>('inbound.get', { file: from });
-  } catch (err) {
-    if (!(err instanceof Error && err.name === 'UnknownCommand')) throw err;
-  }
-  for (const entry of inbound.entries) {
-    try {
-      const referringBadge = await readBadgeEitherKind(ctx, root, entry.from);
-      const oldRef = referringBadge?.references.find((r) => r.to === from);
-      await ctx.run('badge.removeRef', {
-        file: entry.from,
-        to: from,
-        ...(referringBadge?.kind !== undefined && { kind: referringBadge.kind }),
-      });
-      await ctx.run('badge.addRef', {
-        file: entry.from,
-        to,
-        ...(referringBadge?.kind !== undefined && { kind: referringBadge.kind }),
-        ...(entry.note !== undefined && { note: entry.note }),
-        ...(oldRef?.fromSide !== undefined && { fromSide: oldRef.fromSide }),
-        ...(oldRef?.toSide !== undefined && { toSide: oldRef.toSide }),
-      });
-      updatedRefs.push(entry.from);
-    } catch (err) {
-      // A neighbour badge might have been deleted concurrently; don't abort the
-      // whole rename — leave the orphan ref for the user to notice on the canvas.
-      if (!(err instanceof Error)) throw err;
-      console.warn(`[bh:badges] rename: failed to rewrite ref on ${entry.from}:`, err.message);
-    }
-  }
-  return { moved, updatedRefs };
 }
 
+/**
+ * Atomic rename: move the badge from `from` to `to`, rewrite the reference graph
+ * (both directions, via embedded backlinks), carry descendant badges on a folder
+ * rename, and update focus.md if `from` was active.
+ *
+ * Errors:
+ *  - Throws if the source badge doesn't exist (unless `ifExists`).
+ *  - Throws if a badge already exists at `to` (collision).
+ */
 export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, ctx) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind: BadgeKind = args.kind ?? 'file';
@@ -620,40 +559,27 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     throw new Error(`badge.rename: from and to are the same (${args.from})`);
   }
 
-  // Move the badge itself (folder's .badge.json, or the file badge) + its refs.
-  const { moved, updatedRefs } = await moveBadgeAndCascadeRefs(ctx, root, args.from, args.to, kind);
+  const { moved, updatedRefs } = await moveBadgeAndCascadeRefs(ctx, root, args.from, args.to);
   if (moved === null && !args.ifExists) {
     throw new Error(`badge.rename: no badge at ${args.from}`);
   }
-  // With `ifExists`, a missing source badge is the SPARSE common case (most files
-  // carry no badge): don't abort. We still fall through to the descendant carry
-  // (a folder may be unannotated yet hold annotated children) and the focus remap,
-  // so the rename isn't lossy. Only the throw is gated — the cascade below is not.
 
-  // A FOLDER rename must carry every CHILD badge with it. The folder's own
-  // .badge.json move above leaves all `<from>/<child>.json` stranded at the old
-  // path: their files now live under `<to>/`, but their badges (prompt + refs)
-  // would vanish from the canvas and the brief, and their referrers would dangle.
-  // Enumerate every descendant badge and move it too — flat (listBadges returns
-  // all descendants), so nested folders and their files are each moved exactly
-  // once by string-prefix remap, no recursion / double-processing.
+  // A FOLDER rename must carry every CHILD badge with it: the folder's own
+  // badge.yaml move above leaves descendants stranded at the old prefix. List
+  // is flat, so each descendant is remapped exactly once by string prefix.
   if (kind === 'folder') {
     const prefix = `${args.from}/`;
     const all = await listBadges(ctx.fs, root);
     const descendants = all.filter((b) => b.file.startsWith(prefix));
     for (const child of descendants) {
       const childTo = `${args.to}/${child.file.slice(prefix.length)}`;
-      const res = await moveBadgeAndCascadeRefs(ctx, root, child.file, childTo, child.kind);
+      const res = await moveBadgeAndCascadeRefs(ctx, root, child.file, childTo);
       updatedRefs.push(...res.updatedRefs);
     }
   }
 
-  // Update focus.md if `from` is focused. A FILE rename remaps the exact
-  // active path; a FOLDER rename remaps every active CHILD path under it AND
-  // re-stamps the `# source-folder:` provenance (else editing the renamed
-  // folder's prompt would stop refreshing the brief). Both preserve the turn
-  // intent + provenance UNDER the focus lock — a bare focus.set({files}) would
-  // drop the intent block AND strip provenance.
+  // Update focus.md if `from` is focused. Best-effort (tolerate missing module
+  // / a hostile symlinked focus.md → PathEscape), exactly like reconcileFocus.
   let focusUpdated = false;
   try {
     const cmd = kind === 'folder' ? 'focus.renameActiveFolder' : 'focus.renameActiveFile';
@@ -663,11 +589,6 @@ export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, 
     });
     focusUpdated = res.renamed;
   } catch (err) {
-    // Best-effort, exactly like reconcileFocus for badge.set/addRef/removeRef:
-    // tolerate a missing module AND a hostile/symlinked focus.md (PathEscape).
-    // Otherwise a workspace-escaping focus.md symlink would abort badge.rename
-    // AFTER steps 1-3 committed, leaving badge + inbound pointing at `to` while
-    // focus.md still points at `from`.
     if (!(err instanceof Error && (err.name === 'UnknownCommand' || err.name === 'PathEscape'))) {
       throw err;
     }

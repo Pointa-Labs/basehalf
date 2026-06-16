@@ -1,10 +1,15 @@
 /**
  * Badge = a workspace file/folder plus the "backpack" (prompt, references,
- * canvas position) bh tracks for it. Per IR-v2-04 "展示牌 = 文件 + 背包".
+ * reverse-references, canvas position) bh tracks for it. Per IR-v2-04
+ * "展示牌 = 文件 + 背包".
  *
- * Schema is SR-v0 §3.1; on disk at:
- *   file:   <workspace>/.bh/badges/<relative-path>.json
- *   folder: <workspace>/.bh/badges/<folder-path>/.badge.json
+ * Per private-docs/focus_mode_spec, a badge lives in the mirror tree at
+ *   <workspace>/.bh/mirror/<relative-path>/badge.yaml
+ * for BOTH file and folder kinds (the kind is a field, not the path — a real
+ * filesystem can't hold a file and a folder at the same path, so routing both
+ * to <rel>/badge.yaml is collision-free). The reverse index that used to live
+ * in .bh/index/inbound.json is now EMBEDDED here as `referenced_by`, so "who
+ * points at me?" is one read of this file.
  */
 
 export type BadgeKind = 'file' | 'folder';
@@ -25,6 +30,13 @@ export interface BadgeReference {
   readonly toSide?: BadgeSide;
 }
 
+/** One inbound link: another badge `from` points at this one (with an optional
+ *  note). The embedded replacement for an inbound-index entry. */
+export interface BadgeBacklink {
+  readonly from: string;
+  readonly note?: string;
+}
+
 export interface BadgeFile {
   readonly bhVersion: 1;
   readonly file: string;
@@ -37,6 +49,10 @@ export interface BadgeFile {
    * must then skip the comparison, never guess. */
   readonly promptModifiedAt?: string;
   readonly references: readonly BadgeReference[];
+  /** Reverse links — who points AT this file. Embedded here (replacing the old
+   *  .bh/index/inbound.json) and maintained by badge.addRef/removeRef/rename on
+   *  the TARGET badge. Absent/empty when nothing points here. */
+  readonly referenced_by?: readonly BadgeBacklink[];
   readonly canvas?: BadgePosition;
   readonly createdAt: string;
   readonly modifiedAt: string;
@@ -155,11 +171,11 @@ export interface BadgeRevisionArgs {
   readonly _?: never;
 }
 export interface BadgeRevisionResult {
-  /** Number of badge JSON files. */
+  /** Number of badge.yaml files. */
   readonly count: number;
   /** Newest badge mtime (epoch ms); 0 when there are none. Together with count,
-   *  a cheap signature a UI poll compares to detect external `.bh/badges/` edits
-   *  (the `bh` CLI / an agent) without re-parsing every badge. */
+   *  a cheap signature a UI poll compares to detect external `.bh/mirror/` edits
+   *  (an agent) without re-parsing every badge. */
   readonly maxMtimeMs: number;
 }
 
@@ -174,14 +190,14 @@ export interface BadgePruneDanglingResult {
 }
 
 /**
- * AR-PR11-7: thrown when a badge JSON on disk fails to parse. UI / list
- * callers should catch and skip; never crash on a single bad file.
+ * Thrown when a badge.yaml on disk fails to parse. UI / list callers should
+ * catch and skip; never crash on a single bad file.
  */
 export class BadgeCorrupt extends Error {
   readonly code = 'BADGE_CORRUPT';
   readonly file: string;
   constructor(file: string, options?: { cause?: unknown }) {
-    super(`Badge JSON corrupt: ${file}`, options);
+    super(`Badge corrupt: ${file}`, options);
     this.name = 'BadgeCorrupt';
     this.file = file;
   }

@@ -116,20 +116,15 @@ async function assembleItems(
     }
     // The other half of the graph: who points AT this file, and why. Inlined so
     // the brief carries both directions of the human's relationships in one read.
-    // Best-effort (inbound module may be absent in tests) and only kept when a
-    // note exists or there's a backlink at all — a bare backlink is still signal.
-    let inbound: { from: string; note?: string }[] = [];
-    try {
-      const got = await ctx.run<{ file: string }, InboundGetMinimal>('inbound.get', { file });
-      inbound = (got.entries ?? [])
-        .filter((e) => e.from)
-        .map((e) => ({
-          from: e.from,
-          ...(e.note !== undefined && e.note !== '' && { note: e.note }),
-        }));
-    } catch {
-      inbound = [];
-    }
+    // Read from the badge's EMBEDDED referenced_by (was the separate inbound.json).
+    // Kept only when a note exists or there's a backlink at all — a bare backlink
+    // is still signal.
+    const inbound = (badge?.referenced_by ?? [])
+      .filter((e) => e.from)
+      .map((e) => ({
+        from: e.from,
+        ...(e.note !== undefined && e.note !== '' && { note: e.note }),
+      }));
     items.push({
       file,
       ...(promptText !== undefined && { prompt: promptText }),
@@ -188,9 +183,7 @@ interface BadgeGetMinimal {
   readonly promptModifiedAt?: string;
   readonly orphan?: boolean;
   readonly references?: readonly { readonly to: string; readonly note?: string }[];
-}
-interface InboundGetMinimal {
-  readonly entries?: readonly { readonly from: string; readonly note?: string }[];
+  readonly referenced_by?: readonly { readonly from: string; readonly note?: string }[];
 }
 /**
  * Gather every supported FILE under a folder — the folder IS the grouping, so
