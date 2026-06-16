@@ -644,6 +644,37 @@ export const Canvas = (): JSX.Element => {
     [],
   );
 
+  // Live-sync the FOLDER viewport into focus.yaml (viewport_center + zoom) so the
+  // agent knows where on the canvas the user is looking — but only when no file is
+  // open (an open file IS the focus node; the folder isn't). focus.set merges
+  // field-scoped, so this updates just the viewport fields of the focused folder's
+  // focus.yaml without disturbing the node-switch authority (the effect below).
+  // Reads live store state at fire time (stable callback, no stale closure).
+  const persistFolderFocus = useMemo(
+    () =>
+      debounce((viewport: Viewport) => {
+        const st = useWorkspaceStore.getState();
+        if (st.openFile || !st.current || st.currentReachable === false) return;
+        const rect = canvasRootRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        // Un-project the screen-center into canvas coordinates.
+        const viewport_center = {
+          x: Math.round((rect.width / 2 - viewport.x) / viewport.zoom),
+          y: Math.round((rect.height / 2 - viewport.y) / viewport.zoom),
+        };
+        void window.bh
+          .run('focus.set', {
+            path: st.folderScope ?? '',
+            kind: 'folder',
+            viewport_center,
+            zoom: Number(viewport.zoom.toFixed(3)),
+            workspace: st.current,
+          })
+          .catch(() => undefined);
+      }, VIEWPORT_DEBOUNCE),
+    [],
+  );
+
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<BadgeNodeData>>[]) => {
       setNodes((prev) => {
@@ -938,8 +969,9 @@ export const Canvas = (): JSX.Element => {
       viewportRef.current = viewport;
       writeZoomVar(viewport.zoom);
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
+      persistFolderFocus(viewport);
     },
-    [persistViewport, writeZoomVar],
+    [persistViewport, persistFolderFocus, writeZoomVar],
   );
 
   const onMove = useCallback(

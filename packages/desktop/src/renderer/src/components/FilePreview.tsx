@@ -1028,6 +1028,40 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
     }
   }, [file]);
 
+  // Live-sync the first visible source line into focus.yaml (visible_lines.start)
+  // so the agent knows where the user is reading. focus.set merges field-scoped, so
+  // this only touches the open file's visible_lines — the node was already focused
+  // when it opened. Guarded: a debounced late fire after the user switched files
+  // must not repoint current_focus back at this (now-closed) file.
+  const pushVisibleLine = useMemo(
+    () =>
+      debounce((start: number) => {
+        const st = useWorkspaceStore.getState();
+        if (st.openFile !== file || !st.current) return;
+        void window.bh
+          .run('focus.set', {
+            path: file,
+            kind: 'file',
+            visible_lines: { start },
+            workspace: st.current,
+          })
+          .catch(() => undefined);
+      }, 400),
+    [file],
+  );
+  useEffect(() => () => pushVisibleLine.cancel(), [pushVisibleLine]);
+  const onScroll = useCallback(
+    (el: HTMLDivElement) => {
+      // CodeBody renders one logical line per row at lineHeight 1.6 of the caption
+      // font, after a top padding of space[4]. (A coarse hint; exactness isn't
+      // needed — the agent reads "around here", not a precise pixel.)
+      const lineHeightPx = font.size.caption * 1.6;
+      const first = Math.max(1, Math.floor((el.scrollTop - space[4]) / lineHeightPx) + 1);
+      pushVisibleLine(first);
+    },
+    [pushVisibleLine],
+  );
+
   useEffect(() => {
     let cancelled = false;
     setState(null);
@@ -1078,7 +1112,7 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
         />
         Read-only — edit with your own tools
       </div>
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: 'auto' }} onScroll={(e) => onScroll(e.currentTarget)}>
         {error !== null ? (
           <div
             style={{
