@@ -303,11 +303,17 @@ function renderBadge(badge: Badge | null): void {
 }
 
 function renderBadgeRename(r: {
-  badge: Badge;
+  badge: Badge | null;
   updatedRefs: readonly string[];
   focusUpdated: boolean;
 }): void {
-  process.stdout.write(`Renamed badge → ${r.badge.file}\n`);
+  // `badge` is null when the moved path carried no badge (the ifExists path) —
+  // the move still cascades refs/focus, so report those, not a missing badge.
+  if (r.badge === null) {
+    process.stdout.write('Renamed (no badge at source — overlay unchanged).\n');
+  } else {
+    process.stdout.write(`Renamed badge → ${r.badge.file}\n`);
+  }
   if (r.updatedRefs.length > 0) {
     process.stdout.write(`  refs:    ${r.updatedRefs.length} neighbour(s) rewritten\n`);
   }
