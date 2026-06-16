@@ -83,7 +83,6 @@ import { CanvasSnapGuides } from './CanvasSnapGuides.js';
 import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { Onboarding } from './Onboarding.js';
-import { ProposalsChip } from './ProposalsChip.js';
 import { Button } from './primitives/Button.js';
 import { usePopover } from './primitives/Popover.js';
 
@@ -1224,10 +1223,9 @@ export const Canvas = (): JSX.Element => {
     >
       {/* New note — top-right of the canvas. A real `untitled-N.md` opens for
           typing immediately (no filename dialog); inside a folder scope it's
-          created in that folder. The agent-proposals chip (when an agent wrote
-          observations back) sits to its left. Hidden while a file is open — the
-          editor overlay covers the canvas, so a floating button there just
-          clutters the document (the ⌘N shortcut still works). */}
+          created in that folder. Hidden while a file is open — the editor
+          overlay covers the canvas, so a floating button there just clutters
+          the document (the ⌘N shortcut still works). */}
       {!openFile && (
         <div
           style={{
@@ -1241,7 +1239,6 @@ export const Canvas = (): JSX.Element => {
             gap: space[2],
           }}
         >
-          <ProposalsChip current={current} />
           <Button
             onClick={() => void useWorkspaceStore.getState().newNote({ folder: folderScope })}
             title="Create a new note here (⌘N)"
