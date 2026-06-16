@@ -74,6 +74,14 @@ export const radius = {
   pill: 999,
 } as const;
 
+/** Shared chrome dimensions. The top header band — the terminal's tab strip and
+ *  the breadcrumb / document-header bar — is ONE height across the app so the two
+ *  sit flush as a single uninterrupted strip (their bottom borders line up rather
+ *  than stepping by a few pixels). Change it here and both move together. */
+export const layout = {
+  chromeBarHeight: 32,
+} as const;
+
 export const font = {
   sans: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif',
   mono: '"SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace',
