@@ -13,5 +13,17 @@ export {
   writeMaybeNoFollow,
 } from './contain.js';
 export { createKeyedMutex } from './mutex.js';
+export {
+  MirrorCorrupt,
+  mirrorNodeDir,
+  mirrorPath,
+  readMirror,
+  writeMirror,
+  patchMirror,
+  removeMirror,
+  listMirror,
+  mirrorRevision,
+} from './mirror.js';
+export type { MirrorKind } from './mirror.js';
 export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './types.js';
 export { UnknownCommand } from './types.js';

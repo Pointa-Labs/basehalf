@@ -7,10 +7,12 @@ import {
   open,
   readFile,
   readdir,
+  readlink,
   realpath,
   rename,
   rm,
   stat,
+  symlink,
   unlink,
   writeFile,
 } from 'node:fs/promises';
@@ -189,6 +191,20 @@ export function defaultFs(): FsLike {
       // force:false — surface a real ENOENT/EACCES rather than masking a delete
       // that didn't happen. recursive removes a non-empty dir + contents.
       await rm(path, { recursive: opts?.recursive ?? false, force: false });
+    },
+    async symlink(target, path) {
+      await symlink(target, path);
+    },
+    async readlink(path) {
+      try {
+        return await readlink(path);
+      } catch (err) {
+        // ENOENT (missing) and EINVAL (exists but not a symlink) both mean
+        // "no symlink target here" — the caller treats that as "no current
+        // focus set" rather than an error.
+        if (isENOENT(err) || hasCode(err, 'EINVAL')) return null;
+        throw err;
+      }
     },
   };
 }

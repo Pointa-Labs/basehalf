@@ -120,6 +120,23 @@ export interface FsLike {
    * its presence is exactly the "can we trash?" capability check.
    */
   trash?(path: string): Promise<void>;
+  /**
+   * Create a symbolic link at `path` pointing at `target`. Used for
+   * `.bh/current_focus.yaml` — the Focus Mode entry point the agent reads each
+   * turn is a symlink to the active node's `focus.yaml`. OPTIONAL: legacy mocks
+   * may omit it; the focus module then falls back to a plain pointer file.
+   * Throws EEXIST if `path` already exists (callers create-at-temp + rename for
+   * an atomic retarget).
+   */
+  symlink?(target: string, path: string): Promise<void>;
+  /**
+   * Read a symlink's raw target string (node:fs `readlink`) WITHOUT resolving
+   * it. Returns null if `path` is missing or is not a symlink. The current-focus
+   * reader follows this, then re-canonicalizes + containment-checks the target
+   * (a planted symlink could point outside the workspace). OPTIONAL: legacy
+   * mocks fall back to reading a pointer file.
+   */
+  readlink?(path: string): Promise<string | null>;
 }
 
 /**
