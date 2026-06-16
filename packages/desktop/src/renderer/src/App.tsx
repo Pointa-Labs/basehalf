@@ -5,6 +5,7 @@ import {
   isCommandPaletteOpen,
   openCommandPalette,
 } from './components/CommandPalette.js';
+import { ContextMenuHost } from './components/ContextMenu.js';
 import { DialogHost, confirm } from './components/Dialog.js';
 import { EditorOverlay } from './components/EditorOverlay.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
@@ -65,6 +66,15 @@ export const App = (): JSX.Element => {
   // and its toggle button — unmount.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        // Safety net for a stranded inline-rename: the InlineEditInput stops Esc
+        // propagation WHILE focused (so this never fires mid-rename), so an Esc
+        // that reaches here means no rename input mounted (e.g. a create into a
+        // surface not currently visible). Clear the flag so the user isn't stuck.
+        const ws = useWorkspaceStore.getState();
+        if (ws.renamingPath !== null) ws.endRename();
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey)) return;
       const ae = document.activeElement;
       const editable =
@@ -279,6 +289,7 @@ export const App = (): JSX.Element => {
           transient dialogs and the palette above the Settings surface. */}
       <SettingsHost />
       <DialogHost />
+      <ContextMenuHost />
       <CommandPalette />
       {dragDepth > 0 && (
         <div

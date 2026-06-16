@@ -6,6 +6,7 @@ import type {
 } from '@basehalf/core';
 import { create } from 'zustand';
 import { flushAll, flushPane } from '../lib/editorFlush.js';
+import { emitEntryRemoved, emitEntryRenamed } from '../lib/fileEvents.js';
 import { noteStemFromTitle } from '../lib/noteTitle.js';
 import { renamePanelTab } from '../lib/panelTab.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
@@ -128,6 +129,30 @@ interface WorkspaceState {
    *  editor rebinds to the landing path. No-op on a blank or unchanged title.
    *  The badge / ref / focus cascade is the watcher's job, not this action's. */
   renameOpenFile: (title: string) => Promise<string | null>;
+  /** Context-menu "New File": create an empty file at a workspace-relative path
+   *  (collision-suffixed by core, never clobbers) and open it. Returns the
+   *  landing path, or null on failure / workspace switch. The watcher refreshes
+   *  the tree + canvas. */
+  createFile: (relPath: string) => Promise<string | null>;
+  /** Context-menu "New Folder": create a folder (collision-suffixed). Returns
+   *  the landing path. No editor impact; the watcher refreshes the tree + canvas. */
+  createFolder: (relPath: string) => Promise<string | null>;
+  /** Context-menu "Rename": move a file/folder, cascading the badge overlay (core
+   *  renameEntry). Flush-gated; rebinds the open editor if it pointed at the moved
+   *  path (file) or lived under the moved folder. Returns the landing path. */
+  renameEntry: (from: string, to: string, kind: 'file' | 'folder') => Promise<string | null>;
+  /** Context-menu "Delete": send a file/folder to the OS trash (desktop host) or
+   *  permanently remove it (CLI fallback), purging its badge overlay. Closes the
+   *  editor first if it was showing the deleted path. Returns true on success. */
+  deleteEntry: (path: string, kind: 'file' | 'folder') => Promise<boolean>;
+  /** The entry (workspace-relative path) currently in inline-rename mode, or null.
+   *  A SHARED signal: whichever surface shows that entry (sidebar row or canvas
+   *  card) renders an InlineEditInput for it. Set by the context-menu "Rename"
+   *  action and right after a "New File/Folder" create (so the user names it in
+   *  place). Cleared on commit/cancel. */
+  renamingPath: string | null;
+  beginRename: (path: string) => void;
+  endRename: () => void;
   /** Clear {@link titleFocusPath} once the title input has consumed it. */
   consumeTitleFocus: () => void;
   /** The path whose body editor should take the cursor next — set when the title
@@ -207,6 +232,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     currentFile: null,
     titleFocusPath: null,
     bodyFocusPath: null,
+    renamingPath: null,
     canvasEditingCardIds: new Set<string>(),
     canvasSelection: null,
     openMatchQuery: null,
@@ -243,6 +269,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             canvasSelection: null,
             openMatchQuery: null,
             folderScope: null,
+            renamingPath: null,
             error: '',
           });
         }
@@ -427,6 +454,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           canvasSelection: null,
           openMatchQuery: null,
           folderScope: null,
+          renamingPath: null,
           error: '',
         });
         await startWatcher();
@@ -619,7 +647,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // un-flushed / conflicted edit would vanish. A blocked flush aborts the
       // scope change — same rule as a file switch / workspace switch.
       if ((await flushAll()) === false) return;
-      set({ folderScope: path });
+      // Drop any pending inline-rename: the entry being named may not exist at the
+      // new scope, which would otherwise strand `renamingPath` with no input shown.
+      set({ folderScope: path, renamingPath: null });
     },
 
     navigateToFolder: async (path: string | null) => {
@@ -634,7 +664,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // Workspace switched during the flush → the new root already reset scope +
       // open file; don't clobber it.
       if (get().current !== current) return;
-      set({ openFile: null, currentFile: null, openMatchQuery: null, folderScope: path });
+      set({
+        openFile: null,
+        currentFile: null,
+        openMatchQuery: null,
+        folderScope: path,
+        renamingPath: null,
+      });
     },
 
     createNote: async (relPath: string) => {
@@ -742,6 +778,143 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         set({ error: formatError(err) });
       }
     },
+
+    createFile: async (relPath) => {
+      const ws = get().current;
+      if (ws === null) return null;
+      // No editor switch (the file-tree "New File" creates + inline-names, it
+      // doesn't open the big editor — that's ⌘N / double-click). So no flush is
+      // needed; the watcher's add event surfaces the new row/card.
+      try {
+        const res = (await window.bh.run('workspace.createFile', { path: relPath })) as {
+          path: string;
+        };
+        return get().current === ws ? res.path : null;
+      } catch (err) {
+        set({ error: formatError(err) });
+        return null;
+      }
+    },
+
+    createFolder: async (relPath) => {
+      const ws = get().current;
+      if (ws === null) return null;
+      // No editor impact (a new empty folder opens nothing), so no flush needed —
+      // the watcher's add event refreshes the tree + canvas.
+      try {
+        const res = (await window.bh.run('workspace.createFolder', { path: relPath })) as {
+          path: string;
+        };
+        return get().current === ws ? res.path : null;
+      } catch (err) {
+        set({ error: formatError(err) });
+        return null;
+      }
+    },
+
+    renameEntry: async (from, to, kind) => {
+      const ws = get().current;
+      if (ws === null) return null;
+      if (from === to) return from;
+      // A rename can move the OPEN file (or its containing folder): persist edits
+      // to the old path first and abort on an unresolved conflict — same gate as
+      // renameOpenFile.
+      if ((await flushAll()) === false) {
+        set({ error: "Save or resolve this file's changes before renaming." });
+        return null;
+      }
+      if (get().current !== ws) return null;
+      try {
+        const res = (await window.bh.run('workspace.renameEntry', { from, to, kind })) as {
+          from: string;
+          to: string;
+          renamed: boolean;
+        };
+        if (get().current !== ws) return null;
+        if (res.renamed) {
+          // Rebind the open editor if it pointed at the moved path. Exact match for
+          // a file; prefix-remap for a child of a renamed folder (the watcher's
+          // per-child rename events would also rebind, but do it now for immediacy).
+          const open = get().openFile;
+          if (open !== null) {
+            const rebound =
+              kind === 'file' && open === from
+                ? res.to
+                : kind === 'folder' && open.startsWith(`${from}/`)
+                  ? res.to + open.slice(from.length)
+                  : null;
+            if (rebound !== null) set({ openFile: rebound, currentFile: rebound });
+          }
+          // If the canvas is scoped INTO the renamed folder (or it IS the folder),
+          // remap folderScope the same way — else the canvas keeps pointing at the
+          // old path and its next reload throws PATH_NOT_FOUND (a stuck dead scope).
+          if (kind === 'folder') {
+            const scope = get().folderScope;
+            if (scope !== null && (scope === from || scope.startsWith(`${from}/`))) {
+              set({ folderScope: res.to + scope.slice(from.length) });
+            }
+          }
+          // Optimistic UI: remap the card/row in place NOW rather than waiting for
+          // the watcher's rename event + reload (the same round-trip lag as delete).
+          emitEntryRenamed(from, res.to, kind);
+        }
+        return res.renamed ? res.to : from;
+      } catch (err) {
+        set({ error: formatError(err) });
+        return null;
+      }
+    },
+
+    deleteEntry: async (path, kind) => {
+      const ws = get().current;
+      if (ws === null) return false;
+      // If the open file is the target (or lives inside a deleted folder), drop it
+      // WITHOUT flushing: flushing would rewrite a file we're about to delete, and
+      // a conflict flush must not block a delete. The editor remounts to empty.
+      const open = get().openFile;
+      const prevCurrent = get().currentFile;
+      const prevMatchQuery = get().openMatchQuery;
+      const wasOpen =
+        open !== null && (open === path || (kind === 'folder' && open.startsWith(`${path}/`)));
+      if (wasOpen) set({ openFile: null, currentFile: null, openMatchQuery: null });
+      try {
+        const res = (await window.bh.run('workspace.deleteEntry', { path, kind })) as {
+          deleted: boolean;
+        };
+        // Confine the optimistic update to the workspace the delete was issued in
+        // (emitEntryRemoved is a global bus): if the user switched workspaces during
+        // the trash IPC, firing `path` — relative to the OLD root — would wrongly
+        // drop a same-named entry in the NEW workspace. Mirrors createFile/renameEntry.
+        if (res.deleted && get().current === ws) {
+          // If the canvas is scoped INTO the just-deleted folder (or it IS that
+          // folder), raise the scope to its parent (or root) so the canvas doesn't
+          // dead-end on a vanished path (stale child cards + a PATH_NOT_FOUND banner).
+          if (kind === 'folder') {
+            const scope = get().folderScope;
+            if (scope !== null && (scope === path || scope.startsWith(`${path}/`))) {
+              const slash = path.lastIndexOf('/');
+              set({ folderScope: slash === -1 ? null : path.slice(0, slash), renamingPath: null });
+            }
+          }
+          // Optimistic UI: drop the card/row NOW instead of waiting for the watcher
+          // to observe the unlink (chokidar latency + the canvas's 1100ms settle).
+          // The watcher's later event just confirms an already-gone entry.
+          emitEntryRemoved(path, kind);
+        }
+        return res.deleted;
+      } catch (err) {
+        // The disk delete failed (trash rejected / locked / path gone) — the entry
+        // still exists, so restore the editor we optimistically closed rather than
+        // leaving the user on a blank pane with only a toast.
+        if (wasOpen)
+          set({ openFile: open, currentFile: prevCurrent, openMatchQuery: prevMatchQuery });
+        set({ error: formatError(err) });
+        return false;
+      }
+    },
+
+    beginRename: (path) => set({ renamingPath: path }),
+    endRename: () => set({ renamingPath: null }),
 
     setNotice: (message: string) => set({ notice: message }),
     clearNotice: () => set({ notice: '' }),

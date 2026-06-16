@@ -14,6 +14,7 @@ import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { CardBadgeFace } from './CardBadgeFace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
+import { InlineEditInput } from './primitives/InlineEditInput.js';
 
 // A badge is a *living tile*: when it's big enough on screen to read, it shows a
 // real preview of the file's contents (rendered Markdown, a raw text/code
@@ -130,6 +131,12 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
     return w?.path ?? '';
   });
   const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
+  // Inline rename: the card title becomes an input when this card is the entry
+  // in rename mode (a context-menu Rename, or a just-created file/folder being
+  // named). Shared signal so the sidebar + canvas use one affordance.
+  const isRenaming = useWorkspaceStore((s) => s.renamingPath === id);
+  const endRename = useWorkspaceStore((s) => s.endRename);
+  const renameEntry = useWorkspaceStore((s) => s.renameEntry);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
   // Size-aware level-of-detail: a card collapses to a name chip when it's too
   // small to read — either the user shrank it (intrinsic-height gate) or the
@@ -196,9 +203,22 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // unmount would interrupt the open prompt edit. Cleared on toggle-off and on
   // unmount (idempotent in the store).
   useEffect(() => {
-    setCardEditing(id, showBadgeFace);
+    setCardEditing(id, showBadgeFace || isRenaming);
     return () => setCardEditing(id, false);
-  }, [id, showBadgeFace, setCardEditing]);
+  }, [id, showBadgeFace, isRenaming, setCardEditing]);
+
+  const commitRename = useCallback(
+    (name: string) => {
+      endRename();
+      // Inline rename retitles in place. A typed '/' (or '.'/'..') would turn it
+      // into a cross-folder MOVE — surprising here, and it leaves a stale card at
+      // the old scope until reload — so reject anything that isn't a plain basename.
+      if (name.includes('/') || name === '.' || name === '..') return;
+      const newRel = dirname === '' ? name : `${dirname}/${name}`;
+      void renameEntry(d.label, newRel, d.kind);
+    },
+    [dirname, d.label, d.kind, endRename, renameEntry],
+  );
 
   const selectThisNode = useCallback(() => {
     setFlowNodes((nodes) =>
@@ -348,21 +368,44 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             </span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: space[1.5] }}>
-                <span
-                  style={{
-                    fontWeight: font.weight.semibold,
-                    fontSize: font.size.body,
-                    color: orphan ? color.danger : color.textPrimary,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    flex: 1,
-                    minWidth: 0,
-                    letterSpacing: -0.1,
-                  }}
-                >
-                  {basename}
-                </span>
+                {isRenaming ? (
+                  <InlineEditInput
+                    initialValue={basename}
+                    onCommit={commitRename}
+                    onCancel={endRename}
+                    ariaLabel="New name"
+                    testId="canvas-rename-input"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontWeight: font.weight.semibold,
+                      fontSize: font.size.body,
+                      color: color.textPrimary,
+                      background: color.bg,
+                      border: `1px solid ${color.accent}`,
+                      borderRadius: radius.sm,
+                      padding: `0 ${space[1]}px`,
+                      outline: 'none',
+                      letterSpacing: -0.1,
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      fontWeight: font.weight.semibold,
+                      fontSize: font.size.body,
+                      color: orphan ? color.danger : color.textPrimary,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flex: 1,
+                      minWidth: 0,
+                      letterSpacing: -0.1,
+                    }}
+                  >
+                    {basename}
+                  </span>
+                )}
                 {isFolder && d.preview && (
                   <KindChip label={countLabel(d.preview.total)} tone="folder" />
                 )}

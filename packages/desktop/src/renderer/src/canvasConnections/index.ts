@@ -8,6 +8,7 @@ export {
   applyReferenceEdgeUpdate,
   badgesToConnectionEdges,
   inferConnectionSides,
+  referenceEdgeId,
   removeReferenceEdgeUpdate,
   sideFromHandle,
 } from './edges.js';

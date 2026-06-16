@@ -6,6 +6,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, space } from '../design.js';
+import { termRegistry } from '../lib/termRegistry.js';
 
 // The terminal's palette uses the app's own NEUTRAL dark surface (not a blue-gray
 // editor scheme), so the dock blends with the rest of the theme: a
@@ -54,12 +55,16 @@ const THEME = {
  * measure itself). `onRestart` asks the parent to remount us after the shell exits.
  */
 export const TerminalView = ({
+  paneId,
   active,
   onRestart,
   onTitle,
   onDims,
   onActivity,
 }: {
+  /** The pane this view backs — registers its xterm instance under it so the
+   *  dock's context menu can reach Copy/Paste/Clear for the clicked pane. */
+  paneId: string;
   active: boolean;
   onRestart: () => void;
   onTitle?: (title: string) => void;
@@ -79,6 +84,11 @@ export const TerminalView = ({
   onDimsRef.current = onDims;
   const onActivityRef = useRef(onActivity);
   onActivityRef.current = onActivity;
+  // Held in a ref like the callbacks so the mount-once spawn effect can register
+  // this pane's xterm WITHOUT taking paneId as a reactive dep (it's stable per
+  // mounted view — the dock keys TerminalView by pane).
+  const paneIdRef = useRef(paneId);
+  paneIdRef.current = paneId;
   // Throttle activity pings — output can arrive in a flood; one ping per ~200ms
   // is plenty to light a tab's dot without a render storm.
   const lastActivityRef = useRef(0);
@@ -138,6 +148,7 @@ export const TerminalView = ({
     }
     termRef.current = term;
     fitRef.current = fit;
+    termRegistry.register(paneIdRef.current, term);
     try {
       fit.fit();
     } catch {
@@ -231,6 +242,7 @@ export const TerminalView = ({
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
+      termRegistry.unregister(paneIdRef.current);
     };
   }, []);
 

@@ -1,8 +1,20 @@
 import type { WorkspaceListFilesEntry, WorkspaceListFilesResult } from '@basehalf/core';
-import { type CSSProperties, type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type JSX,
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
+import { buildFileMenu } from '../lib/menus/fileMenu.js';
+import { openContextMenu } from '../store/contextMenu.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
+import { InlineEditInput } from './primitives/InlineEditInput.js';
 
 interface NavTreeProps {
   rootPath: string;
@@ -30,6 +42,14 @@ const HIDDEN_NAMES: ReadonlySet<string> = new Set([
 
 const isVisible = (entry: WorkspaceListFilesEntry): boolean => !HIDDEN_NAMES.has(entry.name);
 
+// Same ordering workspace.listFiles returns (dirs first, then name), so an
+// optimistic rename re-sorts the row to the position the watcher reload will
+// place it — no jump when the reload lands.
+const sortEntries = (entries: readonly WorkspaceListFilesEntry[]): WorkspaceListFilesEntry[] =>
+  [...entries].sort((a, b) =>
+    a.type !== b.type ? (a.type === 'dir' ? -1 : 1) : a.name.localeCompare(b.name),
+  );
+
 const joinPath = (parent: string, name: string): string =>
   parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`;
 
@@ -47,6 +67,11 @@ interface RowProps {
   isSelected: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: MouseEvent) => void;
+  /** When true, the name is replaced by an inline edit field (rename / name-new). */
+  renaming?: boolean;
+  onRenameCommit?: (name: string) => void;
+  onRenameCancel?: () => void;
 }
 
 /** Root-level agent-protocol pointer files (setup installs them). The sidebar
@@ -65,11 +90,80 @@ const Row = ({
   isSelected,
   onClick,
   onDoubleClick,
+  onContextMenu,
+  renaming = false,
+  onRenameCommit,
+  onRenameCancel,
 }: RowProps): JSX.Element => {
   const [hover, setHover] = useState(false);
   const isDir = entry.type === 'dir';
   const indent = space[2] + depth * 14;
   const agentHint = isAgentHintFile(depth, entry);
+
+  const glyph = (
+    <span
+      aria-hidden
+      style={{
+        width: 14,
+        color: color.textTertiary,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      {isDir ? (
+        <ChevronIcon open={isExpanded} />
+      ) : (
+        <FileGlyph
+          type={badgeType(entry.name, false)}
+          tone={isSelected ? color.accent : color.textTertiary}
+          size={13}
+        />
+      )}
+    </span>
+  );
+
+  // Inline rename / name-a-new-entry: a non-button row (an <input> can't live
+  // inside a <button>) laid out identically, reusing the shared commit machine.
+  if (renaming) {
+    return (
+      <div
+        className="bh-nav-row"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: space[1],
+          height: ROW_HEIGHT,
+          paddingLeft: indent,
+          paddingRight: space[2],
+          background: color.divider,
+        }}
+      >
+        {glyph}
+        <InlineEditInput
+          initialValue={entry.name}
+          onCommit={(name) => onRenameCommit?.(name)}
+          onCancel={() => onRenameCancel?.()}
+          ariaLabel="New name"
+          testId="nav-rename-input"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            border: `1px solid ${color.accent}`,
+            borderRadius: radius.sm,
+            background: color.bg,
+            color: color.textPrimary,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            padding: `0 ${space[1]}px`,
+            height: ROW_HEIGHT - 4,
+            outline: 'none',
+          }}
+        />
+      </div>
+    );
+  }
 
   const bg = isSelected ? color.accentSofter : hover ? color.divider : 'transparent';
   const fg = isSelected
@@ -107,6 +201,7 @@ const Row = ({
       type="button"
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       title={
@@ -118,29 +213,9 @@ const Row = ({
       className="bh-nav-row"
       style={style}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 14,
-          color: color.textTertiary,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-        }}
-      >
-        {isDir ? (
-          <ChevronIcon open={isExpanded} />
-        ) : (
-          // File-type glyph so the tree shares the canvas's visual language
-          // and is scannable at a glance (matches BadgeNode's identity pass).
-          <FileGlyph
-            type={badgeType(entry.name, false)}
-            tone={isSelected ? color.accent : color.textTertiary}
-            size={13}
-          />
-        )}
-      </span>
+      {/* File-type glyph so the tree shares the canvas's visual language and is
+          scannable at a glance (matches BadgeNode's identity pass). */}
+      {glyph}
       <span
         style={{
           overflow: 'hidden',
@@ -198,6 +273,9 @@ const ChevronIcon = ({ open }: { open: boolean }): JSX.Element => (
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const currentFile = useWorkspaceStore((s) => s.currentFile);
+  const renamingPath = useWorkspaceStore((s) => s.renamingPath);
+  const endRename = useWorkspaceStore((s) => s.endRename);
+  const renameEntry = useWorkspaceStore((s) => s.renameEntry);
   const currentPath = currentFile;
   const [childrenByPath, setChildrenByPath] = useState<
     Map<string, readonly WorkspaceListFilesEntry[]>
@@ -258,6 +336,87 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     return unsub;
   }, [rootPath, loadChildren]);
 
+  // Optimistic delete: drop the row immediately when an in-app delete succeeds,
+  // instead of waiting for the watcher's unlink event to re-list the parent.
+  useEffect(() => {
+    return subscribeEntryRemoved((rel) => {
+      const slash = rel.lastIndexOf('/');
+      const parentRel = slash === -1 ? '' : rel.slice(0, slash);
+      const name = slash === -1 ? rel : rel.slice(slash + 1);
+      const parentAbs = parentRel === '' ? rootPath : joinPath(rootPath, parentRel);
+      const removedAbs = joinPath(rootPath, rel);
+      setChildrenByPath((prev) => {
+        const entries = prev.get(parentAbs);
+        const next = new Map(prev);
+        if (entries)
+          next.set(
+            parentAbs,
+            entries.filter((e) => e.name !== name),
+          );
+        // Drop cached listings for a removed folder + its descendants.
+        for (const key of [...next.keys()]) {
+          if (key === removedAbs || key.startsWith(`${removedAbs}/`)) next.delete(key);
+        }
+        return next;
+      });
+      setExpanded((prev) => {
+        const next = new Set<string>();
+        for (const p of prev) {
+          if (p === removedAbs || p.startsWith(`${removedAbs}/`)) continue;
+          next.add(p);
+        }
+        return next.size === prev.size ? prev : next;
+      });
+    });
+  }, [rootPath]);
+
+  // Optimistic rename: rename the row in place (and remap any expanded/cached
+  // descendants for a folder) the instant the rename succeeds, instead of waiting
+  // for the watcher's rename event to re-list the parent.
+  useEffect(() => {
+    return subscribeEntryRenamed((from, to) => {
+      const fromSlash = from.lastIndexOf('/');
+      const oldName = fromSlash === -1 ? from : from.slice(fromSlash + 1);
+      const parentRel = fromSlash === -1 ? '' : from.slice(0, fromSlash);
+      const toSlash = to.lastIndexOf('/');
+      const newName = toSlash === -1 ? to : to.slice(toSlash + 1);
+      const parentAbs = parentRel === '' ? rootPath : joinPath(rootPath, parentRel);
+      const fromAbs = joinPath(rootPath, from);
+      const toAbs = joinPath(rootPath, to);
+      setChildrenByPath((prev) => {
+        const next = new Map(prev);
+        const entries = next.get(parentAbs);
+        if (entries) {
+          next.set(
+            parentAbs,
+            sortEntries(entries.map((e) => (e.name === oldName ? { ...e, name: newName } : e))),
+          );
+        }
+        // Remap cached listings under a renamed FOLDER (fromAbs/* → toAbs/*).
+        for (const [key, val] of [...next]) {
+          if (key === fromAbs || key.startsWith(`${fromAbs}/`)) {
+            next.delete(key);
+            next.set(`${toAbs}${key.slice(fromAbs.length)}`, val);
+          }
+        }
+        return next;
+      });
+      setExpanded((prev) => {
+        let changed = false;
+        const next = new Set<string>();
+        for (const p of prev) {
+          if (p === fromAbs || p.startsWith(`${fromAbs}/`)) {
+            next.add(`${toAbs}${p.slice(fromAbs.length)}`);
+            changed = true;
+          } else {
+            next.add(p);
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+  }, [rootPath]);
+
   const toggleExpand = (path: string): void => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -271,6 +430,36 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     });
   };
 
+  // When an entry enters inline-rename (a context-menu Rename, or a freshly
+  // created file/folder being named), make sure its row is visible: expand +
+  // load every ancestor folder so the row renders and shows the input. (A new
+  // entry surfaces via the watcher's parent re-list, which only fires for
+  // already-loaded dirs — so expanding the chain is what brings it on-screen.)
+  useEffect(() => {
+    if (renamingPath === null) return;
+    const parts = renamingPath.split('/');
+    parts.pop(); // drop the entry's own basename
+    if (parts.length === 0) {
+      // Root-level entry: there's no ancestor to expand, but a freshly-CREATED
+      // root entry isn't in the cached root listing yet, so its row (and the
+      // inline input) wouldn't render until the watcher's add event re-lists root.
+      // Re-list now so the name field appears immediately.
+      void loadChildren(rootPath);
+      return;
+    }
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      let acc = '';
+      for (const part of parts) {
+        acc = acc === '' ? part : `${acc}/${part}`;
+        const abs = joinPath(rootPath, acc);
+        next.add(abs);
+        if (!childrenByPathRef.current.has(abs)) void loadChildren(abs);
+      }
+      return next;
+    });
+  }, [renamingPath, rootPath, loadChildren]);
+
   const renderEntries = (parentPath: string, depth: number): JSX.Element[] => {
     const entries = childrenByPath.get(parentPath);
     if (!entries) return [];
@@ -280,6 +469,31 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
       const isDir = entry.type === 'dir';
       const rel = relativeTo(rootPath, path);
       const isSelected = !isDir && currentPath === rel;
+      const parentRel = relativeTo(rootPath, parentPath);
+      const onContextMenu = (e: MouseEvent): void => {
+        e.preventDefault();
+        e.stopPropagation(); // don't also fire the container's background menu
+        openContextMenu(
+          e.clientX,
+          e.clientY,
+          buildFileMenu({
+            target: { path: rel, kind: isDir ? 'folder' : 'file' },
+            // New items land INSIDE a folder, or beside a file (its parent dir).
+            newItemDir: isDir ? rel : parentRel === '' ? null : parentRel,
+            onOpen: (t) => (t.kind === 'folder' ? toggleExpand(path) : openInPanel(t.path)),
+          }),
+        );
+      };
+      const onRenameCommit = (name: string): void => {
+        endRename();
+        // Basename-only: a typed '/' (or '.'/'..') would silently move the entry
+        // into another folder rather than retitle it in place — reject it.
+        if (name.includes('/') || name === '.' || name === '..') return;
+        const slash = rel.lastIndexOf('/');
+        const dir = slash === -1 ? '' : rel.slice(0, slash);
+        const newRel = dir === '' ? name : `${dir}/${name}`;
+        void renameEntry(rel, newRel, isDir ? 'folder' : 'file');
+      };
       const row: JSX.Element = (
         <Row
           key={path}
@@ -292,6 +506,10 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
           // toggles expansion.
           onClick={() => (isDir ? toggleExpand(path) : openInPanel(rel))}
           onDoubleClick={isDir ? undefined : () => openInPanel(rel, { pinned: true })}
+          onContextMenu={onContextMenu}
+          renaming={renamingPath === rel}
+          onRenameCommit={onRenameCommit}
+          onRenameCancel={endRename}
         />
       );
       if (isDir && isExpanded) {
@@ -301,12 +519,21 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     });
   };
 
+  // Background right-click (empty tree space): New File / New Folder at the root.
+  const onBackgroundContextMenu = (e: MouseEvent): void => {
+    e.preventDefault();
+    openContextMenu(e.clientX, e.clientY, buildFileMenu({ newItemDir: null }));
+  };
+
   // Surface load errors WITHOUT destroying the tree: a single failed subfolder
   // expansion shouldn't blank the whole sidebar (a dead-end). Show the message
   // above whatever did load; when the root itself failed, the tree is empty so
   // the message stands alone. (Cleared on the next successful load above.)
   return (
-    <div style={{ padding: `${space[2]}px 0`, borderRadius: radius.sm }}>
+    <div
+      style={{ padding: `${space[2]}px 0`, borderRadius: radius.sm, minHeight: '100%' }}
+      onContextMenu={onBackgroundContextMenu}
+    >
       {error && (
         <div
           style={{

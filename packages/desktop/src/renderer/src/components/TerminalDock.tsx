@@ -1,6 +1,7 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { color, font, radius, shadow, space, transition } from '../design.js';
+import { color, font, layout, radius, shadow, space, transition } from '../design.js';
+import { buildTerminalMenu } from '../lib/menus/terminalMenu.js';
 import {
   type FocusDir,
   type Rect,
@@ -9,6 +10,7 @@ import {
   orderedLeafIds,
   splitDividers,
 } from '../lib/terminalTree.js';
+import { openContextMenu } from '../store/contextMenu.js';
 import { TERMINAL_MIN_WIDTH, useLayoutStore } from '../store/layout.js';
 import { type TermTab, useTerminalStore } from '../store/terminal.js';
 import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
@@ -32,7 +34,9 @@ import { TERMINAL_BG, TERMINAL_CHROME_BG, TerminalView } from './Terminal.js';
  * restructuring a split — never remounts a terminal (which would kill its pty).
  * The chrome (tab strip, dividers) is drawn separately.
  */
-const TAB_BAR_HEIGHT = 32;
+// The tab strip shares the breadcrumb's height (layout.chromeBarHeight) so the
+// two top bands align into one strip — see design.ts.
+const TAB_BAR_HEIGHT = layout.chromeBarHeight;
 
 export const TerminalDock = (): JSX.Element => {
   const width = useLayoutStore((s) => s.terminalWidth);
@@ -138,10 +142,19 @@ export const TerminalDock = (): JSX.Element => {
             <div
               key={paneId}
               onMouseDownCapture={() => tab && focusPane(tab.id, paneId)}
+              // Right-click → the terminal's own menu (Copy/Paste/Clear/Split/
+              // Close). preventDefault suppresses xterm's default menu; focus the
+              // clicked pane first so Split/Close target it.
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (tab) focusPane(tab.id, paneId);
+                openContextMenu(e.clientX, e.clientY, buildTerminalMenu(paneId));
+              }}
               style={{ position: 'absolute', ...pos, display: visible ? 'flex' : 'none' }}
             >
               <TerminalView
                 key={`${paneId}:${gens[paneId] ?? 0}`}
+                paneId={paneId}
                 active={visible && paneId === activeTab?.activePaneId}
                 onRestart={() => restart(paneId)}
                 onTitle={(t) => setTitle(paneId, t)}
@@ -458,6 +471,14 @@ const TermTabView = ({
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        // While renaming, the tab is a real text <input>: let the OS edit menu
+        // (cut/copy/paste) serve it instead of stacking the in-app tab menu on top
+        // of it. (DOM preventDefault doesn't stop the main-process native menu, so
+        // returning here is what leaves the editable menu — and only it — to show.)
+        if (editing) return;
+        // Not editing → the in-app tab menu; suppress the (empty) native pop, like
+        // every other in-app context menu does.
+        window.bh?.suppressNextNativeContextMenu?.();
         onContextMenu(e.clientX, e.clientY);
       }}
       onMouseEnter={() => setHover(true)}

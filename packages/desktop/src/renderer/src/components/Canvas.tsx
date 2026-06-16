@@ -26,7 +26,15 @@ import {
   useViewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { flushSync } from 'react-dom';
 import {
   CanvasConnectionLine,
@@ -35,6 +43,8 @@ import {
   type ReferenceEdgeUpdate,
   applyReferenceEdgeUpdate,
   badgesToConnectionEdges,
+  inferConnectionSides,
+  referenceEdgeId,
   removeReferenceEdgeUpdate,
   sideFromHandle,
 } from '../canvasConnections/index.js';
@@ -48,8 +58,11 @@ import {
   snapFlowNodeChanges,
 } from '../lib/canvasFlowSnap.js';
 import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
+import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
 import { focusMutations } from '../lib/focusMutations.js';
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
+import { buildFileMenu } from '../lib/menus/fileMenu.js';
+import { openContextMenu } from '../store/contextMenu.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import {
@@ -514,6 +527,41 @@ export const Canvas = (): JSX.Element => {
     };
   }, [loadData]);
 
+  // Optimistic delete: drop the card (and any edges touching it) the instant an
+  // in-app delete succeeds, instead of waiting for the watcher's unlink event
+  // (which this canvas debounces by 1100ms — see the settle pass above). The
+  // canvas renders one folder level, so an exact node-id match is the deleted
+  // card; the watcher reload that follows just confirms it's gone.
+  useEffect(() => {
+    return subscribeEntryRemoved((path) => {
+      setNodes((prev) => prev.filter((n) => n.id !== path));
+      setEdges((prev) => prev.filter((e) => e.source !== path && e.target !== path));
+    });
+  }, []);
+
+  // Optimistic rename: remap the card (node id + displayed label) and any edges
+  // touching it the instant the rename succeeds, instead of waiting for the
+  // watcher's rename event + reload. For a card with a SAVED canvas position the
+  // reload re-derives the same node, so it's a no-op; for an unannotated card (no
+  // saved position) the settle reload re-runs the alphabetical auto-layout, so its
+  // grid slot can still shift — a pre-existing behavior (any create/delete/rename
+  // reshuffles unplaced cards), not introduced by this optimistic path.
+  useEffect(() => {
+    return subscribeEntryRenamed((from, to) => {
+      setNodes((prev) =>
+        prev.map((n) => (n.id === from ? { ...n, id: to, data: { ...n.data, label: to } } : n)),
+      );
+      setEdges((prev) =>
+        prev.map((e) => {
+          if (e.source !== from && e.target !== from) return e;
+          const source = e.source === from ? to : e.source;
+          const target = e.target === from ? to : e.target;
+          return { ...e, source, target, id: referenceEdgeId(source, target) };
+        }),
+      );
+    });
+  }, []);
+
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
       const data = node.data as unknown as BadgeNodeData;
@@ -528,6 +576,41 @@ export const Canvas = (): JSX.Element => {
       openInPanel(node.id);
     },
     [setFolderScope, openInPanel],
+  );
+
+  // Right-click a card → the shared file menu (Open, New File/Folder here, Rename,
+  // Delete) targeting that card's file/folder. Rename runs inline on the card
+  // (via renamingPath → BadgeNode); new items land in this folder.
+  const onNodeContextMenu = useCallback<NodeMouseHandler>(
+    (event, node) => {
+      event.preventDefault();
+      const data = node.data as unknown as BadgeNodeData;
+      const kind = data.kind;
+      openContextMenu(
+        event.clientX,
+        event.clientY,
+        buildFileMenu({
+          target: { path: node.id, kind },
+          // New File/Folder is suppressed on cards (see includeCreate): a card can
+          // target a folder NOT at the current scope, where the new entry couldn't
+          // render to be inline-named. Create from the pane background instead.
+          newItemDir: folderScope,
+          includeCreate: false,
+          onOpen: (t) => (t.kind === 'folder' ? void setFolderScope(t.path) : openInPanel(t.path)),
+        }),
+      );
+    },
+    [folderScope, setFolderScope, openInPanel],
+  );
+
+  // Right-click empty canvas → New File / New Folder in the folder currently in
+  // view (folderScope, null = workspace root).
+  const onPaneContextMenu = useCallback(
+    (event: ReactMouseEvent | MouseEvent) => {
+      event.preventDefault();
+      openContextMenu(event.clientX, event.clientY, buildFileMenu({ newItemDir: folderScope }));
+    },
+    [folderScope],
   );
 
   const persistCanvas = useMemo(
@@ -654,6 +737,30 @@ export const Canvas = (): JSX.Element => {
       const fromSide = sideFromHandle(conn.sourceHandle);
       const toSide = sideFromHandle(conn.targetHandle);
       const sourceKind = nodeBadgeKind(nodesRef.current, conn.source);
+      // OPTIMISTIC: draw the edge the instant the handle is released, instead of
+      // waiting for addRef + listCanvas (a 200–500ms round-trip the user feels as
+      // "the line doesn't appear"). We use the SAME sides core will persist — the
+      // explicit handle side, else the same geometry inference listCanvas uses —
+      // so the reconcile below re-derives an identical edge with no snap.
+      const inferred = inferConnectionSides(
+        nodesRef.current.find((n) => n.id === conn.source),
+        nodesRef.current.find((n) => n.id === conn.target),
+        CONNECTION_EDGE_SIZE_DEFAULTS,
+      );
+      flushSync(() => {
+        setEdges((prev) =>
+          applyReferenceEdgeUpdate(prev, {
+            previousId: '', // no prior edge → applyReferenceEdgeUpdate appends
+            previousSource: conn.source as string,
+            previousTarget: conn.target as string,
+            source: conn.source as string,
+            target: conn.target as string,
+            sourceHandle: fromSide ?? inferred.fromSide,
+            targetHandle: toSide ?? inferred.toSide,
+            note: undefined,
+          }),
+        );
+      });
       try {
         await badgeMutations.addRef(
           {
@@ -665,13 +772,27 @@ export const Canvas = (): JSX.Element => {
           },
           'canvas',
         );
-        // Refresh so the new edge shows + inbound index updates ripple to other views.
+        // Reconcile: re-derive from core so the inbound index ripple + any geometry
+        // settle land (invisible — the edge is already drawn).
         const { badges } = (await window.bh.run('workspace.listCanvas', {
           folder: folderScope,
         })) as WorkspaceListCanvasResult;
         setEdges(connectionEdges(badges, nodesRef.current));
+        // A healthy connection clears any stale error banner, matching the sibling
+        // commitReferenceEdgeUpdate / commitReferenceEdgeRemoval handlers.
+        setError('');
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
+        // Roll back the optimistic edge — core has no such ref, so re-deriving
+        // drops it.
+        try {
+          const { badges } = (await window.bh.run('workspace.listCanvas', {
+            folder: folderScope,
+          })) as WorkspaceListCanvasResult;
+          setEdges(connectionEdges(badges, nodesRef.current));
+        } catch {
+          // leave the optimistic edge rather than blank the canvas
+        }
       }
     },
     [folderScope],
@@ -1038,35 +1159,33 @@ export const Canvas = (): JSX.Element => {
           focusedNames.length > 3 ? ` +${focusedNames.length - 3} more` : ''
         }`;
 
-  // Folder-scope actions live on the canvas now (the top bar was removed).
-  const handleFocusFolder = async (): Promise<void> => {
-    if (!folderScope) return;
-    try {
-      mirrorPrevFocus.current = null; // explicit action — no deselect restore after
-      await focusMutations.setFolder(folderScope, 'canvas'); // emit → panels refresh
-      void reloadFocus(); // re-read focus → agent-context chip
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
-
+  // Edit the prompt for the CURRENT folder — a scoped subfolder, OR the workspace
+  // root itself (the main-canvas prompt). Both are folder badges, so one path
+  // serves the canvas root and any sub-canvas. The root folder's rel path is '.'
+  // (NOT '' — the shared path guard rejects an empty rel path); path.join
+  // normalizes '.' to the same root `.bh/badges/.badge.json`.
   const handleEditFolderPrompt = async (): Promise<void> => {
-    if (!folderScope) return;
+    const folder = folderScope ?? '.';
+    const isRoot = folderScope === null;
     const existing = (await window.bh.run('badge.get', {
-      file: folderScope,
+      file: folder,
       kind: 'folder',
     })) as { prompt?: string } | null;
     const next = await prompt({
-      title: `Folder prompt — /${folderScope}`,
-      body: "What the AI agent should know about this folder — it's read as the turn intent when you add the folder to Agent Context. Leave blank to clear.",
+      title: isRoot ? 'Workspace prompt' : `Folder prompt — /${folder}`,
+      body: isRoot
+        ? 'What the AI agent should know about this whole workspace — read as the turn intent when you add the workspace to Agent Context. Leave blank to clear.'
+        : "What the AI agent should know about this folder — it's read as the turn intent when you add the folder to Agent Context. Leave blank to clear.",
       label: 'Prompt',
       defaultValue: existing?.prompt ?? '',
-      placeholder: 'e.g. Chapter 3 supporting material — read first',
+      placeholder: isRoot
+        ? 'e.g. Research notes for the Q3 launch — start with overview.md'
+        : 'e.g. Chapter 3 supporting material — read first',
     });
     if (next === null) return;
     try {
       await window.bh.run('badge.set', {
-        file: folderScope,
+        file: folder,
         patch: { kind: 'folder', prompt: next.trim() },
       });
     } catch (err) {
@@ -1113,7 +1232,8 @@ export const Canvas = (): JSX.Element => {
         <div
           style={{
             position: 'absolute',
-            top: space[3],
+            // Clear the breadcrumb header bar (always docked at top:0).
+            top: 52,
             right: space[3],
             zIndex: 8,
             display: 'flex',
@@ -1130,41 +1250,57 @@ export const Canvas = (): JSX.Element => {
           </Button>
         </div>
       )}
-      {/* Folder-scope chrome — top-left, only while scoped into a folder (and no
-          file open; the editor's own breadcrumb takes over then). On its own row
-          (below the New-note / context-chip row) so the actions never collide
-          with the centered context chip. The breadcrumb pill replaces the old
-          "← /path" back button: every ancestor crumb jumps there. */}
-      {folderScope && !openFile && (
+      {/* The breadcrumb header — one docked top bar for every canvas context: the
+          workspace root or a scoped folder. The same component heads the editor
+          overlay when a file is open (which then covers the canvas), so there is
+          one breadcrumb everywhere. It always carries a compact "Edit prompt"
+          action — for the scoped folder, or the workspace itself at root. Compact
+          (crumb-sized) so the bar keeps one height across every context. */}
+      {!openFile && (
         <div
-          data-testid="folder-scope-chrome"
-          style={{
-            position: 'absolute',
-            top: 56,
-            left: sidebarInset + space[3],
-            right: space[3],
-            zIndex: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: space[2],
-            minWidth: 0,
-            overflow: 'hidden',
-          }}
+          data-testid="canvas-breadcrumb"
+          style={{ position: 'absolute', top: 0, left: sidebarInset, right: 0, zIndex: 8 }}
         >
-          <Breadcrumb variant="floating" />
-          <Button
-            onClick={() => void handleFocusFolder()}
-            title="Add this folder to Agent Context — your agent reads all its files, with the folder prompt as the turn intent"
-          >
-            Add folder to Context
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => void handleEditFolderPrompt()}
-            title="Edit this folder's badge prompt (read as the intent when you add the folder to Agent Context)"
-          >
-            Edit folder prompt
-          </Button>
+          <Breadcrumb
+            actions={
+              <button
+                type="button"
+                data-testid="edit-folder-prompt"
+                onClick={() => void handleEditFolderPrompt()}
+                title={
+                  folderScope
+                    ? "Edit this folder's prompt (read as the intent when you add the folder to Agent Context)"
+                    : 'Edit the workspace prompt (read as the intent when you add the workspace to Agent Context)'
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: space[1],
+                  padding: `${space[0.5]}px ${space[1]}px`,
+                  fontSize: font.size.ui,
+                  fontFamily: font.sans,
+                  fontWeight: font.weight.medium,
+                  color: color.textTertiary,
+                  background: 'transparent',
+                  border: 'none',
+                  borderRadius: radius.sm,
+                  cursor: 'pointer',
+                  transition: transition(['color', 'background']),
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = color.textPrimary;
+                  e.currentTarget.style.background = color.divider;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = color.textTertiary;
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                <FileGlyph type="edit" tone="currentColor" size={13} />
+                Edit prompt
+              </button>
+            }
+          />
         </div>
       )}
       {focusedCount > 0 && (
@@ -1174,7 +1310,8 @@ export const Canvas = (): JSX.Element => {
           data-testid="focus-chip"
           style={{
             position: 'absolute',
-            top: space[3],
+            // Clear the breadcrumb header bar (always docked at top:0).
+            top: 52,
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 8,
@@ -1331,6 +1468,8 @@ export const Canvas = (): JSX.Element => {
         deleteKeyCode={['Delete', 'Backspace']}
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneContextMenu={onPaneContextMenu}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onMove={onMove}
