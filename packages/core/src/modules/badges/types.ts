@@ -71,8 +71,14 @@ export interface BadgeGetArgs {
 }
 export type BadgeGetResult = BadgeFile | null;
 
-/** Patch shape passed to badge.set. Cannot change identity fields (file/kind/created/version). */
-export type BadgePatch = Partial<Pick<BadgeFile, 'prompt' | 'references' | 'canvas'>> & {
+/**
+ * Patch shape passed to badge.set. Cannot change identity fields
+ * (file/kind/created/version). NOTE: `references` is deliberately NOT here —
+ * reference edits must go through badge.addRef/removeRef/rename, which cascade
+ * the embedded `referenced_by` on the OTHER end. A bare references replacement
+ * via set() would silently break that bidirectional invariant.
+ */
+export type BadgePatch = Partial<Pick<BadgeFile, 'prompt' | 'canvas'>> & {
   /** Required only on the very first set() that creates the badge from scratch. */
   readonly kind?: BadgeKind;
   /** Explicit orphan transition. OMITTED on ordinary edits — badge.set then

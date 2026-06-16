@@ -1,5 +1,10 @@
 import { join } from 'node:path';
-import { type Handler, assertReadContained, createKeyedMutex } from '../../kernel/index.js';
+import {
+  type Handler,
+  assertReadContained,
+  createKeyedMutex,
+  patchMirror,
+} from '../../kernel/index.js';
 import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { badgesRevision, listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
@@ -173,17 +178,23 @@ async function addBacklinkTo(
   note: string | undefined,
   now: string,
 ): Promise<void> {
-  const existing = await readBadge(ctx.fs, root, target);
-  const base = existing ?? newBadge(target, 'file', now);
-  const links = (base.referenced_by ?? []).filter((b) => b.from !== from);
-  links.push({ from, ...(note !== undefined && { note }) });
-  await writeBadge(ctx.fs, root, { ...base, referenced_by: links, modifiedAt: now });
+  // patchMirror is an ATOMIC field-scoped RMW under the mirror file lock — so a
+  // concurrent EXTERNAL writer (an agent editing the target's badge.yaml
+  // directly, exactly the race the spec calls out) can't be clobbered by a
+  // read-then-write that materialized a stale stub. The materialize default
+  // kind is 'file' (unknown here; the common canvas folder→file edge is fine).
+  await patchMirror<BadgeFile>(ctx.fs, root, target, 'badge', (current) => {
+    const base = current ?? newBadge(target, 'file', now);
+    const links = (base.referenced_by ?? []).filter((b) => b.from !== from);
+    links.push({ from, ...(note !== undefined && { note }) });
+    return { ...base, referenced_by: links, modifiedAt: now };
+  });
 }
 
 /**
  * Remove `from`'s backlink from the TARGET badge. If that empties a stub badge
  * that existed only to hold backlinks, delete its badge.yaml to keep the overlay
- * sparse.
+ * sparse (patchMirror removes the file when the patch returns null).
  */
 async function removeBacklinkFrom(
   ctx: Parameters<Handler>[1],
@@ -192,16 +203,16 @@ async function removeBacklinkFrom(
   from: string,
   now: string,
 ): Promise<void> {
-  const existing = await readBadge(ctx.fs, root, target);
-  if (!existing) return;
-  const links = (existing.referenced_by ?? []).filter((b) => b.from !== from);
-  const { referenced_by: _dropped, ...rest } = existing;
-  const nextBadge: BadgeFile =
-    links.length > 0
-      ? { ...rest, referenced_by: links, modifiedAt: now }
-      : { ...rest, modifiedAt: now };
-  if (isEmptyBadge(nextBadge)) await removeBadge(ctx.fs, root, target);
-  else await writeBadge(ctx.fs, root, nextBadge);
+  await patchMirror<BadgeFile>(ctx.fs, root, target, 'badge', (current) => {
+    if (!current) return null;
+    const links = (current.referenced_by ?? []).filter((b) => b.from !== from);
+    const { referenced_by: _dropped, ...rest } = current;
+    const nextBadge: BadgeFile =
+      links.length > 0
+        ? { ...rest, referenced_by: links, modifiedAt: now }
+        : { ...rest, modifiedAt: now };
+    return isEmptyBadge(nextBadge) ? null : nextBadge;
+  });
 }
 
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
@@ -214,63 +225,67 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
   const kind: BadgeKind = args.patch?.kind ?? 'file';
   const patch = args.patch ?? {};
 
-  const { next, existed } = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file);
-    const now = new Date().toISOString();
+  // patchMirror = atomic field-scoped RMW under the mirror file lock, so a
+  // concurrent EXTERNAL writer to this badge.yaml (an agent editing .bh/mirror)
+  // can't be clobbered. withBadgeLock(root) still serializes app-level badge ops
+  // (rename / addRef touch several files). `existed` is captured from the patch.
+  let existed = false;
+  const next = (await withBadgeLock(root, () =>
+    patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
+      existed = existing !== null;
+      const now = new Date().toISOString();
+      // The prompt's OWN timestamp moves only when the prompt text actually
+      // changes — never on canvas drags / kind patches. It anchors the brief's
+      // freshness comparison, which `modifiedAt` cannot (every write bumps it).
+      const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
+      const promptAt = promptChanged ? now : existing?.promptModifiedAt;
+      return existing
+        ? {
+            bhVersion: 1,
+            file: existing.file,
+            kind: existing.kind,
+            ...(patch.prompt !== undefined
+              ? { prompt: patch.prompt }
+              : existing.prompt !== undefined && { prompt: existing.prompt }),
+            ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
+            // references + referenced_by are managed ONLY by addRef/removeRef/
+            // rename (which cascade both sides of the graph); set() preserves
+            // them verbatim so a prompt/canvas edit can't break the invariant.
+            references: existing.references,
+            ...(existing.referenced_by !== undefined &&
+              existing.referenced_by.length > 0 && { referenced_by: existing.referenced_by }),
+            ...(patch.canvas !== undefined
+              ? { canvas: patch.canvas }
+              : existing.canvas !== undefined && { canvas: existing.canvas }),
+            // PRESERVE orphan across ordinary edits — a prompt/canvas edit on a
+            // deleted file must not silently un-orphan it. Cleared only by an
+            // explicit `orphan:false` (the watcher's add when the file reappears).
+            ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
+            createdAt: existing.createdAt,
+            modifiedAt: now,
+          }
+        : {
+            bhVersion: 1,
+            file: args.file,
+            kind,
+            ...(patch.prompt !== undefined && { prompt: patch.prompt }),
+            ...(patch.prompt !== undefined && { promptModifiedAt: now }),
+            references: [],
+            ...(patch.canvas !== undefined && { canvas: patch.canvas }),
+            ...(patch.orphan === true && { orphan: true }),
+            createdAt: now,
+            modifiedAt: now,
+          };
+    }),
+  )) as BadgeFile;
 
-    // The prompt's OWN timestamp moves only when the prompt text actually
-    // changes — never on canvas drags / kind patches. It anchors the brief's
-    // freshness comparison, which `modifiedAt` cannot (every write bumps it).
-    const promptChanged = patch.prompt !== undefined && patch.prompt !== existing?.prompt;
-    const promptAt = promptChanged ? now : existing?.promptModifiedAt;
-
-    const merged: BadgeFile = existing
-      ? {
-          bhVersion: 1,
-          file: existing.file,
-          kind: existing.kind,
-          ...(patch.prompt !== undefined
-            ? { prompt: patch.prompt }
-            : existing.prompt !== undefined && { prompt: existing.prompt }),
-          ...(promptAt !== undefined && { promptModifiedAt: promptAt }),
-          references: patch.references ?? existing.references,
-          // PRESERVE embedded backlinks — set() never touches them (addRef/
-          // removeRef/rename do), so a prompt/canvas edit must not drop them.
-          ...(existing.referenced_by !== undefined &&
-            existing.referenced_by.length > 0 && { referenced_by: existing.referenced_by }),
-          ...(patch.canvas !== undefined
-            ? { canvas: patch.canvas }
-            : existing.canvas !== undefined && { canvas: existing.canvas }),
-          // PRESERVE orphan across ordinary edits — a prompt/ref/canvas edit on a
-          // deleted file must not silently un-orphan it. Cleared only by an explicit
-          // `orphan:false` (the watcher's add when the file re-appears).
-          ...((patch.orphan ?? existing.orphan) === true && { orphan: true }),
-          createdAt: existing.createdAt,
-          modifiedAt: now,
-        }
-      : {
-          bhVersion: 1,
-          file: args.file,
-          kind,
-          ...(patch.prompt !== undefined && { prompt: patch.prompt }),
-          ...(patch.prompt !== undefined && { promptModifiedAt: now }),
-          references: patch.references ?? [],
-          ...(patch.canvas !== undefined && { canvas: patch.canvas }),
-          ...(patch.orphan === true && { orphan: true }),
-          createdAt: now,
-          modifiedAt: now,
-        };
-
-    await writeBadge(ctx.fs, root, merged);
-    return { next: merged, existed: existing !== null };
-  });
-
-  // Only reconcile focus.md when the edit changes the INLINED BRIEF (prompt or
-  // refs). A kind-only / canvas-only patch leaves the brief identical — skip.
+  // Only reconcile focus.md when the edit changes the INLINED BRIEF (the prompt;
+  // references no longer arrive through set()). A kind-only / canvas-only patch
+  // leaves the brief identical — skip.
   if (kind === 'folder') {
     if (patch.prompt !== undefined) await reconcileFolderIntent(ctx, args.file);
   } else {
-    if (patch.prompt !== undefined || patch.references !== undefined) {
+    if (patch.prompt !== undefined) {
       await reconcileFocus(ctx, args.file);
     }
     if (!existed) await reconcileNewFile(ctx, args.file);
@@ -333,17 +348,17 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
   const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, async () => {
     const now = new Date().toISOString();
-    const existing = await readBadge(ctx.fs, root, args.file);
-    const base = existing ?? newBadge(args.file, kind, now);
     const newRef = {
       to: args.to,
       ...(args.note !== undefined && { note: args.note }),
       ...(args.fromSide !== undefined && { fromSide: args.fromSide }),
       ...(args.toSide !== undefined && { toSide: args.toSide }),
     };
-    const without = base.references.filter((r) => r.to !== args.to);
-    const merged: BadgeFile = { ...base, references: [...without, newRef], modifiedAt: now };
-    await writeBadge(ctx.fs, root, merged);
+    const merged = (await patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
+      const base = existing ?? newBadge(args.file, kind, now);
+      const without = base.references.filter((r) => r.to !== args.to);
+      return { ...base, references: [...without, newRef], modifiedAt: now };
+    })) as BadgeFile;
     // Embed the reverse link on the TARGET badge (the old inbound.addRef).
     await addBacklinkTo(ctx, root, args.to, args.file, args.note, now);
     return merged;
@@ -356,16 +371,14 @@ export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ct
   const root = await currentWorkspaceRoot(ctx);
   const next = await withBadgeLock(root, async () => {
     const now = new Date().toISOString();
-    const existing = await readBadge(ctx.fs, root, args.file);
-    if (!existing) {
-      throw new Error(`Badge not found: ${args.file}`);
-    }
-    const merged: BadgeFile = {
-      ...existing,
-      references: existing.references.filter((r) => r.to !== args.to),
-      modifiedAt: now,
-    };
-    await writeBadge(ctx.fs, root, merged);
+    const merged = (await patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
+      if (!existing) throw new Error(`Badge not found: ${args.file}`);
+      return {
+        ...existing,
+        references: existing.references.filter((r) => r.to !== args.to),
+        modifiedAt: now,
+      };
+    })) as BadgeFile;
     // Drop the reverse link from the TARGET badge (the old inbound.removeRef).
     await removeBacklinkFrom(ctx, root, args.to, args.file, now);
     return merged;
@@ -416,17 +429,13 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
 ) => {
   const root = await currentWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
-  const next = await withBadgeLock(root, async () => {
-    const existing = await readBadge(ctx.fs, root, args.file);
-    if (!existing) return null;
-    const merged: BadgeFile = {
-      ...existing,
-      orphan: true,
-      modifiedAt: new Date().toISOString(),
-    };
-    await writeBadge(ctx.fs, root, merged);
-    return merged;
-  });
+  const next = await withBadgeLock(root, () =>
+    patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) =>
+      existing === null
+        ? null
+        : { ...existing, orphan: true, modifiedAt: new Date().toISOString() },
+    ),
+  );
   if (next === null) return null;
   // A focused file that just vanished must leave the brief. File badges only —
   // a folder badge is never an active focus item.
@@ -519,27 +528,53 @@ async function moveBadgeAndCascadeRefs(
     await writeBadge(ctx.fs, root, copy);
     await removeBadge(ctx.fs, root, from);
 
-    // Outbound: each target's backlink FROM `from` becomes FROM `to`.
+    // Outbound: each target's backlink FROM `from` becomes FROM `to`. patchMirror
+    // for atomic per-file RMW (external-writer safety); a missing target is a
+    // no-op (don't materialize a badge just to repoint a non-existent backlink).
     for (const ref of source.references) {
-      const target = await readBadge(ctx.fs, root, ref.to);
-      if (!target) continue;
-      const links = (target.referenced_by ?? []).map((b) =>
-        b.from === from ? { ...b, from: to } : b,
-      );
-      await writeBadge(ctx.fs, root, { ...target, referenced_by: links, modifiedAt: now });
+      await patchMirror<BadgeFile>(ctx.fs, root, ref.to, 'badge', (target) => {
+        if (!target) return null;
+        const links = (target.referenced_by ?? []).map((b) =>
+          b.from === from ? { ...b, from: to } : b,
+        );
+        return { ...target, referenced_by: links, modifiedAt: now };
+      });
     }
 
     // Inbound: each referrer's reference TO `from` becomes TO `to` (note + sides
-    // preserved by the spread).
+    // preserved). Track which referrers ACTUALLY existed — a backlink whose
+    // referrer badge was externally deleted is a phantom and must not survive.
     const updatedRefs: string[] = [];
     for (const back of source.referenced_by ?? []) {
-      const referrer = await readBadge(ctx.fs, root, back.from);
-      if (!referrer) continue;
-      const refs = referrer.references.map((r) => (r.to === from ? { ...r, to } : r));
-      await writeBadge(ctx.fs, root, { ...referrer, references: refs, modifiedAt: now });
-      updatedRefs.push(back.from);
+      const rewritten = await patchMirror<BadgeFile>(
+        ctx.fs,
+        root,
+        back.from,
+        'badge',
+        (referrer) => {
+          if (!referrer) return null;
+          const refs = referrer.references.map((r) => (r.to === from ? { ...r, to } : r));
+          return { ...referrer, references: refs, modifiedAt: now };
+        },
+      );
+      if (rewritten !== null) updatedRefs.push(back.from);
     }
-    return { moved: copy, updatedRefs };
+
+    // Drop phantom backlinks (referrer no longer exists) from the moved copy so
+    // every referenced_by entry has a live reciprocal reference.
+    const liveSet = new Set(updatedRefs);
+    const allBacklinks = copy.referenced_by ?? [];
+    const liveBacklinks = allBacklinks.filter((b) => liveSet.has(b.from));
+    let moved: BadgeFile = copy;
+    if (liveBacklinks.length !== allBacklinks.length) {
+      const { referenced_by: _drop, ...restCopy } = copy;
+      moved =
+        liveBacklinks.length > 0
+          ? { ...restCopy, referenced_by: liveBacklinks, modifiedAt: now }
+          : { ...restCopy, modifiedAt: now };
+      await writeBadge(ctx.fs, root, moved);
+    }
+    return { moved, updatedRefs };
   });
 }
 

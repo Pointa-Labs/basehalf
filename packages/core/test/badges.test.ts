@@ -139,16 +139,17 @@ describe('badge.set', () => {
     expect(result.canvas).toEqual({ x: 100, y: 200, collapsed: false });
   });
 
-  it('replaces references array atomically', async () => {
-    await ctx.core.run('badge.set', {
-      file: 'a.md',
-      patch: { references: [{ to: 'b.md' }, { to: 'c.md' }] },
-    });
+  it('preserves references on a prompt/canvas edit (refs are addRef/removeRef-owned)', async () => {
+    // set() no longer accepts a references patch — a bare replacement would
+    // bypass the referenced_by cascade and break the bidirectional invariant.
+    // It must, however, PRESERVE the addRef-managed references across other edits.
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md', note: 'why' });
     const updated = (await ctx.core.run('badge.set', {
       file: 'a.md',
-      patch: { references: [{ to: 'd.md' }] },
+      patch: { prompt: 'edited', canvas: { x: 1, y: 2, collapsed: false } },
     })) as BadgeFile;
-    expect(updated.references).toEqual([{ to: 'd.md' }]);
+    expect(updated.references).toEqual([{ to: 'b.md', note: 'why' }]);
+    expect(updated.prompt).toBe('edited');
   });
 
   it('throws when no current workspace', async () => {
@@ -437,15 +438,15 @@ describe('badge.rename', () => {
     ctx = await seed();
   });
 
-  it('moves the badge JSON file from old path to new path (preserves prompt + refs + canvas + createdAt)', async () => {
+  it('moves the badge to the new mirror node (preserves prompt + refs + canvas + createdAt)', async () => {
     await ctx.core.run('badge.set', {
       file: 'foo.md',
       patch: {
         prompt: 'careful — load-bearing',
-        references: [{ to: 'bar.md' }],
         canvas: { x: 42, y: 17, collapsed: false },
       },
     });
+    await ctx.core.run('badge.addRef', { file: 'foo.md', to: 'bar.md' });
     const before = (await ctx.core.run('badge.get', { file: 'foo.md' })) as BadgeFile;
     const result = (await ctx.core.run('badge.rename', {
       from: 'foo.md',
@@ -500,6 +501,19 @@ describe('badge.rename', () => {
     // ...and target.md's embedded backlink now records the NEW name, note
     // preserved, with no phantom entry from the deleted old name.
     expect(await backlinks(ctx.core, 'target.md')).toEqual([{ from: 'foo-v2.md', note: 'see' }]);
+  });
+
+  it('drops a PHANTOM backlink when a referrer badge was externally deleted', async () => {
+    // referrer.md → target.md, then referrer's badge.yaml vanishes (manual rm /
+    // external corruption). Renaming target must NOT carry the now-dangling
+    // backlink onto the moved copy (every referenced_by needs a live reciprocal).
+    await ctx.core.run('badge.set', { file: 'target.md', patch: { prompt: 'keep' } });
+    await ctx.core.run('badge.addRef', { file: 'referrer.md', to: 'target.md' });
+    ctx.files.delete(badgeYaml('referrer.md')); // external deletion
+
+    await ctx.core.run('badge.rename', { from: 'target.md', to: 'target2.md' });
+
+    expect(await backlinks(ctx.core, 'target2.md')).toEqual([]);
   });
 
   it('updates focus.md if `from` was in the active list', async () => {
