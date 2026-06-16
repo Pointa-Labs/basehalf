@@ -159,6 +159,44 @@ describe('rename cascade — FOLDER (subtree re-root)', () => {
   });
 });
 
+describe('rename cascade — FILE (cross-folder move)', () => {
+  it('pulls the card out of the old parent and carries focus/adhd to the new folder', async () => {
+    const { core, files, links } = await seed();
+    await seedDocsAB(core);
+    await core.run('workspace.createFolder', { path: 'archive' });
+
+    // Move docs/a.md → archive/a.md (a DIFFERENT parent folder).
+    await core.run('workspace.renameEntry', {
+      from: 'docs/a.md',
+      to: 'archive/a.md',
+      kind: 'file',
+    });
+
+    // The card is gone from the old parent (docs) canvas — and the edge a→b with it.
+    const docsCanvas = (await core.run('canvas.get', { folder: 'docs' })) as {
+      cards: Array<{ path: string }>;
+      edges: unknown[];
+    } | null;
+    expect(docsCanvas?.cards.find((c) => c.path === 'docs/a.md')).toBeUndefined();
+    expect(docsCanvas?.edges ?? []).toEqual([]);
+
+    // focus + adhd carried to the new location; current_focus repointed.
+    expect(files.has(mirror('docs/a.md', 'focus'))).toBe(false);
+    expect(parse(files.get(mirror('archive/a.md', 'focus')) ?? '')).toMatchObject({
+      path: 'archive/a.md',
+    });
+    expect(await core.run('adhd.get', { file: 'archive/a.md' })).toMatchObject({
+      path: 'archive/a.md',
+      highlight_keywords: ['关键词'],
+    });
+    expect(links.get(ROOT_LINK)).toBe('mirror/archive/a.md/focus.yaml');
+    // Badge + its ref to b followed.
+    expect(await core.run('badge.get', { file: 'archive/a.md' })).toMatchObject({
+      references: ['docs/b.md'],
+    });
+  });
+});
+
 describe('delete cascade', () => {
   it('reaps focus / adhd / canvas + parent card/edges + current_focus for a file', async () => {
     const { core, files, links } = await seed();

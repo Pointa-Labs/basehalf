@@ -520,3 +520,35 @@ describe('canvas.revision (cheap external-edit signature)', () => {
     expect(two.count).toBe(2);
   });
 });
+
+describe('canvas.connect compensation', () => {
+  let ctx: TestContext;
+  beforeEach(async () => {
+    ctx = await seed();
+  });
+
+  it('does NOT destroy a PRE-EXISTING reference when the canvas write fails', async () => {
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'A', kind: 'file' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'B', kind: 'file' } });
+    // A references B independently (e.g. added on the badge panel), no edge yet.
+    await ctx.core.run('badge.addRef', { file: 'a.md', to: 'b.md' });
+    // Plant a corrupt canvas.yaml so the connect's canvas write throws AFTER the
+    // (idempotent, no-op) addRef — exercising the compensation path.
+    ctx.files.set(canvasYaml(null), '[corrupt');
+    await expect(
+      ctx.core.run('canvas.connect', {
+        folder: null,
+        from: 'a.md',
+        to: 'b.md',
+        from_anchor: 'east',
+        to_anchor: 'west',
+        kind: 'file',
+      }),
+    ).rejects.toThrow();
+    // The reference WE didn't create survives — compensation must not remove it.
+    const a = (await ctx.core.run('badge.get', { file: 'a.md' })) as BadgeFile;
+    expect(a.references).toContain('b.md');
+    const b = (await ctx.core.run('badge.get', { file: 'b.md' })) as BadgeFile;
+    expect(b.referenced_by).toContain('a.md');
+  });
+});

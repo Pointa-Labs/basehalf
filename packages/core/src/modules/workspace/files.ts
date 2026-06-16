@@ -270,6 +270,8 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
   const edges: CanvasEdge[] = [];
   for (const child of children) {
     for (const to of child.references) {
+      if (to === child.path) continue; // self-edge: badge.addRef rejects A→A, but the
+      // mirror is agent-writable, so a hand-planted self-reference must not draw a loop.
       if (!childPaths.has(to)) continue; // not a sibling on this canvas (e.g. cross-folder)
       const styled = styleByPair.get(JSON.stringify([child.path, to]));
       edges.push(styled ?? { from: child.path, from_anchor: 'east', to, to_anchor: 'west' });

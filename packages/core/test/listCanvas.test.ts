@@ -268,6 +268,19 @@ describe('workspace.listCanvas (visual layer: cards, size, edges)', () => {
     expect(result.children.map((b) => b.path)).toEqual(['a.md']);
     expect(result.edges).toEqual([]);
   });
+
+  it('never derives a SELF-edge from a hand-planted self-reference', async () => {
+    // badge.addRef rejects A→A, but the mirror is agent-writable by protocol — a
+    // self-reference planted directly into badge.yaml must not draw a loop edge.
+    await openWorkspace(ctx, { files: { 'a.md': '' } });
+    ctx.files.set(
+      '/work/.bh/mirror/a.md/badge.yaml',
+      'path: a.md\nkind: file\nreferences:\n  - a.md\n',
+    );
+    const result = await listCanvas(ctx, null);
+    expect(result.children.map((b) => b.path)).toEqual(['a.md']);
+    expect(result.edges).toEqual([]);
+  });
 });
 
 describe('workspace.listSupportedFiles (recursive)', () => {

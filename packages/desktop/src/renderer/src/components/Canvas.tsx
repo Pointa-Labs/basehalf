@@ -649,12 +649,19 @@ export const Canvas = (): JSX.Element => {
   // open (an open file IS the focus node; the folder isn't). focus.set merges
   // field-scoped, so this updates just the viewport fields of the focused folder's
   // focus.yaml without disturbing the node-switch authority (the effect below).
-  // Reads live store state at fire time (stable callback, no stale closure).
-  const persistFolderFocus = useMemo(
-    () =>
-      debounce((viewport: Viewport) => {
+  // Both path and viewport are captured at SCHEDULE time (pan-end), so a late fire
+  // can't pair folder B's path with folder A's stale viewport coords; and the
+  // pending timer is cancelled on a folder switch / unmount (effect below).
+  const persistFolderFocus = useMemo(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (viewport: Viewport, folderScopeAtPan: string | null): void => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
         const st = useWorkspaceStore.getState();
         if (st.openFile || !st.current || st.currentReachable === false) return;
+        // Bail if the user navigated to a DIFFERENT folder since the pan ended —
+        // this viewport belongs to the folder we panned, not the current one.
+        if ((st.folderScope ?? null) !== folderScopeAtPan) return;
         const rect = canvasRootRef.current?.getBoundingClientRect();
         if (!rect) return;
         // Un-project the screen-center into canvas coordinates.
@@ -664,16 +671,24 @@ export const Canvas = (): JSX.Element => {
         };
         void window.bh
           .run('focus.set', {
-            path: st.folderScope ?? '',
+            path: folderScopeAtPan ?? '',
             kind: 'folder',
             viewport_center,
             zoom: Number(viewport.zoom.toFixed(3)),
             workspace: st.current,
           })
           .catch(() => undefined);
-      }, VIEWPORT_DEBOUNCE),
-    [],
-  );
+      }, VIEWPORT_DEBOUNCE);
+    };
+    const cancel = (): void => {
+      if (timer) clearTimeout(timer);
+    };
+    return { schedule, cancel };
+  }, []);
+  // Cancel a pending folder-viewport write on unmount (the schedule-time
+  // folderScope guard above already handles a folder switch; this just stops a
+  // timer firing after the canvas is gone).
+  useEffect(() => () => persistFolderFocus.cancel(), [persistFolderFocus]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<BadgeNodeData>>[]) => {
@@ -969,7 +984,7 @@ export const Canvas = (): JSX.Element => {
       viewportRef.current = viewport;
       writeZoomVar(viewport.zoom);
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
-      persistFolderFocus(viewport);
+      persistFolderFocus.schedule(viewport, folderScopeRef.current);
     },
     [persistViewport, persistFolderFocus, writeZoomVar],
   );

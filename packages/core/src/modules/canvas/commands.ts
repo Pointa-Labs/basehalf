@@ -40,6 +40,22 @@ function parentRel(rel: string): string {
   return i === -1 ? '' : rel.slice(0, i);
 }
 
+/** Whether `from` already has an outbound reference to `to` — read before a
+ *  lockstep edge+ref write so a compensation on failure only undoes a ref WE
+ *  created (badge.addRef is idempotent and can't tell a fresh add from a no-op). */
+async function referenceExists(
+  ctx: Parameters<Handler>[1],
+  from: string,
+  to: string,
+  kind: 'file' | 'folder' | undefined,
+): Promise<boolean> {
+  const badge = (await ctx.run('badge.get', {
+    file: from,
+    ...(kind !== undefined && { kind }),
+  })) as { references?: readonly string[] } | null;
+  return badge?.references?.includes(to) ?? false;
+}
+
 async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
   const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
     'workspace.current',
@@ -168,6 +184,11 @@ export const connect: Handler<CanvasConnectArgs, CanvasConnectResult> = async (a
   // compensate by dropping the just-added reference so the two layers can't
   // durably drift out of lockstep.
   return (await withCanvasLock(root, async () => {
+    // Did the reference already exist (e.g. added via the badge panel, no edge
+    // yet)? badge.addRef is IDEMPOTENT, so on a canvas-write failure we must only
+    // compensate-remove a ref WE created — removing a pre-existing one would
+    // destroy a user reference (and any other edge that depends on it).
+    const refExisted = await referenceExists(ctx, args.from, args.to, args.kind);
     await ctx.run('badge.addRef', {
       file: args.from,
       to: args.to,
@@ -179,7 +200,9 @@ export const connect: Handler<CanvasConnectArgs, CanvasConnectResult> = async (a
         return { ...base, edges: upsertEdge(base.edges, edge) };
       });
     } catch (err) {
-      await ctx.run('badge.removeRef', { file: args.from, to: args.to }).catch(() => {});
+      if (!refExisted) {
+        await ctx.run('badge.removeRef', { file: args.from, to: args.to }).catch(() => {});
+      }
       throw err;
     }
   })) as CanvasFile;
@@ -242,7 +265,12 @@ export const reconnect: Handler<CanvasReconnectArgs, CanvasReconnectResult> = as
   // ref state so the layers don't drift. An anchor/label-only edit (endpoints
   // unchanged) touches no badge ref at all.
   return (await withCanvasLock(root, async () => {
+    // Whether the NEW ref already existed independently — so a canvas-write
+    // failure doesn't compensate by removing a ref we didn't create (idempotent
+    // addRef again). The previous ref always existed (we're moving an edge off it).
+    let nextRefExisted = false;
     if (endpointsChanged) {
+      nextRefExisted = await referenceExists(ctx, args.next.from, args.next.to, args.next.kind);
       await ctx.run('badge.addRef', {
         file: args.next.from,
         to: args.next.to,
@@ -265,9 +293,11 @@ export const reconnect: Handler<CanvasReconnectArgs, CanvasReconnectResult> = as
         await ctx
           .run('badge.addRef', { file: args.previous.from, to: args.previous.to })
           .catch(() => {});
-        await ctx
-          .run('badge.removeRef', { file: args.next.from, to: args.next.to })
-          .catch(() => {});
+        if (!nextRefExisted) {
+          await ctx
+            .run('badge.removeRef', { file: args.next.from, to: args.next.to })
+            .catch(() => {});
+        }
       }
       throw err;
     }

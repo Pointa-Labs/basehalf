@@ -255,6 +255,14 @@ export async function relocateMirrorKind<T extends { path: string }>(
   to: string,
   remap?: (data: T, newRel: string) => T,
 ): Promise<Array<{ from: string; to: string }>> {
+  if (from === to) return [];
+  // Moving a node INTO its own subtree (`to` under `from`) would self-collide in
+  // the write-before-remove walk below — iter 1 writes the new location, a later
+  // iter removes it. It's also physically impossible on disk (fs.rename rejects
+  // it), so callers never hit this; reject defensively rather than corrupt.
+  if (isMirrorSubtree(to, from)) {
+    throw new Error(`relocateMirrorKind: cannot move "${from}" into its own subtree "${to}"`);
+  }
   const all = await listMirror<T>(fs, workspaceRoot, kind);
   const moved: Array<{ from: string; to: string }> = [];
   for (const { rel, data } of all) {
