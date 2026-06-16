@@ -14,8 +14,9 @@
  *
  * Lives in the kernel because concurrency control is cross-cutting
  * infrastructure: modules may not import each other's internals, but all
- * may depend on the kernel. The inbound and views modules share this one
- * primitive rather than each carrying their own copy (which would drift).
+ * may depend on the kernel. The mirror store and every content module
+ * (badge / canvas / focus / adhd) share this one primitive rather than each
+ * carrying their own copy (which would drift).
  */
 export function createKeyedMutex(): <T>(key: string, op: () => Promise<T>) => Promise<T> {
   const chains = new Map<string, Promise<unknown>>();

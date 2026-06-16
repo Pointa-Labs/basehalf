@@ -19,7 +19,7 @@ import type { FsLike } from './types.js';
  * with `fs.realpath` and requires the real target to be the real root or
  * strictly beneath it. This mirrors `desktop/src/main/workspacePath.ts`
  * `resolveInsideWorkspace` (the fix already shipped for `shell:open-path`),
- * lifted into the kernel so badges / focus / views / inbound / workspace
+ * lifted into the kernel so badge / canvas / focus / adhd / workspace
  * read+write+walk all enforce one identical rule.
  *
  * `realpath`/`lstat` are OPTIONAL on `FsLike`: production `defaultFs` always

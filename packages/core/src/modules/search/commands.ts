@@ -13,7 +13,7 @@ import type {
 // HIDDEN_NAMES + the materialize SKIP_NAMES — `workspace.listFiles` is
 // deliberately unopinionated about hidden files ("filtering is the renderer's
 // job"), so search must prune tooling/cache dirs itself or it would match its
-// OWN derived state under `.bh/` (badge JSON, focus.md) and treat `node_modules`
+// OWN derived state under `.bh/` (the mirror YAML tree) and treat `node_modules`
 // as searchable content. Security containment is NOT this set's job — a
 // symlink-escape is refused by listFiles' realpath guard regardless. (v0.x
 // consolidates the three copies into `.bh/config.json`.)
@@ -263,12 +263,12 @@ const BRIEF_MAX_MATCHES_PER_FILE = 3;
 /**
  * `search.brief({ query })` — assemble a paste-ready context brief by RETRIEVAL.
  *
- * `.bh/focus.md` is curation-sourced: the user picks the files. This is the
+ * Focus is viewport-sourced: it mirrors what the user is looking at. This is the
  * other on-ramp — "I know what I want to ask, not which files matter": content
  * search finds the files, then each hit is hydrated with its badge prompt,
- * reference notes, and inbound notes (via ctx.run — badges/inbound stay behind
- * their own doors, and their absence degrades to a plain match list). The
- * output is self-contained Markdown in the same spirit as the focus brief.
+ * reference notes, and inbound (referenced_by) notes (via ctx.run — the badge
+ * graph stays behind its own door, and its absence degrades to a plain match
+ * list). The output is self-contained Markdown ready to paste into any AI chat.
  */
 export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, ctx) => {
   const res = (await ctx.run('search.query', {

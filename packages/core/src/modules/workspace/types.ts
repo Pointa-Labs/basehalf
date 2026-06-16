@@ -302,10 +302,11 @@ export interface WorkspaceCreateFolderResult {
 
 /** Delete a user file OR folder from the current workspace — the context-menu
  * "Delete" door. The desktop host wires `fs.trash` (recoverable, OS trash); the
- * pure-node CLI falls back to a permanent `fs.rm`. Cascades the badge overlay:
- * the entry's badge (and, for a folder, every descendant badge) is purged and
- * focus.md self-heals. An explicit user action — exempt from the observer-only
- * rule that governs background writes. */
+ * pure-node host falls back to a permanent `fs.rm`. Cascades the whole mirror
+ * node: the entry's badge + canvas/focus/adhd YAML (and, for a folder, every
+ * descendant) is purged and the current_focus symlink self-heals. An explicit
+ * user action — exempt from the observer-only rule that governs background
+ * writes. */
 export interface WorkspaceDeleteEntryArgs {
   readonly path: string;
   readonly kind: 'file' | 'folder';
@@ -315,9 +316,10 @@ export interface WorkspaceDeleteEntryResult {
 }
 
 /** Rename/move a user file OR folder within the current workspace, cascading the
- * badge overlay (refs, inbound index, focus, and — for a folder — every
- * descendant badge) via a tolerant `badge.rename`. The complete rename the
- * file-only `workspace.renameFile` deliberately leaves to the watcher; the
+ * whole mirror node — badge refs + embedded referenced_by, the canvas card/edges,
+ * the focus.yaml viewport (+ current_focus), the adhd reading aids, and (for a
+ * folder) every descendant — via a tolerant `badge.rename`. The complete rename
+ * the file-only `workspace.renameFile` deliberately leaves to the watcher; the
  * context menu drives THIS for deterministic, folder-correct cascades. `to` in
  * the result is the actual landing path (collision-suffixed). */
 export interface WorkspaceRenameEntryArgs {

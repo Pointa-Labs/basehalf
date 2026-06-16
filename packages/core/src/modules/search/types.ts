@@ -66,9 +66,9 @@ export interface SearchBriefResult {
   readonly query: string;
   /** The assembled, self-contained Markdown brief — content matches hydrated
    *  with each file's badge prompt + reference notes + inbound notes. Ready to
-   *  paste into any AI chat (same spirit as `.bh/focus.md`, but assembled by
-   *  RETRIEVAL instead of explicit curation — the on-ramp for "I know what I
-   *  want to ask but not which files matter"). */
+   *  paste into any AI chat — assembled by RETRIEVAL (the on-ramp for "I know
+   *  what I want to ask but not which files matter"), the complement to focus,
+   *  which mirrors what the user is already looking at. */
   readonly brief: string;
   /** The files the brief covers, in brief order. */
   readonly files: readonly string[];

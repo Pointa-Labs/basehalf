@@ -10,8 +10,8 @@
  * Why localStorage (not the .bh/ directory): recent-opens are
  * per-machine, per-user, ephemeral. They don't belong in the workspace's
  * git-tracked .bh/ (that would create churn on every click). The bh
- * agent protocol doesn't need them either — focus.md captures the
- * user's *deliberate* attention, recent-opens are noisier.
+ * agent protocol doesn't need them either — the focus mirror captures
+ * the user's *current* attention, recent-opens are noisier.
  *
  * Stored shape: { [workspaceName]: { [relPath]: epochMs } }. Trimmed
  * to RECENT_LIMIT entries per workspace on every write so the log

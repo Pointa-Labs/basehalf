@@ -155,7 +155,7 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 
   const setup = args.setup ? await runSetup(ctx.fs, workspace.path) : undefined;
 
-  // Workspace-becoming-current = "opening" → seed focus + inbound surfaces.
+  // Workspace-becoming-current = "opening" → run the on-open liveness sweep.
   // For subsequent adds (not auto-current), this is deferred to workspace.use.
   if (setAsCurrent) {
     await bootstrapWorkspace(ctx, workspace.path);
@@ -184,9 +184,9 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
   return { current: data.current, workspaces };
 };
 
-/** `workspace use <name>` — switch the active workspace. Seeds the focus.md +
- * inbound contract surfaces on open; the canvas reads the filesystem per folder
- * (workspace.listCanvas), so there is no eager badge materialization. */
+/** `workspace use <name>` — switch the active workspace. Runs the on-open
+ * liveness sweep (focus + badge dangling prune); the canvas reads the filesystem
+ * per folder (workspace.listCanvas), so there is no eager badge materialization. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
   const entry = await withConfigLock(ctx.configDir, async () => {
     const data = await readWorkspaces(ctx.fs, ctx.configDir);
@@ -332,8 +332,8 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
     if (found.path === absPath) {
       throw new Error(`Workspace ${args.name} is already at ${absPath}`);
     }
-    // Ensure .bh/ at the new path so subsequent badges/focus/inbound writes
-    // have somewhere to live. Same lifecycle hook as workspace.add.
+    // Ensure .bh/ at the new path so subsequent mirror writes (badge / canvas /
+    // focus / adhd YAML) have somewhere to live. Same lifecycle hook as workspace.add.
     const bhStat = await ctx.fs.stat(bhDir);
     const created = bhStat === null;
     if (created) {
@@ -351,8 +351,8 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
     return { existing: found, bhDirCreated: created, isCurrent: data.current === args.name };
   });
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
-  // If this workspace is currently open, re-seed focus + inbound at the new
-  // path. Mirrors workspace.use.
+  // If this workspace is currently open, re-run the on-open liveness sweep at the
+  // new path. Mirrors workspace.use.
   if (isCurrent) {
     await bootstrapWorkspace(ctx, absPath);
   }
@@ -364,15 +364,14 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
 };
 
 /**
- * Seed the focus.md + inbound contract surfaces on workspace open. No longer
- * materializes badges — the canvas reads the filesystem per folder (via
- * workspace.listCanvas) and badges are a sparse overlay created lazily on first
- * annotation. Tolerant of a module not being registered (tests can wire only
- * the workspace module; production createCore always has all five).
- *
- * Focus needs no seeding: `.bh/current_focus.yaml` is simply absent until the
- * first node is focused, and `focus.get` returns null for an absent symlink — no
- * ENOENT contract surface to pre-create.
+ * The on-open LIVENESS SWEEP. Nothing is seeded — the mirror is sparse (the canvas
+ * reads the filesystem per folder via workspace.listCanvas; badges/focus/adhd are
+ * created lazily on first annotation, and `.bh/current_focus.yaml` is simply absent
+ * until the first node is focused). What this DOES is reconcile the derived state
+ * against the disk after time away (a git checkout, an external rm, edits with the
+ * app closed): clear a dangling current_focus symlink and mark orphan any badge
+ * whose file vanished. Tolerant of a module not being registered (tests can wire
+ * only the workspace module; production createCore always has all of them).
  */
 async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<void> {
   // If the workspace folder vanished between add/use (e.g. user moved it in
@@ -399,8 +398,8 @@ async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<
     // Re-entry liveness for the DEEP graph (badges + embedded referenced_by), the analog of
     // focus.pruneDangling above: a badge whose file was deleted while the watcher
     // wasn't running carries no orphan flag, so an agent following the hint into
-    // .bh/badges/ + inbound.json would be pointed at files that don't exist. Mark
-    // them orphan on open so the graph stays as live as the brief.
+    // .bh/mirror/<path>/badge.yaml would be pointed at files that don't exist. Mark
+    // them orphan on open so the graph stays as live as the focus.
     await ctx.run('badge.pruneDangling', {});
   } catch (err) {
     if (err instanceof Error && err.name === 'UnknownCommand') return;

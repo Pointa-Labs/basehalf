@@ -66,10 +66,9 @@ interface WorkspaceState {
   canvasEditingCardIds: ReadonlySet<string>;
   setCanvasCardEditing: (id: string, editing: boolean) => void;
   /** The current object(s) the user selected on the canvas — UI object state for
-   *  resize/move/connect affordances. A SINGLE selection stays UI-only; a canvas
-   *  MULTI-selection (>=2 files) additionally mirrors into `.bh/focus.md` as agent
-   *  context (Phase 0: selection-as-deixis), handled in Canvas.onSelectionChange.
-   *  Explicit context actions still own single-file + override flows. */
+   *  the resize/move/connect affordances only. Purely in-renderer: selection does
+   *  NOT write to `.bh/`. What the agent sees is the focus mirror — the open file
+   *  or the scoped folder's viewport (Canvas's focus effect), not the selection. */
   canvasSelection: CanvasSelection;
   setCanvasSelection: (selection: CanvasSelection) => void;
   /** When a file is opened FROM a content-search hit, the query to scroll to +
@@ -284,9 +283,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await window.bh.run('workspace.listFiles', { path: currentWs.path });
             set({ currentReachable: true });
             await startWatcher();
-            // Re-validate the brief against disk on every workspace LOAD. Plain
+            // Re-validate the focus against disk on every workspace LOAD. Plain
             // startup loads via workspace.list (a read) — not workspace.use — so
-            // bootstrapWorkspace's re-entry prune never runs here; a focus.md
+            // bootstrapWorkspace's re-entry prune never runs here; a current_focus
             // gone stale while the app was closed (git checkout / external rm)
             // would otherwise point the agent at a deleted file. Cheap + idempotent;
             // fire-and-forget so a hiccup never blocks the canvas.

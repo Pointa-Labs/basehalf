@@ -322,8 +322,8 @@ export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingRe
  *    entry `from` → `to`.
  * Both the copy and every neighbour edit happen under one root lock. Returns the
  * moved badge + the referrers rewritten, or moved:null when no badge existed at
- * `from`. Does NOT touch focus.md (the caller does that once, at the right
- * granularity).
+ * `from`. Touches only the badge layer; the rest of the mirror node (canvas /
+ * focus / adhd) is carried by the cascade in `rename` below.
  */
 async function moveBadgeAndCascadeRefs(
   ctx: Parameters<Handler>[1],
@@ -389,7 +389,10 @@ async function moveBadgeAndCascadeRefs(
 /**
  * Atomic rename: move the badge from `from` to `to`, rewrite the reference graph
  * (both directions, via embedded backlinks), carry descendant badges on a folder
- * rename, and update focus.md if `from` was active.
+ * rename, then cascade the REST of the mirror node (canvas / focus / adhd) to the
+ * new location via ctx.run — so the whole node follows the file/folder. This is
+ * the shared rename choke point (workspace.renameEntry AND the watcher route
+ * through it), so both paths get the full cascade.
  *
  * Errors:
  *  - Throws if the source badge doesn't exist (unless `ifExists`).
