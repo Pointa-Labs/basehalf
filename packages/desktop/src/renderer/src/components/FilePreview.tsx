@@ -38,6 +38,7 @@ import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegm
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { CodeReader } from './CodeReader.js';
 import { NoteBadge } from './NoteBadge.js';
 import { NoteTitle } from './NoteTitle.js';
 import { Button } from './primitives/Button.js';
@@ -951,59 +952,6 @@ export const MdEditor = ({
   );
 };
 
-// Code with a line-number gutter: the gutter is sticky-left so it stays put on
-// horizontal scroll, and scrolls with the code vertically (shared scroll
-// container). Matching font/line-height keeps the numbers aligned with their
-// lines; white-space:pre (no wrap) guarantees one logical line == one row.
-//
-// Normalize line endings to \n FIRST: a CRLF (Windows) file otherwise keeps a
-// stray \r on every line, which a white-space:pre block can render as an extra
-// segment break (double-spacing) and pollutes any copy of the code. Normalizing
-// keeps the rendered lines matching the gutter. (Display-only; we never write.)
-const CodeBody = ({ text }: { text: string }): JSX.Element => {
-  const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
-  const lineCount = body === '' ? 1 : body.split('\n').length;
-  const gutter = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n');
-  const lineStyle: CSSProperties = {
-    margin: 0,
-    fontFamily: font.mono,
-    fontSize: font.size.caption,
-    lineHeight: 1.6,
-    whiteSpace: 'pre',
-    tabSize: 2,
-  };
-  return (
-    <div style={{ display: 'flex', minHeight: '100%' }}>
-      <pre
-        aria-hidden
-        style={{
-          ...lineStyle,
-          padding: `${space[4]}px ${space[3]}px`,
-          textAlign: 'right',
-          color: color.textGhost,
-          background: color.surfaceMuted,
-          borderRight: `1px solid ${color.divider}`,
-          userSelect: 'none',
-          position: 'sticky',
-          left: 0,
-          flexShrink: 0,
-        }}
-      >
-        {gutter}
-      </pre>
-      <pre
-        style={{
-          ...lineStyle,
-          padding: `${space[4]}px ${space[4]}px ${space[4]}px ${space[3]}px`,
-          color: color.textPrimary,
-        }}
-      >
-        {body}
-      </pre>
-    </div>
-  );
-};
-
 // Read-only viewer for code + text files (the editor handles .md/.txt; media
 // have their own viewers). bh is the workspace VIEW for these — agents/IDEs do
 // the editing — so this is deliberately read-only, with a quiet line saying so.
@@ -1027,40 +975,6 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
       setOpenError(err instanceof Error ? err.message : String(err));
     }
   }, [file]);
-
-  // Live-sync the first visible source line into focus.yaml (visible_lines.start)
-  // so the agent knows where the user is reading. focus.set merges field-scoped, so
-  // this only touches the open file's visible_lines — the node was already focused
-  // when it opened. Guarded: a debounced late fire after the user switched files
-  // must not repoint current_focus back at this (now-closed) file.
-  const pushVisibleLine = useMemo(
-    () =>
-      debounce((start: number) => {
-        const st = useWorkspaceStore.getState();
-        if (st.openFile !== file || !st.current) return;
-        void window.bh
-          .run('focus.set', {
-            path: file,
-            kind: 'file',
-            visible_lines: { start },
-            workspace: st.current,
-          })
-          .catch(() => undefined);
-      }, 400),
-    [file],
-  );
-  useEffect(() => () => pushVisibleLine.cancel(), [pushVisibleLine]);
-  const onScroll = useCallback(
-    (el: HTMLDivElement) => {
-      // CodeBody renders one logical line per row at lineHeight 1.6 of the caption
-      // font, after a top padding of space[4]. (A coarse hint; exactness isn't
-      // needed — the agent reads "around here", not a precise pixel.)
-      const lineHeightPx = font.size.caption * 1.6;
-      const first = Math.max(1, Math.floor((el.scrollTop - space[4]) / lineHeightPx) + 1);
-      pushVisibleLine(first);
-    },
-    [pushVisibleLine],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1112,79 +1026,74 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
         />
         Read-only — edit with your own tools
       </div>
-      <div style={{ flex: 1, overflow: 'auto' }} onScroll={(e) => onScroll(e.currentTarget)}>
-        {error !== null ? (
-          <div
-            style={{
-              padding: space[4],
-              fontFamily: font.sans,
-              fontSize: font.size.caption,
-              color: color.danger,
-            }}
-          >
-            {error}
-          </div>
-        ) : state === null ? (
-          <div
-            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
-          >
-            …
-          </div>
-        ) : (
-          <>
-            {state.binary ? (
-              // Content-sniff found binary bytes in a file optimistically routed
-              // to the text viewer. Show a clean message + an open-in-app
-              // affordance instead of rendering mojibake or dead-ending.
-              <div
-                style={{
-                  padding: space[4],
-                  fontFamily: font.sans,
-                  fontSize: font.size.caption,
-                  color: color.textTertiary,
-                  lineHeight: 1.5,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: space[3],
-                  alignItems: 'flex-start',
-                }}
-              >
-                <span>This looks like a binary file, so it can’t be shown as text.</span>
-                <Button variant="primary" onClick={() => void openInApp()}>
-                  Open in default app
-                </Button>
-                {openError !== null && <span style={{ color: color.danger }}>{openError}</span>}
-              </div>
-            ) : state.text === '' ? (
-              <div
-                style={{
-                  padding: space[4],
-                  fontFamily: font.mono,
-                  fontSize: font.size.caption,
-                  color: color.textTertiary,
-                }}
-              >
-                empty file
-              </div>
-            ) : (
-              <CodeBody text={state.text} />
-            )}
-            {!state.binary && state.truncated && (
-              <div
-                style={{
-                  padding: `${space[2]}px ${space[4]}px ${space[4]}px`,
-                  fontFamily: font.sans,
-                  fontSize: font.size.micro,
-                  color: color.textTertiary,
-                }}
-              >
-                … truncated (showing the first {TEXT_VIEW_CAP.toLocaleString()} characters) — open
-                the file in your editor for the full contents.
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      {error !== null ? (
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: space[4],
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            color: color.danger,
+          }}
+        >
+          {error}
+        </div>
+      ) : state === null ? (
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: space[4],
+            color: color.textTertiary,
+            fontSize: font.size.caption,
+          }}
+        >
+          …
+        </div>
+      ) : state.binary ? (
+        // Content-sniff found binary bytes in a file optimistically routed to the
+        // text viewer. Show a clean message + an open-in-app affordance instead of
+        // rendering mojibake or dead-ending.
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: space[4],
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            color: color.textTertiary,
+            lineHeight: 1.5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: space[3],
+            alignItems: 'flex-start',
+          }}
+        >
+          <span>This looks like a binary file, so it can’t be shown as text.</span>
+          <Button variant="primary" onClick={() => void openInApp()}>
+            Open in default app
+          </Button>
+          {openError !== null && <span style={{ color: color.danger }}>{openError}</span>}
+        </div>
+      ) : state.text === '' ? (
+        <div
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: space[4],
+            fontFamily: font.mono,
+            fontSize: font.size.caption,
+            color: color.textTertiary,
+          }}
+        >
+          empty file
+        </div>
+      ) : (
+        // The reading view with ADHD aids (keyword highlight + read/unread lines)
+        // and live visible-line focus sync — owns its own scroll container.
+        <CodeReader file={file} text={state.text} truncated={state.truncated} />
+      )}
     </div>
   );
 };
