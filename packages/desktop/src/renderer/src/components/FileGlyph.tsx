@@ -213,20 +213,23 @@ export const FileGlyph = ({
 }: {
   type: BadgeType;
   tone: string;
-  size?: number;
-}): JSX.Element => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.25}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    style={{ color: tone, flexShrink: 0, display: 'block' }}
-    aria-hidden
-  >
-    {GLYPH_PATHS[type]}
-  </svg>
-);
+  // A number is px; a string (e.g. '1.25em') lets the glyph track its container's
+  // font-size — used by the mini chip so glyph + name counter-scale together.
+  size?: number | string;
+}): JSX.Element => {
+  const dim = typeof size === 'number' ? `${size}px` : size;
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.25}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ width: dim, height: dim, color: tone, flexShrink: 0, display: 'block' }}
+      aria-hidden
+    >
+      {GLYPH_PATHS[type]}
+    </svg>
+  );
+};

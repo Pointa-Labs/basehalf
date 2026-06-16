@@ -87,9 +87,11 @@ describe('canvas card editor CSS', () => {
     expect(badgeNodeSource).toMatch(/\) : showPreview \? \(\s*<BadgePreview/);
     // Size-aware level-of-detail: the WHEN-to-show-what decision is delegated to
     // the pure, unit-tested lib/cardLod policy; the component just feeds it the
-    // node's measured height × zoom. A card too small ON SCREEN (shrunk or zoomed
-    // out) collapses to a centred title chip with no count and no body.
-    expect(badgeNodeSource).toContain("import { cardLodForHeight } from '../lib/cardLod.js';");
+    // node's measured height and the canvas zoom. A card too small (shrunk) or the
+    // canvas zoomed out past the shared threshold collapses to a centred title chip.
+    expect(badgeNodeSource).toMatch(
+      /import\s*\{[\s\S]*?\bcardLodForHeight\b[\s\S]*?\}\s*from '\.\.\/lib\/cardLod\.js';/,
+    );
     expect(badgeNodeSource).toMatch(/return cardLodForHeight\(h, s\.transform\[2\]\);/);
     expect(badgeNodeSource).toMatch(/\{lod === 'mini' \? null :/);
     expect(badgeNodeSource).toMatch(/lod === 'mini' \? \(\s*\/\/[\s\S]*?<CardTitleChip/);

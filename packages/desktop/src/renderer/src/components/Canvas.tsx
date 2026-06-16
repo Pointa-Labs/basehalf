@@ -892,21 +892,38 @@ export const Canvas = (): JSX.Element => {
     [current],
   );
 
+  // Publish the live zoom to CSS as --bh-zoom so size-aware card chrome (the mini
+  // chip's counter-scaled label, see BadgeNode/cardLod) can react to zoom in pure
+  // CSS — one DOM write per frame here, zero per-node React re-renders. The var
+  // inherits from the canvas root down into every node.
+  const writeZoomVar = useCallback((zoom: number) => {
+    canvasRootRef.current?.style.setProperty('--bh-zoom', String(zoom));
+  }, []);
+
   const onMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
       viewportRef.current = viewport;
+      writeZoomVar(viewport.zoom);
       persistViewport({ offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom });
     },
-    [persistViewport],
+    [persistViewport, writeZoomVar],
   );
 
-  const onMove = useCallback((_event: unknown, viewport: Viewport) => {
-    viewportRef.current = viewport;
-  }, []);
+  const onMove = useCallback(
+    (_event: unknown, viewport: Viewport) => {
+      viewportRef.current = viewport;
+      writeZoomVar(viewport.zoom);
+    },
+    [writeZoomVar],
+  );
 
-  const onViewport = useCallback((viewport: Viewport) => {
-    viewportRef.current = viewport;
-  }, []);
+  const onViewport = useCallback(
+    (viewport: Viewport) => {
+      viewportRef.current = viewport;
+      writeZoomVar(viewport.zoom);
+    },
+    [writeZoomVar],
+  );
 
   // Mirror a canvas MULTI-selection into focus.md as agent context — debounced so
   // a marquee drag writes once on release. Single selections never call this (they

@@ -3,7 +3,12 @@ import { type Node, type NodeProps, NodeResizer, useReactFlow, useStore } from '
 import { type CSSProperties, type JSX, useCallback, useEffect, useState } from 'react';
 import { CanvasConnectionHandles, useCanvasConnectionHandles } from '../canvasConnections/index.js';
 import { color, font, radius, shadow, space, transition } from '../design.js';
-import { cardLodForHeight } from '../lib/cardLod.js';
+import {
+  MINI_LABEL_CARD_HEIGHT_FRACTION,
+  MINI_LABEL_MIN_FLOW_PX,
+  MINI_LABEL_TARGET_SCREEN_PX,
+  cardLodForHeight,
+} from '../lib/cardLod.js';
 import { fileUrl } from '../lib/fileUrl.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -126,17 +131,29 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   });
   const setCardEditing = useWorkspaceStore((s) => s.setCanvasCardEditing);
   const { setNodes: setFlowNodes } = useReactFlow<BadgeFlowNode>();
-  // Size-aware level-of-detail: a card shows less as it gets smaller ON SCREEN —
-  // whether the user shrank it or zoomed the canvas out. The WHEN-to-show-what
-  // policy lives in lib/cardLod (pure + unit-tested); here we just feed it the
-  // node's measured height × zoom. Selecting the tier STRING (not raw px) means
-  // the store subscription re-renders the tile only when it crosses the threshold,
-  // never on every zoom/resize delta (no flicker, no per-frame preview churn).
+  // Size-aware level-of-detail: a card collapses to a name chip when it's too
+  // small to read — either the user shrank it (intrinsic-height gate) or the
+  // canvas is zoomed out past a single shared zoom threshold, at which point
+  // EVERY card collapses together (no per-card popping). The WHEN-to-show-what
+  // policy lives in lib/cardLod (pure + unit-tested); here we just feed it this
+  // node's measured height and the canvas zoom. Selecting the tier STRING (not
+  // raw px) means the store subscription re-renders the tile only when it crosses
+  // the threshold, never on every zoom/resize delta (no flicker, no per-frame
+  // preview churn) — and since the gate is now zoom-only, all tiles cross in the
+  // same store update and re-render in one synchronized batch.
   const fallbackHeight = isFolder ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT;
   const sizeLod = useStore((s) => {
     const node = s.nodeLookup.get(id);
     const h = node?.measured?.height ?? node?.height ?? fallbackHeight;
     return cardLodForHeight(h, s.transform[2]);
+  });
+  // The card's flow-unit height, selected SEPARATELY (a number that changes only
+  // on resize/measure, NOT on zoom) so it never forces a per-zoom re-render. It
+  // feeds the mini chip's anti-overflow font cap; the live zoom itself is applied
+  // purely in CSS via the --bh-zoom variable (set once per frame by the canvas).
+  const cardHeightPx = useStore((s) => {
+    const node = s.nodeLookup.get(id);
+    return node?.measured?.height ?? node?.height ?? fallbackHeight;
   });
   const [nodeHover, setNodeHover] = useState(false);
   const [showBadgeFace, setShowBadgeFace] = useState(false);
@@ -299,7 +316,13 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
           // Collapsed to a centred glyph + name chip. No count, no contents, no
           // half-filled body — the count is shown only alongside the contents list,
           // which lives in the 'full' tier (see lib/cardLod).
-          <CardTitleChip type={type} tone={glyphTone} name={basename} orphan={orphan} />
+          <CardTitleChip
+            type={type}
+            tone={glyphTone}
+            name={basename}
+            orphan={orphan}
+            cardHeightPx={cardHeightPx}
+          />
         ) : (
           <div
             style={{
@@ -721,39 +744,83 @@ const CardTitleChip = ({
   tone,
   name,
   orphan,
+  cardHeightPx,
 }: {
   type: BadgeType;
   tone: string;
   name: string;
   orphan: boolean;
-}): JSX.Element => (
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: space[2],
-      padding: `0 ${space[3]}px`,
-      flex: 1,
-      minWidth: 0,
-    }}
-  >
-    <FileGlyph type={type} tone={tone} size={15} />
-    <span
+  cardHeightPx: number;
+}): JSX.Element => {
+  // Clamped counter-scale (the testable spec is miniLabelFlowFontPx in lib/cardLod):
+  // the name's FLOW font-size counter-scales toward a constant ON-SCREEN size as
+  // the canvas zooms out, but is floored at the caption and capped at a fraction
+  // of THIS card's height so it can never overrun the shrinking card. The live
+  // zoom is the CSS var --bh-zoom (set once per frame by the canvas, no React),
+  // so this whole effect is pure CSS — the tile doesn't re-render on zoom.
+  const capPx = Math.round(
+    Math.max(MINI_LABEL_MIN_FLOW_PX, cardHeightPx * MINI_LABEL_CARD_HEIGHT_FRACTION),
+  );
+  const fontSize = `clamp(${MINI_LABEL_MIN_FLOW_PX}px, calc(${MINI_LABEL_TARGET_SCREEN_PX}px / var(--bh-zoom, 1)), ${capPx}px)`;
+  return (
+    // Outer: fills the card and TOP-aligns the glyph+name block. Same top padding
+    // as the full-tier header, so a card's name stays anchored in the same spot
+    // when it flips between full and mini (no jump to centre), and a wrapped name
+    // grows downward from a fixed top. Clips only the rare name still too tall once
+    // wrapped (no ellipsis — see the name span).
+    <div
       style={{
-        fontWeight: font.weight.semibold,
-        fontSize: font.size.caption,
-        color: orphan ? color.danger : color.textPrimary,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'flex-start',
+        height: '100%',
+        flex: 1,
         minWidth: 0,
-        letterSpacing: -0.1,
+        padding: `${space[2]}px ${space[3]}px`,
+        fontSize,
+        overflow: 'hidden',
       }}
     >
-      {name}
-    </span>
-  </div>
-);
+      {/* Inner: the glyph FLOATS left, so the name's first line sits beside it and
+          every line after WRAPS back to the full card width (flowing under the
+          glyph) instead of staying in a narrow column to its right — that's what
+          frees the space the glyph used to waste. flow-root contains the float so
+          the block's height (and the card's top padding) stays correct. */}
+      <div style={{ display: 'flow-root', minWidth: 0 }}>
+        {/* Box matched to the first line's height so the glyph optically centres on
+            line one. */}
+        <span
+          aria-hidden
+          style={{
+            float: 'left',
+            display: 'flex',
+            alignItems: 'center',
+            height: '1.35em',
+            marginRight: '0.4em',
+          }}
+        >
+          <FileGlyph type={type} tone={tone} size="1.15em" />
+        </span>
+        <span
+          style={{
+            fontWeight: font.weight.semibold,
+            fontSize: '1em',
+            lineHeight: 1.35,
+            color: orphan ? color.danger : color.textPrimary,
+            // No ellipsis: a name too long for one line WRAPS to the next instead of
+            // truncating. overflow-wrap:anywhere lets a long unbroken filename (no
+            // spaces) break mid-token to fit the card width; the outer overflow:hidden
+            // clips only the rare name too tall to fit even when wrapped.
+            overflowWrap: 'anywhere',
+            letterSpacing: -0.1,
+          }}
+        >
+          {name}
+        </span>
+      </div>
+    </div>
+  );
+};
 
 // Short, uppercased-by-KindChip count for the folder header: "EMPTY" / "1 ITEM"
 // / "12 ITEMS". Tells you the size at a glance even when the card is too short to
