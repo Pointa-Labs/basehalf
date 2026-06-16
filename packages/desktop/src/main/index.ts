@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCore, defaultConfigDir, watcherEvents } from '@basehalf/core';
-import { BrowserWindow, Menu, app, ipcMain, screen } from 'electron';
+import { createCore, defaultConfigDir, defaultFs, watcherEvents } from '@basehalf/core';
+import { BrowserWindow, Menu, app, ipcMain, screen, shell } from 'electron';
 import {
   registerBhRunHandler,
   registerPathKindHandler,
@@ -9,7 +9,7 @@ import {
   registerShellOpenHandler,
   registerWorkspacePickHandler,
 } from './ipc.js';
-import { buildAppMenu, installContextMenu } from './menu.js';
+import { buildAppMenu, claimNativeContextMenuSuppression, installContextMenu } from './menu.js';
 import { PrefsStore } from './prefs.js';
 import { disposeAllTerminals, registerTerminalIpc } from './terminal.js';
 import {
@@ -31,7 +31,14 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 
 const configDir = defaultConfigDir();
-const core = createCore();
+// Compose the default node-fs with Electron's `shell.trashItem` so
+// `workspace.deleteEntry` sends user files to the OS trash (recoverable) rather
+// than permanently removing them. Core stays Electron-free — the CLI (no trash)
+// falls back to a permanent `fs.rm`. `trashItem` needs an absolute path, which
+// the deleteEntry handler already resolves + contains.
+const core = createCore({
+  fs: { ...defaultFs(), trash: (path: string) => shell.trashItem(path) },
+});
 const prefs = new PrefsStore(configDir);
 
 // AR-PR9-2 self-test signal: confirms core's first-party modules registered.
@@ -41,6 +48,13 @@ registerBhRunHandler(core);
 registerWorkspacePickHandler();
 registerShellOpenHandler(core);
 registerPathKindHandler();
+// The renderer claims (synchronously) the next native context menu when it opens
+// an in-app one, so the two never stack (chiefly over the terminal, which Electron
+// can report as editable). sendSync so the flag lands before the context-menu event.
+ipcMain.on('ctxmenu:suppress-next', (event) => {
+  claimNativeContextMenuSuppression();
+  event.returnValue = true;
+});
 // Embedded terminal: pty lives in main, streams to xterm.js in the renderer.
 // cwd defaults to the active workspace root (resolved via core.run here).
 registerTerminalIpc(core);

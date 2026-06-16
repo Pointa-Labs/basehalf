@@ -36,6 +36,12 @@ interface Window {
     /** Open an external https link in the system browser (main enforces an
      *  allowlist of project pages). */
     openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
+    /** Read the system clipboard as text (main-process clipboard) — backs the
+     *  terminal Paste action. */
+    clipboardReadText(): Promise<string>;
+    /** Claim the next native context menu (so it doesn't stack with an in-app
+     *  menu). Synchronous — set before main's context-menu event for this click. */
+    suppressNextNativeContextMenu(): void;
     /** Subscribe to the app-menu "Settings…" action (relayed by main).
      *  Returns an unsubscribe function. */
     onMenuOpenSettings(handler: () => void): () => void;

@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import type { Core } from '@basehalf/core';
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { PrefsStore } from './prefs.js';
 import { resolveInsideWorkspace } from './workspacePath.js';
@@ -158,6 +158,11 @@ export function registerSettingsIpc(prefs: PrefsStore, zoom: WindowZoomHooks): v
       }
     },
   );
+  // Clipboard READ for the terminal's Paste action. Goes through the main-process
+  // `clipboard` module rather than navigator.clipboard.readText(), which is
+  // unreliable under the renderer sandbox without a clipboard-read permission
+  // grant. (Copy still uses navigator.clipboard.writeText — that one works.)
+  ipcMain.handle('clipboard:read-text', (): string => clipboard.readText());
 }
 
 /**

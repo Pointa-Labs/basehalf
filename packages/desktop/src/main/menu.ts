@@ -162,30 +162,53 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
 }
 
 /**
- * Native right-click menu, popped per webContents. Editable targets get the
- * standard clipboard roles (so the block editor gains a real context menu it
- * otherwise lacks); everywhere offers "Open Folder…" so a second workspace is
- * one right-click away without going to the menu bar.
+ * Native right-click menu, popped per webContents — now CONTENT-AWARE so it
+ * coexists with the renderer's in-app context menus.
+ *
+ * The renderer owns the context menu for every BaseHalf surface (sidebar tree,
+ * canvas, cards, terminal). This native menu only fires for genuine text-editing
+ * contexts the renderer doesn't claim: an editable field (the block editor's
+ * rich text — which needs cut/copy/paste) or a plain selection (offer Copy).
+ * Everywhere else it pops NOTHING, so the in-app menu is the only one shown.
+ *
+ * This is decided synchronously from Electron's `params` — NOT via a renderer
+ * handshake — because the DOM `contextmenu` event's `preventDefault()` does NOT
+ * suppress this main-process `context-menu` event. Reading `isEditable` /
+ * `selectionText` here avoids any event-ordering race. (The old always-on
+ * "Open Folder…" moved to the File menu + the canvas's in-app background menu.)
  */
+// One-shot suppression: set synchronously by the renderer (via sendSync) the
+// instant it opens an IN-APP context menu, so the native menu doesn't ALSO pop.
+// This is the only race-free way to suppress over a surface that Electron reports
+// as `isEditable` but the renderer owns — chiefly the terminal, whose xterm helper
+// <textarea> can be the right-click target. The DOM `contextmenu` event (where the
+// renderer claims) always precedes this `context-menu` event, and sendSync blocks
+// until this flag is set, so it's reliably consumed by the very next pop.
+let suppressNextNativeMenu = false;
+export function claimNativeContextMenuSuppression(): void {
+  suppressNextNativeMenu = true;
+  // Belt-and-suspenders: auto-clear so a claim with no following context-menu
+  // (shouldn't happen — every right-click fires one) can't strand the flag and
+  // swallow the editor's next legitimate native menu.
+  setTimeout(() => {
+    suppressNextNativeMenu = false;
+  }, 200);
+}
+
 export function installContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
+    if (suppressNextNativeMenu) {
+      suppressNextNativeMenu = false;
+      return; // the renderer opened its own in-app menu for this gesture
+    }
     const items: MenuItemConstructorOptions[] = [];
     if (params.isEditable) {
-      items.push(
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-        { type: 'separator' },
-      );
+      items.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' });
     } else if (params.selectionText) {
-      items.push({ role: 'copy' }, { type: 'separator' });
+      items.push({ role: 'copy' });
     }
-    items.push({
-      label: 'Open Folder…',
-      accelerator: 'CmdOrCtrl+O',
-      click: () => emitOpenFolder(win),
-    });
+    // Non-editable, no selection → a BaseHalf surface owns its own menu; pop nothing.
+    if (items.length === 0) return;
     Menu.buildFromTemplate(items).popup({ window: win });
   });
 }

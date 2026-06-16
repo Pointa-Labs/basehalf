@@ -102,6 +102,17 @@ const bh = {
    *  allowlist (project pages only) — the renderer can't launch arbitrary URLs. */
   openExternal: (url: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('shell:open-external', url),
+  /** Read the system clipboard as text — backs the terminal's Paste action via
+   *  the main-process clipboard (reliable under the sandbox, unlike
+   *  navigator.clipboard.readText). */
+  clipboardReadText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),
+  /** Claim the next native context menu so it doesn't ALSO pop when an in-app
+   *  context menu opens (e.g. over the terminal, which Electron reports as
+   *  editable). SYNCHRONOUS so the flag is set in main before its `context-menu`
+   *  event fires for this same right-click. */
+  suppressNextNativeContextMenu: (): void => {
+    ipcRenderer.sendSync('ctxmenu:suppress-next');
+  },
   /** Subscribe to the app-menu "Settings…" action (relayed by main). Returns an
    *  unsubscribe function; the renderer owns the Settings overlay. */
   onMenuOpenSettings: (handler: () => void): (() => void) => {
