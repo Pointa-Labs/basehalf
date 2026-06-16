@@ -92,7 +92,7 @@ describe('workspace.deleteEntry', () => {
 
   it('deletes a file via fs.rm (no trash) and purges its badge', async () => {
     await s.core.run('workspace.createFile', { path: 'gone.md' });
-    await s.core.run('badge.set', { file: 'gone.md', patch: { prompt: 'note' } });
+    await s.core.run('badge.set', { file: 'gone.md', patch: { description: 'note' } });
     expect(await s.core.run('badge.get', { file: 'gone.md' })).not.toBeNull();
 
     const res = await s.core.run('workspace.deleteEntry', { path: 'gone.md', kind: 'file' });
@@ -117,8 +117,8 @@ describe('workspace.deleteEntry', () => {
   it('deletes a folder recursively and purges descendant badges', async () => {
     await s.core.run('workspace.createFile', { path: 'proj/a.md' });
     await s.core.run('workspace.createFile', { path: 'proj/sub/b.md' });
-    await s.core.run('badge.set', { file: 'proj/a.md', patch: { prompt: 'a' } });
-    await s.core.run('badge.set', { file: 'proj/sub/b.md', patch: { prompt: 'b' } });
+    await s.core.run('badge.set', { file: 'proj/a.md', patch: { description: 'a' } });
+    await s.core.run('badge.set', { file: 'proj/sub/b.md', patch: { description: 'b' } });
 
     await s.core.run('workspace.deleteEntry', { path: 'proj', kind: 'folder' });
 
@@ -138,7 +138,7 @@ describe('workspace.renameEntry', () => {
 
   it('moves a file on disk and carries its badge', async () => {
     await s.core.run('workspace.createFile', { path: 'old.md', content: 'body' });
-    await s.core.run('badge.set', { file: 'old.md', patch: { prompt: 'keep me' } });
+    await s.core.run('badge.set', { file: 'old.md', patch: { description: 'keep me' } });
 
     const res = await s.core.run('workspace.renameEntry', {
       from: 'old.md',
@@ -150,7 +150,7 @@ describe('workspace.renameEntry', () => {
     expect(s.files.get('/work/new.md')).toBe('body');
     expect(s.files.has('/work/old.md')).toBe(false);
     const badge = (await s.core.run('badge.get', { file: 'new.md' })) as BadgeFile;
-    expect(badge.prompt).toBe('keep me');
+    expect(badge.description).toBe('keep me');
     expect(await s.core.run('badge.get', { file: 'old.md' })).toBeNull();
   });
 
@@ -170,8 +170,8 @@ describe('workspace.renameEntry', () => {
     await s.core.run('workspace.createFile', { path: 'proj/sub/b.md' });
     // Annotate only the CHILDREN — the folder itself has no badge. This is the
     // case the watcher heuristic dropped (flagged folder-rename bug).
-    await s.core.run('badge.set', { file: 'proj/a.md', patch: { prompt: 'a' } });
-    await s.core.run('badge.set', { file: 'proj/sub/b.md', patch: { prompt: 'b' } });
+    await s.core.run('badge.set', { file: 'proj/a.md', patch: { description: 'a' } });
+    await s.core.run('badge.set', { file: 'proj/sub/b.md', patch: { description: 'b' } });
 
     const res = await s.core.run('workspace.renameEntry', {
       from: 'proj',
@@ -186,8 +186,8 @@ describe('workspace.renameEntry', () => {
     // Descendant badges carried to the new prefix.
     const a = (await s.core.run('badge.get', { file: 'project/a.md' })) as BadgeFile;
     const b = (await s.core.run('badge.get', { file: 'project/sub/b.md' })) as BadgeFile;
-    expect(a.prompt).toBe('a');
-    expect(b.prompt).toBe('b');
+    expect(a.description).toBe('a');
+    expect(b.description).toBe('b');
     expect(await s.core.run('badge.get', { file: 'proj/a.md' })).toBeNull();
   });
 });

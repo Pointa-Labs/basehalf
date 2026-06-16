@@ -49,13 +49,13 @@ describe('badge.rename with a hostile focus.md (real fs)', () => {
 
     // The rename must NOT throw despite the hostile focus.md...
     const result = (await core.run('badge.rename', { from: 'note.md', to: 'note2.md' })) as {
-      badge: { file: string };
+      badge: { path: string };
     };
-    expect(result.badge.file).toBe('note2.md');
+    expect(result.badge.path).toBe('note2.md');
 
     // ...and the badge actually moved (steps 1-3 committed).
-    const list = (await core.run('badge.list', {})) as { badges: { file: string }[] };
-    const files = list.badges.map((b) => b.file);
+    const list = (await core.run('badge.list', {})) as { badges: { path: string }[] };
+    const files = list.badges.map((b) => b.path);
     expect(files).toContain('note2.md');
     expect(files).not.toContain('note.md');
   });

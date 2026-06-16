@@ -118,7 +118,7 @@ describe('canvas card editor CSS', () => {
     expect(connectionHandlesSource).toContain("window.addEventListener('mousemove'");
     expect(connectionHandlesSource).toContain('targetAffordanceForPoint(rect, point.clientX');
     expect(connectionGeometrySource).toContain('return nearest.side;');
-    expect(connectionEdgesSource).toContain('export function badgesToConnectionEdges');
+    expect(connectionEdgesSource).toContain('export function canvasEdgesToConnectionEdges');
     expect(connectionEdgesSource).toContain('export function sideFromHandle');
     expect(connectionHandlesSource).toContain("left: '50%'");
     expect(connectionHandlesSource).toContain("top: '50%'");

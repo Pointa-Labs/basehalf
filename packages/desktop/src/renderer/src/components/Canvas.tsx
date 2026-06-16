@@ -1,7 +1,7 @@
 import type {
-  BadgeFile,
   BadgeKind,
-  CanvasBadge,
+  CanvasChildBadge,
+  CanvasEdge,
   ViewportState,
   WorkspaceListCanvasResult,
 } from '@basehalf/core';
@@ -41,8 +41,9 @@ import {
   ReferenceEdge,
   type ReferenceEdgeRemoval,
   type ReferenceEdgeUpdate,
+  SIDE_TO_ANCHOR,
   applyReferenceEdgeUpdate,
-  badgesToConnectionEdges,
+  canvasEdgesToConnectionEdges,
   inferConnectionSides,
   referenceEdgeId,
   removeReferenceEdgeUpdate,
@@ -103,18 +104,19 @@ function nodeBadgeKind(nodes: readonly Node<BadgeNodeData>[], id: string): Badge
   return nodes.find((node) => node.id === id)?.data.kind ?? 'file';
 }
 
-// Build reference edges for the badges currently on the canvas. They are already
-// exactly one folder level (workspace.listCanvas), so no scope filter is needed —
-// badgesToConnectionEdges drops refs whose target isn't in the visible set.
+// Build reference edges from the folder canvas's CanvasEdge[] (the spatial
+// layer). They already belong to exactly one folder level (workspace.listCanvas),
+// so no scope filter is needed — canvasEdgesToConnectionEdges drops any edge
+// whose endpoints aren't both in the visible set.
 function connectionEdges(
-  badges: readonly BadgeFile[],
+  canvasEdges: readonly CanvasEdge[],
   nodes: readonly Node<BadgeNodeData>[],
 ): Edge[] {
-  return badgesToConnectionEdges(badges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS);
+  return canvasEdgesToConnectionEdges(canvasEdges, nodes, CONNECTION_EDGE_SIZE_DEFAULTS);
 }
 
 function badgeToNode(
-  badge: CanvasBadge,
+  badge: CanvasChildBadge,
   fallbackIndex: number,
   total: number,
   override?: { x?: number; y?: number },
@@ -131,18 +133,18 @@ function badgeToNode(
   // (<=~23 badges keep 6 columns) and only widens for big folders. Saved
   // positions always win.
   const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
-  const x = override?.x ?? badge.canvas?.x ?? 60 + (fallbackIndex % cols) * 340;
-  const y = override?.y ?? badge.canvas?.y ?? 60 + Math.floor(fallbackIndex / cols) * 280;
+  const x = override?.x ?? badge.card?.x ?? 60 + (fallbackIndex % cols) * 340;
+  const y = override?.y ?? badge.card?.y ?? 60 + Math.floor(fallbackIndex / cols) * 280;
   const width =
-    badge.canvas?.width ??
+    badge.card?.width ??
     (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_WIDTH : DEFAULT_FILE_CARD_WIDTH);
   const height =
-    badge.canvas?.height ??
+    badge.card?.height ??
     (badge.kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
   const w = Math.max(width, CARD_MIN_WIDTH);
   const h = Math.max(height, CARD_MIN_HEIGHT);
   return {
-    id: badge.file,
+    id: badge.path,
     type: 'badge',
     position: { x, y },
     // A card maps to a file/folder on disk and its badge note — pressing
@@ -158,16 +160,15 @@ function badgeToNode(
     initialHeight: h,
     style: { width: w, height: h },
     data: {
-      label: badge.file,
+      label: badge.path,
       kind: badge.kind,
       ...(badge.orphan === true && { orphan: true }),
-      ...(badge.prompt !== undefined && { prompt: badge.prompt }),
+      ...(badge.description !== undefined && { prompt: badge.description }),
       ...(badge.preview !== undefined && { preview: badge.preview }),
-      // How many of this badge's outbound references carry a human-written
-      // note — the card's coverage indicator distinguishes "annotated with
-      // connections explained" from "prompt only" (see BadgeNode).
-      notedRefs: badge.references.filter((r) => r.note !== undefined && r.note.trim() !== '')
-        .length,
+      // How many outbound references this badge carries — the card's connection
+      // indicator (references are plain paths now; the per-edge note + anchors
+      // live in the canvas layer, so the count is just the reference count).
+      notedRefs: badge.references.length,
       ...(coverage !== undefined && { coverage }),
     },
   };
@@ -288,10 +289,19 @@ export const Canvas = (): JSX.Element => {
   const mirrorPrevFocus = useRef<readonly string[] | null>(null);
   // Live mirror of focusActive for the selection callback (avoids a stale closure).
   const focusActiveRef = useRef<readonly string[]>([]);
+  // Live mirror of folderScope for the keyed-debounced card persisters — they
+  // are created once (empty-dep useMemo, to keep their per-key timers across
+  // renders), so they read the CURRENT canvas folder from this ref rather than a
+  // stale closure (canvas.setCard targets the folder's canvas.yaml).
+  const folderScopeRef = useRef<string | null>(folderScope);
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    folderScopeRef.current = folderScope;
+  }, [folderScope]);
 
   useEffect(() => {
     focusActiveRef.current = focusActive;
@@ -332,13 +342,13 @@ export const Canvas = (): JSX.Element => {
       // indicators (coverage bars, first-annotation hint) need a whole-workspace
       // walk and used to block this render — that was the folder-entry lag. They
       // now land in PHASE 2 below, after the cards are already on screen.
-      const { badges } = (await window.bh.run('workspace.listCanvas', {
+      const { children, edges: canvasEdges } = (await window.bh.run('workspace.listCanvas', {
         folder: folderScope,
       })) as WorkspaceListCanvasResult;
       if (!fresh()) return;
-      const nextNodes = badges.map((b, i) => badgeToNode(b, i, badges.length));
+      const nextNodes = children.map((b, i) => badgeToNode(b, i, children.length));
       setNodes(nextNodes);
-      setEdges(badgesToConnectionEdges(badges, nextNodes, CONNECTION_EDGE_SIZE_DEFAULTS));
+      setEdges(connectionEdges(canvasEdges, nextNodes));
       setSnapGuides([]);
       setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
       setError('');
@@ -352,15 +362,18 @@ export const Canvas = (): JSX.Element => {
       // without the coverage indicators.
       try {
         const badgesAll = (await window.bh.run('badge.list', {})) as {
-          badges: { file: string; kind: string; prompt?: string }[];
+          badges: { path: string; kind: string; description?: string }[];
         };
         const prompted = new Set(
           badgesAll.badges
-            .filter((b) => b.kind === 'file' && b.prompt !== undefined && b.prompt.trim() !== '')
-            .map((b) => b.file),
+            .filter(
+              (b) =>
+                b.kind === 'file' && b.description !== undefined && b.description.trim() !== '',
+            )
+            .map((b) => b.path),
         );
         let filesAll: string[] = [];
-        if (badges.some((b) => b.kind === 'folder')) {
+        if (children.some((b) => b.kind === 'folder')) {
           const res = (await window.bh.run('workspace.listSupportedFiles', {
             folder: null,
           })) as { files: string[] };
@@ -612,25 +625,32 @@ export const Canvas = (): JSX.Element => {
     [folderScope],
   );
 
+  // `folder` is the SECOND arg (keyed on `file`, the first), captured by the
+  // caller at drag/resize-end so a debounced flush that lands AFTER a fast folder
+  // switch still writes the card to the folder it was dragged in — never the
+  // folder now on screen (folderScopeRef would read the new one at flush time).
   const persistCanvas = useMemo(
     () =>
       keyedDebounce(
-        (file: string, kind: BadgeKind, x: number, y: number, width?: number, height?: number) => {
-          // A drag updates the badge's canonical canvas position via badge.set
-          // (on the main canvas and inside a folder scope alike).
+        (
+          file: string,
+          folder: string | null,
+          kind: BadgeKind,
+          x: number,
+          y: number,
+          width?: number,
+          height?: number,
+        ) => {
+          // CanvasCard requires width+height — fall back to the kind default when
+          // the node's measured size isn't known yet.
+          const w =
+            width ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_WIDTH : DEFAULT_FILE_CARD_WIDTH);
+          const h =
+            height ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
           void window.bh
-            .run('badge.set', {
-              file,
-              patch: {
-                kind,
-                canvas: {
-                  x,
-                  y,
-                  ...(width !== undefined && { width }),
-                  ...(height !== undefined && { height }),
-                  collapsed: false,
-                },
-              },
+            .run('canvas.setCard', {
+              folder,
+              card: { path: file, kind, x, y, width: w, height: h },
             })
             .catch(() => undefined);
         },
@@ -642,11 +662,19 @@ export const Canvas = (): JSX.Element => {
   const persistSize = useMemo(
     () =>
       keyedDebounce(
-        (file: string, kind: BadgeKind, x: number, y: number, width: number, height: number) => {
+        (
+          file: string,
+          folder: string | null,
+          kind: BadgeKind,
+          x: number,
+          y: number,
+          width: number,
+          height: number,
+        ) => {
           void window.bh
-            .run('badge.set', {
-              file,
-              patch: { kind, canvas: { x, y, width, height, collapsed: false } },
+            .run('canvas.setCard', {
+              folder,
+              card: { path: file, kind, x, y, width, height },
             })
             .catch(() => undefined);
         },
@@ -684,6 +712,7 @@ export const Canvas = (): JSX.Element => {
             const kind = nodeBadgeKind(next, change.id);
             persistCanvas(
               change.id,
+              folderScopeRef.current,
               kind,
               change.position.x,
               change.position.y,
@@ -697,6 +726,7 @@ export const Canvas = (): JSX.Element => {
             if (at) {
               persistSize(
                 change.id,
+                folderScopeRef.current,
                 nodeBadgeKind(next, change.id),
                 at.x,
                 at.y,
@@ -746,6 +776,8 @@ export const Canvas = (): JSX.Element => {
         nodesRef.current.find((n) => n.id === conn.target),
         CONNECTION_EDGE_SIZE_DEFAULTS,
       );
+      const fromSideFinal = fromSide ?? inferred.fromSide;
+      const toSideFinal = toSide ?? inferred.toSide;
       flushSync(() => {
         setEdges((prev) =>
           applyReferenceEdgeUpdate(prev, {
@@ -754,41 +786,46 @@ export const Canvas = (): JSX.Element => {
             previousTarget: conn.target as string,
             source: conn.source as string,
             target: conn.target as string,
-            sourceHandle: fromSide ?? inferred.fromSide,
-            targetHandle: toSide ?? inferred.toSide,
-            note: undefined,
+            sourceHandle: fromSideFinal,
+            targetHandle: toSideFinal,
+            label: undefined,
           }),
         );
       });
       try {
-        await badgeMutations.addRef(
+        // canvas.connect writes the canvas edge AND the badge.references link in
+        // lockstep. We send the SAME anchors core will persist (the explicit handle
+        // side, else the geometry inference connectionEdges uses) so the reconcile
+        // re-derives an identical edge with no snap.
+        await badgeMutations.connect(
           {
-            file: conn.source,
+            folder: folderScope,
+            from: conn.source,
             to: conn.target,
+            from_anchor: SIDE_TO_ANCHOR[fromSideFinal],
+            to_anchor: SIDE_TO_ANCHOR[toSideFinal],
             kind: sourceKind,
-            ...(fromSide !== undefined && { fromSide }),
-            ...(toSide !== undefined && { toSide }),
           },
           'canvas',
         );
-        // Reconcile: re-derive from core so the inbound index ripple + any geometry
-        // settle land (invisible — the edge is already drawn).
-        const { badges } = (await window.bh.run('workspace.listCanvas', {
+        // Reconcile: re-derive from core so the inbound (referenced_by) ripple + any
+        // geometry settle land (invisible — the edge is already drawn).
+        const { edges: canvasEdges } = (await window.bh.run('workspace.listCanvas', {
           folder: folderScope,
         })) as WorkspaceListCanvasResult;
-        setEdges(connectionEdges(badges, nodesRef.current));
+        setEdges(connectionEdges(canvasEdges, nodesRef.current));
         // A healthy connection clears any stale error banner, matching the sibling
         // commitReferenceEdgeUpdate / commitReferenceEdgeRemoval handlers.
         setError('');
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
-        // Roll back the optimistic edge — core has no such ref, so re-deriving
+        // Roll back the optimistic edge — core has no such edge, so re-deriving
         // drops it.
         try {
-          const { badges } = (await window.bh.run('workspace.listCanvas', {
+          const { edges: canvasEdges } = (await window.bh.run('workspace.listCanvas', {
             folder: folderScope,
           })) as WorkspaceListCanvasResult;
-          setEdges(connectionEdges(badges, nodesRef.current));
+          setEdges(connectionEdges(canvasEdges, nodesRef.current));
         } catch {
           // leave the optimistic edge rather than blank the canvas
         }
@@ -798,57 +835,48 @@ export const Canvas = (): JSX.Element => {
   );
 
   const resetReferenceEdgesFromCore = useCallback(async (): Promise<void> => {
-    const { badges } = (await window.bh.run('workspace.listCanvas', {
+    const { children, edges: canvasEdges } = (await window.bh.run('workspace.listCanvas', {
       folder: folderScope,
     })) as WorkspaceListCanvasResult;
-    setEdges(connectionEdges(badges, nodesRef.current));
-    // Refresh each card's noted-refs count from the same fetch: an edge-note
-    // edit commits with origin 'canvas', which the badge-bus listener ignores
-    // (by design — no full reload for our own writes), so the corner dot would
-    // otherwise lag until the next unrelated reload.
-    const notedCounts = new Map(
-      badges.map((b) => [
-        b.file,
-        b.references.filter((r) => r.note !== undefined && r.note.trim() !== '').length,
-      ]),
-    );
+    setEdges(connectionEdges(canvasEdges, nodesRef.current));
+    // Refresh each card's reference count from the same fetch: an edge mutation
+    // commits with origin 'canvas', which the badge-bus listener ignores (by
+    // design — no full reload for our own writes), so the connection indicator
+    // would otherwise lag until the next unrelated reload.
+    const refCounts = new Map(children.map((b) => [b.path, b.references.length]));
     setNodes((prev) =>
       prev.map((n) => {
-        const c = notedCounts.get(n.id);
+        const c = refCounts.get(n.id);
         if (c === undefined || n.data.notedRefs === c) return n;
         return { ...n, data: { ...n.data, notedRefs: c } };
       }),
     );
   }, [folderScope]);
 
-  // Edge deletion: react-flow selects-then-Delete-key flow gives us the
-  // removed edges here. Each edge's id is `${source}__${target}` (see the
-  // canvasConnections module) so we can derive the badge.removeRef args from id alone.
+  // Edge deletion: react-flow selects-then-Delete-key flow gives us the removed
+  // edges here. canvas.disconnect drops the canvas edge AND the badge reference in
+  // lockstep, keyed by the edge's source/target.
   const onEdgesDelete = useCallback(
     async (deleted: Edge[]) => {
       const deletedIds = new Set(deleted.map((edge) => edge.id));
       setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
       try {
         for (const e of deleted) {
-          await badgeMutations.removeRef(
-            {
-              file: e.source,
-              to: e.target,
-              kind: nodeBadgeKind(nodesRef.current, e.source),
-            },
+          await badgeMutations.disconnect(
+            { folder: folderScope, from: e.source, to: e.target },
             'canvas',
           );
         }
-        // Re-derive edges AND each card's noted-refs count from core: a removed
-        // noted edge otherwise leaves the source card's "carries noted
-        // connections" dot stale (the 'canvas'-origin write is ignored by the
-        // bus listener) until an unrelated reload.
+        // Re-derive edges AND each card's reference count from core: a removed
+        // edge otherwise leaves the source card's connection indicator stale (the
+        // 'canvas'-origin write is ignored by the bus listener) until an unrelated
+        // reload.
         await resetReferenceEdgesFromCore();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [resetReferenceEdgesFromCore],
+    [folderScope, resetReferenceEdgesFromCore],
   );
 
   const commitReferenceEdgeUpdate = useCallback(
@@ -858,20 +886,26 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          await badgeMutations.reconnectRef(
+          // canvas.reconnect moves/relabels the edge: it rewrites the canvas edge
+          // (anchors + label) and, when the endpoints change, moves the badge
+          // reference (removeRef previous + addRef next) in lockstep. Anchors fall
+          // back to geometry inference when a handle side wasn't carried.
+          const inferred = inferConnectionSides(
+            nodesRef.current.find((n) => n.id === update.source),
+            nodesRef.current.find((n) => n.id === update.target),
+            CONNECTION_EDGE_SIZE_DEFAULTS,
+          );
+          await badgeMutations.reconnect(
             {
-              previous: {
-                file: update.previousSource,
-                to: update.previousTarget,
-                kind: nodeBadgeKind(nodesRef.current, update.previousSource),
-              },
+              folder: folderScope,
+              previous: { from: update.previousSource, to: update.previousTarget },
               next: {
-                file: update.source,
+                from: update.source,
                 to: update.target,
+                from_anchor: SIDE_TO_ANCHOR[update.sourceHandle ?? inferred.fromSide],
+                to_anchor: SIDE_TO_ANCHOR[update.targetHandle ?? inferred.toSide],
                 kind: nodeBadgeKind(nodesRef.current, update.source),
-                ...(update.note !== undefined && { note: update.note }),
-                ...(update.sourceHandle !== undefined && { fromSide: update.sourceHandle }),
-                ...(update.targetHandle !== undefined && { toSide: update.targetHandle }),
+                ...(update.label !== undefined && { label: update.label }),
               },
             },
             'canvas',
@@ -884,7 +918,7 @@ export const Canvas = (): JSX.Element => {
         }
       })();
     },
-    [resetReferenceEdgesFromCore],
+    [folderScope, resetReferenceEdgesFromCore],
   );
 
   const commitReferenceEdgeRemoval = useCallback(
@@ -894,12 +928,8 @@ export const Canvas = (): JSX.Element => {
       });
       void (async () => {
         try {
-          await badgeMutations.removeRef(
-            {
-              file: removal.source,
-              to: removal.target,
-              kind: nodeBadgeKind(nodesRef.current, removal.source),
-            },
+          await badgeMutations.disconnect(
+            { folder: folderScope, from: removal.source, to: removal.target },
             'canvas',
           );
           await resetReferenceEdgesFromCore();
@@ -910,7 +940,7 @@ export const Canvas = (): JSX.Element => {
         }
       })();
     },
-    [resetReferenceEdgesFromCore],
+    [folderScope, resetReferenceEdgesFromCore],
   );
 
   const renderedEdges = useMemo(
@@ -1169,14 +1199,14 @@ export const Canvas = (): JSX.Element => {
     const existing = (await window.bh.run('badge.get', {
       file: folder,
       kind: 'folder',
-    })) as { prompt?: string } | null;
+    })) as { description?: string } | null;
     const next = await prompt({
       title: isRoot ? 'Workspace prompt' : `Folder prompt — /${folder}`,
       body: isRoot
         ? 'What the AI agent should know about this whole workspace — read as the turn intent when you add the workspace to Agent Context. Leave blank to clear.'
         : "What the AI agent should know about this folder — it's read as the turn intent when you add the folder to Agent Context. Leave blank to clear.",
       label: 'Prompt',
-      defaultValue: existing?.prompt ?? '',
+      defaultValue: existing?.description ?? '',
       placeholder: isRoot
         ? 'e.g. Research notes for the Q3 launch — start with overview.md'
         : 'e.g. Chapter 3 supporting material — read first',
@@ -1185,7 +1215,7 @@ export const Canvas = (): JSX.Element => {
     try {
       await window.bh.run('badge.set', {
         file: folder,
-        patch: { kind: 'folder', prompt: next.trim() },
+        patch: { kind: 'folder', description: next.trim() },
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

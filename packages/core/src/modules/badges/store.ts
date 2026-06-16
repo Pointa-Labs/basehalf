@@ -45,7 +45,7 @@ export async function writeBadge(
   workspaceRoot: string,
   badge: BadgeFile,
 ): Promise<void> {
-  await writeMirror(fs, workspaceRoot, badge.file, 'badge', badge);
+  await writeMirror(fs, workspaceRoot, badge.path, 'badge', badge);
 }
 
 export async function removeBadge(
@@ -63,7 +63,7 @@ export async function removeBadge(
  */
 export async function listBadges(fs: FsLike, workspaceRoot: string): Promise<readonly BadgeFile[]> {
   const nodes = await listMirror<BadgeFile>(fs, workspaceRoot, 'badge');
-  return nodes.map((n) => n.data).sort((a, b) => a.file.localeCompare(b.file));
+  return nodes.map((n) => n.data).sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /** Cheap signature (count + newest mtime) of the badge store for an

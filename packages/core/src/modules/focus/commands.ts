@@ -80,7 +80,7 @@ const withFocusLock = createKeyedMutex();
  */
 async function assembleItems(
   ctx: Parameters<Handler>[1],
-  root: string,
+  _root: string,
   files: readonly string[],
 ): Promise<FocusItem[]> {
   const items: FocusItem[] = [];
@@ -92,68 +92,21 @@ async function assembleItems(
       badge = null;
     }
     if (badge?.orphan === true) continue; // known-deleted → never reaches the brief
-    const refs = (badge?.references ?? [])
-      .filter((r) => r.to)
-      .map((r) => ({ to: r.to, ...(r.note !== undefined && r.note !== '' && { note: r.note }) }));
+    // References / backlinks are now PLAIN PATHS (the edge note/anchors moved to
+    // canvas.yaml). Inline them as bare topology so the agent still reads both
+    // directions of the graph in one pass.
+    const refs = (badge?.references ?? []).filter((r) => r).map((to) => ({ to }));
     const promptText =
-      badge?.prompt !== undefined && badge.prompt !== '' ? badge.prompt : undefined;
-    const hasPrompt = promptText !== undefined;
-    // Freshness calibration: a note written BEFORE the file's last content
-    // change deserves a flag, so the agent knows how much to trust it. Both
-    // facts must be available (promptModifiedAt on the badge, mtime from the
-    // fs) — when either is missing we say nothing rather than guess. Dates
-    // only; the agent calibrates, bh never judges.
-    let promptStale: FocusItem['promptStale'];
-    if (hasPrompt && badge?.promptModifiedAt !== undefined) {
-      const notedMs = Date.parse(badge.promptModifiedAt);
-      const mtimeMs = await fileMtimeMs(ctx, root, file);
-      if (mtimeMs !== undefined && Number.isFinite(notedMs) && mtimeMs > notedMs) {
-        promptStale = {
-          notedAt: badge.promptModifiedAt,
-          fileChangedAt: new Date(mtimeMs).toISOString(),
-        };
-      }
-    }
-    // The other half of the graph: who points AT this file, and why. Inlined so
-    // the brief carries both directions of the human's relationships in one read.
-    // Read from the badge's EMBEDDED referenced_by (was the separate inbound.json).
-    // Kept only when a note exists or there's a backlink at all — a bare backlink
-    // is still signal.
-    const inbound = (badge?.referenced_by ?? [])
-      .filter((e) => e.from)
-      .map((e) => ({
-        from: e.from,
-        ...(e.note !== undefined && e.note !== '' && { note: e.note }),
-      }));
+      badge?.description !== undefined && badge.description !== '' ? badge.description : undefined;
+    const inbound = (badge?.referenced_by ?? []).filter((f) => f).map((from) => ({ from }));
     items.push({
       file,
       ...(promptText !== undefined && { prompt: promptText }),
-      ...(promptStale !== undefined && { promptStale }),
       ...(refs.length > 0 && { refs }),
       ...(inbound.length > 0 && { inbound }),
     });
   }
   return items;
-}
-
-/**
- * Best-effort mtime (epoch ms) of a workspace-relative file, routed through the
- * realpath containment guard like fileStillExists. Undefined when the fs
- * doesn't report mtimes (older mocks), the file is gone, or the path escapes —
- * callers must treat "unknown" as "say nothing", never as "fresh" or "stale".
- */
-async function fileMtimeMs(
-  ctx: Parameters<Handler>[1],
-  root: string,
-  file: string,
-): Promise<number | undefined> {
-  try {
-    const abs = await assertReadContained(ctx.fs, root, join(root, file));
-    const st = await ctx.fs.stat(abs);
-    return st !== null && st.isFile === true ? st.mtimeMs : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -179,11 +132,10 @@ async function writeBrief(
 // Minimal shapes for the cross-module reads focus.set composes via ctx.run
 // (never imports another module's internals — keeps the dep arrow one-way).
 interface BadgeGetMinimal {
-  readonly prompt?: string;
-  readonly promptModifiedAt?: string;
+  readonly description?: string;
   readonly orphan?: boolean;
-  readonly references?: readonly { readonly to: string; readonly note?: string }[];
-  readonly referenced_by?: readonly { readonly from: string; readonly note?: string }[];
+  readonly references?: readonly string[];
+  readonly referenced_by?: readonly string[];
 }
 /**
  * Gather every supported FILE under a folder — the folder IS the grouping, so
@@ -203,7 +155,7 @@ async function filesUnderFolder(
   return files;
 }
 
-/** Read a folder badge's prompt — the folder's agent-facing intent. */
+/** Read a folder badge's description — the folder's agent-facing intent. */
 async function folderPrompt(
   ctx: Parameters<Handler>[1],
   folder: string,
@@ -212,7 +164,9 @@ async function folderPrompt(
     'badge.get',
     { file: folder, kind: 'folder' },
   );
-  return badge?.prompt !== undefined && badge.prompt.trim() !== '' ? badge.prompt : undefined;
+  return badge?.description !== undefined && badge.description.trim() !== ''
+    ? badge.description
+    : undefined;
 }
 
 export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {

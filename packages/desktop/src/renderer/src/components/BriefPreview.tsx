@@ -74,7 +74,7 @@ const GhostPromptEditor = ({
     () => () => {
       const next = draftRef.current.trim();
       if (editingRef.current && next !== '') {
-        const p = badgeMutations.setPrompt(file, next, 'brief-preview').catch(() => undefined);
+        const p = badgeMutations.setDescription(file, next, 'brief-preview').catch(() => undefined);
         registerSaveRef.current(p);
         void p;
       }
@@ -89,7 +89,7 @@ const GhostPromptEditor = ({
       return;
     }
     setSaving(true);
-    const p = badgeMutations.setPrompt(file, next, 'brief-preview');
+    const p = badgeMutations.setDescription(file, next, 'brief-preview');
     registerSave(p.catch(() => undefined));
     void p
       .then(() => {

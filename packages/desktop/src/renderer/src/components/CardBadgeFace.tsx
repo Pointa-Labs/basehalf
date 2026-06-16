@@ -78,15 +78,12 @@ export const CardBadgeFace = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: space[0.5] }}>
             {fb.refs.length > 0 && (
               <List>
-                {fb.refs.map((ref) => (
+                {fb.refs.map((to) => (
                   <RefLine
-                    key={ref.to}
-                    to={ref.to}
-                    note={ref.note ?? ''}
-                    notePlaceholder="note"
-                    onOpen={() => openInPanel(ref.to)}
-                    onRemove={() => void fb.removeRef(ref.to)}
-                    onNoteCommit={(note) => void fb.updateRefNote(ref.to, note)}
+                    key={to}
+                    to={to}
+                    onOpen={() => openInPanel(to)}
+                    onRemove={() => void fb.removeRef(to)}
                   />
                 ))}
               </List>
@@ -123,12 +120,8 @@ export const CardBadgeFace = ({
             {inboundExpanded && fb.inbound.length > 0 && (
               <div style={{ paddingLeft: space[2] }}>
                 <List>
-                  {fb.inbound.map((entry) => (
-                    <InboundRow
-                      key={entry.from}
-                      entry={entry}
-                      onOpen={() => openInPanel(entry.from)}
-                    />
+                  {fb.inbound.map((from) => (
+                    <InboundRow key={from} from={from} onOpen={() => openInPanel(from)} />
                   ))}
                 </List>
               </div>

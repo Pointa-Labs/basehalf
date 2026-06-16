@@ -287,10 +287,12 @@ export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, c
       // Hydrate with the human-written layer. Both reads are best-effort: a
       // missing badge (sparse overlay), an unregistered module (UnknownCommand)
       // or a transient read error must degrade the brief, never fail it.
+      // References / backlinks are PLAIN PATHS now (the edge note moved to
+      // canvas.yaml), so the brief inlines bare topology + the description.
       type HydratedBadge = {
-        prompt?: string;
-        references?: { to: string; note?: string }[];
-        referenced_by?: { from: string; note?: string }[];
+        description?: string;
+        references?: string[];
+        referenced_by?: string[];
       } | null;
       let badge: HydratedBadge = null;
       try {
@@ -298,36 +300,22 @@ export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, c
       } catch {
         badge = null;
       }
-      // Backlinks come from the badge's EMBEDDED referenced_by (was inbound.json).
-      const inboundEntries: { from: string; note?: string }[] = [...(badge?.referenced_by ?? [])];
-      const prompt = badge?.prompt?.trim();
-      if (prompt !== undefined && prompt !== '') lines.push(`      prompt: ${prompt}`);
+      const prompt = badge?.description?.trim();
+      if (prompt !== undefined && prompt !== '') lines.push(`      description: ${prompt}`);
       for (const m of hit.matches) {
         lines.push(`      match (line ${m.line}): ${m.text}`);
       }
       const refs = badge?.references ?? [];
       if (refs.length > 0) {
         lines.push('      refs:');
-        for (const ref of refs) {
-          const note = ref.note?.trim();
-          lines.push(
-            note !== undefined && note !== ''
-              ? `        -> ${ref.to}  (note: ${note})`
-              : `        -> ${ref.to}`,
-          );
-        }
+        for (const ref of refs) lines.push(`        -> ${ref}`);
       }
-      // Inbound notes carry the OTHER side's reasoning about this file — often
-      // exactly the context a retrieval-sourced brief is missing. Note-less
-      // inbound entries are topology only; skip them to keep the brief lean.
-      const notedInbound = inboundEntries.filter(
-        (e) => e.note !== undefined && e.note.trim() !== '',
-      );
-      if (notedInbound.length > 0) {
+      // The OTHER side of the graph: who points AT this file — often exactly the
+      // context a retrieval-sourced brief is missing.
+      const inbound = badge?.referenced_by ?? [];
+      if (inbound.length > 0) {
         lines.push('      referenced-by:');
-        for (const e of notedInbound) {
-          lines.push(`        <- ${e.from}  (note: ${e.note?.trim() ?? ''})`);
-        }
+        for (const from of inbound) lines.push(`        <- ${from}`);
       }
     }
   }

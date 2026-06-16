@@ -116,11 +116,11 @@ export const ReferenceEdge = ({
   const { getNode, screenToFlowPosition } = useReactFlow();
   const [hover, setHover] = useState(false);
   const [reconnect, setReconnect] = useState<EdgeReconnectState | null>(null);
-  // Inline note editing — double-click the line, type WHY these two connect,
-  // Enter. The note is the edge's whole value to the brief (an arrow without
+  // Inline label editing — double-click the line, type WHY these two connect,
+  // Enter. The label is the edge's whole value to the brief (an arrow without
   // one ships structure but no meaning), so writing it must not cost a trip
-  // through the badge panel. Commits through the same reconnectRef path a
-  // reconnect drag uses (endpoints unchanged, note swapped).
+  // through the badge panel. Commits through the same canvas.reconnect path a
+  // reconnect drag uses (endpoints unchanged, label swapped).
   const [editingNote, setEditingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState('');
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
@@ -196,7 +196,7 @@ export const ReferenceEdge = ({
         target: nextTarget,
         sourceHandle: end === 'source' ? snapped.side : fromSide,
         targetHandle: end === 'target' ? snapped.side : toSide,
-        note,
+        label: note,
       });
     },
     [id, interactionData, note, source, sourceHandleId, target, targetHandleId],
@@ -221,7 +221,7 @@ export const ReferenceEdge = ({
       target,
       sourceHandle: sourceSide,
       targetHandle: targetSide,
-      note: next === '' ? undefined : next,
+      label: next === '' ? undefined : next,
     });
   }, [id, interactionData, note, noteDraft, source, sourceSide, target, targetSide]);
 

@@ -112,26 +112,19 @@ export const BadgePrompt = ({
   );
 };
 
-/** A reference as a light line item — `→ name  note  ×` — no box. Open the
- *  target, edit its note inline, or remove it. */
+/** A reference as a light line item — `→ name  ×` — no box. References are plain
+ *  paths now (the per-edge note + anchors moved to the canvas layer), so this row
+ *  is open-or-remove only. */
 export const RefLine = ({
   to,
-  note,
-  notePlaceholder,
   onOpen,
   onRemove,
-  onNoteCommit,
 }: {
   to: string;
-  note: string;
-  notePlaceholder: string;
   onOpen: () => void;
   onRemove: () => void;
-  onNoteCommit: (note: string) => void;
 }): JSX.Element => {
-  const [local, setLocal] = useState(note);
   const [hover, setHover] = useState(false);
-  useEffect(() => setLocal(note), [note]);
   return (
     <li
       data-testid="badge-reference-row"
@@ -152,11 +145,13 @@ export const RefLine = ({
         onClick={onOpen}
         title={`Open ${to}`}
         style={{
-          flexShrink: 0,
-          maxWidth: 220,
+          flex: 1,
+          minWidth: 0,
+          maxWidth: 240,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          textAlign: 'left',
           border: 'none',
           background: 'transparent',
           padding: 0,
@@ -168,29 +163,6 @@ export const RefLine = ({
       >
         {basename(to)}
       </button>
-      <input
-        data-testid="badge-reference-note"
-        value={local}
-        placeholder={notePlaceholder}
-        onChange={(e) => setLocal(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
-        }}
-        onBlur={() => {
-          if (local !== note) onNoteCommit(local);
-        }}
-        style={{
-          flex: 1,
-          minWidth: 40,
-          border: 'none',
-          background: 'transparent',
-          outline: 'none',
-          color: color.textTertiary,
-          fontFamily: font.sans,
-          fontSize: font.size.caption,
-          padding: 0,
-        }}
-      />
       <button
         type="button"
         onClick={onRemove}
@@ -330,12 +302,12 @@ export const InboundToggle = ({
 );
 
 // Read-only inbound row: navigation only, nothing to edit — lighter than the
-// editable reference lines (no box, no remove).
+// editable reference lines (no box, no remove). Backlinks are plain paths now.
 export const InboundRow = ({
-  entry,
+  from,
   onOpen,
 }: {
-  entry: { from: string; note?: string };
+  from: string;
   onOpen: () => void;
 }): JSX.Element => (
   <li
@@ -348,13 +320,15 @@ export const InboundRow = ({
     <button
       type="button"
       onClick={onOpen}
-      title={`Open ${entry.from}`}
+      title={`Open ${from}`}
       style={{
-        flexShrink: 0,
-        maxWidth: 220,
+        flex: 1,
+        minWidth: 0,
+        maxWidth: 240,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
+        textAlign: 'left',
         border: 'none',
         background: 'transparent',
         padding: 0,
@@ -364,22 +338,8 @@ export const InboundRow = ({
         fontSize: font.size.caption,
       }}
     >
-      {basename(entry.from)}
+      {basename(from)}
     </button>
-    {entry.note && (
-      <span
-        style={{
-          color: color.textTertiary,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        {entry.note}
-      </span>
-    )}
   </li>
 );
 

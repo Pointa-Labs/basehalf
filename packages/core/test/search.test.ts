@@ -127,8 +127,10 @@ describe('search.query', () => {
     const { core } = await setup((m) => {
       m.files.set('/v/real.md', 'project-alpha notes');
     });
-    // workspace.add materialized .bh/badges/real.md.json, which contains the
-    // path "real.md". A search for "real.md" must NOT surface a .bh/ hit.
+    // Annotating real.md writes .bh/mirror/real.md/badge.yaml, whose YAML body
+    // contains the path "real.md". A search for "real.md" must NOT surface that
+    // derived .bh/ file.
+    await core.run('badge.set', { file: 'real.md', patch: { description: 'project-alpha notes' } });
     const res = await run(core, { query: 'real.md' });
     expect(res.hits.every((h) => !h.file.startsWith('.bh/'))).toBe(true);
   });
@@ -293,13 +295,13 @@ describe('search.brief', () => {
   const runBrief = (core: ReturnType<typeof createCore>, args: object): Promise<BriefResult> =>
     core.run<object, BriefResult>('search.brief', args);
 
-  it('assembles a Markdown brief with matches hydrated by badge prompt + ref notes', async () => {
+  it('assembles a Markdown brief with matches hydrated by badge description + bare-path refs', async () => {
     const { core } = await setup((m) => {
       m.files.set('/v/a.md', 'alpha needle here');
       m.files.set('/v/b.md', 'unrelated');
     });
-    await core.run('badge.set', { file: 'a.md', patch: { prompt: 'the source of truth' } });
-    await core.run('badge.addRef', { file: 'a.md', to: 'b.md', note: 'derives from it' });
+    await core.run('badge.set', { file: 'a.md', patch: { description: 'the source of truth' } });
+    await core.run('badge.addRef', { file: 'a.md', to: 'b.md' });
 
     const res = await runBrief(core, { query: 'needle' });
     expect(res.query).toBe('needle');
@@ -307,23 +309,28 @@ describe('search.brief', () => {
     expect(res.brief).toContain('# bh search brief');
     expect(res.brief).toContain('query: needle');
     expect(res.brief).toContain('  - a.md');
-    expect(res.brief).toContain('prompt: the source of truth');
+    expect(res.brief).toContain('description: the source of truth');
     expect(res.brief).toContain('match (line 1): alpha needle here');
-    expect(res.brief).toContain('-> b.md  (note: derives from it)');
+    // References are bare paths now (the per-edge note moved to canvas.yaml).
+    expect(res.brief).toContain('-> b.md');
   });
 
-  it('inlines noted inbound entries and skips note-less ones', async () => {
+  it('inlines inbound entries as bare backlink paths', async () => {
+    // Edge notes were removed (they moved to canvas.yaml), so referenced_by is
+    // now a plain path list and EVERY referrer is inlined — the old note-vs-
+    // note-less discrimination no longer exists.
     const { core } = await setup((m) => {
       m.files.set('/v/target.md', 'the needle lives here');
-      m.files.set('/v/noted.md', 'x');
-      m.files.set('/v/bare.md', 'y');
+      m.files.set('/v/one.md', 'x');
+      m.files.set('/v/two.md', 'y');
     });
-    await core.run('badge.addRef', { file: 'noted.md', to: 'target.md', note: 'why it matters' });
-    await core.run('badge.addRef', { file: 'bare.md', to: 'target.md' });
+    await core.run('badge.addRef', { file: 'one.md', to: 'target.md' });
+    await core.run('badge.addRef', { file: 'two.md', to: 'target.md' });
 
     const res = await runBrief(core, { query: 'needle' });
-    expect(res.brief).toContain('<- noted.md  (note: why it matters)');
-    expect(res.brief).not.toContain('<- bare.md');
+    expect(res.brief).toContain('referenced-by:');
+    expect(res.brief).toContain('<- one.md');
+    expect(res.brief).toContain('<- two.md');
   });
 
   it('degrades to a plain match list when a hit has no badge (sparse overlay)', async () => {
@@ -334,7 +341,7 @@ describe('search.brief', () => {
     expect(res.files).toEqual(['plain.md']);
     expect(res.brief).toContain('  - plain.md');
     expect(res.brief).toContain('match (line 1): needle without any badge');
-    expect(res.brief).not.toContain('prompt:');
+    expect(res.brief).not.toContain('description:');
     expect(res.brief).not.toContain('refs:');
   });
 

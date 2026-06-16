@@ -535,17 +535,21 @@ describe('workspace module (mock FS)', () => {
     const claudeMd = files.get('/demo/CLAUDE.md') ?? '';
     expect(claudeMd).toMatch(/bh:workspace-hint/);
     expect(claudeMd).toMatch(/focus\.md/);
-    // intro.md badge got the demo prompt + outbound refs.
+    // intro.md badge got the demo description + outbound refs (bare paths now).
     const intro = (await core.run('badge.get', { file: 'intro.md' })) as {
-      prompt?: string;
-      references: { to: string; note?: string }[];
+      description?: string;
+      references: string[];
     };
-    expect(intro.prompt).toMatch(/entry point/i);
-    expect(intro.references.map((r) => r.to).sort()).toEqual([
-      'cheatsheet.md',
-      'practice.md',
-      'theory.md',
-    ]);
+    expect(intro.description).toMatch(/entry point/i);
+    expect([...intro.references].sort()).toEqual(['cheatsheet.md', 'practice.md', 'theory.md']);
+    // Demo positions live in the ROOT canvas.yaml (folder: null), not on the badge.
+    const rootCanvas = (await core.run('canvas.get', { folder: null })) as {
+      cards: { path: string; x: number; y: number }[];
+    } | null;
+    const introCard = rootCanvas?.cards.find((c) => c.path === 'intro.md');
+    expect(introCard).toBeDefined();
+    expect(typeof introCard?.x).toBe('number');
+    expect(typeof introCard?.y).toBe('number');
     // focus.md points at intro.md (so an agent's first read returns useful info)
     // AND carries an intent, so the demo showcases the full turn brief (#91).
     const focus = (await core.run('focus.get', {})) as { active: string[]; intent?: string };

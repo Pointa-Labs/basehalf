@@ -1,4 +1,9 @@
-import type { BadgeFile, BadgeGetResult, BadgeKind } from '@basehalf/core';
+import type {
+  BadgeFile,
+  BadgeGetResult,
+  BadgeKind,
+  WorkspaceListCanvasResult,
+} from '@basehalf/core';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
@@ -22,7 +27,9 @@ import { type PickOption, pick } from './Dialog.js';
 //     OWN level (its direct contents), a file's from its parent folder.
 
 type SaveState = 'idle' | 'saving' | 'saved';
-type InboundEntries = readonly { from: string; note?: string }[];
+// Backlinks are plain paths now (the embedded `referenced_by` string[]); the old
+// per-link note is gone with the reference-note model.
+type InboundEntries = readonly string[];
 
 export interface FileBadgeController {
   readonly kind: BadgeKind;
@@ -30,14 +37,13 @@ export interface FileBadgeController {
   readonly prompt: string;
   readonly saveState: SaveState;
   readonly saveError: string | null;
-  readonly refs: BadgeFile['references'];
+  /** Outbound references — plain workspace-relative paths (no per-ref note). */
+  readonly refs: readonly string[];
   readonly inbound: InboundEntries;
   readonly isFocused: boolean;
-  readonly modified: string | null;
   readonly onPromptChange: (value: string) => void;
   readonly flushPrompt: () => Promise<boolean>;
   readonly removeRef: (to: string) => Promise<void>;
-  readonly updateRefNote: (to: string, note: string) => Promise<void>;
   readonly addReference: () => Promise<void>;
   readonly toggleFocus: () => Promise<void>;
 }
@@ -81,10 +87,10 @@ export function useFileBadge(
           : Promise.resolve({ files: [] as string[] }),
       ]);
       setBadge(b);
-      setPrompt(b?.prompt ?? '');
+      setPrompt(b?.description ?? '');
       pendingPrompt.current = null;
       setSaveState('idle');
-      // Backlinks come from the badge's embedded referenced_by (was inbound.get).
+      // Backlinks come from the badge's embedded referenced_by (plain paths).
       setInbound(b?.referenced_by ?? []);
       setFocusActive(focus.active);
       setFolderFiles(ff.files);
@@ -113,7 +119,7 @@ export function useFileBadge(
       setBadge(b);
       setInbound(b?.referenced_by ?? []);
       setFocusActive(focus.active);
-      if (pendingPrompt.current === null) setPrompt(b?.prompt ?? '');
+      if (pendingPrompt.current === null) setPrompt(b?.description ?? '');
     } catch {
       // Transient refresh failure: keep current state, don't flash a save error.
     }
@@ -135,7 +141,7 @@ export function useFileBadge(
     const next = pendingPrompt.current;
     if (next === null) return true;
     try {
-      const saved = await badgeMutations.setPrompt(file, next, sourceId, kind);
+      const saved = await badgeMutations.setDescription(file, next, sourceId, kind);
       pendingPrompt.current = null;
       setBadge(saved);
       setSaveError(null);
@@ -186,34 +192,6 @@ export function useFileBadge(
     [file, kind, flushPrompt, sourceId],
   );
 
-  const updateRefNote = useCallback(
-    async (to: string, note: string) => {
-      if (!(await flushPrompt())) return;
-      const trimmed = note.trim();
-      const existing = badge?.references.find((ref) => ref.to === to);
-      try {
-        const saved = await badgeMutations.addRef(
-          {
-            file,
-            to,
-            kind,
-            ...(trimmed !== '' && { note: trimmed }),
-            ...(existing?.fromSide !== undefined && { fromSide: existing.fromSide }),
-            ...(existing?.toSide !== undefined && { toSide: existing.toSide }),
-          },
-          sourceId,
-        );
-        setBadge(saved);
-        setSaveError(null);
-      } catch (err) {
-        setSaveError(
-          `Couldn't save reference note: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    },
-    [badge, file, kind, flushPrompt, sourceId],
-  );
-
   const addReference = useCallback(async () => {
     if (!(await flushPrompt())) return;
     // Pick from the current folder LEVEL only (the file's own folder), matching
@@ -226,18 +204,18 @@ export function useFileBadge(
     const folder = kind === 'folder' ? file : slashIdx === -1 ? null : file.slice(0, slashIdx);
     let options: PickOption[];
     try {
-      const res = (await window.bh.run('workspace.listCanvas', { folder })) as {
-        badges: BadgeFile[];
-      };
-      const existing = new Set((badge?.references ?? []).map((r) => r.to));
-      options = res.badges
-        .filter((b) => b.kind === 'file' && b.file !== file && !existing.has(b.file))
+      const res = (await window.bh.run('workspace.listCanvas', {
+        folder,
+      })) as WorkspaceListCanvasResult;
+      const existing = new Set(badge?.references ?? []);
+      options = res.children
+        .filter((b) => b.kind === 'file' && b.path !== file && !existing.has(b.path))
         .map((b) => {
-          const slash = b.file.lastIndexOf('/');
+          const slash = b.path.lastIndexOf('/');
           return {
-            value: b.file,
-            label: slash === -1 ? b.file : b.file.slice(slash + 1),
-            ...(b.prompt !== undefined && b.prompt !== '' && { detail: b.prompt }),
+            value: b.path,
+            label: slash === -1 ? b.path : b.path.slice(slash + 1),
+            ...(b.description !== undefined && b.description !== '' && { detail: b.description }),
           };
         });
     } catch (err) {
@@ -299,11 +277,9 @@ export function useFileBadge(
     refs: badge?.references ?? [],
     inbound,
     isFocused,
-    modified: badge?.modifiedAt ? new Date(badge.modifiedAt).toLocaleString() : null,
     onPromptChange,
     flushPrompt,
     removeRef,
-    updateRefNote,
     addReference,
     toggleFocus,
   };

@@ -32,11 +32,11 @@ const bh = {
         importCalls.push({ from: a.from as string, to: (a.to as string | null) ?? null });
         return importResult(a.from as string);
       }
-      case 'badge.set': {
-        const patch = a.patch as { canvas?: { x: number; y: number } };
-        if (patch.canvas) {
-          badgeSets.push({ file: a.file as string, x: patch.canvas.x, y: patch.canvas.y });
-        }
+      case 'canvas.setCard': {
+        // Card position now lands in the folder's canvas.yaml (canvas.setCard),
+        // not the badge — same drop-placement contract, new command.
+        const card = a.card as { path: string; x: number; y: number };
+        badgeSets.push({ file: card.path, x: card.x, y: card.y });
         return {};
       }
       case 'workspace.add': {

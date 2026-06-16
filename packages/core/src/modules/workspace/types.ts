@@ -4,7 +4,7 @@
  * one is currently active (so other modules know which root to operate on).
  */
 
-import type { BadgeFile } from '../badges/types.js';
+import type { CanvasEdge, CanvasSize } from '../canvas/types.js';
 
 export interface WorkspaceEntry {
   readonly name: string;
@@ -150,12 +150,13 @@ export interface WorkspaceListFilesResult {
   readonly entries: readonly WorkspaceListFilesEntry[];
 }
 
-/** `workspace.listCanvas({folder})` — the DIRECT children (one level) of a
- * folder, each merged with its sparse badge overlay. folder=null is the
- * workspace root. Files are filtered to canvas-supported types; tooling dirs
- * are skipped. Unannotated entries come back as synthesized default badges so
- * the renderer's badge→node mapping is unchanged. This is the canvas's data
- * source — it reads the filesystem per folder instead of a materialized mirror. */
+/** `workspace.listCanvas({folder})` — the canvas's data source for one folder
+ * (folder=null is the workspace root). Returns the folder's DIRECT children (one
+ * level, canvas-supported types only, tooling dirs skipped) merged from BOTH
+ * layers: each child's sparse badge overlay (description + reference graph) and
+ * its card position from the folder's canvas.yaml, plus the folder's edges + size.
+ * Reads the filesystem per folder instead of a materialized mirror; unannotated
+ * children come back with empty reference arrays and no card (auto-laid-out). */
 export interface WorkspaceListCanvasArgs {
   readonly folder: string | null;
 }
@@ -175,13 +176,39 @@ export interface CanvasFolderPreview {
   readonly total: number;
   readonly items: readonly CanvasFolderPreviewItem[];
 }
-/** A badge as returned by listCanvas: the persisted (or synthesized) badge, plus
- *  — for folder kind — a derived `preview` of its direct contents. The on-disk
- *  BadgeFile schema is unchanged; `preview` lives only on the canvas wire. */
-export type CanvasBadge = BadgeFile & { readonly preview?: CanvasFolderPreview };
+/** One direct child of the folder, as the canvas renders it: the badge's
+ *  semantic layer (description + reference graph) merged with its visual layer
+ *  (the card position/size from the folder's canvas.yaml, absent → the renderer
+ *  auto-lays-it-out), plus — for a folder — a derived `preview` of its contents.
+ *  `references` / `referenced_by` are normalized to present arrays so the
+ *  renderer never branches on undefined. */
+export interface CanvasChildBadge {
+  readonly path: string;
+  readonly kind: 'file' | 'folder';
+  readonly description?: string;
+  readonly references: readonly string[];
+  readonly referenced_by: readonly string[];
+  readonly orphan?: boolean;
+  /** The card's saved position/size from canvas.yaml. Absent when the child has
+   *  never been placed (the renderer falls back to auto-layout). */
+  readonly card?: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
+  readonly preview?: CanvasFolderPreview;
+}
 
 export interface WorkspaceListCanvasResult {
-  readonly badges: readonly CanvasBadge[];
+  /** Echoes the requested folder (null = workspace root). */
+  readonly folder: string | null;
+  /** The folder canvas's overall size, when the user has sized it. */
+  readonly size?: CanvasSize;
+  readonly children: readonly CanvasChildBadge[];
+  /** Connections between this folder's children (from canvas.yaml), filtered to
+   *  edges whose both endpoints are present children. */
+  readonly edges: readonly CanvasEdge[];
 }
 
 /** `workspace.listSupportedFiles({folder})` — all canvas-supported files under

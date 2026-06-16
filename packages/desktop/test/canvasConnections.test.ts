@@ -1,9 +1,9 @@
-import type { BadgeFile } from '@basehalf/core';
+import type { CanvasEdge } from '@basehalf/core';
 import type { Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 import {
   applyReferenceEdgeUpdate,
-  badgesToConnectionEdges,
+  canvasEdgesToConnectionEdges,
   inferConnectionSides,
   removeReferenceEdgeUpdate,
   sideFromHandle,
@@ -29,15 +29,6 @@ const rect = (width: number, height: number): DOMRect =>
     y: 200,
     toJSON: () => ({}),
   }) as DOMRect;
-
-const badge = (file: string, references: BadgeFile['references'] = []): BadgeFile => ({
-  bhVersion: 1,
-  file,
-  kind: 'file',
-  references,
-  createdAt: '2026-01-01T00:00:00.000Z',
-  modifiedAt: '2026-01-01T00:00:00.000Z',
-});
 
 describe('canvas connections', () => {
   it('prioritizes the top target side over the left side near the top-left edge', () => {
@@ -89,12 +80,12 @@ describe('canvas connections', () => {
     });
   });
 
-  it('builds React Flow edges with explicit stored sides when available', () => {
-    const edges = badgesToConnectionEdges(
-      [
-        badge('a.md', [{ to: 'b.md', fromSide: 'right', toSide: 'top', note: 'read first' }]),
-        badge('b.md'),
-      ],
+  it('builds React Flow edges from canvas edges, translating anchors to sides', () => {
+    const canvasEdges: CanvasEdge[] = [
+      { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'north', label: 'read first' },
+    ];
+    const edges = canvasEdgesToConnectionEdges(
+      canvasEdges,
       [
         { id: 'a.md', position: { x: 0, y: 0 }, style: { width: 300, height: 220 } },
         { id: 'b.md', position: { x: 420, y: 0 }, style: { width: 300, height: 220 } },
@@ -111,6 +102,18 @@ describe('canvas connections', () => {
         label: 'read first',
       }),
     );
+  });
+
+  it('drops a canvas edge whose endpoints are not both on the canvas', () => {
+    const canvasEdges: CanvasEdge[] = [
+      { from: 'a.md', from_anchor: 'east', to: 'gone.md', to_anchor: 'west' },
+    ];
+    const edges = canvasEdgesToConnectionEdges(
+      canvasEdges,
+      [{ id: 'a.md', position: { x: 0, y: 0 }, style: { width: 300, height: 220 } }] as Node[],
+      edgeOptions,
+    );
+    expect(edges).toHaveLength(0);
   });
 
   it('updates a controlled edge in-place before persistence catches up', () => {
@@ -134,7 +137,7 @@ describe('canvas connections', () => {
         target: 'c.md',
         sourceHandle: 'right',
         targetHandle: 'top',
-        note: 'keep',
+        label: 'keep',
       },
     );
 
@@ -164,7 +167,7 @@ describe('canvas connections', () => {
         target: 'c.md',
         sourceHandle: 'bottom',
         targetHandle: 'top',
-        note: 'new',
+        label: 'new',
       },
     );
 

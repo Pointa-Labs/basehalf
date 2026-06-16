@@ -13,6 +13,7 @@
  *   - file, no workspace    → explain (there is nowhere to copy it to)
  */
 
+import { DEFAULT_FILE_CARD_HEIGHT, DEFAULT_FILE_CARD_WIDTH } from '../components/BadgeNode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { emitBadgeChange } from './badgeBus.js';
 
@@ -105,15 +106,18 @@ async function importFiles(
     for (const r of copied) {
       if (!r.supported) continue;
       try {
-        await window.bh.run('badge.set', {
-          file: r.path,
-          patch: {
+        // Position goes to the folder's canvas.yaml (canvas.setCard) now, not the
+        // badge. CanvasCard requires a width+height — seed the default file-card
+        // size; the user can resize later.
+        await window.bh.run('canvas.setCard', {
+          folder: opts.folderScope ?? null,
+          card: {
+            path: r.path,
             kind: 'file',
-            canvas: {
-              x: opts.canvasPoint.x + placed * 32,
-              y: opts.canvasPoint.y + placed * 32,
-              collapsed: false,
-            },
+            x: opts.canvasPoint.x + placed * 32,
+            y: opts.canvasPoint.y + placed * 32,
+            width: DEFAULT_FILE_CARD_WIDTH,
+            height: DEFAULT_FILE_CARD_HEIGHT,
           },
         });
         placed++;

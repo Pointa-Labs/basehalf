@@ -157,14 +157,14 @@ describe('focus.md lost-update race', () => {
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
-    await core.run('badge.set', { file: 'a.md', patch: { prompt: 'OLD prompt' } });
+    await core.run('badge.set', { file: 'a.md', patch: { description: 'OLD prompt' } });
     await core.run('focus.set', { files: ['a.md'] });
 
     blockNextBadgeRead = true;
     const setP = core.run('focus.set', { files: ['a.md'] });
     await oldBadgeReadStarted.promise;
 
-    const editP = core.run('badge.set', { file: 'a.md', patch: { prompt: 'FRESH prompt' } });
+    const editP = core.run('badge.set', { file: 'a.md', patch: { description: 'FRESH prompt' } });
     await Promise.race([freshFocusWritten.promise, sleep(50)]);
     releaseOldBadgeRead.resolve();
     await Promise.all([setP, editP]);

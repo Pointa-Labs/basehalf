@@ -54,25 +54,71 @@ describe('badgeMutations', () => {
     expect(seen).toEqual([':r7:']);
   });
 
-  it('setPrompt wraps badge.set with a prompt patch', async () => {
+  it('setDescription wraps badge.set with a description patch', async () => {
     const unsub = subscribeBadgeChange(() => {});
-    await badgeMutations.setPrompt('a.md', 'hello', 'panel');
+    await badgeMutations.setDescription('a.md', 'hello', 'panel');
     unsub();
     // kind lives INSIDE the patch (badge.set reads patch.kind) so the same path
     // serves both file and folder badges.
     expect(runMock).toHaveBeenCalledWith('badge.set', {
       file: 'a.md',
-      patch: { kind: 'file', prompt: 'hello' },
+      patch: { kind: 'file', description: 'hello' },
     });
   });
 
-  it('setPrompt threads a folder kind into the patch', async () => {
+  it('setDescription threads a folder kind into the patch', async () => {
     const unsub = subscribeBadgeChange(() => {});
-    await badgeMutations.setPrompt('notes', 'hi', 'panel', 'folder');
+    await badgeMutations.setDescription('notes', 'hi', 'panel', 'folder');
     unsub();
     expect(runMock).toHaveBeenCalledWith('badge.set', {
       file: 'notes',
-      patch: { kind: 'folder', prompt: 'hi' },
+      patch: { kind: 'folder', description: 'hi' },
     });
+  });
+
+  it('connect forwards canvas.connect args and emits', async () => {
+    const seen: (string | undefined)[] = [];
+    const unsub = subscribeBadgeChange((origin) => seen.push(origin));
+    await badgeMutations.connect(
+      { folder: null, from: 'a.md', to: 'b.md', from_anchor: 'east', to_anchor: 'west' },
+      'canvas',
+    );
+    unsub();
+    expect(runMock).toHaveBeenCalledWith('canvas.connect', {
+      folder: null,
+      from: 'a.md',
+      to: 'b.md',
+      from_anchor: 'east',
+      to_anchor: 'west',
+    });
+    expect(seen).toEqual(['canvas']);
+  });
+
+  it('disconnect forwards canvas.disconnect args and emits', async () => {
+    const seen: (string | undefined)[] = [];
+    const unsub = subscribeBadgeChange((origin) => seen.push(origin));
+    await badgeMutations.disconnect({ folder: 'docs', from: 'a.md', to: 'b.md' }, 'canvas');
+    unsub();
+    expect(runMock).toHaveBeenCalledWith('canvas.disconnect', {
+      folder: 'docs',
+      from: 'a.md',
+      to: 'b.md',
+    });
+    expect(seen).toEqual(['canvas']);
+  });
+
+  it('setCard writes canvas.setCard WITHOUT a cross-view emit (a position is not shown elsewhere)', async () => {
+    const seen: (string | undefined)[] = [];
+    const unsub = subscribeBadgeChange((origin) => seen.push(origin));
+    await badgeMutations.setCard({
+      folder: null,
+      card: { path: 'a.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 },
+    });
+    unsub();
+    expect(runMock).toHaveBeenCalledWith('canvas.setCard', {
+      folder: null,
+      card: { path: 'a.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 },
+    });
+    expect(seen).toEqual([]); // no bus signal — position is not a cross-view concern
   });
 });

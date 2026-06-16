@@ -118,10 +118,10 @@ describe('watcher module', { retry: 2 }, () => {
     // No eager materialization — a brand-new file gets no badge JSON.
     expect(await core.run('badge.get', { file: 'note.md' })).toBeNull();
     // It still shows on the canvas, read straight from the filesystem.
-    const { badges } = (await core.run('workspace.listCanvas', { folder: null })) as {
-      badges: BadgeFile[];
+    const { children } = (await core.run('workspace.listCanvas', { folder: null })) as {
+      children: { path: string }[];
     };
-    expect(badges.some((b) => b.file === 'note.md')).toBe(true);
+    expect(children.some((c) => c.path === 'note.md')).toBe(true);
   });
 
   it('reacts to dir add: creates NO folder badge (sparse)', async () => {
@@ -131,10 +131,10 @@ describe('watcher module', { retry: 2 }, () => {
     expect(await core.run('badge.get', { file: 'images', kind: 'folder' })).toBeNull();
   });
 
-  it('reacts to file unlink: marks badge orphan, preserves prompt + refs', async () => {
+  it('reacts to file unlink: marks badge orphan, preserves description + refs', async () => {
     await writeFile(join(workspaceRoot, 'note.md'), 'hi');
     await core.run('workspace.use', { name: 'w' }); // re-materialize to pick up file
-    await core.run('badge.set', { file: 'note.md', patch: { prompt: 'matters' } });
+    await core.run('badge.set', { file: 'note.md', patch: { description: 'matters' } });
     await core.run('badge.addRef', { file: 'note.md', to: 'other.md' });
     await core.run('watcher.start', {});
     await unlink(join(workspaceRoot, 'note.md'));
@@ -143,8 +143,8 @@ describe('watcher module', { retry: 2 }, () => {
       (b) => (b as BadgeFile | null)?.orphan === true,
     )) as BadgeFile | null;
     expect(badge?.orphan).toBe(true);
-    expect(badge?.prompt).toBe('matters');
-    expect(badge?.references).toEqual([{ to: 'other.md' }]);
+    expect(badge?.description).toBe('matters');
+    expect(badge?.references).toEqual(['other.md']);
   });
 
   it('a buffered unlink does NOT orphan the SAME-named file after a workspace switch', async () => {
@@ -156,11 +156,11 @@ describe('watcher module', { retry: 2 }, () => {
       // A has shared.md (annotated); B has its own shared.md (annotated, live).
       await writeFile(join(workspaceRoot, 'shared.md'), 'A');
       await core.run('workspace.use', { name: 'w' });
-      await core.run('badge.set', { file: 'shared.md', patch: { prompt: 'A note' } });
+      await core.run('badge.set', { file: 'shared.md', patch: { description: 'A note' } });
       await core.run('workspace.add', { path: wsB, name: 'b' });
       await writeFile(join(wsB, 'shared.md'), 'B');
       await core.run('workspace.use', { name: 'b' });
-      await core.run('badge.set', { file: 'shared.md', patch: { prompt: 'B note' } });
+      await core.run('badge.set', { file: 'shared.md', patch: { description: 'B note' } });
 
       // Watch A, delete A/shared.md, then immediately switch to B + watch it.
       await core.run('workspace.use', { name: 'w' });
@@ -176,7 +176,7 @@ describe('watcher module', { retry: 2 }, () => {
         500,
       )) as BadgeFile | null;
       expect(bBadge?.orphan).toBeUndefined();
-      expect(bBadge?.prompt).toBe('B note');
+      expect(bBadge?.description).toBe('B note');
     } finally {
       await rm(wsB, { recursive: true, force: true });
     }
@@ -190,7 +190,7 @@ describe('watcher module', { retry: 2 }, () => {
     await sleep(DEBOUNCE);
     // No infinite loop = success; sanity check that the badge exists once.
     const list = (await core.run('badge.list', {})) as { badges: BadgeFile[] };
-    expect(list.badges.filter((b) => b.file === 'fake.md')).toHaveLength(1);
+    expect(list.badges.filter((b) => b.path === 'fake.md')).toHaveLength(1);
   });
 
   it('detects rename: unlink + add (same dir + ext within window) → badge.rename', async () => {
@@ -198,42 +198,42 @@ describe('watcher module', { retry: 2 }, () => {
     // tell rename (preservation) from orphan+add (loss).
     await writeFile(join(workspaceRoot, 'old.md'), 'hello');
     await core.run('workspace.use', { name: 'w' });
-    await core.run('badge.set', { file: 'old.md', patch: { prompt: 'load-bearing' } });
+    await core.run('badge.set', { file: 'old.md', patch: { description: 'load-bearing' } });
     await core.run('badge.addRef', { file: 'old.md', to: 'sibling.md' });
     // Also add an inbound ref so we can verify it gets rewritten.
-    await core.run('badge.addRef', { file: 'sibling.md', to: 'old.md', note: 'see also' });
+    await core.run('badge.addRef', { file: 'sibling.md', to: 'old.md' });
     await core.run('watcher.start', {});
     // Perform an OS rename (chokidar fires unlink + add in quick succession).
     await rename(join(workspaceRoot, 'old.md'), join(workspaceRoot, 'new.md'));
 
     // Wait for the rename to FULLY finalize. badge.rename writes the new badge
     // FIRST, then rewrites referencing siblings — so the sibling's rewritten
-    // outbound ref is the TERMINAL signal. Waiting on new.md's prompt alone
+    // outbound ref is the TERMINAL signal. Waiting on new.md's description alone
     // races the still-pending sibling rewrite (the gap widened once badge
     // edits started reconciling focus.md).
     const sibling = (await waitFor(
       () => core.run('badge.get', { file: 'sibling.md' }),
-      (b) => (b as BadgeFile | null)?.references?.[0]?.to === 'new.md',
+      (b) => (b as BadgeFile | null)?.references?.[0] === 'new.md',
     )) as BadgeFile;
     const newBadge = (await core.run('badge.get', { file: 'new.md' })) as BadgeFile | null;
     const oldBadge = await core.run('badge.get', { file: 'old.md' });
     expect(oldBadge).toBeNull();
-    expect(newBadge?.prompt).toBe('load-bearing');
-    expect(newBadge?.references).toEqual([{ to: 'sibling.md' }]);
+    expect(newBadge?.description).toBe('load-bearing');
+    expect(newBadge?.references).toEqual(['sibling.md']);
     expect(newBadge?.orphan).toBeUndefined();
     // sibling.md's outbound ref rewritten to point at the new name.
-    expect(sibling.references).toEqual([{ to: 'new.md', note: 'see also' }]);
+    expect(sibling.references).toEqual(['new.md']);
   });
 
   it('does NOT misfire as rename when extensions differ (orphan old, no badge for new)', async () => {
     await writeFile(join(workspaceRoot, 'doc.md'), 'hello');
     await core.run('workspace.use', { name: 'w' }); // ensure current
-    await core.run('badge.set', { file: 'doc.md', patch: { prompt: 'keep me' } });
+    await core.run('badge.set', { file: 'doc.md', patch: { description: 'keep me' } });
     await core.run('watcher.start', {});
     // Unlink doc.md; create doc.txt — different extension, NOT a rename.
     await unlink(join(workspaceRoot, 'doc.md'));
     await writeFile(join(workspaceRoot, 'doc.txt'), 'hello');
-    // Old badge is orphaned (prompt preserved); the new file is brand-new → NO
+    // Old badge is orphaned (description preserved); the new file is brand-new → NO
     // badge (sparse). markOrphan is the terminal signal, so once it lands the
     // add's finalize has also run.
     const oldBadge = (await waitFor(
@@ -241,7 +241,7 @@ describe('watcher module', { retry: 2 }, () => {
       (b) => (b as BadgeFile | null)?.orphan === true,
     )) as BadgeFile;
     expect(oldBadge.orphan).toBe(true);
-    expect(oldBadge.prompt).toBe('keep me'); // preserved on orphan
+    expect(oldBadge.description).toBe('keep me'); // preserved on orphan
     expect(await core.run('badge.get', { file: 'doc.txt' })).toBeNull();
   });
 
@@ -250,7 +250,7 @@ describe('watcher module', { retry: 2 }, () => {
     await mkdir(join(workspaceRoot, 'b'), { recursive: true });
     await writeFile(join(workspaceRoot, 'a', 'x.md'), 'hi');
     await core.run('workspace.use', { name: 'w' });
-    await core.run('badge.set', { file: 'a/x.md', patch: { prompt: 'A-bound' } });
+    await core.run('badge.set', { file: 'a/x.md', patch: { description: 'A-bound' } });
     await core.run('watcher.start', {});
     await unlink(join(workspaceRoot, 'a', 'x.md'));
     await writeFile(join(workspaceRoot, 'b', 'x.md'), 'hi');
@@ -260,7 +260,7 @@ describe('watcher module', { retry: 2 }, () => {
       (b) => (b as BadgeFile | null)?.orphan === true,
     )) as BadgeFile;
     expect(oldBadge.orphan).toBe(true);
-    expect(oldBadge.prompt).toBe('A-bound');
+    expect(oldBadge.description).toBe('A-bound');
     expect(await core.run('badge.get', { file: 'b/x.md' })).toBeNull();
   });
 
@@ -316,12 +316,12 @@ describe('badge.markOrphan (direct invocation)', () => {
     expect(result).toBeNull();
   });
 
-  it('preserves prompt + references when marking orphan', async () => {
-    await core.run('badge.set', { file: 'a.md', patch: { prompt: 'p' } });
+  it('preserves description + references when marking orphan', async () => {
+    await core.run('badge.set', { file: 'a.md', patch: { description: 'p' } });
     await core.run('badge.addRef', { file: 'a.md', to: 'b.md' });
     const result = (await core.run('badge.markOrphan', { file: 'a.md' })) as BadgeFile;
     expect(result.orphan).toBe(true);
-    expect(result.prompt).toBe('p');
-    expect(result.references).toEqual([{ to: 'b.md' }]);
+    expect(result.description).toBe('p');
+    expect(result.references).toEqual(['b.md']);
   });
 });

@@ -13,10 +13,11 @@ import {
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import type { BadgeFile } from '../badges/types.js';
+import type { CanvasEdge, CanvasFile } from '../canvas/types.js';
 import { readWorkspaces } from './store.js';
 import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
-  CanvasBadge,
+  CanvasChildBadge,
   CanvasFolderPreview,
   WorkspaceCreateFileArgs,
   WorkspaceCreateFileResult,
@@ -202,7 +203,23 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
     path: absDir,
   })) as WorkspaceListFilesResult;
 
-  const badges: CanvasBadge[] = [];
+  // The folder's VISUAL layer (card positions/sizes, edges, size) lives in its
+  // canvas.yaml. Read it once and index cards by child path; a missing/corrupt
+  // canvas degrades to no positions (auto-layout), never blanks the folder.
+  let canvas: CanvasFile | null = null;
+  try {
+    canvas = (await ctx.run('canvas.get', { folder })) as CanvasFile | null;
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'CanvasCorrupt' || err.name === 'PathEscape')) {
+      console.warn(`[bh] skipping unreadable canvas: ${folder ?? '<root>'}`);
+    } else {
+      throw err;
+    }
+  }
+  const cardByPath = new Map((canvas?.cards ?? []).map((c) => [c.path, c]));
+
+  const children: CanvasChildBadge[] = [];
+  const childPaths = new Set<string>();
   for (const entry of entries) {
     if (!isCanvasEntry(entry)) continue;
     if (folder === null && entry.type === 'file' && AGENT_HINT_FILES.has(entry.name)) continue;
@@ -217,29 +234,53 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
       badge = (await ctx.run('badge.get', { file: rel, kind })) as BadgeFile | null;
     } catch (err) {
       // A corrupt badge or a symlinked-out badge path must not blank the folder;
-      // fall back to a synthesized default (same skip-and-warn as listBadges).
+      // fall back to an unannotated default (same skip-and-warn as listBadges).
       if (err instanceof Error && (err.name === 'BadgeCorrupt' || err.name === 'PathEscape')) {
         console.warn(`[bh] skipping unreadable badge for canvas: ${rel}`);
       } else {
         throw err;
       }
     }
-    // Synthesized default for an unannotated file: structurally a BadgeFile, but
-    // NEVER written to disk (empty timestamps signal "not persisted"). The
-    // renderer's badgeToNode + badgesToConnectionEdges only read
-    // file/kind/canvas/orphan/prompt/references, so this is sufficient.
-    const base: BadgeFile = badge ?? {
-      bhVersion: 1,
-      file: rel,
+    const card = cardByPath.get(rel);
+    childPaths.add(rel);
+    children.push({
+      path: rel,
       kind,
-      references: [],
-      createdAt: '',
-      modifiedAt: '',
-    };
-    badges.push(preview ? { ...base, preview } : base);
+      ...(badge?.description !== undefined && { description: badge.description }),
+      references: badge?.references ?? [],
+      referenced_by: badge?.referenced_by ?? [],
+      ...(badge?.orphan === true && { orphan: true }),
+      ...(card !== undefined && {
+        card: { x: card.x, y: card.y, width: card.width, height: card.height },
+      }),
+      ...(preview !== undefined && { preview }),
+    });
   }
-  badges.sort((a, b) => a.file.localeCompare(b.file));
-  return { badges };
+  children.sort((a, b) => a.path.localeCompare(b.path));
+  // The edge set is DERIVED from the reference graph: an edge exists iff a child
+  // references a SIBLING child (both present on this canvas). canvas.yaml's stored
+  // edges supply only the non-derivable styling (anchors + label). So a reference
+  // edited away in the badge panel can't leave a phantom line, a reference added
+  // there still draws (default anchors) before any canvas.connect, and a rename
+  // that remaps references but not canvas.yaml still draws the line (losing only
+  // its styling) — the canvas is a strict visual projection of references.
+  const styleByPair = new Map(
+    (canvas?.edges ?? []).map((e) => [JSON.stringify([e.from, e.to]), e]),
+  );
+  const edges: CanvasEdge[] = [];
+  for (const child of children) {
+    for (const to of child.references) {
+      if (!childPaths.has(to)) continue; // not a sibling on this canvas (e.g. cross-folder)
+      const styled = styleByPair.get(JSON.stringify([child.path, to]));
+      edges.push(styled ?? { from: child.path, from_anchor: 'east', to, to_anchor: 'west' });
+    }
+  }
+  return {
+    folder,
+    ...(canvas?.size !== undefined && { size: canvas.size }),
+    children,
+    edges,
+  };
 };
 
 /**
@@ -703,7 +744,7 @@ async function purgeBadgesForDelete(
   }
   const prefix = `${path}/`;
   for (const b of badges) {
-    if (b.file.startsWith(prefix)) await purge(b.file, b.kind);
+    if (b.path.startsWith(prefix)) await purge(b.path, b.kind);
   }
 }
 

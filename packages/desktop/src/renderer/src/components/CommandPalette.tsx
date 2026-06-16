@@ -198,12 +198,12 @@ export const CommandPalette = (): JSX.Element | null => {
         const [filesRes, badgesRes] = (await Promise.all([
           window.bh.run('workspace.listSupportedFiles', { folder: null }),
           window.bh.run('badge.list', {}),
-        ])) as [{ files: string[] }, { badges: { file: string; prompt?: string }[] }];
+        ])) as [{ files: string[] }, { badges: { path: string; description?: string }[] }];
         if (cancelled) return;
         const prompts = new Map(
           badgesRes.badges
-            .filter((b) => b.prompt !== undefined)
-            .map((b) => [b.file, b.prompt as string]),
+            .filter((b) => b.description !== undefined)
+            .map((b) => [b.path, b.description as string]),
         );
         setFiles(
           filesRes.files.map((file) => {

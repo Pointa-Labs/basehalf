@@ -1,8 +1,8 @@
-import type { BadgeFile, BadgeSide } from '@basehalf/core';
+import type { CanvasEdge } from '@basehalf/core';
 import type { Edge, Node } from '@xyflow/react';
-import { CANVAS_CONNECTION_SIDES } from './geometry.js';
+import { ANCHOR_TO_SIDE, CANVAS_CONNECTION_SIDES, type CanvasSide } from './geometry.js';
 
-const BADGE_SIDE_SET = new Set<BadgeSide>(CANVAS_CONNECTION_SIDES);
+const CANVAS_SIDE_SET = new Set<CanvasSide>(CANVAS_CONNECTION_SIDES);
 
 type EdgeSizeOptions = {
   readonly defaultWidth: number;
@@ -15,9 +15,10 @@ export type ReferenceEdgeUpdate = {
   readonly previousTarget: string;
   readonly source: string;
   readonly target: string;
-  readonly sourceHandle: BadgeSide | undefined;
-  readonly targetHandle: BadgeSide | undefined;
-  readonly note: string | undefined;
+  readonly sourceHandle: CanvasSide | undefined;
+  readonly targetHandle: CanvasSide | undefined;
+  /** The edge's connection label (was the per-reference `note`). */
+  readonly label: string | undefined;
 };
 
 export type ReferenceEdgeRemoval = {
@@ -30,8 +31,8 @@ export function referenceEdgeId(source: string, target: string): string {
   return `${source}__${target}`;
 }
 
-export function sideFromHandle(handle: string | null | undefined): BadgeSide | undefined {
-  return BADGE_SIDE_SET.has(handle as BadgeSide) ? (handle as BadgeSide) : undefined;
+export function sideFromHandle(handle: string | null | undefined): CanvasSide | undefined {
+  return CANVAS_SIDE_SET.has(handle as CanvasSide) ? (handle as CanvasSide) : undefined;
 }
 
 function nodeWidth(node: Node | undefined): number | undefined {
@@ -56,7 +57,7 @@ export function inferConnectionSides(
   source: Node | undefined,
   target: Node | undefined,
   options: EdgeSizeOptions,
-): { fromSide: BadgeSide; toSide: BadgeSide } {
+): { fromSide: CanvasSide; toSide: CanvasSide } {
   if (!source || !target) return { fromSide: 'right', toSide: 'left' };
   const from = centerOfNode(source, options);
   const to = centerOfNode(target, options);
@@ -68,34 +69,33 @@ export function inferConnectionSides(
   return dy >= 0 ? { fromSide: 'bottom', toSide: 'top' } : { fromSide: 'top', toSide: 'bottom' };
 }
 
-export function badgesToConnectionEdges(
-  badges: readonly BadgeFile[],
+// Build React-Flow edges from the canvas.yaml CanvasEdge[] (the new spatial
+// layer). Each edge already carries its compass anchors + label, so we just
+// translate anchors->sides; `inferConnectionSides` survives ONLY as a fallback
+// for an edge somehow missing an anchor (the new edges always carry both). Edges
+// whose endpoints aren't both on the current canvas are dropped (the source list
+// is one folder level).
+export function canvasEdgesToConnectionEdges(
+  canvasEdges: readonly CanvasEdge[],
   nodes: readonly Node[],
   options: EdgeSizeOptions,
 ): Edge[] {
   const out: Edge[] = [];
-  const known = new Set(badges.map((badge) => badge.file));
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  for (const badge of badges) {
-    for (const ref of badge.references) {
-      if (!known.has(ref.to)) continue;
-      const inferred = inferConnectionSides(
-        nodeById.get(badge.file),
-        nodeById.get(ref.to),
-        options,
-      );
-      const fromSide = ref.fromSide ?? inferred.fromSide;
-      const toSide = ref.toSide ?? inferred.toSide;
-      out.push({
-        id: referenceEdgeId(badge.file, ref.to),
-        source: badge.file,
-        target: ref.to,
-        sourceHandle: fromSide,
-        targetHandle: toSide,
-        animated: false,
-        ...(ref.note !== undefined && { label: ref.note }),
-      });
-    }
+  for (const edge of canvasEdges) {
+    if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
+    const inferred = inferConnectionSides(nodeById.get(edge.from), nodeById.get(edge.to), options);
+    const fromSide = edge.from_anchor ? ANCHOR_TO_SIDE[edge.from_anchor] : inferred.fromSide;
+    const toSide = edge.to_anchor ? ANCHOR_TO_SIDE[edge.to_anchor] : inferred.toSide;
+    out.push({
+      id: referenceEdgeId(edge.from, edge.to),
+      source: edge.from,
+      target: edge.to,
+      sourceHandle: fromSide,
+      targetHandle: toSide,
+      animated: false,
+      ...(edge.label !== undefined && { label: edge.label }),
+    });
   }
   return out;
 }
@@ -116,7 +116,7 @@ export function applyReferenceEdgeUpdate(
     sourceHandle: update.sourceHandle ?? null,
     targetHandle: update.targetHandle ?? null,
     animated: base?.animated ?? false,
-    label: update.note,
+    label: update.label,
   };
 
   let inserted = false;

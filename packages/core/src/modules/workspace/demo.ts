@@ -17,6 +17,11 @@ import type {
   WorkspaceCreateDemoResult,
 } from './types.js';
 
+/** Default card size for the demo's seeded canvas cards (matches the spec's
+ *  example dimensions; the renderer resizes to taste afterward). */
+const DEMO_FILE_CARD_WIDTH = 260;
+const DEMO_FILE_CARD_HEIGHT = 150;
+
 /**
  * `workspace.createDemo(path)` — seed a brand-new workspace with a tiny
  * interconnected MD set so a first-run user sees the agent-protocol
@@ -119,45 +124,65 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     });
   }
 
-  // Apply badge prompts + refs. badge.set + badge.addRef cascade through
-  // the inbound index automatically. If a file was already on disk
-  // (didn't get re-seeded), its badge still gets the demo prompt to
-  // make the loop coherent.
+  // Apply the badge descriptions (the semantic layer) and the canvas cards (the
+  // visual layer) separately, per the focus_mode_spec split. All demo files live
+  // at the workspace root, so the root folder's canvas.yaml (folder: null) holds
+  // their cards + edges. A file already on disk still gets the demo description so
+  // the loop stays coherent.
   for (const file of DEMO_FILES) {
-    // Build the badge patch from whatever the demo file declares: prompt and
-    // the hub-and-spoke canvas position. collapsed:false because BadgePosition
-    // requires it. Skip the call only if there's nothing to set.
-    const patch: {
-      kind: 'file';
-      prompt?: string;
-      canvas?: { x: number; y: number; collapsed: boolean };
-    } = { kind: 'file' };
-    if (file.prompt !== undefined) patch.prompt = file.prompt;
-    if (file.canvas !== undefined) {
-      patch.canvas = { x: file.canvas.x, y: file.canvas.y, collapsed: false };
-    }
-    if (patch.prompt !== undefined || patch.canvas !== undefined) {
-      await ctx.run('badge.set', { file: file.path, patch });
-    }
-    for (const ref of file.refs ?? []) {
-      await ctx.run('badge.addRef', {
+    if (file.prompt !== undefined) {
+      await ctx.run('badge.set', {
         file: file.path,
+        patch: { kind: 'file', description: file.prompt },
+      });
+    }
+    if (file.canvas !== undefined) {
+      await ctx.run('canvas.setCard', {
+        folder: null,
+        card: {
+          path: file.path,
+          kind: 'file',
+          x: file.canvas.x,
+          y: file.canvas.y,
+          width: DEMO_FILE_CARD_WIDTH,
+          height: DEMO_FILE_CARD_HEIGHT,
+        },
+      });
+    }
+  }
+  // Draw the references AFTER every card exists. canvas.connect writes the visual
+  // edge (anchors + the note as its label) AND the semantic badge.references link
+  // in lockstep, so the agent's referenced_by graph matches what the canvas shows.
+  for (const file of DEMO_FILES) {
+    for (const ref of file.refs ?? []) {
+      await ctx.run('canvas.connect', {
+        folder: null,
+        from: file.path,
         to: ref.to,
-        ...(ref.note !== undefined && { note: ref.note }),
+        from_anchor: 'east',
+        to_anchor: 'west',
+        kind: 'file',
+        ...(ref.note !== undefined && { label: ref.note }),
       });
     }
   }
 
-  // CLAUDE.md is created by setup (not a DEMO_FILE), so it has no position
-  // from the loop above. Place it in the top-right corner — present but
-  // clearly secondary to the four content files of the tree — instead of
-  // letting it land mid-canvas in the auto-grid. Best-effort: if setup
-  // skipped CLAUDE.md (e.g. user's own already existed), there may be no
-  // badge to position.
+  // CLAUDE.md is created by setup (not a DEMO_FILE), so it has no card from the
+  // loop above. Place it in the top-right corner — present but clearly secondary
+  // to the content tree — instead of landing mid-canvas in the auto-grid.
+  // Best-effort: if setup skipped CLAUDE.md (user's own already existed), the
+  // card just points at a file the canvas won't render.
   await ctx
-    .run('badge.set', {
-      file: 'CLAUDE.md',
-      patch: { kind: 'file', canvas: { x: 620, y: 60, collapsed: false } },
+    .run('canvas.setCard', {
+      folder: null,
+      card: {
+        path: 'CLAUDE.md',
+        kind: 'file',
+        x: 620,
+        y: 60,
+        width: DEMO_FILE_CARD_WIDTH,
+        height: DEMO_FILE_CARD_HEIGHT,
+      },
     })
     .catch(() => undefined);
 

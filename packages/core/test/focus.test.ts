@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { parse, stringify } from 'yaml';
 import { createCore } from '../src/index.js';
 import { parseFocus, parseIntent, renderFocus } from '../src/modules/focus/store.js';
 import { mockFs } from './helpers/mock-fs.js';
@@ -214,22 +213,22 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
     ctx = await seed();
   });
 
-  it("inlines each active file's prompt + reference notes as a turn brief", async () => {
+  it("inlines each active file's prompt + reference paths as a turn brief", async () => {
     await ctx.core.run('badge.set', {
       file: 'chapter-03.md',
       kind: 'file',
-      patch: { prompt: 'teacher emphasized ch 1, 3, 6' },
+      patch: { description: 'teacher emphasized ch 1, 3, 6' },
     });
+    // References are now plain paths (the edge note moved to canvas.yaml).
     await ctx.core.run('badge.addRef', {
       file: 'chapter-03.md',
       to: 'supply.md',
-      note: 'derivation depends on this',
     });
     await ctx.core.run('focus.set', { files: ['chapter-03.md'] });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('- chapter-03.md');
     expect(md).toContain('prompt: teacher emphasized ch 1, 3, 6');
-    expect(md).toContain('-> supply.md  (note: derivation depends on this)');
+    expect(md).toContain('-> supply.md');
     // The round-trippable path list is unaffected by the inlined meaning.
     const got = await ctx.core.run('focus.get', {});
     expect(got.active).toEqual(['chapter-03.md']);
@@ -243,18 +242,18 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
     expect(md).not.toContain('refs:');
   });
 
-  it('inlines who points AT a focused file (referenced-by, with note)', async () => {
-    // other.md → focused.md (with a note). Focusing focused.md should surface the
-    // backlink so the agent sees BOTH directions of the human's relationships.
+  it('inlines who points AT a focused file (referenced-by)', async () => {
+    // other.md → focused.md. Focusing focused.md should surface the backlink so
+    // the agent sees BOTH directions of the human's relationships (plain paths;
+    // the per-edge note moved to canvas.yaml).
     await ctx.core.run('badge.addRef', {
       file: 'other.md',
       to: 'focused.md',
-      note: 'builds on this',
     });
     await ctx.core.run('focus.set', { files: ['focused.md'] });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('referenced-by:');
-    expect(md).toContain('<- other.md  (note: builds on this)');
+    expect(md).toContain('<- other.md');
     // Still round-trips to the bare active list.
     const got = await ctx.core.run('focus.get', {});
     expect(got.active).toEqual(['focused.md']);
@@ -272,7 +271,7 @@ describe('focus brief (compound-thinking payload inlined into focus.md)', () => 
 
   it('portable brief appends capped file excerpts; on-disk focus.md stays paths+notes', async () => {
     ctx.files.set('/work/note.md', '# Title\n\nthe actual content lives on disk');
-    await ctx.core.run('badge.set', { file: 'note.md', patch: { prompt: 'read this first' } });
+    await ctx.core.run('badge.set', { file: 'note.md', patch: { description: 'read this first' } });
     await ctx.core.run('focus.set', { files: ['note.md'] });
 
     // The on-disk brief never inlines content (an in-repo agent reads files itself).
@@ -301,7 +300,10 @@ describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
     // Focus FIRST, then edit the badge — the case the renderer used to patch
     // with resyncFocusForFile and badge.rename used to drop the intent on.
     await ctx.core.run('focus.set', { files: ['ch.md'], intent: 'study for the exam' });
-    await ctx.core.run('badge.set', { file: 'ch.md', patch: { prompt: 'NEW inlined prompt' } });
+    await ctx.core.run('badge.set', {
+      file: 'ch.md',
+      patch: { description: 'NEW inlined prompt' },
+    });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('prompt: NEW inlined prompt'); // refreshed without a re-focus
     expect(md).toContain('intent: study for the exam'); // intent survived the resync
@@ -309,25 +311,26 @@ describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
 
   it('badge.addRef on an ACTIVE file inlines the new reference into the brief', async () => {
     await ctx.core.run('focus.set', { files: ['ch.md'] });
-    await ctx.core.run('badge.addRef', { file: 'ch.md', to: 'supply.md', note: 'depends on' });
+    await ctx.core.run('badge.addRef', { file: 'ch.md', to: 'supply.md' });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(md).toContain('-> supply.md  (note: depends on)');
+    expect(md).toContain('-> supply.md');
   });
 
   it('a badge edit on an UNfocused file does NOT rewrite focus.md (no churn)', async () => {
     await ctx.core.run('focus.set', { files: ['ch.md'] });
     const before = ctx.files.get('/work/.bh/focus.md') ?? '';
-    await ctx.core.run('badge.set', { file: 'other.md', patch: { prompt: 'irrelevant' } });
+    await ctx.core.run('badge.set', { file: 'other.md', patch: { description: 'irrelevant' } });
     const after = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(after).toBe(before);
   });
 
-  it('a kind-only / canvas-only badge.set on an ACTIVE file does NOT touch the brief', async () => {
-    await ctx.core.run('badge.set', { file: 'ch.md', patch: { prompt: 'keep' } });
+  it('a no-description badge.set on an ACTIVE file does NOT touch the brief', async () => {
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { description: 'keep' } });
     await ctx.core.run('focus.set', { files: ['ch.md'] });
     const before = ctx.files.get('/work/.bh/focus.md') ?? '';
-    // A canvas drag of the focused badge — no prompt/refs change → no resync.
-    await ctx.core.run('badge.set', { file: 'ch.md', patch: { canvas: { x: 9, y: 9 } } });
+    // A badge.set that doesn't change the description (canvas/position now lives
+    // in canvas.yaml, not the badge) → no resync of the inlined brief.
+    await ctx.core.run('badge.set', { file: 'ch.md', patch: { kind: 'file' } });
     const after = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(after).toBe(before);
     expect(after).toContain('prompt: keep'); // brief intact
@@ -339,7 +342,7 @@ describe('focus.resync (core reconcile of focus.md after badge edits)', () => {
   });
 
   it('focus.resync with no file arg re-renders the whole active list', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
     await ctx.core.run('focus.set', { files: ['a.md'] });
     const res = await ctx.core.run('focus.resync', {});
     expect(res.resynced).toBe(true);
@@ -354,7 +357,7 @@ describe('focus.brief', () => {
   });
 
   it('returns the verbatim focus.md content (what the agent reads)', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'about A' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'about A' } });
     await ctx.core.run('focus.set', { files: ['a.md'], intent: 'do the thing' });
     const res = await ctx.core.run('focus.brief', {});
     const onDisk = ctx.files.get('/work/.bh/focus.md') ?? '';
@@ -392,10 +395,10 @@ describe('focus provenance preservation through rename / toggle', () => {
     // filesystem (workspace.listSupportedFiles), not the badge mirror.
     ctx.dirs.add('/work/notes');
     ctx.files.set('/work/notes/a.md', 'A body');
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
     await ctx.core.run('badge.set', {
       file: 'notes',
-      patch: { kind: 'folder', prompt: 'folder intent' },
+      patch: { kind: 'folder', description: 'folder intent' },
     });
   });
 
@@ -446,13 +449,13 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
     ctx.files.set('/work/notes/a.md', 'A body');
     ctx.files.set('/work/notes/b.md', 'B body');
     ctx.files.set('/work/other/c.md', 'C body');
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
-    await ctx.core.run('badge.set', { file: 'notes/b.md', patch: { prompt: 'B' } });
-    await ctx.core.run('badge.set', { file: 'other/c.md', patch: { prompt: 'C' } });
-    // The folder badge with a prompt — its agent-facing intent.
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
+    await ctx.core.run('badge.set', { file: 'notes/b.md', patch: { description: 'B' } });
+    await ctx.core.run('badge.set', { file: 'other/c.md', patch: { description: 'C' } });
+    // The folder badge with a description — its agent-facing intent.
     await ctx.core.run('badge.set', {
       file: 'notes',
-      patch: { kind: 'folder', prompt: 'Chapter 3 notes' },
+      patch: { kind: 'folder', description: 'Chapter 3 notes' },
     });
   });
 
@@ -471,7 +474,7 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
     await ctx.core.run('focus.set', { folder: 'notes' });
     await ctx.core.run('badge.set', {
       file: 'notes',
-      patch: { kind: 'folder', prompt: 'Chapter 3 — proof focus' },
+      patch: { kind: 'folder', description: 'Chapter 3 — proof focus' },
     });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('intent: Chapter 3 — proof focus');
@@ -483,14 +486,14 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
     await ctx.core.run('focus.set', { folder: 'notes' });
     await ctx.core.run('badge.set', {
       file: 'other',
-      patch: { kind: 'folder', prompt: 'unrelated' },
+      patch: { kind: 'folder', description: 'unrelated' },
     });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: Chapter 3 notes');
   });
 
   it('a per-file badge edit under the folder resyncs AND preserves the source-folder marker', async () => {
     await ctx.core.run('focus.set', { folder: 'notes' });
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A revised' } });
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A revised' } });
     const md = ctx.files.get('/work/.bh/focus.md') ?? '';
     expect(md).toContain('prompt: A revised'); // re-inlined
     expect(md).toContain('# source-folder: notes'); // provenance survived
@@ -561,7 +564,7 @@ describe('focus source-folder provenance (folder = the grouping)', () => {
     await ctx.core.run('badge.rename', { from: 'notes', to: 'docs', kind: 'folder' });
     await ctx.core.run('badge.set', {
       file: 'docs',
-      patch: { kind: 'folder', prompt: 'renamed-folder intent' },
+      patch: { kind: 'folder', description: 'renamed-folder intent' },
     });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('intent: renamed-folder intent');
   });
@@ -593,10 +596,10 @@ describe('focus.setIntent (author the turn intent without touching the active se
   });
 
   it('a manually-typed intent CLEARS folder provenance (no longer folder-derived)', async () => {
-    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { prompt: 'A' } });
+    await ctx.core.run('badge.set', { file: 'notes/a.md', patch: { description: 'A' } });
     await ctx.core.run('badge.set', {
       file: 'notes',
-      patch: { kind: 'folder', prompt: 'folder intent' },
+      patch: { kind: 'folder', description: 'folder intent' },
     });
     await ctx.core.run('focus.set', { folder: 'notes' });
     expect(ctx.files.get('/work/.bh/focus.md') ?? '').toContain('# source-folder: notes');
@@ -636,8 +639,8 @@ describe('brief liveness: orphan-flagged files never reach the brief (by constru
   });
 
   it('badge.markOrphan on a focused file cascades (via resync): it drops from the brief, with a heal note', async () => {
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
     await ctx.core.run('focus.set', { files: ['a.md', 'b.md'], intent: 'compare them' });
     // The watcher saw a.md unlinked → badge.markOrphan → cascade to focus.resync,
     // which re-assembles through the liveness choke point and excludes the orphan.
@@ -655,8 +658,8 @@ describe('brief liveness: orphan-flagged files never reach the brief (by constru
     // brief must still never point at it. assembleItems excludes orphan-flagged
     // files for EVERY writer, so a dead pick is dropped (with a heal note) by
     // construction — not patched out afterwards.
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
     await ctx.core.run('badge.markOrphan', { file: 'a.md' }); // a.md deleted on disk
     const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
     expect(res.active).toEqual(['b.md']); // orphan a.md dropped at the write
@@ -669,10 +672,10 @@ describe('brief liveness: orphan-flagged files never reach the brief (by constru
     // The liveness invariant relies on the orphan flag PERSISTING: editing a
     // deleted file's prompt (panel / CLI badge.set) must not silently un-orphan
     // it, or a later focus.set could publish a brief pointing at the dead file.
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'P-a' } });
-    await ctx.core.run('badge.set', { file: 'b.md', patch: { prompt: 'P-b' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'P-a' } });
+    await ctx.core.run('badge.set', { file: 'b.md', patch: { description: 'P-b' } });
     await ctx.core.run('badge.markOrphan', { file: 'a.md' });
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'edited while gone' } });
+    await ctx.core.run('badge.set', { file: 'a.md', patch: { description: 'edited while gone' } });
     expect((await ctx.core.run('badge.get', { file: 'a.md' })).orphan).toBe(true); // survived the edit
     const res = await ctx.core.run('focus.set', { files: ['a.md', 'b.md'] });
     expect(res.active).toEqual(['b.md']); // still excluded
@@ -765,72 +768,8 @@ describe('focus.brief served-receipt (CONFIRM: observable delivery)', () => {
   });
 });
 
-describe('brief freshness marker (note vs file mtime)', () => {
-  // Local seed exposing the mock's per-file mtimes (absent by default, so
-  // every other suite keeps zero markers).
-  async function seedWithMtimes(): Promise<TestContext & { mtimes: Map<string, number> }> {
-    const { fs, files, dirs, mtimes } = mockFs();
-    dirs.add('/work');
-    const core = createCore({ fs, configDir: '/cfg' });
-    await core.run('workspace.add', { path: '/work', name: 'w' });
-    return { files, dirs, core, mtimes };
-  }
-
-  it('flags a note written before the file last changed, with both dates', async () => {
-    const ctx = await seedWithMtimes();
-    ctx.files.set('/work/a.md', 'content');
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
-    // File changes AFTER the note was written.
-    ctx.mtimes.set('/work/a.md', Date.now() + 60_000);
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(brief).toContain('prompt: my note');
-    expect(brief).toMatch(
-      /\(note may be stale: written \d{4}-\d{2}-\d{2}, file changed \d{4}-\d{2}-\d{2}\)/,
-    );
-  });
-
-  it('stays silent when the note is newer than the file', async () => {
-    const ctx = await seedWithMtimes();
-    ctx.files.set('/work/a.md', 'content');
-    ctx.mtimes.set('/work/a.md', Date.now() - 60_000); // file older than the note
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    const brief = ctx.files.get('/work/.bh/focus.md') ?? '';
-    expect(brief).toContain('prompt: my note');
-    expect(brief).not.toContain('note may be stale');
-  });
-
-  it('stays silent when the fs reports no mtime or the badge predates the anchor (no guessing)', async () => {
-    const ctx = await seedWithMtimes();
-    ctx.files.set('/work/a.md', 'content'); // no mtimes entry → stat omits mtimeMs
-    await ctx.core.run('badge.set', { file: 'a.md', patch: { prompt: 'my note' } });
-    await ctx.core.run('focus.set', { files: ['a.md'] });
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');
-
-    // Legacy badge: prompt exists but promptModifiedAt is absent (pre-D1 data).
-    const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
-    const raw = parse(ctx.files.get(badgePath) ?? '{}') as Record<string, unknown>;
-    raw.promptModifiedAt = undefined;
-    ctx.files.set(badgePath, stringify(raw));
-    ctx.mtimes.set('/work/a.md', Date.now() + 60_000);
-    await ctx.core.run('focus.resync', {});
-    expect(ctx.files.get('/work/.bh/focus.md') ?? '').not.toContain('note may be stale');
-  });
-
-  it('round-trips: the marker line is invisible to parseFocus', () => {
-    const rendered = renderFocus([
-      {
-        file: 'a.md',
-        prompt: 'my note',
-        promptStale: {
-          notedAt: '2026-06-01T00:00:00.000Z',
-          fileChangedAt: '2026-06-12T00:00:00.000Z',
-        },
-        refs: [{ to: 'b.md', note: 'why' }],
-      },
-    ]);
-    expect(rendered).toContain('(note may be stale: written 2026-06-01, file changed 2026-06-12)');
-    expect(parseFocus(rendered)).toEqual(['a.md']);
-  });
-});
+// The "brief freshness marker (note vs file mtime)" suite is REMOVED: the new
+// badge model dropped promptModifiedAt (and the file mtimeMs anchor), so the
+// brief no longer auto-flags a "(note may be stale: …)" line. The feature is
+// gone with no replacement, so these cases (end-to-end flagging + the pure
+// promptStale render round-trip) are deleted rather than ported.

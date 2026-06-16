@@ -121,15 +121,12 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
           <div style={{ display: 'flex', flexDirection: 'column', gap: space[0.5] }}>
             {fb.refs.length > 0 && (
               <List>
-                {fb.refs.map((r) => (
+                {fb.refs.map((to) => (
                   <RefLine
-                    key={r.to}
-                    to={r.to}
-                    note={r.note ?? ''}
-                    notePlaceholder="备注"
-                    onOpen={() => openInPanel(r.to)}
-                    onRemove={() => void fb.removeRef(r.to)}
-                    onNoteCommit={(n) => void fb.updateRefNote(r.to, n)}
+                    key={to}
+                    to={to}
+                    onOpen={() => openInPanel(to)}
+                    onRemove={() => void fb.removeRef(to)}
                   />
                 ))}
               </List>
@@ -163,8 +160,8 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
             {inboundOpen && fb.inbound.length > 0 && (
               <div style={{ paddingLeft: space[2] }}>
                 <List>
-                  {fb.inbound.map((e) => (
-                    <InboundRow key={e.from} entry={e} onOpen={() => openInPanel(e.from)} />
+                  {fb.inbound.map((from) => (
+                    <InboundRow key={from} from={from} onOpen={() => openInPanel(from)} />
                   ))}
                 </List>
               </div>

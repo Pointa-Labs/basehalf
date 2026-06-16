@@ -1,7 +1,13 @@
-import type { BadgeSide } from '@basehalf/core';
+import type { CanvasAnchor } from '@basehalf/core';
 import { Position } from '@xyflow/react';
 
-export type CanvasConnectionSide = BadgeSide;
+// The desktop's internal connection vocabulary stays React-Flow-native
+// ('top'|'right'|'bottom'|'left'); core now speaks COMPASS anchors
+// ('north'|'east'|'south'|'west'). `BadgeSide` was removed from core, so this
+// union is owned locally and translated to/from anchors only at the IPC
+// boundary (see SIDE_TO_ANCHOR / ANCHOR_TO_SIDE below).
+export type CanvasSide = 'top' | 'right' | 'bottom' | 'left';
+export type CanvasConnectionSide = CanvasSide;
 export type CanvasConnectionAffordance = CanvasConnectionSide;
 
 export const CANVAS_CONNECTION_SIDES: readonly CanvasConnectionSide[] = [
@@ -10,6 +16,23 @@ export const CANVAS_CONNECTION_SIDES: readonly CanvasConnectionSide[] = [
   'bottom',
   'left',
 ];
+
+// Side <-> compass-anchor translation. top<->north, right<->east,
+// bottom<->south, left<->west. Applied at the canvas.* IPC boundary so the rest
+// of the renderer keeps its React-Flow side vocabulary.
+export const SIDE_TO_ANCHOR: Record<CanvasSide, CanvasAnchor> = {
+  top: 'north',
+  right: 'east',
+  bottom: 'south',
+  left: 'west',
+};
+
+export const ANCHOR_TO_SIDE: Record<CanvasAnchor, CanvasSide> = {
+  north: 'top',
+  east: 'right',
+  south: 'bottom',
+  west: 'left',
+};
 
 export const CANVAS_CONNECTION_SIDE_POSITION: Record<CanvasConnectionSide, Position> = {
   top: Position.Top,
