@@ -1,148 +1,224 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `bh` ships five user-facing modules: `workspace`, `badge`,
-> `inbound`, `focus`, `search` (plus an internal `watcher`). The desktop app
-> (v0) has shipped (PRs 9–16; see
-> [docs/roadmap.md](docs/roadmap.md)); `bh init` now installs the full
-> **agent protocol** hint pointing agents at `.bh/focus.md` +
-> `.bh/badges/<file>.json` + `.bh/index/inbound.json` (see
-> [docs/decisions.md D14](docs/decisions.md)).
+> **Status:** `@basehalf/core` ships seven modules: `workspace`, `badges`,
+> `canvas`, `focus`, `adhd`, `search` (plus an internal `watcher`). The desktop
+> app drives core over IPC (see [docs/roadmap.md](docs/roadmap.md)); there is no
+> standalone CLI. `workspace.add` with `setup` (and the desktop's Open Folder)
+> installs the **agent protocol** hint pointing agents at
+> `.bh/current_focus.yaml` + the per-node mirror YAMLs under `.bh/mirror/<path>/`
+> (see `packages/core/src/modules/workspace/setup.ts`).
 >
-> The old `node src/cli.mjs` reference impl was deleted (clean slate); that
-> path no longer exists. A short-lived `bh decision` subcommand has also been
-> retired — see [docs/decisions.md D18](docs/decisions.md). Internal product
-> decisions for the BaseHalf project itself live in `private-docs/decisions/`
-> (private repo).
+> A `2026-06` refactor aligned the code to `private-docs/focus_mode_spec/`: the
+> `bh` CLI package, the `inbound` module, the `proposals` write-back module, and
+> the old `.bh/focus.md` curated-brief machinery were all deleted; the `.bh/`
+> layout is now a per-node **mirror tree** of YAML files (see
+> [docs/decisions.md D19](docs/decisions.md)). The old `node src/cli.mjs`
+> reference impl was deleted long before that (clean slate); that path no longer
+> exists. A short-lived `bh decision` subcommand was also retired — see
+> [docs/decisions.md D18](docs/decisions.md). Internal product decisions for the
+> BaseHalf project itself live in `private-docs/decisions/` (private repo).
 
-`bh` is the CLI. Invoke it as `bh <cmd>` (linked globally via `npm link` in
-`packages/cli/`). If `bh` is missing on this machine, rebuild + relink:
-`pnpm -r build && (cd packages/cli && npm link)`.
+`@basehalf/core` is the **one door**: every operation is `run(command, args)`.
+The desktop app, the watcher, and any future MCP/CLI shell all go through that
+single registry — there is no `bh <cmd>` binary anymore. The command surface is
+defined by the modules registered in `packages/core/src/index.ts`; read a
+module's `commands.ts` + `types.ts` for exact args/results (they're the stable
+contract). When this doc and the code disagree, the code wins.
 
-Always prefer `--json` on reads — output stays stable across versions.
-**Put `--json` after the subcommand** (e.g. `bh workspace list --json`),
-not at the root.
-
-## Workspaces — which folder is "active"
-
-A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
-place; `bh` tracks which folder is "active" so the badge / focus / inbound /
-search modules know which root to operate on. Adding one creates a `.bh/`
-subdirectory (badges are a sparse overlay created lazily on first annotation —
-there is no eager materialization). **Folder identity is the path**: re-adding
-a registered folder returns the existing entry instead of erroring (the
-desktop's Open Folder then just switches to it), and a derived-name collision
-with a different folder auto-suffixes (`notes`, `notes-2`, …; an explicit
-`--name` collision still errors). Removing only unregisters — it never deletes
-user files — and removing the *current* workspace leaves none current (the
-app shows its welcome state; it never auto-promotes another workspace).
-
-```bash
-bh init                                      # register cwd as workspace + setup (.gitignore + agent hints)
-bh workspace add <path> [--name <name>] [--setup]
-bh workspace list
-bh workspace use <name>
-bh workspace current
-bh workspace remove <name>
-bh workspace rename <from> <to>              # change a workspace's name; path + .bh/ untouched
-```
-
-`bh init` is the one-shot for a new project: registers the current directory,
-appends `.bh/cache/` to `.gitignore` (the rest of `.bh/` stays in git so
-canvas positions / metadata travel with the folder, per the architecture),
-and appends the same workspace-hint section to `CLAUDE.md` and `AGENTS.md` —
-between them the filenames today's coding agents read (Claude Code →
-`CLAUDE.md`; Codex / Cursor / Windsurf / Cline / the Copilot coding agent / …
-→ `AGENTS.md`), so whatever agent the user runs now or installs later picks up
-the curated brief with no per-tool setup. (The old third target,
-`.github/copilot-instructions.md`, was retired once Copilot's agent learned to
-read `AGENTS.md` natively.) Both writes are non-destructive — marker-detected
-to be idempotent, existing content preserved, a symlinked target refused
-rather than clobbered. In the desktop UI these two files are scaffolding, not
-content: the canvas skips them; the sidebar shows them dimmed with an `AI`
-tag.
-
-Set `BH_CONFIG_DIR=/some/path` to point `bh` at a non-default config directory
+Set `BH_CONFIG_DIR=/some/path` to point core at a non-default config directory
 (useful for tests / sandboxed runs). Default is OS-conventional:
 `~/Library/Application Support/basehalf` on macOS, `$XDG_CONFIG_HOME/basehalf`
 on Linux, `%APPDATA%/basehalf` on Windows.
 
-## Badges, references, inbound, focus (the v0 agent protocol)
+## Workspaces — which folder is "active"
 
-A *badge* is a file (or folder) plus a "backpack" — prompt, references to
-other files, and a canvas position. Badges live at
-`<workspace>/.bh/badges/<rel-path>.json` (`.bh/badges/<folder>/.badge.json`
-for folder kind). They are a **sparse overlay created lazily on first
-annotation** — there is no eager materialization (a fresh workspace has zero
-badge files; the canvas reads the filesystem and overlays only the badges that
-exist). On workspace open, `badge.pruneDangling` marks any badge whose file is
-gone as orphan so the graph stays as live as the brief.
+A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
+place; core tracks which folder is "active" so the badge / canvas / focus /
+adhd / search modules know which root to operate on. Adding one creates a `.bh/`
+subdirectory (the mirror tree is a sparse overlay created lazily on first
+annotation — there is no eager materialization). **Folder identity is the
+path**: re-adding a registered folder returns the existing entry instead of
+erroring (the desktop's Open Folder then just switches to it), and a
+derived-name collision with a different folder auto-suffixes (`notes`,
+`notes-2`, …; an explicit name collision still errors). Removing only
+unregisters — it never deletes user files — and removing the *current* workspace
+leaves none current (the app shows its welcome state; it never auto-promotes
+another workspace).
 
-```bash
-bh badge list [--kind file|folder] [--query <substr>] [--json]
-bh badge get <file> [--kind file|folder] [--json]
-bh badge set <file> [--kind file|folder] [--prompt <text>] [--json]
-bh badge addRef <file> <to> [--note <text>] [--json]
-bh badge removeRef <file> <to> [--json]
-bh badge rename <from> <to> [--kind file|folder] [--json]   # atomic move + cascade refs + focus
+Workspace commands (call via `core.run(name, args)`):
+
+- `workspace.add` — register a folder (`{ path, name?, setup? }`); `setup` runs
+  the `.gitignore` + agent-hint installer described below.
+- `workspace.list` / `workspace.current` / `workspace.use` / `workspace.remove`
+  / `workspace.rename` — registry management; `rename` changes the name only
+  (path + `.bh/` untouched).
+- `workspace.listCanvas` — one folder level of children for the canvas (the
+  filesystem-as-tree read the mirror overlays onto).
+- `workspace.readFile` / `workspace.writeFile` / `workspace.createFile` /
+  `workspace.createFolder` / `workspace.renameEntry` / `workspace.deleteEntry`
+  / `workspace.importFile` — hardened, path-contained file access.
+- `workspace.createDemo` — generate a demo workspace.
+
+There is no `bh init` binary; the desktop app's Open Folder is the one-shot for
+a new project. It registers the directory, appends `.bh/cache/` to `.gitignore`
+(the rest of `.bh/` stays in git so the mirror tree / canvas positions / badge
+metadata travel with the folder, per the architecture), and appends the same
+workspace-hint section to `CLAUDE.md` and `AGENTS.md` — between them the
+filenames today's coding agents read (Claude Code → `CLAUDE.md`; Codex / Cursor
+/ Windsurf / Cline / the Copilot coding agent / … → `AGENTS.md`), so whatever
+agent the user runs now or installs later picks up the curated brief with no
+per-tool setup. (The old third target, `.github/copilot-instructions.md`, was
+retired once Copilot's agent learned to read `AGENTS.md` natively.) Both writes
+are non-destructive — marker-detected to be idempotent, existing content
+preserved, a symlinked target refused rather than clobbered. In the desktop UI
+these two files are scaffolding, not content: the canvas skips them; the sidebar
+shows them dimmed with an `AI` tag.
+
+## The `.bh/mirror/` model (the v0 agent protocol)
+
+`.bh/` is the **derived mirror** of the user's attention and annotations.
+Everything except `.bh/cache/` stays in git so the map travels with the folder.
+Per node (file or folder), up to four YAML files live under
+`.bh/mirror/<relative-path>/`, plus a single workspace-level symlink. The mirror
+is **sparse** — only annotated nodes have files; a fresh workspace has none, and
+the canvas reads the filesystem directly and overlays only what exists.
+
+```text
+.bh/current_focus.yaml                     # symlink → the active node's focus.yaml
+.bh/mirror/<path>/badge.yaml               # semantic layer: description + references
+.bh/mirror/<folder>/canvas.yaml            # visual layer: card positions + edges
+.bh/mirror/<path>/focus.yaml               # viewport mirror (file or folder)
+.bh/mirror/<file>/adhd.yaml                # per-file reading aids
 ```
 
-The reverse index lives at `.bh/index/inbound.json` and is maintained
-incrementally on `badge.addRef/removeRef`. `bh inbound rebuild` re-derives
-from all badges if it ever drifts.
+### badge.yaml — the semantic layer
 
-```bash
-bh inbound get <file> [--json]      # who points at this file?
-bh inbound rebuild [--json]
+A *badge* is a node's identity, a one-line `description`, and the reference
+graph. Folder and file badges both land at `<rel>/badge.yaml` (the kind is a
+field, not the path). References are **plain paths** — the visual edge (anchors +
+label) is a canvas concern, not a badge one. The reverse index that used to live
+in `.bh/index/inbound.json` is now **embedded** as `referenced_by`, maintained on
+the *target* badge by `badge.addRef` / `badge.removeRef` / `badge.rename`.
+
+```yaml
+path: docs/chapter-01.md
+kind: file
+description: "第一章正文，介绍核心概念。"
+references:
+  - docs/chapter-02.md
+referenced_by:
+  - docs/summary.md
 ```
 
-The agent's "what do I read this turn?" signal is `<workspace>/.bh/focus.md`
-(Markdown so it pastes naturally into context). It's a YAML-style `active:`
-list inside MD, written by the desktop UI as the user curates context — an
-explicit focus action, or a canvas **multi-selection (≥2 file badges)** that
-mirrors in automatically (debounced; a single selection stays UI-only). Editing a
-focused file's badge (`badge.set/addRef/removeRef`) auto-reconciles focus.md so
-its inlined prompt/refs stay fresh — and preserves the `intent:` line — via an
-internal `focus.resync` (no manual re-focus needed, CLI/agent edits included).
+Badge commands: `badge.get`, `badge.set` (description only — reference edits go
+through addRef/removeRef so the bidirectional `referenced_by` invariant holds),
+`badge.list` (`{ kind?, query? }`), `badge.addRef`, `badge.removeRef`,
+`badge.rename` (atomic move + cascade refs + remap focus; `ifExists` tolerates a
+missing source badge for the sparse common case), `badge.delete`,
+`badge.markOrphan`, `badge.pruneDangling` (sweep on open — marks any badge whose
+file is gone as `orphan`), `badge.revision` (cheap count+mtime signature a UI
+poll compares to detect external `.bh/mirror/` edits).
 
-```bash
-bh focus set --files <csv>   # or --folder <path>
-bh focus set-intent <text>   # set/clear the turn intent (the user's question) — active set untouched
-bh focus get
-bh focus brief               # print .bh/focus.md verbatim — the brief the agent reads
-bh focus clear
+### canvas.yaml — the visual layer
+
+Per *folder*, the canvas records child card positions and the `edges` between
+children (anchors `north` / `east` / `south` / `west` + a label). Splitting this
+out of the badge keeps the badge purely semantic.
+
+```yaml
+path: docs
+size: { width: 2400, height: 1600 }
+cards:
+  - { path: docs/chapter-01.md, kind: file, x: 120, y: 80, width: 260, height: 140 }
+edges:
+  - { from: docs/chapter-01.md, from_anchor: east, to: docs/chapter-02.md, to_anchor: west, label: "概念延伸" }
 ```
 
-`bh focus brief` (and the desktop focus chip's **Copy brief** button) hand back
-the turn brief verbatim so it can be pasted into any AI chat — making the
-curated context portable beyond the Claude-Code-auto-read-in-repo path.
+Canvas commands: `canvas.get`, `canvas.setCard`, `canvas.removeCard`,
+`canvas.setSize`, `canvas.connect` / `canvas.disconnect` / `canvas.reconnect`
+(edges), `canvas.revision`.
 
-A **folder is the grouping unit** (the old saved-"views" feature was removed in
-favour of this). Focus a whole folder and the agent reads its files as a group;
-the folder badge's prompt becomes the turn `intent:`, and the brief records a
-`# source-folder:` provenance marker so editing that folder prompt refreshes the
-brief by exact identity.
+### focus.yaml + current_focus.yaml — the viewport mirror
 
-```bash
-bh focus set --folder <path>   # focus every supported file under <path>
+Focus *flipped* from a hand-curated active-file list (the deleted
+`.bh/focus.md`) to a **real-time viewport mirror**: whatever node the user is
+looking at IS the focus. Each node owns a `focus.yaml`; `.bh/current_focus.yaml`
+is a **symlink** to the active node's one — the agent's single per-turn entry
+point. The desktop repoints the symlink as the user switches nodes.
+
+```yaml
+# file node
+path: docs/chapter-01.md
+kind: file
+visible_lines: { start: 12 }
+cursor: { line: 28, column: 6 }
+
+# folder node
+path: docs
+kind: folder
+viewport_center: { x: 800, y: 420 }
+zoom: 1.2
 ```
+
+The live fields (`visible_lines` / `cursor` / `viewport_center` / `zoom`) are
+optional in this structural-first round — a node switch may write just
+`path` + `kind`. Focus commands: `focus.set` (write the active node's
+focus.yaml + repoint the symlink; takes an optional `workspace` guard against an
+in-flight workspace switch), `focus.get` (resolve the symlink → the node, or
+`null`), `focus.clear`, `focus.pruneDangling`.
+
+### adhd.yaml — per-file reading aids
+
+Per *file*, ADHD-mode tracks keywords to highlight and which line-ranges the
+user has already read. Unread paragraphs are everything outside the ranges; the
+front end can style read vs unread (no per-paragraph IDs needed).
+
+```yaml
+path: docs/chapter-01.md
+kind: file
+highlight_keywords: ["供需均衡", "边际成本"]
+read_paragraphs:
+  - [12, 24]
+  - [31, 38]
+```
+
+ADHD commands: `adhd.get`, `adhd.set`, `adhd.addKeyword` / `adhd.removeKeyword`,
+`adhd.markRead` / `adhd.markUnread`, `adhd.revision`.
+
+### What a fresh agent reads each turn
+
+The protocol an installed hint teaches: **at the start of every turn, read
+`.bh/current_focus.yaml`.** If `kind: file`, combine the file content with its
+`badge.yaml` and the `visible_lines` / `cursor` where the user is. If
+`kind: folder`, use that folder's `badge.yaml` + `canvas.yaml` and the
+`viewport_center` / `zoom`. From the focused node, follow `references` /
+`referenced_by` and the canvas structure for more context. Only modify the
+user's own files when they explicitly ask; when asked, you can also generate or
+update the `.bh/` YAMLs (match the shape, read the latest first, don't store
+anything derivable from paths / line numbers / the reference graph, and never
+replace the `current_focus.yaml` symlink with a regular file). The canonical
+hint text lives in `HINT_BODY` in
+`packages/core/src/modules/workspace/setup.ts` — that file is the source of
+truth, not this paragraph.
+
+## Content search
 
 Full-text **content search** across the current workspace's text files — the
 "find the note where I wrote about X" retrieval leg (badge/file matching is by
-path + prompt only). Case-insensitive substring; skips binary files and tooling
-dirs (`.bh/`, `node_modules`, …); reads each file under a bounded cap. In the
-desktop it's wired into the ⌘K palette (debounced, below the name matches).
-Read-only — it walks via the already-hardened `workspace.listFiles` +
+path + description only). Case-insensitive substring; skips binary files and
+tooling dirs (`.bh/`, `node_modules`, …); reads each file under a bounded cap.
+In the desktop it's wired into the ⌘K palette (debounced, below the name
+matches). Read-only — it walks via the already-hardened `workspace.listFiles` +
 `workspace.readFile`, so path containment is inherited, not re-implemented.
 
-```bash
-bh search <query> [--maxFiles <n>] [--maxPerFile <n>] [--brief] [--json]
+```text
+search.query  { query, maxFiles?, maxMatchesPerFile? }   # ranked file hits
+search.brief  { query, maxFiles?, maxMatchesPerFile? }   # paste-ready context brief
 ```
 
-`--brief` assembles the matches into a paste-ready **context brief** (same
-spirit as `.bh/focus.md`, but retrieval-sourced instead of hand-curated): each
-matching file is inlined with its badge prompt, reference notes, and noted
-inbound links. The on-ramp for "I know what I want to ask, not which files
-matter." Core command: `search.brief`.
+`search.brief` assembles the matches into a paste-ready **context brief**: each
+matching file is inlined with its badge description and noted references. The
+on-ramp for "I know what I want to ask, not which files matter."
 
 ## Recording why decisions were made (internal team workflow)
 
@@ -154,28 +230,39 @@ there's no CLI wrapper.
 For agents helping us build BaseHalf: when you encounter "why did we…"
 questions about architecture or product direction, look in
 `private-docs/decisions/` first. The corpus README at
-`private-docs/decisions/README.md` explains the conventions.
+`private-docs/decisions/README.md` explains the conventions. The authoritative
+spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
 
 ## Rules (carry into future modules)
 
 - **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
-  CLI / MCP / desktop UI are thin shells — never put business logic in them.
+  The desktop UI / watcher / any future MCP or CLI shell are thin shells — never
+  put business logic in them.
 - **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
   registers its commands via `core.register`, and touches core only through
   the `Context` it's given. **Modules calling other modules use `ctx.run`,
   never imports of another module's internals.**
 - **Use `ctx.fs`, never `node:fs` directly.** So tests can swap a mock.
-- **MD = content truth, `.bh/` = derived cache, git = history.** Per the
+- **User files = content truth, `.bh/` = derived mirror, git = history.** Per the
   architecture constitution. Modules that touch user files must be observers
   (chokidar + reconcile), never owners.
-- **bh never writes user files unprompted.** Only explicit user edits
-  through the BaseHalf UI write back to MD. Agents edit user files with
-  their own tools — bh stays out of that path.
+- **Any RMW on a `.bh/` YAML needs a mutex.** A read-modify-write on a mirror
+  file (badge / canvas / focus / adhd) must serialize through `createKeyedMutex`
+  (kernel) or it loses updates under concurrent writers (the watcher + an in-app
+  edit). New stores need the same treatment.
+- **core never writes user files unprompted.** Only explicit user edits
+  through the BaseHalf UI write back to disk. Agents edit user files with
+  their own tools — core stays out of that path.
 - **Don't restore the deleted event-log impl.** It was overturned by the
   architecture; if you need to read it, it's in git history at `c441f79`.
 - **Don't restore the deleted decisions module.** It served the old
   AI-coding wedge as a dogfood tool; the corpus lives as MD in
   `private-docs/decisions/` now. See [docs/decisions.md D18](docs/decisions.md).
+- **Don't restore the deleted CLI / `inbound` / `proposals` / `focus.md`.** The
+  CLI package is gone (core drives everything); the reverse index is embedded in
+  `badge.referenced_by`; agent write-back was overturned; the curated focus brief
+  was replaced by the `focus.yaml` viewport mirror. See
+  [docs/decisions.md D19](docs/decisions.md).
 - **Maintainers (including agents working for them) push `main` directly —
   no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on
   direct pushes by allowlisted logins, so the old "CLAAssistant stuck on

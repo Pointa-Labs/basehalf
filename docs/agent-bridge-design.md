@@ -4,7 +4,15 @@
 > external AI agent (Claude Code / Codex / any) exchanges information with —
 > and controls — the BaseHalf desktop app. Decisions marked **OPEN** still
 > need a human call. Once settled, the load-bearing ones graduate into
-> `docs/decisions.md` (next free id is D19).
+> `docs/decisions.md` (next free id is D20).
+>
+> **2026-06 note.** The published file shapes named below (`.bh/focus.md` +
+> `.bh/badges/<file>.json` + `.bh/index/inbound.json`) were replaced by the
+> `.bh/mirror/` YAML tree + `.bh/current_focus.yaml` symlink (see
+> [decisions.md D19](decisions.md)); the data-line / runtime-line architecture
+> this doc describes is unchanged — read the file names as their current mirror
+> equivalents. The `bh` CLI "floor" was also retired (core drives the desktop
+> directly), so the MCP "additive door" is now the single planned non-file door.
 >
 > Third-party products are referenced generically (per the trademark policy);
 > see §8.
@@ -90,12 +98,15 @@ source-of-truth = who is the source within the persistent plane.
 
 The transport is **not** the essence; it's just how commands arrive. Choices:
 
-- **Files (`.bh/`) + CLI — the universal floor (active: D5, D14).** Every agent
-  that can read files reaches the published `.bh/focus.md` +
-  `.bh/badges/<file>.json` + `.bh/index/inbound.json` with zero config; any agent
-  with a shell reaches the same `core.run` via the CLI. This is the contract
-  today and stays the contract — the published file shapes ARE the agent
-  interface (D14: publish, not inject), not internal storage.
+- **Files (`.bh/`) — the universal floor (active: D14; CLI leg retired, D19).**
+  Every agent that can read files reaches the published `.bh/mirror/` tree
+  (`.bh/current_focus.yaml` + per-node `badge.yaml` / `canvas.yaml` /
+  `focus.yaml` / `adhd.yaml`) with zero config. This is the contract today and
+  stays the contract — the published file shapes ARE the agent interface (D14:
+  publish, not inject), not internal storage. (The original draft also listed a
+  `bh` CLI as a shell-reachable door; that package was deleted in the `2026-06`
+  refactor — core now drives the desktop directly, and MCP is the single planned
+  non-file door.)
 - **MCP — an ADDITIVE premium door, layered on later.** O(1) across the
   fragmenting agent ecosystem (implement once, every MCP-capable agent plugs in),
   tools are self-describing (no hint to read), **stdio = fully local, no

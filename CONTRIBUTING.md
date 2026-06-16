@@ -5,34 +5,36 @@ Thanks for your interest. This is an early, company-led open-source project
 team; see [docs/roadmap.md](docs/roadmap.md). By participating you agree to our
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
-> **Status note.** Pre-alpha. The CLI ships the `workspace`, `badge`, `inbound`,
-> `focus`, and `search` modules (plus an internal `watcher`); the Electron
-> desktop app (v0) has shipped. Contribution surfaces
-> are narrow today — **open an issue first** to find one that's ready for
-> outside work. See [docs/roadmap.md](docs/roadmap.md) for the current PR
-> plan. (A `bh decision` subcommand also shipped briefly as an internal
-> dogfood tool and has since been retired; see [docs/decisions.md D18](docs/decisions.md).)
+> **Status note.** Pre-alpha. `@basehalf/core` ships the `workspace`, `badges`,
+> `canvas`, `focus`, `adhd`, and `search` modules (plus an internal `watcher`);
+> the Electron desktop app (v0) drives them over IPC. There is no standalone CLI
+> — a `2026-06` refactor deleted the `bh` CLI package, the `inbound` module, and
+> the `proposals` module, and moved `.bh/` to a per-node YAML mirror tree (see
+> [docs/decisions.md D19](docs/decisions.md)). Contribution surfaces are narrow
+> today — **open an issue first** to find one that's ready for outside work. See
+> [docs/roadmap.md](docs/roadmap.md) for the current plan. (A `bh decision`
+> subcommand also shipped briefly as an internal dogfood tool and has since been
+> retired; see [docs/decisions.md D18](docs/decisions.md).)
 
 ## Build it (Node ≥ 20.19, pnpm 9)
 
 ```bash
 pnpm install
-pnpm -r build         # @basehalf/core, then @basehalf/cli
-pnpm -r test          # vitest — core + workspace tests
+pnpm -r build         # @basehalf/core, then @basehalf/desktop
+pnpm -r test          # vitest — core + desktop tests
 pnpm -r --if-present lint
-cd packages/cli && npm link   # makes `bh` globally available
 
-bh init                                      # register cwd as workspace
-bh workspace add ~/Desktop/my-notes --setup  # or register an existing folder
-bh workspace list
+pnpm --filter @basehalf/desktop dev   # run the desktop app; Open Folder to start
 ```
+
+Everything goes through `@basehalf/core`'s `run(command, args)` — the one door.
+There is no CLI binary; the desktop app (and your tests) call core directly.
 
 ## Repo layout & the rules that must not break
 
 ```text
 packages/
-  core/    kernel (registry + context) + modules (one per feature)
-  cli/     bh — thin shell over core
+  core/    kernel (registry + context + mirror store) + modules (one per feature)
   desktop/ — Electron app; React + BlockNote + React Flow on
            the renderer, Node main process owns fs + chokidar
 ```
@@ -40,28 +42,34 @@ packages/
 When contributing, keep these invariants (see [docs/decisions.md](docs/decisions.md) for the *why*):
 
 1. **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
-   CLI / desktop / MCP are thin shells — never put business logic in them.
+   Desktop / watcher / any future MCP or CLI shell are thin shells — never put
+   business logic in them.
 2. **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
    registers commands via the kernel registry, and touches core only through
    the `Context` it receives. **Modules calling other modules use `ctx.run`,
    never imports of another module's internals.**
-3. **Dependencies point only inward.** `packages/cli` and `packages/desktop`
-   may depend on `@basehalf/core`; the reverse is forbidden. Modules don't
-   depend on each other directly — they coordinate through commands.
-4. **MD = content truth.** Modules that touch user files must be **observers**
-   (file watcher + reconcile-on-launch), never owners. The `.bh/` cache is
-   derived (most of it); the authored parts (canvas positions, badge prompts,
-   references) live in `.bh/` too and travel with the folder.
-5. **bh never writes user files unprompted.** Only explicit user edits
-   through the BaseHalf UI (block editor, rename) write back to MD. Agents
-   edit user files with their own tools — bh stays out of that path.
-6. **Primitives, not tasks.** Add small composable commands (e.g. `badge.add-ref`,
+3. **Dependencies point only inward.** `packages/desktop` may depend on
+   `@basehalf/core`; the reverse is forbidden. Modules don't depend on each
+   other directly — they coordinate through commands.
+4. **User files = content truth.** Modules that touch user files must be
+   **observers** (file watcher + reconcile-on-launch), never owners. The
+   `.bh/` mirror is derived; `.bh/cache/` is rebuildable and gitignored, while
+   the rest of `.bh/` (the `mirror/` tree + `current_focus.yaml`) stays in git
+   so the map travels with the folder.
+5. **core never writes user files unprompted.** Only explicit user edits
+   through the BaseHalf UI (block editor, rename) write back to disk. Agents
+   edit user files with their own tools — core stays out of that path.
+6. **Primitives, not tasks.** Add small composable commands (e.g. `badge.addRef`,
    `focus.set`), not task-specific ones (e.g. `arrange-into-heart`). The
    agent composes them.
 7. **Publish, don't inject.** Agent-facing surfaces write files to known paths
-   in `.bh/` (`focus.md` / `badges/<file>.json` / `index/inbound.json`); no
-   system-prompt injection, no MCP server required.
-8. **No fork of the deleted event-log impl.** It was overturned by the
+   in the `.bh/mirror/` tree (`current_focus.yaml` symlink + per-node
+   `badge.yaml` / `canvas.yaml` / `focus.yaml` / `adhd.yaml`); no system-prompt
+   injection, no MCP server required.
+8. **Any RMW on a `.bh/` YAML needs a mutex.** Serialize read-modify-writes on a
+   mirror file through `createKeyedMutex` (kernel) or concurrent writers (the
+   watcher + an in-app edit) silently lose updates.
+9. **No fork of the deleted event-log impl.** It was overturned by the
    architecture pivot ([D12](docs/decisions.md)); it lives in git history at
    `c441f79` if you need to reference it.
 

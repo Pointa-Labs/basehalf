@@ -23,8 +23,8 @@ work from the same materials you see.
 
 </div>
 
-**Status:** pre-alpha, dogfood-ready. The CLI, local protocol, and Electron Mac
-app are usable today and still changing quickly.
+**Status:** pre-alpha, dogfood-ready. The local protocol and Electron Mac app
+are usable today and still changing quickly.
 
 Bring your own agent: **Codex**, **Claude Code**, **OpenClaw**,
 **Hermes Agent**, or any other agent that can read and write local files.
@@ -40,10 +40,10 @@ BaseHalf gives a local project a shared working surface for people and agents.
 It turns a real folder into a visual workspace with files, notes, references,
 prompts, and focus signals that stay close to the materials they describe.
 
-Your files stay in a real folder. BaseHalf adds a `.bh/` layer beside them for
-canvas positions, prompts, references, and the current focus signal.
-Humans work through the desktop app. Agents read the same local protocol and
-decide what context to load.
+Your files stay in a real folder. BaseHalf adds a `.bh/` mirror layer beside
+them for descriptions, references, canvas positions, and the node the user is
+currently looking at. Humans work through the desktop app. Agents read the same
+local protocol and decide what context to load.
 
 The result is a local workspace your existing agent can understand: a canvas for
 you, plain files for the agent, and a small protocol that helps both sides stay
@@ -55,8 +55,9 @@ oriented.
   previews, and a block editor over local files.
 - A **local folder model**: your files stay where they are; `.bh/` stores
   BaseHalf metadata that can travel with the folder.
-- An **agent-readable protocol**: `.bh/focus.md`, `.bh/badges/<file>.json`, and
-  `.bh/index/inbound.json` publish the graph through plain local files.
+- An **agent-readable protocol**: a `.bh/mirror/` tree of plain YAML files —
+  `.bh/current_focus.yaml` plus per-node `badge.yaml`, `canvas.yaml`,
+  `focus.yaml`, and `adhd.yaml` — publishes the graph and the current focus.
 - A **bring-your-own-agent tool**: you choose the agent. Codex, Claude Code,
   OpenClaw, Hermes Agent, or any file-reading agent can participate.
 - A **standalone local app**: also useful as a knowledge workspace on its own.
@@ -72,22 +73,29 @@ flowchart LR
   agent["Your AI agent"] --> files
   agent --> bh
 
-  bh --> focus[".bh/focus.md"]
-  bh --> badges[".bh/badges/*.json"]
-  bh --> inbound[".bh/index/inbound.json"]
+  bh --> focus[".bh/current_focus.yaml"]
+  bh --> badge[".bh/mirror/<path>/badge.yaml"]
+  bh --> canvas[".bh/mirror/<folder>/canvas.yaml"]
+  bh --> adhd[".bh/mirror/<file>/adhd.yaml"]
 ```
 
-A **badge** is a file plus a small backpack of metadata: prompt, references, and
-canvas position. Badges are a sparse overlay, created lazily the first time you
-annotate a file — a fresh workspace has none, and the canvas reads the
-filesystem directly and overlays only the badges that exist.
+A **badge** is a file or folder plus a small backpack of metadata: a one-line
+description and references to other nodes. Badges are a sparse overlay, created
+lazily the first time you annotate a node — a fresh workspace has none, and the
+canvas reads the filesystem directly and overlays only the badges that exist.
 
-The protocol is deliberately simple:
+The protocol is a per-node mirror tree, deliberately simple:
 
-- `.bh/focus.md` says what you are focusing on this turn.
-- `.bh/badges/<file>.json` describes each file's agent-facing prompt,
-  references, and canvas metadata.
-- `.bh/index/inbound.json` is a derived reverse-reference index.
+- `.bh/current_focus.yaml` is a symlink to the `focus.yaml` of the node you are
+  looking at right now — the agent's per-turn entry point.
+- `.bh/mirror/<path>/badge.yaml` describes a node's one-line description,
+  outbound `references`, and the embedded inbound `referenced_by` index.
+- `.bh/mirror/<folder>/canvas.yaml` holds a folder's card positions and the
+  edges (with anchors + labels) between its children.
+- `.bh/mirror/<path>/focus.yaml` mirrors a node's viewport (which line / cursor
+  for a file, pan center / zoom for a folder canvas).
+- `.bh/mirror/<file>/adhd.yaml` carries per-file reading aids: highlight
+  keywords and already-read line-ranges.
 
 BaseHalf publishes structure; the agent chooses what to read.
 
@@ -102,15 +110,18 @@ BaseHalf is pre-alpha and the core loop is usable:
 - Preview and edit Markdown via BlockNote, with guardrails for lossy
   round-trips.
 - Preview images, audio, video, PDFs, and plain code/text files.
-- Focus a folder as a group and publish the current focus for agents.
+- Mirror the node you're looking at into `.bh/current_focus.yaml` for agents.
 - Keep `.bh/` metadata reconciled as files are added, renamed, or removed.
 
 Core modules currently ship for:
 
 - `workspace` - register, switch, rename, repath, and inspect workspaces.
-- `badge` - read/write prompts, references, kind, and canvas metadata.
-- `inbound` - query and rebuild reverse references.
-- `focus` - publish the agent focus signal.
+- `badges` - read/write a node's description and references (with the inbound
+  index embedded as `referenced_by`).
+- `canvas` - per-folder card positions and edges (the visual layer).
+- `focus` - mirror the user's current viewport (`focus.yaml` +
+  `current_focus.yaml` symlink) for agents.
+- `adhd` - per-file reading aids (highlight keywords + already-read ranges).
 - `search` - full-text content search across the workspace.
 - `watcher` - reconcile external filesystem changes.
 
@@ -124,45 +135,18 @@ pnpm -r build
 pnpm -r test
 ```
 
-Link the CLI globally:
-
-```bash
-cd packages/cli
-npm link
-```
-
-Create or register a workspace:
-
-```bash
-bh init
-bh workspace add ~/Desktop/my-notes --name notes --setup
-bh workspace list --json
-bh workspace use notes
-bh workspace current --json
-```
-
-Work with the protocol:
-
-```bash
-bh badge list --json
-bh badge set chapter-03.md --prompt "explain supply and demand simply"
-bh badge addRef chapter-03.md textbook.pdf --note "source chapter"
-bh inbound get textbook.pdf --json
-bh focus set --files chapter-03.md,textbook.pdf
-bh search "supply and demand" --json
-```
-
-Create a demo workspace:
-
-```bash
-bh workspace demo ~/BaseHalf-Demo
-```
-
 Run the desktop app:
 
 ```bash
 pnpm --filter @basehalf/desktop dev
 ```
+
+From the app, **Open Folder** registers a real folder as a workspace (path is
+identity — re-opening one just switches to it), scaffolds the `.bh/` mirror, and
+installs the agent-protocol hint into the folder's `CLAUDE.md` + `AGENTS.md`.
+Everything the app does goes through `@basehalf/core`'s `run(command, args)` —
+the one door; there is no separate CLI binary. Your agent then reads the
+published `.bh/` mirror (starting from `.bh/current_focus.yaml`) directly.
 
 ## Repo Layout
 
@@ -171,15 +155,15 @@ packages/
   core/             kernel + first-party modules
     src/
       index.ts        createCore() - the one door
-      kernel/         registry, context, fs abstraction, command types
+      kernel/         registry, context, fs abstraction, mirror store, command types
       modules/
         workspace/    workspace registry + local file access
-        badges/       file/folder badges + references + canvas metadata
-        inbound/      derived reverse-reference index
-        focus/        .bh/focus.md publication
+        badges/       file/folder badge.yaml (description + references + referenced_by)
+        canvas/       per-folder canvas.yaml (card positions + edges)
+        focus/        focus.yaml viewport mirror + current_focus.yaml symlink
+        adhd/         per-file adhd.yaml reading aids
         search/       full-text content search over workspace files
         watcher/      chokidar reconciliation for local filesystem changes
-  cli/              bh - thin shell over @basehalf/core
   desktop/          Electron + React shell over core via IPC
 docs/             decisions, dependency policy, trademark policy
 ```
@@ -187,17 +171,18 @@ docs/             decisions, dependency policy, trademark policy
 ## Architecture Principles
 
 1. **One door.** All operations go through `@basehalf/core`'s
-   `run(command, args)`. CLI, MCP, and desktop UI stay thin.
+   `run(command, args)`. The desktop UI, watcher, and any future MCP/CLI shell
+   stay thin.
 2. **Module isolation.** Modules live under `packages/core/src/modules/<name>/`
    and compose through `ctx.run`.
 3. **Use the context filesystem.** Core modules use `ctx.fs`, so tests can swap
    in a mock implementation.
-4. **Markdown is content truth.** User files remain the source; `.bh/` is
-   metadata and derived cache.
-5. **Publish simple local context.** BaseHalf writes a small protocol to disk so
-   agents can navigate the workspace from the same folder.
+4. **User files are content truth.** Your files remain the source; `.bh/` is the
+   derived mirror (and `.bh/cache/` is rebuildable, gitignored).
+5. **Publish simple local context.** BaseHalf writes a small YAML mirror to disk
+   so agents can navigate the workspace from the same folder.
 6. **Composable primitives.** BaseHalf exposes small operations for workspaces,
-   badges, references, focus, search, and filesystem reconciliation.
+   badges, canvas, focus, reading aids, search, and filesystem reconciliation.
 
 ## Designed For
 
@@ -205,8 +190,8 @@ docs/             decisions, dependency policy, trademark policy
   references connected in one local workspace.
 - **Research maps:** arrange files on a canvas, connect supporting materials,
   and focus a folder of supporting materials for later work.
-- **Project memory:** keep the current focus, file-level prompts, and reference
-  graph beside the project itself.
+- **Project memory:** keep the current focus, file-level descriptions, and
+  reference graph beside the project itself.
 - **Local-first collaboration with agents:** let Codex, Claude Code, OpenClaw,
   Hermes Agent, or another file-reading agent use the same folder structure you
   are using.

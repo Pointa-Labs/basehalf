@@ -166,7 +166,11 @@ silent rewrite of frontmatter, formatting normalization, or auto-tagging
 violates that. The agent edits MD with its own tools — that's a separate path
 bh doesn't gate.
 
-## D14 — Agent protocol = publish, not inject (NEW)
+## D14 — Agent protocol = publish, not inject (NEW; file shapes updated by D19)
+
+> **Note (2026-06).** The *principle* (publish a file protocol, don't inject)
+> still holds. The specific file shapes below were replaced by the
+> `.bh/mirror/` YAML tree — see [D19](#d19--bhmirror-yaml-model-cli--inbound--proposals--focusmd-deleted-new-2026-06).
 
 **Decision.** bh publishes the workspace graph to known paths in `.bh/`:
 
@@ -174,8 +178,8 @@ bh doesn't gate.
 - `.bh/badges/<file>.json` — per-file metadata (prompt + references)
 - `.bh/index/inbound.json` — reverse-reference index
 
-The agent reads these files (instructed via the CLAUDE.md hint installed by
-`bh init`) and navigates the graph itself, deciding what to load and how
+The agent reads these files (instructed via the CLAUDE.md hint installed at
+workspace setup) and navigates the graph itself, deciding what to load and how
 deep based on its own token budget.
 
 **Why.** bh runs on the right screen; the agent runs on the left screen
@@ -252,3 +256,46 @@ canvas as native badges — without a separate storage format.
 (private repo); the new corpus convention is in `private-docs/decisions/README.md`.
 The deleted module lives in git history if you ever need to reference its
 schema or commands.
+
+## D19 — `.bh/mirror/` YAML model; CLI / inbound / proposals / focus.md deleted (NEW, 2026-06)
+
+**Decision.** Align the code to `private-docs/focus_mode_spec/`. `.bh/` becomes a
+per-node **mirror tree** of YAML files instead of the old mix of JSON badges,
+a Markdown focus brief, and a separate reverse index:
+
+- `.bh/mirror/<path>/badge.yaml` — a node's `description`, outbound `references`
+  (plain paths), and the **embedded** `referenced_by` reverse index.
+- `.bh/mirror/<folder>/canvas.yaml` — the visual layer split out of the badge:
+  child card positions + `edges` (anchors + labels).
+- `.bh/mirror/<path>/focus.yaml` + `.bh/current_focus.yaml` (a symlink) — focus
+  flips from a hand-curated active-file list to a **real-time viewport mirror**:
+  whatever node the user is looking at IS the focus, and the symlink is the
+  agent's single per-turn entry point.
+- `.bh/mirror/<file>/adhd.yaml` — per-file reading aids (`highlight_keywords` +
+  already-read line-ranges).
+
+**What was deleted.** The `bh` CLI package (the desktop app drives
+`@basehalf/core` over IPC — `run(command, args)` is the only door now), the
+`inbound` module (the reverse index moved *into* `badge.referenced_by`,
+maintained on the target badge), the `proposals` write-back module (overturning
+the short-lived agent-write-back experiment), and the `.bh/focus.md`
+curated-brief / turn-intent / `# source-folder:` provenance / "Copy brief"
+machinery (replaced by the `focus.yaml` viewport mirror). New module: `adhd`.
+
+**Why.** The hand-curated focus brief asked the user to translate what was
+already obvious on their screen ("which files, what I'm looking at") into a list.
+A viewport mirror removes that step — the agent reads the same node the user is
+looking at, with zero bridge-building (this realizes the
+[agent-bridge-design](agent-bridge-design.md) "shared attention is free" north
+star at the file-protocol level). Splitting `canvas.yaml` out of the badge keeps
+the badge a pure semantic layer (plain-path references) and the canvas a pure
+visual layer. Embedding `referenced_by` makes "who points at me?" one read.
+
+**Consequences.** This was a **clean break** — no migration of old `.bh/`
+layouts (the spec assumes a fresh mirror). Everything except `.bh/cache/` stays
+in git so the mirror travels with the folder. The canonical agent-hint text now
+lives in `HINT_BODY` in `packages/core/src/modules/workspace/setup.ts`. This
+decision supersedes D14's specific file shapes (`.bh/focus.md` /
+`.bh/badges/<file>.json` / `.bh/index/inbound.json`) while keeping its principle
+intact: **publish a file protocol any file-reading agent can navigate, don't
+inject into the agent's context.**

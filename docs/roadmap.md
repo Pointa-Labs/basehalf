@@ -8,10 +8,22 @@ product.
 > pivot from "agent memory layer" to "compound thinking workspace" (see
 > [decisions.md](decisions.md) D12 / D17). The old roadmap phases (Block /
 > Command / Event Log → RAG → tldraw canvas → collaboration) are obsolete.
+>
+> **2026-06 update.** The code was aligned to `private-docs/focus_mode_spec/`:
+> the `bh` CLI package, the `inbound` module, the `proposals` module, and the
+> `.bh/focus.md` brief were deleted; `.bh/` is now a per-node **mirror tree** of
+> YAML files (`badge.yaml` / `canvas.yaml` / `focus.yaml` / `adhd.yaml` +
+> a `.bh/current_focus.yaml` symlink) and focus is a live viewport mirror, not a
+> curated list. See [decisions.md D19](decisions.md). The PR-numbered tables
+> below are historical; current modules are `workspace`, `badges`, `canvas`,
+> `focus`, `adhd`, `search`, and the internal `watcher`, all behind
+> `@basehalf/core`'s one `run(command, args)` door.
 
 ## Product form, over time
 
-The center of gravity is **the desktop app**. CLI is a means, not an end.
+The center of gravity is **the desktop app**, talking to `@basehalf/core` over
+IPC. (Earlier phases shipped a `bh` CLI as a means; it was retired in the
+`2026-06` refactor — core's `run(command, args)` is the only door now.)
 
 - **v0 (today → ~6–10 weeks):** Electron desktop app on Mac. Free-position
   canvas + block editor (BlockNote) + file tree + agent protocol. Workspace =
@@ -34,16 +46,20 @@ The center of gravity is **the desktop app**. CLI is a means, not an end.
 PR 8 → PR 18 all merged. v0 is now end-to-end usable for the core loop:
 pick a workspace, see badges on a canvas, drag to position, draw
 references between them, click → preview + edit MD via BlockNote, agent
-reads `.bh/focus.md` + `.bh/badges/*.json` + `.bh/index/inbound.json`.
+reads the published `.bh/` mirror. *(The protocol files referenced in the
+PR-era notes below — `.bh/focus.md` + `.bh/badges/*.json` +
+`.bh/index/inbound.json` — were superseded in the `2026-06` refactor by the
+`.bh/mirror/` YAML tree + `.bh/current_focus.yaml` symlink; see
+[decisions.md D19](decisions.md). The historical notes are kept verbatim.)*
 
-**Agent loop verified (2026-05-28).** A headless `claude -p` against a
-3-file workspace with one focused file and two references correctly:
-read `.bh/focus.md` → identified the focused file → read its badge JSON
-→ followed both references with their notes → read `.bh/index/inbound.json`
+**Agent loop verified (2026-05-28, on the pre-refactor protocol).** A headless
+`claude -p` against a 3-file workspace with one focused file and two references
+correctly: read `.bh/focus.md` → identified the focused file → read its badge
+JSON → followed both references with their notes → read `.bh/index/inbound.json`
 and concluded "nothing else references either of them." The protocol
 works end-to-end without any prompting beyond the CLAUDE.md hint
-installed by `bh init` / `workspace.add --setup`. Remaining v0 success
-gate is real-use daily dogfood, not protocol correctness.
+installed at workspace setup. Remaining v0 success gate is real-use daily
+dogfood, not protocol correctness.
 
 | PR | What | Status |
 | --- | --- | --- |
@@ -179,8 +195,8 @@ v0.x item, still gated on the dependency-policy weighing of a highlighter dep.
 After v0 ships and the team dogfoods for ~1 week, the question is:
 
 > Did anyone on the team say *"卧槽 bh 救了我一命"* (wow, bh just saved me)
-> about a real piece of knowledge work — not as a hypothetical, not about
-> the CLI, but about the desktop right-screen experience?
+> about a real piece of knowledge work — not as a hypothetical, but about the
+> desktop right-screen experience?
 
 If yes → v0 is real, start widening dogfood (early users in the
 curious-learner-using-AI persona). If no → the wedge or the UX needs work
@@ -196,4 +212,4 @@ user lives:
 - People who post "I'm trying to learn X with ChatGPT and it's a mess"
 
 No promotion until there's a video / demo that makes the right-screen
-experience obvious in 30 seconds. The CLI alone is not a launch artifact.
+experience obvious in 30 seconds. A bare protocol dump is not a launch artifact.
