@@ -534,7 +534,7 @@ describe('workspace module (mock FS)', () => {
     // CLAUDE.md installed with the agent-protocol hint.
     const claudeMd = files.get('/demo/CLAUDE.md') ?? '';
     expect(claudeMd).toMatch(/bh:workspace-hint/);
-    expect(claudeMd).toMatch(/focus\.md/);
+    expect(claudeMd).toMatch(/current_focus\.yaml/);
     // intro.md badge got the demo description + outbound refs (bare paths now).
     const intro = (await core.run('badge.get', { file: 'intro.md' })) as {
       description?: string;
@@ -812,7 +812,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     });
     expect(r.setup.agentsMdUpdated).toBe(true);
     expect(files.get('/work/AGENTS.md')).toMatch(/bh:workspace-hint/);
-    expect(files.get('/work/AGENTS.md')).toMatch(/\.bh\/focus\.md/);
+    expect(files.get('/work/AGENTS.md')).toMatch(/current_focus\.yaml/);
   });
 
   it('does NOT create .github/copilot-instructions.md (the agent reads AGENTS.md now)', async () => {
@@ -836,9 +836,9 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     // The section after the marker must be byte-identical across both files
     // — one brief, two landing spots. Diverging content is the bug this guards.
     expect(bodyOf(files.get('/work/AGENTS.md') ?? '')).toBe(claude);
-    // …and it still teaches both the file path and the CLI command for each leg.
-    expect(claude).toContain('.bh/focus.md');
-    expect(claude).toContain('bh search');
+    // …and it still teaches the agent's entry point + the mirror tree.
+    expect(claude).toContain('.bh/current_focus.yaml');
+    expect(claude).toContain('.bh/mirror/');
   });
 
   it('hint body names every load-bearing contract surface (regression guard)', async () => {
@@ -852,14 +852,18 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
     const hint = files.get('/work/CLAUDE.md') ?? '';
-    // Contract paths the hint must teach the agent about.
-    expect(hint).toMatch(/\.bh\/focus\.md/);
-    expect(hint).toMatch(/\.bh\/badges\//);
-    expect(hint).toMatch(/\.bh\/index\/inbound\.json/);
-    // (saved views were removed — a folder is the grouping unit now)
+    // Contract paths the hint must teach the agent about (the focus_mode_spec model).
+    expect(hint).toMatch(/\.bh\/current_focus\.yaml/); // the per-turn entry point
+    expect(hint).toMatch(/badge\.yaml/);
+    expect(hint).toMatch(/canvas\.yaml/);
+    expect(hint).toMatch(/focus\.yaml/);
+    expect(hint).toMatch(/adhd\.yaml/);
+    expect(hint).toMatch(/referenced_by/); // both directions of the reference graph
     // Constraints that prevent agents from corrupting bh's state.
     expect(hint).toMatch(/\.bh\/cache\//);
-    expect(hint).toMatch(/MD is the truth/i);
+    expect(hint).toMatch(/source of truth/i);
+    // The deleted surfaces must NOT reappear.
+    expect(hint).not.toMatch(/focus\.md|inbound\.json|\bbh (badge|focus|search|inbound)\b/);
   });
 
   it('appends hint section to existing CLAUDE.md (preserves prior content)', async () => {
@@ -895,7 +899,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(after).toContain('User rule: use tabs.');
     expect(after).not.toContain('stale old hint body');
     expect(after).toContain('<!-- /bh:workspace-hint -->');
-    expect(after).toContain('bh focus brief'); // the new receipt instruction
+    expect(after).toContain('.bh/current_focus.yaml'); // the fresh body's entry point
     // Exactly one open + one close marker — no stacking.
     expect(after.match(/<!-- bh:workspace-hint -->/g)).toHaveLength(1);
     expect(after.match(/<!-- \/bh:workspace-hint -->/g)).toHaveLength(1);

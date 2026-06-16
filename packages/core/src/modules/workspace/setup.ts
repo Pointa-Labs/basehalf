@@ -13,9 +13,9 @@ import type { SetupReport } from './types.js';
  *
  * Non-destructive guarantees:
  *  - .gitignore: only appends `.bh/cache/` if the file exists and doesn't
- *    already mention .bh/cache/. The non-cache parts of `.bh/` (badges,
- *    views, index, focus.md, decisions) are kept in git so they travel
- *    with the folder (IR-v2-06). If no .gitignore (no git repo yet),
+ *    already mention .bh/cache/. The non-cache parts of `.bh/` (the `mirror/`
+ *    tree + `current_focus.yaml`) are kept in git so they travel with the
+ *    folder (IR-v2-06). If no .gitignore (no git repo yet),
  *    reports `gitignoreAbsent: true` and skips.
  *  - Agent hints: appends the same workspace-hint section to CLAUDE.md and
  *    AGENTS.md — the two filenames that, between them, today's coding agents
@@ -39,46 +39,52 @@ const HINT_MARKER = '<!-- bh:workspace-hint -->';
 const HINT_END_MARKER = '<!-- /bh:workspace-hint -->';
 const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
 
-// A SHORT pointer, not a 60-line essay: the shorter the hint, the more reliably an
-// agent reads it. It points at the live signal and the graph, and offers BOTH ways
-// in — read the `.bh/` files directly (any agent), or drive the `bh` CLI (agents
-// with a shell) — so it lands whether or not the agent can run commands. Usage
-// beyond this is a versionable skill, not frozen prose baked into every workspace.
+// A SHORT pointer, not an essay: the shorter the hint, the more reliably an agent
+// reads it. It points at the live signal (current_focus) and the four-file mirror,
+// so it lands for any agent that can read files. Usage beyond this is a versionable
+// skill, not frozen prose baked into every workspace.
 const HINT_BODY = `## BaseHalf workspace
 
 > Added by [BaseHalf](https://github.com/Pointa-Labs/basehalf) when this folder
-> was opened as a workspace — it tells AI coding agents where the user's
-> curated context lives. Your own content above/below is untouched; delete
-> this section if you don't want agents reading that context.
+> was opened as a workspace — it tells AI coding agents what the user is looking
+> at. Your own content above/below is untouched; delete this section if you don't
+> want agents reading that context.
 
-This folder is a BaseHalf workspace. **At the start of every turn, read
-\`.bh/focus.md\`** — a self-contained turn brief the app keeps fresh (it never points
-at a deleted file). It carries an optional \`intent:\` (what the user is doing this
-turn) and an \`active:\` list of the files they're focused on, each with its
-\`prompt:\` (what they want you to know) and \`refs:\` (which files connect, and why).
-One read gives you the user's curated attention — grep can't recover those
-human-written notes.
+This folder is a BaseHalf workspace: BaseHalf mirrors what the user is currently
+viewing into \`.bh/\` so you stay in sync with their attention.
 
-Need more than the brief? Read the graph under \`.bh/\` directly, or — if you have a
-shell — drive the \`bh\` CLI (reads accept \`--json\`):
-- \`.bh/badges/<rel-path>.json\` — any file's backpack (prompt + references); or \`bh badge get <path> --json\`
-- \`.bh/index/inbound.json\` — who points AT a file; or \`bh inbound get <path> --json\`
-- \`bh search <query> --json\` — full-text search across the workspace's text files
-- \`bh search <query> --brief\` — assemble a paste-ready context brief from the matches (each hydrated with its prompt + reference notes)
+**At the start of every turn, read \`.bh/current_focus.yaml\`** — a symlink to the
+focus file of the node the user is looking at right now:
+- \`kind: file\` → they're reading a file. Use the file's content together with its
+  \`badge.yaml\`, plus \`visible_lines.start\` and \`cursor\` (where they are in it).
+- \`kind: folder\` → they're on a folder's canvas. Use that folder's \`badge.yaml\`
+  and \`canvas.yaml\`, plus \`viewport_center\` and \`zoom\`.
 
-If you have a shell, read the brief with \`bh focus brief\` instead of opening the
-file: it returns the same content AND records that the brief was delivered, so the
-app can tell the user their context reached you (a raw file read is invisible to it).
+The \`.bh/mirror/\` tree holds up to four YAML files per node (sparse — only what's
+been annotated):
+- \`.bh/mirror/<path>/badge.yaml\` — a node's one-line \`description\`, outbound
+  \`references\` (paths) and inbound \`referenced_by\` (paths).
+- \`.bh/mirror/<folder>/canvas.yaml\` — a folder's canvas: child card positions and
+  \`edges\` (connections with anchors + labels) between them.
+- \`.bh/mirror/<path>/focus.yaml\` — a node's viewport (\`current_focus\` points at
+  the live one).
+- \`.bh/mirror/<file>/adhd.yaml\` — per-file reading aids: \`highlight_keywords\` and
+  read line-ranges (\`read_paragraphs\`).
 
-While working, if you discover a file relationship or a key fact that no badge
-note records (e.g. "touching X breaks Y's test"), append one line to
-\`.bh/cache/proposals.md\`: \`[file] -> [target or fact]: [reason]\`. The user
-triages these into real notes.
+To answer or edit, start from the focused node, then follow its \`references\` /
+\`referenced_by\` and the \`canvas.yaml\` structure for context. Only modify the
+user's own files when they explicitly ask.
 
-MD is the truth; \`.bh/\` is derived — edit user files with your own tools,
-never \`.bh/*\` (the app and \`bh\` CLI own it; the proposals file above is the
-ONE exception). \`.bh/cache/\` is gitignored; it is rebuildable EXCEPT the
-proposals file, which holds your observations.`;
+When asked, you can GENERATE or update these \`.bh/\` files from content (a
+badge.yaml/canvas.yaml for a folder, an adhd.yaml for a file). Match the existing
+YAML shape; read the latest version before editing so you don't overwrite what the
+app or the user just wrote; don't store anything derivable from paths, line numbers,
+or the reference graph. \`.bh/current_focus.yaml\` is a symlink — never replace it
+with a regular file.
+
+The user's files are the source of truth; \`.bh/\` is derived. Edit user files with
+your own tools; the app owns \`.bh/\`. \`.bh/cache/\` is gitignored and rebuildable;
+the rest of \`.bh/\` stays in git so the map travels with the folder.`;
 
 // The marker-delimited block written into a target file. Open marker, body, close
 // marker — the close marker is what lets a later `bh init` find and replace the
