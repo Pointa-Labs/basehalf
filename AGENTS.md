@@ -103,3 +103,48 @@ spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
   changes get an in-session adversarial review (there's no PR-time codex
   review on this path). External contributors are unchanged: branch → PR →
   CLA + checks → merge (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+<!-- bh:workspace-hint -->
+## BaseHalf workspace
+
+> Added by [BaseHalf](https://github.com/Pointa-Labs/basehalf) when this folder
+> was opened as a workspace — it tells AI coding agents what the user is looking
+> at. Your own content above/below is untouched; delete this section if you don't
+> want agents reading that context.
+
+This folder is a BaseHalf workspace: BaseHalf mirrors what the user is currently
+viewing into `.bh/` so you stay in sync with their attention.
+
+**At the start of every turn, read `.bh/current_focus.yaml`** — a symlink to the
+focus file of the node the user is looking at right now:
+- `kind: file` → they're reading a file. Use the file's content together with its
+  `badge.yaml`, plus `visible_lines.start` and `cursor` (where they are in it).
+- `kind: folder` → they're on a folder's canvas. Use that folder's `badge.yaml`
+  and `canvas.yaml`, plus `viewport_center` and `zoom`.
+
+The `.bh/mirror/` tree holds up to four YAML files per node (sparse — only what's
+been annotated):
+- `.bh/mirror/<path>/badge.yaml` — a node's one-line `description`, outbound
+  `references` (paths) and inbound `referenced_by` (paths).
+- `.bh/mirror/<folder>/canvas.yaml` — a folder's canvas: child card positions and
+  `edges` (connections with anchors + labels) between them.
+- `.bh/mirror/<path>/focus.yaml` — a node's viewport (`current_focus` points at
+  the live one).
+- `.bh/mirror/<file>/adhd.yaml` — per-file reading aids: `highlight_keywords` and
+  read line-ranges (`read_paragraphs`).
+
+To answer or edit, start from the focused node, then follow its `references` /
+`referenced_by` and the `canvas.yaml` structure for context. Only modify the
+user's own files when they explicitly ask.
+
+When asked, you can GENERATE or update these `.bh/` files from content (a
+badge.yaml/canvas.yaml for a folder, an adhd.yaml for a file). Match the existing
+YAML shape; read the latest version before editing so you don't overwrite what the
+app or the user just wrote; don't store anything derivable from paths, line numbers,
+or the reference graph. `.bh/current_focus.yaml` is a symlink — never replace it
+with a regular file.
+
+The user's files are the source of truth; `.bh/` is derived. Edit user files with
+your own tools; the app owns `.bh/`. `.bh/cache/` is gitignored and rebuildable;
+the rest of `.bh/` stays in git so the map travels with the folder.
+<!-- /bh:workspace-hint -->

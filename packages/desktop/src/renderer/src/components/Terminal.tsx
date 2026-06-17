@@ -53,7 +53,16 @@ const THEME = {
  * the spawn effect stays a clean mount-once. `active` drives focus + a refit when
  * this view becomes visible (an inactive tab is display:none, where xterm can't
  * measure itself). `onRestart` asks the parent to remount us after the shell exits.
+ *
+ * SELF-HEALING: an embedded terminal should feel "always there". A shell that ran
+ * healthily and then died (the machine slept and SIGHUP'd it, an agent's process
+ * group was torn down, a transient crash) is auto-respawned. But a shell that dies
+ * almost immediately is a real failure (a broken login profile, a missing shell),
+ * so we DON'T loop on it — we show the manual Restart instead. The cutoff is a
+ * minimum healthy lifetime.
  */
+const MIN_HEALTHY_LIFETIME_MS = 3000;
+
 export const TerminalView = ({
   paneId,
   active,
@@ -84,6 +93,13 @@ export const TerminalView = ({
   onDimsRef.current = onDims;
   const onActivityRef = useRef(onActivity);
   onActivityRef.current = onActivity;
+  // Latest onRestart, callable from the mount-once spawn effect (the exit handler
+  // auto-respawns through it) without re-running the effect.
+  const onRestartRef = useRef(onRestart);
+  onRestartRef.current = onRestart;
+  // When the current pty's shell started (epoch from performance.now), so the exit
+  // handler can tell a healthy-then-died shell (auto-respawn) from a fast failure.
+  const spawnedAtRef = useRef<number | null>(null);
   // Held in a ref like the callbacks so the mount-once spawn effect can register
   // this pane's xterm WITHOUT taking paneId as a reactive dep (it's stable per
   // mounted view — the dock keys TerminalView by pane).
@@ -172,6 +188,7 @@ export const TerminalView = ({
           return;
         }
         idRef.current = id;
+        spawnedAtRef.current = performance.now();
         // Seed the tab label with the working-directory name so it's meaningful
         // even before the shell sets an OSC title (which then overrides it).
         const base = cwd?.replace(/\/+$/, '').split('/').pop();
@@ -201,7 +218,18 @@ export const TerminalView = ({
       }
     });
     const offExit = window.bh.terminal.onExit((id, code) => {
-      if (id === idRef.current) setExitCode(code);
+      if (id !== idRef.current) return;
+      // Self-heal a shell that ran healthily and then died (sleep/SIGHUP, an agent
+      // process group torn down, a transient crash) — auto-respawn so the terminal
+      // is always there. A shell that dies almost immediately is a real failure
+      // (broken profile, missing shell): show the manual Restart, never loop.
+      const aliveMs = spawnedAtRef.current === null ? 0 : performance.now() - spawnedAtRef.current;
+      if (aliveMs >= MIN_HEALTHY_LIFETIME_MS) {
+        idRef.current = null; // the pty is gone; don't let unmount kill a stale id
+        onRestartRef.current();
+      } else {
+        setExitCode(code);
+      }
     });
     const inputSub = term.onData((data) => {
       if (idRef.current) window.bh.terminal.write(idRef.current, data);
