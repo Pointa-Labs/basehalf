@@ -159,6 +159,52 @@ export function refineCursorLine(args: {
   return { line: blockStart, precision: 'block_start' };
 }
 
+/** The 1-based FILE source-line range `[start, end]` a block occupies, or null if
+ *  the id isn't in the tree. `start` is {@link blockFileLine}; `end` adds the
+ *  block's own source newlines (its top-level tile's span). A block with no saved
+ *  tile (freshly typed, or a read-only passthrough) collapses to a single line
+ *  `[start, start]` — best-effort, like blockFileLine's estimate. A nested id
+ *  resolves to its enclosing top-level block's span (tiles go one level deep). Pure. */
+export function blockSourceSpan(
+  blocks: readonly FocusBlock[],
+  targetId: string,
+  byId: Map<string, ReuseEntry>,
+  frontmatterLines: number,
+): { start: number; end: number } | null {
+  const start = blockFileLine(blocks, targetId, byId, frontmatterLines);
+  if (start === null) return null;
+  const tl = topLevelBlockOf(blocks, targetId);
+  const entry = tl && tl.block.type !== RAW_PASSTHROUGH ? byId.get(tl.block.id) : undefined;
+  return { start, end: entry ? start + tileSourceNewlines(entry) : start };
+}
+
+/** Ids of every TOP-LEVEL block whose source-line span intersects any of `ranges`
+ *  (canonical adhd `read_paragraphs`, 1-based inclusive). The inverse of
+ *  read_paragraphs → blocks: used once, when a file opens, to seed the read-block
+ *  highlight set. Thereafter the rich editor tracks read blocks by id (stable across
+ *  edits) rather than re-projecting drifting line numbers. Single pass, mirroring
+ *  blockFileLine's accumulation so the two agree. Pure. */
+export function linesToBlockIds(
+  blocks: readonly FocusBlock[],
+  byId: Map<string, ReuseEntry>,
+  frontmatterLines: number,
+  ranges: readonly (readonly [number, number])[],
+): string[] {
+  if (ranges.length === 0) return [];
+  const ids: string[] = [];
+  let before = 0;
+  for (const block of blocks) {
+    const entry = block.type === RAW_PASSTHROUGH ? undefined : byId.get(block.id);
+    const prefixNewlines = entry ? countNewlines(entry.prefix) : 0;
+    const start = frontmatterLines + before + prefixNewlines + 1;
+    const end = entry ? start + tileSourceNewlines(entry) : start;
+    // Overlap test: [start,end] meets [s,e] when start ≤ e and end ≥ s.
+    if (ranges.some(([s, e]) => start <= e && end >= s)) ids.push(block.id);
+    before += tileNewlines(block, byId);
+  }
+  return ids;
+}
+
 /** The id of the topmost block the user can see: the first `[data-id]` element
  *  whose box reaches below the scroll viewport's top edge. DOM-bound (reads layout
  *  rects), so it lives here beside blockFileLine rather than in a pure module. */

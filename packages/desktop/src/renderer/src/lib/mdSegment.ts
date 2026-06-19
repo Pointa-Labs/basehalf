@@ -85,6 +85,12 @@ export interface ReuseEntry {
   raw: string;
   prefix: string;
   sep: string;
+  /** True for the synthetic entries of a MULTI-block segment (a span BlockNote
+   *  splits into several blocks, e.g. a multi-paragraph blockquote). These carry
+   *  the segment's source newlines so line-projection (lib/editorFocus) accumulates
+   *  exactly, but they are NOT verbatim single-block tiles: spliceSave must ignore
+   *  them and re-serialize the block (its current behavior for such segments). */
+  multi?: boolean;
 }
 
 export interface LoadProjection {
@@ -263,12 +269,31 @@ export async function buildLoadProjection(
       blocks.push(passthroughBlock(seg));
       continue;
     }
-    // Index single-block segments by their stable block id. Multi-block segments
-    // (e.g. a multi-paragraph blockquote) aren't indexed — they reflow on edit but
-    // (having passed the loss check) never drop content; see the header note.
     if (parsed.length === 1) {
+      // Single-block segment → a verbatim tile keyed by its stable block id.
       const id = idOf(parsed[0]);
       if (id) byId.set(id, { key: norm, raw: seg.raw, prefix: seg.prefix, sep: seg.sep });
+    } else {
+      // Multi-block segment (e.g. a multi-paragraph blockquote): BlockNote splits it
+      // into several blocks. They reflow on edit but (having passed the loss check)
+      // never drop content. We still record `multi` tiles so line-projection
+      // accumulates the segment's EXACT source newlines (else every following block's
+      // source line drifts). The whole segment's bytes sit on the LAST block; earlier
+      // blocks are weightless. That way all the segment's blocks project to its start
+      // (the last one spans its body) and the newline total lands AFTER them — so the
+      // following block's line is exact and no interior block collides with it.
+      // spliceSave ignores `multi` entries and re-serializes (its existing behavior for
+      // such segments), so the save stays byte-for-byte the same.
+      parsed.forEach((b, i) => {
+        const id = idOf(b);
+        if (!id) return;
+        byId.set(
+          id,
+          i === parsed.length - 1
+            ? { key: norm, raw: seg.raw, prefix: seg.prefix, sep: seg.sep, multi: true }
+            : { key: norm, raw: '', prefix: '', sep: '', multi: true },
+        );
+      });
     }
     for (const b of parsed) blocks.push(b);
   }
@@ -315,7 +340,12 @@ export async function spliceSave(
       continue;
     }
     const id = idOf(block);
-    const entry = id ? byId.get(id) : undefined;
+    const found = id ? byId.get(id) : undefined;
+    // A `multi` entry isn't a verbatim single-block tile (it only carries the
+    // segment's newline accounting for line-projection); treat it as no tile so the
+    // block re-serializes normally — the same path a multi-block segment took before
+    // these entries existed, keeping the save byte-for-byte identical.
+    const entry = found && !found.multi ? found : undefined;
     if (entry && (await normalize(editor, [block])) === entry.key) {
       // Unchanged → re-emit the exact original bytes (prefix + source + sep).
       out += entry.raw;

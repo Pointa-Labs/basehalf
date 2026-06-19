@@ -84,3 +84,14 @@ export function segmentLine(line: string, keywords: readonly string[]): KeywordS
 export function rangeBetween(anchor: number, line: number): LineRange {
   return anchor <= line ? [anchor, line] : [line, anchor];
 }
+
+/** Merged, sorted `[start, end)` char offsets of every keyword occurrence in
+ *  `text` — the same case-insensitive, longest-first, overlap-merged matching as
+ *  {@link segmentLine}, but as bare offsets. Used to place inline keyword
+ *  decorations in the rich (BlockNote) editor, where there are no rendered line
+ *  rows to segment. */
+export function keywordHits(text: string, keywords: readonly string[]): Array<[number, number]> {
+  return segmentLine(text, keywords)
+    .filter((seg) => seg.hit)
+    .map((seg) => [seg.start, seg.start + seg.text.length] as [number, number]);
+}

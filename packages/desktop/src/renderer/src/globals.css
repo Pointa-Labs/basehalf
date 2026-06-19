@@ -313,6 +313,22 @@ header::-webkit-scrollbar {
   height: 0;
 }
 
+/* ADHD reading aids on the rich Markdown editor (lib/adhdHighlight, painted as
+   ProseMirror decorations — never document content). A READ block fades back so
+   unread prose stands out, mirroring the read-only viewer's dim. A keyword hit gets
+   the same soft amber as the code/text viewer's <mark> (design.ts warning /
+   warningSoft) so the two surfaces read identically. */
+.bh-adhd-read {
+  opacity: 0.45;
+  transition: opacity var(--bh-transition, 120ms) ease;
+}
+
+.bh-adhd-kw {
+  background: #3a2f00;
+  color: #cca700;
+  border-radius: 2px;
+}
+
 /* Read-only Markdown tile preview: the SAME typography contract as the card
    editor (--bh-card-*), applied to the static, sanitized HTML from lib/mdRender,
    so a resting .md card reads like the note (rendered — not raw source) and

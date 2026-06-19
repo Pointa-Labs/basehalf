@@ -13,6 +13,7 @@ import {
   useState,
 } from 'react';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { type AdhdEditorApi, makeAdhdHighlightExtension } from '../lib/adhdHighlight.js';
 import { bhSchema } from '../lib/blocknoteSchema.js';
 import {
   type FlushOptions,
@@ -50,6 +51,7 @@ import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegm
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { AdhdControls } from './AdhdControls.js';
 import { CodeReader } from './CodeReader.js';
 import { NoteBadge } from './NoteBadge.js';
 import { NoteTitle } from './NoteTitle.js';
@@ -305,8 +307,13 @@ export const MdEditor = ({
   // workspace-ROOT-scoped by the parent (keyed by it too), so two folders sharing a
   // relative path — or a repath — never collide on one doc.
   const shared = ensureDoc(docKey);
+  // The ADHD reading-aids highlight layer (read/unread blocks + keyword spans). A
+  // view-only ProseMirror decoration plugin — installed unconditionally (it's a
+  // no-op until fed), driven only in the panel editor by <AdhdControls> below.
+  const adhdExtension = useMemo(() => makeAdhdHighlightExtension(), []);
   const editor = useCreateBlockNote({
     schema: bhSchema,
+    extensions: [adhdExtension],
     ...(compact
       ? {
           placeholders: {
@@ -986,6 +993,19 @@ export const MdEditor = ({
         >
           {error}
         </div>
+      )}
+      {/* ADHD reading aids — keyword chips + read/unread marking. Panel editor only
+          (a canvas card isn't a reading surface), and outside the scroll container so
+          it stays put while you read. Drives the decoration layer installed above. */}
+      {!compact && (
+        <AdhdControls
+          key={file}
+          editor={editor as unknown as AdhdEditorApi}
+          shared={shared}
+          file={file}
+          seedReady={seedReady}
+          loadKey={loadKey}
+        />
       )}
       <div className="bh-md-editor-scroll" style={{ flex: 1, overflow: 'auto' }}>
         {/* Prose reads best in a fixed, centered measure (a comfortable reading width), not

@@ -153,6 +153,23 @@ describe('spliceSave — frontmatter / body join fidelity', () => {
     expect(out).toBe('---\r\nk: v\r\n---\r\nhello\n');
   });
 
+  it('ignores `multi` tile entries — saves a multi-block segment exactly as if untiled', async () => {
+    // multi entries carry the segment's newline accounting for line-projection, NOT a
+    // verbatim tile. spliceSave must treat them as no tile (re-serialize), so the save
+    // is byte-for-byte what it was before these entries existed.
+    const blocks = [
+      { type: 'paragraph', id: 'm0' },
+      { type: 'paragraph', id: 'm1' },
+    ];
+    const multiMap = new Map([
+      ['m0', { key: 'x', raw: '> p1\n>\n> p2\n\n', prefix: '', sep: '\n\n', multi: true }],
+      ['m1', { key: 'x', raw: '', prefix: '', sep: '', multi: true }],
+    ]);
+    const withMulti = await spliceSave(fakeEditor, blocks, '', multiMap);
+    const untiled = await spliceSave(fakeEditor, blocks, '', new Map());
+    expect(withMulti).toBe(untiled);
+  });
+
   it('keeps the closing fence newline-terminated even for an empty body', async () => {
     // A seeded empty paragraph still emits a separator, so the result is
     // `---\nk: v\n---\n\n` — the fence stays on its own line (no `---` glued to
