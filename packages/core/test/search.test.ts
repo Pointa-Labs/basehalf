@@ -54,6 +54,42 @@ describe('search.query', () => {
     expect((await run(core, { query: '   ' })).hits).toEqual([]);
   });
 
+  it('ranks a file whose DESCRIPTION is about the query ABOVE a higher match-count file', async () => {
+    // mentions.md hits the needle 3×; about.md hits it once but its badge
+    // description IS about it. Aboutness wins — the note that's *about* the topic
+    // beats the note that merely mentions it more.
+    const { core } = await setup((m) => {
+      m.files.set('/v/mentions.md', '供需\n供需\n供需'); // 3 content matches, no badge
+      m.files.set('/v/about.md', '本章一处提到供需。'); // 1 content match
+    });
+    await core.run('badge.set', {
+      file: 'about.md',
+      patch: { description: '讲供需均衡的核心章节', kind: 'file' },
+    });
+    const res = await run(core, { query: '供需' });
+    expect(res.hits.map((h) => h.file)).toEqual(['about.md', 'mentions.md']);
+    // The boost is by ABOUTNESS, not count: about.md still reports its true total.
+    expect(res.hits[0]?.total).toBe(1);
+    expect(res.hits[1]?.total).toBe(3);
+  });
+
+  it('leaves match-count ordering untouched for files with NO matching description', async () => {
+    // Sparse-safe: the aboutness boost only moves files that carry a matching
+    // description; un-annotated files keep the prior count-then-path order.
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'x\nx\nx');
+      m.files.set('/v/b.md', 'x');
+      m.files.set('/v/c.md', 'x\nx');
+    });
+    // A description that does NOT match the query must not boost.
+    await core.run('badge.set', {
+      file: 'b.md',
+      patch: { description: 'unrelated note', kind: 'file' },
+    });
+    const res = await run(core, { query: 'x' });
+    expect(res.hits.map((h) => h.file)).toEqual(['a.md', 'c.md', 'b.md']);
+  });
+
   it('sorts hits by match count desc, then path asc', async () => {
     const { core } = await setup((m) => {
       m.files.set('/v/a.md', 'x\nx\nx'); // 3 matches

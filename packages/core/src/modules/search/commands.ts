@@ -244,11 +244,40 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
     }
   }
 
-  // Rank by match count (desc) then path BEFORE applying the file cap, so the
-  // strongest matches survive — not just whichever files came first in
-  // traversal order. The cap is a RESULT cap (top-N by relevance), not a
-  // traversal-order cut; a capped result set is flagged `truncated`.
-  hits.sort((a, b) => b.total - a.total || a.file.localeCompare(b.file));
+  // ABOUTNESS BOOST: a file whose human-written badge DESCRIPTION is about the
+  // query is surfaced ABOVE files that merely contain the phrase more times — "the
+  // note that's ABOUT supply-demand" beats "a note that mentions it once". The
+  // description is our intent signal; ranking by it (not just raw match count) is
+  // exactly where structured retrieval beats plain grep. SPARSE-SAFE: only files
+  // that already carry a matching description get the boost; un-annotated files
+  // keep the prior match-count ordering untouched. Best-effort: the badge layer
+  // not being registered (a test wiring a subset) or erroring degrades to the old
+  // count-only rank, never fails the search. One badge.list call, not one per hit.
+  const aboutFiles = new Set<string>();
+  try {
+    const { badges } = (await ctx.run('badge.list', { query: needleLower })) as {
+      badges: ReadonlyArray<{ path: string; description?: string }>;
+    };
+    for (const b of badges) {
+      if ((b.description ?? '').toLowerCase().includes(needleLower)) aboutFiles.add(b.path);
+    }
+  } catch {
+    /* badge module absent / errored — rank by match count alone */
+  }
+
+  // Rank BEFORE applying the file cap so the strongest results survive — not just
+  // whichever files came first in traversal order. Sort keys, in order:
+  //   1. description "aboutness" (a matching badge description first),
+  //   2. content match count (desc),
+  //   3. path (asc, stable tie-break).
+  // The cap is a RESULT cap (top-N by relevance), not a traversal-order cut; a
+  // capped result set is flagged `truncated`.
+  hits.sort(
+    (a, b) =>
+      (aboutFiles.has(a.file) ? 0 : 1) - (aboutFiles.has(b.file) ? 0 : 1) ||
+      b.total - a.total ||
+      a.file.localeCompare(b.file),
+  );
   const capped = hits.length > maxFiles;
   const top = capped ? hits.slice(0, maxFiles) : hits;
 
@@ -322,7 +351,8 @@ export const brief: Handler<SearchBriefArgs, SearchBriefResult> = async (args, c
   lines.push(
     '',
     '# (Assembled by content search — each file inlines its human-written notes.',
-    '#  Files were matched by content, not curated; treat relevance accordingly.)',
+    '#  Files were matched by content; those whose description is ABOUT the query',
+    '#  rank first. Still retrieval, not hand-curation — treat relevance accordingly.)',
   );
 
   return {
