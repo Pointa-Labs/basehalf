@@ -31,13 +31,32 @@
 
 export type FocusKind = 'file' | 'folder';
 
+/** How trustworthy a reported source `line` is on a block editor with no native
+ *  source-line map: 'exact' (single-line or fenced-code block), 'block_start' (a
+ *  multi-line block we can't map a within-block offset for), 'estimated' (a
+ *  freshly-typed block with no saved tile yet, so the line is a separator guess). */
+export type LinePrecision = 'exact' | 'block_start' | 'estimated';
+
 export interface FileFocus {
   readonly path: string;
   readonly kind: 'file';
-  /** First line currently visible in the editor viewport (1-based). */
+  /** First SOURCE line currently visible in the editor viewport (1-based). */
   readonly visible_lines?: { readonly start: number };
-  /** Text cursor position (1-based line, 0/1-based column per the editor). */
-  readonly cursor?: { readonly line: number; readonly column: number };
+  /** First visible rendered-BLOCK ordinal (1-based) — block-space counterpart to
+   *  visible_lines, present only on the block (Markdown) editor. */
+  readonly visible_blocks?: { readonly start: number };
+  /** Text cursor position. `line`/`column` are 1-based positions in the .md SOURCE
+   *  (what an agent uses to locate/edit); `line_precision` flags how exact `line`
+   *  is. `block` is the 1-based ordinal of the rendered block the cursor sits in —
+   *  the "Nth block the user sees", a stable block-granular counterpart to the
+   *  source line (blank-line separators, soft wrap, and multi-line blocks make the
+   *  source line ≫ the block ordinal). */
+  readonly cursor?: {
+    readonly line: number;
+    readonly column: number;
+    readonly line_precision?: LinePrecision;
+    readonly block?: number;
+  };
 }
 
 export interface FolderFocus {
@@ -57,7 +76,13 @@ export interface FocusSetArgs {
   readonly path: string;
   readonly kind: FocusKind;
   readonly visible_lines?: { readonly start: number };
-  readonly cursor?: { readonly line: number; readonly column: number };
+  readonly visible_blocks?: { readonly start: number };
+  readonly cursor?: {
+    readonly line: number;
+    readonly column: number;
+    readonly line_precision?: LinePrecision;
+    readonly block?: number;
+  };
   readonly viewport_center?: { readonly x: number; readonly y: number };
   readonly zoom?: number;
   /** The workspace NAME the `path` belongs to, captured by the caller. The

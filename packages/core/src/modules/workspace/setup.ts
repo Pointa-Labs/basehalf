@@ -56,7 +56,13 @@ viewing into \`.bh/\` so you stay in sync with their attention.
 **At the start of every turn, read \`.bh/current_focus.yaml\`** — a symlink to the
 focus file of the node the user is looking at right now:
 - \`kind: file\` → they're reading a file. Use the file's content together with its
-  \`badge.yaml\`, plus \`visible_lines.start\` and \`cursor\` (where they are in it).
+  \`badge.yaml\`, plus \`visible_lines.start\` / \`visible_blocks.start\` and \`cursor\`. In
+  \`cursor\`, \`line\`/\`column\` are 1-based positions in the .md SOURCE (use them to
+  locate/edit) and \`line_precision\` says how exact \`line\` is (\`exact\` |
+  \`block_start\` | \`estimated\`); \`block\` is the ordinal of the rendered block they're
+  in — the "Nth block" they actually see. Blank lines and multi-line blocks make the
+  source line exceed the block count, so prefer \`block\` (and \`visible_blocks\`) when
+  describing where the user is.
 - \`kind: folder\` → they're on a folder's canvas. Use that folder's \`badge.yaml\`
   and \`canvas.yaml\`, plus \`viewport_center\` and \`zoom\`.
 

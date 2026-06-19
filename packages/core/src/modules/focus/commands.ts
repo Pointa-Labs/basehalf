@@ -63,6 +63,7 @@ function buildNode(args: FocusSetArgs): FocusNode {
     path: args.path,
     kind: 'file',
     ...(args.visible_lines !== undefined && { visible_lines: args.visible_lines }),
+    ...(args.visible_blocks !== undefined && { visible_blocks: args.visible_blocks }),
     ...(args.cursor !== undefined && { cursor: args.cursor }),
   };
 }

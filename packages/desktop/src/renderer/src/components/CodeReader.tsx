@@ -9,8 +9,8 @@ import {
 } from 'react';
 import { color, font, radius, space } from '../design.js';
 import { type LineRange, readLineCount, readLineFlags, segmentLine } from '../lib/adhd.js';
+import { makeFileFocusPusher } from '../lib/focusPush.js';
 import { isImeComposing } from '../lib/imeGuard.js';
-import { useWorkspaceStore } from '../store/workspace.js';
 
 /**
  * The read-only code/text reader with ADHD reading aids layered on (per
@@ -31,7 +31,6 @@ interface AdhdState {
 
 const TEXT_VIEW_CAP = 200_000;
 const LINE_HEIGHT = 1.6;
-const VISIBLE_DEBOUNCE = 400;
 
 function normalizeLines(text: string): string[] {
   const body = text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
@@ -125,37 +124,17 @@ export const CodeReader = ({
   );
 
   // ── Live-sync the first visible line into focus.yaml ───────────────────────
-  const pushVisibleLine = useMemo(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const fn = (start: number): void => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        const st = useWorkspaceStore.getState();
-        if (st.openFile !== file || !st.current) return;
-        void window.bh
-          .run('focus.set', {
-            path: file,
-            kind: 'file',
-            visible_lines: { start },
-            workspace: st.current,
-          })
-          .catch(() => undefined);
-      }, VISIBLE_DEBOUNCE);
-    };
-    fn.cancel = (): void => {
-      if (timer) clearTimeout(timer);
-    };
-    return fn;
-  }, [file]);
-  useEffect(() => () => pushVisibleLine.cancel(), [pushVisibleLine]);
+  // Through the shared focus pusher (debounce + workspace guard live there).
+  const pushFocus = useMemo(() => makeFileFocusPusher(file), [file]);
+  useEffect(() => () => pushFocus.cancel(), [pushFocus]);
 
   const onScroll = useCallback(
     (el: HTMLDivElement) => {
       const lineHeightPx = font.size.caption * LINE_HEIGHT;
       const first = Math.max(1, Math.floor((el.scrollTop - space[4]) / lineHeightPx) + 1);
-      pushVisibleLine(first);
+      pushFocus(() => ({ visible_lines: { start: first } }));
     },
-    [pushVisibleLine],
+    [pushFocus],
   );
 
   const lineStyle: CSSProperties = {

@@ -21,7 +21,19 @@ import {
   unregisterDocFlusher,
   unregisterFlusher,
 } from '../lib/editorFlush.js';
+import {
+  type FocusBlock,
+  type LinePrecision,
+  blockFileLine,
+  blockOrdinal,
+  countNewlines,
+  firstVisibleBlockId,
+  refineCursorLine,
+  tileSourceNewlines,
+  topLevelBlockOf,
+} from '../lib/editorFocus.js';
 import { fileUrl } from '../lib/fileUrl.js';
+import { type FocusFields, makeFileFocusPusher } from '../lib/focusPush.js';
 import { splitFrontmatter } from '../lib/frontmatter.js';
 import {
   type LiveDocView,
@@ -637,6 +649,93 @@ export const MdEditor = ({
     editor.focus();
     useWorkspaceStore.getState().consumeBodyFocus();
   }, [compact, bodyFocusPath, file, seedReady, editor]);
+
+  // Live-sync the user's viewport into focus.yaml — the spec's focus.cursor +
+  // focus.visible_lines (where attention is, so a fresh agent reads the same view).
+  // PANEL editor only: a canvas card preview isn't the focus authority (the Canvas
+  // node-switch effect owns current_focus). A BlockNote block has no source line of
+  // its own, so we map it to its .md SOURCE line via the id-keyed verbatim tiles
+  // (shared.byId) — see lib/editorFocus. Read-only and best-effort: it never touches
+  // the document, only the .bh/ focus mirror (which the watcher ignores → no loop).
+  // `compute` runs at flush time so it reads the LATEST cursor/scroll, not the event.
+  useEffect(() => {
+    if (compact || !seedReady) return;
+    const scrollEl = surfaceRef.current?.querySelector<HTMLElement>('.bh-md-editor-scroll');
+    const pusher = makeFileFocusPusher(file);
+    const computeFields = (): FocusFields | null => {
+      // Skip the load flicker (replaceBlocks can move the selection); the debounce
+      // already outlasts the 50ms initial-load window, this is belt-and-suspenders.
+      if (initialLoad.current) return null;
+      const frontmatterLines = countNewlines(shared.frontmatter);
+      const blocks = editor.document as unknown as FocusBlock[];
+      const fields: {
+        visible_lines?: { start: number };
+        visible_blocks?: { start: number };
+        cursor?: { line: number; column: number; line_precision?: LinePrecision; block?: number };
+      } = {};
+      try {
+        const { block } = editor.getTextCursorPosition();
+        const blockStart = blockFileLine(blocks, block.id, shared.byId, frontmatterLines);
+        if (blockStart != null) {
+          // Dual address: source `line` (the agent edits by it) + `block` ordinal
+          // (what the user perceives). `line_precision` flags how trustworthy the
+          // line is — exact for single-line + code blocks, block_start otherwise,
+          // estimated for a freshly-typed block with no saved tile yet.
+          const tl = topLevelBlockOf(blocks, block.id);
+          const entry = tl ? shared.byId.get(tl.block.id) : undefined;
+          const sel = editor.prosemirrorView?.state.selection;
+          const parentOffset = sel?.$from.parentOffset;
+          // Column: in a fenced code block the cursor's real SOURCE column on its
+          // line; elsewhere a best-effort in-block character offset (1-based).
+          let column = typeof parentOffset === 'number' && parentOffset >= 0 ? parentOffset + 1 : 1;
+          let codeWithinOffset: number | null = null;
+          if (
+            tl?.direct &&
+            tl.block.type === 'codeBlock' &&
+            sel &&
+            typeof parentOffset === 'number'
+          ) {
+            const text = sel.$from.parent.textContent ?? '';
+            const before = text.slice(0, parentOffset);
+            codeWithinOffset = countNewlines(before);
+            column = before.length - (before.lastIndexOf('\n') + 1) + 1;
+          }
+          const { line, precision } = refineCursorLine({
+            blockStart,
+            hasEntry: entry !== undefined,
+            blockSourceNewlines: entry ? tileSourceNewlines(entry) : 0,
+            directHit: tl?.direct ?? false,
+            codeWithinOffset,
+          });
+          const ordinal = blockOrdinal(blocks, block.id);
+          fields.cursor = {
+            line,
+            column,
+            line_precision: precision,
+            ...(ordinal != null && { block: ordinal }),
+          };
+        }
+      } catch {
+        /* no live selection yet — fall through to the visible-line signal */
+      }
+      const visibleId = firstVisibleBlockId(editor.domElement, scrollEl);
+      if (visibleId) {
+        const line = blockFileLine(blocks, visibleId, shared.byId, frontmatterLines);
+        if (line != null) fields.visible_lines = { start: line };
+        const ordinal = blockOrdinal(blocks, visibleId);
+        if (ordinal != null) fields.visible_blocks = { start: ordinal };
+      }
+      return fields.cursor || fields.visible_lines ? fields : null;
+    };
+    const onActivity = (): void => pusher(computeFields);
+    const offSelection = editor.onSelectionChange(onActivity);
+    scrollEl?.addEventListener('scroll', onActivity, { passive: true });
+    return () => {
+      offSelection();
+      scrollEl?.removeEventListener('scroll', onActivity);
+      pusher.cancel();
+    };
+  }, [compact, seedReady, file, editor, shared]);
 
   // Best-effort flush when the app/window is leaving focus or closing — covers
   // the small window between the last keystroke and the debounced auto-save
