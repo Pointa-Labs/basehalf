@@ -15,7 +15,14 @@ import {
   registerShellOpenHandler,
   registerWorkspacePickHandler,
 } from './ipc.js';
-import { buildAppMenu, claimNativeContextMenuSuppression, installContextMenu } from './menu.js';
+import {
+  type OpenRecentMode,
+  type RecentWorkspace,
+  buildAppMenu,
+  buildDockMenu,
+  claimNativeContextMenuSuppression,
+  installContextMenu,
+} from './menu.js';
 import { PrefsStore } from './prefs.js';
 import { disposeAllTerminals, disposeTerminalsForWindow, registerTerminalIpc } from './terminal.js';
 import {
@@ -40,7 +47,9 @@ import {
   getWorkspaceRoot,
   getWorkspaceRootById,
   resolveSessionRoots,
+  samePath,
   setWorkspaceRoot,
+  sortWorkspacesByRecency,
 } from './windows.js';
 
 // Source is ESM but emit is CJS (see electron.vite.config.ts). import.meta.url
@@ -162,12 +171,115 @@ async function stopWatcherIfOrphaned(root: string | null): Promise<void> {
 
 /** Record that a window just opened this workspace — bumps its `lastOpenedAt` so
  *  the "recent workspaces" surfaces order it first. Fire-and-forget: a failed
- *  touch only costs recency ordering, never blocks the open. */
+ *  touch only costs recency ordering, never blocks the open.
+ *
+ *  Refreshes the surfaces AGAIN once the write COMMITS: `workspace.list` is
+ *  lock-free, so the immediate refresh at the call site reads the file before this
+ *  locked read-modify-write lands and would order the just-opened workspace stale.
+ *  Rebuilding on commit corrects the order (a cheap double-rebuild; opens are
+ *  user-paced). */
 function touchWorkspace(root: string | null): void {
   if (root === null) return;
-  void core.run('workspace.touch', { path: root }, { workspaceRoot: root }).catch(() => {
-    // Best-effort; recency is a nicety, not a correctness invariant.
-  });
+  void core.run('workspace.touch', { path: root }, { workspaceRoot: root }).then(
+    () => refreshWorkspaceSurfaces(),
+    () => {}, // best-effort; recency is a nicety, not a correctness invariant
+  );
+}
+
+/** The workspace roots (paths) every LIVE window is bound to — the "which
+ *  workspaces are open right now" set the welcome list + the recent surfaces mark
+ *  as already-open. */
+function boundRoots(): string[] {
+  const roots: string[] = [];
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    const root = getWorkspaceRoot(win.webContents);
+    if (root !== null) roots.push(root);
+  }
+  return roots;
+}
+
+/** The registered workspaces as the recent surfaces need them — most-recent-first,
+ *  each flagged if a live window already shows it. */
+async function listRecentWorkspaces(): Promise<RecentWorkspace[]> {
+  const { workspaces } = (await core.run('workspace.list', {}, { workspaceRoot: null })) as {
+    workspaces: { name: string; path: string; addedAt: string; lastOpenedAt?: string }[];
+  };
+  const open = new Set(boundRoots().map((r) => r.toLowerCase()));
+  return sortWorkspacesByRecency(workspaces).map((w) => ({
+    name: w.name,
+    path: w.path,
+    isOpen: open.has(w.path.toLowerCase()),
+  }));
+}
+
+/** Tell every renderer the open-windows set changed, so the welcome screen
+ *  re-fetches it (the "Open" markers) and re-lists for the recency order. */
+function broadcastWindowsChanged(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('workspace:windows-changed');
+  }
+}
+
+/**
+ * Rebuild the recent-workspace surfaces — File ▸ Open Recent, the macOS Dock menu —
+ * and nudge every renderer to refresh its welcome list. Called whenever the
+ * registry or the open windows change (a window open/close/rebind, or a renderer
+ * registry mutation via `app:workspaces-changed`). Fire-and-forget: a failed list
+ * just leaves the surfaces momentarily stale, never blocks anything.
+ */
+function refreshWorkspaceSurfaces(): void {
+  void (async () => {
+    let recent: RecentWorkspace[] = [];
+    try {
+      recent = await listRecentWorkspaces();
+    } catch (err) {
+      console.error('[bh-desktop] refreshWorkspaceSurfaces: list failed', err);
+    }
+    Menu.setApplicationMenu(
+      buildAppMenu(focusedZoomHooks, () => spawnWindow(null), recent, openRecentWorkspace),
+    );
+    // app.dock is macOS-only; a no-op elsewhere (Windows jump list is a follow-up).
+    app.dock?.setMenu(buildDockMenu(recent, openRecentWorkspace));
+    broadcastWindowsChanged();
+  })();
+}
+
+/**
+ * Open a workspace from File ▸ Open Recent / the Dock menu. `default` = open-or-
+ * focus from the focused window (the IPC path's behavior); `new` = always a new
+ * window (⌘/⌃-click); `same` = reuse the focused window (⌥-click). Falls back to a
+ * new window when there's no focused window to act from. Each branch routes through
+ * a primitive that refreshes the surfaces, so the menu/dock self-update after.
+ */
+async function openRecentWorkspace(name: string, mode: OpenRecentMode): Promise<void> {
+  const root = await rootForName(name);
+  if (root === null) return; // workspace removed since the menu was built
+  const focused = BrowserWindow.getFocusedWindow();
+  if (mode === 'new') {
+    await createWindow(root);
+    return;
+  }
+  if (mode === 'same' && focused && !focused.isDestroyed()) {
+    // Already showing it → a reload would only throw away renderer state (scroll /
+    // selection / open file) for nothing.
+    if (samePath(getWorkspaceRoot(focused.webContents), root)) return;
+    // rebindAndReload reloads the renderer, discarding its editor state — so FLUSH
+    // first (the in-app remove/repath flows gate on flushAll() before reopen; this
+    // main-driven path must too, or ⌥-click would lose unsaved edits). A blocked
+    // flush (disk conflict / failed write) CANCELS the reload so the user resolves
+    // it, exactly like the close handshake.
+    const ok = await flushWindow(focused);
+    if (ok && !focused.isDestroyed()) rebindAndReload(focused, root);
+    return;
+  }
+  if (focused && !focused.isDestroyed()) {
+    const result = openChain.then(() => openOrFocus(focused, root));
+    openChain = result.catch(() => undefined);
+    await result;
+  } else {
+    await createWindow(root);
+  }
 }
 
 // Persist ONE window's bounds + zoom under its own workspace key, so each
@@ -207,9 +319,14 @@ async function rootForName(name: unknown): Promise<string | null> {
 /**
  * Rebind ONE window to a workspace (or welcome, `null`) and reload it — the
  * in-place transition: the welcome window becoming a folder (Open Folder reuse),
- * removing the open workspace (→ welcome), or a repath moving the bound path.
- * Reload-rebind, never an in-place re-point, so in-flight core calls stay race
- * free. The renderer flushed its editors first (gated there).
+ * removing the open workspace (→ welcome), or a repath / ⌥-click-open-recent
+ * moving the bound path. Reload-rebind, never an in-place re-point, so in-flight
+ * core calls stay race free.
+ *
+ * The reload DISCARDS renderer editor state, so EVERY caller must flush first: the
+ * renderer-driven flows (remove/repath via workspace:reopen) gate on flushAll();
+ * the welcome reuse has no editor; the menu ⌥-"same" path flushes via flushWindow
+ * before calling this. Don't add a caller that skips that gate.
  */
 function rebindAndReload(win: BrowserWindow, root: string | null): void {
   const previousRoot = getWorkspaceRoot(win.webContents);
@@ -222,6 +339,9 @@ function rebindAndReload(win: BrowserWindow, root: string | null): void {
   void stopWatcherIfOrphaned(previousRoot);
   disposeTerminalsForWindow(win.webContents.id);
   win.webContents.reload();
+  // This window's bound workspace changed → refresh the recent surfaces (their
+  // "open" markers + the welcome list).
+  refreshWorkspaceSurfaces();
 }
 
 /**
@@ -262,6 +382,10 @@ async function openOrFocus(
       existing.show();
       existing.focus();
     }
+    // Focusing an open workspace IS opening it — bump recency + refresh the recent
+    // surfaces (the other branches refresh via createWindow / rebindAndReload).
+    touchWorkspace(targetRoot);
+    refreshWorkspaceSurfaces();
     return { reused: false };
   }
   if (decision.action === 'new-window') {
@@ -295,6 +419,13 @@ function registerWorkspaceWindowHandlers(): void {
   ipcMain.handle('window:new', async (): Promise<void> => {
     await createWindow(null);
   });
+
+  // The welcome list's "Open" markers: which workspaces a live window shows.
+  ipcMain.handle('app:open-workspaces', (): string[] => boundRoots());
+
+  // The renderer registered/removed/renamed/repathed a workspace (a registry change
+  // with no window event) — rebuild the recent surfaces from the fresh registry.
+  ipcMain.on('app:workspaces-changed', () => refreshWorkspaceSurfaces());
 }
 
 /** Push a window's remembered zoom level onto it AND tell its renderer the
@@ -520,7 +651,14 @@ async function createWindow(workspaceRoot: string | null): Promise<BrowserWindow
         // Best-effort; never let a persistence failure escape the 'closed' handler.
       }
     }
+    // A window disappeared → its workspace may no longer be "open"; refresh the
+    // recent surfaces' markers. Skip during a quit (everything's tearing down).
+    if (!isQuitting) refreshWorkspaceSurfaces();
   });
+
+  // A new window now shows its workspace → refresh the recent surfaces (the new
+  // window's own renderer also gets the broadcast, harmlessly).
+  refreshWorkspaceSurfaces();
 
   return win;
 }
@@ -577,11 +715,15 @@ async function restoreSession(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
-  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) + New Window,
-  // and a custom View menu whose zoom matches a mature editor (±1 level/⌘0), while
-  // keeping the standard Edit/Window roles the editor relies on. Zoom acts on the
-  // focused window; New Window opens a welcome window.
-  Menu.setApplicationMenu(buildAppMenu(focusedZoomHooks, () => spawnWindow(null)));
+  // Replaces Electron's default menu — adds File ▸ Open Folder… (⌘O) + New Window +
+  // Open Recent, and a custom View menu whose zoom matches a mature editor (±1
+  // level/⌘0), while keeping the standard Edit/Window roles the editor relies on.
+  // Zoom acts on the focused window; New Window opens a welcome window. Built with
+  // an empty recent list initially; refreshWorkspaceSurfaces (driven by the first
+  // window) repopulates Open Recent + the Dock menu once the registry is read.
+  Menu.setApplicationMenu(
+    buildAppMenu(focusedZoomHooks, () => spawnWindow(null), [], openRecentWorkspace),
+  );
   // Before the window: the renderer may ask for prefs as soon as it loads. A
   // prefs read failure must NOT abort startup (else no window opens) — fall back to
   // defaults. restoreSession (below) is itself resilient + guarantees ≥1 window.
@@ -635,9 +777,10 @@ function persistAllWindowsSync(): void {
 
 /** Ask ONE window's renderer to flush its editors; resolve whether it's OK to
  *  proceed (false = a disk conflict / failed write is blocking). A hung/dead
- *  renderer resolves true after a timeout — a quit must never be un-cancellably
- *  trapped. Reply correlated by event.sender so windows don't cross wires. */
-function flushWindowForQuit(win: BrowserWindow): Promise<boolean> {
+ *  renderer resolves true after a timeout — a quit (or a reload) must never be
+ *  un-cancellably trapped. Reply correlated by event.sender so windows don't cross
+ *  wires. Used by the quit flush AND the ⌥-click "open recent here" reload gate. */
+function flushWindow(win: BrowserWindow): Promise<boolean> {
   return new Promise((resolve) => {
     const cleanup = (): void => {
       clearTimeout(timer);
@@ -689,7 +832,7 @@ app.on('before-quit', (e) => {
   void Promise.all(
     BrowserWindow.getAllWindows()
       .filter((w) => !w.isDestroyed())
-      .map(flushWindowForQuit),
+      .map(flushWindow),
   ).then((results) => {
     if (results.some((ok) => ok === false)) {
       // A window's flush is blocked by a conflict — cancel the quit (its banner is

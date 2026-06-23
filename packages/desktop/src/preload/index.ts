@@ -54,6 +54,22 @@ const bh = {
     ipcRenderer.invoke('workspace:reopen', name),
   /** Open a fresh welcome window (File ▸ New Window / ⇧⌘N also drives this). */
   newWindow: (): Promise<void> => ipcRenderer.invoke('window:new'),
+  /** The workspace paths a live window currently shows — the welcome list marks
+   *  these "Open" (clicking focuses that window rather than opening anew). */
+  getOpenWorkspaces: (): Promise<string[]> => ipcRenderer.invoke('app:open-workspaces'),
+  /** Tell main the workspace REGISTRY changed (add/remove/rename/repath) so it
+   *  rebuilds File ▸ Open Recent + the Dock recent menu from the fresh list. */
+  notifyWorkspacesChanged: (): void => {
+    ipcRenderer.send('app:workspaces-changed');
+  },
+  /** Subscribe to "a window opened/closed/rebound, or the registry changed"
+   *  (pushed by main). The welcome screen re-fetches the open set + re-lists.
+   *  Returns an unsubscribe function. */
+  onWorkspacesWindowsChanged: (handler: () => void): (() => void) => {
+    const wrapped = (): void => handler();
+    ipcRenderer.on('workspace:windows-changed', wrapped);
+    return () => ipcRenderer.off('workspace:windows-changed', wrapped);
+  },
   /** Classify an absolute path from an OS drag payload: 'file' | 'dir' | null
    *  (missing/unreadable). Lets the drop handler route folders → add-as-
    *  workspace and files → copy-into-workspace. */

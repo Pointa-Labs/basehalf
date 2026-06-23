@@ -80,7 +80,12 @@ interface WorkspaceState {
    *  auto-dismissed there. */
   notice: string;
   busy: boolean;
+  /** Workspace paths a live window currently shows (from main) — the welcome
+   *  list marks these "Open". Refreshed on a window/registry change broadcast. */
+  openRoots: readonly string[];
   refresh: () => Promise<void>;
+  /** Re-fetch `openRoots` from main (after a window/registry change). */
+  refreshOpenRoots: () => Promise<void>;
   pickAndAdd: () => Promise<void>;
   createDemo: (path: string) => Promise<void>;
   /** Add one or more dropped paths as workspaces (drag-drop from Finder).
@@ -248,6 +253,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
   return {
     workspaces: [],
     current: null,
+    openRoots: [],
     currentReachable: null,
     openFile: null,
     currentFile: null,
@@ -326,6 +332,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       }
     },
 
+    refreshOpenRoots: async () => {
+      try {
+        set({ openRoots: await window.bh.getOpenWorkspaces() });
+      } catch {
+        // Best-effort: a failed fetch just leaves the "Open" markers stale.
+      }
+    },
+
     pickAndAdd: async () => {
       if (get().busy) return;
       set({ busy: true });
@@ -375,6 +389,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           }
         }
         if (lastName !== null) {
+          window.bh.notifyWorkspacesChanged(); // all registrations (incl. non-opened) → menus
           // Open-or-focus the last drop (reuse welcome / focus existing / new
           // window). No flush gate — see pickAndAdd.
           const reused = await openOrFocusWorkspace(lastName);
@@ -442,6 +457,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         }
         const wasCurrent = get().current === name;
         await window.bh.run('workspace.remove', { name });
+        window.bh.notifyWorkspacesChanged(); // rebuild Open Recent / Dock menu
         if (wasCurrent) {
           // Removing the workspace THIS window has open → reload THIS window to the
           // welcome state (the desktop never auto-promotes a survivor). One window
@@ -480,6 +496,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // the config rewrite in a single write and preserves name + addedAt.
         const wasCurrent = get().current === name;
         await window.bh.run('workspace.repath', { name, path: newPath, setup: true });
+        window.bh.notifyWorkspacesChanged(); // rebuild Open Recent / Dock menu
         if (wasCurrent) {
           // The window↔workspace binding is by PATH; this workspace just moved,
           // so THIS window's binding is stale — reopen it at the new path (rebind
@@ -507,6 +524,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           return;
         }
         await window.bh.run('workspace.rename', { from, to });
+        window.bh.notifyWorkspacesChanged(); // rebuild Open Recent / Dock menu
         // Refresh pulls the new name into `current` if it was the renamed one
         // (core's workspace.rename already updated the config pointer).
         await get().refresh();

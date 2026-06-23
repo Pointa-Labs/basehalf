@@ -19,6 +19,12 @@ interface Window {
     reopenWindow(name: string | null): Promise<void>;
     /** Open a fresh welcome window. */
     newWindow(): Promise<void>;
+    /** The workspace paths a live window currently shows (welcome "Open" markers). */
+    getOpenWorkspaces(): Promise<string[]>;
+    /** Tell main the workspace registry changed → rebuild Open Recent + Dock menu. */
+    notifyWorkspacesChanged(): void;
+    /** Subscribe to window-set / registry changes (the welcome list re-fetches). */
+    onWorkspacesWindowsChanged(handler: () => void): () => void;
     /** Classify an absolute path from an OS drag payload: 'file' | 'dir' |
      *  null (missing/unreadable). Drop handlers use it to route folders →
      *  add-as-workspace, files → copy-into-workspace. */

@@ -53,6 +53,59 @@ export interface ZoomMenuHooks {
   applyZoomLevel: (level: number) => void;
 }
 
+/** One entry in File ▸ Open Recent and the Dock recent menu — a registered
+ *  workspace, most-recent-first, flagged if a live window already shows it. */
+export interface RecentWorkspace {
+  readonly name: string;
+  readonly path: string;
+  readonly isOpen: boolean;
+}
+
+/** How a recent entry opens: `default` = open-or-focus (focus its window if open,
+ *  else reuse the welcome window / open a new one); `new` = force a new window
+ *  (⌘/⌃-click, like a mature editor); `same` = reuse the focused window (⌥-click). */
+export type OpenRecentMode = 'default' | 'new' | 'same';
+
+/** Read a menu click's modifier state → an OpenRecentMode (matches the
+ *  editor-standard ⌘/⌥ chord). Electron passes the keyboard state as the click
+ *  handler's 3rd arg. */
+function recentClickMode(
+  e: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean } | undefined,
+): OpenRecentMode {
+  if (!e) return 'default';
+  if (e.altKey) return 'same'; // ⌥ → reuse the focused window
+  if (isMac ? e.metaKey : e.ctrlKey) return 'new'; // ⌘ / ⌃ → force a NEW window
+  return 'default';
+}
+
+/** Build the Open Recent items (shared by the File menu + the Dock menu). When
+ *  `withModifiers`, clicks honour the ⌘/⌥ chord; the Dock menu doesn't surface
+ *  modifiers reliably, so it always opens-or-focuses. */
+function recentItems(
+  recent: readonly RecentWorkspace[],
+  onOpenRecent: (name: string, mode: OpenRecentMode) => void,
+  withModifiers: boolean,
+): MenuItemConstructorOptions[] {
+  if (recent.length === 0) return [{ label: 'No Recent Workspaces', enabled: false }];
+  return recent.map((ws) => ({
+    label: ws.isOpen ? `${ws.name} — open` : ws.name,
+    click: withModifiers
+      ? (_i: unknown, _w: unknown, e: { metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean }) =>
+          onOpenRecent(ws.name, recentClickMode(e))
+      : () => onOpenRecent(ws.name, 'default'),
+  }));
+}
+
+/** The macOS Dock right-click menu: recent workspaces above Electron's
+ *  auto-appended window list. Clicks open-or-focus (the Dock doesn't carry
+ *  modifier state). Rebuilt whenever the registry / open windows change. */
+export function buildDockMenu(
+  recent: readonly RecentWorkspace[],
+  onOpenRecent: (name: string, mode: OpenRecentMode) => void,
+): Menu {
+  return Menu.buildFromTemplate(recentItems(recent, onOpenRecent, false));
+}
+
 /**
  * The application menu. Replacing Electron's default menu means we own the
  * whole bar — so we keep the standard Edit/View/Window roles (Electron expands
@@ -65,7 +118,12 @@ export interface ZoomMenuHooks {
  *    matching a mature code editor) instead of Electron's smaller ±0.5 default,
  *    with ⌘0 = Actual Size. The level is owned + persisted by the caller.
  */
-export function buildAppMenu(zoom: ZoomMenuHooks, onNewWindow: () => void): Menu {
+export function buildAppMenu(
+  zoom: ZoomMenuHooks,
+  onNewWindow: () => void,
+  recent: readonly RecentWorkspace[],
+  onOpenRecent: (name: string, mode: OpenRecentMode) => void,
+): Menu {
   const zoomIn = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() + 1);
   const zoomOut = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() - 1);
   const resetZoom = (): void => zoom.applyZoomLevel(0);
@@ -109,6 +167,11 @@ export function buildAppMenu(zoom: ZoomMenuHooks, onNewWindow: () => void): Menu
       submenu: [
         { label: 'New Window', accelerator: 'Shift+CmdOrCtrl+N', click: () => onNewWindow() },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => emitOpenFolder() },
+        // Open Recent — the registered workspaces, most-recent-first, so a return
+        // visit jumps straight back in without re-picking the folder. ⌘-click a
+        // row for a new window, ⌥-click to reuse the focused one. Rebuilt by main
+        // whenever the registry / open windows change.
+        { label: 'Open Recent', submenu: recentItems(recent, onOpenRecent, true) },
         { type: 'separator' },
         { label: 'Rename Workspace…', click: () => emitWorkspaceAction('rename') },
         { label: 'Remove Workspace…', click: () => emitWorkspaceAction('remove') },

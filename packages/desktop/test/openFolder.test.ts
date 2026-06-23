@@ -43,6 +43,11 @@ const bh = {
   reopenWindow: async (name: string | null): Promise<void> => {
     reopenCalls.push(name);
   },
+  // Recent-surfaces signals (no-ops here): main rebuilds Open Recent / Dock on a
+  // registry change; the welcome list reads the open set. The store calls
+  // notifyWorkspacesChanged after add/remove/rename/repath.
+  notifyWorkspacesChanged: (): void => {},
+  getOpenWorkspaces: async (): Promise<string[]> => [],
   run: async (name: string, args?: unknown): Promise<unknown> => {
     runCalls.push(name);
     const a = (args ?? {}) as { path?: string; name?: string };

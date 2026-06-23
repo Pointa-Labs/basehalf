@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  type RecencyEntry,
   type WindowRef,
   clearWorkspaceRoot,
   decideOpen,
@@ -7,6 +8,7 @@ import {
   resolveSessionRoots,
   samePath,
   setWorkspaceRoot,
+  sortWorkspacesByRecency,
 } from '../src/main/windows.js';
 
 // The window↔workspace binding (main's per-window replacement for core's old
@@ -117,5 +119,37 @@ describe('resolveSessionRoots (launch / dock session restore)', () => {
 
   it('a lone welcome window alongside workspaces is not restored as its own window', () => {
     expect(resolveSessionRoots(['', '/ws/a'], ['/ws/a'])).toEqual(['/ws/a']);
+  });
+});
+
+describe('sortWorkspacesByRecency (Dock / Open Recent ordering)', () => {
+  const ws = (name: string, addedAt: string, lastOpenedAt?: string): RecencyEntry => ({
+    name,
+    path: `/${name}`,
+    addedAt,
+    ...(lastOpenedAt !== undefined && { lastOpenedAt }),
+  });
+
+  it('orders most-recently-opened first (lastOpenedAt), addedAt as fallback', () => {
+    const out = sortWorkspacesByRecency([
+      ws('opened-old', '2020-01-01T00:00:00Z', '2021-01-01T00:00:00Z'),
+      ws('never-opened-newest-add', '2022-01-01T00:00:00Z'),
+      ws('opened-recent', '2020-01-01T00:00:00Z', '2023-01-01T00:00:00Z'),
+    ]);
+    expect(out.map((w) => w.name)).toEqual([
+      'opened-recent', // newest lastOpenedAt
+      'never-opened-newest-add', // falls back to its (newest) addedAt
+      'opened-old',
+    ]);
+  });
+
+  it('breaks ties by name and does not mutate the input', () => {
+    const input = [
+      ws('z', '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z'),
+      ws('a', '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z'),
+    ];
+    const snapshot = input.map((w) => w.name);
+    expect(sortWorkspacesByRecency(input).map((w) => w.name)).toEqual(['a', 'z']);
+    expect(input.map((w) => w.name)).toEqual(snapshot);
   });
 });

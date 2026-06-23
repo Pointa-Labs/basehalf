@@ -90,6 +90,34 @@ export function decideOpen(
   return { action: 'new-window' };
 }
 
+/** A registered workspace, as the recency ordering needs it. */
+export interface RecencyEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly addedAt: string;
+  readonly lastOpenedAt?: string;
+}
+
+/**
+ * Order workspaces most-recently-opened first — the ordering for the main-side
+ * recent surfaces (the macOS Dock menu + File ▸ Open Recent). Recency is
+ * `lastOpenedAt`, falling back to `addedAt` for a workspace never opened since the
+ * field landed; ISO timestamps compare lexicographically = chronologically. Ties
+ * break by name so the order is stable. Pure; returns a new array.
+ *
+ * Mirrors the renderer's `lib/recentWorkspaces.sortByRecency` across the process
+ * boundary (both consume the same core `lastOpenedAt`) — a deliberate small dup
+ * rather than reaching across main↔renderer.
+ */
+export function sortWorkspacesByRecency<T extends RecencyEntry>(workspaces: readonly T[]): T[] {
+  return [...workspaces].sort((a, b) => {
+    const ra = a.lastOpenedAt ?? a.addedAt;
+    const rb = b.lastOpenedAt ?? b.addedAt;
+    if (ra !== rb) return ra < rb ? 1 : -1; // newer (greater ISO string) first
+    return a.name.localeCompare(b.name);
+  });
+}
+
 /**
  * Resolve the ordered list of workspace roots to open on launch (or dock-restore)
  * from the persisted session `openKeys` (workspace paths; `''` = welcome) against

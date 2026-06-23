@@ -37,7 +37,21 @@ export const App = (): JSX.Element => {
 
   useEffect(() => {
     void refresh();
+    void useWorkspaceStore.getState().refreshOpenRoots();
   }, [refresh]);
+
+  // The welcome screen's recent list reacts to OTHER windows: when a window opens,
+  // closes, or rebinds — or the registry changes — main broadcasts here. Re-list
+  // (recency order may have moved) + re-fetch the open set (the "Open" markers).
+  useEffect(
+    () =>
+      window.bh.onWorkspacesWindowsChanged(() => {
+        const ws = useWorkspaceStore.getState();
+        void ws.refresh();
+        void ws.refreshOpenRoots();
+      }),
+    [],
+  );
 
   // Global rename listener: when the watcher detects a rename of the
   // currently-open file, rebind currentFile to the new path so the user

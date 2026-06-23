@@ -219,6 +219,7 @@ function cardHeight(node: Node<BadgeNodeData> | undefined): number | undefined {
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const openRoots = useWorkspaceStore((s) => s.openRoots);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
@@ -1042,6 +1043,7 @@ export const Canvas = (): JSX.Element => {
         onTryDemo={() => void createDemoAtDefault()}
         recent={sortByRecency(workspaces.filter((w) => w.name !== current))}
         onOpenWorkspace={(name) => void useWorkspaceStore.getState().use(name)}
+        openRoots={openRoots}
       />
     );
   }
