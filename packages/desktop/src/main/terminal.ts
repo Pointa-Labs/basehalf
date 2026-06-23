@@ -1,11 +1,12 @@
 import { type IPty, spawn as ptySpawn } from '@lydell/node-pty';
-import { BrowserWindow, ipcMain } from 'electron';
+import { ipcMain, webContents } from 'electron';
 import { getWorkspaceRoot } from './windows.js';
 
 // Embedded terminal — the REAL shell process. The sandboxed renderer can't
 // spawn native processes, so the pty lives here in main; xterm.js in the
 // renderer is a thin view. Bytes stream both ways over the existing IPC bridge
-// (window.bh.terminal.*). One IPty per terminal session, tracked by id.
+// (window.bh.terminal.*). One IPty per terminal session, OWNED by the window
+// that spawned it (each pty runs in that window's workspace folder).
 //
 // The native pty binary is @lydell/node-pty — an N-API build, so its prebuilt
 // `.node` is ABI-stable across Electron and loads without electron-rebuild
@@ -13,15 +14,24 @@ import { getWorkspaceRoot } from './windows.js';
 // and unpacked from the asar at package time (see electron.vite.config.ts +
 // electron-builder.yml).
 
-const sessions = new Map<string, IPty>();
+interface Session {
+  readonly pty: IPty;
+  /** webContents id of the window that spawned this session. Output goes ONLY
+   *  here, and only this window may write/resize/kill it — so one window can't
+   *  reach into another's shell (a real isolation boundary once N windows run,
+   *  since session ids are global + guessable). */
+  readonly ownerWcId: number;
+}
+
+const sessions = new Map<string, Session>();
 let nextId = 1;
 
-function broadcast(channel: string, payload: unknown): void {
-  // Single-window app today; mirror the watcher's broadcast-to-all pattern so a
-  // future second window Just Works rather than silently missing pty output.
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload);
-  }
+/** Send a pty message to the window that owns the session — never broadcast.
+ *  Resolve the owner by id each time (the WebContents may have been destroyed,
+ *  e.g. window closed mid-stream) and guard isDestroyed. */
+function sendToOwner(ownerWcId: number, channel: string, payload: unknown): void {
+  const wc = webContents.fromId(ownerWcId);
+  if (wc && !wc.isDestroyed()) wc.send(channel, payload);
 }
 
 function defaultShell(): string {
@@ -73,6 +83,7 @@ export function registerTerminalIpc(): void {
     // working-directory name) before the shell sets any OSC title.
     async (evt, opts: SpawnOpts = {}): Promise<{ id: string; cwd: string }> => {
       const id = `t${nextId++}`;
+      const ownerWcId = evt.sender.id;
       const cwd = resolveCwd(getWorkspaceRoot(evt.sender), opts.cwd);
       const pty = ptySpawn(defaultShell(), shellArgs(), {
         name: 'xterm-256color',
@@ -81,50 +92,76 @@ export function registerTerminalIpc(): void {
         cwd,
         env: cleanEnv(),
       });
-      sessions.set(id, pty);
-      pty.onData((data) => broadcast('terminal:data', { id, data }));
+      sessions.set(id, { pty, ownerWcId });
+      pty.onData((data) => sendToOwner(ownerWcId, 'terminal:data', { id, data }));
       pty.onExit(({ exitCode }) => {
         sessions.delete(id);
-        broadcast('terminal:exit', { id, exitCode });
+        sendToOwner(ownerWcId, 'terminal:exit', { id, exitCode });
       });
       return { id, cwd };
     },
   );
 
-  ipcMain.on('terminal:write', (_evt, payload: { id: string; data: string }) => {
-    sessions.get(payload.id)?.write(payload.data);
+  ipcMain.on('terminal:write', (evt, payload: { id: string; data: string }) => {
+    sessionForSender(evt.sender.id, payload.id)?.pty.write(payload.data);
   });
 
-  ipcMain.on('terminal:resize', (_evt, payload: { id: string; cols: number; rows: number }) => {
-    const pty = sessions.get(payload.id);
-    if (!pty) return;
+  ipcMain.on('terminal:resize', (evt, payload: { id: string; cols: number; rows: number }) => {
+    const session = sessionForSender(evt.sender.id, payload.id);
+    if (!session) return;
     try {
       // cols/rows must be ≥1; a resize after the pty exits throws EBADF — guard.
-      pty.resize(Math.max(1, Math.floor(payload.cols)), Math.max(1, Math.floor(payload.rows)));
+      session.pty.resize(
+        Math.max(1, Math.floor(payload.cols)),
+        Math.max(1, Math.floor(payload.rows)),
+      );
     } catch {
       // pty is tearing down — ignore.
     }
   });
 
-  ipcMain.on('terminal:kill', (_evt, payload: { id: string }) => {
-    const pty = sessions.get(payload.id);
-    if (!pty) return;
+  ipcMain.on('terminal:kill', (evt, payload: { id: string }) => {
+    const session = sessionForSender(evt.sender.id, payload.id);
+    if (!session) return;
     sessions.delete(payload.id);
     try {
-      pty.kill();
+      session.pty.kill();
     } catch {
       // already gone
     }
   });
 }
 
-/** Kill every live pty so no shell process is orphaned. Called on window close
- *  and before quit (the renderer's unmount cleanup also kills per-session, but a
- *  hard window destroy skips React teardown, so we sweep here too). */
-export function disposeAllTerminals(): void {
-  for (const [id, pty] of sessions) {
+/** Resolve a session ONLY if the requesting window owns it — so a window can't
+ *  write to / resize / kill another window's shell by guessing its (global,
+ *  sequential) session id. */
+function sessionForSender(senderWcId: number, id: string): Session | undefined {
+  const session = sessions.get(id);
+  return session && session.ownerWcId === senderWcId ? session : undefined;
+}
+
+/** Kill the ptys owned by one window (called when that window switches workspace
+ *  or closes), so its shells don't outlive the page that hosted them. */
+export function disposeTerminalsForWindow(wcId: number): void {
+  for (const [id, session] of sessions) {
+    if (session.ownerWcId !== wcId) continue;
     try {
-      pty.kill();
+      session.pty.kill();
+    } catch {
+      // ignore
+    }
+    sessions.delete(id);
+  }
+}
+
+/** Kill every live pty so no shell process is orphaned. Called before quit (the
+ *  renderer's unmount cleanup also kills per-session, but a hard quit skips React
+ *  teardown, so we sweep here too). Per-window close uses
+ *  disposeTerminalsForWindow; this is the all-windows quit sweep. */
+export function disposeAllTerminals(): void {
+  for (const [id, session] of sessions) {
+    try {
+      session.pty.kill();
     } catch {
       // ignore
     }

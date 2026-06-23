@@ -1,7 +1,9 @@
 /**
- * Watcher module — observes user files in the active workspace and emits
- * normalized events. Wraps chokidar so the bus surface stays small and
- * testable. Module-level singleton: one active watcher per process.
+ * Watcher module — observes user files in a workspace and emits normalized
+ * events. Wraps chokidar so the bus surface stays small and testable. State is
+ * keyed PER workspace root (`Map<root, …>`): each window binds its own root, so
+ * multiple workspaces can be watched independently at once with no cross-root
+ * leakage (the per-window replacement for the old single-process watcher).
  */
 
 export type WatcherEventType = 'add' | 'change' | 'unlink' | 'rename';
@@ -32,10 +34,17 @@ export interface WatcherRenameEvent {
 
 export type WatcherEvent = WatcherFsEvent | WatcherRenameEvent;
 
-export interface WatcherStartArgs {
-  /** Absolute workspace path. Defaults to the current workspace's path. */
-  readonly workspaceRoot?: string;
-}
+/** The host-facing event shape emitted on `watcherEvents` — a WatcherEvent
+ *  tagged with the workspace root it originated from. The Electron main process
+ *  scopes the `bh:file-event` broadcast to the window(s) bound to that root, so
+ *  a file change in workspace A never reaches a window showing workspace B. */
+export type WatcherHostEvent = WatcherEvent & { readonly workspaceRoot: string };
+
+/** No args: a watcher always roots at the call's bound workspace
+ *  (`ctx.workspaceRoot`), never an explicit path — the bound root IS the
+ *  per-window scope. (The old optional `workspaceRoot` arg was vestigial once
+ *  the per-call Context carried the root, and no caller passed it.) */
+export type WatcherStartArgs = Record<string, never>;
 export interface WatcherStartResult {
   readonly active: true;
   readonly workspaceRoot: string;

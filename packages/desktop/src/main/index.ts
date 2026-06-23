@@ -1,6 +1,12 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCore, defaultConfigDir, defaultFs, watcherEvents } from '@basehalf/core';
+import {
+  type WatcherHostEvent,
+  createCore,
+  defaultConfigDir,
+  defaultFs,
+  watcherEvents,
+} from '@basehalf/core';
 import { BrowserWindow, Menu, app, ipcMain, screen, shell } from 'electron';
 import {
   registerBhRunHandler,
@@ -11,7 +17,7 @@ import {
 } from './ipc.js';
 import { buildAppMenu, claimNativeContextMenuSuppression, installContextMenu } from './menu.js';
 import { PrefsStore } from './prefs.js';
-import { disposeAllTerminals, registerTerminalIpc } from './terminal.js';
+import { disposeAllTerminals, disposeTerminalsForWindow, registerTerminalIpc } from './terminal.js';
 import {
   Updater,
   cleanupUpdateLeftovers,
@@ -19,13 +25,20 @@ import {
   startBackgroundUpdateChecks,
 } from './updater.js';
 import {
+  WELCOME_KEY,
   clampToDisplays,
   debounce,
-  readWindowState,
-  writeWindowState,
-  writeWindowStateSync,
+  geometryFor,
+  readWindowStates,
+  saveWindowState,
+  saveWindowStateSync,
 } from './window-state.js';
-import { clearWorkspaceRoot, getWorkspaceRoot, setWorkspaceRoot } from './windows.js';
+import {
+  clearWorkspaceRoot,
+  getWorkspaceRoot,
+  getWorkspaceRootById,
+  setWorkspaceRoot,
+} from './windows.js';
 
 // Source is ESM but emit is CJS (see electron.vite.config.ts). import.meta.url
 // is polyfilled by rollup in the CJS output.
@@ -65,14 +78,20 @@ registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLeve
 const updater = new Updater();
 registerUpdaterIpc(updater);
 
-// Forward file events from the core watcher to all open renderers so the
-// FilePreview can prompt for reload on external edits and rebind currentFile
-// on renames. Listener is attached once, lives for the whole process.
-// Event is a discriminated union — add/change/unlink (one path) or rename
-// (from/to). Send the whole shape; the renderer narrows on `type`.
-watcherEvents.on('event', (event: unknown) => {
+// Forward file events from the core watcher to the renderer(s) showing the
+// workspace the event came from, so the FilePreview can prompt for reload on
+// external edits and rebind currentFile on renames. Listener is attached once,
+// lives for the whole process. Event is a WatcherHostEvent — a discriminated
+// union (add/change/unlink one path, or rename from/to) TAGGED with its
+// `workspaceRoot`. We deliver ONLY to windows bound to that root: a change in
+// workspace A must never reach a window showing B (each window's editor speaks
+// for its own folder). The bound root is the exact string main injected into
+// core.run, so an `===` match is correct (no path-normalization needed). The
+// renderer narrows on `type` and ignores the extra `workspaceRoot` field.
+watcherEvents.on('event', (event: WatcherHostEvent) => {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
+    if (win.isDestroyed()) continue;
+    if (getWorkspaceRoot(win.webContents) === event.workspaceRoot) {
       win.webContents.send('bh:file-event', event);
     }
   }
@@ -87,24 +106,63 @@ const MIN_ZOOM_LEVEL = -8;
 const MAX_ZOOM_LEVEL = 8;
 let currentZoomLevel = 0;
 
+/** The workspace keys (paths; `''` = welcome) of every LIVE window — the
+ *  session-restore "open" set persisted with window-state. Computed from all
+ *  windows so it's correct whether one (Phase 2) or many (Phase 3) are open. */
+function currentOpenKeys(): string[] {
+  const keys: string[] = [];
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue;
+    keys.push(getWorkspaceRoot(win.webContents) ?? WELCOME_KEY);
+  }
+  return keys;
+}
+
+/** Is any live window still bound to this workspace root? */
+function isRootStillBound(root: string): boolean {
+  return BrowserWindow.getAllWindows().some(
+    (w) => !w.isDestroyed() && getWorkspaceRoot(w.webContents) === root,
+  );
+}
+
+/**
+ * Stop the watcher for a workspace no window shows anymore — the per-window
+ * watcher lifecycle. A switch (A→B) or a window close leaves A's chokidar
+ * instance running with no window to receive its events; without this it would
+ * leak FS watches + memory for the rest of the session. Only stops when NO live
+ * window is still bound to that root (so it survives a second window on the same
+ * workspace in Phase 3). Call AFTER the binding change so the check is accurate.
+ */
+async function stopWatcherIfOrphaned(root: string | null): Promise<void> {
+  if (root === null || isRootStillBound(root)) return;
+  try {
+    await core.run('watcher.stop', {}, { workspaceRoot: root });
+  } catch {
+    // Best-effort cleanup; a failed stop just leaves an idle watcher.
+  }
+}
+
 // Persist window bounds + zoom together (debounced; bounds-change and zoom-step
-// events both flow through here). Module-scoped so the menu's zoom hooks can reach
-// it (the menu is built at app-ready, before the window exists).
+// events both flow through here). Stored under THIS window's workspace key, so
+// each workspace remembers its own geometry. Module-scoped so the menu's zoom
+// hooks can reach it (the menu is built at app-ready, before the window exists).
 const persistWindowState = debounce(() => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const bounds = mainWindow.getBounds();
-  void writeWindowState(configDir, {
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
-    isMaximized: mainWindow.isMaximized(),
-    zoomLevel: currentZoomLevel,
-    // Remember which workspace this window had open, so launch reopens it (the
-    // desktop owns "which window shows which workspace" now — core has no
-    // global current). null = the welcome window.
-    workspaceRoot: getWorkspaceRoot(mainWindow.webContents),
-  });
+  const key = getWorkspaceRoot(mainWindow.webContents) ?? WELCOME_KEY;
+  void saveWindowState(
+    configDir,
+    key,
+    {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      isMaximized: mainWindow.isMaximized(),
+      zoomLevel: currentZoomLevel,
+    },
+    currentOpenKeys(),
+  );
 }, 500);
 
 /**
@@ -138,6 +196,7 @@ function registerWorkspaceOpenHandler(): void {
   ipcMain.handle('workspace:open', async (event, name: unknown): Promise<void> => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
+    const previousRoot = getWorkspaceRoot(win.webContents);
     let root: string | null = null;
     if (typeof name === 'string') {
       try {
@@ -151,11 +210,14 @@ function registerWorkspaceOpenHandler(): void {
     }
     setWorkspaceRoot(win.webContents, root);
     persistWindowState();
-    // Phase 1 runs a single window, so the pty sessions are process-global:
-    // dispose them before the reload so the old page's shells don't leak; the
-    // reloaded page respawns in the new workspace's cwd. (Phase 2 keys terminals
-    // per window and disposes only this window's.)
-    disposeAllTerminals();
+    // Stop the old workspace's watcher if this was the last window showing it —
+    // the reloaded page will start one for the new root. (Checked AFTER the
+    // rebind so a second window still on the old workspace keeps it alive.)
+    void stopWatcherIfOrphaned(previousRoot);
+    // Dispose only THIS window's terminals before the reload, so the old page's
+    // shells (rooted in the old workspace) don't leak; the reloaded page respawns
+    // in the new workspace's cwd. Other windows' shells are untouched.
+    disposeTerminalsForWindow(win.webContents.id);
     win.webContents.reload();
   });
 }
@@ -179,13 +241,17 @@ function applyZoomLevel(level: number): void {
 }
 
 async function createWindow(): Promise<void> {
-  const saved = await readWindowState(configDir);
+  const file = await readWindowStates(configDir);
+  // Phase 2 runs a single window: reopen the (first) workspace that was open at
+  // last quit. Resolved BEFORE the window so the binding is set before the
+  // renderer's first bh:run. (Phase 3 iterates `file.open` to reopen them all.)
+  const launchKey = file.open[0] ?? WELCOME_KEY;
+  const launchRoot = launchKey === WELCOME_KEY ? null : await resolveLaunchRoot(launchKey);
+  // Restore the geometry remembered for the workspace we actually land on (a
+  // since-removed workspace falls back to welcome → its own remembered slot).
+  const saved = geometryFor(file, launchRoot ?? WELCOME_KEY);
   currentZoomLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, saved.zoomLevel ?? 0));
   const state = clampToDisplays(saved, screen.getAllDisplays());
-  // Which workspace this window opens (the one persisted last quit, if still
-  // registered; else welcome). Resolved BEFORE the window so the binding is set
-  // before the renderer's first bh:run.
-  const launchRoot = await resolveLaunchRoot(saved.workspaceRoot ?? null);
 
   mainWindow = new BrowserWindow({
     width: state.width,
@@ -307,11 +373,15 @@ async function createWindow(): Promise<void> {
   // touches mainWindow without an isDestroyed() guard.
   mainWindow.on('closed', () => {
     // A hard window destroy skips the renderer's React teardown (which kills
-    // each session's pty on unmount), so sweep any survivors here — no orphan
-    // shell processes left running headless.
-    disposeAllTerminals();
-    // Drop this window's workspace binding so the map doesn't accrete dead ids.
+    // each session's pty on unmount), so sweep THIS window's survivors here — no
+    // orphan shell processes left running headless. Other windows keep theirs.
+    disposeTerminalsForWindow(wcId);
+    // Read the closed window's root (its WebContents is already destroyed, so go
+    // by the id captured at bind time) BEFORE dropping the binding, then stop its
+    // watcher if no other window still shows that workspace.
+    const closedRoot = getWorkspaceRootById(wcId);
     clearWorkspaceRoot(wcId);
+    void stopWatcherIfOrphaned(closedRoot);
     mainWindow = null;
   });
 }
@@ -341,16 +411,21 @@ app.on('before-quit', () => {
   disposeAllTerminals();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const bounds = mainWindow.getBounds();
+  const key = getWorkspaceRoot(mainWindow.webContents) ?? WELCOME_KEY;
   try {
-    writeWindowStateSync(configDir, {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      isMaximized: mainWindow.isMaximized(),
-      zoomLevel: currentZoomLevel,
-      workspaceRoot: getWorkspaceRoot(mainWindow.webContents),
-    });
+    saveWindowStateSync(
+      configDir,
+      key,
+      {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        isMaximized: mainWindow.isMaximized(),
+        zoomLevel: currentZoomLevel,
+      },
+      currentOpenKeys(),
+    );
   } catch {
     // Best-effort; never block quit on persistence failures.
   }

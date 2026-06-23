@@ -16,41 +16,59 @@ import type {
 /**
  * Process-wide event bus the main process subscribes to so it can fan out
  * file events to renderer webContents (e.g. "file changed externally —
- * reload the editor?"). Listeners get the same normalized WatcherEvent
- * that's already going to the badges module via ctx.run.
+ * reload the editor?"). Listeners get a `WatcherHostEvent` — the normalized
+ * event tagged with the `workspaceRoot` it came from, so the host can scope
+ * the broadcast to the window(s) bound to that workspace.
  */
 export const watcherEvents = new EventEmitter();
 
-// Module-private state. One watcher per process for now (Phase 1 is still a
-// single window). Its `ctx` is captured at start time and carries that
-// workspace's bound root, so every cascade (markOrphan / focus.pruneDangling)
-// stays in the watched workspace by construction — no global-current drift to
-// guard against. (Phase 2 makes this a per-root Map for multi-window.)
-let runningWatcher: RunningWatcher | null = null;
-let runningRoot: string | null = null;
-
-// In-flight badge-writing work spawned by FS events: the chokidar callback's
-// handleEvent, and the rename-window timers' finalize(). These are
-// fire-and-forget, so without tracking them a write could land AFTER the
-// watcher is stopped — clobbering the NEXT workspace on a switch, or (in
-// tests) writing into a torn-down workspace ("No current workspace",
-// ENOTEMPTY rmdir, a badge read mid-write). `drainInflight()` lets stop/reset
-// wait for them to settle.
-const inflight = new Set<Promise<unknown>>();
-function track<T>(p: Promise<T>): void {
-  const tracked = p.finally(() => inflight.delete(tracked));
-  inflight.add(tracked);
+/**
+ * Per-workspace watcher state. Everything that used to be a module-global
+ * singleton (the chokidar handle, the rename buffers, the in-flight set) is
+ * scoped to ONE root here, so N workspaces can be watched independently with
+ * zero cross-root interference. Each window's `watcher.start` gets (or creates)
+ * its own entry; a workspace switch is a window reload that starts a fresh
+ * watcher for the new root, never a teardown of someone else's.
+ *
+ * `ctx` is captured at start time and carries this workspace's bound root, so
+ * every cascade (badge.markOrphan / focus.pruneDangling / badge.rename) stays
+ * in the watched workspace by construction — no global-current drift to guard.
+ */
+interface WatcherState {
+  readonly root: string;
+  readonly ctx: Parameters<Handler>[1];
+  watcher: RunningWatcher | null;
+  // unlinks wait for a matching add; adds wait for a matching unlink (handles
+  // out-of-order arrival under FSEvents). See findCounterpart / the rename note.
+  readonly pendingUnlinks: Map<string, PendingUnlink>;
+  readonly pendingAdds: Map<string, PendingAdd>;
+  // In-flight badge-writing work spawned by FS events: the chokidar callback's
+  // handleEvent, and the rename-window timers' finalize(). Fire-and-forget, so
+  // without tracking them a write could land AFTER the watcher is stopped —
+  // clobbering a torn-down workspace ("No current workspace", ENOTEMPTY rmdir,
+  // a badge read mid-write). drainInflight() lets stop/reset wait for them.
+  readonly inflight: Set<Promise<unknown>>;
 }
-async function drainInflight(): Promise<void> {
+
+const watchers = new Map<string, WatcherState>();
+
+function track(state: WatcherState, p: Promise<unknown>): void {
+  const tracked = p.finally(() => state.inflight.delete(tracked));
+  state.inflight.add(tracked);
+}
+
+async function drainInflight(state: WatcherState): Promise<void> {
   // Loop in case a settling task spawned another; bounded because no new FS
   // events arrive once chokidar is closed and the buffers are cleared.
-  while (inflight.size > 0) {
-    await Promise.allSettled([...inflight]);
+  while (state.inflight.size > 0) {
+    await Promise.allSettled([...state.inflight]);
   }
 }
 
-function resolveWorkspaceRoot(ctx: Parameters<Handler>[1], explicit?: string): string {
-  return explicit ?? requireWorkspaceRoot(ctx);
+/** Emit a host-facing event tagged with this watcher's root, so the main
+ *  process can deliver it only to windows bound to that workspace. */
+function emit(state: WatcherState, event: WatcherEvent): void {
+  watcherEvents.emit('event', { ...event, workspaceRoot: state.root });
 }
 
 /**
@@ -93,11 +111,6 @@ interface PendingAdd {
   finalize: () => Promise<void>;
 }
 
-/** Module-private buffers. unlinks wait for a matching add; adds wait
- *  for a matching unlink (handles out-of-order arrival). */
-const pendingUnlinks = new Map<string, PendingUnlink>();
-const pendingAdds = new Map<string, PendingAdd>();
-
 function parentDir(relPath: string): string {
   const ix = relPath.lastIndexOf('/');
   return ix === -1 ? '' : relPath.slice(0, ix);
@@ -105,7 +118,8 @@ function parentDir(relPath: string): string {
 
 /** Find a pending entry (from either buffer) that matches the incoming
  *  event's parent dir + extension + isDir. Generic over the buffer's
- *  PendingEntry shape since both use `event: WatcherFsEvent`.
+ *  PendingEntry shape since both use `event: WatcherFsEvent`. The buffer is
+ *  already per-workspace, so matching can never pair across roots.
  *
  *  Requires a UNIQUE match: if two or more buffered entries match the
  *  criteria, returns null. A rename is a 1:1 pairing — when several
@@ -135,7 +149,7 @@ export function findCounterpart<T extends { event: WatcherFsEvent }>(
 }
 
 async function emitRename(
-  ctx: Parameters<Handler>[1],
+  state: WatcherState,
   pending: PendingUnlink,
   add: WatcherFsEvent,
 ): Promise<void> {
@@ -143,12 +157,10 @@ async function emitRename(
   const from = pending.event.relPath;
   const to = add.relPath;
   try {
-    await ctx.run('badge.rename', { from, to, kind });
+    await state.ctx.run('badge.rename', { from, to, kind });
   } catch (err) {
-    // badge.rename throws when there's no source badge — the common case now that
-    // badges are sparse (the renamed file was unannotated). Do the liveness work it
-    // normally cascades, so a sparse rename isn't lossy, then fall through to emit
-    // the rename side-channel below.
+    // UnknownCommand = the badges module isn't registered (a test wiring only
+    // the watcher) — nothing to cascade, and no host needs the rename signal.
     if (err instanceof Error && err.name === 'UnknownCommand') return;
     console.warn('[bh:watcher] badge.rename fell back:', err);
     // markOrphan flags the source badge as gone (or no-ops when there was none).
@@ -156,13 +168,13 @@ async function emitRename(
     // a focused node that was renamed dangles until the watcher-cascade step moves
     // the whole mirror node + repoints current_focus (deferred). focus.pruneDangling
     // (run on workspace open) clears a current_focus left pointing at the gone file.
-    await ctx.run('badge.markOrphan', { file: from, kind });
+    await state.ctx.run('badge.markOrphan', { file: from, kind });
   }
   // Side-channel: tell hosts a rename happened (NavTree refresh, currentFile
   // rebinding, canvas re-render). Emitted for BOTH the badged-rename and the
   // sparse fallback, so an open editor/tab on an unannotated file rebinds to the
   // new path instead of staying stuck on the vanished one.
-  watcherEvents.emit('event', {
+  emit(state, {
     type: 'rename',
     fromRelPath: from,
     toRelPath: to,
@@ -183,31 +195,31 @@ async function emitRename(
  * Buffering both directions handles macOS FSEvents delivering events
  * out of order or with variable latency.
  */
-async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Promise<void> {
+async function handleEvent(state: WatcherState, event: WatcherEvent): Promise<void> {
   if (event.type === 'rename') {
     // Synthetic events never come back through here — they're only
     // emitted out via watcherEvents. Defensive no-op.
-    watcherEvents.emit('event', event);
+    emit(state, event);
     return;
   }
   // Side-channel for hosts (Electron main) to react to FS events.
-  watcherEvents.emit('event', event);
+  emit(state, event);
   try {
     if (event.type === 'add') {
       // If an unlink for a matching path is already buffered, pair them
       // as a rename (unlink-first ordering — the common case).
-      const unlinkMatch = findCounterpart(pendingUnlinks, event);
+      const unlinkMatch = findCounterpart(state.pendingUnlinks, event);
       if (unlinkMatch) {
         clearTimeout(unlinkMatch.timer);
-        pendingUnlinks.delete(unlinkMatch.event.relPath);
-        await emitRename(ctx, unlinkMatch, event);
+        state.pendingUnlinks.delete(unlinkMatch.event.relPath);
+        await emitRename(state, unlinkMatch, event);
         return;
       }
       // No pending unlink yet — buffer this add briefly in case the unlink
       // arrives shortly (add-first ordering, common under FSEvents on macOS).
       // If no unlink arrives in time, finalize the add.
       const finalize = async (): Promise<void> => {
-        pendingAdds.delete(event.relPath);
+        state.pendingAdds.delete(event.relPath);
         try {
           const kind = event.isDir ? 'folder' : 'file';
           // No eager materialization: a brand-new file gets NO badge — badges are
@@ -217,12 +229,15 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
           // ANNOTATED file re-appeared at the same path, clear its orphan flag so it
           // is live again. (Focus is a viewport mirror — there is no folder brief to
           // re-join, so a brand-new unannotated file needs nothing further.)
-          const existing = (await ctx.run('badge.get', {
+          const existing = (await state.ctx.run('badge.get', {
             file: event.relPath,
             kind,
           })) as { orphan?: boolean } | null;
           if (existing?.orphan === true) {
-            await ctx.run('badge.set', { file: event.relPath, patch: { kind, orphan: false } });
+            await state.ctx.run('badge.set', {
+              file: event.relPath,
+              patch: { kind, orphan: false },
+            });
           }
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
@@ -230,26 +245,26 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
         }
       };
       const timer = setTimeout(() => {
-        track(finalize());
+        track(state, finalize());
       }, RENAME_WINDOW_MS);
       // Clear any prior timer for this path before overwriting its buffer
       // entry — a duplicate add within the window would otherwise leave the
       // old setTimeout running (it fires uselessly, and its finalize deletes
       // the entry the new timer is tracking).
-      const prevAdd = pendingAdds.get(event.relPath);
+      const prevAdd = state.pendingAdds.get(event.relPath);
       if (prevAdd) clearTimeout(prevAdd.timer);
-      pendingAdds.set(event.relPath, { event, timer, finalize });
+      state.pendingAdds.set(event.relPath, { event, timer, finalize });
     } else if (event.type === 'unlink') {
       // If an add for a matching path is already buffered, pair them as
       // a rename (add-first ordering — the FSEvents-out-of-order case).
-      const addMatch = findCounterpart(pendingAdds, event);
+      const addMatch = findCounterpart(state.pendingAdds, event);
       if (addMatch) {
         clearTimeout(addMatch.timer);
-        pendingAdds.delete(addMatch.event.relPath);
+        state.pendingAdds.delete(addMatch.event.relPath);
         // emitRename expects (unlink, add) ordering; build a synthetic
         // PendingUnlink wrapper around this event.
         await emitRename(
-          ctx,
+          state,
           { event, timer: setTimeout(() => undefined, 0), finalize: async () => undefined },
           addMatch.event,
         );
@@ -258,28 +273,28 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       // No pending add — buffer the unlink. If nothing arrives, the
       // timer fires markOrphan as before.
       const finalize = async (): Promise<void> => {
-        pendingUnlinks.delete(event.relPath);
+        state.pendingUnlinks.delete(event.relPath);
         try {
-          await ctx.run('badge.markOrphan', {
+          await state.ctx.run('badge.markOrphan', {
             file: event.relPath,
             kind: event.isDir ? 'folder' : 'file',
           });
           // If the deleted node was the CURRENT focus, clear the now-dangling
           // current_focus symlink (cheap: one readlink + one stat; no-ops otherwise).
-          await ctx.run('focus.pruneDangling', {});
+          await state.ctx.run('focus.pruneDangling', {});
         } catch (err) {
           if (err instanceof Error && err.name === 'UnknownCommand') return;
           console.error('[bh:watcher] markOrphan failed on buffered unlink', event, err);
         }
       };
       const timer = setTimeout(() => {
-        track(finalize());
+        track(state, finalize());
       }, RENAME_WINDOW_MS);
       // Clear any prior timer for this path (see the matching note on the
       // add buffer above) so a duplicate unlink doesn't leak a timer.
-      const prevUnlink = pendingUnlinks.get(event.relPath);
+      const prevUnlink = state.pendingUnlinks.get(event.relPath);
       if (prevUnlink) clearTimeout(prevUnlink.timer);
-      pendingUnlinks.set(event.relPath, { event, timer, finalize });
+      state.pendingUnlinks.set(event.relPath, { event, timer, finalize });
     }
     // 'change' is renderer-side concern (file content changed); no badge state
     // change required at the core level.
@@ -289,77 +304,98 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
   }
 }
 
-/** Flush all pending unlinks AND adds immediately (use on
- *  watcher.stop / restart so buffered events don't get applied to the
- *  wrong workspace after a switch). */
-async function flushPendingBuffers(): Promise<void> {
-  const unlinks = Array.from(pendingUnlinks.values());
-  pendingUnlinks.clear();
+/** Flush all pending unlinks AND adds immediately (use on watcher.stop so
+ *  buffered events don't get stranded mid-window when the watcher tears down). */
+async function flushPendingBuffers(state: WatcherState): Promise<void> {
+  const unlinks = Array.from(state.pendingUnlinks.values());
+  state.pendingUnlinks.clear();
   for (const p of unlinks) {
     clearTimeout(p.timer);
     await p.finalize().catch(() => undefined);
   }
-  const adds = Array.from(pendingAdds.values());
-  pendingAdds.clear();
+  const adds = Array.from(state.pendingAdds.values());
+  state.pendingAdds.clear();
   for (const p of adds) {
     clearTimeout(p.timer);
     await p.finalize().catch(() => undefined);
   }
 }
 
-export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (args, ctx) => {
-  const root = resolveWorkspaceRoot(ctx, args.workspaceRoot);
-  if (runningWatcher && runningRoot === root) {
-    return { active: true, workspaceRoot: root };
+export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (_args, ctx) => {
+  const root = requireWorkspaceRoot(ctx);
+  // Idempotent + concurrency-safe: a window calls watcher.start on every refresh,
+  // and two overlapping refreshes for the same root must not EACH build a chokidar
+  // instance (the second would clobber the map and leak the first). CLAIM the map
+  // slot synchronously, BEFORE the async create — so a concurrent start sees it and
+  // short-circuits instead of double-creating.
+  if (watchers.has(root)) return { active: true, workspaceRoot: root };
+  const state: WatcherState = {
+    root,
+    // ctx already carries `root` (the bh:run injection / bound test core), so
+    // its composing ctx.run keeps every cascade in this workspace.
+    ctx,
+    watcher: null,
+    pendingUnlinks: new Map(),
+    pendingAdds: new Map(),
+    inflight: new Set(),
+  };
+  watchers.set(root, state);
+  try {
+    state.watcher = await createChokidarWatcher(root, (event) =>
+      track(state, handleEvent(state, event)),
+    );
+  } catch (err) {
+    // Creation failed — drop the half-built slot so a later start can retry. Guard
+    // by identity: a concurrent stop+start may already have replaced our entry.
+    if (watchers.get(root) === state) watchers.delete(root);
+    throw err;
   }
-  if (runningWatcher) {
-    // Flush buffered unlinks before tearing down — otherwise an unlink that
-    // arrived just before a workspace switch could fire markOrphan against
-    // the new workspace's root.
-    await flushPendingBuffers();
-    await runningWatcher.close();
-    await drainInflight();
-    runningWatcher = null;
-    runningRoot = null;
-  }
-  runningWatcher = await createChokidarWatcher(root, (event) => track(handleEvent(ctx, event)));
-  runningRoot = root;
   return { active: true, workspaceRoot: root };
 };
 
-export const stop: Handler<WatcherStopArgs, WatcherStopResult> = async () => {
-  if (!runningWatcher) return { stopped: false };
-  await flushPendingBuffers();
-  await runningWatcher.close();
+export const stop: Handler<WatcherStopArgs, WatcherStopResult> = async (_args, ctx) => {
+  // Stop only THIS call's workspace watcher — other windows' watchers keep running.
+  const root = ctx.workspaceRoot;
+  if (root == null) return { stopped: false };
+  const state = watchers.get(root);
+  if (!state) return { stopped: false };
+  // Remove this state's slot UP-FRONT (before the async teardown), so a concurrent
+  // start for the same root — e.g. a fast switch-away-then-back — creates a FRESH
+  // watcher instead of short-circuiting onto this one as it closes (which would
+  // leave the root silently unwatched once this stop deletes + closes it).
+  watchers.delete(root);
+  await flushPendingBuffers(state);
+  if (state.watcher) await state.watcher.close();
   // Wait for any handler/finalize already in flight to land before declaring
-  // the watcher stopped, so a switch can't leave a write racing the next root.
-  await drainInflight();
-  runningWatcher = null;
-  runningRoot = null;
+  // the watcher stopped, so a teardown can't leave a write racing.
+  await drainInflight(state);
   return { stopped: true };
 };
 
-export const status: Handler<WatcherStatusArgs, WatcherStatusResult> = async () => ({
-  active: runningWatcher !== null,
-  workspaceRoot: runningRoot,
-});
+export const status: Handler<WatcherStatusArgs, WatcherStatusResult> = async (_args, ctx) => {
+  const root = ctx.workspaceRoot ?? null;
+  const active = root != null && watchers.has(root);
+  return { active, workspaceRoot: active ? root : null };
+};
 
-// Test-only: reset module state. Exported so vitest can clean between tests
+// Test-only: reset ALL watcher state. Exported so vitest can clean between tests
 // without exposing a real `watcher.reset` to user-facing CLIs.
 export async function _resetForTests(): Promise<void> {
-  // Eagerly drop any in-flight rename buffers so they don't fire against
-  // the NEXT test's workspace.
-  for (const p of pendingUnlinks.values()) clearTimeout(p.timer);
-  pendingUnlinks.clear();
-  for (const p of pendingAdds.values()) clearTimeout(p.timer);
-  pendingAdds.clear();
-  if (runningWatcher) await runningWatcher.close();
-  // Drain in-flight handlers/finalizes so a write can't land in the NEXT
-  // test's torn-down workspace (the source of "No current workspace" /
-  // ENOTEMPTY / mid-write BadgeCorrupt flakes in watcher.test.ts).
-  await drainInflight();
-  runningWatcher = null;
-  runningRoot = null;
+  const all = [...watchers.values()];
+  watchers.clear();
+  for (const state of all) {
+    // Eagerly drop any in-flight rename buffers so they don't fire against
+    // the NEXT test's workspace.
+    for (const p of state.pendingUnlinks.values()) clearTimeout(p.timer);
+    state.pendingUnlinks.clear();
+    for (const p of state.pendingAdds.values()) clearTimeout(p.timer);
+    state.pendingAdds.clear();
+    if (state.watcher) await state.watcher.close();
+    // Drain in-flight handlers/finalizes so a write can't land in the NEXT
+    // test's torn-down workspace (the source of "No current workspace" /
+    // ENOTEMPTY / mid-write BadgeCorrupt flakes in watcher.test.ts).
+    await drainInflight(state);
+  }
 }
 
 export function commands(): ReadonlyArray<

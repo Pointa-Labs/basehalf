@@ -111,6 +111,27 @@ describe('watcher module', { retry: 2 }, () => {
     expect(result.stopped).toBe(false);
   });
 
+  it('start after stop for the same root creates a FRESH, working watcher', async () => {
+    // stop removes the root's slot up-front, so a subsequent start for the same
+    // root must build a new watcher (not short-circuit onto the torn-down one and
+    // leave the root silently unwatched — the fast switch-away-then-back case).
+    await core.run('watcher.start', {});
+    await core.run('watcher.stop', {});
+    expect((await core.run('watcher.status', {})).active).toBe(false);
+    // Pre-seed an annotated file (no pending add to confuse the rename buffer),
+    // re-start the SAME root, then delete it — the re-started watcher must react.
+    await writeFile(join(workspaceRoot, 'note.md'), 'hi');
+    await core.run('badge.set', { file: 'note.md', patch: { description: 'd' } });
+    await core.run('watcher.start', {});
+    expect((await core.run('watcher.status', {})).active).toBe(true);
+    await unlink(join(workspaceRoot, 'note.md'));
+    const badge = (await waitFor(
+      () => core.run('badge.get', { file: 'note.md' }),
+      (b) => (b as BadgeFile | null)?.orphan === true,
+    )) as BadgeFile;
+    expect(badge.orphan).toBe(true);
+  });
+
   it('reacts to file add: creates NO badge (files are a sparse overlay)', async () => {
     await core.run('watcher.start', {});
     await writeFile(join(workspaceRoot, 'note.md'), 'hi');
@@ -151,11 +172,12 @@ describe('watcher module', { retry: 2 }, () => {
   it("a watcher's buffered unlink can never orphan a sibling workspace's same-named file", async () => {
     // Before the per-window refactor a global "current" could drift between
     // buffering an unlink in A and its finalize firing, so the finalize needed a
-    // `stillCurrent` guard. Now each watcher.start captures a ctx BOUND to its
-    // workspace, so A's buffered finalize resolves against A by construction — B's
-    // live same-named file is structurally untouchable. (A workspace switch is a
-    // window reload → a fresh watcher bound to B; we model the two roots with
-    // explicit per-call `{ workspaceRoot }`.)
+    // `stillCurrent` guard. Now the watcher keeps PER-ROOT state (Map<root, …>):
+    // A and B each get their own watcher + buffers + ctx bound to their workspace,
+    // running side by side. A's buffered unlink finalize resolves against A's ctx
+    // by construction, so B's live same-named file is structurally untouchable —
+    // no guard needed. (Two windows = two roots; we model them with explicit
+    // per-call `{ workspaceRoot }`.)
     const wsB = await mkdtemp(join(tmpdir(), 'bh-watcher-wsB-'));
     try {
       // A has shared.md (annotated); B has its own shared.md (annotated, live).

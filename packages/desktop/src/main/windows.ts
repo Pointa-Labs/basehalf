@@ -29,6 +29,13 @@ export function getWorkspaceRoot(wc: WebContents): string | null {
   return rootByWebContentsId.get(wc.id) ?? null;
 }
 
+/** The workspace root bound to a webContents id. Used in the `closed` handler,
+ *  where the WebContents object is already destroyed but its id was captured at
+ *  bind time — to decide whether the closing window's watcher is now orphaned. */
+export function getWorkspaceRootById(webContentsId: number): string | null {
+  return rootByWebContentsId.get(webContentsId) ?? null;
+}
+
 /** Drop a window's binding when it's destroyed, so a stale id can't linger. Takes
  *  the numeric webContents id (captured at bind time) because the WebContents
  *  object is already destroyed by the time the window's `closed` event fires. */
