@@ -463,14 +463,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // Hold the busy lock ACROSS the picker (like pickAndAdd) — else other
       // workspace-mutating actions (⌘O / Remove / a palette switch, reachable via
       // the app menu while the native picker sheet is open) can interleave with
-      // this repath. Reset it on the cancel path.
+      // this repath. The picker runs INSIDE the try so a picker rejection (a
+      // platform-level dialog error) can't escape with busy stuck true — that would
+      // wedge every workspace action AND disable this screen's own recovery buttons.
       set({ busy: true });
-      const newPath = await window.bh.pickWorkspace();
-      if (!newPath) {
-        set({ busy: false });
-        return;
-      }
       try {
+        const newPath = await window.bh.pickWorkspace();
+        if (!newPath) return; // cancelled — finally resets busy
         // Flush+gate the open editor before the reload (see pickAndAdd).
         if ((await flushAll()) === false) {
           set({ error: "Save or resolve this file's changes before relocating a workspace." });

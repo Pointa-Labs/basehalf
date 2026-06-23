@@ -42,28 +42,38 @@ describe('window-state per-workspace map', () => {
     expect(geometryFor(file, '/never/sized')).toEqual({ width: 800, height: 600 });
   });
 
-  it('saves a window under its workspace key and records the open set', async () => {
-    await saveWindowState(configDir, '/ws/a', geom({ x: 10, y: 20 }), ['/ws/a']);
+  it('saves a window under its workspace key (geometry only; sync writers own `open`)', async () => {
+    await saveWindowState(configDir, '/ws/a', geom({ x: 10, y: 20 }));
     const file = await readWindowStates(configDir);
     expect(file.windows['/ws/a']).toEqual({ width: 1000, height: 700, x: 10, y: 20 });
-    expect(file.open).toEqual(['/ws/a']);
+    // A geometry write does NOT touch the session set — that's the close/quit writers'.
+    expect(file.open).toEqual([]);
   });
 
   it('a second workspace gets its own slot without clobbering the first', async () => {
-    await saveWindowState(configDir, '/ws/a', geom({ x: 1 }), ['/ws/a']);
-    await saveWindowState(configDir, '/ws/b', geom({ x: 2 }), ['/ws/b']);
+    await saveWindowState(configDir, '/ws/a', geom({ x: 1 }));
+    await saveWindowState(configDir, '/ws/b', geom({ x: 2 }));
     const file = await readWindowStates(configDir);
     expect(file.windows['/ws/a']).toMatchObject({ x: 1 });
     expect(file.windows['/ws/b']).toMatchObject({ x: 2 });
-    // `open` reflects the most recent save's reported live set.
-    expect(file.open).toEqual(['/ws/b']);
+  });
+
+  it('a geometry write does not clobber the `open` set a sync (close/quit) write owns', async () => {
+    // The fix for the sync-vs-async race: after a window-close sync write records
+    // open=['/ws/b'] (A deliberately closed), a still-pending geometry debounce for
+    // B must NOT rewrite open back to include A and resurrect it next launch.
+    saveWindowStateSync(configDir, '/ws/b', geom({ x: 2 }), ['/ws/b']);
+    await saveWindowState(configDir, '/ws/b', geom({ x: 3 }));
+    const file = await readWindowStates(configDir);
+    expect(file.open).toEqual(['/ws/b']); // preserved, not resurrected
+    expect(file.windows['/ws/b']).toMatchObject({ x: 3 }); // geometry still updated
   });
 
   it('serializes concurrent async saves so neither slot is lost', async () => {
     // Fire both without awaiting between them — the write chain must merge both.
     await Promise.all([
-      saveWindowState(configDir, '/ws/a', geom({ x: 1 }), ['/ws/a', '/ws/b']),
-      saveWindowState(configDir, '/ws/b', geom({ x: 2 }), ['/ws/a', '/ws/b']),
+      saveWindowState(configDir, '/ws/a', geom({ x: 1 })),
+      saveWindowState(configDir, '/ws/b', geom({ x: 2 })),
     ]);
     const file = await readWindowStates(configDir);
     expect(file.windows['/ws/a']).toMatchObject({ x: 1 });
@@ -76,11 +86,9 @@ describe('window-state per-workspace map', () => {
     // global, so this rejection must not disable a subsequent good save.
     const fileAsDir = join(configDir, 'not-a-dir');
     await writeFile(fileAsDir, 'x');
-    await expect(
-      saveWindowState(join(fileAsDir, 'sub'), '/ws/a', geom(), ['/ws/a']),
-    ).rejects.toBeTruthy();
+    await expect(saveWindowState(join(fileAsDir, 'sub'), '/ws/a', geom())).rejects.toBeTruthy();
     // The later save to a GOOD dir still runs despite the chain having just rejected.
-    await saveWindowState(configDir, '/ws/b', geom({ x: 9 }), ['/ws/b']);
+    await saveWindowState(configDir, '/ws/b', geom({ x: 9 }));
     const file = await readWindowStates(configDir);
     expect(file.windows['/ws/b']).toMatchObject({ x: 9 });
   });
@@ -96,14 +104,13 @@ describe('window-state per-workspace map', () => {
   });
 
   it('the welcome window stores under the empty-string sentinel key', async () => {
-    await saveWindowState(configDir, WELCOME_KEY, geom(), [WELCOME_KEY]);
+    await saveWindowState(configDir, WELCOME_KEY, geom());
     const file = await readWindowStates(configDir);
     expect(file.windows[WELCOME_KEY]).toBeDefined();
-    expect(file.open).toEqual([WELCOME_KEY]);
   });
 
   it('the sync save preserves OTHER workspaces’ remembered slots', async () => {
-    await saveWindowState(configDir, '/ws/a', geom({ x: 1 }), ['/ws/a']);
+    await saveWindowState(configDir, '/ws/a', geom({ x: 1 }));
     // Quit-time sync write for window B must not drop A's remembered geometry.
     saveWindowStateSync(configDir, '/ws/b', geom({ x: 2 }), ['/ws/b']);
     const file = await readWindowStates(configDir);

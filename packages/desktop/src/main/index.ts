@@ -168,19 +168,17 @@ function persistWindowState(win: BrowserWindow): void {
   if (win.isDestroyed()) return;
   const bounds = win.getBounds();
   const key = getWorkspaceRoot(win.webContents) ?? WELCOME_KEY;
-  void saveWindowState(
-    configDir,
-    key,
-    {
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-      isMaximized: win.isMaximized(),
-      zoomLevel: getZoomLevel(win),
-    },
-    currentOpenKeys(),
-  );
+  // Geometry only — the `open` session set is owned by the sync close/quit writers
+  // (a geometry debounce must not rewrite `open`, or it could resurrect a window
+  // the user just closed; see saveWindowState).
+  void saveWindowState(configDir, key, {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    isMaximized: win.isMaximized(),
+    zoomLevel: getZoomLevel(win),
+  });
 }
 
 /** Resolve a workspace NAME to its registered path (null if unknown / not a name). */
@@ -666,6 +664,13 @@ function flushWindowForQuit(win: BrowserWindow): Promise<boolean> {
 // isQuitting and skip their `open`-set reduction so the session isn't shrunk to [].
 app.on('before-quit', (e) => {
   if (flushedAllForQuit) return; // resumed quit → let it proceed
+  if (isQuitting) {
+    // A flush from a prior ⌘Q is still in flight (e.g. an impatient double ⌘Q).
+    // Keep the quit paused and let that first pass decide — re-quit or re-arm —
+    // instead of launching a second competing flush.
+    e.preventDefault();
+    return;
+  }
   persistAllWindowsSync(); // full session snapshot (all windows still alive)
   e.preventDefault(); // pause the quit while we flush
   isQuitting = true;
