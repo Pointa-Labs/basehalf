@@ -13,6 +13,7 @@
     "typecheck": "tsc -b",
     "lint": "biome check src test",
     "test": "vitest run",
+    "verify:ui": "node test/verify-ui.mjs",
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {

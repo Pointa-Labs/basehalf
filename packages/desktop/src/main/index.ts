@@ -111,6 +111,14 @@ const MIN_ZOOM_LEVEL = -8;
 const MAX_ZOOM_LEVEL = 8;
 const zoomLevels = new Map<number, number>();
 
+// Quit coordination. A per-window 'close' handler that preventDefaults to flush
+// async would VETO an app.quit() (on macOS the windows then close but the app
+// stays alive — ⌘Q wouldn't quit on the first press). So the flush for a QUIT is
+// driven from before-quit (which pauses the quit, flushes ALL windows, then
+// re-quits); `isQuitting` tells the per-window handlers to step aside during that.
+let isQuitting = false;
+let flushedAllForQuit = false;
+
 function getZoomLevel(win: BrowserWindow | null): number {
   if (!win || win.isDestroyed()) return 0;
   return zoomLevels.get(win.webContents.id) ?? 0;
@@ -402,7 +410,10 @@ async function createWindow(workspaceRoot: string | null): Promise<BrowserWindow
         zoomLevel: getZoomLevel(win),
       };
     }
-    if (flushedForClose || win.isDestroyed()) return;
+    // During a quit, before-quit drives the flush for ALL windows; the per-window
+    // handshake must NOT preventDefault here (it would veto the quit). A plain
+    // single-window close (⇧⌘W / red button, not quitting) still flushes below.
+    if (isQuitting || flushedForClose || win.isDestroyed()) return;
     e.preventDefault();
     const cleanup = (): void => {
       clearTimeout(timer);
@@ -484,13 +495,15 @@ async function createWindow(workspaceRoot: string | null): Promise<BrowserWindow
     zoomLevels.delete(wcId);
     void stopWatcherIfOrphaned(closedRoot);
     // Persist THIS window's final geometry under its own key + the now-reduced
-    // `open` set. currentOpenKeys() excludes this just-destroyed window, so the
-    // closed workspace drops out of `open` and won't spuriously reopen next launch
-    // — INCLUDING the macOS last-window-close case (the app stays alive, before-quit
-    // later loops zero windows and writes nothing, so this is the only write that
-    // drops it). Also saves a last-second resize the 500ms debounce missed. Sync so
-    // it lands before any in-progress quit.
-    if (lastGeometry) {
+    // `open` set. currentOpenKeys() excludes this just-destroyed window, so a
+    // deliberately-closed workspace drops out of `open` and won't spuriously reopen
+    // next launch (incl. the macOS last-window-close case). Also saves a last-second
+    // resize the 500ms debounce missed. Sync so it lands promptly.
+    //
+    // EXCEPT during a quit: there, before-quit already wrote the FULL session
+    // `open` (all windows still alive then) — so reducing it here as each window
+    // closes would shrink the session to [] and lose the restore. Skip when quitting.
+    if (lastGeometry && !isQuitting) {
       try {
         saveWindowStateSync(configDir, closedRoot ?? WELCOME_KEY, lastGeometry, currentOpenKeys());
       } catch {
@@ -581,14 +594,10 @@ app.whenReady().then(async () => {
   });
 });
 
-// Sync save on quit so the debounced async writes don't get cut off mid-flight.
-// Persist EVERY live window's geometry under its own workspace key (each window
-// restores its own slot); `open` (currentOpenKeys) records the session to restore.
-// We do NOT dispose terminals here: before-quit can be CANCELLED by a window's
-// close handshake (a blocked flush), and killing every window's shells before the
-// quit is confirmed would orphan the agents running in the windows that survive.
-// Terminal disposal moves to will-quit (fires only once the quit is committed).
-app.on('before-quit', () => {
+/** Persist EVERY live window's geometry under its own workspace key + the full
+ *  session `open` set — the authoritative snapshot written at quit (all windows
+ *  still alive). Sync so it lands before the process exits. */
+function persistAllWindowsSync(): void {
   const open = currentOpenKeys();
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
@@ -612,6 +621,68 @@ app.on('before-quit', () => {
       // Best-effort; never block quit on persistence failures.
     }
   }
+}
+
+/** Ask ONE window's renderer to flush its editors; resolve whether it's OK to
+ *  proceed (false = a disk conflict / failed write is blocking). A hung/dead
+ *  renderer resolves true after a timeout — a quit must never be un-cancellably
+ *  trapped. Reply correlated by event.sender so windows don't cross wires. */
+function flushWindowForQuit(win: BrowserWindow): Promise<boolean> {
+  return new Promise((resolve) => {
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      ipcMain.removeListener('app:flush-reply', onReply);
+    };
+    function onReply(evt: Electron.IpcMainEvent, ok: unknown): void {
+      if (win.isDestroyed()) {
+        cleanup();
+        resolve(true);
+        return;
+      }
+      if (evt.sender !== win.webContents) return;
+      cleanup();
+      resolve(ok !== false);
+    }
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(true);
+    }, 3000);
+    ipcMain.on('app:flush-reply', onReply);
+    try {
+      win.webContents.send('app:flush-request');
+    } catch {
+      cleanup();
+      resolve(true);
+    }
+  });
+}
+
+// Quit coordination. A QUIT flushes here (NOT per-window) so the flush doesn't
+// veto the quit (on macOS that left the windows closed but the app alive — ⌘Q
+// didn't quit on the first press). First pass: persist the session, pause the
+// quit, flush ALL windows, then re-quit. A blocked flush (open disk conflict)
+// CANCELS the quit so the user can resolve it. Terminal disposal is in will-quit
+// (only once the quit is committed). The per-window 'closed' handlers see
+// isQuitting and skip their `open`-set reduction so the session isn't shrunk to [].
+app.on('before-quit', (e) => {
+  if (flushedAllForQuit) return; // resumed quit → let it proceed
+  persistAllWindowsSync(); // full session snapshot (all windows still alive)
+  e.preventDefault(); // pause the quit while we flush
+  isQuitting = true;
+  void Promise.all(
+    BrowserWindow.getAllWindows()
+      .filter((w) => !w.isDestroyed())
+      .map(flushWindowForQuit),
+  ).then((results) => {
+    if (results.some((ok) => ok === false)) {
+      // A window's flush is blocked by a conflict — cancel the quit (its banner is
+      // up); re-arm so a later ⌘Q retries.
+      isQuitting = false;
+      return;
+    }
+    flushedAllForQuit = true;
+    app.quit(); // resume; this pass short-circuits and the per-window closes step aside
+  });
 });
 
 // Reap any surviving pty only once the quit is COMMITTED (will-quit fires after
