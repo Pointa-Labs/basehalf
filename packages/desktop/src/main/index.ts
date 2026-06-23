@@ -160,6 +160,16 @@ async function stopWatcherIfOrphaned(root: string | null): Promise<void> {
   }
 }
 
+/** Record that a window just opened this workspace — bumps its `lastOpenedAt` so
+ *  the "recent workspaces" surfaces order it first. Fire-and-forget: a failed
+ *  touch only costs recency ordering, never blocks the open. */
+function touchWorkspace(root: string | null): void {
+  if (root === null) return;
+  void core.run('workspace.touch', { path: root }, { workspaceRoot: root }).catch(() => {
+    // Best-effort; recency is a nicety, not a correctness invariant.
+  });
+}
+
 // Persist ONE window's bounds + zoom under its own workspace key, so each
 // workspace remembers its own geometry. Per-window now (move/resize listeners
 // debounce a call to this with their specific window); zoom steps call it
@@ -204,6 +214,7 @@ async function rootForName(name: unknown): Promise<string | null> {
 function rebindAndReload(win: BrowserWindow, root: string | null): void {
   const previousRoot = getWorkspaceRoot(win.webContents);
   setWorkspaceRoot(win.webContents, root);
+  touchWorkspace(root);
   persistWindowState(win);
   // Stop the old workspace's watcher if no window shows it anymore (checked AFTER
   // the rebind); dispose only THIS window's terminals so the reloaded page
@@ -360,6 +371,7 @@ async function createWindow(workspaceRoot: string | null): Promise<BrowserWindow
   // reloads + rebinds. Capture the numeric webContents id for the `closed`
   // cleanup (the WebContents is destroyed by then).
   setWorkspaceRoot(win.webContents, workspaceRoot);
+  touchWorkspace(workspaceRoot);
   const wcId = win.webContents.id;
 
   // Navigation lockdown. A workspace can hold Markdown authored by someone else

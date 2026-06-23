@@ -11,6 +11,10 @@ export interface WorkspaceEntry {
   readonly name: string;
   readonly path: string;
   readonly addedAt: string;
+  /** ISO timestamp a window last opened this workspace — bumped by
+   *  `workspace.touch` on every open. Drives the "recent workspaces" ordering
+   *  (welcome list / Dock recent / File ▸ Open Recent). Absent until first opened. */
+  readonly lastOpenedAt?: string;
   /** Last canvas viewport (pan + zoom). Restored on workspace.use. */
   readonly viewport?: ViewportState;
 }
@@ -83,6 +87,19 @@ export interface WorkspaceUseArgs {
 }
 export interface WorkspaceUseResult {
   readonly current: WorkspaceEntry;
+}
+
+/** `workspace.touch({ path })` — bump the registered workspace at `path`'s
+ *  `lastOpenedAt` to now. By PATH (the folder identity), so the desktop can call
+ *  it with a window's bound root without resolving a name. A no-op (`touched:
+ *  false`) when the path isn't registered. */
+export interface WorkspaceTouchArgs {
+  readonly path: string;
+}
+export interface WorkspaceTouchResult {
+  readonly touched: boolean;
+  readonly name?: string;
+  readonly lastOpenedAt?: string;
 }
 
 export type WorkspaceCurrentArgs = Record<string, never>;

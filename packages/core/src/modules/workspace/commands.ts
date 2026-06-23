@@ -31,6 +31,8 @@ import type {
   WorkspaceRenameResult,
   WorkspaceRepathArgs,
   WorkspaceRepathResult,
+  WorkspaceTouchArgs,
+  WorkspaceTouchResult,
   WorkspaceUseArgs,
   WorkspaceUseResult,
 } from './types.js';
@@ -63,14 +65,19 @@ function samePath(a: string, b: string): boolean {
  *  call), so each window/call sees its own active workspace, race-free. */
 function boundEntry(
   ctx: Context,
-  data: { workspaces: Record<string, { path: string; addedAt: string }> },
+  data: { workspaces: Record<string, { path: string; addedAt: string; lastOpenedAt?: string }> },
 ): WorkspaceEntry | null {
   if (ctx.workspaceRoot === null) return null;
   const root = ctx.workspaceRoot;
   const found = Object.entries(data.workspaces).find(([, e]) => samePath(e.path, root));
   if (!found) return null;
   const [name, entry] = found;
-  return { name, path: entry.path, addedAt: entry.addedAt };
+  return {
+    name,
+    path: entry.path,
+    addedAt: entry.addedAt,
+    ...(entry.lastOpenedAt !== undefined && { lastOpenedAt: entry.lastOpenedAt }),
+  };
 }
 
 /** Derive a registry name that doesn't collide: basename, then basename-2,
@@ -188,6 +195,7 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
       name,
       path: entry.path,
       addedAt: entry.addedAt,
+      ...(entry.lastOpenedAt !== undefined && { lastOpenedAt: entry.lastOpenedAt }),
       ...(entry.viewport !== undefined && { viewport: entry.viewport }),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -218,6 +226,29 @@ export const current: Handler<WorkspaceCurrentArgs, WorkspaceCurrentResult> = as
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const entry = boundEntry(ctx, data);
   return entry === null ? { current: null } : { current: entry };
+};
+
+/**
+ * `workspace.touch({ path })` — record that a window just opened the workspace at
+ * `path` (bump its `lastOpenedAt` to now). Keyed by PATH (the folder identity) so
+ * the desktop can call it with a window's bound root, no name lookup. No-op when
+ * the path isn't registered (`touched: false`). The "recent workspaces" surfaces
+ * (welcome list / Dock recent / Open Recent menu) order by this.
+ */
+export const touch: Handler<WorkspaceTouchArgs, WorkspaceTouchResult> = async (args, ctx) => {
+  const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
+  return withConfigLock(ctx.configDir, async () => {
+    const data = await readWorkspaces(ctx.fs, ctx.configDir);
+    const found = Object.entries(data.workspaces).find(([, e]) => samePath(e.path, absPath));
+    if (!found) return { touched: false };
+    const [name, entry] = found;
+    const lastOpenedAt = new Date().toISOString();
+    await writeWorkspaces(ctx.fs, ctx.configDir, {
+      version: 1,
+      workspaces: { ...data.workspaces, [name]: { ...entry, lastOpenedAt } },
+    });
+    return { touched: true, name, lastOpenedAt };
+  });
 };
 
 /**
@@ -381,6 +412,7 @@ export function commands(): ReadonlyArray<
     ['workspace.list', list as unknown as Handler<never, unknown>],
     ['workspace.use', use as unknown as Handler<never, unknown>],
     ['workspace.current', current as unknown as Handler<never, unknown>],
+    ['workspace.touch', touch as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
     ['workspace.rename', rename as unknown as Handler<never, unknown>],
     ['workspace.repath', repath as unknown as Handler<never, unknown>],

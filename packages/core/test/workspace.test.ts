@@ -42,6 +42,57 @@ describe('workspace module (mock FS)', () => {
     expect(cfg.workspaces.vault?.path).toBe('/my/vault');
   });
 
+  it('touch: bumps lastOpenedAt for the workspace at a path (recency ordering)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/w');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/w', name: 'w' });
+
+    const before = await core.run<
+      Record<string, never>,
+      { workspaces: { name: string; lastOpenedAt?: string }[] }
+    >('workspace.list', {});
+    expect(before.workspaces[0]?.lastOpenedAt).toBeUndefined();
+
+    const res = await core.run<
+      { path: string },
+      { touched: boolean; name?: string; lastOpenedAt?: string }
+    >('workspace.touch', { path: '/w' });
+    expect(res.touched).toBe(true);
+    expect(res.name).toBe('w');
+    expect(typeof res.lastOpenedAt).toBe('string');
+
+    const after = await core.run<
+      Record<string, never>,
+      { workspaces: { name: string; lastOpenedAt?: string }[] }
+    >('workspace.list', {});
+    expect(after.workspaces[0]?.lastOpenedAt).toBe(res.lastOpenedAt);
+  });
+
+  it('touch: matches by path case-insensitively (folder identity)', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/MyVault');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/MyVault', name: 'v' });
+    const res = await core.run<{ path: string }, { touched: boolean; name?: string }>(
+      'workspace.touch',
+      { path: '/myvault' },
+    );
+    expect(res.touched).toBe(true);
+    expect(res.name).toBe('v');
+  });
+
+  it('touch: a path that is not registered is a no-op', async () => {
+    const { fs, dirs } = mockFs();
+    dirs.add('/w');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/w' });
+    const res = await core.run<{ path: string }, { touched: boolean }>('workspace.touch', {
+      path: '/nope',
+    });
+    expect(res.touched).toBe(false);
+  });
+
   it('readFile: maxChars caps returned content + flags truncated', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/v');
