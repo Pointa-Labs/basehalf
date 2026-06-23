@@ -81,28 +81,13 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().openFile).toBe(null);
   });
 
-  it('use() refuses to switch workspace while a conflict is open (flush-all)', async () => {
-    setupOpenFile(async () => false);
-    await store.getState().use('other-ws');
-    expect(store.getState().current).toBe('ws'); // unchanged — no window.bh.run reached
-    expect(store.getState().busy).toBe(false);
-    expect(store.getState().error).toMatch(/save or resolve/i);
-  });
-
-  it('use() does not leak busy when a pre-switch flush REJECTS', async () => {
-    setupOpenFile(async () => {
-      throw new Error('editor torn down');
-    });
-    await store.getState().use('other-ws');
-    expect(store.getState().busy).toBe(false); // NOT stranded
-  });
-
-  it('addDroppedPaths refuses to proceed while a conflict is open', async () => {
-    setupOpenFile(async () => false);
-    await store.getState().addDroppedPaths(['/some/dropped/folder']);
-    expect(store.getState().busy).toBe(false);
-    expect(store.getState().error).toMatch(/save or resolve/i);
-  });
+  // NOTE: use() / addDroppedPaths() / createDemo() no longer gate on this window's
+  // editor conflict. In the multi-window model they OPEN-OR-FOCUS a DIFFERENT
+  // window (or reuse the editor-less welcome window) — THIS window's conflicted
+  // editor is never torn down, so there's nothing to flush or lose. Their
+  // open-or-focus behavior is covered in openFolder.test.ts (with a window.bh
+  // mock). Only the flows that RELOAD this window in place (remove-current,
+  // repath) — and renameWorkspace's refresh — still honor the conflict gate below.
 
   it('createNote gates BEFORE writing the stub (no orphan note on a conflict)', async () => {
     setupOpenFile(async () => false);
@@ -120,14 +105,14 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().currentFile).toBe('z.md');
   });
 
-  // The refresh()-based workspace actions also honor the gate (each returns
-  // before its window.bh.run, so a `false` flush blocks with busy reset).
-  for (const action of ['remove', 'renameWorkspace', 'createDemo'] as const) {
+  // remove-current reloads this window (→ welcome) and renameWorkspace refreshes
+  // it, so both still honor the gate (each returns before its window.bh reaches a
+  // reload, so a `false` flush blocks with busy reset).
+  for (const action of ['remove', 'renameWorkspace'] as const) {
     it(`${action}() refuses while a conflict is open`, async () => {
       setupOpenFile(async () => false);
       if (action === 'remove') await store.getState().remove('ws');
-      else if (action === 'renameWorkspace') await store.getState().renameWorkspace('ws', 'ws2');
-      else await store.getState().createDemo('/some/demo/path');
+      else await store.getState().renameWorkspace('ws', 'ws2');
       expect(store.getState().busy).toBe(false);
       expect(store.getState().error).toMatch(/save or resolve/i);
     });

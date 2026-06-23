@@ -34,11 +34,12 @@ export const TitleBar = (): JSX.Element | null => {
   const [zoomFactor, setZoomFactor] = useState(1);
 
   // The OS window title — shown in the macOS fullscreen title-bar reveal and the
-  // ⌘-Tab / Window list. The PRODUCT name, not the workspace folder name (which
-  // reads like a stray file name in the reveal).
+  // ⌘-Tab / Window list. Now that each window is bound to one workspace
+  // (multi-window), the title is the workspace name so windows are
+  // distinguishable; the welcome/empty window keeps the product name.
   useEffect(() => {
-    document.title = 'BaseHalf';
-  }, []);
+    document.title = current ?? 'BaseHalf';
+  }, [current]);
 
   // Track the window zoom factor for the counter-zoom above. Subscribe to changes
   // (main broadcasts on every View-menu zoom + on load), and read the current

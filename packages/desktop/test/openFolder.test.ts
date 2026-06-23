@@ -1,18 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
 
-// Pin the "Open Folder" semantics (pickAndAdd / addDroppedPaths / remove):
-// opening a folder OPENS it (registers if needed, then switches), re-opening a
-// registered folder switches without erroring, and removing the current
-// workspace ends in the empty state — never auto-jumping to another one.
+// Pin the multi-window "Open Folder" semantics (pickAndAdd / addDroppedPaths /
+// remove): opening a folder OPENS it (registers if needed, then open-or-focuses
+// its window), re-opening a registered folder open-or-focuses without erroring,
+// and removing the current workspace reloads THIS window to the welcome state —
+// never auto-jumping to another one.
 //
-// After the per-window refactor a SWITCH is `window.bh.openWorkspace(name)` —
-// main rebinds the window to that workspace and RELOADS it (so the new bound
-// root rebuilds all state). There is no in-place `current` mutation to assert
-// anymore; the observable is "openWorkspace was called with the right name"
-// (or `null` for the welcome state). The core registry behavior itself (path
-// identity, name suffixing) is unit-tested in @basehalf/core; this mock mirrors
-// its contract.
+// Phase 3 split the single switch verb into two:
+//  - `window.bh.openWorkspace(name)` = OPEN-OR-FOCUS (focus existing / reuse
+//    welcome / new window); returns `{ reused }`. Recorded in `openCalls`.
+//  - `window.bh.reopenWindow(name|null)` = REOPEN THIS window (remove-current →
+//    welcome `null`; repath). Recorded in `reopenCalls`.
+// The core registry behavior itself (path identity, name suffixing) is
+// unit-tested in @basehalf/core; this mock mirrors its contract.
 
 interface WsEntry {
   name: string;
@@ -23,14 +24,24 @@ interface WsEntry {
 let registry: WsEntry[];
 let pickResult: string | null;
 let runCalls: string[];
-/** The switches requested via window.bh.openWorkspace (the reload primitive). */
-let openCalls: (string | null)[];
+/** Workspaces opened-or-focused via window.bh.openWorkspace. */
+let openCalls: string[];
+/** This-window reopens via window.bh.reopenWindow (null = welcome). */
+let reopenCalls: (string | null)[];
 
 const bh = {
   pickWorkspace: async (): Promise<string | null> => pickResult,
-  // A switch reloads the window in production; here we just record the request.
-  openWorkspace: async (name: string | null): Promise<void> => {
+  // Open-or-focus. In production main may focus another window / open a new one
+  // (reused:false → this window stays) or reuse the welcome window (reused:true →
+  // reload). The mock records the request and reports "not reused" (a new/focused
+  // window), so the store takes its stays-alive path (reset busy + refresh).
+  openWorkspace: async (name: string): Promise<{ reused: boolean }> => {
     openCalls.push(name);
+    return { reused: false };
+  },
+  // Reopen THIS window bound to `name` (or welcome `null`) — reloads in production.
+  reopenWindow: async (name: string | null): Promise<void> => {
+    reopenCalls.push(name);
   },
   run: async (name: string, args?: unknown): Promise<unknown> => {
     runCalls.push(name);
@@ -70,6 +81,7 @@ beforeEach(() => {
   pickResult = null;
   runCalls = [];
   openCalls = [];
+  reopenCalls = [];
   (globalThis as { window?: unknown }).window = { bh };
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: () => null,
@@ -147,10 +159,11 @@ describe('remove', () => {
     ];
     useWorkspaceStore.setState({ current: 'a' });
     await useWorkspaceStore.getState().remove('a');
-    // The entry is unregistered, and the window reloads to welcome (null) rather
+    // The entry is unregistered, and THIS window reopens to welcome (null) rather
     // than auto-promoting a survivor.
     expect(registry.map((w) => w.name)).toEqual(['b']);
-    expect(openCalls).toEqual([null]);
+    expect(reopenCalls).toEqual([null]);
+    expect(openCalls).toEqual([]); // not an open-or-focus
   });
 
   it('removing a NON-current workspace just refreshes (no reload)', async () => {
@@ -161,7 +174,8 @@ describe('remove', () => {
     useWorkspaceStore.setState({ current: 'a' });
     await useWorkspaceStore.getState().remove('b');
     expect(registry.map((w) => w.name)).toEqual(['a']);
-    expect(openCalls).toEqual([]); // no window reload
+    expect(reopenCalls).toEqual([]); // no window reload
+    expect(openCalls).toEqual([]);
     expect(runCalls).toContain('workspace.list'); // refreshed instead
   });
 });

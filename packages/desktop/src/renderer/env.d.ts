@@ -8,11 +8,17 @@ interface Window {
     run(name: string, args?: unknown): Promise<unknown>;
     /** Opens the OS folder picker; returns the selected path or null on cancel. */
     pickWorkspace(): Promise<string | null>;
-    /** Switch THIS window to another workspace (by name) or to the welcome state
-     *  (`null`). Main rebinds the window to that workspace and reloads it (a
-     *  switch is a reload-rebind, not an in-place re-point). The caller MUST flush
-     *  its editors first — the reload discards unsaved renderer state. */
-    openWorkspace(name: string | null): Promise<void>;
+    /** OPEN-OR-FOCUS a workspace (by name): focus the window already showing it,
+     *  else reuse THIS window if it's the welcome/empty one (rebind+reload), else
+     *  open a NEW window. `{ reused }`: true = THIS window was reloaded (tearing
+     *  down); false = a different window was focused/created (this one stays). */
+    openWorkspace(name: string): Promise<{ reused: boolean }>;
+    /** REOPEN THIS window bound to a workspace (by name) or welcome (`null`) — the
+     *  in-place rebind+reload flows (remove-current → welcome; repath). Always
+     *  reloads THIS window; flush editors first. */
+    reopenWindow(name: string | null): Promise<void>;
+    /** Open a fresh welcome window. */
+    newWindow(): Promise<void>;
     /** Classify an absolute path from an OS drag payload: 'file' | 'dir' |
      *  null (missing/unreadable). Drop handlers use it to route folders →
      *  add-as-workspace, files → copy-into-workspace. */

@@ -330,6 +330,16 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
     if (found.path === absPath) {
       throw new Error(`Workspace ${args.name} is already at ${absPath}`);
     }
+    // Reject repathing onto a folder ALREADY registered as a DIFFERENT workspace.
+    // Folder identity IS the path (CLAUDE.md), so two names at one path is exactly
+    // the duplicate-registration / two-windows-on-one-root hazard the
+    // one-window-per-workspace model forbids — and `add` guards the same way.
+    const collision = Object.entries(data.workspaces).find(
+      ([name, e]) => name !== args.name && samePath(e.path, absPath),
+    );
+    if (collision) {
+      throw new Error(`That folder is already registered as workspace "${collision[0]}".`);
+    }
     // Ensure .bh/ at the new path so subsequent mirror writes (badge / canvas /
     // focus / adhd YAML) have somewhere to live. Same lifecycle hook as workspace.add.
     const bhStat = await ctx.fs.stat(bhDir);

@@ -65,7 +65,7 @@ export interface ZoomMenuHooks {
  *    matching a mature code editor) instead of Electron's smaller ±0.5 default,
  *    with ⌘0 = Actual Size. The level is owned + persisted by the caller.
  */
-export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
+export function buildAppMenu(zoom: ZoomMenuHooks, onNewWindow: () => void): Menu {
   const zoomIn = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() + 1);
   const zoomOut = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() - 1);
   const resetZoom = (): void => zoom.applyZoomLevel(0);
@@ -107,6 +107,7 @@ export function buildAppMenu(zoom: ZoomMenuHooks): Menu {
     {
       label: 'File',
       submenu: [
+        { label: 'New Window', accelerator: 'Shift+CmdOrCtrl+N', click: () => onNewWindow() },
         { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => emitOpenFolder() },
         { type: 'separator' },
         { label: 'Rename Workspace…', click: () => emitWorkspaceAction('rename') },

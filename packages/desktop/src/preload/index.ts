@@ -37,11 +37,23 @@ const bh = {
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
-  /** Switch THIS window to another workspace (by name) or to the welcome state
-   *  (`null`). Main rebinds the window to that workspace and reloads it — a
-   *  switch is a reload-rebind, not an in-place re-point. The caller MUST flush
-   *  its editors first (the reload discards unsaved renderer state). */
-  openWorkspace: (name: string | null): Promise<void> => ipcRenderer.invoke('workspace:open', name),
+  /** OPEN-OR-FOCUS a workspace (by name) in the multi-window model: main focuses
+   *  the window already showing it, else reuses THIS window if it's the welcome/
+   *  empty one (rebind+reload), else opens a NEW window — the caller keeps its own
+   *  workspace. Returns `{ reused }`: true = THIS window was rebound+reloaded (it's
+   *  tearing down); false = a different window was focused/created (this window
+   *  stays alive, so reset busy + re-list). */
+  openWorkspace: (name: string): Promise<{ reused: boolean }> =>
+    ipcRenderer.invoke('workspace:open', name),
+  /** REOPEN THIS window bound to a workspace (by name) or the welcome state
+   *  (`null`) — the in-place rebind+reload flows: remove-current (→ welcome) and
+   *  repath (the bound path moved under this window). Always reloads THIS window,
+   *  so the caller MUST flush its editors first (the reload discards renderer
+   *  state). */
+  reopenWindow: (name: string | null): Promise<void> =>
+    ipcRenderer.invoke('workspace:reopen', name),
+  /** Open a fresh welcome window (File ▸ New Window / ⇧⌘N also drives this). */
+  newWindow: (): Promise<void> => ipcRenderer.invoke('window:new'),
   /** Classify an absolute path from an OS drag payload: 'file' | 'dir' | null
    *  (missing/unreadable). Lets the drop handler route folders → add-as-
    *  workspace and files → copy-into-workspace. */

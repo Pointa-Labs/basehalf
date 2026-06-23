@@ -508,6 +508,27 @@ describe('workspace module (mock FS)', () => {
     );
   });
 
+  it('repath: throws when target is already registered as a DIFFERENT workspace', async () => {
+    // Folder identity is the path — two names at one path is the duplicate-window
+    // hazard the one-window-per-workspace model forbids (add guards it too).
+    const { fs, dirs } = mockFs();
+    dirs.add('/a');
+    dirs.add('/b');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/a', name: 'a' });
+    await core.run('workspace.add', { path: '/b', name: 'b' });
+    // Repathing 'a' onto /b (already 'b's folder) must be rejected, not silently
+    // create a second registration at /b.
+    await expect(core.run('workspace.repath', { name: 'a', path: '/b' })).rejects.toThrow(
+      /already registered as workspace "b"/,
+    );
+    // 'a' is untouched (still at /a).
+    const list = (await core.run('workspace.list', {}, { workspaceRoot: '/a' })) as {
+      workspaces: { name: string; path: string }[];
+    };
+    expect(list.workspaces.find((w) => w.name === 'a')?.path).toBe('/a');
+  });
+
   it('repath: rebinds only the named workspace, leaving siblings at their paths', async () => {
     const { fs, dirs } = mockFs();
     dirs.add('/a');
