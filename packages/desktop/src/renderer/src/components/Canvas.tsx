@@ -63,6 +63,7 @@ import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
 import { mirrorWritesSuspended } from '../lib/mirrorWrites.js';
+import { sortByRecency } from '../lib/recentWorkspaces.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -217,6 +218,7 @@ function cardHeight(node: Node<BadgeNodeData> | undefined): number | undefined {
 
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
@@ -1038,6 +1040,8 @@ export const Canvas = (): JSX.Element => {
       <Onboarding
         onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()}
         onTryDemo={() => void createDemoAtDefault()}
+        recent={sortByRecency(workspaces.filter((w) => w.name !== current))}
+        onOpenWorkspace={(name) => void useWorkspaceStore.getState().use(name)}
       />
     );
   }
