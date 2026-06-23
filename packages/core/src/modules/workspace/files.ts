@@ -10,11 +10,11 @@ import {
   isContained,
   readBytesCappedMaybeNoFollow,
   readBytesMaybeNoFollow,
+  requireWorkspaceRoot,
   writeMaybeNoFollow,
 } from '../../kernel/index.js';
 import type { BadgeFile } from '../badges/types.js';
 import type { CanvasEdge, CanvasFile } from '../canvas/types.js';
-import { readWorkspaces } from './store.js';
 import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
 import type {
   CanvasChildBadge,
@@ -47,10 +47,11 @@ import type {
 /**
  * The hardened user-file I/O door: read/write/listFiles. bh's only sanctioned
  * surface into user content — other modules (search, the editor, viewers)
- * drive it via ctx.run rather than touching node:fs. Every path here resolves
- * the current workspace root from the registry (lock-free read) and refuses
- * when there is no current, then routes the FS touch through the kernel's
- * realpath-containment + O_NOFOLLOW family so a planted symlink can't escape.
+ * drive it via ctx.run rather than touching node:fs. Every path here anchors on
+ * the call's BOUND workspace root (`requireWorkspaceRoot(ctx)`, injected by the
+ * host per call) and refuses when none is bound, then routes the FS touch
+ * through the kernel's realpath-containment + O_NOFOLLOW family so a planted
+ * symlink can't escape.
  */
 
 /**
@@ -78,22 +79,15 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
   }
   if (!stat.isDirectory) throw new Error(`Path is not a directory: ${absPath}`);
 
-  // Contain enumeration to the current workspace: listFiles takes an absolute
+  // Contain enumeration to the bound workspace: listFiles takes an absolute
   // path the renderer drives from NavTree clicks, and ctx.fs.stat FOLLOWS
   // symlinks — so a planted dir-symlink (docs -> /etc) would otherwise let the
   // tree enumerate an arbitrary OUTSIDE directory (a filename/structure oracle
   // even though readFile refuses the content). Require the listed dir to be
-  // inside the current workspace root, and skip any child that escapes it.
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
-  // With NO current workspace there is no containment boundary — refuse rather
-  // than fall through to enumerating an arbitrary absolute path (a planted
-  // `listFiles({path:'/etc'})` would otherwise leak external dir structure).
-  // Sibling reads (badge.list) already require a current workspace;
-  // listFiles must not be the outlier.
-  if (root === undefined) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
+  // inside the bound workspace root, and skip any child that escapes it. With NO
+  // workspace bound there is no containment boundary — requireWorkspaceRoot
+  // refuses rather than fall through to enumerating an arbitrary absolute path.
+  const root = requireWorkspaceRoot(ctx);
   // Guard the anchor canonicalize (ELOOP/EACCES on the root or the listed dir
   // → refuse rather than crash with a raw fs error).
   let realRoot: string;
@@ -191,11 +185,7 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
 ) => {
   const folder = args.folder;
   if (folder !== null) assertWorkspaceRelative(folder);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
-  if (root === undefined) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
+  const root = requireWorkspaceRoot(ctx);
   const absDir = folder === null ? root : join(root, folder);
   // Reuse listFiles for the single-level, realpath-contained, symlink-hardened
   // readdir — escaped children are already dropped there.
@@ -299,11 +289,7 @@ export const listSupportedFiles: Handler<
 > = async (args, ctx) => {
   const folder = args.folder;
   if (folder !== null) assertWorkspaceRelative(folder);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
-  if (root === undefined) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
+  const root = requireWorkspaceRoot(ctx);
   const files: string[] = [];
   const visited = new Set<string>();
   const startAbs = folder === null ? root : join(root, folder);
@@ -362,15 +348,12 @@ export const readFile: Handler<WorkspaceReadFileArgs, WorkspaceReadFileResult> =
   ctx,
 ) => {
   ensureInsideWorkspace(args.path);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = requireWorkspaceRoot(ctx);
   // Realpath-contain: assertWorkspaceRelative (above) rejects ../absolute in
   // the request string, but a planted symlink whose NAME is innocuous still
   // escapes once node:fs follows it. Canonicalize and require containment, then
   // read the canonical path so check and open agree. (See kernel/contain.ts.)
-  const abs = await assertReadContained(ctx.fs, entry.path, join(entry.path, args.path));
+  const abs = await assertReadContained(ctx.fs, root, join(root, args.path));
   // O_NOFOLLOW read closes the check-then-read TOCTOU: if the leaf is swapped
   // for a symlink between the guard above and this read, the open refuses it
   // rather than re-following. (Residual: an intermediate-component swap still
@@ -426,17 +409,14 @@ export const writeFile: Handler<WorkspaceWriteFileArgs, WorkspaceWriteFileResult
   ctx,
 ) => {
   ensureInsideWorkspace(args.path);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
+  const root = requireWorkspaceRoot(ctx);
   // Realpath-contain the WRITE: this is bh's only user-file write path, so a
   // planted symlink (a `config.md -> ~/.ssh/authorized_keys` leaf, or a
   // `drafts -> ~/Library/LaunchAgents` parent dir for a brand-new note) must
   // not let an editor save / New-Note clobber or plant a file outside the
   // workspace. assertWriteContained proves the real parent is inside and
   // refuses a symlink leaf. (See kernel/contain.ts.)
-  const abs = await assertWriteContained(ctx.fs, entry.path, join(entry.path, args.path));
+  const abs = await assertWriteContained(ctx.fs, root, join(root, args.path));
   // Honor the desktop new-note dialog's "folders auto-created" promise:
   // mkdir -p the parent so a path like `subdir/new/note.md` succeeds even
   // when `subdir/new` doesn't exist yet. Top-level paths have an empty
@@ -473,11 +453,7 @@ export const renameFile: Handler<WorkspaceRenameFileArgs, WorkspaceRenameFileRes
   ensureInsideWorkspace(args.from);
   ensureInsideWorkspace(args.to);
   if (args.from === args.to) return { from: args.from, to: args.to, renamed: false };
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
-  const root = entry.path;
+  const root = requireWorkspaceRoot(ctx);
   // Source must exist + resolve inside the workspace (same realpath guard as readFile).
   const absFrom = await assertReadContained(ctx.fs, root, join(root, args.from));
   // Collision-free destination basename in the (contained) target directory.
@@ -545,11 +521,7 @@ export const importFile: Handler<WorkspaceImportFileArgs, WorkspaceImportFileRes
   if (typeof args.from !== 'string' || !isAbsolute(args.from)) {
     throw new Error(`Import source must be an absolute path: ${String(args.from)}`);
   }
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  const root = data.current !== null ? data.workspaces[data.current]?.path : undefined;
-  if (root === undefined) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
+  const root = requireWorkspaceRoot(ctx);
   const srcStat = await ctx.fs.stat(args.from);
   if (!srcStat) {
     throw Object.assign(new Error(`Path does not exist: ${args.from}`), {
@@ -645,11 +617,7 @@ export const createFile: Handler<WorkspaceCreateFileArgs, WorkspaceCreateFileRes
   ctx,
 ) => {
   ensureInsideWorkspace(args.path);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
-  const root = entry.path;
+  const root = requireWorkspaceRoot(ctx);
   const { dir, base } = splitRel(args.path);
   const destDirAbs = dir === '' ? root : join(root, dir);
   // Honor the "folders auto-created" promise (same as writeFile): mkdir -p the
@@ -686,11 +654,7 @@ export const createFolder: Handler<WorkspaceCreateFolderArgs, WorkspaceCreateFol
   ctx,
 ) => {
   ensureInsideWorkspace(args.path);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
-  const root = entry.path;
+  const root = requireWorkspaceRoot(ctx);
   const { dir, base } = splitRel(args.path);
   const destDirAbs = dir === '' ? root : join(root, dir);
   await ctx.fs.mkdir(destDirAbs, { recursive: true });
@@ -769,11 +733,7 @@ export const deleteEntry: Handler<WorkspaceDeleteEntryArgs, WorkspaceDeleteEntry
   ctx,
 ) => {
   ensureInsideWorkspace(args.path);
-  const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) throw new Error('No current workspace');
-  const entry = data.workspaces[data.current];
-  if (!entry) throw new Error('Current workspace pointer is stale');
-  const root = entry.path;
+  const root = requireWorkspaceRoot(ctx);
   const abs = await assertWriteContained(ctx.fs, root, join(root, args.path));
   if (ctx.fs.trash) {
     await ctx.fs.trash(abs);

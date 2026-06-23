@@ -62,6 +62,7 @@ import type { CanvasSnapGuide } from '../lib/canvasSnap.js';
 import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
+import { mirrorWritesSuspended } from '../lib/mirrorWrites.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -280,10 +281,13 @@ export const Canvas = (): JSX.Element => {
     const node = openFile
       ? { path: openFile, kind: 'file' as const }
       : { path: folderScope ?? '', kind: 'folder' as const };
-    // Pass the workspace name we captured: this fire is un-awaited, so if the user
-    // switches workspaces before it lands, core SKIPS it rather than planting this
-    // workspace's path under the new one.
-    void window.bh.run('focus.set', { ...node, workspace: current }).catch(() => undefined);
+    // main injects this window's bound workspace root, so the call is
+    // workspace-immutable. The only race is a switch (a window reload): once that
+    // starts, mirrorWritesSuspended() is set, so a fire in the reload-commit gap
+    // skips instead of planting this path under the newly-bound workspace.
+    if (!mirrorWritesSuspended()) {
+      void window.bh.run('focus.set', node).catch(() => undefined);
+    }
   }, [current, currentReachable, folderScope, openFile]);
 
   // Load THIS folder's canvas. The filesystem IS the tree, so we read ONE level
@@ -600,6 +604,7 @@ export const Canvas = (): JSX.Element => {
             width ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_WIDTH : DEFAULT_FILE_CARD_WIDTH);
           const h =
             height ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
+          if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
           void window.bh
             .run('canvas.setCard', {
               folder,
@@ -624,6 +629,7 @@ export const Canvas = (): JSX.Element => {
           width: number,
           height: number,
         ) => {
+          if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
           void window.bh
             .run('canvas.setCard', {
               folder,
@@ -639,6 +645,7 @@ export const Canvas = (): JSX.Element => {
   const persistViewport = useMemo(
     () =>
       debounce((viewport: ViewportState) => {
+        if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
         void window.bh.run('workspace.setViewport', { viewport }).catch(() => undefined);
       }, VIEWPORT_DEBOUNCE),
     [],
@@ -657,6 +664,9 @@ export const Canvas = (): JSX.Element => {
     const schedule = (viewport: Viewport, folderScopeAtPan: string | null): void => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
+        // A workspace switch is reloading the window — don't write this folder's
+        // viewport into the newly-bound workspace during the reload-commit gap.
+        if (mirrorWritesSuspended()) return;
         const st = useWorkspaceStore.getState();
         if (st.openFile || !st.current || st.currentReachable === false) return;
         // Bail if the user navigated to a DIFFERENT folder since the pan ended —
@@ -675,7 +685,6 @@ export const Canvas = (): JSX.Element => {
             kind: 'folder',
             viewport_center,
             zoom: Number(viewport.zoom.toFixed(3)),
-            workspace: st.current,
           })
           .catch(() => undefined);
       }, VIEWPORT_DEBOUNCE);

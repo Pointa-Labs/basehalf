@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type CanvasChildBadge, type CanvasEdge, createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 interface TestContext {
@@ -11,7 +12,7 @@ interface TestContext {
 
 function freshCore(): TestContext {
   const { fs, files, dirs } = mockFs();
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   return { files, dirs, core };
 }
 
@@ -213,8 +214,12 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     expect(a?.references).toEqual([]); // synthesized — the corrupt file didn't crash the canvas
   });
 
-  it('throws when there is no current workspace', async () => {
-    await expect(ctx.core.run('workspace.listCanvas', { folder: null })).rejects.toThrow();
+  it('throws when there is no workspace bound to the call', async () => {
+    const { fs } = mockFs();
+    const unbound = createCore({ fs, configDir: '/cfg' });
+    await expect(unbound.run('workspace.listCanvas', { folder: null })).rejects.toThrow(
+      /No workspace bound/i,
+    );
   });
 });
 

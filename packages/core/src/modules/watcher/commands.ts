@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { extname } from 'node:path';
-import type { Handler } from '../../kernel/index.js';
-import type { WorkspaceCurrentResult } from '../workspace/types.js';
+import { type Handler, requireWorkspaceRoot } from '../../kernel/index.js';
 import { type RunningWatcher, createChokidarWatcher } from './chokidar.js';
 import type {
   WatcherEvent,
@@ -22,8 +21,11 @@ import type {
  */
 export const watcherEvents = new EventEmitter();
 
-// Module-private state. One watcher per process; v0 only opens one workspace
-// at a time anyway (SR-Open-01).
+// Module-private state. One watcher per process for now (Phase 1 is still a
+// single window). Its `ctx` is captured at start time and carries that
+// workspace's bound root, so every cascade (markOrphan / focus.pruneDangling)
+// stays in the watched workspace by construction — no global-current drift to
+// guard against. (Phase 2 makes this a per-root Map for multi-window.)
 let runningWatcher: RunningWatcher | null = null;
 let runningRoot: string | null = null;
 
@@ -47,19 +49,8 @@ async function drainInflight(): Promise<void> {
   }
 }
 
-async function resolveWorkspaceRoot(
-  ctx: Parameters<Handler>[1],
-  explicit?: string,
-): Promise<string> {
-  if (explicit !== undefined) return explicit;
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; pass workspaceRoot or call workspace.use first');
-  }
-  return current.current.path;
+function resolveWorkspaceRoot(ctx: Parameters<Handler>[1], explicit?: string): string {
+  return explicit ?? requireWorkspaceRoot(ctx);
 }
 
 /**
@@ -192,28 +183,6 @@ async function emitRename(
  * Buffering both directions handles macOS FSEvents delivering events
  * out of order or with variable latency.
  */
-/**
- * Skip a buffered finalize whose workspace the user switched away from. The
- * unlink/add cascades (markOrphan / focus.pruneDangling) resolve
- * `workspace.current` internally; if a delete arrives in workspace A and
- * the user switches to B within the 600ms buffer window, running the finalize
- * would apply A's relative path against B's root — falsely flagging B's
- * same-named file MISSING (and dropping it from B's brief) with no auto-heal.
- * Guard: only proceed when the workspace this event belongs to is STILL current.
- * The workspace it belonged to self-heals on its next open via pruneDangling.
- */
-async function stillCurrent(ctx: Parameters<Handler>[1], eventRoot: string): Promise<boolean> {
-  try {
-    const cur = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-      'workspace.current',
-      {},
-    );
-    return cur.current?.path === eventRoot;
-  } catch {
-    return false;
-  }
-}
-
 async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Promise<void> {
   if (event.type === 'rename') {
     // Synthetic events never come back through here — they're only
@@ -221,9 +190,6 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
     watcherEvents.emit('event', event);
     return;
   }
-  // The workspace this event belongs to — captured NOW so a finalize that fires
-  // after a workspace switch can refuse to apply A's event to B (see stillCurrent).
-  const eventRoot = runningRoot;
   // Side-channel for hosts (Electron main) to react to FS events.
   watcherEvents.emit('event', event);
   try {
@@ -242,8 +208,6 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       // If no unlink arrives in time, finalize the add.
       const finalize = async (): Promise<void> => {
         pendingAdds.delete(event.relPath);
-        // Don't apply A's add (orphan-clear / folder-rejoin) to current workspace B.
-        if (eventRoot !== null && !(await stillCurrent(ctx, eventRoot))) return;
         try {
           const kind = event.isDir ? 'folder' : 'file';
           // No eager materialization: a brand-new file gets NO badge — badges are
@@ -295,8 +259,6 @@ async function handleEvent(ctx: Parameters<Handler>[1], event: WatcherEvent): Pr
       // timer fires markOrphan as before.
       const finalize = async (): Promise<void> => {
         pendingUnlinks.delete(event.relPath);
-        // Don't apply A's delete to whatever workspace is current now (B).
-        if (eventRoot !== null && !(await stillCurrent(ctx, eventRoot))) return;
         try {
           await ctx.run('badge.markOrphan', {
             file: event.relPath,
@@ -346,7 +308,7 @@ async function flushPendingBuffers(): Promise<void> {
 }
 
 export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (args, ctx) => {
-  const root = await resolveWorkspaceRoot(ctx, args.workspaceRoot);
+  const root = resolveWorkspaceRoot(ctx, args.workspaceRoot);
   if (runningWatcher && runningRoot === root) {
     return { active: true, workspaceRoot: root };
   }

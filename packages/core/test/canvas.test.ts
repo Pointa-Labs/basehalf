@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type BadgeFile, type CanvasCard, type CanvasFile, createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -9,8 +10,8 @@ import { mockFs } from './helpers/mock-fs.js';
  * VISUAL face of a `badge.references` link, so connect/disconnect/reconnect keep
  * the canvas.yaml and the badge graph (references + the target's referenced_by)
  * in lockstep. These run against an in-memory FsLike + an injected configDir,
- * seeding `/work` as the current workspace so the per-command `workspace.current`
- * lookup resolves.
+ * with the operating core bound to `/work` (the per-call `workspaceRoot` the
+ * host injects) so every command anchors on that root.
  */
 
 /** On-disk path of a folder's canvas.yaml (root folder → `.bh/mirror/canvas.yaml`). */
@@ -27,7 +28,7 @@ interface TestContext {
 async function seed(): Promise<TestContext> {
   const { fs, files, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { files, dirs, core };
 }
@@ -56,10 +57,10 @@ describe('canvas.get', () => {
     expect(c.edges).toEqual([]);
   });
 
-  it('throws when there is no current workspace', async () => {
+  it('throws when there is no workspace bound to the call', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
-    await expect(core.run('canvas.get', { folder: null })).rejects.toThrow(/No current workspace/);
+    await expect(core.run('canvas.get', { folder: null })).rejects.toThrow(/No workspace bound/i);
   });
 });
 

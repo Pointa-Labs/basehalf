@@ -1,7 +1,8 @@
 /**
  * Workspace = a folder the user has registered as a BaseHalf root.
- * Files stay where they are; we just track which folders are "ours" and which
- * one is currently active (so other modules know which root to operate on).
+ * Files stay where they are; we just track which folders are "ours". There is no
+ * global "current" pointer: the active workspace is bound per call (per window)
+ * via `ctx.workspaceRoot`, so the registry is a pure set of folders.
  */
 
 import type { CanvasEdge, CanvasSize } from '../canvas/types.js';
@@ -24,13 +25,11 @@ export interface ViewportState {
 
 export interface WorkspacesFile {
   readonly version: 1;
-  readonly current: string | null;
   readonly workspaces: Record<string, Omit<WorkspaceEntry, 'name'>>;
 }
 
 export const EMPTY_WORKSPACES: WorkspacesFile = Object.freeze({
   version: 1,
-  current: null,
   workspaces: {},
 });
 
@@ -63,7 +62,6 @@ export interface SetupReport {
 
 export interface WorkspaceAddResult {
   readonly workspace: WorkspaceEntry;
-  readonly setAsCurrent: boolean;
   readonly bhDirCreated: boolean;
   /** True when the path was already registered (folder identity is the
    *  path): the existing entry is returned and nothing new is written. */
@@ -74,6 +72,8 @@ export interface WorkspaceAddResult {
 
 export type WorkspaceListArgs = Record<string, never>;
 export interface WorkspaceListResult {
+  /** The workspace THIS call is bound to (its name), derived from the call's
+   *  workspaceRoot — not a global pointer. null when no root is bound. */
   readonly current: string | null;
   readonly workspaces: readonly WorkspaceEntry[];
 }
@@ -95,7 +95,6 @@ export interface WorkspaceRemoveArgs {
 }
 export interface WorkspaceRemoveResult {
   readonly removed: string;
-  readonly newCurrent: string | null;
 }
 
 export interface WorkspaceRenameArgs {
@@ -104,9 +103,6 @@ export interface WorkspaceRenameArgs {
 }
 export interface WorkspaceRenameResult {
   readonly workspace: WorkspaceEntry;
-  /** True when the renamed workspace was the current one and the
-   *  `current` pointer was updated to the new name. */
-  readonly currentUpdated: boolean;
 }
 
 export interface WorkspaceRepathArgs {

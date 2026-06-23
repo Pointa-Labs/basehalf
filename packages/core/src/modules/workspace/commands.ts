@@ -56,6 +56,23 @@ function samePath(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
+/** The workspace THIS call is bound to (by path), as a registry entry — or null
+ *  if no root is bound or the bound path isn't registered. The replacement for
+ *  the old global `current` pointer: `workspace.current` / `workspace.list`
+ *  surface this (derived from `ctx.workspaceRoot`, which the host injects per
+ *  call), so each window/call sees its own active workspace, race-free. */
+function boundEntry(
+  ctx: Context,
+  data: { workspaces: Record<string, { path: string; addedAt: string }> },
+): WorkspaceEntry | null {
+  if (ctx.workspaceRoot === null) return null;
+  const root = ctx.workspaceRoot;
+  const found = Object.entries(data.workspaces).find(([, e]) => samePath(e.path, root));
+  if (!found) return null;
+  const [name, entry] = found;
+  return { name, path: entry.path, addedAt: entry.addedAt };
+}
+
 /** Derive a registry name that doesn't collide: basename, then basename-2,
  *  -3, … — names are just labels; the folder path is the identity, so a
  *  label clash must never block opening a folder. Keeps NAME_PATTERN's
@@ -80,7 +97,9 @@ function uniqueName(base: string, taken: ReadonlySet<string>): string {
  *    auto-suffixed (-2, -3, …). An EXPLICIT `--name` collision still errors
  *    (the user asked for that exact label).
  *  - Creates `<path>/.bh/` if missing (eager init; lazier feels surprising).
- *  - First workspace added becomes `current` automatically.
+ *  - Pure registry mutation: there is no global "current" to set, and the
+ *    on-open liveness sweep runs when a WINDOW opens the workspace (bound to its
+ *    root), not here.
  */
 export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, ctx) => {
   const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
@@ -105,23 +124,18 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
   // interleave with a concurrent add/use/setViewport or a workspace gets
   // dropped. bhDir creation lives inside too — cheap, and gated on the
   // resolution winning.
-  const { workspace, setAsCurrent, bhDirCreated, alreadyRegistered } = await withConfigLock(
+  const { workspace, bhDirCreated, alreadyRegistered } = await withConfigLock(
     ctx.configDir,
     async () => {
       const data = await readWorkspaces(ctx.fs, ctx.configDir);
 
       // Path identity first: this folder may already be registered (under
-      // any name). Return that registration; make it current if nothing is.
+      // any name). Return that registration as-is (folder identity is the path).
       const existing = Object.entries(data.workspaces).find(([, e]) => samePath(e.path, absPath));
       if (existing) {
         const [existingName, entry] = existing;
-        const becomesCurrent = data.current === null;
-        if (becomesCurrent) {
-          await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: existingName });
-        }
         return {
           workspace: { name: existingName, path: entry.path, addedAt: entry.addedAt },
-          setAsCurrent: becomesCurrent,
           bhDirCreated: false,
           alreadyRegistered: true,
         };
@@ -138,15 +152,12 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
       if (created) {
         await ctx.fs.mkdir(bhDir, { recursive: true });
       }
-      const becomesCurrent = data.current === null;
       await writeWorkspaces(ctx.fs, ctx.configDir, {
         version: 1,
-        current: becomesCurrent ? name : data.current,
         workspaces: { ...data.workspaces, [name]: { path: absPath, addedAt } },
       });
       return {
         workspace: { name, path: absPath, addedAt },
-        setAsCurrent: becomesCurrent,
         bhDirCreated: created,
         alreadyRegistered: false,
       };
@@ -155,22 +166,21 @@ export const add: Handler<WorkspaceAddArgs, WorkspaceAddResult> = async (args, c
 
   const setup = args.setup ? await runSetup(ctx.fs, workspace.path) : undefined;
 
-  // Workspace-becoming-current = "opening" → run the on-open liveness sweep.
-  // For subsequent adds (not auto-current), this is deferred to workspace.use.
-  if (setAsCurrent) {
-    await bootstrapWorkspace(ctx, workspace.path);
-  }
+  // No "becoming current" and no on-open liveness sweep here: registering a folder
+  // is pure registry mutation. The sweep (focus/badge pruneDangling) runs when a
+  // WINDOW opens the workspace bound to its root — running it here would prune the
+  // CALLER's bound workspace, not this newly-registered one.
 
   return {
     workspace,
-    setAsCurrent,
     bhDirCreated,
     alreadyRegistered,
     ...(setup !== undefined && { setup }),
   };
 };
 
-/** `workspace list` — returns all workspaces + which is current. */
+/** `workspace list` — all registered workspaces + which one THIS call is bound to
+ * (`current`, derived from ctx.workspaceRoot — not a stored pointer). */
 export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_args, ctx) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   const workspaces: WorkspaceEntry[] = Object.entries(data.workspaces)
@@ -181,51 +191,42 @@ export const list: Handler<WorkspaceListArgs, WorkspaceListResult> = async (_arg
       ...(entry.viewport !== undefined && { viewport: entry.viewport }),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { current: data.current, workspaces };
+  return { current: boundEntry(ctx, data)?.name ?? null, workspaces };
 };
 
-/** `workspace use <name>` — switch the active workspace. Runs the on-open
- * liveness sweep (focus + badge dangling prune); the canvas reads the filesystem
- * per folder (workspace.listCanvas), so there is no eager badge materialization. */
+/** `workspace use <name>` — validate the workspace exists and return its entry.
+ * It no longer writes a global pointer (there isn't one): the active workspace is
+ * bound per WINDOW, so the desktop routes a switch to opening that workspace's
+ * window (rebind + reload), where the on-open liveness sweep runs. Kept as a thin
+ * validate-and-return so CLI/MCP string callers stay valid. */
 export const use: Handler<WorkspaceUseArgs, WorkspaceUseResult> = async (args, ctx) => {
-  const entry = await withConfigLock(ctx.configDir, async () => {
-    const data = await readWorkspaces(ctx.fs, ctx.configDir);
-    const found = data.workspaces[args.name];
-    if (!found) {
-      throw new Error(`No such workspace: ${args.name}`);
-    }
-    await writeWorkspaces(ctx.fs, ctx.configDir, { ...data, current: args.name });
-    return found;
-  });
-  // Bootstrap outside the lock — it touches workspace files, not the config;
-  // holding the config lock through it would stall a concurrent setViewport
-  // for no correctness benefit.
-  await bootstrapWorkspace(ctx, entry.path);
-  return { current: { name: args.name, path: entry.path, addedAt: entry.addedAt } };
+  const data = await readWorkspaces(ctx.fs, ctx.configDir);
+  const found = data.workspaces[args.name];
+  if (!found) {
+    throw new Error(`No such workspace: ${args.name}`);
+  }
+  return { current: { name: args.name, path: found.path, addedAt: found.addedAt } };
 };
 
-/** `workspace current` — show active workspace (or null if none). */
+/** `workspace current` — the workspace THIS call is bound to (or null). Derived
+ * from ctx.workspaceRoot (the host injects the sender window's bound root), NOT a
+ * global pointer, so each window/call sees its own active workspace. */
 export const current: Handler<WorkspaceCurrentArgs, WorkspaceCurrentResult> = async (
   _args,
   ctx,
 ) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) return { current: null };
-  const entry = data.workspaces[data.current];
-  if (!entry) {
-    // Stale pointer: current name no longer in workspaces. Treat as none.
-    return { current: null };
-  }
-  return { current: { name: data.current, path: entry.path, addedAt: entry.addedAt } };
+  const entry = boundEntry(ctx, data);
+  return entry === null ? { current: null } : { current: entry };
 };
 
 /**
  * `workspace remove <name>` — unregister. Does NOT delete files or `.bh/` —
- * BaseHalf is an "observer", never an owner of user files.
- * Removing the CURRENT workspace leaves none current — the app shows its
- * empty/welcome state and the user picks what to open next. (Auto-promoting
- * an arbitrary survivor used to yank a folder the user never asked for into
- * view; closing a folder must end in an empty window, like a mature editor.)
+ * BaseHalf is an "observer", never an owner of user files. There is no global
+ * current pointer to clear; if the removed workspace was the one a window had
+ * open, the desktop reloads that window to its welcome state (it owns the
+ * window↔workspace binding), the way a mature editor closes a folder to an
+ * empty window rather than yanking in an arbitrary survivor.
  */
 export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async (args, ctx) => {
   return withConfigLock(ctx.configDir, async () => {
@@ -234,20 +235,19 @@ export const remove: Handler<WorkspaceRemoveArgs, WorkspaceRemoveResult> = async
       throw new Error(`No such workspace: ${args.name}`);
     }
     const { [args.name]: _removed, ...rest } = data.workspaces;
-    const newCurrent = data.current === args.name ? null : data.current;
     await writeWorkspaces(ctx.fs, ctx.configDir, {
       version: 1,
-      current: newCurrent,
       workspaces: rest,
     });
-    return { removed: args.name, newCurrent };
+    return { removed: args.name };
   });
 };
 
 /**
  * `workspace.rename(from, to)` — change a workspace's name without
- * touching its path / .bh/ / files. Updates the `current` pointer if it
- * was the renamed one.
+ * touching its path / .bh/ / files. The window↔workspace binding is by PATH
+ * (unchanged here), so an open window keeps tracking the same folder — it just
+ * re-derives the new name on its next `workspace.list`.
  *
  * Why a dedicated command (vs remove + re-add): the obvious DIY recipe
  * is `workspace.remove(from) + workspace.add(path, name: to)`, but that
@@ -285,15 +285,12 @@ export const rename: Handler<WorkspaceRenameArgs, WorkspaceRenameResult> = async
         next[name] = entry;
       }
     }
-    const currentUpdated = data.current === args.from;
     await writeWorkspaces(ctx.fs, ctx.configDir, {
       version: 1,
-      current: currentUpdated ? args.to : data.current,
       workspaces: next,
     });
     return {
       workspace: { name: args.to, path: source.path, addedAt: source.addedAt },
-      currentUpdated,
     };
   });
 };
@@ -307,7 +304,9 @@ export const rename: Handler<WorkspaceRenameArgs, WorkspaceRenameResult> = async
  * is `workspace.remove(name)` + `workspace.add(newPath, name)`, but if
  * the add fails (invalid path, missing folder, ...), the user is left
  * with NO workspace registration at all. A single config rewrite
- * skips that danger and the round-trip through `current` demotion.
+ * skips that danger. The window↔workspace binding is by PATH; a window that had
+ * this workspace open at the OLD path is stale after a repath, so the desktop
+ * re-opens it at the new path (rebind + reload), where the liveness sweep runs.
  */
 export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async (args, ctx) => {
   const absPath = isAbsolute(args.path) ? args.path : resolve(args.path);
@@ -321,9 +320,8 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
   const bhDir = `${absPath}/.bh`;
   // Atomic config section: validate against the live config + rewrite the
   // entry without interleaving with a concurrent config write. bhDir
-  // creation is inside too (cheap, gated on validation). isCurrent is
-  // captured for the post-lock materialization decision.
-  const { existing, bhDirCreated, isCurrent } = await withConfigLock(ctx.configDir, async () => {
+  // creation is inside too (cheap, gated on validation).
+  const { existing, bhDirCreated } = await withConfigLock(ctx.configDir, async () => {
     const data = await readWorkspaces(ctx.fs, ctx.configDir);
     const found = data.workspaces[args.name];
     if (!found) {
@@ -339,74 +337,22 @@ export const repath: Handler<WorkspaceRepathArgs, WorkspaceRepathResult> = async
     if (created) {
       await ctx.fs.mkdir(bhDir, { recursive: true });
     }
-    // current pointer stays put (still pointing at this name if it was).
     await writeWorkspaces(ctx.fs, ctx.configDir, {
       version: 1,
-      current: data.current,
       workspaces: {
         ...data.workspaces,
         [args.name]: { path: absPath, addedAt: found.addedAt },
       },
     });
-    return { existing: found, bhDirCreated: created, isCurrent: data.current === args.name };
+    return { existing: found, bhDirCreated: created };
   });
   const setup = args.setup ? await runSetup(ctx.fs, absPath) : undefined;
-  // If this workspace is currently open, re-run the on-open liveness sweep at the
-  // new path. Mirrors workspace.use.
-  if (isCurrent) {
-    await bootstrapWorkspace(ctx, absPath);
-  }
   return {
     workspace: { name: args.name, path: absPath, addedAt: existing.addedAt },
     bhDirCreated,
     ...(setup !== undefined && { setup }),
   };
 };
-
-/**
- * The on-open LIVENESS SWEEP. Nothing is seeded — the mirror is sparse (the canvas
- * reads the filesystem per folder via workspace.listCanvas; badges/focus/adhd are
- * created lazily on first annotation, and `.bh/current_focus.yaml` is simply absent
- * until the first node is focused). What this DOES is reconcile the derived state
- * against the disk after time away (a git checkout, an external rm, edits with the
- * app closed): clear a dangling current_focus symlink and mark orphan any badge
- * whose file vanished. Tolerant of a module not being registered (tests can wire
- * only the workspace module; production createCore always has all of them).
- */
-async function bootstrapWorkspace(ctx: Context, workspaceRoot: string): Promise<void> {
-  // If the workspace folder vanished between add/use (e.g. user moved it in
-  // Finder), short-circuit. The renderer probes reachability separately via
-  // workspace.listFiles and renders the "Workspace folder not found" UI from
-  // there — bubbling a hard ENOENT here would leave the renderer thinking the
-  // switch failed outright and never flip currentReachable to false in-session.
-  const rootStat = await ctx.fs.stat(workspaceRoot);
-  if (!rootStat) return;
-
-  try {
-    // Re-entry liveness: if the current focus points at a node whose file/folder
-    // vanished while we weren't watching (git checkout, external rm, a delete with
-    // the app closed), clear the dangling current_focus symlink.
-    await ctx.run('focus.pruneDangling', {});
-  } catch (err) {
-    if (err instanceof Error && err.name === 'UnknownCommand') return;
-    // A planted symlink at .bh/current_focus.yaml escapes — skip rather than abort
-    // the whole workspace open (the hostile surface is neutralized).
-    if (err instanceof Error && err.name === 'PathEscape') return;
-    throw err;
-  }
-  try {
-    // Re-entry liveness for the DEEP graph (badges + embedded referenced_by), the analog of
-    // focus.pruneDangling above: a badge whose file was deleted while the watcher
-    // wasn't running carries no orphan flag, so an agent following the hint into
-    // .bh/mirror/<path>/badge.yaml would be pointed at files that don't exist. Mark
-    // them orphan on open so the graph stays as live as the focus.
-    await ctx.run('badge.pruneDangling', {});
-  } catch (err) {
-    if (err instanceof Error && err.name === 'UnknownCommand') return;
-    if (err instanceof Error && err.name === 'PathEscape') return;
-    throw err;
-  }
-}
 
 /**
  * Helper for `createCore()` — registers all workspace commands.

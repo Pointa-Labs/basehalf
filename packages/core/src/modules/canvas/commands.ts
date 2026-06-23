@@ -5,8 +5,8 @@ import {
   purgeMirrorKind,
   relocateMirrorKind,
   remapSubtreeRel,
+  requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { canvasRel, canvasRevision, patchCanvas, readCanvas } from './store.js';
 import {
   CANVAS_ANCHORS,
@@ -54,17 +54,6 @@ async function referenceExists(
     ...(kind !== undefined && { kind }),
   })) as { references?: readonly string[] } | null;
   return badge?.references?.includes(to) ?? false;
-}
-
-async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
-  return current.current.path;
 }
 
 // Serialize app-level canvas mutations per workspace ROOT. canvas.connect /
@@ -123,12 +112,12 @@ function makeEdge(
 }
 
 export const get: Handler<CanvasGetArgs, CanvasGetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return readCanvas(ctx.fs, root, args.folder);
 };
 
 export const setCard: Handler<CanvasSetCardArgs, CanvasSetCardResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const folderRel = canvasRel(args.folder);
   return (await withCanvasLock(root, () =>
     patchCanvas(ctx.fs, root, args.folder, (current) => {
@@ -142,7 +131,7 @@ export const removeCard: Handler<CanvasRemoveCardArgs, CanvasRemoveCardResult> =
   args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   let removed = false;
   await withCanvasLock(root, () =>
     patchCanvas(ctx.fs, root, args.folder, (current) => {
@@ -157,7 +146,7 @@ export const removeCard: Handler<CanvasRemoveCardArgs, CanvasRemoveCardResult> =
 };
 
 export const setSize: Handler<CanvasSetSizeArgs, CanvasSetSizeResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const folderRel = canvasRel(args.folder);
   return (await withCanvasLock(root, () =>
     patchCanvas(ctx.fs, root, args.folder, (current) => {
@@ -173,7 +162,7 @@ export const connect: Handler<CanvasConnectArgs, CanvasConnectResult> = async (a
   }
   validateAnchor(args.from_anchor, 'from_anchor');
   validateAnchor(args.to_anchor, 'to_anchor');
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const folderRel = canvasRel(args.folder);
   const edge = makeEdge(args.from, args.to, args.from_anchor, args.to_anchor, args.label);
   // The WHOLE edge+ref pair runs under withCanvasLock so a concurrent canvas op
@@ -212,7 +201,7 @@ export const disconnect: Handler<CanvasDisconnectArgs, CanvasDisconnectResult> =
   args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   // Whole pair under withCanvasLock (see connect). Drop the semantic link first,
   // tolerating a missing badge (a canvas edge can outlive an externally-deleted
   // badge). If the canvas write then throws, re-add the ref so we never leave a
@@ -248,7 +237,7 @@ export const reconnect: Handler<CanvasReconnectArgs, CanvasReconnectResult> = as
   }
   validateAnchor(args.next.from_anchor, 'from_anchor');
   validateAnchor(args.next.to_anchor, 'to_anchor');
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const folderRel = canvasRel(args.folder);
   const endpointsChanged =
     args.previous.from !== args.next.from || args.previous.to !== args.next.to;
@@ -309,7 +298,7 @@ export const revision: Handler<{ _?: never }, { count: number; maxMtimeMs: numbe
   _args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return canvasRevision(ctx.fs, root);
 };
 
@@ -326,7 +315,7 @@ export const revision: Handler<{ _?: never }, { count: number; maxMtimeMs: numbe
  * card geometry + anchor/label styling that would otherwise go stale.
  */
 export const relocate: Handler<CanvasRelocateArgs, CanvasRelocateResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const { from, to } = args;
   const swap = (p: string): string => (isMirrorSubtree(p, from) ? remapSubtreeRel(p, from, to) : p);
   return withCanvasLock(root, async () => {
@@ -390,7 +379,7 @@ export const relocate: Handler<CanvasRelocateArgs, CanvasRelocateResult> = async
  * The derived reference edges fall away with the badges (purgeBadgesForDelete).
  */
 export const purgeNode: Handler<CanvasPurgeNodeArgs, CanvasPurgeNodeResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const { path } = args;
   return withCanvasLock(root, async () => {
     const removed = await purgeMirrorKind(ctx.fs, root, 'canvas', path);

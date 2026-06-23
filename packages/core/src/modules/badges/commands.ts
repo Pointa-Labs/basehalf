@@ -4,8 +4,8 @@ import {
   assertReadContained,
   createKeyedMutex,
   patchMirror,
+  requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { badgesRevision, listBadges, readBadge, removeBadge, writeBadge } from './store.js';
 import type {
   BadgeAddRefArgs,
@@ -29,23 +29,6 @@ import type {
   BadgeSetArgs,
   BadgeSetResult,
 } from './types.js';
-
-/**
- * Helper: every badge command operates on a workspace. We delegate to
- * `workspace.current` rather than threading the path through args so callers
- * don't repeat the lookup. `ctx.run` keeps the dep arrow pointing inward
- * (badges → workspace, not workspace → badges).
- */
-async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
-  return current.current.path;
-}
 
 // Serialize the read-modify-write of each workspace's badge.yaml files. A
 // reference edit writes TWO badges (the source's `references` and the target's
@@ -121,12 +104,12 @@ async function removeBacklinkFrom(
 }
 
 export const get: Handler<BadgeGetArgs, BadgeGetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return readBadge(ctx.fs, root, args.file);
 };
 
 export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const kind: BadgeKind = args.patch?.kind ?? 'file';
   const patch = args.patch ?? {};
 
@@ -172,7 +155,7 @@ export const set: Handler<BadgeSetArgs, BadgeSetResult> = async (args, ctx) => {
 };
 
 export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   let badges = await listBadges(ctx.fs, root);
   const kind = args?.kind;
   if (kind) {
@@ -189,7 +172,7 @@ export const list: Handler<BadgeListArgs, BadgeListResult> = async (args, ctx) =
 };
 
 export const del: Handler<BadgeDeleteArgs, BadgeDeleteResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   // Under the lock: remove the badge, then scrub THIS file's backlink out of each
   // of its outbound targets (so a deleted badge leaves no phantom referenced_by
   // entry pointing FROM a badge that no longer exists). We do NOT rewrite
@@ -215,7 +198,7 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
   if (args.to === args.file) {
     throw new Error(`Badge cannot reference itself: ${args.file}`);
   }
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const kind = args.kind ?? 'file';
   const next = await withBadgeLock(root, async () => {
     const merged = (await patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
@@ -231,7 +214,7 @@ export const addRef: Handler<BadgeAddRefArgs, BadgeFile> = async (args, ctx) => 
 };
 
 export const removeRef: Handler<BadgeRemoveRefArgs, BadgeFile> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const next = await withBadgeLock(root, async () => {
     const merged = (await patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) => {
       if (!existing) throw new Error(`Badge not found: ${args.file}`);
@@ -254,7 +237,7 @@ export const markOrphan: Handler<BadgeMarkOrphanArgs, BadgeMarkOrphanResult> = a
   args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const next = await withBadgeLock(root, () =>
     patchMirror<BadgeFile>(ctx.fs, root, args.file, 'badge', (existing) =>
       existing === null ? null : { ...existing, orphan: true },
@@ -283,7 +266,7 @@ async function badgeTargetExists(
 
 /** Cheap badge-store signature (count + newest mtime) for an external-edit poll. */
 export const revision: Handler<BadgeRevisionArgs, BadgeRevisionResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return badgesRevision(ctx.fs, root);
 };
 
@@ -297,7 +280,7 @@ export const pruneDangling: Handler<BadgePruneDanglingArgs, BadgePruneDanglingRe
   _args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const badges = await listBadges(ctx.fs, root);
   const orphaned: string[] = [];
   for (const badge of badges) {
@@ -399,7 +382,7 @@ async function moveBadgeAndCascadeRefs(
  *  - Throws if a badge already exists at `to` (collision).
  */
 export const rename: Handler<BadgeRenameArgs, BadgeRenameResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const kind: BadgeKind = args.kind ?? 'file';
   if (args.from === args.to) {
     throw new Error(`badge.rename: from and to are the same (${args.from})`);

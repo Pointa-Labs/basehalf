@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import { assertWorkspaceRelative } from '../src/kernel/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 // Regression for a path-traversal / arbitrary-write bug: badge.set (and
@@ -33,7 +34,7 @@ describe('workspace-relative path guard', () => {
 describe('badge path traversal is rejected', () => {
   it('badge.set with a ../ path throws and writes nothing outside the workspace', async () => {
     const { fs, files } = mockFs();
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     fs.mkdir('/work', { recursive: true });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
@@ -53,7 +54,7 @@ describe('badge path traversal is rejected', () => {
 
   it('badge.get / badge.delete / badge.addRef also reject traversal', async () => {
     const { fs } = mockFs();
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     fs.mkdir('/work', { recursive: true });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
@@ -66,7 +67,7 @@ describe('badge path traversal is rejected', () => {
 
   it('a legitimate nested badge path still works', async () => {
     const { fs, files } = mockFs();
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     fs.mkdir('/work', { recursive: true });
     await core.run('workspace.add', { path: '/work', name: 'w' });
 

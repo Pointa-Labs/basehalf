@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import type { SearchQueryResult } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -15,7 +16,7 @@ async function setup(seed: (m: ReturnType<typeof mockFs>) => void) {
   const m = mockFs();
   m.dirs.add('/v');
   seed(m);
-  const core = createCore({ fs: m.fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs: m.fs, configDir: '/cfg' }), '/v');
   await core.run('workspace.add', { path: '/v', name: 'v' });
   return { core, m };
 }
@@ -314,10 +315,10 @@ describe('search.query', () => {
     expect(res.truncated).toBe(true);
   });
 
-  it('throws when there is no current workspace', async () => {
+  it('throws when there is no workspace bound to the call', async () => {
     const m = mockFs();
     const core = createCore({ fs: m.fs, configDir: '/cfg' });
-    await expect(run(core, { query: 'x' })).rejects.toThrow(/no current workspace/i);
+    await expect(run(core, { query: 'x' })).rejects.toThrow(/No workspace bound/i);
   });
 });
 

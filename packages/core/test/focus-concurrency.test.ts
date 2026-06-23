@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import type { FsLike } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 
 // fs mock that yields a macrotask inside every op (mimicking real disk I/O
 // scheduling) so concurrent unawaited operations interleave between the symlink
@@ -102,7 +103,7 @@ describe('current_focus torn-symlink race', () => {
   it('two concurrent focus.set: last writer wins, no tear, no EEXIST', async () => {
     const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
     // Fire both WITHOUT awaiting the first — the interleave window. Serialized by
@@ -123,7 +124,7 @@ describe('current_focus torn-symlink race', () => {
   it('focus.set racing focus.clear: get is either the set node or null, never torn', async () => {
     const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
     await core.run('focus.set', { path: 'seed.md', kind: 'file' });
@@ -145,7 +146,7 @@ describe('current_focus torn-symlink race', () => {
   it('many concurrent focus.set settle to a single intact symlink', async () => {
     const { fs, links, dirs } = yieldingFs();
     dirs.add('/work');
-    const core = createCore({ fs, configDir: '/cfg' });
+    const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
     await core.run('workspace.add', { path: '/work', name: 'w' });
 
     const paths = ['p0.md', 'p1.md', 'p2.md', 'p3.md', 'p4.md', 'p5.md'];

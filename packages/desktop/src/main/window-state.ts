@@ -16,6 +16,13 @@ export interface WindowState {
   /** Window UI zoom level (Electron zoomFactor = 1.2^level), remembered across
    *  restarts like a mature editor's window zoom. 0 = 100%. */
   zoomLevel?: number;
+  /** The workspace folder this window had open at last quit (absolute path), or
+   *  null/absent for the welcome window. Replaces core's old global "current"
+   *  for the "reopen what I had open" launch behavior — persistence of which
+   *  window shows which workspace is a desktop/session concern now, not core's.
+   *  (Phase 1: a single window → a single root; Phase 3 generalizes to a per-root
+   *  map for session restore of N windows.) */
+  workspaceRoot?: string | null;
 }
 
 const defaults = (): WindowState => ({ width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT });
@@ -35,6 +42,9 @@ export async function readWindowState(configDir: string): Promise<WindowState> {
       ...(typeof parsed.isMaximized === 'boolean' && { isMaximized: parsed.isMaximized }),
       ...(typeof parsed.zoomLevel === 'number' &&
         Number.isFinite(parsed.zoomLevel) && { zoomLevel: parsed.zoomLevel }),
+      ...((typeof parsed.workspaceRoot === 'string' || parsed.workspaceRoot === null) && {
+        workspaceRoot: parsed.workspaceRoot,
+      }),
     };
   } catch {
     return defaults();

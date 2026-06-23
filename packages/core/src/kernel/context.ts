@@ -28,17 +28,36 @@ import type { Context, FsLike, Run } from './types.js';
  * `ctx.run('other.command', args)` lets modules compose via the registry
  * rather than importing each other's internals. The `opts.fs` and
  * `opts.configDir` overrides keep tests off the user's real home dir.
+ *
+ * `workspaceRoot` defaults to `null` here — this builds the BASE context (whose
+ * fs/configDir are authoritative). The actual per-call root is set when
+ * `createCore`'s run closure derives a fresh Context per `run({ workspaceRoot })`.
  */
 export function createContext(opts: {
   run: Run;
   fs?: FsLike;
   configDir?: string;
+  workspaceRoot?: string | null;
 }): Context {
   return Object.freeze({
     fs: opts.fs ?? defaultFs(),
     configDir: opts.configDir ?? defaultConfigDir(),
+    workspaceRoot: opts.workspaceRoot ?? null,
     run: opts.run,
   });
+}
+
+/**
+ * The bound workspace root for THIS call, or throw if none. Every module that
+ * operates on a workspace's files / mirror anchors here — the replacement for
+ * the old `ctx.run('workspace.current')` lookup against a mutable global. The
+ * root is immutable for a call tree, so consumers are race-free by construction.
+ */
+export function requireWorkspaceRoot(ctx: Context): string {
+  if (ctx.workspaceRoot === null) {
+    throw new Error('No workspace bound to this call; pass { workspaceRoot } to run()');
+  }
+  return ctx.workspaceRoot;
 }
 
 /**

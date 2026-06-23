@@ -7,8 +7,8 @@ import {
   purgeMirrorKind,
   relocateMirrorKind,
   remapSubtreeRel,
+  requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import {
   clearCurrentFocus,
   patchFocusNode,
@@ -30,17 +30,6 @@ import type {
   FocusSetArgs,
   FocusSetResult,
 } from './types.js';
-
-async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
-  return current.current.path;
-}
 
 // Serialize focus writes per workspace ROOT. focus.set writes the node's
 // focus.yaml AND repoints the current_focus symlink (a two-step unlink+symlink);
@@ -90,22 +79,12 @@ async function nodeExists(
  * the user is looking at.
  */
 export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
+  // The window's bound root IS the workspace this focus belongs to — immutable
+  // for the call, so the old "did the user switch workspaces while this was
+  // in flight?" guard (args.workspace + stillCurrent) is gone: a workspace
+  // switch is now a window reload, which tears down any in-flight focus.set.
+  const root = requireWorkspaceRoot(ctx);
   const node = buildNode(args);
-  // The desktop fires focus.set un-awaited; if the user switched workspaces while
-  // it was in flight (the root resolves late, here), SKIP rather than plant this
-  // workspace's relative path under the now-current one. Mirrors the watcher's
-  // eventRoot/stillCurrent guard. [[pr113-followup]] Report the node either way.
-  if (args.workspace !== undefined && current.current.name !== args.workspace) {
-    return node;
-  }
-  const root = current.current.path;
   return withFocusLock(root, async () => {
     // Field-scoped merge (not a clobbering overwrite): a scroll-only or
     // cursor-only live update must not wipe the sibling viewport field. See
@@ -118,7 +97,7 @@ export const set: Handler<FocusSetArgs, FocusSetResult> = async (args, ctx) => {
 
 /** Read the node `.bh/current_focus.yaml` points at (null when nothing focused). */
 export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   // Read UNDER the focus lock so a concurrent focus.set's non-atomic symlink
   // retarget (unlink → symlink) is never observed mid-gap as a spurious "no focus".
   return withFocusLock(root, () => readCurrentFocus(ctx.fs, root));
@@ -127,7 +106,7 @@ export const get: Handler<FocusGetArgs, FocusGetResult> = async (_args, ctx) => 
 /** Drop the current focus (remove the symlink). The per-node focus.yaml files are
  *  left as each node's last-known viewport. */
 export const clear: Handler<FocusClearArgs, FocusClearResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const cleared = await withFocusLock(root, () => clearCurrentFocus(ctx.fs, root));
   return { cleared };
 };
@@ -141,7 +120,7 @@ export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingRe
   _args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
     const node = await readCurrentFocus(ctx.fs, root);
     if (node === null) return { cleared: false };
@@ -160,7 +139,7 @@ export const pruneDangling: Handler<FocusPruneDanglingArgs, FocusPruneDanglingRe
  * idempotent: a subtree with no focus.yaml just moves nothing.
  */
 export const relocate: Handler<FocusRelocateArgs, FocusRelocateResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
     // Resolve the symlink BEFORE moving the files (after, its target is gone).
     const focused = await readCurrentFocus(ctx.fs, root);
@@ -181,7 +160,7 @@ export const relocate: Handler<FocusRelocateArgs, FocusRelocateResult> = async (
  * additionally reaps the now-orphaned focus.yaml files.
  */
 export const purgeNode: Handler<FocusPurgeNodeArgs, FocusPurgeNodeResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return withFocusLock(root, async () => {
     const focused = await readCurrentFocus(ctx.fs, root);
     const removed = await purgeMirrorKind(ctx.fs, root, 'focus', args.path);

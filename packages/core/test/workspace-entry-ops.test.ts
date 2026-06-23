@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type BadgeFile, type FsLike, createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -22,7 +23,7 @@ interface Seeded {
 async function seed(): Promise<Seeded> {
   const { fs, files, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { files, dirs, fs, core };
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -32,7 +33,7 @@ interface TestContext {
 async function seed(): Promise<TestContext> {
   const { fs, files, links, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { files, links, dirs, core };
 }
@@ -335,18 +336,18 @@ describe('focus.pruneDangling', () => {
   });
 });
 
-describe('no current workspace', () => {
-  it('focus.get throws when no workspace is current', async () => {
+describe('no workspace bound', () => {
+  it('focus.get throws when no workspace is bound to the call', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
-    await expect(core.run('focus.get', {})).rejects.toThrow(/No current workspace/i);
+    await expect(core.run('focus.get', {})).rejects.toThrow(/No workspace bound/i);
   });
 
-  it('focus.set throws when no workspace is current', async () => {
+  it('focus.set throws when no workspace is bound to the call', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
     await expect(core.run('focus.set', { path: 'a.md', kind: 'file' })).rejects.toThrow(
-      /No current workspace/i,
+      /No workspace bound/i,
     );
   });
 });
@@ -369,7 +370,7 @@ describe('focus.get security: a current_focus repointed outside the workspace (r
     await mkdir(outside, { recursive: true });
     const cfg = join(base, 'cfg');
     await mkdir(cfg, { recursive: true });
-    core = createCore({ configDir: cfg });
+    core = boundCore(createCore({ configDir: cfg }), ws);
     await core.run('workspace.add', { path: ws, name: 'ws' });
   });
   afterEach(async () => {
@@ -399,31 +400,45 @@ describe('focus.get security: a current_focus repointed outside the workspace (r
   });
 });
 
-describe('focus.set cross-workspace guard', () => {
-  // The desktop fires focus.set un-awaited; if the user switches workspaces while
-  // it is in flight, the late root resolution must NOT plant workspace A's path
-  // under workspace B. The optional `workspace` arg (the name A's path belongs to)
-  // makes focus.set SKIP when it is no longer current. [[pr113-followup]]
-  it('skips the write when `workspace` is no longer the current one', async () => {
+describe('focus.set is anchored to the call-bound workspace root', () => {
+  // The old cross-workspace guard (an `args.workspace` name + a global "current"
+  // check) is gone: the window's BOUND root IS the workspace this focus belongs
+  // to, immutable for the call (a workspace switch is now a window reload that
+  // tears down any in-flight focus.set). So a focus.set targeting workspace A's
+  // root can never plant A's path under workspace B — the root is fixed per call,
+  // not resolved late from a mutable global. [[pr113-followup]]
+  it('writes under exactly the root passed to the call, never the other workspace', async () => {
     const { fs, files, links, dirs } = mockFs();
     dirs.add('/a');
     dirs.add('/b');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/a', name: 'wa' });
     await core.run('workspace.add', { path: '/b', name: 'wb' });
-    await core.run('workspace.use', { name: 'wb' }); // make wb the current workspace
 
-    // A stale set tagged for 'wa' lands while 'wb' is current → skipped: returns
-    // the node, but writes NOTHING under /b (no focus.yaml, no current_focus).
-    const node = await core.run('focus.set', { path: 'a/sub', kind: 'folder', workspace: 'wa' });
+    // A set bound to /a writes ONLY under /a — nothing leaks into /b.
+    const node = await core.run(
+      'focus.set',
+      { path: 'a/sub', kind: 'folder' },
+      { workspaceRoot: '/a' },
+    );
     expect(node).toEqual({ path: 'a/sub', kind: 'folder' });
+    expect(files.get('/a/.bh/mirror/a/sub/focus.yaml')).toBeDefined();
+    expect(links.get('/a/.bh/current_focus.yaml')).toBe('mirror/a/sub/focus.yaml');
     expect(files.get('/b/.bh/mirror/a/sub/focus.yaml')).toBeUndefined();
     expect(links.get('/b/.bh/current_focus.yaml')).toBeUndefined();
-    expect(await core.run('focus.get', {})).toBeNull();
+    expect(await core.run('focus.get', {}, { workspaceRoot: '/b' })).toBeNull();
 
-    // A set tagged for the CURRENT workspace ('wb') writes normally.
-    await core.run('focus.set', { path: 'x.md', kind: 'file', workspace: 'wb' });
+    // A set bound to /b writes ONLY under /b — independent of /a's focus.
+    await core.run('focus.set', { path: 'x.md', kind: 'file' }, { workspaceRoot: '/b' });
     expect(links.get('/b/.bh/current_focus.yaml')).toBe('mirror/x.md/focus.yaml');
-    expect(await core.run('focus.get', {})).toEqual({ path: 'x.md', kind: 'file' });
+    expect(await core.run('focus.get', {}, { workspaceRoot: '/b' })).toEqual({
+      path: 'x.md',
+      kind: 'file',
+    });
+    // /a's focus is untouched by the /b write.
+    expect(await core.run('focus.get', {}, { workspaceRoot: '/a' })).toEqual({
+      path: 'a/sub',
+      kind: 'folder',
+    });
   });
 });

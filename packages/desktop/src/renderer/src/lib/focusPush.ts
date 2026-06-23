@@ -1,16 +1,18 @@
+import { useWorkspaceStore } from '../store/workspace.js';
 /**
- * The one place that owns the `focus.set`-for-a-file contract: a debounced,
- * workspace-guarded writer of the user's viewport into focus.yaml. Both viewers of
- * a file's source — the read-only CodeReader (visible line) and the Markdown editor
- * (cursor + visible line) — push through this, so the guard / debounce / late-fire
- * handling live once instead of being re-derived per surface.
+ * The one place that owns the `focus.set`-for-a-file contract: a debounced writer
+ * of the user's viewport into focus.yaml. Both viewers of a file's source — the
+ * read-only CodeReader (visible line) and the Markdown editor (cursor + visible
+ * line) — push through this, so the debounce / late-fire handling lives once
+ * instead of being re-derived per surface.
  *
  * focus.set is a FIELD-SCOPED merge in core, so a cursor-only and a visible-only
- * write compose without clobbering each other; we pass the captured workspace name
- * so a fire that lands AFTER a workspace switch is skipped by core rather than
- * planting this file's path under the new root (mirrors the watcher's guard).
+ * write compose without clobbering each other. main injects this window's bound
+ * root, so the write is workspace-immutable; the one race is a switch (a window
+ * reload), which sets `mirrorWritesSuspended()` — a debounced fire in the
+ * reload-commit gap then skips instead of landing in the newly-bound workspace.
  */
-import { useWorkspaceStore } from '../store/workspace.js';
+import { mirrorWritesSuspended } from './mirrorWrites.js';
 
 export interface FocusFields {
   readonly visible_lines?: { readonly start: number };
@@ -47,7 +49,9 @@ export function makeFileFocusPusher(file: string, debounceMs = FOCUS_DEBOUNCE): 
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       // Only mirror while THIS file is still the open one in a live workspace — a
-      // debounced late fire must not write after the user navigated away.
+      // debounced late fire must not write after the user navigated away — and not
+      // during a workspace switch's reload-commit gap (would land in the new root).
+      if (mirrorWritesSuspended()) return;
       const st = useWorkspaceStore.getState();
       if (st.openFile !== file || !st.current) return;
       const fields = compute();
@@ -56,7 +60,7 @@ export function makeFileFocusPusher(file: string, debounceMs = FOCUS_DEBOUNCE): 
       if (key === lastSent) return; // viewport unchanged since the last write
       lastSent = key;
       void window.bh
-        .run('focus.set', { path: file, kind: 'file', ...fields, workspace: st.current })
+        .run('focus.set', { path: file, kind: 'file', ...fields })
         .catch(() => undefined);
     }, debounceMs);
   }) as FileFocusPusher;

@@ -58,35 +58,39 @@ function yieldingFs(): { fs: FsLike; dirs: Set<string> } {
   return { fs, dirs };
 }
 
-// Regression for the workspace-config lost-update race. add / use / remove /
-// rename / repath / setViewport all read workspaces.json, mutate, write — and
-// the desktop fires setViewport as a DEBOUNCED, fire-and-forget call that is
-// NOT awaited and NOT behind the renderer's busy guard. So a stale in-flight
-// setViewport can race a workspace switch: both read the pre-write config and
-// the second write clobbers the first. The scary direction is setViewport
-// winning and reverting `current` — silently undoing the user's switch.
-// workspace/commands.ts now serializes config writes via the shared mutex.
+// Regression for the workspace-config lost-update race. add / remove / rename /
+// repath / setViewport all read workspaces.json, mutate, write — and the desktop
+// fires setViewport as a DEBOUNCED, fire-and-forget call that is NOT awaited. So a
+// stale in-flight setViewport can race another config write: both read the
+// pre-write config and the second write clobbers the first (a dropped entry or a
+// lost viewport). workspace/commands.ts serializes config writes via the shared
+// mutex. (There is no global `current` to clobber anymore — the active workspace
+// is bound per window/call, not stored — so the only race left is the generic
+// entry/viewport lost-update guarded here.)
 describe('workspace config lost-update race', () => {
-  it('setViewport racing workspace.use keeps the switch AND the viewport', async () => {
+  it('setViewport racing a concurrent workspace.add keeps BOTH the viewport and the new entry', async () => {
     const { fs, dirs } = yieldingFs();
     dirs.add('/a');
     dirs.add('/b');
+    dirs.add('/c');
     const core = createCore({ fs, configDir: '/cfg' });
     await core.run('workspace.add', { path: '/a', name: 'a' });
     await core.run('workspace.add', { path: '/b', name: 'b' });
-    // current is 'a' (first added). Concurrently: a debounced viewport
-    // persist for 'a' races a switch to 'b'.
-    const vp = core.run('workspace.setViewport', {
-      viewport: { offsetX: 10, offsetY: 20, scale: 2 },
-    });
-    const use = core.run('workspace.use', { name: 'b' });
-    await Promise.all([vp, use]);
+    // A debounced viewport persist for 'a' (bound to /a) races a new workspace.add.
+    // Both are RMW on workspaces.json — without the shared mutex the second write
+    // would clobber the first (lost viewport OR dropped entry).
+    const vp = core.run(
+      'workspace.setViewport',
+      { viewport: { offsetX: 10, offsetY: 20, scale: 2 } },
+      { workspaceRoot: '/a' },
+    );
+    const add = core.run('workspace.add', { path: '/c', name: 'c' });
+    await Promise.all([vp, add]);
 
-    const cur = await core.run('workspace.current', {});
-    // The switch must survive — a stale viewport write must not revert it.
-    expect(cur.current?.name).toBe('b');
-    // And the viewport write must not be lost either.
     const list = await core.run('workspace.list', {});
+    // The new workspace survived...
+    expect(list.workspaces.map((w: { name: string }) => w.name).sort()).toEqual(['a', 'b', 'c']);
+    // ...and the viewport write was not lost.
     const a = list.workspaces.find((w: { name: string }) => w.name === 'a');
     expect(a?.viewport).toEqual({ offsetX: 10, offsetY: 20, scale: 2 });
   });

@@ -124,7 +124,8 @@ export const CodeReader = ({
   );
 
   // ── Live-sync the first visible line into focus.yaml ───────────────────────
-  // Through the shared focus pusher (debounce + workspace guard live there).
+  // Through the shared focus pusher (debounce + open-file/switch liveness checks
+  // live there; main injects this window's bound workspace root).
   const pushFocus = useMemo(() => makeFileFocusPusher(file), [file]);
   useEffect(() => () => pushFocus.cancel(), [pushFocus]);
 

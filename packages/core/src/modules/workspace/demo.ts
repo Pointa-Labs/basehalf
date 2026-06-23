@@ -91,10 +91,10 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
 
   // Register the workspace; setup:true so the agent-protocol hint
   // installs. If a workspace with this name already exists (user clicked
-  // "Try a demo" a second time), make the operation idempotent: switch
-  // to it and proceed to re-apply the demo prompts + refs. Without this
-  // the user would hit "Workspace already exists" as a hard error on
-  // their second click.
+  // "Try a demo" a second time), make the operation idempotent: proceed to
+  // re-apply the demo prompts + refs (the renderer opens it afterward).
+  // Without this the user would hit "Workspace already exists" as a hard error
+  // on their second click.
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
   let addResult: WorkspaceAddResult;
   if (data.workspaces[name]) {
@@ -106,10 +106,8 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
         `Workspace name "${name}" is already registered at ${existing.path}. Pick a different demo path.`,
       );
     }
-    await ctx.run('workspace.use', { name });
     addResult = {
       workspace: { name, path: existing.path, addedAt: existing.addedAt },
-      setAsCurrent: true,
       bhDirCreated: false,
       alreadyRegistered: true,
       // Re-run setup so a deleted CLAUDE.md gets recreated. Setup is
@@ -124,6 +122,11 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     });
   }
 
+  // Every mutation below targets the DEMO workspace explicitly: createDemo runs
+  // under the CALLER's bound root (the welcome window, often none), so we bind
+  // each sub-call to the demo's own root rather than inheriting the caller's.
+  const demoRoot = { workspaceRoot: absPath };
+
   // Apply the badge descriptions (the semantic layer) and the canvas cards (the
   // visual layer) separately, per the focus_mode_spec split. All demo files live
   // at the workspace root, so the root folder's canvas.yaml (folder: null) holds
@@ -131,23 +134,31 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   // the loop stays coherent.
   for (const file of DEMO_FILES) {
     if (file.prompt !== undefined) {
-      await ctx.run('badge.set', {
-        file: file.path,
-        patch: { kind: 'file', description: file.prompt },
-      });
+      await ctx.run(
+        'badge.set',
+        {
+          file: file.path,
+          patch: { kind: 'file', description: file.prompt },
+        },
+        demoRoot,
+      );
     }
     if (file.canvas !== undefined) {
-      await ctx.run('canvas.setCard', {
-        folder: null,
-        card: {
-          path: file.path,
-          kind: 'file',
-          x: file.canvas.x,
-          y: file.canvas.y,
-          width: DEMO_FILE_CARD_WIDTH,
-          height: DEMO_FILE_CARD_HEIGHT,
+      await ctx.run(
+        'canvas.setCard',
+        {
+          folder: null,
+          card: {
+            path: file.path,
+            kind: 'file',
+            x: file.canvas.x,
+            y: file.canvas.y,
+            width: DEMO_FILE_CARD_WIDTH,
+            height: DEMO_FILE_CARD_HEIGHT,
+          },
         },
-      });
+        demoRoot,
+      );
     }
   }
   // Draw the references AFTER every card exists. canvas.connect writes the visual
@@ -155,15 +166,19 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   // in lockstep, so the agent's referenced_by graph matches what the canvas shows.
   for (const file of DEMO_FILES) {
     for (const ref of file.refs ?? []) {
-      await ctx.run('canvas.connect', {
-        folder: null,
-        from: file.path,
-        to: ref.to,
-        from_anchor: 'east',
-        to_anchor: 'west',
-        kind: 'file',
-        ...(ref.note !== undefined && { label: ref.note }),
-      });
+      await ctx.run(
+        'canvas.connect',
+        {
+          folder: null,
+          from: file.path,
+          to: ref.to,
+          from_anchor: 'east',
+          to_anchor: 'west',
+          kind: 'file',
+          ...(ref.note !== undefined && { label: ref.note }),
+        },
+        demoRoot,
+      );
     }
   }
 
@@ -173,23 +188,27 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
   // Best-effort: if setup skipped CLAUDE.md (user's own already existed), the
   // card just points at a file the canvas won't render.
   await ctx
-    .run('canvas.setCard', {
-      folder: null,
-      card: {
-        path: 'CLAUDE.md',
-        kind: 'file',
-        x: 620,
-        y: 60,
-        width: DEMO_FILE_CARD_WIDTH,
-        height: DEMO_FILE_CARD_HEIGHT,
+    .run(
+      'canvas.setCard',
+      {
+        folder: null,
+        card: {
+          path: 'CLAUDE.md',
+          kind: 'file',
+          x: 620,
+          y: 60,
+          width: DEMO_FILE_CARD_WIDTH,
+          height: DEMO_FILE_CARD_HEIGHT,
+        },
       },
-    })
+      demoRoot,
+    )
     .catch(() => undefined);
 
   // Focus the intro file so the agent's first read of `.bh/current_focus.yaml`
   // points at a useful node instead of returning null — the viewport-mirror
   // equivalent of "the user is looking at intro.md."
-  await ctx.run('focus.set', { path: 'intro.md', kind: 'file' });
+  await ctx.run('focus.set', { path: 'intro.md', kind: 'file' }, demoRoot);
 
   return {
     workspace: addResult.workspace,

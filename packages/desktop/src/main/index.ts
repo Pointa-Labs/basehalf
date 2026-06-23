@@ -25,6 +25,7 @@ import {
   writeWindowState,
   writeWindowStateSync,
 } from './window-state.js';
+import { clearWorkspaceRoot, getWorkspaceRoot, setWorkspaceRoot } from './windows.js';
 
 // Source is ESM but emit is CJS (see electron.vite.config.ts). import.meta.url
 // is polyfilled by rollup in the CJS output.
@@ -46,8 +47,9 @@ console.log('[bh-desktop] core.has("workspace.list") =', core.has('workspace.lis
 
 registerBhRunHandler(core);
 registerWorkspacePickHandler();
-registerShellOpenHandler(core);
+registerShellOpenHandler();
 registerPathKindHandler();
+registerWorkspaceOpenHandler();
 // The renderer claims (synchronously) the next native context menu when it opens
 // an in-app one, so the two never stack (chiefly over the terminal, which Electron
 // can report as editable). sendSync so the flag lands before the context-menu event.
@@ -56,8 +58,8 @@ ipcMain.on('ctxmenu:suppress-next', (event) => {
   event.returnValue = true;
 });
 // Embedded terminal: pty lives in main, streams to xterm.js in the renderer.
-// cwd defaults to the active workspace root (resolved via core.run here).
-registerTerminalIpc(core);
+// cwd defaults to the SENDER window's bound workspace root (see terminal.ts).
+registerTerminalIpc();
 // Zoom hooks reference the function declarations below — hoisted, so safe here.
 registerSettingsIpc(prefs, { getZoomLevel: () => currentZoomLevel, applyZoomLevel });
 const updater = new Updater();
@@ -98,8 +100,65 @@ const persistWindowState = debounce(() => {
     height: bounds.height,
     isMaximized: mainWindow.isMaximized(),
     zoomLevel: currentZoomLevel,
+    // Remember which workspace this window had open, so launch reopens it (the
+    // desktop owns "which window shows which workspace" now — core has no
+    // global current). null = the welcome window.
+    workspaceRoot: getWorkspaceRoot(mainWindow.webContents),
   });
 }, 500);
+
+/**
+ * Resolve the workspace a freshly-created window should bind to: the one this
+ * window had open at last quit (persisted in window-state), but ONLY if it's
+ * still a registered workspace — else the welcome window (null). The active
+ * workspace is desktop session state now, not a core pointer, so the validation
+ * is a path match against the registry.
+ */
+async function resolveLaunchRoot(persisted: string | null): Promise<string | null> {
+  if (persisted === null) return null;
+  try {
+    const { workspaces } = (await core.run('workspace.list', {})) as {
+      workspaces: { path: string }[];
+    };
+    const lower = persisted.toLowerCase();
+    return workspaces.some((w) => w.path.toLowerCase() === lower) ? persisted : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `workspace:open` — switch THIS window to another workspace (or the welcome
+ * state, `name: null`). A switch is a rebind + reload, never an in-place
+ * re-point: the immutable per-load binding is what keeps every in-flight core
+ * call race-free. The renderer flushes its editors BEFORE calling this (the
+ * switch is gated there), so the reload can't drop unsaved edits.
+ */
+function registerWorkspaceOpenHandler(): void {
+  ipcMain.handle('workspace:open', async (event, name: unknown): Promise<void> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    let root: string | null = null;
+    if (typeof name === 'string') {
+      try {
+        const { workspaces } = (await core.run('workspace.list', {})) as {
+          workspaces: { name: string; path: string }[];
+        };
+        root = workspaces.find((w) => w.name === name)?.path ?? null;
+      } catch {
+        root = null;
+      }
+    }
+    setWorkspaceRoot(win.webContents, root);
+    persistWindowState();
+    // Phase 1 runs a single window, so the pty sessions are process-global:
+    // dispose them before the reload so the old page's shells don't leak; the
+    // reloaded page respawns in the new workspace's cwd. (Phase 2 keys terminals
+    // per window and disposes only this window's.)
+    disposeAllTerminals();
+    win.webContents.reload();
+  });
+}
 
 /** Push the current zoom level onto the window AND tell the renderer the resulting
  *  factor, so the title bar can counter-zoom — staying aligned with the native
@@ -123,6 +182,10 @@ async function createWindow(): Promise<void> {
   const saved = await readWindowState(configDir);
   currentZoomLevel = Math.max(MIN_ZOOM_LEVEL, Math.min(MAX_ZOOM_LEVEL, saved.zoomLevel ?? 0));
   const state = clampToDisplays(saved, screen.getAllDisplays());
+  // Which workspace this window opens (the one persisted last quit, if still
+  // registered; else welcome). Resolved BEFORE the window so the binding is set
+  // before the renderer's first bh:run.
+  const launchRoot = await resolveLaunchRoot(saved.workspaceRoot ?? null);
 
   mainWindow = new BrowserWindow({
     width: state.width,
@@ -146,6 +209,13 @@ async function createWindow(): Promise<void> {
   });
 
   if (state.isMaximized) mainWindow.maximize();
+
+  // Bind this window to its workspace BEFORE loading the renderer, so the very
+  // first bh:run resolves the right root. Immutable for this load — a switch
+  // reloads + rebinds. Capture the numeric webContents id for the `closed`
+  // cleanup (the WebContents is destroyed by then).
+  setWorkspaceRoot(mainWindow.webContents, launchRoot);
+  const wcId = mainWindow.webContents.id;
 
   // Navigation lockdown. A workspace can hold Markdown authored by someone else
   // (cloned repo, shared notes) whose links render as live anchors on canvas
@@ -240,6 +310,8 @@ async function createWindow(): Promise<void> {
     // each session's pty on unmount), so sweep any survivors here — no orphan
     // shell processes left running headless.
     disposeAllTerminals();
+    // Drop this window's workspace binding so the map doesn't accrete dead ids.
+    clearWorkspaceRoot(wcId);
     mainWindow = null;
   });
 }
@@ -277,6 +349,7 @@ app.on('before-quit', () => {
       height: bounds.height,
       isMaximized: mainWindow.isMaximized(),
       zoomLevel: currentZoomLevel,
+      workspaceRoot: getWorkspaceRoot(mainWindow.webContents),
     });
   } catch {
     // Best-effort; never block quit on persistence failures.

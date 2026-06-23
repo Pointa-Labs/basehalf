@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore, defaultFs } from '../src/index.js';
 import { isContained } from '../src/kernel/contain.js';
+import { boundCore } from './helpers/bound-core.js';
 
 /**
  * Symlink / path-traversal workspace-escape suite — the CLASS audited after
@@ -37,8 +38,13 @@ async function setup(): Promise<void> {
   await mkdir(outside, { recursive: true });
   const cfg = join(base, 'cfg');
   await mkdir(cfg, { recursive: true });
-  core = createCore({ configDir: cfg });
-  // Registers ws as current. Focus needs no seeding now: current_focus is a
+  // Bind the operating core to `ws` (the common-case single workspace). The
+  // host injects the workspace root per call now; boundCore is the test-side
+  // stand-in. Registry commands (add/list/…) ignore the bound root; the
+  // file/badge/focus/listFiles commands anchor on it. Tests that operate on a
+  // SECOND workspace pass an explicit { workspaceRoot } on those calls.
+  core = boundCore(createCore({ configDir: cfg }), ws);
+  // Registers ws. Focus needs no seeding now: current_focus is a
   // symlink that's simply absent until the first node is focused.
   await core.run('workspace.add', { path: ws, name: 'ws' });
 }
@@ -134,7 +140,7 @@ describe('badges store', () => {
 
   it('still lists legitimately created badges (no false rejection)', async () => {
     await writeFile(join(ws, 'doc.md'), '# doc');
-    await core.run('workspace.use', { name: 'ws' }); // ensure current
+    await core.run('workspace.use', { name: 'ws' }); // thin validate-and-return now (no side effect); core is bound to ws
     await core.run('badge.set', { file: 'doc.md', patch: { description: 'x' } }); // annotate → real badge
     const { badges } = await core.run('badge.list', {});
     expect(badges.find((b: { path: string }) => b.path === 'doc.md')).toBeDefined();
@@ -182,7 +188,7 @@ describe('materialize walk', () => {
     await mkdir(fresh, { recursive: true });
     await symlink(outside, join(fresh, 'innocent')); // innocent -> outside
     await core.run('workspace.add', { path: fresh, name: 'ws2' });
-    const { badges } = await core.run('badge.list', {});
+    const { badges } = await core.run('badge.list', {}, { workspaceRoot: fresh });
     // No badge whose path descends into the symlinked-out directory.
     expect(badges.some((b: { path: string }) => b.path.startsWith('innocent/'))).toBe(false);
   });
@@ -300,7 +306,7 @@ describe('.bh metadata DIRECTORY itself a symlink', () => {
     );
     await symlink(outMirror, join(fresh, '.bh/mirror')); // .bh/mirror -> outside dir
     await core.run('workspace.add', { path: fresh, name: 'wsbsym' });
-    const { badges } = await core.run('badge.list', {});
+    const { badges } = await core.run('badge.list', {}, { workspaceRoot: fresh });
     expect(badges.find((b: { path: string }) => b.path === 'x.md')).toBeUndefined();
   });
 });

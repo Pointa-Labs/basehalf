@@ -3,8 +3,8 @@ import {
   createKeyedMutex,
   purgeMirrorKind,
   relocateMirrorKind,
+  requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import type { WorkspaceCurrentResult } from '../workspace/types.js';
 import { mergeRange, normalizeRanges, subtractRange } from './ranges.js';
 import { adhdRevision, patchAdhd, readAdhd } from './store.js';
 import type {
@@ -29,17 +29,6 @@ import type {
   AdhdSetResult,
   LineRange,
 } from './types.js';
-
-async function currentWorkspaceRoot(ctx: Parameters<Handler>[1]): Promise<string> {
-  const current = await ctx.run<Record<string, never>, WorkspaceCurrentResult>(
-    'workspace.current',
-    {},
-  );
-  if (current.current === null) {
-    throw new Error('No current workspace; call workspace.use first');
-  }
-  return current.current.path;
-}
 
 // Serialize app-level adhd writes per workspace ROOT (a granular keyword/range
 // edit is an RMW that must not lose a concurrent one). patchAdhd adds per-file
@@ -80,14 +69,14 @@ function isEmpty(a: AdhdFile): boolean {
 }
 
 export const get: Handler<AdhdGetArgs, AdhdGetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return readAdhd(ctx.fs, root, args.file);
 };
 
 /** Replace the whole adhd.yaml (the agent's GENERATE door). Normalizes ranges +
  *  de-dupes keywords; an all-empty set prunes the file. */
 export const set: Handler<AdhdSetArgs, AdhdSetResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const keywords = dedupe(args.highlight_keywords ?? []);
   const ranges = normalizeRanges(args.read_paragraphs ?? []);
   const next = build(args.file, keywords, ranges);
@@ -100,7 +89,7 @@ export const set: Handler<AdhdSetArgs, AdhdSetResult> = async (args, ctx) => {
 export const addKeyword: Handler<AdhdAddKeywordArgs, AdhdAddKeywordResult> = async (args, ctx) => {
   const kw = args.keyword.trim();
   if (kw === '') throw new Error('adhd.addKeyword: keyword is empty');
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return (await withAdhdLock(root, () =>
     patchAdhd(ctx.fs, root, args.file, (cur) => {
       const existing = cur?.highlight_keywords ?? [];
@@ -114,7 +103,7 @@ export const removeKeyword: Handler<AdhdRemoveKeywordArgs, AdhdRemoveKeywordResu
   args,
   ctx,
 ) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return withAdhdLock(root, () =>
     patchAdhd(ctx.fs, root, args.file, (cur) => {
       if (!cur) return null;
@@ -127,7 +116,7 @@ export const removeKeyword: Handler<AdhdRemoveKeywordArgs, AdhdRemoveKeywordResu
 
 /** Mark `[start, end]` read (merged into read_paragraphs). */
 export const markRead: Handler<AdhdMarkReadArgs, AdhdMarkReadResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return (await withAdhdLock(root, () =>
     patchAdhd(ctx.fs, root, args.file, (cur) => {
       const merged = mergeRange(cur?.read_paragraphs ?? [], args.start, args.end);
@@ -138,7 +127,7 @@ export const markRead: Handler<AdhdMarkReadArgs, AdhdMarkReadResult> = async (ar
 
 /** Mark `[start, end]` unread (subtracted from read_paragraphs, splitting ranges). */
 export const markUnread: Handler<AdhdMarkUnreadArgs, AdhdMarkUnreadResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return withAdhdLock(root, () =>
     patchAdhd(ctx.fs, root, args.file, (cur) => {
       if (!cur) return null; // nothing read → nothing to unread
@@ -150,14 +139,14 @@ export const markUnread: Handler<AdhdMarkUnreadArgs, AdhdMarkUnreadResult> = asy
 };
 
 export const revision: Handler<AdhdRevisionArgs, AdhdRevisionResult> = async (_args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   return adhdRevision(ctx.fs, root);
 };
 
 /** RENAME CASCADE: carry the subtree's adhd.yaml (reading aids) to the new
  *  location when a file/folder moves. Called by badge.rename. */
 export const relocate: Handler<AdhdRelocateArgs, AdhdRelocateResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const moved = await withAdhdLock(root, () =>
     relocateMirrorKind<AdhdFile>(ctx.fs, root, 'adhd', args.from, args.to),
   );
@@ -166,7 +155,7 @@ export const relocate: Handler<AdhdRelocateArgs, AdhdRelocateResult> = async (ar
 
 /** DELETE CASCADE: reap the subtree's adhd.yaml when a file/folder is deleted. */
 export const purgeNode: Handler<AdhdPurgeNodeArgs, AdhdPurgeNodeResult> = async (args, ctx) => {
-  const root = await currentWorkspaceRoot(ctx);
+  const root = requireWorkspaceRoot(ctx);
   const removed = await withAdhdLock(root, () => purgeMirrorKind(ctx.fs, root, 'adhd', args.path));
   return { removed };
 };

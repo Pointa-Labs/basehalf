@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { type Handler, canonicalize } from '../../kernel/index.js';
+import { type Handler, canonicalize, requireWorkspaceRoot } from '../../kernel/index.js';
 import type {
   SearchBriefArgs,
   SearchBriefResult,
@@ -117,11 +117,7 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
   if (needle.length === 0) return { query: '', hits: [] };
   const needleLower = needle.toLowerCase();
 
-  const cur = (await ctx.run('workspace.current', {})) as {
-    current: { path: string } | null;
-  };
-  if (!cur.current) throw new Error('No current workspace; call workspace.use first');
-  const root = cur.current.path;
+  const root = requireWorkspaceRoot(ctx);
 
   const maxFiles = clampPositive(args.maxFiles, DEFAULT_MAX_FILES);
   const maxMatchesPerFile = clampPositive(args.maxMatchesPerFile, DEFAULT_MAX_MATCHES_PER_FILE);

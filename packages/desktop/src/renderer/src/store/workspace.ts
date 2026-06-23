@@ -1,12 +1,8 @@
-import type {
-  WorkspaceCurrentResult,
-  WorkspaceEntry,
-  WorkspaceListResult,
-  WorkspaceUseResult,
-} from '@basehalf/core';
+import type { WorkspaceEntry, WorkspaceListResult } from '@basehalf/core';
 import { create } from 'zustand';
 import { flushAll, flushPane } from '../lib/editorFlush.js';
 import { emitEntryRemoved, emitEntryRenamed } from '../lib/fileEvents.js';
+import { suspendMirrorWrites } from '../lib/mirrorWrites.js';
 import { noteStemFromTitle } from '../lib/noteTitle.js';
 import { renamePanelTab } from '../lib/panelTab.js';
 import { noteOpenedFile } from '../lib/recent-files.js';
@@ -183,6 +179,17 @@ async function startWatcher(): Promise<void> {
   }
 }
 
+// Switch this window to another workspace (or the welcome state, null). A switch
+// is main rebinding the window's root + reloading it; the old page keeps running
+// for a few ms until the reload commits, so SUSPEND the debounced mirror writers
+// (focus/canvas/viewport) first — otherwise a pending one could fire in that gap
+// and write an old-workspace-relative path into the NEW workspace's .bh/. Callers
+// flush the editors (flushAll) separately before invoking this. See lib/mirrorWrites.
+async function switchWindow(name: string | null): Promise<void> {
+  suspendMirrorWrites();
+  await window.bh.openWorkspace(name);
+}
+
 // PATH_NOT_FOUND is encoded as a `[PATH_NOT_FOUND] …` prefix in the error
 // message because Electron's contextBridge strips both custom Error
 // properties (.code) AND instance-assigned standard ones (.name reverts
@@ -246,15 +253,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     refresh: async () => {
       try {
         const result = (await window.bh.run('workspace.list')) as WorkspaceListResult;
-        // A SAME-workspace refresh (e.g. after adding/removing ANOTHER workspace)
-        // must KEEP the live UI context — clearing the open file / selection /
-        // scope would yank the editor out from under the user. Only a workspace
-        // CHANGE resets that per-workspace state. "Same" means same NAME *and*
-        // same PATH — `repath()` keeps the name but points at a new folder, which
-        // must reset (else the open editor keeps the old folder's content).
+        // A window's bound workspace never changes IN PLACE — a switch is a
+        // window reload that mounts fresh — so a `refresh()` within a live
+        // renderer is always the SAME workspace (after add/remove-other, or a
+        // RENAME that changes only the name, not the folder). Identity is the
+        // bound FOLDER PATH: keep the live UI (open file / selection / scope)
+        // whenever the path is unchanged; only a genuinely different path (which
+        // a reload would have produced) resets. This also lets a rename update
+        // `current` to the new name without yanking the editor.
         const oldPath = get().workspaces.find((w) => w.name === get().current)?.path;
         const newPath = result.workspaces.find((w) => w.name === result.current)?.path;
-        if (get().current !== null && result.current === get().current && oldPath === newPath) {
+        if (get().current !== null && oldPath !== undefined && oldPath === newPath) {
           set({
             workspaces: result.workspaces,
             current: result.current,
@@ -283,13 +292,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             await window.bh.run('workspace.listFiles', { path: currentWs.path });
             set({ currentReachable: true });
             await startWatcher();
-            // Re-validate the focus against disk on every workspace LOAD. Plain
-            // startup loads via workspace.list (a read) — not workspace.use — so
-            // bootstrapWorkspace's re-entry prune never runs here; a current_focus
-            // gone stale while the app was closed (git checkout / external rm)
-            // would otherwise point the agent at a deleted file. Cheap + idempotent;
-            // fire-and-forget so a hiccup never blocks the canvas.
+            // On every workspace LOAD, reconcile the derived mirror against disk
+            // (the on-open liveness sweep core's `add`/`use` no longer runs — it
+            // belongs to whichever window OPENS the workspace, bound to its root).
+            // A current_focus or a badge gone stale while the app was closed (git
+            // checkout / external rm) would otherwise point the agent at a deleted
+            // file. Cheap + idempotent; fire-and-forget so a hiccup never blocks
+            // the canvas. Both inject this window's bound root via bh:run.
             void window.bh.run('focus.pruneDangling', {}).catch(() => undefined);
+            void window.bh.run('badge.pruneDangling', {}).catch(() => undefined);
           } catch (err) {
             if (isPathNotFound(err)) {
               set({ currentReachable: false });
@@ -309,9 +320,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       try {
         const path = await window.bh.pickWorkspace();
         if (!path) return;
-        // Flush+gate the open editor BEFORE refresh() unmounts it (nulls
-        // openFile): persist its edits to the CURRENT workspace, and block on
-        // an unresolved conflict / failed save rather than dropping them silently.
+        // Flush+gate the open editor BEFORE the reload openWorkspace triggers
+        // (the reload discards unsaved renderer state): persist its edits, and
+        // block on an unresolved conflict / failed save rather than dropping them.
         // (After the picker, so cancelling it never surfaces a spurious error.)
         if ((await flushAll()) === false) {
           set({ error: "Save or resolve this file's changes before adding a workspace." });
@@ -324,17 +335,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // agents recognise the protocol.
         const added = (await window.bh.run('workspace.add', { path, setup: true })) as {
           workspace: { name: string };
-          setAsCurrent: boolean;
         };
-        // "Open Folder" means OPEN: switch to it. add is idempotent by path
-        // (an already-registered folder returns its existing entry), so the
-        // only remaining step is making it current — unless add already did
-        // (first workspace) or it is current already.
-        if (!added.setAsCurrent && added.workspace.name !== get().current) {
-          await window.bh.run('workspace.use', { name: added.workspace.name });
-        }
-        await get().refresh();
-        await startWatcher();
+        // "Open Folder" means OPEN: switch THIS window to it (main rebinds +
+        // reloads). add is idempotent by path, so an already-registered folder
+        // just opens its existing entry.
+        await switchWindow(added.workspace.name);
       } catch (err) {
         set({ error: formatError(err) });
       } finally {
@@ -347,9 +352,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // Claim the busy lock BEFORE the async flush below (an IPC round-trip), so a
       // second drop can't race in during it.
       set({ busy: true });
-      // A dropped folder may switch the active workspace (workspace.use below).
-      // Flush the open editor to the CURRENT workspace first, so a pending
-      // auto-save can't land in the newly-active workspace's same-named file.
+      // A dropped folder switches THIS window to it (openWorkspace below, a
+      // reload). Flush the open editor to the CURRENT workspace first, so a
+      // pending auto-save can't be lost when the reload discards renderer state.
       // A `false` flush = an unresolved conflict is open: block the switch so the
       // user resolves it against THIS workspace's file before we re-point roots.
       // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
@@ -363,32 +368,31 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return;
       }
       const failures: string[] = [];
-      try {
-        // workspace.add is idempotent by path (re-adding a registered folder
-        // returns its existing entry) and auto-resolves name collisions, so
-        // dropping is just add-then-open. Multiple folders: all register,
-        // the last successful one becomes the open workspace.
-        let lastName: string | null = null;
-        for (const path of paths) {
-          try {
-            const added = (await window.bh.run('workspace.add', { path, setup: true })) as {
-              workspace: { name: string };
-            };
-            lastName = added.workspace.name;
-          } catch (err) {
-            failures.push(`${path}: ${formatError(err)}`);
-          }
+      // workspace.add is idempotent by path (re-adding a registered folder
+      // returns its existing entry) and auto-resolves name collisions, so
+      // dropping is just add-then-open. Multiple folders: all register; the last
+      // successful one becomes the open workspace.
+      let lastName: string | null = null;
+      for (const path of paths) {
+        try {
+          const added = (await window.bh.run('workspace.add', { path, setup: true })) as {
+            workspace: { name: string };
+          };
+          lastName = added.workspace.name;
+        } catch (err) {
+          failures.push(`${path}: ${formatError(err)}`);
         }
-        if (lastName !== null && lastName !== get().current) {
-          try {
-            await window.bh.run('workspace.use', { name: lastName });
-          } catch (err) {
-            failures.push(formatError(err));
-          }
+      }
+      if (lastName !== null) {
+        // Open the last successful drop in THIS window (rebind + reload). The
+        // reload discards renderer state, so any per-path failure message can't
+        // survive it — surface it only when nothing opened (below).
+        try {
+          await switchWindow(lastName);
+        } catch (err) {
+          set({ busy: false, error: formatError(err) });
         }
-        await get().refresh();
-        await startWatcher();
-      } finally {
+      } else {
         set({ busy: false });
         if (failures.length > 0) {
           set({ error: `Drop failed for:\n  ${failures.join('\n  ')}` });
@@ -410,9 +414,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         // on re-run: existing files aren't overwritten, re-adding the same
         // path returns the existing registration, and a basename collision
         // with a different folder auto-suffixes the name.
-        await window.bh.run('workspace.createDemo', { path });
-        await get().refresh();
-        await startWatcher();
+        const r = (await window.bh.run('workspace.createDemo', { path })) as {
+          workspace: { name: string };
+        };
+        // Open the demo in THIS window (rebind + reload).
+        await switchWindow(r.workspace.name);
       } catch (err) {
         set({ error: formatError(err) });
       } finally {
@@ -426,12 +432,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // round-trip, and leaving busy=false during it would let a second switch
       // (or any busy-gated action) race in on top of this one.
       set({ busy: true });
-      // Flush the open editor to the CURRENT workspace before re-pointing roots,
-      // so its pending edits land in the right file. A `false` flush = an
-      // unresolved conflict: block the switch and send the user to Keep/Reload.
-      // A REJECTED flush (torn-down editor) is non-blocking — proceed, matching
-      // setCurrentFile — and the `.catch` keeps it from escaping past this `await`
-      // and leaking busy=true (the await is outside the try/finally below).
+      // Flush the open editor to the CURRENT workspace before the reload, so its
+      // pending edits land in the right file. A `false` flush = an unresolved
+      // conflict: block the switch and send the user to Keep/Reload. A REJECTED
+      // flush (torn-down editor) is non-blocking — proceed — and the `.catch`
+      // keeps it from leaking busy=true.
       if ((await flushAll()) === false) {
         set({
           busy: false,
@@ -440,45 +445,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         return;
       }
       try {
-        const result = (await window.bh.run('workspace.use', { name })) as WorkspaceUseResult;
-        const cur = (await window.bh.run('workspace.current')) as WorkspaceCurrentResult;
-        // Reset per-workspace state so FilePreview / Canvas don't keep rendering
-        // against the *previous* workspace's file paths (openFile, folderScope are
-        // all workspace-relative). Without this, an open editor would keep its
-        // in-memory contents and write them back into whatever file in the *new*
-        // workspace happens to share the same relative path.
-        const nextName = cur.current ? cur.current.name : result.current.name;
-        set({
-          current: nextName,
-          currentReachable: null,
-          openFile: null,
-          currentFile: null,
-          canvasSelection: null,
-          openMatchQuery: null,
-          folderScope: null,
-          renamingPath: null,
-          error: '',
-        });
-        await startWatcher();
-        // Re-fetch reachable state for the new workspace.
-        const wsList = (await window.bh.run('workspace.list')) as WorkspaceListResult;
-        const currentWs = wsList.workspaces.find((w) => w.name === wsList.current);
-        if (currentWs) {
-          try {
-            await window.bh.run('workspace.listFiles', { path: currentWs.path });
-            set({ currentReachable: true });
-          } catch (err) {
-            if (isPathNotFound(err)) {
-              set({ currentReachable: false });
-            } else {
-              set({ error: formatError(err) });
-            }
-          }
-        }
+        // A switch is a window reload bound to the new workspace (main rebinds +
+        // reloads). The reload mounts a fresh renderer that rebuilds ALL
+        // per-workspace state from the new bound root — so there's no in-place
+        // reset / re-fetch here, and no stale-relative-path hazard by construction.
+        // busy stays true until the reload tears this renderer down.
+        await switchWindow(name);
       } catch (err) {
-        set({ error: formatError(err) });
-      } finally {
-        set({ busy: false });
+        set({ busy: false, error: formatError(err) });
       }
     },
 
@@ -491,8 +465,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           set({ error: "Save or resolve this file's changes before removing a workspace." });
           return;
         }
+        const wasCurrent = get().current === name;
         await window.bh.run('workspace.remove', { name });
-        await get().refresh();
+        if (wasCurrent) {
+          // Removing the workspace THIS window has open → reload it to the
+          // welcome state (the desktop never auto-promotes a survivor).
+          await switchWindow(null);
+        } else {
+          // A different workspace was removed — just refresh the list.
+          await get().refresh();
+        }
       } catch (err) {
         set({ error: formatError(err) });
       } finally {
@@ -506,18 +488,23 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       if (!newPath) return;
       set({ busy: true });
       try {
-        // Flush+gate the open editor before refresh() unmounts it (see pickAndAdd).
+        // Flush+gate the open editor before the reload (see pickAndAdd).
         if ((await flushAll()) === false) {
           set({ error: "Save or resolve this file's changes before relocating a workspace." });
           return;
         }
-        // Atomic rebind — previously this was workspace.remove +
-        // workspace.add + workspace.use, which left the user with no
-        // registration if the add failed (invalid path, etc.).
-        // workspace.repath does the config rewrite in a single write and
-        // preserves name + addedAt + current.
+        // Atomic rebind — previously this was workspace.remove + workspace.add,
+        // which left the user with no registration if the add failed. repath does
+        // the config rewrite in a single write and preserves name + addedAt.
+        const wasCurrent = get().current === name;
         await window.bh.run('workspace.repath', { name, path: newPath, setup: true });
-        await get().refresh();
+        if (wasCurrent) {
+          // The window↔workspace binding is by PATH; this workspace just moved,
+          // so the binding is stale — reopen it at the new path (rebind + reload).
+          await switchWindow(name);
+        } else {
+          await get().refresh();
+        }
       } catch (err) {
         set({ error: formatError(err) });
       } finally {

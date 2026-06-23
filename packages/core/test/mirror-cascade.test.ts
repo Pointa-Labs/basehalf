@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -15,7 +16,7 @@ import { mockFs } from './helpers/mock-fs.js';
 async function seed() {
   const { fs, files, links, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { fs, files, links, core };
 }

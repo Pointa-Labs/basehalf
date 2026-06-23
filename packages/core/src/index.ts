@@ -22,20 +22,32 @@ import { registerWorkspaceModule } from './modules/workspace/index.js';
 export function createCore(opts: CoreOptions = {}): Core {
   const registry = new Registry();
 
-  // Late-bound ctx: declared first so `run`'s closure can capture it,
-  // assigned right after so `ctx.run = run` round-trip closes. Safe because
-  // `run` is only invoked after createCore() returns — by then ctx is set.
+  // Base ctx carries the authoritative fs/configDir (its workspaceRoot is null
+  // and its own `run` is unused for composition — every call builds its own).
+  // Late-bound through a closure so it can be captured before assignment; safe
+  // because `run` is only invoked after createCore() returns.
   // biome-ignore lint/style/useConst: forward declaration; assignment happens after `run` is defined
-  let ctx: Context;
-  const run: Run = async (name, args) => {
+  let baseCtx: Context;
+  const run: Run = async (name, args, runOpts) => {
     const handler = registry.get(name);
     if (!handler) {
       throw new UnknownCommand(name);
     }
-    return (await handler(args, ctx)) as never;
+    // Per-call Context: same fs/configDir, THIS call's workspaceRoot, and a
+    // composing `run` whose nested calls DEFAULT to the same root (explicit
+    // opts override). So `canvas.get`→`listFiles`, a watcher finalize→
+    // `badge.markOrphan`, etc. all stay in one workspace with no global leakage.
+    const workspaceRoot = runOpts?.workspaceRoot ?? null;
+    const callCtx: Context = {
+      fs: baseCtx.fs,
+      configDir: baseCtx.configDir,
+      workspaceRoot,
+      run: (n, a, o) => run(n, a, o ?? { workspaceRoot }),
+    };
+    return (await handler(args, callCtx)) as never;
   };
 
-  ctx = createContext({
+  baseCtx = createContext({
     run,
     ...(opts.fs !== undefined && { fs: opts.fs }),
     ...(opts.configDir !== undefined && { configDir: opts.configDir }),
@@ -65,8 +77,21 @@ export function createCore(opts: CoreOptions = {}): Core {
 }
 
 // Re-export public types/error so consumers don't reach into `./kernel`.
-export type { Context, FsLike, Handler, CoreOptions, Core, Run } from './kernel/index.js';
-export { UnknownCommand, defaultConfigDir, defaultFs } from './kernel/index.js';
+export type {
+  Context,
+  FsLike,
+  Handler,
+  CoreOptions,
+  Core,
+  Run,
+  RunOptions,
+} from './kernel/index.js';
+export {
+  UnknownCommand,
+  defaultConfigDir,
+  defaultFs,
+  requireWorkspaceRoot,
+} from './kernel/index.js';
 
 // Module result/args types — UI shells need these to narrow window.bh.run results.
 export type * from './modules/workspace/types.js';

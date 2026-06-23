@@ -17,34 +17,47 @@ import type {
  * (test/workspace-config-concurrency.test.ts).
  */
 
-/** `workspace.getViewport()` — last persisted canvas viewport for the current
- * workspace; null if never set. */
+/** The registry `[name, entry]` for the workspace THIS call is bound to (by
+ *  path), or null. Viewport is stored keyed by NAME, so we resolve the bound
+ *  root back to its name here. Path compare is case-insensitive (mirrors the
+ *  registry's folder-identity rule). */
+function boundNamed<T extends { path: string }>(
+  ctx: Parameters<Handler>[1],
+  workspaces: Record<string, T>,
+): [string, T] | null {
+  const root = ctx.workspaceRoot;
+  if (root === null) return null;
+  const lower = root.toLowerCase();
+  return Object.entries(workspaces).find(([, e]) => e.path.toLowerCase() === lower) ?? null;
+}
+
+/** `workspace.getViewport()` — last persisted canvas viewport for the bound
+ * workspace; null if never set / none bound. */
 export const getViewport: Handler<WorkspaceGetViewportArgs, WorkspaceGetViewportResult> = async (
   _args,
   ctx,
 ) => {
   const data = await readWorkspaces(ctx.fs, ctx.configDir);
-  if (data.current === null) return null;
-  const entry = data.workspaces[data.current];
-  return entry?.viewport ?? null;
+  const found = boundNamed(ctx, data.workspaces);
+  return found?.[1].viewport ?? null;
 };
 
 /** `workspace.setViewport({ viewport })` — persist canvas viewport for the
- * current workspace. No-op if no current workspace. */
+ * bound workspace. No-op if none bound. */
 export const setViewport: Handler<WorkspaceSetViewportArgs, WorkspaceSetViewportResult> = async (
   args,
   ctx,
 ) => {
   return withConfigLock(ctx.configDir, async () => {
     const data = await readWorkspaces(ctx.fs, ctx.configDir);
-    if (data.current === null) return {};
-    const entry = data.workspaces[data.current];
-    if (!entry) return {};
+    const found = boundNamed(ctx, data.workspaces);
+    if (!found) return {};
+    const [name, entry] = found;
     await writeWorkspaces(ctx.fs, ctx.configDir, {
-      ...data,
+      version: 1,
       workspaces: {
         ...data.workspaces,
-        [data.current]: { ...entry, viewport: args.viewport },
+        [name]: { ...entry, viewport: args.viewport },
       },
     });
     return {};

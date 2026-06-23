@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type BadgeFile, _resetWatcherForTests, createCore, watcherEvents } from '../src/index.js';
 import type { WatcherEvent } from '../src/modules/watcher/types.js';
+import { boundCore } from './helpers/bound-core.js';
 
 /**
  * Watcher integration tests. These use real chokidar against a real tmp
@@ -78,7 +79,7 @@ describe('watcher module', { retry: 2 }, () => {
   beforeEach(async () => {
     workspaceRoot = await mkdtemp(join(tmpdir(), 'bh-watcher-ws-'));
     configDir = await mkdtemp(join(tmpdir(), 'bh-watcher-cfg-'));
-    core = createCore({ configDir });
+    core = boundCore(createCore({ configDir }), workspaceRoot);
     await core.run('workspace.add', { path: workspaceRoot, name: 'w' });
   });
 
@@ -147,31 +148,37 @@ describe('watcher module', { retry: 2 }, () => {
     expect(badge?.references).toEqual(['other.md']);
   });
 
-  it('a buffered unlink does NOT orphan the SAME-named file after a workspace switch', async () => {
-    // The cross-workspace race: delete a file in A, switch to B (whose same
-    // relative path has a live badge) within the buffer window. The buffered
-    // unlink's finalize must NOT mark B's live file orphan.
+  it("a watcher's buffered unlink can never orphan a sibling workspace's same-named file", async () => {
+    // Before the per-window refactor a global "current" could drift between
+    // buffering an unlink in A and its finalize firing, so the finalize needed a
+    // `stillCurrent` guard. Now each watcher.start captures a ctx BOUND to its
+    // workspace, so A's buffered finalize resolves against A by construction — B's
+    // live same-named file is structurally untouchable. (A workspace switch is a
+    // window reload → a fresh watcher bound to B; we model the two roots with
+    // explicit per-call `{ workspaceRoot }`.)
     const wsB = await mkdtemp(join(tmpdir(), 'bh-watcher-wsB-'));
     try {
       // A has shared.md (annotated); B has its own shared.md (annotated, live).
       await writeFile(join(workspaceRoot, 'shared.md'), 'A');
-      await core.run('workspace.use', { name: 'w' });
       await core.run('badge.set', { file: 'shared.md', patch: { description: 'A note' } });
       await core.run('workspace.add', { path: wsB, name: 'b' });
       await writeFile(join(wsB, 'shared.md'), 'B');
-      await core.run('workspace.use', { name: 'b' });
-      await core.run('badge.set', { file: 'shared.md', patch: { description: 'B note' } });
+      await core.run(
+        'badge.set',
+        { file: 'shared.md', patch: { description: 'B note' } },
+        { workspaceRoot: wsB },
+      );
 
-      // Watch A, delete A/shared.md, then immediately switch to B + watch it.
-      await core.run('workspace.use', { name: 'w' });
+      // Watch A (beforeEach binds the core to A), delete A/shared.md (buffers an
+      // unlink under ctx_A), then start a watcher bound to B — which flushes A's
+      // pending buffer under A's captured ctx, never B's.
       await core.run('watcher.start', {});
       await unlink(join(workspaceRoot, 'shared.md'));
-      await core.run('workspace.use', { name: 'b' }); // current → B
-      await core.run('watcher.start', {}); // flushes A's buffers under the B context
+      await core.run('watcher.start', {}, { workspaceRoot: wsB });
 
-      // Give any straggler finalize time to (not) misfire, then assert B is clean.
+      // Poll the full window: B's live badge must stay clean throughout.
       const bBadge = (await waitFor(
-        () => core.run('badge.get', { file: 'shared.md' }),
+        () => core.run('badge.get', { file: 'shared.md' }, { workspaceRoot: wsB }),
         () => false, // never "done" — poll for the full window, return last value
         500,
       )) as BadgeFile | null;
@@ -302,7 +309,7 @@ describe('badge.markOrphan (direct invocation)', () => {
   beforeEach(async () => {
     workspaceRoot = await mkdtemp(join(tmpdir(), 'bh-orphan-ws-'));
     configDir = await mkdtemp(join(tmpdir(), 'bh-orphan-cfg-'));
-    core = createCore({ configDir });
+    core = boundCore(createCore({ configDir }), workspaceRoot);
     await core.run('workspace.add', { path: workspaceRoot, name: 'w' });
   });
 

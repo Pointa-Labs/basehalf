@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { stringify } from 'yaml';
 import { BadgeCorrupt, type BadgeFile, createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /** On-disk path of a badge.yaml under the new mirror tree. */
@@ -37,7 +38,7 @@ interface TestContext {
 async function seed(): Promise<TestContext> {
   const { fs, files, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { files, dirs, core };
 }
@@ -156,10 +157,10 @@ describe('badge.set', () => {
     expect(edited.orphan).toBe(true);
   });
 
-  it('throws when no current workspace', async () => {
+  it('throws when no workspace is bound', async () => {
     const { fs } = mockFs();
     const core = createCore({ fs, configDir: '/cfg' });
-    await expect(core.run('badge.set', { file: 'x.md' })).rejects.toThrow(/No current workspace/);
+    await expect(core.run('badge.set', { file: 'x.md' })).rejects.toThrow(/No workspace bound/i);
   });
 });
 

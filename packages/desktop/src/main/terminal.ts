@@ -1,6 +1,6 @@
-import type { Core } from '@basehalf/core';
 import { type IPty, spawn as ptySpawn } from '@lydell/node-pty';
 import { BrowserWindow, ipcMain } from 'electron';
+import { getWorkspaceRoot } from './windows.js';
 
 // Embedded terminal — the REAL shell process. The sandboxed renderer can't
 // spawn native processes, so the pty lives here in main; xterm.js in the
@@ -50,16 +50,13 @@ function cleanEnv(): Record<string, string> {
   return env;
 }
 
-async function resolveCwd(core: Core, requested?: string): Promise<string> {
+function resolveCwd(boundRoot: string | null, requested?: string): string {
+  // Honor an explicit requested cwd; else spawn in the window's bound workspace
+  // folder (so the shell — and any coding agent run in it — starts in the right
+  // place, and FOLLOWS the workspace because a switch reloads + respawns); else
+  // fall back to the home dir for the welcome window.
   if (requested) return requested;
-  try {
-    const res = (await core.run('workspace.current', {})) as {
-      current: { path: string } | null;
-    };
-    if (res.current) return res.current.path;
-  } catch {
-    // No / unreachable workspace — fall back to home below.
-  }
+  if (boundRoot) return boundRoot;
   return process.env.HOME ?? process.env.USERPROFILE ?? process.cwd();
 }
 
@@ -69,14 +66,14 @@ interface SpawnOpts {
   cwd?: string;
 }
 
-export function registerTerminalIpc(core: Core): void {
+export function registerTerminalIpc(): void {
   ipcMain.handle(
     'terminal:spawn',
     // Returns the cwd too so the renderer can seed a meaningful tab label (the
     // working-directory name) before the shell sets any OSC title.
-    async (_evt, opts: SpawnOpts = {}): Promise<{ id: string; cwd: string }> => {
+    async (evt, opts: SpawnOpts = {}): Promise<{ id: string; cwd: string }> => {
       const id = `t${nextId++}`;
-      const cwd = await resolveCwd(core, opts.cwd);
+      const cwd = resolveCwd(getWorkspaceRoot(evt.sender), opts.cwd);
       const pty = ptySpawn(defaultShell(), shellArgs(), {
         name: 'xterm-256color',
         cols: Math.max(1, Math.floor(opts.cols ?? 80)),

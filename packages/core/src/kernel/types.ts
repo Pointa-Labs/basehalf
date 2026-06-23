@@ -140,6 +140,18 @@ export interface FsLike {
 }
 
 /**
+ * Per-call options threaded through `run`. `workspaceRoot` binds THIS call (and,
+ * by default, every nested `ctx.run` it makes) to one workspace folder — the
+ * replacement for the old global "current workspace" pointer. The host (desktop
+ * `bh:run`) injects the sender window's bound root; a nested `ctx.run` with no
+ * opts inherits the caller's root, so a whole command tree stays in one
+ * workspace with zero global state. `null` means "no workspace bound".
+ */
+export interface RunOptions {
+  readonly workspaceRoot?: string | null;
+}
+
+/**
  * The function modules use to call other commands. Same signature as
  * `Core.run` — modules compose through this rather than importing each
  * other's internals (preserves the "one door" + "deps point inward" rules).
@@ -147,6 +159,7 @@ export interface FsLike {
 export type Run = <TArgs = unknown, TResult = unknown>(
   name: string,
   args: TArgs,
+  opts?: RunOptions,
 ) => Promise<TResult>;
 
 /**
@@ -158,11 +171,17 @@ export type Run = <TArgs = unknown, TResult = unknown>(
  * - `fs` — file access.
  * - `configDir` — where BaseHalf keeps user-global config (`~/.config/basehalf`
  *   on Linux/XDG, `~/Library/Application Support/basehalf` on macOS).
+ * - `workspaceRoot` — the workspace folder THIS call is bound to (`null` if
+ *   none). The per-call replacement for the old global current-workspace
+ *   pointer: handlers anchor their root + path-containment here (via
+ *   `requireWorkspaceRoot`) instead of asking a mutable global. Set from the
+ *   `run({ workspaceRoot })` opt and inherited by nested `ctx.run` calls.
  * - `run` — call another command (module-to-module composition).
  */
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
+  readonly workspaceRoot: string | null;
   readonly run: Run;
 }
 

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 
 /**
  * badge.rename cascades the WHOLE mirror node: focus is a viewport mirror
@@ -26,7 +27,7 @@ beforeEach(async () => {
   await mkdir(ws, { recursive: true });
   const cfg = join(base, 'cfg');
   await mkdir(cfg, { recursive: true });
-  core = createCore({ configDir: cfg });
+  core = boundCore(createCore({ configDir: cfg }), ws);
   await core.run('workspace.add', { path: ws, name: 'ws' });
 });
 afterEach(async () => {

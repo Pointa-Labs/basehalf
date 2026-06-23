@@ -19,10 +19,11 @@ export async function readWorkspaces(fs: FsLike, configDir: string): Promise<Wor
     if (parsed?.version !== 1) {
       throw new Error(`Unsupported workspaces.json version: ${String(parsed?.version)}`);
     }
-    // Defensive defaults — if the file was hand-edited and lost fields.
+    // Defensive defaults — if the file was hand-edited and lost fields. A legacy
+    // `current` field (from a build before the per-window binding) is simply
+    // ignored: the active workspace is bound per call now, not stored here.
     return {
       version: 1,
-      current: parsed.current ?? null,
       workspaces: parsed.workspaces ?? {},
     };
   } catch (err) {

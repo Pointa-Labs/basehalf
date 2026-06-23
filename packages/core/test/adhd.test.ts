@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { createCore } from '../src/index.js';
 import { mergeRange, normalizeRanges, subtractRange } from '../src/modules/adhd/ranges.js';
+import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
 
 /**
@@ -14,7 +15,7 @@ import { mockFs } from './helpers/mock-fs.js';
 async function seed() {
   const { fs, files, dirs } = mockFs();
   dirs.add('/work');
-  const core = createCore({ fs, configDir: '/cfg' });
+  const core = boundCore(createCore({ fs, configDir: '/cfg' }), '/work');
   await core.run('workspace.add', { path: '/work', name: 'w' });
   return { fs, files, core };
 }

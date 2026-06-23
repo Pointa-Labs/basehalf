@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
 import type { SearchQueryResult } from '../src/index.js';
+import { boundCore } from './helpers/bound-core.js';
 
 /**
  * search.query against the REAL node:fs with a REAL in-bounds directory symlink
@@ -22,7 +23,7 @@ beforeEach(async () => {
   await mkdir(ws, { recursive: true });
   const cfg = join(base, 'cfg');
   await mkdir(cfg, { recursive: true });
-  core = createCore({ configDir: cfg });
+  core = boundCore(createCore({ configDir: cfg }), ws);
   await core.run('workspace.add', { path: ws, name: 'ws' });
 });
 afterEach(async () => {

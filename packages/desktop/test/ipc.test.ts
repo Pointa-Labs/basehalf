@@ -2,12 +2,17 @@ import type { Core } from '@basehalf/core';
 import { ipcMain } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { registerBhRunHandler, serializeError } from '../src/main/ipc.js';
+import { setWorkspaceRoot } from '../src/main/windows.js';
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
 }));
 
 type Listener = (event: unknown, ...args: unknown[]) => Promise<unknown>;
+
+/** A fake IPC event whose sender carries a webContents id — bh:run reads
+ *  `event.sender` to resolve the window's bound workspace root. */
+const fakeEvent = (id = 1): { sender: { id: number } } => ({ sender: { id } });
 
 function lastRegisteredHandler(): Listener {
   const calls = vi.mocked(ipcMain.handle).mock.calls;
@@ -38,9 +43,25 @@ describe('bh:run IPC channel', () => {
     const runSpy = vi.fn(async () => [{ name: 'demo', path: '/tmp/demo' }]);
     registerBhRunHandler(fakeCore(runSpy));
     const handler = lastRegisteredHandler();
-    const response = await handler({}, 'workspace.list', {});
+    const response = await handler(fakeEvent(), 'workspace.list', {});
     expect(response).toEqual({ ok: true, result: [{ name: 'demo', path: '/tmp/demo' }] });
-    expect(runSpy).toHaveBeenCalledWith('workspace.list', {});
+    // The sender (id 1) has no bound workspace → core.run gets workspaceRoot: null.
+    expect(runSpy).toHaveBeenCalledWith('workspace.list', {}, { workspaceRoot: null });
+  });
+
+  it("injects the SENDER window's bound workspace root into core.run", async () => {
+    const runSpy = vi.fn(async () => undefined);
+    setWorkspaceRoot({ id: 42 } as never, '/ws-forty-two');
+    registerBhRunHandler(fakeCore(runSpy));
+    const handler = lastRegisteredHandler();
+    await handler(fakeEvent(42), 'badge.get', { file: 'x.md' });
+    expect(runSpy).toHaveBeenCalledWith(
+      'badge.get',
+      { file: 'x.md' },
+      {
+        workspaceRoot: '/ws-forty-two',
+      },
+    );
   });
 
   it('serializes thrown Error into { ok: false, error }', async () => {
@@ -54,7 +75,7 @@ describe('bh:run IPC channel', () => {
       }),
     );
     const handler = lastRegisteredHandler();
-    const response = await handler({}, 'nope', {});
+    const response = await handler(fakeEvent(), 'nope', {});
     expect(response).toEqual({
       ok: false,
       error: { name: 'UnknownCommand', message: 'not found', code: 'ENOENT' },
@@ -64,7 +85,7 @@ describe('bh:run IPC channel', () => {
   it('rejects non-string command name with TypeError', async () => {
     registerBhRunHandler(fakeCore());
     const handler = lastRegisteredHandler();
-    const response = await handler({}, 123, {});
+    const response = await handler(fakeEvent(), 123, {});
     expect(response).toEqual({
       ok: false,
       error: { name: 'TypeError', message: expect.stringContaining('string') },

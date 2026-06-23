@@ -37,6 +37,11 @@ const bh = {
     throw err;
   },
   pickWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspace:pick'),
+  /** Switch THIS window to another workspace (by name) or to the welcome state
+   *  (`null`). Main rebinds the window to that workspace and reloads it — a
+   *  switch is a reload-rebind, not an in-place re-point. The caller MUST flush
+   *  its editors first (the reload discards unsaved renderer state). */
+  openWorkspace: (name: string | null): Promise<void> => ipcRenderer.invoke('workspace:open', name),
   /** Classify an absolute path from an OS drag payload: 'file' | 'dir' | null
    *  (missing/unreadable). Lets the drop handler route folders → add-as-
    *  workspace and files → copy-into-workspace. */

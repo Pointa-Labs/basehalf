@@ -85,13 +85,6 @@ export interface FocusSetArgs {
   };
   readonly viewport_center?: { readonly x: number; readonly y: number };
   readonly zoom?: number;
-  /** The workspace NAME the `path` belongs to, captured by the caller. The
-   *  desktop fires focus.set un-awaited; if the user switches workspaces while it
-   *  is in flight, the late root resolution could otherwise plant this (A-relative)
-   *  path under workspace B. When provided and no longer the current workspace,
-   *  the set is SKIPPED (the node is returned, nothing is written). Omit for
-   *  same-process callers that can't race a switch. */
-  readonly workspace?: string;
 }
 export type FocusSetResult = FocusNode;
 

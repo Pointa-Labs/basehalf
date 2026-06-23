@@ -3,6 +3,7 @@ import type { Core } from '@basehalf/core';
 import { BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { PrefsStore } from './prefs.js';
+import { getWorkspaceRoot } from './windows.js';
 import { resolveInsideWorkspace } from './workspacePath.js';
 
 export interface SerializedError {
@@ -59,16 +60,16 @@ export function registerWorkspacePickHandler(): void {
  * arbitrary system files or launch an executable the OS associates. We then open
  * the verified real path. shell.openPath resolves to '' on success / error str.
  */
-export function registerShellOpenHandler(core: Core): void {
+export function registerShellOpenHandler(): void {
   ipcMain.handle(
     'shell:open-path',
-    async (_event, relPath): Promise<{ ok: boolean; error?: string }> => {
+    async (event, relPath): Promise<{ ok: boolean; error?: string }> => {
       try {
-        const cur = (await core.run('workspace.current', {})) as {
-          current: { path: string } | null;
-        };
-        if (!cur.current) return { ok: false, error: 'No current workspace.' };
-        const resolved = await resolveInsideWorkspace(cur.current.path, relPath);
+        // Resolve relative to the SENDER window's bound workspace (not a global
+        // current) — each window opens files from its own folder.
+        const root = getWorkspaceRoot(event.sender);
+        if (!root) return { ok: false, error: 'No workspace open in this window.' };
+        const resolved = await resolveInsideWorkspace(root, relPath);
         if (!resolved.ok) return resolved;
         const errMsg = await shell.openPath(resolved.abs);
         return errMsg ? { ok: false, error: errMsg } : { ok: true };
@@ -172,7 +173,7 @@ export function registerSettingsIpc(prefs: PrefsStore, zoom: WindowZoomHooks): v
  * preload re-throws on the renderer side.
  */
 export function registerBhRunHandler(core: Core): void {
-  ipcMain.handle('bh:run', async (_event, name, args): Promise<BhRunResponse> => {
+  ipcMain.handle('bh:run', async (event, name, args): Promise<BhRunResponse> => {
     if (typeof name !== 'string') {
       return {
         ok: false,
@@ -180,7 +181,12 @@ export function registerBhRunHandler(core: Core): void {
       };
     }
     try {
-      const result = await core.run(name, args);
+      // Inject the SENDER window's bound workspace root, so every core command
+      // operates on the workspace THIS window shows (the per-window replacement
+      // for core's old global current-workspace pointer). Registry commands
+      // (workspace.add/list/…) ignore it; workspace-scoped ones anchor on it.
+      const workspaceRoot = getWorkspaceRoot(event.sender);
+      const result = await core.run(name, args, { workspaceRoot });
       return { ok: true, result };
     } catch (err) {
       return { ok: false, error: serializeError(err) };
