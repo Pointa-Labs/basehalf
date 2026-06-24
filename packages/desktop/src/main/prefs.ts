@@ -11,11 +11,18 @@ const FILE_NAME = 'prefs.json';
  */
 export interface Prefs {
   /** Background "is a newer version available?" polling. The check itself is a
-   *  read-only fetch; downloading/installing always asks the user first. */
+   *  read-only fetch; whether a found update then downloads is autoDownloadUpdate. */
   autoUpdateCheck: boolean;
+  /** When an update is found (background OR manual check), download it
+   *  automatically instead of waiting for the user to click "Update X" — the
+   *  chip jumps straight to a progress bar and then "Restart to update".
+   *  OFF by default: each release is a full ~112 MB archive, so silent download
+   *  is opt-in (kind to metered / slow connections). Installing still always
+   *  asks (the explicit "Restart to update"). */
+  autoDownloadUpdate: boolean;
 }
 
-const DEFAULTS: Prefs = { autoUpdateCheck: true };
+const DEFAULTS: Prefs = { autoUpdateCheck: true, autoDownloadUpdate: false };
 
 /** Keep only known keys with the right types — the file may have been edited
  *  by hand, written by a newer app version, or be plain corrupt. Unknown keys
@@ -26,6 +33,7 @@ export function sanitizePrefs(raw: unknown): Prefs {
   if (typeof raw === 'object' && raw !== null) {
     const r = raw as Record<string, unknown>;
     if (typeof r.autoUpdateCheck === 'boolean') out.autoUpdateCheck = r.autoUpdateCheck;
+    if (typeof r.autoDownloadUpdate === 'boolean') out.autoDownloadUpdate = r.autoDownloadUpdate;
   }
   return out;
 }

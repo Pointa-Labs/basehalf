@@ -113,8 +113,12 @@ export class Updater {
   private busy = false;
 
   /** configDir is where the one-shot "what's new" record is written at install
-   *  and read on the next launch (it must outlive the bundle swap). */
-  constructor(private readonly configDir: string) {}
+   *  and read on the next launch (it must outlive the bundle swap). prefs is read
+   *  (never written) to decide whether a found update auto-downloads. */
+  constructor(
+    private readonly configDir: string,
+    private readonly prefs: PrefsStore,
+  ) {}
 
   getState(): UpdateState {
     return this.state;
@@ -199,6 +203,15 @@ export class Updater {
       // mirrors this via update:state and the title-bar chip offers "Download".
       // No separate "found" event / modal: the chip IS the surfacing.
       this.setState({ phase: 'available', version: manifest.version });
+      // If the user opted into auto-download, go straight to fetching it (the chip
+      // then shows progress → "Restart to update", VS Code-style). Deferred past
+      // check()'s busy window — download() guards on `busy`, which is still true
+      // until this method's finally runs — so the microtask fires after that.
+      if (this.prefs.get().autoDownloadUpdate) {
+        queueMicrotask(() => {
+          if (this.state.phase === 'available') void this.download();
+        });
+      }
     } catch (err) {
       if (!opts.background) {
         this.setState({

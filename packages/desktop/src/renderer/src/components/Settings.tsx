@@ -75,11 +75,15 @@ const FOCUSABLE_SELECTOR =
 
 const SettingsCard = (): JSX.Element => {
   const [autoUpdateCheck, setAutoUpdateCheck] = useState(true);
+  const [autoDownloadUpdate, setAutoDownloadUpdate] = useState(false);
   const [version, setVersion] = useState('');
   const [zoomFactor, setZoomFactor] = useState(() => window.bh.getZoomFactor());
 
   useEffect(() => {
-    void window.bh.getPrefs().then((p) => setAutoUpdateCheck(p.autoUpdateCheck));
+    void window.bh.getPrefs().then((p) => {
+      setAutoUpdateCheck(p.autoUpdateCheck);
+      setAutoDownloadUpdate(p.autoDownloadUpdate);
+    });
     void window.bh.appVersion().then(setVersion);
     return window.bh.onZoomFactor(setZoomFactor);
   }, []);
@@ -90,6 +94,14 @@ const SettingsCard = (): JSX.Element => {
       .setPrefs({ autoUpdateCheck: next })
       .then((p) => setAutoUpdateCheck(p.autoUpdateCheck))
       .catch(() => setAutoUpdateCheck(!next));
+  };
+
+  const toggleAutoDownload = (next: boolean): void => {
+    setAutoDownloadUpdate(next); // optimistic — main echoes the merged truth back
+    window.bh
+      .setPrefs({ autoDownloadUpdate: next })
+      .then((p) => setAutoDownloadUpdate(p.autoDownloadUpdate))
+      .catch(() => setAutoDownloadUpdate(!next));
   };
 
   return (
@@ -128,6 +140,17 @@ const SettingsCard = (): JSX.Element => {
             checked={autoUpdateCheck}
             onChange={toggleAutoUpdate}
             label="Check for updates automatically"
+          />
+        }
+      />
+      <SettingRow
+        label="Download updates automatically"
+        description="When a new version is found, download it in the background and show “Restart to update” — instead of waiting for you to start it. Installing still asks first."
+        control={
+          <Toggle
+            checked={autoDownloadUpdate}
+            onChange={toggleAutoDownload}
+            label="Download updates automatically"
           />
         }
       />

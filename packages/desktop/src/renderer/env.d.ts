@@ -44,9 +44,12 @@ interface Window {
     /** App version (package.json in dev, bundle metadata when packaged). */
     appVersion(): Promise<string>;
     /** Read the app-level prefs (owned by the main process). */
-    getPrefs(): Promise<{ autoUpdateCheck: boolean }>;
+    getPrefs(): Promise<{ autoUpdateCheck: boolean; autoDownloadUpdate: boolean }>;
     /** Patch the app-level prefs; resolves to the merged result. */
-    setPrefs(patch: { autoUpdateCheck?: boolean }): Promise<{ autoUpdateCheck: boolean }>;
+    setPrefs(patch: {
+      autoUpdateCheck?: boolean;
+      autoDownloadUpdate?: boolean;
+    }): Promise<{ autoUpdateCheck: boolean; autoDownloadUpdate: boolean }>;
     /** Step the window zoom (the View menu's authoritative level); the new
      *  factor arrives via onZoomFactor. */
     zoomWindow(action: 'in' | 'out' | 'reset'): Promise<void>;

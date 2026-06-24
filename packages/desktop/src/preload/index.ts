@@ -123,9 +123,13 @@ const bh = {
   /** App version (package.json in dev, bundle metadata when packaged). */
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   /** Read the app-level prefs (settings the main process owns; see main/prefs.ts). */
-  getPrefs: (): Promise<{ autoUpdateCheck: boolean }> => ipcRenderer.invoke('prefs:get'),
+  getPrefs: (): Promise<{ autoUpdateCheck: boolean; autoDownloadUpdate: boolean }> =>
+    ipcRenderer.invoke('prefs:get'),
   /** Patch the app-level prefs; resolves to the merged result. */
-  setPrefs: (patch: { autoUpdateCheck?: boolean }): Promise<{ autoUpdateCheck: boolean }> =>
+  setPrefs: (patch: {
+    autoUpdateCheck?: boolean;
+    autoDownloadUpdate?: boolean;
+  }): Promise<{ autoUpdateCheck: boolean; autoDownloadUpdate: boolean }> =>
     ipcRenderer.invoke('prefs:set', patch),
   /** Step the window zoom (same authoritative level the View menu drives; the
    *  resulting factor arrives via onZoomFactor). */

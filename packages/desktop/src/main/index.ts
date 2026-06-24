@@ -91,7 +91,7 @@ registerSettingsIpc(prefs, {
   getZoomLevel: () => getZoomLevel(BrowserWindow.getFocusedWindow()),
   applyZoomLevel: (level) => applyZoomLevel(BrowserWindow.getFocusedWindow(), level),
 });
-const updater = new Updater(configDir);
+const updater = new Updater(configDir, prefs);
 registerUpdaterIpc(updater);
 
 // Forward file events from the core watcher to the renderer(s) showing the
