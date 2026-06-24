@@ -1,6 +1,6 @@
 {
   "name": "basehalf",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "BaseHalf — a local-first, agent-native compound thinking workspace: a desktop app for AI-augmented knowledge work.",

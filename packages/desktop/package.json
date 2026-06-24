@@ -1,6 +1,6 @@
 {
   "name": "@basehalf/desktop",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "BaseHalf desktop app (Electron) — local-first compound thinking workspace UI. Thin shell over @basehalf/core via IPC.",
