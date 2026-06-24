@@ -2,30 +2,24 @@
  * Settings overlay — the app-level preferences surface, on the conventional
  * ⌘, (app menu ▸ Settings…, or the command palette). A centered modal in the
  * Dialog family's visual language, but with its own host: dialogs are
- * transient questions, Settings is a browsable surface that will grow
- * (updates land here next).
+ * transient questions, Settings is a browsable surface that will grow.
  *
- * Only settings that actually exist live here: the background update check
- * (main-process pref — main polls before any window exists) and window zoom
- * (the View menu's authoritative level, mirrored so the row and ⌘+/− never
- * disagree). About shows the installed version — the anchor for "is this the
- * latest?" once the update check arrives.
+ * Two kinds of rows live here, through the SAME primitives (components/settings):
+ *  - APP-SHELL prefs (hand-laid): the background update check + window zoom +
+ *    About/Updates. These are main-process owned (main polls before any window
+ *    exists; zoom is the View menu's authoritative level) — not registry
+ *    settings, so they can't be descriptor-driven.
+ *  - REGISTRY settings (data-driven): everything in the core settings registry,
+ *    rendered by <RegistrySettings/> from settings.describe(). Adding a setting
+ *    is one registry entry in core — no UI change here.
  */
 
-import {
-  type CSSProperties,
-  type JSX,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type CSSProperties, type JSX, type ReactNode, useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { READING_MODE_KEY, useReadingMode } from '../lib/readingMode.js';
-import { useWorkspaceStore } from '../store/workspace.js';
+import { color, font, motion, radius, shadow, space } from '../design.js';
 import { Button } from './primitives/Button.js';
+import { RegistrySettings } from './settings/RegistrySettings.js';
+import { SettingRow, Toggle, sectionLabelStyle } from './settings/primitives.js';
 
 const RELEASES_URL = 'https://github.com/Pointa-Labs/basehalf/releases';
 
@@ -137,261 +131,8 @@ const cardStyle: CSSProperties = {
   animation: `bh-dialog-in ${motion.normal}`,
 };
 
-const sectionLabelStyle: CSSProperties = {
-  fontSize: font.size.micro,
-  fontWeight: font.weight.medium,
-  letterSpacing: font.trackedCaps,
-  textTransform: 'uppercase',
-  color: color.textTertiary,
-  marginTop: space[5],
-  marginBottom: space[1],
-};
-
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-/** One setting: label + explanation on the left, its control on the right.
- *  Every section row goes through here so the grid stays aligned as rows
- *  accumulate. */
-const SettingRow = ({
-  label,
-  description,
-  descriptionColor,
-  control,
-}: {
-  label: string;
-  description?: string;
-  /** Override for state-carrying descriptions (e.g. errors in danger red). */
-  descriptionColor?: string;
-  control: ReactNode;
-}): JSX.Element => (
-  <div
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: space[4],
-      padding: `${space[3]}px 0`,
-      borderBottom: `1px solid ${color.divider}`,
-    }}
-  >
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: font.size.body, color: color.textPrimary }}>{label}</div>
-      {description && (
-        <div
-          style={{
-            fontSize: font.size.caption,
-            color: descriptionColor ?? color.textTertiary,
-            marginTop: space[0.5],
-            lineHeight: 1.45,
-          }}
-        >
-          {description}
-        </div>
-      )}
-    </div>
-    <div style={{ display: 'flex', alignItems: 'center', gap: space[1.5], flexShrink: 0 }}>
-      {control}
-    </div>
-  </div>
-);
-
-const Toggle = ({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-}): JSX.Element => (
-  <button
-    type="button"
-    role="switch"
-    aria-checked={checked}
-    aria-label={label}
-    onClick={() => onChange(!checked)}
-    style={{
-      width: 36,
-      height: 20,
-      borderRadius: radius.pill,
-      border: `1px solid ${checked ? color.accent : color.borderStrong}`,
-      background: checked ? color.accent : color.surfaceMuted,
-      position: 'relative',
-      cursor: 'pointer',
-      padding: 0,
-      outline: 'none',
-      flexShrink: 0,
-      transition: transition(['background', 'border-color']),
-    }}
-  >
-    <span
-      style={{
-        position: 'absolute',
-        top: 2,
-        left: checked ? 18 : 2,
-        width: 14,
-        height: 14,
-        borderRadius: '50%',
-        background: '#fff',
-        boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
-        transition: transition(['left']),
-      }}
-    />
-  </button>
-);
-
-/** A small segmented (single-choice) control — used for the per-workspace
- *  override's tri-state (follow default / on / off). */
-const Segmented = ({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}): JSX.Element => (
-  <div
-    style={{
-      display: 'inline-flex',
-      border: `1px solid ${color.borderStrong}`,
-      borderRadius: radius.md,
-      overflow: 'hidden',
-    }}
-  >
-    {options.map((o, i) => {
-      const selected = o.value === value;
-      return (
-        <button
-          key={o.value}
-          type="button"
-          aria-pressed={selected}
-          onClick={() => onChange(o.value)}
-          style={{
-            border: 'none',
-            borderLeft: i === 0 ? 'none' : `1px solid ${color.borderStrong}`,
-            background: selected ? color.accent : color.surfaceMuted,
-            color: selected ? '#fff' : color.textSecondary,
-            cursor: 'pointer',
-            padding: `4px ${space[2]}px`,
-            fontFamily: font.sans,
-            fontSize: font.size.ui,
-          }}
-        >
-          {o.label}
-        </button>
-      );
-    })}
-  </div>
-);
-
-/** Per-layer view of one setting (the subset the UI reads from
- *  `settings.inspect`). */
-interface SettingInspectView {
-  defaultValue: boolean;
-  globalValue?: boolean;
-  workspaceValue?: boolean;
-  value: boolean;
-}
-
-type WsOverride = 'default' | 'on' | 'off';
-
-/**
- * The Reading section — Reading mode (the ADHD reading aids) wired to the core
- * settings module's two-layer model: a GLOBAL DEFAULT toggle plus, when a folder
- * is open in this window, a per-workspace OVERRIDE (follow default / on / off).
- * The first consumer of the settings scaffold — adding the next setting is a
- * registry entry + a row like this, no new IPC.
- */
-const ReadingSection = (): JSX.Element => {
-  const current = useWorkspaceStore((s) => s.current);
-  const [view, setView] = useState<SettingInspectView | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      const got = (await window.bh.run('settings.inspect', {
-        key: READING_MODE_KEY,
-      })) as SettingInspectView;
-      setView(got);
-    } catch {
-      setView(null);
-    }
-  }, []);
-
-  // Re-read on open and whenever the bound workspace changes (its override may
-  // differ). `current` keys the workspace layer the inspect resolves against.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger (re-inspect when the bound workspace changes); the body reads nothing off it.
-  useEffect(() => {
-    void reload();
-  }, [reload, current]);
-
-  // Every write returns the fresh inspect — apply it, then nudge the shared
-  // reading-mode mirror so open editors update without waiting for a reload.
-  const applied = useCallback((got: SettingInspectView): void => {
-    setView(got);
-    useReadingMode.getState().setOptimistic(got.value);
-    void useReadingMode.getState().refresh();
-  }, []);
-
-  const setGlobal = useCallback(
-    (next: boolean): void => {
-      window.bh
-        .run('settings.setGlobal', { key: READING_MODE_KEY, value: next })
-        .then((g) => applied(g as SettingInspectView))
-        .catch(() => void reload());
-    },
-    [applied, reload],
-  );
-
-  const setOverride = useCallback(
-    (mode: WsOverride): void => {
-      const call =
-        mode === 'default'
-          ? window.bh.run('settings.clearWorkspace', { key: READING_MODE_KEY })
-          : window.bh.run('settings.setWorkspace', {
-              key: READING_MODE_KEY,
-              value: mode === 'on',
-            });
-      call.then((g) => applied(g as SettingInspectView)).catch(() => void reload());
-    },
-    [applied, reload],
-  );
-
-  const globalOn = view ? (view.globalValue ?? view.defaultValue) : false;
-  const override: WsOverride =
-    view?.workspaceValue === undefined ? 'default' : view.workspaceValue ? 'on' : 'off';
-  const effective = view?.value ?? false;
-
-  return (
-    <>
-      <div style={sectionLabelStyle}>Reading</div>
-      <SettingRow
-        label="Reading mode"
-        description="Show ADHD reading aids — keyword highlights and read/unread dimming — when viewing Markdown. This is the default for every folder."
-        control={
-          <Toggle checked={globalOn} onChange={setGlobal} label="Reading mode (global default)" />
-        }
-      />
-      {current !== null && (
-        <SettingRow
-          label="This folder"
-          description={`Override the default for the open folder. Currently ${effective ? 'on' : 'off'} here.`}
-          control={
-            <Segmented
-              value={override}
-              onChange={(v) => setOverride(v as WsOverride)}
-              options={[
-                { value: 'default', label: 'Default' },
-                { value: 'on', label: 'On' },
-                { value: 'off', label: 'Off' },
-              ]}
-            />
-          }
-        />
-      )}
-    </>
-  );
-};
 
 const SettingsCard = (): JSX.Element => {
   const [autoUpdateCheck, setAutoUpdateCheck] = useState(true);
@@ -436,6 +177,7 @@ const SettingsCard = (): JSX.Element => {
         </Button>
       </div>
 
+      {/* App-shell prefs — main-process owned, not registry settings. */}
       <div style={sectionLabelStyle}>General</div>
       <SettingRow
         label="Check for updates automatically"
@@ -486,7 +228,8 @@ const SettingsCard = (): JSX.Element => {
         }
       />
 
-      <ReadingSection />
+      {/* Registry settings — data-driven from settings.describe(). */}
+      <RegistrySettings />
 
       <div style={sectionLabelStyle}>About</div>
       <SettingRow
