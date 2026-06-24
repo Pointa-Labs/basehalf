@@ -237,7 +237,13 @@ function refreshWorkspaceSurfaces(): void {
       console.error('[bh-desktop] refreshWorkspaceSurfaces: list failed', err);
     }
     Menu.setApplicationMenu(
-      buildAppMenu(focusedZoomHooks, () => spawnWindow(null), recent, openRecentWorkspace),
+      buildAppMenu(
+        focusedZoomHooks,
+        () => spawnWindow(null),
+        recent,
+        openRecentWorkspace,
+        () => void updater.check({ background: false }),
+      ),
     );
     // app.dock is macOS-only; a no-op elsewhere (Windows jump list is a follow-up).
     app.dock?.setMenu(buildDockMenu(recent, openRecentWorkspace));
@@ -722,7 +728,13 @@ app.whenReady().then(async () => {
   // an empty recent list initially; refreshWorkspaceSurfaces (driven by the first
   // window) repopulates Open Recent + the Dock menu once the registry is read.
   Menu.setApplicationMenu(
-    buildAppMenu(focusedZoomHooks, () => spawnWindow(null), [], openRecentWorkspace),
+    buildAppMenu(
+      focusedZoomHooks,
+      () => spawnWindow(null),
+      [],
+      openRecentWorkspace,
+      () => void updater.check({ background: false }),
+    ),
   );
   // Before the window: the renderer may ask for prefs as soon as it loads. A
   // prefs read failure must NOT abort startup (else no window opens) — fall back to

@@ -123,6 +123,7 @@ export function buildAppMenu(
   onNewWindow: () => void,
   recent: readonly RecentWorkspace[],
   onOpenRecent: (name: string, mode: OpenRecentMode) => void,
+  onCheckForUpdates: () => void,
 ): Menu {
   const zoomIn = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() + 1);
   const zoomOut = (): void => zoom.applyZoomLevel(zoom.getZoomLevel() - 1);
@@ -148,6 +149,10 @@ export function buildAppMenu(
     role: 'appMenu',
     submenu: [
       { role: 'about' },
+      // Conventional macOS home for the manual update check (right under About).
+      // The STATE of an in-flight/available update lives in the title-bar chip;
+      // this is just the explicit "check now" verb.
+      { label: 'Check for Updates…', click: onCheckForUpdates },
       { type: 'separator' },
       { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: emitOpenSettings },
       { type: 'separator' },

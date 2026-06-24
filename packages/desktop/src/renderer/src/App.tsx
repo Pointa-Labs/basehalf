@@ -6,11 +6,11 @@ import {
   openCommandPalette,
 } from './components/CommandPalette.js';
 import { ContextMenuHost } from './components/ContextMenu.js';
-import { DialogHost, confirm } from './components/Dialog.js';
+import { DialogHost } from './components/Dialog.js';
 import { EditorOverlay } from './components/EditorOverlay.js';
 import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
-import { SettingsHost, openSettings, wireUpdateBridge } from './components/Settings.js';
+import { SettingsHost, openSettings } from './components/Settings.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
@@ -23,6 +23,7 @@ import { flushAll } from './lib/editorFlush.js';
 import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
 import { useReadingMode } from './lib/readingMode.js';
 import { useLayoutStore } from './store/layout.js';
+import { wireUpdateBridge } from './store/updates.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
 export const App = (): JSX.Element => {
@@ -217,25 +218,11 @@ export const App = (): JSX.Element => {
     return () => window.clearTimeout(id);
   }, [notice, clearNotice]);
 
-  // Self-update: mirror main's state machine from startup (so Settings shows
-  // background activity), and when a BACKGROUND check finds a version, ask
-  // once — nothing downloads without a yes. Manual checks skip this dialog
-  // (the user is already looking at the Updates row).
+  // Self-update: mirror main's state machine from startup. The state surfaces
+  // in chrome (the title-bar UpdateChip), not a modal — a background-found update
+  // simply makes the chip offer "Download"; nothing installs without a click.
   useEffect(() => {
     wireUpdateBridge();
-    return window.bh.onUpdateFoundBackground(({ version }) => {
-      void confirm({
-        title: 'Update available',
-        body: `BaseHalf ${version} is ready to download. Install it when you restart — your work is untouched.`,
-        confirmText: 'Download',
-        cancelText: 'Later',
-      }).then((yes) => {
-        if (yes) {
-          openSettings();
-          void window.bh.updateDownload();
-        }
-      });
-    });
   }, []);
 
   const region = selectRegion(current, currentReachable);

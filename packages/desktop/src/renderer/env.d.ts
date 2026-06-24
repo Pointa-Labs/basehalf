@@ -76,9 +76,6 @@ interface Window {
     updateInstall(): Promise<void>;
     /** Subscribe to update state transitions. Returns an unsubscribe function. */
     onUpdateState(handler: (state: unknown) => void): () => void;
-    /** Background check found a new version (once per session per version).
-     *  Returns an unsubscribe function. */
-    onUpdateFoundBackground(handler: (info: { version: string }) => void): () => void;
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by
      *  main). Returns an unsubscribe function. */
     onMenuOpenFolder(handler: () => void): () => void;

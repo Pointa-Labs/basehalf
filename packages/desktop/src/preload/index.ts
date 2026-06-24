@@ -188,21 +188,6 @@ const bh = {
     ipcRenderer.on('update:state', wrapped);
     return () => ipcRenderer.off('update:state', wrapped);
   },
-  /** Fired once per session per version when a BACKGROUND check finds an
-   *  update — the renderer asks the user before anything downloads. */
-  onUpdateFoundBackground: (handler: (info: { version: string }) => void): (() => void) => {
-    const wrapped = (_e: unknown, info: unknown): void => {
-      if (
-        typeof info === 'object' &&
-        info !== null &&
-        typeof (info as { version: unknown }).version === 'string'
-      ) {
-        handler(info as { version: string });
-      }
-    };
-    ipcRenderer.on('update:found-background', wrapped);
-    return () => ipcRenderer.off('update:found-background', wrapped);
-  },
   /** Subscribe to the menu/right-click "Open Folder…" action (relayed by main).
    * Returns an unsubscribe function. The renderer responds by running its
    * own pickAndAdd flow, so the folder-open UX is identical to the in-app

@@ -92,9 +92,6 @@ export class Updater {
   private manifest: UpdateManifest | null = null;
   private stagedApp: string | null = null;
   private stagedVersion: string | null = null;
-  /** Versions the user was already nudged about this session — background
-   *  checks re-fire every few hours and must not re-prompt. */
-  private readonly promptedVersions = new Set<string>();
   private busy = false;
 
   getState(): UpdateState {
@@ -109,8 +106,8 @@ export class Updater {
   }
 
   /** Look at the feed; on a newer version transition to `available`.
-   *  Background runs swallow every failure (a flaky network must not paint
-   *  an error into Settings the user never asked for). */
+   *  Background runs swallow every failure (a flaky network must not flash an
+   *  error chip the user never asked for); an explicit check surfaces it. */
   async check(opts: { background: boolean }): Promise<void> {
     if (this.busy) return;
     // A staged install survives re-checks; don't regress the state machine.
@@ -146,15 +143,10 @@ export class Updater {
         return;
       }
       this.manifest = manifest;
+      // Transition to `available` (foreground OR background) — the renderer
+      // mirrors this via update:state and the title-bar chip offers "Download".
+      // No separate "found" event / modal: the chip IS the surfacing.
       this.setState({ phase: 'available', version: manifest.version });
-      if (opts.background && !this.promptedVersions.has(manifest.version)) {
-        this.promptedVersions.add(manifest.version);
-        for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) {
-            win.webContents.send('update:found-background', { version: manifest.version });
-          }
-        }
-      }
     } catch (err) {
       if (!opts.background) {
         this.setState({
@@ -388,7 +380,8 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-/** IPC surface for the Settings UI. */
+/** IPC surface for the renderer's update indicator (the title-bar chip) + the
+ *  "Check for Updates…" menu item. */
 export function registerUpdaterIpc(updater: Updater): void {
   ipcMain.handle('update:get-state', () => updater.getState());
   ipcMain.handle('update:check', async () => {

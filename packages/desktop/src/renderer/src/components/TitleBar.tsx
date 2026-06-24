@@ -4,6 +4,7 @@ import { selectRegion } from '../lib/appRegion.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { openCommandPalette } from './CommandPalette.js';
+import { UpdateChip } from './UpdateChip.js';
 
 // macOS draws the traffic lights (close/min/zoom) natively in the top-left of
 // our custom title strip; reserve room for them (a constant gutter held across
@@ -241,10 +242,12 @@ export const TitleBar = (): JSX.Element | null => {
           </kbd>
         </button>
       </div>
-      {/* The right zone is now a pure spacer that balances the flex-centered
-          search box (the editor is a full-canvas overlay — there's no docked
-          panel to toggle here anymore). */}
-      <div style={rightZone} />
+      {/* The right zone balances the flex-centered search box and hosts the
+          update indicator — the chrome home for the self-update state machine
+          (it stays invisible until there's news; see UpdateChip). */}
+      <div style={rightZone}>
+        <UpdateChip />
+      </div>
     </div>
   );
 };
