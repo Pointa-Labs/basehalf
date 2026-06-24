@@ -99,8 +99,9 @@ function buildDecorations(doc: PmNode, payload: AdhdDecoPayload): DecorationSet 
     const id = (node.attrs as { id?: string } | undefined)?.id;
     if (id && node.firstChild && parent === rootGroup) {
       const read = readSet.has(id);
-      // The container gets position:relative + a reserved left gutter (CSS) so the
-      // absolutely-placed checkbox anchors to the block's top-left without clipping.
+      // The container gets position:relative + a reserved RIGHT gutter (CSS) so the
+      // absolutely-placed checkbox anchors to the block's top-right without clipping
+      // (right, not left, to clear BlockNote's left side menu).
       decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'bh-adhd-blk' }));
       decos.push(
         Decoration.widget(pos + 1, () => renderCheckbox(id, read), {

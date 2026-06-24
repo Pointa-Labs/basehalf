@@ -23,7 +23,9 @@ import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
  * id in-session, while persistence stays the canonical SOURCE line-ranges in
  * adhd.yaml. The two address spaces meet at this seam: source lines → block ids on
  * load (so an agent-written range shows up), and a marked block → its source-line
- * span on write (so the agent reads it back).
+ * span on write (so the agent reads it back). (The spec's "blank line inherits the
+ * previous line's read state" clause is N/A to this block model — blank lines are
+ * inter-block separators, not blocks, so there's nothing to mark or strand.)
  *
  * Known v1 bound: read_paragraphs is a SNAPSHOT of where a block's source sat at mark
  * time. The in-session highlight follows the block by id (correct across edits), but
