@@ -3,12 +3,10 @@ import { color, font, shadow, space, transition } from '../design.js';
 import { SIDEBAR_SNAP_WIDTH, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
-import { WorkspaceUnreachable } from './WorkspaceUnreachable.js';
 
 export const Sidebar = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
   const currentWs = workspaces.find((w) => w.name === current);
@@ -78,11 +76,10 @@ export const Sidebar = (): JSX.Element | null => {
         }}
       >
         {currentWs ? (
-          currentReachable === false ? (
-            <WorkspaceUnreachable name={currentWs.name} missingPath={currentWs.path} />
-          ) : (
-            <NavTree rootPath={currentWs.path} />
-          )
+          // No unreachable branch: App's selectRegion routes the folder-missing
+          // case to a full-region <WorkspaceMissing/>, so the Sidebar (which mounts
+          // only in the 'canvas' region) is always showing a reachable workspace.
+          <NavTree rootPath={currentWs.path} />
         ) : (
           <div
             style={{

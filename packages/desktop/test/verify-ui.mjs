@@ -199,10 +199,19 @@ await step('[1] Fresh config → exactly ONE welcome window (onboarding)', async
   assert(live.length === 1, `Exactly one window at launch (${live.length})`);
   await welcome.screenshot({ path: `${SCREENS_DIR}/01-welcome.png` }).catch(() => undefined);
   const body = await welcome.locator('body').innerText();
-  assert(/Welcome\./.test(body), 'Onboarding shows the "Welcome." heading');
+  // Fresh config = empty registry = the FIRST-RUN welcome: the BaseHalf wordmark
+  // hero (not the "Welcome back" returning hero) + the variant-agnostic CTA.
+  assert(/BaseHalf/.test(body), 'First-run welcome shows the BaseHalf wordmark');
   assert(
-    (await welcome.locator('button', { hasText: 'Add a folder to begin' }).count()) === 1,
-    'Onboarding has the "Add a folder to begin" CTA',
+    (await welcome.locator('button', { hasText: 'Open a folder' }).count()) === 1,
+    'Welcome has the "Open a folder" CTA',
+  );
+  // No sidebar exists on the welcome surface, so its title-bar toggle must NOT
+  // render here (a control that toggles nothing is worse than none). It returns
+  // in a workspace window (asserted implicitly by ensureSidebarOpen in step 6b).
+  assert(
+    (await welcome.locator('[data-testid="sidebar-toggle"]').count()) === 0,
+    'Welcome title bar has no sidebar toggle',
   );
   assert(
     (await boundName(welcome)) === null,
@@ -387,7 +396,9 @@ await step('[9] Remove the open workspace → that window reloads to welcome', a
       await window.bh.reopenWindow(null);
     }, ws2Name);
     assert(await waitBound(w, null), 'The window reloaded to the welcome state');
-    await w.locator('button', { hasText: 'Add a folder to begin' }).waitFor({ timeout: 8000 });
+    // "Open a folder" is the welcome CTA in BOTH variants (first-run + returning),
+    // so this holds whether or not other workspaces remain registered.
+    await w.locator('button', { hasText: 'Open a folder' }).waitFor({ timeout: 8000 });
     const live = await waitForWindowCount(app, 2);
     assert(
       live.length === 2,

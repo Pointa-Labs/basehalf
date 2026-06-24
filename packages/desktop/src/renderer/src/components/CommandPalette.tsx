@@ -342,7 +342,7 @@ export const CommandPalette = (): JSX.Element | null => {
       run: () => void pickAndAdd(),
     });
     if (current === null) {
-      // Onboarding-only: once a real workspace is open, "try the demo" is
+      // Welcome-only: once a real workspace is open, "try the demo" is
       // noise competing with the actual workflow actions.
       out.push({
         id: 'action:try-demo',

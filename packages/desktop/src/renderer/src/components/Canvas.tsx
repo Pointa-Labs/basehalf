@@ -50,7 +50,6 @@ import {
   sideFromHandle,
 } from '../canvasConnections/index.js';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
-import { createDemoAtDefault } from '../lib/actions.js';
 import { subscribeBadgeChange } from '../lib/badgeBus.js';
 import { badgeMutations } from '../lib/badgeMutations.js';
 import {
@@ -63,7 +62,6 @@ import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.
 import { droppedPaths, handleExternalDrop } from '../lib/importDrop.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
 import { mirrorWritesSuspended } from '../lib/mirrorWrites.js';
-import { sortByRecency } from '../lib/recentWorkspaces.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -83,7 +81,6 @@ import { CanvasControls } from './CanvasControls.js';
 import { CanvasSnapGuides } from './CanvasSnapGuides.js';
 import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
-import { Onboarding } from './Onboarding.js';
 import { Button } from './primitives/Button.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
@@ -218,8 +215,6 @@ function cardHeight(node: Node<BadgeNodeData> | undefined): number | undefined {
 
 export const Canvas = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const openRoots = useWorkspaceStore((s) => s.openRoots);
   const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const folderScope = useWorkspaceStore((s) => s.folderScope);
   const setFolderScope = useWorkspaceStore((s) => s.setFolderScope);
@@ -1036,17 +1031,10 @@ export const Canvas = (): JSX.Element => {
     [setCanvasSelection],
   );
 
-  if (!current || currentReachable === false) {
-    return (
-      <Onboarding
-        onAddFolder={() => void useWorkspaceStore.getState().pickAndAdd()}
-        onTryDemo={() => void createDemoAtDefault()}
-        recent={sortByRecency(workspaces.filter((w) => w.name !== current))}
-        onOpenWorkspace={(name) => void useWorkspaceStore.getState().use(name)}
-        openRoots={openRoots}
-      />
-    );
-  }
+  // No empty/recovery branch here: App's selectRegion owns those — Canvas mounts
+  // ONLY for a reachable workspace (region === 'canvas'). The no-workspace case is
+  // <Welcome/> and the folder-missing case is <WorkspaceMissing/>, each the sole
+  // occupant of the region.
 
   // Empty canvas → the GHOST NOTE CARD: a dashed card shaped like the real
   // file cards, sitting where the first card would. It doesn't describe the

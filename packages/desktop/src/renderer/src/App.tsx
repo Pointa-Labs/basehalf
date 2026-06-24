@@ -14,8 +14,11 @@ import { SettingsHost, openSettings, wireUpdateBridge } from './components/Setti
 import { Sidebar } from './components/Sidebar.js';
 import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
+import { WorkspaceMissing } from './components/WorkspaceMissing.js';
+import { Welcome } from './components/welcome/Welcome.js';
 import { color, font, motion, radius, space } from './design.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
+import { selectRegion } from './lib/appRegion.js';
 import { flushAll } from './lib/editorFlush.js';
 import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
 import { useLayoutStore } from './store/layout.js';
@@ -27,6 +30,7 @@ export const App = (): JSX.Element => {
   const notice = useWorkspaceStore((s) => s.notice);
   const clearNotice = useWorkspaceStore((s) => s.clearNotice);
   const current = useWorkspaceStore((s) => s.current);
+  const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const refresh = useWorkspaceStore((s) => s.refresh);
   // Drag-drop folder → add as workspace. Tracked at the App level so the
   // overlay covers everything (TopBar, Sidebar, Canvas, FilePreview).
@@ -115,6 +119,11 @@ export const App = (): JSX.Element => {
         // inputs, the ⌘K palette field). Yield to it there; only toggle the
         // sidebar when focus is on inert chrome — as well-behaved editors do.
         if (editable) return;
+        // The sidebar exists only in the 'canvas' region; on the welcome / recovery
+        // surfaces there's nothing to toggle, so ⌘B is inert there (and never flips
+        // an invisible sidebarOpen that would surprise on the next workspace open).
+        const ws = useWorkspaceStore.getState();
+        if (selectRegion(ws.current, ws.currentReachable) !== 'canvas') return;
         e.preventDefault();
         useLayoutStore.getState().toggleSidebar();
         return;
@@ -220,6 +229,8 @@ export const App = (): JSX.Element => {
     });
   }, []);
 
+  const region = selectRegion(current, currentReachable);
+
   return (
     <div
       style={{
@@ -266,37 +277,46 @@ export const App = (): JSX.Element => {
     >
       <TitleBar />
       <FdaTip />
-      {/* Docked regions, left → right: the canvas region (the spatial map, takes
-          whatever the terminal leaves) | TerminalDock (a FIXED right-most home
-          for the embedded terminal — where TUI agents run). Opening a file mounts
-          the EditorOverlay INSIDE the canvas region: a full-canvas editor over the
-          canvas (z-index 5 — above the canvas + its chrome, below the Sidebar's 6
-          so the nav stays clickable). The Sidebar (nav) floats OVER the canvas, so
-          toggling it never reflows the map. Net shape when a file is open:
-          `Sidebar | full-canvas editor over canvas | Terminal`. */}
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          flex: 1,
-          minHeight: 0,
-          overflow: 'hidden',
-          position: 'relative',
-        }}
-      >
-        {/* The canvas region — flex:1 so it takes whatever the terminal leaves.
-            position:relative anchors the canvas's own absolute chrome (New-note
-            button, context chip, empty hint), the EditorOverlay (inset:0 over the
-            canvas) AND the floating Sidebar overlay, whose overflow:hidden clips
-            the sidebar to this region. The EditorOverlay sits between the canvas
-            and the sidebar in DOM order + z-index. */}
-        <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
-          <Canvas />
-          <EditorOverlay />
-          <Sidebar />
-        </main>
-        <TerminalDock />
-      </div>
+      {/* The top-level gate (one pure decision — selectRegion). Welcome AND the
+          folder-missing recovery are each the SOLE occupant of the working region
+          — no sidebar/canvas/terminal alongside — so neither surface ever renders
+          twice. Only a reachable workspace gets the docked regions. */}
+      {region === 'welcome' ? (
+        <Welcome />
+      ) : region === 'recovery' ? (
+        <WorkspaceMissing />
+      ) : (
+        // Docked regions, left → right: the canvas region (the spatial map, takes
+        // whatever the terminal leaves) | TerminalDock (a FIXED right-most home
+        // for the embedded terminal — where TUI agents run). Opening a file mounts
+        // the EditorOverlay INSIDE the canvas region: a full-canvas editor over the
+        // canvas (z-index 5 — above the canvas + its chrome, below the Sidebar's 6
+        // so the nav stays clickable). The Sidebar (nav) floats OVER the canvas, so
+        // toggling it never reflows the map.
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden',
+            position: 'relative',
+          }}
+        >
+          {/* The canvas region — flex:1 so it takes whatever the terminal leaves.
+              position:relative anchors the canvas's own absolute chrome (New-note
+              button, context chip, empty hint), the EditorOverlay (inset:0 over the
+              canvas) AND the floating Sidebar overlay, whose overflow:hidden clips
+              the sidebar to this region. The EditorOverlay sits between the canvas
+              and the sidebar in DOM order + z-index. */}
+          <main style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+            <Canvas />
+            <EditorOverlay />
+            <Sidebar />
+          </main>
+          <TerminalDock />
+        </div>
+      )}
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       {!error && notice && <ErrorBanner message={notice} onDismiss={clearNotice} tone="info" />}
       {/* Before DialogHost/CommandPalette: same z-index, so DOM order keeps

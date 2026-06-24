@@ -1,5 +1,6 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { selectRegion } from '../lib/appRegion.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { openCommandPalette } from './CommandPalette.js';
@@ -23,8 +24,14 @@ type DraggableCSS = CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' };
  */
 export const TitleBar = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
+  const currentReachable = useWorkspaceStore((s) => s.currentReachable);
   const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
   const toggleSidebar = useLayoutStore((s) => s.toggleSidebar);
+  // The sidebar exists only in the 'canvas' region (a reachable workspace) — so
+  // its toggle belongs in the title bar only there. On the welcome / recovery
+  // surfaces there's no sidebar to toggle, and a control that does nothing (and
+  // whose glyph would falsely show "panel open") is worse than no control.
+  const hasSidebar = selectRegion(current, currentReachable) === 'canvas';
   const [boxHover, setBoxHover] = useState(false);
   const [toggleHover, setToggleHover] = useState(false);
   // Window zoom factor (1 = 100%). The native macOS traffic lights do NOT scale
@@ -145,36 +152,40 @@ export const TitleBar = (): JSX.Element | null => {
 
   return (
     <div style={barStyle}>
+      {/* leftZone always renders (flex:1) so the centered box stays window-centered;
+          only the toggle inside it is conditional. */}
       <div style={leftZone}>
-        <button
-          type="button"
-          onClick={() => toggleSidebar()}
-          onMouseEnter={() => setToggleHover(true)}
-          onMouseLeave={() => setToggleHover(false)}
-          title={`${sidebarOpen ? 'Hide' : 'Show'} sidebar (⌘B)`}
-          aria-label={`${sidebarOpen ? 'Hide' : 'Show'} sidebar`}
-          aria-pressed={sidebarOpen}
-          data-testid="sidebar-toggle"
-          style={toggleStyle}
-        >
-          {/* "layout sidebar" glyph: a window with the left panel filled when
-              the sidebar is showing, hollow when hidden. */}
-          <svg width={18} height={18} viewBox="0 0 16 16" fill="none" aria-hidden>
-            <rect
-              x={1.75}
-              y={3}
-              width={12.5}
-              height={10}
-              rx={1.5}
-              stroke="currentColor"
-              strokeWidth={1.1}
-            />
-            <line x1={6} y1={3} x2={6} y2={13} stroke="currentColor" strokeWidth={1.1} />
-            {sidebarOpen && (
-              <rect x={2.4} y={3.6} width={3} height={8.8} rx={0.5} fill="currentColor" />
-            )}
-          </svg>
-        </button>
+        {hasSidebar && (
+          <button
+            type="button"
+            onClick={() => toggleSidebar()}
+            onMouseEnter={() => setToggleHover(true)}
+            onMouseLeave={() => setToggleHover(false)}
+            title={`${sidebarOpen ? 'Hide' : 'Show'} sidebar (⌘B)`}
+            aria-label={`${sidebarOpen ? 'Hide' : 'Show'} sidebar`}
+            aria-pressed={sidebarOpen}
+            data-testid="sidebar-toggle"
+            style={toggleStyle}
+          >
+            {/* "layout sidebar" glyph: a window with the left panel filled when
+                the sidebar is showing, hollow when hidden. */}
+            <svg width={18} height={18} viewBox="0 0 16 16" fill="none" aria-hidden>
+              <rect
+                x={1.75}
+                y={3}
+                width={12.5}
+                height={10}
+                rx={1.5}
+                stroke="currentColor"
+                strokeWidth={1.1}
+              />
+              <line x1={6} y1={3} x2={6} y2={13} stroke="currentColor" strokeWidth={1.1} />
+              {sidebarOpen && (
+                <rect x={2.4} y={3.6} width={3} height={8.8} rx={0.5} fill="currentColor" />
+              )}
+            </svg>
+          </button>
+        )}
       </div>
       <div style={centerZone}>
         <button

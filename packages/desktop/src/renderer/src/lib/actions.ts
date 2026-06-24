@@ -10,7 +10,7 @@
 import { confirm, prompt } from '../components/Dialog.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
-/** Default location for the demo workspace. Both the Onboarding "Try a
+/** Default location for the demo workspace. Both the welcome page's "Open a
  *  demo" button and the palette "Try a demo workspace…" action use this
  *  path so they're idempotent against each other (createDemo itself is
  *  also idempotent on second-run with the same path — see workspace.createDemo). */
