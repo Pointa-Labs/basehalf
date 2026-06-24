@@ -16,6 +16,7 @@ import { registerBadgesModule } from './modules/badges/index.js';
 import { registerCanvasModule } from './modules/canvas/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
 import { registerSearchModule } from './modules/search/index.js';
+import { registerSettingsModule } from './modules/settings/index.js';
 import { registerWatcherModule } from './modules/watcher/index.js';
 import { registerWorkspaceModule } from './modules/workspace/index.js';
 
@@ -72,6 +73,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerAdhdModule(core);
   registerWatcherModule(core);
   registerSearchModule(core);
+  registerSettingsModule(core);
 
   return core;
 }
@@ -105,4 +107,12 @@ export type * from './modules/focus/types.js';
 export { FocusCorrupt } from './modules/focus/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';
+export type * from './modules/settings/types.js';
+export { InvalidSettingValue, UnknownSetting } from './modules/settings/types.js';
+export type {
+  SettingDescriptor,
+  SettingScope,
+  SettingType,
+  SettingValue,
+} from './modules/settings/registry.js';
 export { _resetWatcherForTests, watcherEvents } from './modules/watcher/index.js';
