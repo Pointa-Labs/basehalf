@@ -1,9 +1,9 @@
 {
   "name": "basehalf",
-  "version": "0.0.1",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
-  "description": "BaseHalf — a local-first, agent-native compound thinking workspace. Notion + Excalidraw + NotebookLM-style desktop app for AI-augmented knowledge work.",
+  "description": "BaseHalf — a local-first, agent-native compound thinking workspace: a desktop app for AI-augmented knowledge work.",
   "author": "Pointa Labs, Inc.",
   "homepage": "https://basehalf.com",
   "license": "Apache-2.0",
@@ -18,7 +18,8 @@
     "typecheck": "turbo run typecheck",
     "dev": "turbo run dev",
     "format": "biome format --write packages",
-    "check": "biome check packages"
+    "check": "biome check packages",
+    "bump": "node scripts/bump-version.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",

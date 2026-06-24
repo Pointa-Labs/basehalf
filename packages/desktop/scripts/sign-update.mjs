@@ -6,7 +6,7 @@
  *   node scripts/sign-update.mjs --init
  *       One-time: generate the keypair (private key stays OUTSIDE the repo,
  *       in the per-user app-support dir below; back it up!) and print the
- *       public key to paste into src/main/updater.ts.
+ *       public key to paste into src/main/update-protocol.ts.
  *
  *   node scripts/sign-update.mjs dist/BaseHalf-<version>-arm64.zip
  *       Sign the archive and write dist/update-manifest-darwin-arm64.json.
@@ -41,7 +41,7 @@ if (args[0] === '--init') {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
   writeFileSync(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
   console.log(`Private key written to ${keyPath} — back it up; losing it strands old installs.`);
-  console.log('Public key (paste into UPDATE_PUBKEY_B64 in src/main/updater.ts):');
+  console.log('Public key (paste into UPDATE_PUBKEY_B64 in src/main/update-protocol.ts):');
   console.log(publicKey.export({ type: 'spki', format: 'der' }).toString('base64'));
   process.exit(0);
 }
@@ -69,24 +69,44 @@ const signature = sign(null, bytes, privateKey).toString('base64');
 
 // Sanity: the embedded public key in the app must verify what we just
 // signed, or every install would reject this release. Compare key material.
-const updaterSrc = readFileSync(new URL('../src/main/update-protocol.ts', import.meta.url), 'utf8');
-const embedded = /UPDATE_PUBKEY_B64 = '([A-Za-z0-9+/=]+)'/.exec(updaterSrc)?.[1];
-const derived = createPublicKey(privateKey)
-  .export({ type: 'spki', format: 'der' })
-  .toString('base64');
-if (embedded !== derived) {
-  console.error('Public key embedded in src/main/updater.ts does not match this signing key!');
-  console.error(`  embedded: ${embedded ?? '(not found)'}`);
-  console.error(`  signing:  ${derived}`);
-  process.exit(1);
+// BH_UPDATE_SKIP_KEYCHECK=1 bypasses it for tests that sign with a throwaway key.
+if (process.env.BH_UPDATE_SKIP_KEYCHECK !== '1') {
+  const protocolSrc = readFileSync(
+    new URL('../src/main/update-protocol.ts', import.meta.url),
+    'utf8',
+  );
+  const embedded = /UPDATE_PUBKEY_B64 = '([A-Za-z0-9+/=]+)'/.exec(protocolSrc)?.[1];
+  const derived = createPublicKey(privateKey)
+    .export({ type: 'spki', format: 'der' })
+    .toString('base64');
+  if (embedded !== derived) {
+    console.error(
+      'Public key embedded in src/main/update-protocol.ts does not match this signing key!',
+    );
+    console.error(`  embedded: ${embedded ?? '(not found)'}`);
+    console.error(`  signing:  ${derived}`);
+    process.exit(1);
+  }
 }
+
+const pubDate = new Date().toISOString();
+const url = `https://github.com/Pointa-Labs/basehalf/releases/download/v${version}/${basename(zipPath)}`;
+const length = statSync(zipPath).size;
+
+// Sign the manifest METADATA too, so version/url/length/pubDate can't be forged
+// (an unsigned manifest lets a feed attacker relabel an old signed archive as a
+// newer release). Canonical message — MUST match manifestSigningMessage() in
+// src/main/update-protocol.ts (pinned by a test in test/updater.test.ts).
+const signingMessage = [version, url, String(length), pubDate, signature].join('\n');
+const manifestSig = sign(null, Buffer.from(signingMessage, 'utf8'), privateKey).toString('base64');
 
 const manifest = {
   version,
-  pubDate: new Date().toISOString(),
-  url: `https://github.com/Pointa-Labs/basehalf/releases/download/v${version}/${basename(zipPath)}`,
-  length: statSync(zipPath).size,
+  pubDate,
+  url,
+  length,
   signature,
+  manifestSig,
 };
 
 const outPath = join(dirname(zipPath), 'update-manifest-darwin-arm64.json');

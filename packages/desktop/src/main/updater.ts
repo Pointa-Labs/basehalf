@@ -34,6 +34,7 @@ import {
   compareSemver,
   sanitizeManifest,
   verifyArchiveSignature,
+  verifyManifestSignature,
 } from './update-protocol.js';
 
 const execFileAsync = promisify(execFile);
@@ -134,6 +135,15 @@ export class Updater {
       if (!manifest) {
         if (!opts.background) {
           this.setState({ phase: 'error', message: 'Update feed is malformed.' });
+        }
+        return;
+      }
+      // Authenticate the metadata BEFORE trusting any field (esp. version): a
+      // forged feed could otherwise relabel an old, validly-signed archive as a
+      // newer release and downgrade the user. Fail closed.
+      if (!verifyManifestSignature(manifest)) {
+        if (!opts.background) {
+          this.setState({ phase: 'error', message: 'Update feed failed verification.' });
         }
         return;
       }

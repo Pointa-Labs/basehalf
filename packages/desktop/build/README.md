@@ -13,20 +13,31 @@
 
 ## Release flow (self-update feed)
 
-Every release must ship three assets, or installed apps can't find/verify it:
+All steps run from the REPO ROOT. Every release must ship three assets, or
+installed apps can't find/verify it:
 
-1. `pnpm dist:mac` → `dist/BaseHalf-<version>-arm64.{dmg,zip}`.
-2. `node scripts/sign-update.mjs dist/BaseHalf-<version>-arm64.zip` → signs
-   the zip with the project's Ed25519 update key and writes
-   `dist/update-manifest-darwin-arm64.json` (it refuses to run if the key
-   doesn't match the public key embedded in `src/main/update-protocol.ts`).
-3. `gh release create v<version> dist/BaseHalf-<version>-arm64.dmg
-   dist/BaseHalf-<version>-arm64.zip dist/update-manifest-darwin-arm64.json`.
+0. `pnpm bump <x.y.z|patch|minor|major>` → sets the version in the root and
+   desktop `package.json` in lockstep (the single source of truth; never
+   hand-edit one without the other).
+1. `pnpm --filter @basehalf/desktop dist:mac` →
+   `packages/desktop/dist/BaseHalf-<version>-arm64.{dmg,zip}`.
+2. `node packages/desktop/scripts/sign-update.mjs
+   packages/desktop/dist/BaseHalf-<version>-arm64.zip` → signs the zip AND the
+   manifest metadata with the project's Ed25519 update key and writes
+   `packages/desktop/dist/update-manifest-darwin-arm64.json` (it refuses to run
+   if the key doesn't match the public key embedded in
+   `src/main/update-protocol.ts`).
+3. `gh release create v<version>
+   packages/desktop/dist/BaseHalf-<version>-arm64.dmg
+   packages/desktop/dist/BaseHalf-<version>-arm64.zip
+   packages/desktop/dist/update-manifest-darwin-arm64.json`.
 
 Installed apps poll `releases/latest/download/update-manifest-darwin-arm64.json`
-(background, a few hours apart; manual via Settings ▸ Updates), verify the
-zip's signature against the embedded public key, swap their own bundle, and
-relaunch. The private key lives ONLY at
+(background, a few hours apart; manual via the title-bar update chip or the
+"Check for Updates…" app-menu item), verify BOTH the manifest signature (so the
+version/url can't be forged) and the downloaded zip's signature against the
+embedded public key, swap their own bundle, and relaunch. The private key lives
+ONLY at
 `~/Library/Application Support/basehalf-release/update-signing.pem` on the
 release machine — back it up; losing it strands every installed copy
 (they'd need a manual re-download). `scripts/sign-update.mjs --init`

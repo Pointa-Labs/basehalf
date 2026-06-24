@@ -1,12 +1,29 @@
+import { execFileSync } from 'node:child_process';
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   bundlePathFromExec,
   compareSemver,
+  manifestSigningMessage,
   parseSemver,
   sanitizeManifest,
   verifyArchiveSignature,
+  verifyManifestSignature,
 } from '../src/main/update-protocol.js';
+
+/** A keypair as the protocol consumes it: the public half SPKI-DER-base64
+ *  (the shape verify* expects), ready to sign test messages with the private. */
+function testKeypair(): { pubB64: string; privateKey: ReturnType<typeof createPrivateKey> } {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+  return {
+    pubB64: publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+    privateKey: createPrivateKey(privateKey.export({ type: 'pkcs8', format: 'pem' })),
+  };
+}
 
 describe('parseSemver / compareSemver', () => {
   it('parses strict x.y.z only', () => {
@@ -33,10 +50,12 @@ describe('sanitizeManifest', () => {
     url: 'https://github.com/Pointa-Labs/basehalf/releases/download/v0.2.0/x.zip',
     length: 1234,
     signature: 'c2ln',
+    pubDate: '2026-01-01T00:00:00.000Z',
+    manifestSig: 'bXNpZw==',
   };
 
   it('accepts a well-formed manifest (extra keys dropped)', () => {
-    expect(sanitizeManifest({ ...good, pubDate: 'x', extra: 1 })).toEqual(good);
+    expect(sanitizeManifest({ ...good, extra: 1 })).toEqual(good);
   });
 
   it('rejects malformed shapes', () => {
@@ -50,24 +69,147 @@ describe('sanitizeManifest', () => {
     expect(sanitizeManifest({ ...good, length: 600 * 1024 * 1024 })).toBeNull();
     expect(sanitizeManifest({ ...good, signature: '' })).toBeNull();
   });
+
+  it('requires the authenticated metadata fields', () => {
+    const { pubDate, manifestSig, ...noAuth } = good;
+    void pubDate;
+    void manifestSig;
+    expect(sanitizeManifest(noAuth)).toBeNull(); // no pubDate / manifestSig
+    expect(sanitizeManifest({ ...good, pubDate: '' })).toBeNull();
+    expect(sanitizeManifest({ ...good, manifestSig: '' })).toBeNull();
+    expect(sanitizeManifest({ ...good, pubDate: 5 })).toBeNull();
+    expect(sanitizeManifest({ ...good, manifestSig: 5 })).toBeNull();
+  });
+
+  it('rejects fields that could make the signed message ambiguous', () => {
+    // Keep every signed field newline-free so the '\n'-joined message is
+    // injective (no two manifests share a signed string → no signature reuse).
+    expect(sanitizeManifest({ ...good, url: 'https://x/y\n9.9.9' })).toBeNull();
+    expect(sanitizeManifest({ ...good, pubDate: '2026-01-01T00:00:00.000Z\nx' })).toBeNull();
+    expect(sanitizeManifest({ ...good, pubDate: 'not-a-date' })).toBeNull();
+    expect(sanitizeManifest({ ...good, signature: 'not base64!!' })).toBeNull();
+    expect(sanitizeManifest({ ...good, manifestSig: 'has\nnewline' })).toBeNull();
+  });
 });
 
 describe('verifyArchiveSignature', () => {
+  it('verifies bytes against the matching key, rejects everything else', () => {
+    const { pubB64, privateKey } = testKeypair();
+    const bytes = Buffer.from('payload');
+    const sig = sign(null, bytes, privateKey).toString('base64');
+    expect(verifyArchiveSignature(bytes, sig, pubB64)).toBe(true);
+    expect(verifyArchiveSignature(Buffer.from('tampered'), sig, pubB64)).toBe(false);
+  });
+
   it('rejects signatures from a different key', () => {
     // A fresh keypair's signature must NOT verify against the baked-in key.
-    const { privateKey } = generateKeyPairSync('ed25519');
+    const { privateKey } = testKeypair();
     const bytes = Buffer.from('payload');
-    const sig = sign(
-      null,
-      bytes,
-      createPrivateKey(privateKey.export({ type: 'pkcs8', format: 'pem' })),
-    );
+    const sig = sign(null, bytes, privateKey);
     expect(verifyArchiveSignature(bytes, sig.toString('base64'))).toBe(false);
   });
 
   it('rejects garbage signatures without throwing', () => {
     expect(verifyArchiveSignature(Buffer.from('x'), 'not base64!!')).toBe(false);
     expect(verifyArchiveSignature(Buffer.from('x'), '')).toBe(false);
+  });
+});
+
+describe('manifestSigningMessage', () => {
+  it('is the exact canonical string sign-update.mjs must reproduce', () => {
+    // Pinned: this format is replicated in scripts/sign-update.mjs. If it
+    // changes here, change it there too or every release fails verification.
+    expect(
+      manifestSigningMessage({
+        version: '0.2.0',
+        url: 'https://x/y.zip',
+        length: 1234,
+        pubDate: '2026-01-01T00:00:00.000Z',
+        signature: 'c2ln',
+      }),
+    ).toBe('0.2.0\nhttps://x/y.zip\n1234\n2026-01-01T00:00:00.000Z\nc2ln');
+  });
+});
+
+describe('verifyManifestSignature', () => {
+  const base = {
+    version: '0.2.0',
+    url: 'https://github.com/Pointa-Labs/basehalf/releases/download/v0.2.0/x.zip',
+    length: 1234,
+    pubDate: '2026-01-01T00:00:00.000Z',
+    signature: 'c2ln',
+  };
+  const signManifest = (m: typeof base, priv: ReturnType<typeof createPrivateKey>): string =>
+    sign(null, Buffer.from(manifestSigningMessage(m), 'utf8'), priv).toString('base64');
+
+  it('accepts a manifest signed over its own metadata', () => {
+    const { pubB64, privateKey } = testKeypair();
+    const m = { ...base, manifestSig: signManifest(base, privateKey) };
+    expect(verifyManifestSignature(m, pubB64)).toBe(true);
+  });
+
+  it('rejects any tampered field (version/url/length/pubDate/signature)', () => {
+    const { pubB64, privateKey } = testKeypair();
+    const manifestSig = signManifest(base, privateKey);
+    for (const patch of [
+      { version: '0.3.0' },
+      { url: 'https://evil.example/x.zip' },
+      { length: 9999 },
+      { pubDate: '2030-01-01T00:00:00.000Z' },
+      { signature: 'b3RoZXI=' },
+    ]) {
+      expect(verifyManifestSignature({ ...base, ...patch, manifestSig }, pubB64)).toBe(false);
+    }
+  });
+
+  it('blocks the relabel-downgrade attack: old signed archive, forged newer version', () => {
+    // Attacker signs (legitimately, long ago) v0.1.0 → oldArchiveSig, then serves
+    // the same archive relabelled as v9.9.9. The metadata signature is bound to
+    // the original tuple, so the forged manifest fails verification.
+    const { pubB64, privateKey } = testKeypair();
+    const real = { ...base, version: '0.1.0' };
+    const manifestSig = signManifest(real, privateKey);
+    const forged = { ...real, version: '9.9.9', manifestSig };
+    expect(verifyManifestSignature(forged, pubB64)).toBe(false);
+  });
+
+  it('rejects a manifest signed by a different key, and garbage', () => {
+    const { privateKey } = testKeypair(); // not the baked-in key
+    const m = { ...base, manifestSig: signManifest(base, privateKey) };
+    expect(verifyManifestSignature(m)).toBe(false); // baked-in pubkey
+    expect(verifyManifestSignature({ ...base, manifestSig: 'not base64!!' })).toBe(false);
+  });
+});
+
+describe('sign-update.mjs ↔ verifier cross-check', () => {
+  // The signer (plain JS) and verifier (TS) can't share code, so prove the real
+  // signer's manifestSig + archive signature verify against the protocol — this
+  // catches any drift in the canonical signing format between the two.
+  it('produces a manifest the verifier accepts', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bh-sign-'));
+    try {
+      const { publicKey, privateKey } = generateKeyPairSync('ed25519');
+      const keyPath = join(dir, 'key.pem');
+      writeFileSync(keyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+      const zip = join(dir, 'BaseHalf-0.2.0-arm64.zip');
+      writeFileSync(zip, Buffer.from('pretend archive bytes'));
+
+      const script = fileURLToPath(new URL('../scripts/sign-update.mjs', import.meta.url));
+      execFileSync('node', [script, zip, '--version', '0.2.0'], {
+        env: { ...process.env, BH_UPDATE_KEY: keyPath, BH_UPDATE_SKIP_KEYCHECK: '1' },
+        stdio: 'ignore',
+      });
+
+      const raw = JSON.parse(readFileSync(join(dir, 'update-manifest-darwin-arm64.json'), 'utf8'));
+      const m = sanitizeManifest(raw);
+      expect(m).not.toBeNull();
+      if (!m) return;
+      const pub = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+      expect(verifyManifestSignature(m, pub)).toBe(true);
+      expect(verifyArchiveSignature(readFileSync(zip), m.signature, pub)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
