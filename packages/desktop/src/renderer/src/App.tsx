@@ -14,6 +14,7 @@ import { SettingsHost, openSettings } from './components/Settings.js';
 import { Sidebar } from './components/Sidebar.js';
 import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
+import { WhatsNewHost } from './components/WhatsNew.js';
 import { WorkspaceMissing } from './components/WorkspaceMissing.js';
 import { Welcome } from './components/welcome/Welcome.js';
 import { color, font, motion, radius, space } from './design.js';
@@ -318,6 +319,7 @@ export const App = (): JSX.Element => {
       {/* Before DialogHost/CommandPalette: same z-index, so DOM order keeps
           transient dialogs and the palette above the Settings surface. */}
       <SettingsHost />
+      <WhatsNewHost />
       <DialogHost />
       <ContextMenuHost />
       <CommandPalette />

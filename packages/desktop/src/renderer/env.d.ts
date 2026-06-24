@@ -74,6 +74,9 @@ interface Window {
     updateCheck(): Promise<void>;
     updateDownload(): Promise<void>;
     updateInstall(): Promise<void>;
+    /** One-shot: did we just self-update? Resolves `{ version, notes }` once
+     *  (cleared on read), else null. Backs the "what's new" panel. */
+    updateJustInstalled(): Promise<unknown>;
     /** Subscribe to update state transitions. Returns an unsubscribe function. */
     onUpdateState(handler: (state: unknown) => void): () => void;
     /** Subscribe to the menu/right-click "Open Folder…" action (relayed by

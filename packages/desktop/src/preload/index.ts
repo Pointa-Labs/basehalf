@@ -181,6 +181,9 @@ const bh = {
   updateCheck: (): Promise<void> => ipcRenderer.invoke('update:check'),
   updateDownload: (): Promise<void> => ipcRenderer.invoke('update:download'),
   updateInstall: (): Promise<void> => ipcRenderer.invoke('update:install'),
+  /** One-shot: did we just self-update? Resolves { version, notes } once (the
+   *  record is cleared on read), else null. Backs the "what's new" panel. */
+  updateJustInstalled: (): Promise<unknown> => ipcRenderer.invoke('update:just-installed'),
   /** Subscribe to update state transitions (pushed by main). Returns an
    *  unsubscribe function. */
   onUpdateState: (handler: (state: unknown) => void): (() => void) => {

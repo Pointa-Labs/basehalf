@@ -28,6 +28,10 @@ const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: deliberately rejecting control chars in untrusted feed input
 const HAS_CONTROL_CHAR = /[\x00-\x1f\x7f]/;
 
+/** Cap on the "what's new" notes — short by nature; a forged longer one fails
+ *  manifestSig anyway, this just keeps a malformed feed bounded. */
+const MAX_NOTES_CHARS = 16_384;
+
 export interface UpdateManifest {
   readonly version: string;
   readonly url: string;
@@ -36,10 +40,14 @@ export interface UpdateManifest {
   readonly signature: string;
   /** ISO-8601 publish time; authenticated by `manifestSig`. */
   readonly pubDate: string;
+  /** Optional human "what's new" text, shown once after a self-update. May be
+   *  multi-line; authenticated via its base64 in the signing message, so it
+   *  doesn't need to be newline-free like the other fields. Defaults to ''. */
+  readonly notes: string;
   /** Ed25519 signature over the manifest METADATA (see manifestSigningMessage).
-   *  Without it version/url/length/pubDate would be unauthenticated, so a feed
-   *  attacker could relabel an old, validly-signed archive as a newer version
-   *  and silently downgrade the user. */
+   *  Without it version/url/length/pubDate/notes would be unauthenticated, so a
+   *  feed attacker could relabel an old, validly-signed archive as a newer
+   *  version (or spoof the "what's new" text) and mislead/downgrade the user. */
   readonly manifestSig: string;
 }
 
@@ -98,28 +106,36 @@ export function sanitizeManifest(
   if (typeof r.signature !== 'string' || !BASE64.test(r.signature)) return null;
   if (typeof r.pubDate !== 'string' || !ISO_UTC.test(r.pubDate)) return null;
   if (typeof r.manifestSig !== 'string' || !BASE64.test(r.manifestSig)) return null;
+  // notes is optional display text (may be multi-line). It rides the signing
+  // message as base64, so it can't break the injective format; just bound it.
+  const notes = typeof r.notes === 'string' ? r.notes : '';
+  if (notes.length > MAX_NOTES_CHARS) return null;
   return {
     version: r.version,
     url: r.url,
     length: r.length,
     signature: r.signature,
     pubDate: r.pubDate,
+    notes,
     manifestSig: r.manifestSig,
   };
 }
 
 /** The exact message the manifest signature covers: the metadata fields plus the
- *  archive signature, so version/url/length/pubDate are bound to one specific
- *  signed archive. MUST stay byte-identical to the string built in
- *  scripts/sign-update.mjs — the format is pinned by a test in updater.test.ts. */
+ *  archive signature, so version/url/length/pubDate/notes are bound to one
+ *  specific signed archive. notes rides as base64 (so multi-line text can't add
+ *  a separator and the join stays injective). MUST stay byte-identical to the
+ *  string built in scripts/sign-update.mjs — pinned by a test in updater.test.ts. */
 export function manifestSigningMessage(m: {
   version: string;
   url: string;
   length: number;
   pubDate: string;
   signature: string;
+  notes: string;
 }): string {
-  return [m.version, m.url, String(m.length), m.pubDate, m.signature].join('\n');
+  const notesB64 = Buffer.from(m.notes, 'utf8').toString('base64');
+  return [m.version, m.url, String(m.length), m.pubDate, m.signature, notesB64].join('\n');
 }
 
 /** Ed25519-verify `message` against a public key (the baked-in one by default;
@@ -154,6 +170,32 @@ export function verifyManifestSignature(
   pubKeyB64: string = UPDATE_PUBKEY_B64,
 ): boolean {
   return verifyEd25519(Buffer.from(manifestSigningMessage(m), 'utf8'), m.manifestSig, pubKeyB64);
+}
+
+export interface JustInstalled {
+  readonly version: string;
+  readonly notes: string;
+}
+
+/** Parse the install-time "what's new" record the previous version wrote. Returns
+ *  it only when its version matches the running build (so a DMG install or a
+ *  stale record never triggers the panel) and the notes are non-empty. Pure —
+ *  updater.ts owns the file read + one-shot delete. */
+export function parseJustInstalled(raw: string, expectedVersion: string): JustInstalled | null {
+  try {
+    const rec = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      typeof rec.version === 'string' &&
+      typeof rec.notes === 'string' &&
+      rec.version === expectedVersion &&
+      rec.notes.length > 0
+    ) {
+      return { version: rec.version, notes: rec.notes };
+    }
+  } catch {
+    /* malformed record */
+  }
+  return null;
 }
 
 /** `/Apps/X.app/Contents/MacOS/X` → `/Apps/X.app`; null when the executable

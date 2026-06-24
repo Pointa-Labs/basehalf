@@ -48,7 +48,9 @@ if (args[0] === '--init') {
 
 const zipPath = args[0];
 if (!zipPath || !existsSync(zipPath)) {
-  console.error('Usage: node scripts/sign-update.mjs <path-to-release-zip> [--version x.y.z]');
+  console.error(
+    'Usage: node scripts/sign-update.mjs <path-to-release-zip> [--version x.y.z] [--notes "text" | --notes-file path]',
+  );
   process.exit(1);
 }
 
@@ -60,6 +62,19 @@ const version =
 
 if (!/^\d+\.\d+\.\d+$/.test(version)) {
   console.error(`Version "${version}" is not strict x.y.z — the app's parser will reject it.`);
+  process.exit(1);
+}
+
+// Optional "what's new" notes, shown once after a self-update. --notes inline or
+// --notes-file from disk; defaults to empty.
+const notesFlag = args.indexOf('--notes');
+const notesFileFlag = args.indexOf('--notes-file');
+let notes = '';
+if (notesFlag !== -1 && args[notesFlag + 1]) notes = args[notesFlag + 1];
+else if (notesFileFlag !== -1 && args[notesFileFlag + 1])
+  notes = readFileSync(args[notesFileFlag + 1], 'utf8');
+if (notes.length > 16384) {
+  console.error('Notes too long (>16384 chars).');
   process.exit(1);
 }
 
@@ -93,11 +108,13 @@ const pubDate = new Date().toISOString();
 const url = `https://github.com/Pointa-Labs/basehalf/releases/download/v${version}/${basename(zipPath)}`;
 const length = statSync(zipPath).size;
 
-// Sign the manifest METADATA too, so version/url/length/pubDate can't be forged
-// (an unsigned manifest lets a feed attacker relabel an old signed archive as a
-// newer release). Canonical message — MUST match manifestSigningMessage() in
-// src/main/update-protocol.ts (pinned by a test in test/updater.test.ts).
-const signingMessage = [version, url, String(length), pubDate, signature].join('\n');
+// Sign the manifest METADATA too, so version/url/length/pubDate/notes can't be
+// forged (an unsigned manifest lets a feed attacker relabel an old signed
+// archive as a newer release). Canonical message — MUST match
+// manifestSigningMessage() in src/main/update-protocol.ts (pinned by a test in
+// test/updater.test.ts). notes rides as base64 so multi-line text stays safe.
+const notesB64 = Buffer.from(notes, 'utf8').toString('base64');
+const signingMessage = [version, url, String(length), pubDate, signature, notesB64].join('\n');
 const manifestSig = sign(null, Buffer.from(signingMessage, 'utf8'), privateKey).toString('base64');
 
 const manifest = {
@@ -106,6 +123,7 @@ const manifest = {
   url,
   length,
   signature,
+  notes,
   manifestSig,
 };
 

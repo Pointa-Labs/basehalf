@@ -19,7 +19,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -28,14 +28,21 @@ import { net, BrowserWindow, app, ipcMain } from 'electron';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { PrefsStore } from './prefs.js';
 import {
+  type JustInstalled,
   type UpdateManifest,
   type UpdateState,
   bundlePathFromExec,
   compareSemver,
+  parseJustInstalled,
   sanitizeManifest,
   verifyArchiveSignature,
   verifyManifestSignature,
 } from './update-protocol.js';
+
+/** Install-time record of what we just swapped in, read once by the relaunched
+ *  (new) version to show a "what's new" panel. Lives in configDir (survives the
+ *  bundle swap, unlike anything inside the .app). */
+const JUST_INSTALLED_FILE = 'last-update.json';
 
 const execFileAsync = promisify(execFile);
 
@@ -93,10 +100,36 @@ export class Updater {
   private manifest: UpdateManifest | null = null;
   private stagedApp: string | null = null;
   private stagedVersion: string | null = null;
+  private stagedNotes = '';
   private busy = false;
+
+  /** configDir is where the one-shot "what's new" record is written at install
+   *  and read on the next launch (it must outlive the bundle swap). */
+  constructor(private readonly configDir: string) {}
 
   getState(): UpdateState {
     return this.state;
+  }
+
+  /** Read + CONSUME (one-shot) the record the previous version wrote at install,
+   *  if its version matches this build. The renderer calls this once at startup
+   *  to show a "what's new" panel after a self-update. */
+  consumeJustInstalled(): JustInstalled | null {
+    const path = join(this.configDir, JUST_INSTALLED_FILE);
+    let raw: string;
+    try {
+      raw = readFileSync(path, 'utf8');
+    } catch {
+      return null; // no record (normal launch)
+    }
+    try {
+      unlinkSync(path); // one-shot: never show twice, even if parsing fails
+    } catch {
+      /* best-effort */
+    }
+    // packageJson.version (bundled at build) — NOT app.getVersion(), which is
+    // wrong in a dev run; the rest of the updater uses the same source.
+    return parseJustInstalled(raw, packageJson.version);
   }
 
   private setState(next: UpdateState): void {
@@ -261,6 +294,7 @@ export class Updater {
       }
       this.stagedApp = join(extractDir, apps[0]);
       this.stagedVersion = manifest.version;
+      this.stagedNotes = manifest.notes;
       this.setState({ phase: 'staged', version: manifest.version });
     } catch (err) {
       await rmrf(stageDir).catch(() => undefined);
@@ -306,6 +340,17 @@ export class Updater {
       } catch (err) {
         await rename(previous, bundle); // roll back; the app keeps running
         throw err;
+      }
+      // Record what we just installed so the relaunched (new) version can show a
+      // one-shot "what's new". configDir survives the swap (it's outside the
+      // .app). Best-effort — a failure here only costs the notes panel.
+      try {
+        writeFileSync(
+          join(this.configDir, JUST_INSTALLED_FILE),
+          JSON.stringify({ version, notes: this.stagedNotes }),
+        );
+      } catch {
+        /* non-fatal */
       }
       // The old bundle (which this process is still executing from — fine on
       // macOS, the mapped pages stay valid) is cleaned up by the NEW version's
@@ -403,6 +448,9 @@ export function registerUpdaterIpc(updater: Updater): void {
   ipcMain.handle('update:install', async () => {
     await updater.install();
   });
+  // One-shot: the renderer asks once at startup whether we just self-updated, to
+  // show a "what's new" panel. Consuming it here clears the on-disk record.
+  ipcMain.handle('update:just-installed', () => updater.consumeJustInstalled());
 }
 
 /** Kick off the background cadence: one early check after launch, then every

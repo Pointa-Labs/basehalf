@@ -9,6 +9,7 @@ import {
   bundlePathFromExec,
   compareSemver,
   manifestSigningMessage,
+  parseJustInstalled,
   parseSemver,
   sanitizeManifest,
   verifyArchiveSignature,
@@ -51,11 +52,20 @@ describe('sanitizeManifest', () => {
     length: 1234,
     signature: 'c2ln',
     pubDate: '2026-01-01T00:00:00.000Z',
+    notes: 'First release.',
     manifestSig: 'bXNpZw==',
   };
 
   it('accepts a well-formed manifest (extra keys dropped)', () => {
     expect(sanitizeManifest({ ...good, extra: 1 })).toEqual(good);
+  });
+
+  it('treats notes as optional, multi-line display text, capped', () => {
+    const { notes, ...noNotes } = good;
+    void notes;
+    expect(sanitizeManifest(noNotes)?.notes).toBe(''); // optional → defaults to ''
+    expect(sanitizeManifest({ ...good, notes: 'line1\nline2' })?.notes).toBe('line1\nline2');
+    expect(sanitizeManifest({ ...good, notes: 'x'.repeat(20000) })).toBeNull(); // over cap
   });
 
   it('rejects malformed shapes', () => {
@@ -126,8 +136,9 @@ describe('manifestSigningMessage', () => {
         length: 1234,
         pubDate: '2026-01-01T00:00:00.000Z',
         signature: 'c2ln',
+        notes: 'Hello',
       }),
-    ).toBe('0.2.0\nhttps://x/y.zip\n1234\n2026-01-01T00:00:00.000Z\nc2ln');
+    ).toBe('0.2.0\nhttps://x/y.zip\n1234\n2026-01-01T00:00:00.000Z\nc2ln\nSGVsbG8=');
   });
 });
 
@@ -138,6 +149,7 @@ describe('verifyManifestSignature', () => {
     length: 1234,
     pubDate: '2026-01-01T00:00:00.000Z',
     signature: 'c2ln',
+    notes: 'Some notes.',
   };
   const signManifest = (m: typeof base, priv: ReturnType<typeof createPrivateKey>): string =>
     sign(null, Buffer.from(manifestSigningMessage(m), 'utf8'), priv).toString('base64');
@@ -148,7 +160,7 @@ describe('verifyManifestSignature', () => {
     expect(verifyManifestSignature(m, pubB64)).toBe(true);
   });
 
-  it('rejects any tampered field (version/url/length/pubDate/signature)', () => {
+  it('rejects any tampered field (version/url/length/pubDate/signature/notes)', () => {
     const { pubB64, privateKey } = testKeypair();
     const manifestSig = signManifest(base, privateKey);
     for (const patch of [
@@ -157,6 +169,7 @@ describe('verifyManifestSignature', () => {
       { length: 9999 },
       { pubDate: '2030-01-01T00:00:00.000Z' },
       { signature: 'b3RoZXI=' },
+      { notes: 'spoofed changelog' },
     ]) {
       expect(verifyManifestSignature({ ...base, ...patch, manifestSig }, pubB64)).toBe(false);
     }
@@ -194,8 +207,9 @@ describe('sign-update.mjs ↔ verifier cross-check', () => {
       const zip = join(dir, 'BaseHalf-0.2.0-arm64.zip');
       writeFileSync(zip, Buffer.from('pretend archive bytes'));
 
+      const notes = 'Line one.\nLine two.';
       const script = fileURLToPath(new URL('../scripts/sign-update.mjs', import.meta.url));
-      execFileSync('node', [script, zip, '--version', '0.2.0'], {
+      execFileSync('node', [script, zip, '--version', '0.2.0', '--notes', notes], {
         env: { ...process.env, BH_UPDATE_KEY: keyPath, BH_UPDATE_SKIP_KEYCHECK: '1' },
         stdio: 'ignore',
       });
@@ -204,12 +218,28 @@ describe('sign-update.mjs ↔ verifier cross-check', () => {
       const m = sanitizeManifest(raw);
       expect(m).not.toBeNull();
       if (!m) return;
+      expect(m.notes).toBe(notes); // multi-line notes round-trip
       const pub = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
-      expect(verifyManifestSignature(m, pub)).toBe(true);
+      expect(verifyManifestSignature(m, pub)).toBe(true); // notes are authenticated
       expect(verifyArchiveSignature(readFileSync(zip), m.signature, pub)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('parseJustInstalled', () => {
+  const rec = JSON.stringify({ version: '0.2.5', notes: 'New stuff' });
+
+  it('returns the record only when its version matches the running build', () => {
+    expect(parseJustInstalled(rec, '0.2.5')).toEqual({ version: '0.2.5', notes: 'New stuff' });
+    expect(parseJustInstalled(rec, '0.2.4')).toBeNull(); // stale / a plain DMG install
+  });
+
+  it('ignores empty notes and malformed records', () => {
+    expect(parseJustInstalled(JSON.stringify({ version: '0.2.5', notes: '' }), '0.2.5')).toBeNull();
+    expect(parseJustInstalled(JSON.stringify({ version: '0.2.5' }), '0.2.5')).toBeNull();
+    expect(parseJustInstalled('not json', '0.2.5')).toBeNull();
   });
 });
 
