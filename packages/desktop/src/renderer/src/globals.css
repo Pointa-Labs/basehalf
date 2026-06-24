@@ -342,17 +342,18 @@ header::-webkit-scrollbar {
 }
 
 /* Per-block read checkbox (lib/adhdHighlight widget), present only in reading
-   mode. The block container reserves a left gutter so the absolutely-positioned
-   box never clips or overlaps the prose; clicking it (delegated in AdhdControls)
-   marks the block read/unread. */
+   mode. The box sits in a reserved RIGHT gutter — the LEFT margin belongs to
+   BlockNote's side menu (the + / drag handle), so a left checkbox collided with
+   it; the right edge is free. Clicking it (delegated in AdhdControls) marks the
+   block read/unread. */
 .bh-adhd-blk {
   position: relative;
-  padding-left: 1.8em;
+  padding-right: 1.8em;
 }
 
 .bh-adhd-check {
   position: absolute;
-  left: 0;
+  right: 0;
   top: 0.2em;
   width: 15px;
   height: 15px;

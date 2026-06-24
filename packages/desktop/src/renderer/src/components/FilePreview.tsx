@@ -1000,11 +1000,12 @@ export const MdEditor = ({
           {error}
         </div>
       )}
-      {/* ADHD reading aids — keyword chips + read/unread marking. Panel editor only
-          (a canvas card isn't a reading surface), and outside the scroll container so
-          it stays put while you read. Drives the decoration layer installed above.
-          Gated behind the `editor.readingMode` setting (default off): when off the
-          control never mounts, so the decoration layer stays a no-op. */}
+      {/* ADHD reading-aids controller — NON-VISUAL (renders null): it wires the
+          decoration layer + the two spec gestures (right-click keywords, per-block
+          right-gutter checkbox). No toolbar, per the spec's bar-less form. Panel
+          editor only (a canvas card isn't a reading surface). Gated behind the
+          `editor.readingMode` setting (default off): when off it never mounts, so
+          the decoration layer stays a no-op. */}
       {!compact && readingMode && (
         <AdhdControls
           key={file}

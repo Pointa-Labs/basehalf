@@ -5,7 +5,7 @@
  * plus read line-ranges (see private-docs/focus_mode_spec). Reading aids are a
  * Markdown-only surface, and the rich editor has no source-line→row mapping, so this
  * module projects the aids onto BlockNote BLOCKS *without touching the document*: a
- * ProseMirror decoration plugin paints a left-gutter read checkbox per top-level
+ * ProseMirror decoration plugin paints a right-gutter read checkbox per top-level
  * block, dims read blocks (node decorations), and highlights keyword hits (inline
  * decorations), purely presentationally. Decorations are view-only and never
  * serialized, so the file-as-truth invariant holds and the Yjs binding is untouched
@@ -44,8 +44,6 @@ export interface AdhdDecoPayload {
 export interface AdhdEditorApi {
   readonly document: readonly FocusBlock[];
   readonly prosemirrorView?: EditorView;
-  /** Subscribe to document changes; returns an unsubscribe fn. */
-  onChange?(cb: () => void): (() => void) | undefined;
 }
 
 interface AdhdPluginState {
@@ -55,10 +53,11 @@ interface AdhdPluginState {
 
 const EMPTY_PAYLOAD: AdhdDecoPayload = { enabled: false, readBlockIds: [], keywords: [] };
 
-/** A top-level block's read checkbox — the left-gutter toggle from the spec
- *  ("每个段落左侧显示一个是否已读的候选框"). Carries the block id so the editor's
- *  delegated click handler (AdhdControls) knows which block to mark; purely a
- *  view widget, never document content. */
+/** A top-level block's read checkbox. The spec puts it on the LEFT, but the left
+ *  margin is BlockNote's side menu (+ / drag handle), so we render it in the RIGHT
+ *  gutter instead (CSS .bh-adhd-check) to avoid the collision. Carries the block id
+ *  so the editor's delegated click handler (AdhdControls) knows which block to mark;
+ *  purely a view widget, never document content. */
 function renderCheckbox(id: string, read: boolean): HTMLElement {
   const el = document.createElement('span');
   el.className = read ? 'bh-adhd-check bh-adhd-check--on' : 'bh-adhd-check';

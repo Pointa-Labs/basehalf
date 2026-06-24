@@ -1,6 +1,5 @@
 import { AllSelection } from '@tiptap/pm/state';
-import { type CSSProperties, type JSX, useCallback, useEffect, useMemo, useState } from 'react';
-import { color, font, radius, space } from '../design.js';
+import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
 import type { LineRange } from '../lib/adhd.js';
 import { type AdhdEditorApi, pushAdhdDecorations } from '../lib/adhdHighlight.js';
 import { blockSourceSpan, countNewlines, linesToBlockIds } from '../lib/editorFocus.js';
@@ -9,14 +8,16 @@ import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
 
 /**
  * ADHD reading-aids controller for the PANEL Markdown editor (Markdown-only — the
- * code/text viewer carries no aids). Mounts only in reading mode, and owns the two
- * spec gestures:
- *   - read/unread: a LEFT-GUTTER checkbox per top-level block (rendered by the
- *     decoration plugin, lib/adhdHighlight, as a widget); this component handles the
- *     click by delegation and toggles the block.
- *   - keywords: RIGHT-CLICK a selected word to add/remove it as a highlight.
- * The slim toolbar carries only the active-keyword chips, a Read N/M counter, and
- * whole-file All/Clear.
+ * code/text viewer carries no aids). Mounts only in reading mode and wires the two
+ * spec interactions. There is NO visible toolbar: the spec prescribes none (just
+ * right-click keywords + a per-paragraph checkbox + dimming), so this component
+ * renders nothing and only drives the behavior:
+ *   - read/unread: a RIGHT-gutter checkbox per top-level block (rendered by the
+ *     decoration plugin, lib/adhdHighlight, as a widget — on the right so it never
+ *     collides with BlockNote's left side menu / drag handle); this component
+ *     handles the click by delegation and toggles the block.
+ *   - keywords: RIGHT-CLICK a selected word to add/remove it as a highlight (the
+ *     only keyword entry point — removal is right-clicking the highlighted word).
  *
  * Read state targets BlockNote BLOCKS: the dim (via decorations) is tracked by block
  * id in-session, while persistence stays the canonical SOURCE line-ranges in
@@ -27,10 +28,8 @@ import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
  * Known v1 bound: read_paragraphs is a SNAPSHOT of where a block's source sat at mark
  * time. The in-session highlight follows the block by id (correct across edits), but
  * if the user edits text ABOVE a marked block and then saves + reloads, the persisted
- * line range re-projects onto whatever block now occupies those lines — so the on-disk
- * truth an agent reads can shift off the originally-marked block. Acceptable for v1
- * (an attention aid, not content); a flush-time re-derive of ranges from the live
- * block spans would close it.
+ * line range re-projects onto whatever block now occupies those lines. Acceptable for
+ * v1 (an attention aid, not content).
  */
 
 interface AdhdState {
@@ -52,15 +51,10 @@ export const AdhdControls = ({
   /** Bumps whenever the owner re-applies disk content (seed + external reload /
    *  agent edit). A reload mints fresh block ids and rebuilds shared.byId, so we
    *  must re-fetch adhd.yaml and re-project ranges → ids, else the by-id read set
-   *  goes stale (dimming vanishes, count shows 0). */
+   *  goes stale (dimming vanishes). */
   loadKey: number;
-}): JSX.Element => {
+}): JSX.Element | null => {
   const [adhd, setAdhd] = useState<AdhdState>({});
-  // Force a re-render on every editor edit so the "Read N/M" count below reflects
-  // the live document (block add/delete). The editor's document is imperative, so
-  // without this the count freezes until an unrelated state change.
-  const [, forceTick] = useState(0);
-  useEffect(() => editor.onChange?.(() => forceTick((n) => n + 1)), [editor]);
   // The read blocks by id — the in-session dimming truth. Seeded from the canonical
   // source-line ranges on load, then tracked by id (stable across edits) so typing
   // doesn't drift the highlight the way re-projecting line numbers would.
@@ -72,8 +66,6 @@ export const AdhdControls = ({
   // re-applies disk content with fresh block ids + a rebuilt shared.byId, so we must
   // re-project ranges → ids against the new document. Gated on seedReady: the live
   // document and shared.byId are only meaningful once the disk content is applied.
-  // Re-fetching on reload also picks up an agent's concurrent adhd.yaml edit (the v1
-  // "reopen to re-read" gap shrinks to "reload to re-read").
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadKey is the intentional re-run trigger; the body re-reads the now-current document/byId and reads nothing off loadKey itself.
   useEffect(() => {
     if (!seedReady) return;
@@ -125,7 +117,7 @@ export const AdhdControls = ({
         const res = (await window.bh.run(command, { file, ...args })) as AdhdState | null;
         setAdhd(res ?? {});
       } catch {
-        /* best-effort — leave the UI as-is on a failed write */
+        /* best-effort — leave the state as-is on a failed write */
       }
     },
     [file],
@@ -136,12 +128,13 @@ export const AdhdControls = ({
     [runAdhd],
   );
 
-  // Right-click a selected word → add/remove it as a highlight keyword (the
-  // spec's keyword gesture: select a word, choose from the context menu). The
-  // listener lives on the editor body and only acts on a non-empty selection, so
-  // an empty-selection right-click still gets the default menu. Matching is
-  // case-insensitive: a selection that equals an existing keyword offers REMOVE
-  // (using the stored casing), otherwise ADD.
+  // Right-click a selected word → add/remove it as a highlight keyword (the spec's
+  // keyword gesture: select a word, choose from the context menu). The listener
+  // lives on the editor body and only acts on a non-empty selection, so an
+  // empty-selection right-click still gets the default menu. Matching is
+  // case-insensitive: a selection equal to an existing keyword offers REMOVE (using
+  // the stored casing), otherwise ADD — and removing a highlight is exactly
+  // right-clicking the highlighted word (there's no chip list anymore).
   //
   // Because opening an in-app menu suppresses the native one, we ALSO carry the
   // standard clipboard actions the native editor menu would have — otherwise
@@ -241,8 +234,8 @@ export const AdhdControls = ({
     [editor, shared, readIds, runAdhd],
   );
 
-  // The left-gutter checkboxes are rendered by the decoration plugin (lib/
-  // adhdHighlight) as widgets carrying `data-bh-block-id`. Handle their clicks by
+  // The read checkboxes are rendered by the decoration plugin (lib/adhdHighlight) as
+  // right-gutter widgets carrying `data-bh-block-id`. Handle their clicks by
   // delegation on the editor body: mousedown so we can preventDefault before the
   // editor moves the selection/focus into the block.
   useEffect(() => {
@@ -264,112 +257,7 @@ export const AdhdControls = ({
     return () => dom.removeEventListener('mousedown', onMouseDown, true);
   }, [editor, toggleBlockRead]);
 
-  const markAll = useCallback(
-    (read: boolean) => {
-      // Whole-file span from the LIVE document, not shared.lastDisk: lastDisk lags
-      // behind un-flushed edits (autosave is debounced), so using it would persist a
-      // range that under-covers freshly-typed tail blocks — they'd come back unread on
-      // reopen despite "All". The last block's source span end IS the file's last line.
-      const blocks = editor.document;
-      const last = blocks[blocks.length - 1];
-      const span = last
-        ? blockSourceSpan(blocks, last.id, shared.byId, countNewlines(shared.frontmatter))
-        : null;
-      const end = span ? span.end : countNewlines(shared.lastDisk) + 1;
-      void runAdhd(read ? 'adhd.markRead' : 'adhd.markUnread', { start: 1, end });
-      setReadIds(read ? new Set(blocks.map((b) => b.id)) : new Set());
-    },
-    [editor, shared, runAdhd],
-  );
-
-  // "Read N/M" — M = top-level block count, N = read blocks still present. Computed
-  // inline every render (NOT memoized on editor/readIds, which are stable refs that
-  // don't change on a doc edit) and kept live by the editor.onChange tick above, so a
-  // deleted read block drops out of N and a new block grows M. (The decoration set
-  // self-heals separately — the plugin rebuilds on docChanged.)
-  const blocks = editor.document;
-  const total = blocks.length;
-  let readCount = 0;
-  for (const b of blocks) if (readIds.has(b.id)) readCount += 1;
-
-  return (
-    <div style={barStyle}>
-      {/* Keywords: add/remove by right-clicking a selected word in the text (see the
-          contextmenu handler above). The chips show what's active + offer removal. */}
-      <span style={{ color: color.textTertiary }}>
-        {keywords.length > 0
-          ? 'Highlighting — right-click a word to add or remove'
-          : 'Reading mode — right-click a word to highlight it'}
-      </span>
-      {keywords.map((kw) => (
-        <span key={kw} style={chipStyle}>
-          {kw}
-          <button
-            type="button"
-            aria-label={`Remove keyword ${kw}`}
-            onClick={() => removeKeyword(kw)}
-            style={chipCloseStyle}
-          >
-            ×
-          </button>
-        </span>
-      ))}
-      <span style={{ flex: 1 }} />
-      {/* Read progress + whole-file shortcuts. Per-block marking is the gutter
-          checkboxes; these cover the whole note at once. */}
-      <span style={{ color: color.textTertiary }}>
-        Read {readCount}/{total}
-      </span>
-      <button type="button" onClick={() => markAll(true)} style={toolButtonStyle}>
-        All
-      </button>
-      <button type="button" onClick={() => markAll(false)} style={toolButtonStyle}>
-        Clear
-      </button>
-    </div>
-  );
-};
-
-const barStyle: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: space[2],
-  padding: `${space[2]}px ${space[4]}px`,
-  borderBottom: `1px solid ${color.divider}`,
-  background: color.surfaceMuted,
-  flexShrink: 0,
-  fontFamily: font.sans,
-  fontSize: font.size.caption,
-};
-
-const chipStyle: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: space[1],
-  padding: `2px ${space[2]}px`,
-  borderRadius: radius.sm,
-  background: color.warningSoft,
-  color: color.warning,
-};
-
-const chipCloseStyle: CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  color: color.warning,
-  cursor: 'pointer',
-  padding: 0,
-  lineHeight: 1,
-  fontSize: font.size.caption,
-};
-
-const toolButtonStyle: CSSProperties = {
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.sm,
-  background: color.surface,
-  color: color.textTertiary,
-  cursor: 'pointer',
-  padding: `2px ${space[2]}px`,
-  fontFamily: font.sans,
-  fontSize: font.size.caption,
+  // No visible UI — reading mode is the aids themselves (right-gutter checkboxes,
+  // dimmed read paragraphs, highlighted keywords), per the spec's bar-less form.
+  return null;
 };
