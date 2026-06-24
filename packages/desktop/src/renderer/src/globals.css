@@ -326,13 +326,21 @@ header::-webkit-scrollbar {
 }
 
 /* ADHD reading aids on the rich Markdown editor (lib/adhdHighlight, painted as
-   ProseMirror decorations — never document content). A READ block fades back so
-   unread prose stands out, mirroring the read-only viewer's dim. A keyword hit gets
-   the same soft amber as the code/text viewer's <mark> (design.ts warning /
-   warningSoft) so the two surfaces read identically. */
+   ProseMirror decorations — never document content). Read vs unread is a two-tone
+   contrast: unread prose is brought to a crisp reading tone so it's the obvious focus,
+   while a read block recedes to a clearly muted one. The tones are EXPLICIT (not a
+   relative opacity fade) on purpose — the editor's base text is itself a muted gray, so
+   fading a read block by opacity alone left two low-energy grays whose gap was too weak
+   to see. A keyword hit keeps its soft amber in either state (the .bh-adhd-kw color is
+   set on the span itself, so it wins over the inherited block tone). */
+.bh-adhd-unread {
+  color: #dcdcdc;
+  transition: color var(--bh-transition, 120ms) ease;
+}
+
 .bh-adhd-read {
-  opacity: 0.45;
-  transition: opacity var(--bh-transition, 120ms) ease;
+  color: #5e5e5e;
+  transition: color var(--bh-transition, 120ms) ease;
 }
 
 .bh-adhd-kw {

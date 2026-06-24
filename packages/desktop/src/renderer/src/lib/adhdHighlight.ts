@@ -6,8 +6,8 @@
  * Markdown-only surface, and the rich editor has no source-line→row mapping, so this
  * module projects the aids onto BlockNote BLOCKS *without touching the document*: a
  * ProseMirror decoration plugin paints a right-gutter read checkbox per top-level
- * block, dims read blocks (node decorations), and highlights keyword hits (inline
- * decorations), purely presentationally. Decorations are view-only and never
+ * block, tones each block read-vs-unread (node decorations — unread crisp, read
+ * receded), and highlights keyword hits (inline decorations), purely presentationally. Decorations are view-only and never
  * serialized, so the file-as-truth invariant holds and the Yjs binding is untouched
  * — this is exactly why adhd could finally come to .md without a fork or a write-back.
  *
@@ -78,9 +78,9 @@ export const adhdHighlightKey = new PluginKey<AdhdPluginState>('bhAdhdHighlight'
  *
  *  A BlockNote block is a `blockContainer` node (it carries the `data-id`) whose
  *  content is `blockContent blockGroup?` — the optional `blockGroup` holds NESTED
- *  child blocks. Decorating the whole container would cascade the read-dim onto those
- *  (separately-tracked, possibly UNREAD) children, so we decorate only the container's
- *  first child (the blockContent — the block's OWN line), leaving nested blocks alone.
+ *  child blocks. Decorating the whole container would cascade the read/unread tone onto
+ *  those (separately-tracked) children, so we decorate only the container's first child
+ *  (the blockContent — the block's OWN line), leaving nested blocks alone.
  *
  *  Perf note: this rebuilds on every doc-change transaction (see the plugin). It's
  *  O(doc) and runs on the typing hot path, but the common case is free — an
@@ -103,22 +103,24 @@ function buildDecorations(doc: PmNode, payload: AdhdDecoPayload): DecorationSet 
       // absolutely-placed checkbox anchors to the block's top-right without clipping
       // (right, not left, to clear BlockNote's left side menu).
       decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'bh-adhd-blk' }));
+      // Two-tone the block's OWN content line (firstChild = blockContent at pos+1),
+      // never the container's subtree, so nested child blocks keep their own state.
+      // Unread prose is brought to a crisp reading tone (the focus); a read block
+      // recedes to a clearly muted one. EXPLICIT tones — not a relative opacity fade —
+      // because the editor's base text is itself a muted gray, so a fade alone left two
+      // low-energy grays with too weak a gap to see (the user-reported issue).
+      const innerStart = pos + 1;
+      decos.push(
+        Decoration.node(innerStart, innerStart + node.firstChild.nodeSize, {
+          class: read ? 'bh-adhd-read' : 'bh-adhd-unread',
+        }),
+      );
       decos.push(
         Decoration.widget(pos + 1, () => renderCheckbox(id, read), {
           side: -1,
           // Keying on read state forces the widget DOM to refresh when toggled.
           key: `bh-check-${id}-${read ? 1 : 0}`,
           ignoreSelection: true,
-        }),
-      );
-    }
-    if (id && readSet.has(id) && node.firstChild) {
-      // Decorate just the block's own content (firstChild = blockContent at pos+1),
-      // not the container's subtree, so nested child blocks aren't dimmed.
-      const innerStart = pos + 1;
-      decos.push(
-        Decoration.node(innerStart, innerStart + node.firstChild.nodeSize, {
-          class: 'bh-adhd-read',
         }),
       );
     }
