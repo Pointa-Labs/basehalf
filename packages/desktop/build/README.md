@@ -33,8 +33,10 @@ installed apps can't find/verify it:
    packages/desktop/dist/update-manifest-darwin-arm64.json`.
 
 Installed apps poll `releases/latest/download/update-manifest-darwin-arm64.json`
-(background, a few hours apart; manual via the title-bar update chip or the
-"Check for Updates…" app-menu item), verify BOTH the manifest signature (so the
+(background: shortly after launch, hourly, and on window focus — throttled — so a
+new release surfaces on its own in the title-bar chip with no manual step; an
+explicit "Check for Updates…" app-menu item is also there), verify BOTH the
+manifest signature (so the
 version/url can't be forged) and the downloaded zip's signature against the
 embedded public key, swap their own bundle, and relaunch. The private key lives
 ONLY at

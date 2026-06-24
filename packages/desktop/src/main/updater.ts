@@ -35,6 +35,7 @@ import {
   compareSemver,
   parseJustInstalled,
   sanitizeManifest,
+  shouldRunBackgroundCheck,
   verifyArchiveSignature,
   verifyManifestSignature,
 } from './update-protocol.js';
@@ -62,7 +63,15 @@ const DEFAULT_FEED_URL =
 
 const FEED_TIMEOUT_MS = 30_000;
 const BACKGROUND_FIRST_CHECK_MS = 5_000;
-const BACKGROUND_INTERVAL_MS = 4 * 60 * 60 * 1000;
+// Hourly periodic poll. Paired with an on-focus re-check (below), this is what
+// makes a freshly-published release surface on its own — the user never has to
+// open the menu and "Check for Updates". The on-focus path carries the burden of
+// promptness; the interval is just the floor for an app left in the foreground.
+const BACKGROUND_INTERVAL_MS = 60 * 60 * 1000;
+// An on-focus check coalesces with the periodic one: at most one network poll per
+// this window, so window-to-window focus churn (or rapid app-switching) can't turn
+// into a stream of feed requests.
+const FOCUS_RECHECK_MIN_GAP_MS = 30 * 60 * 1000;
 
 interface FetchedFeed {
   ok: boolean;
@@ -453,14 +462,37 @@ export function registerUpdaterIpc(updater: Updater): void {
   ipcMain.handle('update:just-installed', () => updater.consumeJustInstalled());
 }
 
-/** Kick off the background cadence: one early check after launch, then every
- *  few hours. The pref is consulted at FIRE time, so toggling it off in
- *  Settings silences the next tick without a restart. */
+/** Kick off the background cadence so a new release surfaces on its own (the
+ *  title-bar chip), with no manual "Check for Updates": one early check after
+ *  launch, an hourly poll, AND a re-check whenever the app regains focus — so
+ *  returning to a window that was open when a release shipped notices it
+ *  promptly instead of waiting out the hour. The pref is consulted at FIRE
+ *  time, so toggling it off in Settings silences the next tick without a
+ *  restart; the focus check is throttled so it can't poll on every focus. */
 export function startBackgroundUpdateChecks(updater: Updater, prefs: PrefsStore): void {
-  const tick = (): void => {
-    if (!prefs.get().autoUpdateCheck) return;
+  let lastCheckAt = 0;
+  const tick = (reason: 'interval' | 'focus'): void => {
+    const now = Date.now();
+    // Cadence policy is the pure shouldRunBackgroundCheck (tested); this wiring
+    // only supplies the live inputs and the side effect.
+    if (
+      !shouldRunBackgroundCheck({
+        reason,
+        enabled: prefs.get().autoUpdateCheck,
+        now,
+        lastCheckAt,
+        focusGapMs: FOCUS_RECHECK_MIN_GAP_MS,
+      })
+    ) {
+      return;
+    }
+    lastCheckAt = now;
     void updater.check({ background: true });
   };
-  setTimeout(tick, BACKGROUND_FIRST_CHECK_MS);
-  setInterval(tick, BACKGROUND_INTERVAL_MS);
+  setTimeout(() => tick('interval'), BACKGROUND_FIRST_CHECK_MS);
+  setInterval(() => tick('interval'), BACKGROUND_INTERVAL_MS);
+  // Fires when any window gains focus (returning to the app, switching windows).
+  // Throttled inside tick(); a no-op while a download/staged install is in flight
+  // (updater.check early-returns), and silent on failure (background check).
+  app.on('browser-window-focus', () => tick('focus'));
 }

@@ -81,6 +81,23 @@ export function compareSemver(a: string, b: string): number | null {
   return 0;
 }
 
+/** Whether a background update check should actually fire — the cadence POLICY,
+ *  kept pure so it's testable without electron's `app`/timers (the wiring lives
+ *  in updater.ts's startBackgroundUpdateChecks). The periodic tick always runs
+ *  when checks are enabled; a focus-triggered tick coalesces with a recent check
+ *  (periodic or a prior focus) so app-switching can't turn into a feed flood. */
+export function shouldRunBackgroundCheck(opts: {
+  reason: 'interval' | 'focus';
+  enabled: boolean;
+  now: number;
+  lastCheckAt: number;
+  focusGapMs: number;
+}): boolean {
+  if (!opts.enabled) return false;
+  if (opts.reason === 'focus' && opts.now - opts.lastCheckAt < opts.focusGapMs) return false;
+  return true;
+}
+
 /** Validate an untrusted feed body into a manifest, or null. The url is
  *  pinned to https (no file:/smb:/… retrieval) and the length bounded.
  *  `allowLocalUrl` (set only when the feed itself came from the local test

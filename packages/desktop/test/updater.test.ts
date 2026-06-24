@@ -12,6 +12,7 @@ import {
   parseJustInstalled,
   parseSemver,
   sanitizeManifest,
+  shouldRunBackgroundCheck,
   verifyArchiveSignature,
   verifyManifestSignature,
 } from '../src/main/update-protocol.js';
@@ -42,6 +43,57 @@ describe('parseSemver / compareSemver', () => {
     expect(compareSemver('0.1.0', '1.0.0')).toBeLessThan(0);
     expect(compareSemver('0.10.0', '0.9.9')).toBeGreaterThan(0);
     expect(compareSemver('abc', '0.1.0')).toBeNull();
+  });
+});
+
+describe('shouldRunBackgroundCheck (update cadence policy)', () => {
+  const GAP = 30 * 60 * 1000;
+  const base = { now: 10_000_000, lastCheckAt: 0, focusGapMs: GAP };
+
+  it('never checks when auto-check is disabled', () => {
+    expect(shouldRunBackgroundCheck({ ...base, reason: 'interval', enabled: false })).toBe(false);
+    expect(shouldRunBackgroundCheck({ ...base, reason: 'focus', enabled: false })).toBe(false);
+  });
+
+  it('always runs the periodic tick when enabled, regardless of recency', () => {
+    // Even moments after another check, the interval still fires.
+    expect(
+      shouldRunBackgroundCheck({
+        reason: 'interval',
+        enabled: true,
+        now: 1000,
+        lastCheckAt: 999,
+        focusGapMs: GAP,
+      }),
+    ).toBe(true);
+  });
+
+  it('coalesces a focus tick that lands inside the throttle window', () => {
+    expect(
+      shouldRunBackgroundCheck({
+        reason: 'focus',
+        enabled: true,
+        now: base.now,
+        lastCheckAt: base.now - (GAP - 1),
+        focusGapMs: GAP,
+      }),
+    ).toBe(false);
+  });
+
+  it('runs a focus tick once the throttle window has elapsed', () => {
+    expect(
+      shouldRunBackgroundCheck({
+        reason: 'focus',
+        enabled: true,
+        now: base.now,
+        lastCheckAt: base.now - GAP,
+        focusGapMs: GAP,
+      }),
+    ).toBe(true);
+  });
+
+  it('runs the first focus tick when nothing has been checked yet', () => {
+    expect(shouldRunBackgroundCheck({ ...base, reason: 'focus', enabled: true })).toBe(true);
   });
 });
 
