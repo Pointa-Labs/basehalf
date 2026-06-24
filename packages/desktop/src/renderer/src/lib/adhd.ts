@@ -1,34 +1,14 @@
 /**
- * Pure helpers for the ADHD reading-aids view (per private-docs/focus_mode_spec):
- * keyword highlighting + read/unread line state. The core `adhd` module owns the
- * canonical `adhd.yaml` (keywords + read line-ranges); these helpers project that
- * onto the rendered text in the read-only code/text viewer (the line-numbered view
- * where the spec's line-range model maps exactly — the BlockNote Markdown editor
- * has no source-line mapping, so adhd styling is text-viewer-only for now).
+ * Pure helpers for ADHD keyword highlighting (per private-docs/focus_mode_spec).
+ * The core `adhd` module owns the canonical `adhd.yaml` (keywords + read
+ * line-ranges); these helpers turn the keyword list into highlight spans for the
+ * rich (BlockNote) Markdown editor — the only surface that carries reading aids
+ * (read/unread is tracked by block id there, not line flags). The read-only
+ * code/text viewer is plain, so the old line-flag helpers were removed.
  */
 
 /** An inclusive 1-based line range `[start, end]`, mirroring core's LineRange. */
 export type LineRange = readonly [number, number];
-
-/**
- * Per-line read flags for lines `1..lineCount` (index `i` = line `i + 1`). A line
- * is read when it falls inside any read range. Ranges are clamped to the file so a
- * stale range past EOF (the file shrank) can't write out of bounds.
- */
-export function readLineFlags(ranges: readonly LineRange[], lineCount: number): boolean[] {
-  const flags = new Array<boolean>(Math.max(0, lineCount)).fill(false);
-  for (const [start, end] of ranges) {
-    const lo = Math.max(1, Math.min(start, end));
-    const hi = Math.min(lineCount, Math.max(start, end));
-    for (let ln = lo; ln <= hi; ln++) flags[ln - 1] = true;
-  }
-  return flags;
-}
-
-/** Count of distinct read lines within `1..lineCount` (for the "read N/M" summary). */
-export function readLineCount(ranges: readonly LineRange[], lineCount: number): number {
-  return readLineFlags(ranges, lineCount).reduce((n, read) => (read ? n + 1 : n), 0);
-}
 
 /** A run of a line's text, flagged when it is part of a keyword hit. `start` is
  *  the 0-based char offset of the run within the line — a stable React key (the
@@ -77,12 +57,6 @@ export function segmentLine(line: string, keywords: readonly string[]): KeywordS
   }
   if (pos < line.length) segments.push({ text: line.slice(pos), hit: false, start: pos });
   return segments;
-}
-
-/** Toggle whether `[start, end]` is "in" a contiguous click selection on the
- *  gutter, used to compute a shift-click range from an anchor line. */
-export function rangeBetween(anchor: number, line: number): LineRange {
-  return anchor <= line ? [anchor, line] : [line, anchor];
 }
 
 /** Merged, sorted `[start, end)` char offsets of every keyword occurrence in

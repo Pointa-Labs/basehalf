@@ -329,6 +329,50 @@ header::-webkit-scrollbar {
   border-radius: 2px;
 }
 
+/* Per-block read checkbox (lib/adhdHighlight widget), present only in reading
+   mode. The block container reserves a left gutter so the absolutely-positioned
+   box never clips or overlaps the prose; clicking it (delegated in AdhdControls)
+   marks the block read/unread. */
+.bh-adhd-blk {
+  position: relative;
+  padding-left: 1.8em;
+}
+
+.bh-adhd-check {
+  position: absolute;
+  left: 0;
+  top: 0.2em;
+  width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  border: 1.5px solid #454545;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.bh-adhd-check:hover {
+  border-color: #0078d4;
+}
+
+.bh-adhd-check--on {
+  background: #0078d4;
+  border-color: #0078d4;
+}
+
+.bh-adhd-check--on::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #fff;
+}
+
 /* Read-only Markdown tile preview: the SAME typography contract as the card
    editor (--bh-card-*), applied to the static, sanitized HTML from lib/mdRender,
    so a resting .md card reads like the note (rendered — not raw source) and

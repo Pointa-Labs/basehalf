@@ -48,6 +48,7 @@ import {
   releaseDoc,
 } from '../lib/liveDoc.js';
 import { type MdEditorApi, buildLoadProjection, spliceSave } from '../lib/mdSegment.js';
+import { useReadingMode } from '../lib/readingMode.js';
 import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -309,8 +310,13 @@ export const MdEditor = ({
   const shared = ensureDoc(docKey);
   // The ADHD reading-aids highlight layer (read/unread blocks + keyword spans). A
   // view-only ProseMirror decoration plugin — installed unconditionally (it's a
-  // no-op until fed), driven only in the panel editor by <AdhdControls> below.
+  // no-op until fed), driven only in the panel editor by <AdhdControls> below
+  // when reading mode is on.
   const adhdExtension = useMemo(() => makeAdhdHighlightExtension(), []);
+  // Reading mode (the `editor.readingMode` setting) gates the ADHD controls +
+  // decorations. Default off: the editor stays a plain writing surface until the
+  // user turns reading aids on (globally or per workspace in Settings).
+  const readingMode = useReadingMode((s) => s.enabled);
   const editor = useCreateBlockNote({
     schema: bhSchema,
     extensions: [adhdExtension],
@@ -996,8 +1002,10 @@ export const MdEditor = ({
       )}
       {/* ADHD reading aids — keyword chips + read/unread marking. Panel editor only
           (a canvas card isn't a reading surface), and outside the scroll container so
-          it stays put while you read. Drives the decoration layer installed above. */}
-      {!compact && (
+          it stays put while you read. Drives the decoration layer installed above.
+          Gated behind the `editor.readingMode` setting (default off): when off the
+          control never mounts, so the decoration layer stays a no-op. */}
+      {!compact && readingMode && (
         <AdhdControls
           key={file}
           editor={editor as unknown as AdhdEditorApi}

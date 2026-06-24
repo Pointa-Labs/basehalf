@@ -21,6 +21,7 @@ import { removeActiveWorkspace, renameActiveWorkspace } from './lib/actions.js';
 import { selectRegion } from './lib/appRegion.js';
 import { flushAll } from './lib/editorFlush.js';
 import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
+import { useReadingMode } from './lib/readingMode.js';
 import { useLayoutStore } from './store/layout.js';
 import { useWorkspaceStore } from './store/workspace.js';
 
@@ -199,6 +200,14 @@ export const App = (): JSX.Element => {
   // App menu ▸ Settings… (⌘,) — the overlay lives in the renderer; main just
   // triggers, same as the other menu relays.
   useEffect(() => window.bh.onMenuOpenSettings(openSettings), []);
+
+  // Reading mode (the `editor.readingMode` setting): resolve the effective value
+  // on load and whenever the bound workspace changes (its per-workspace override
+  // may differ from the global default). Settings refreshes it on toggle.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger (re-resolve when the bound workspace changes); the body reads nothing off it.
+  useEffect(() => {
+    void useReadingMode.getState().refresh();
+  }, [current]);
 
   // Notices are transient confirmations ("Copied … into …") — they retire
   // themselves; only errors require a human dismissal.

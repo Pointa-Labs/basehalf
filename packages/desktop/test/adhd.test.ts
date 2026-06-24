@@ -1,39 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readLineCount, readLineFlags, segmentLine } from '../src/renderer/src/lib/adhd.js';
-
-describe('readLineFlags', () => {
-  it('marks lines inside any range, 1-based', () => {
-    expect(
-      readLineFlags(
-        [
-          [2, 3],
-          [5, 5],
-        ],
-        6,
-      ),
-    ).toEqual([false, true, true, false, true, false]);
-  });
-
-  it('clamps a range past EOF (file shrank) without writing out of bounds', () => {
-    expect(readLineFlags([[3, 999]], 4)).toEqual([false, false, true, true]);
-  });
-
-  it('tolerates a reversed range', () => {
-    expect(readLineFlags([[4, 2]], 5)).toEqual([false, true, true, true, false]);
-  });
-
-  it('readLineCount counts distinct read lines', () => {
-    expect(
-      readLineCount(
-        [
-          [1, 3],
-          [2, 5],
-        ],
-        10,
-      ),
-    ).toBe(5);
-  });
-});
+import { segmentLine } from '../src/renderer/src/lib/adhd.js';
 
 describe('segmentLine', () => {
   it('returns one non-hit segment when there are no keywords', () => {

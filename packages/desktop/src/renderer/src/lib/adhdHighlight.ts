@@ -2,12 +2,12 @@
  * ADHD reading-aids highlight layer for the BlockNote Markdown editor.
  *
  * The core `adhd` module stores reading aids as .md SOURCE data — keyword strings
- * plus read line-ranges (see private-docs/focus_mode_spec). The read-only code/text
- * viewer (CodeReader) renders them directly because there a source line == a
- * rendered row 1:1. The rich editor has no such mapping, so this module projects the
- * same aids onto BlockNote BLOCKS *without touching the document*: a ProseMirror
- * decoration plugin paints read blocks (a node decoration) and keyword hits (an
- * inline decoration), purely presentationally. Decorations are view-only and never
+ * plus read line-ranges (see private-docs/focus_mode_spec). Reading aids are a
+ * Markdown-only surface, and the rich editor has no source-line→row mapping, so this
+ * module projects the aids onto BlockNote BLOCKS *without touching the document*: a
+ * ProseMirror decoration plugin paints a left-gutter read checkbox per top-level
+ * block, dims read blocks (node decorations), and highlights keyword hits (inline
+ * decorations), purely presentationally. Decorations are view-only and never
  * serialized, so the file-as-truth invariant holds and the Yjs binding is untouched
  * — this is exactly why adhd could finally come to .md without a fork or a write-back.
  *
@@ -28,8 +28,13 @@ import type { FocusBlock } from './editorFocus.js';
 /** The highlight targets: which TOP-LEVEL blocks are read, plus the keywords to
  *  highlight everywhere. Read state is addressed by block id (not line number) so a
  *  highlight stays on its block across edits — BlockNote keeps a block's id, and the
- *  source-line projection that derives these ids runs only when adhd changes. */
+ *  source-line projection that derives these ids runs only when adhd changes.
+ *
+ *  `enabled` is reading mode: only then does the layer paint at all — the per-block
+ *  read checkboxes appear, read blocks dim, keywords highlight. Off → nothing
+ *  (a plain writing surface), which is also how an unmount clears the layer. */
 export interface AdhdDecoPayload {
+  readonly enabled: boolean;
   readonly readBlockIds: readonly string[];
   readonly keywords: readonly string[];
 }
@@ -50,7 +55,22 @@ interface AdhdPluginState {
   readonly decorations: DecorationSet;
 }
 
-const EMPTY_PAYLOAD: AdhdDecoPayload = { readBlockIds: [], keywords: [] };
+const EMPTY_PAYLOAD: AdhdDecoPayload = { enabled: false, readBlockIds: [], keywords: [] };
+
+/** A top-level block's read checkbox — the left-gutter toggle from the spec
+ *  ("每个段落左侧显示一个是否已读的候选框"). Carries the block id so the editor's
+ *  delegated click handler (AdhdControls) knows which block to mark; purely a
+ *  view widget, never document content. */
+function renderCheckbox(id: string, read: boolean): HTMLElement {
+  const el = document.createElement('span');
+  el.className = read ? 'bh-adhd-check bh-adhd-check--on' : 'bh-adhd-check';
+  el.setAttribute('data-bh-block-id', id);
+  el.setAttribute('contenteditable', 'false');
+  el.setAttribute('role', 'checkbox');
+  el.setAttribute('aria-checked', read ? 'true' : 'false');
+  el.title = read ? 'Mark unread' : 'Mark read';
+  return el;
+}
 
 export const adhdHighlightKey = new PluginKey<AdhdPluginState>('bhAdhdHighlight');
 
@@ -70,12 +90,30 @@ export const adhdHighlightKey = new PluginKey<AdhdPluginState>('bhAdhdHighlight'
  *  aids-less note short-circuits below — and notes are small; a map-through +
  *  changed-range-only keyword recompute is a possible future optimization. */
 function buildDecorations(doc: PmNode, payload: AdhdDecoPayload): DecorationSet {
-  const { readBlockIds, keywords } = payload;
-  if (readBlockIds.length === 0 && keywords.length === 0) return DecorationSet.empty;
+  const { enabled, readBlockIds, keywords } = payload;
+  if (!enabled) return DecorationSet.empty;
   const readSet = new Set(readBlockIds);
   const decos: Decoration[] = [];
-  doc.descendants((node, pos) => {
+  // Top-level blocks are the blockContainers directly under the doc's root
+  // blockGroup — the unit the spec puts a read checkbox beside. Nested children
+  // (inside a block's own blockGroup) get neither a checkbox nor the read-dim.
+  const rootGroup = doc.firstChild;
+  doc.descendants((node, pos, parent) => {
     const id = (node.attrs as { id?: string } | undefined)?.id;
+    if (id && node.firstChild && parent === rootGroup) {
+      const read = readSet.has(id);
+      // The container gets position:relative + a reserved left gutter (CSS) so the
+      // absolutely-placed checkbox anchors to the block's top-left without clipping.
+      decos.push(Decoration.node(pos, pos + node.nodeSize, { class: 'bh-adhd-blk' }));
+      decos.push(
+        Decoration.widget(pos + 1, () => renderCheckbox(id, read), {
+          side: -1,
+          // Keying on read state forces the widget DOM to refresh when toggled.
+          key: `bh-check-${id}-${read ? 1 : 0}`,
+          ignoreSelection: true,
+        }),
+      );
+    }
     if (id && readSet.has(id) && node.firstChild) {
       // Decorate just the block's own content (firstChild = blockContent at pos+1),
       // not the container's subtree, so nested child blocks aren't dimmed.
@@ -139,12 +177,19 @@ export function makeAdhdHighlightExtension() {
 /** Push new highlight targets into the live editor. Dispatched directly on the
  *  EditorView so a meta-only (no-doc-change) transaction reliably reaches the plugin
  *  without being dropped by `editor.transact`'s generic-tr gate, and without
- *  tripping onChange/autosave. No-op before the view exists. */
+ *  tripping onChange/autosave. No-op before the view exists — or once it's gone:
+ *  a clear-on-unmount (reading mode toggled off) can race the BlockNote view's
+ *  own teardown, and dispatching on a destroyed view throws. Presentational
+ *  push → swallow that. */
 export function pushAdhdDecorations(
   editor: Pick<AdhdEditorApi, 'prosemirrorView'>,
   payload: AdhdDecoPayload,
 ): void {
   const view = editor.prosemirrorView;
   if (!view) return;
-  view.dispatch(view.state.tr.setMeta(adhdHighlightKey, payload));
+  try {
+    view.dispatch(view.state.tr.setMeta(adhdHighlightKey, payload));
+  } catch {
+    /* view already destroyed (unmount race) — nothing to decorate */
+  }
 }

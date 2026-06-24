@@ -12,9 +12,19 @@
  * latest?" once the update check arrives.
  */
 
-import { type CSSProperties, type JSX, type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type JSX,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
+import { READING_MODE_KEY, useReadingMode } from '../lib/readingMode.js';
+import { useWorkspaceStore } from '../store/workspace.js';
 import { Button } from './primitives/Button.js';
 
 const RELEASES_URL = 'https://github.com/Pointa-Labs/basehalf/releases';
@@ -230,6 +240,159 @@ const Toggle = ({
   </button>
 );
 
+/** A small segmented (single-choice) control — used for the per-workspace
+ *  override's tri-state (follow default / on / off). */
+const Segmented = ({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}): JSX.Element => (
+  <div
+    style={{
+      display: 'inline-flex',
+      border: `1px solid ${color.borderStrong}`,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+    }}
+  >
+    {options.map((o, i) => {
+      const selected = o.value === value;
+      return (
+        <button
+          key={o.value}
+          type="button"
+          aria-pressed={selected}
+          onClick={() => onChange(o.value)}
+          style={{
+            border: 'none',
+            borderLeft: i === 0 ? 'none' : `1px solid ${color.borderStrong}`,
+            background: selected ? color.accent : color.surfaceMuted,
+            color: selected ? '#fff' : color.textSecondary,
+            cursor: 'pointer',
+            padding: `4px ${space[2]}px`,
+            fontFamily: font.sans,
+            fontSize: font.size.ui,
+          }}
+        >
+          {o.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+/** Per-layer view of one setting (the subset the UI reads from
+ *  `settings.inspect`). */
+interface SettingInspectView {
+  defaultValue: boolean;
+  globalValue?: boolean;
+  workspaceValue?: boolean;
+  value: boolean;
+}
+
+type WsOverride = 'default' | 'on' | 'off';
+
+/**
+ * The Reading section — Reading mode (the ADHD reading aids) wired to the core
+ * settings module's two-layer model: a GLOBAL DEFAULT toggle plus, when a folder
+ * is open in this window, a per-workspace OVERRIDE (follow default / on / off).
+ * The first consumer of the settings scaffold — adding the next setting is a
+ * registry entry + a row like this, no new IPC.
+ */
+const ReadingSection = (): JSX.Element => {
+  const current = useWorkspaceStore((s) => s.current);
+  const [view, setView] = useState<SettingInspectView | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const got = (await window.bh.run('settings.inspect', {
+        key: READING_MODE_KEY,
+      })) as SettingInspectView;
+      setView(got);
+    } catch {
+      setView(null);
+    }
+  }, []);
+
+  // Re-read on open and whenever the bound workspace changes (its override may
+  // differ). `current` keys the workspace layer the inspect resolves against.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger (re-inspect when the bound workspace changes); the body reads nothing off it.
+  useEffect(() => {
+    void reload();
+  }, [reload, current]);
+
+  // Every write returns the fresh inspect — apply it, then nudge the shared
+  // reading-mode mirror so open editors update without waiting for a reload.
+  const applied = useCallback((got: SettingInspectView): void => {
+    setView(got);
+    useReadingMode.getState().setOptimistic(got.value);
+    void useReadingMode.getState().refresh();
+  }, []);
+
+  const setGlobal = useCallback(
+    (next: boolean): void => {
+      window.bh
+        .run('settings.setGlobal', { key: READING_MODE_KEY, value: next })
+        .then((g) => applied(g as SettingInspectView))
+        .catch(() => void reload());
+    },
+    [applied, reload],
+  );
+
+  const setOverride = useCallback(
+    (mode: WsOverride): void => {
+      const call =
+        mode === 'default'
+          ? window.bh.run('settings.clearWorkspace', { key: READING_MODE_KEY })
+          : window.bh.run('settings.setWorkspace', {
+              key: READING_MODE_KEY,
+              value: mode === 'on',
+            });
+      call.then((g) => applied(g as SettingInspectView)).catch(() => void reload());
+    },
+    [applied, reload],
+  );
+
+  const globalOn = view ? (view.globalValue ?? view.defaultValue) : false;
+  const override: WsOverride =
+    view?.workspaceValue === undefined ? 'default' : view.workspaceValue ? 'on' : 'off';
+  const effective = view?.value ?? false;
+
+  return (
+    <>
+      <div style={sectionLabelStyle}>Reading</div>
+      <SettingRow
+        label="Reading mode"
+        description="Show ADHD reading aids — keyword highlights and read/unread dimming — when viewing Markdown. This is the default for every folder."
+        control={
+          <Toggle checked={globalOn} onChange={setGlobal} label="Reading mode (global default)" />
+        }
+      />
+      {current !== null && (
+        <SettingRow
+          label="This folder"
+          description={`Override the default for the open folder. Currently ${effective ? 'on' : 'off'} here.`}
+          control={
+            <Segmented
+              value={override}
+              onChange={(v) => setOverride(v as WsOverride)}
+              options={[
+                { value: 'default', label: 'Default' },
+                { value: 'on', label: 'On' },
+                { value: 'off', label: 'Off' },
+              ]}
+            />
+          }
+        />
+      )}
+    </>
+  );
+};
+
 const SettingsCard = (): JSX.Element => {
   const [autoUpdateCheck, setAutoUpdateCheck] = useState(true);
   const [version, setVersion] = useState('');
@@ -322,6 +485,8 @@ const SettingsCard = (): JSX.Element => {
           </>
         }
       />
+
+      <ReadingSection />
 
       <div style={sectionLabelStyle}>About</div>
       <SettingRow

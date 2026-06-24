@@ -1,25 +1,28 @@
+import { AllSelection } from '@tiptap/pm/state';
 import { type CSSProperties, type JSX, useCallback, useEffect, useMemo, useState } from 'react';
 import { color, font, radius, space } from '../design.js';
 import type { LineRange } from '../lib/adhd.js';
 import { type AdhdEditorApi, pushAdhdDecorations } from '../lib/adhdHighlight.js';
-import {
-  type FocusBlock,
-  blockSourceSpan,
-  countNewlines,
-  linesToBlockIds,
-  topLevelBlockOf,
-} from '../lib/editorFocus.js';
-import { isImeComposing } from '../lib/imeGuard.js';
+import { blockSourceSpan, countNewlines, linesToBlockIds } from '../lib/editorFocus.js';
 import type { SharedDoc } from '../lib/liveDoc.js';
+import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
 
 /**
- * ADHD reading-aids controls for the PANEL Markdown editor — keyword chips plus
- * read/unread marking. The sister surface to CodeReader's toolbar, but here read
- * state targets BlockNote BLOCKS: the highlight (a dimmed block, via decorations in
- * lib/adhdHighlight) is tracked by block id in-session, while persistence stays the
- * canonical SOURCE line-ranges in adhd.yaml. The two address spaces meet at this
- * seam: source lines → block ids on load (so an agent-written range shows up), and a
- * marked block → its source-line span on write (so the agent reads it back).
+ * ADHD reading-aids controller for the PANEL Markdown editor (Markdown-only — the
+ * code/text viewer carries no aids). Mounts only in reading mode, and owns the two
+ * spec gestures:
+ *   - read/unread: a LEFT-GUTTER checkbox per top-level block (rendered by the
+ *     decoration plugin, lib/adhdHighlight, as a widget); this component handles the
+ *     click by delegation and toggles the block.
+ *   - keywords: RIGHT-CLICK a selected word to add/remove it as a highlight.
+ * The slim toolbar carries only the active-keyword chips, a Read N/M counter, and
+ * whole-file All/Clear.
+ *
+ * Read state targets BlockNote BLOCKS: the dim (via decorations) is tracked by block
+ * id in-session, while persistence stays the canonical SOURCE line-ranges in
+ * adhd.yaml. The two address spaces meet at this seam: source lines → block ids on
+ * load (so an agent-written range shows up), and a marked block → its source-line
+ * span on write (so the agent reads it back).
  *
  * Known v1 bound: read_paragraphs is a SNAPSHOT of where a block's source sat at mark
  * time. The in-session highlight follows the block by id (correct across edits), but
@@ -53,7 +56,6 @@ export const AdhdControls = ({
   loadKey: number;
 }): JSX.Element => {
   const [adhd, setAdhd] = useState<AdhdState>({});
-  const [draftKw, setDraftKw] = useState('');
   // Force a re-render on every editor edit so the "Read N/M" count below reflects
   // the live document (block add/delete). The editor's document is imperative, so
   // without this the count freezes until an unrelated state change.
@@ -99,11 +101,21 @@ export const AdhdControls = ({
   }, [file, seedReady, editor, shared, loadKey]);
 
   // Push the current read blocks + keywords into the editor's decoration plugin
-  // whenever either changes. Meta-only dispatch → no document change → no autosave.
+  // whenever either changes. `enabled: true` is reading mode — this control only
+  // mounts then, so its presence IS the on-signal (the per-block checkboxes show).
+  // Meta-only dispatch → no document change → no autosave.
   useEffect(() => {
     if (!seedReady) return;
-    pushAdhdDecorations(editor, { readBlockIds: [...readIds], keywords });
+    pushAdhdDecorations(editor, { enabled: true, readBlockIds: [...readIds], keywords });
   }, [editor, seedReady, readIds, keywords]);
+
+  // Clear the decoration layer when this control unmounts — e.g. reading mode is
+  // toggled OFF mid-session. Without it the last-pushed checkboxes/dimming would
+  // linger on the shared editor (the plugin holds its last fed state).
+  useEffect(
+    () => () => pushAdhdDecorations(editor, { enabled: false, readBlockIds: [], keywords: [] }),
+    [editor],
+  );
 
   // Every adhd command returns the new state (or null when it prunes to empty), so
   // apply it directly — no re-fetch.
@@ -119,64 +131,128 @@ export const AdhdControls = ({
     [file],
   );
 
-  const addKeyword = useCallback(() => {
-    const kw = draftKw.trim();
-    if (kw === '') return;
-    setDraftKw('');
-    void runAdhd('adhd.addKeyword', { keyword: kw });
-  }, [draftKw, runAdhd]);
-
   const removeKeyword = useCallback(
     (kw: string) => void runAdhd('adhd.removeKeyword', { keyword: kw }),
     [runAdhd],
   );
 
-  // The TOP-LEVEL blocks the user means right now: a multi-block selection, else the
-  // single block the cursor sits in. Resolved to top level (and de-duped) so the
-  // dimmed-block highlight and the persisted line span address the same units.
-  const selectedTopLevel = useCallback((): FocusBlock[] => {
-    const blocks = editor.document;
-    const sel = editor.getSelection();
-    const targets = sel?.blocks?.length ? sel.blocks : [editor.getTextCursorPosition().block];
-    const out: FocusBlock[] = [];
-    const seen = new Set<string>();
-    for (const t of targets) {
-      const tl = topLevelBlockOf(blocks, t.id);
-      if (tl && !seen.has(tl.block.id)) {
-        seen.add(tl.block.id);
-        out.push(tl.block);
+  // Right-click a selected word → add/remove it as a highlight keyword (the
+  // spec's keyword gesture: select a word, choose from the context menu). The
+  // listener lives on the editor body and only acts on a non-empty selection, so
+  // an empty-selection right-click still gets the default menu. Matching is
+  // case-insensitive: a selection that equals an existing keyword offers REMOVE
+  // (using the stored casing), otherwise ADD.
+  //
+  // Because opening an in-app menu suppresses the native one, we ALSO carry the
+  // standard clipboard actions the native editor menu would have — otherwise
+  // right-clicking selected text in reading mode would lose Cut/Copy/Paste. These
+  // act through the ProseMirror view (its selection survives the menu overlay,
+  // unlike the DOM selection), so they're reliable.
+  useEffect(() => {
+    const dom = editor.prosemirrorView?.dom;
+    if (!dom) return;
+    const onContextMenu = (e: MouseEvent): void => {
+      const selected = (window.getSelection()?.toString() ?? '').trim();
+      if (selected === '') return; // no word selected — leave the default menu
+      const existing = keywords.find((k) => k.toLowerCase() === selected.toLowerCase());
+      const items: ContextMenuItem[] = [
+        existing
+          ? {
+              id: 'adhd-remove-keyword',
+              label: `Remove “${existing}” from highlights`,
+              run: () => removeKeyword(existing),
+            }
+          : {
+              id: 'adhd-add-keyword',
+              label: `Highlight “${selected}”`,
+              run: () => void runAdhd('adhd.addKeyword', { keyword: selected }),
+            },
+        { separator: true },
+        { id: 'copy', label: 'Copy', run: () => void navigator.clipboard.writeText(selected) },
+      ];
+      const view = editor.prosemirrorView;
+      if (view) {
+        items.push(
+          {
+            id: 'cut',
+            label: 'Cut',
+            run: () => {
+              void navigator.clipboard.writeText(selected);
+              view.dispatch(view.state.tr.deleteSelection());
+              view.focus();
+            },
+          },
+          {
+            id: 'paste',
+            label: 'Paste',
+            run: () =>
+              void window.bh.clipboardReadText().then((t) => {
+                if (t) view.dispatch(view.state.tr.insertText(t));
+                view.focus();
+              }),
+          },
+          {
+            id: 'select-all',
+            label: 'Select All',
+            run: () => {
+              view.dispatch(view.state.tr.setSelection(new AllSelection(view.state.doc)));
+              view.focus();
+            },
+          },
+        );
       }
-    }
-    return out;
-  }, [editor]);
+      e.preventDefault();
+      openContextMenu(e.clientX, e.clientY, items);
+    };
+    dom.addEventListener('contextmenu', onContextMenu);
+    return () => dom.removeEventListener('contextmenu', onContextMenu);
+  }, [editor, keywords, removeKeyword, runAdhd]);
 
-  const markSelection = useCallback(
-    (read: boolean) => {
+  // Toggle one top-level block's read state — the spec's per-block checkbox click.
+  // The block's id resolves to its canonical SOURCE line span (so the agent reads
+  // the same ranges back); read state is also tracked by id for the in-session dim.
+  const toggleBlockRead = useCallback(
+    (blockId: string) => {
       const blocks = editor.document;
-      const frontmatterLines = countNewlines(shared.frontmatter);
-      let lo = Number.POSITIVE_INFINITY;
-      let hi = Number.NEGATIVE_INFINITY;
-      const ids: string[] = [];
-      for (const b of selectedTopLevel()) {
-        const span = blockSourceSpan(blocks, b.id, shared.byId, frontmatterLines);
-        if (!span) continue;
-        lo = Math.min(lo, span.start);
-        hi = Math.max(hi, span.end);
-        ids.push(b.id);
-      }
-      if (ids.length === 0 || lo > hi) return;
-      void runAdhd(read ? 'adhd.markRead' : 'adhd.markUnread', { start: lo, end: hi });
+      const span = blockSourceSpan(blocks, blockId, shared.byId, countNewlines(shared.frontmatter));
+      if (!span) return;
+      const isRead = readIds.has(blockId);
+      void runAdhd(isRead ? 'adhd.markUnread' : 'adhd.markRead', {
+        start: span.start,
+        end: span.end,
+      });
       setReadIds((prev) => {
         const next = new Set(prev);
-        for (const id of ids) {
-          if (read) next.add(id);
-          else next.delete(id);
-        }
+        if (isRead) next.delete(blockId);
+        else next.add(blockId);
         return next;
       });
     },
-    [editor, shared, selectedTopLevel, runAdhd],
+    [editor, shared, readIds, runAdhd],
   );
+
+  // The left-gutter checkboxes are rendered by the decoration plugin (lib/
+  // adhdHighlight) as widgets carrying `data-bh-block-id`. Handle their clicks by
+  // delegation on the editor body: mousedown so we can preventDefault before the
+  // editor moves the selection/focus into the block.
+  useEffect(() => {
+    const dom = editor.prosemirrorView?.dom;
+    if (!dom) return;
+    const onMouseDown = (e: MouseEvent): void => {
+      const box = (e.target as HTMLElement | null)?.closest?.(
+        '.bh-adhd-check',
+      ) as HTMLElement | null;
+      const id = box?.getAttribute('data-bh-block-id');
+      if (!id) return;
+      // Capture phase + stopPropagation so ProseMirror (its own mousedown is
+      // registered first) never moves the caret into the block on a gutter click.
+      e.preventDefault();
+      e.stopPropagation();
+      toggleBlockRead(id);
+    };
+    dom.addEventListener('mousedown', onMouseDown, true);
+    return () => dom.removeEventListener('mousedown', onMouseDown, true);
+  }, [editor, toggleBlockRead]);
 
   const markAll = useCallback(
     (read: boolean) => {
@@ -208,7 +284,11 @@ export const AdhdControls = ({
 
   return (
     <div style={barStyle}>
-      <span style={{ color: color.textTertiary }}>Highlight</span>
+      {/* Keywords: add/remove by right-clicking a selected word in the text (see the
+          contextmenu handler above). The chips show what's active + offer removal. */}
+      <span style={{ color: color.textTertiary }}>
+        {keywords.length > 0 ? 'Highlighting' : 'Reading mode — right-click a word to highlight it'}
+      </span>
       {keywords.map((kw) => (
         <span key={kw} style={chipStyle}>
           {kw}
@@ -222,38 +302,12 @@ export const AdhdControls = ({
           </button>
         </span>
       ))}
-      <input
-        value={draftKw}
-        onChange={(e) => setDraftKw(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !isImeComposing(e)) {
-            e.preventDefault();
-            addKeyword();
-          }
-        }}
-        placeholder="Add keyword…"
-        style={inputStyle}
-      />
       <span style={{ flex: 1 }} />
+      {/* Read progress + whole-file shortcuts. Per-block marking is the gutter
+          checkboxes; these cover the whole note at once. */}
       <span style={{ color: color.textTertiary }}>
         Read {readCount}/{total}
       </span>
-      <button
-        type="button"
-        title="Mark the selected blocks (or the block at the cursor) read"
-        onClick={() => markSelection(true)}
-        style={toolButtonStyle}
-      >
-        Mark read
-      </button>
-      <button
-        type="button"
-        title="Mark the selected blocks (or the block at the cursor) unread"
-        onClick={() => markSelection(false)}
-        style={toolButtonStyle}
-      >
-        Mark unread
-      </button>
       <button type="button" onClick={() => markAll(true)} style={toolButtonStyle}>
         All
       </button>
@@ -295,19 +349,6 @@ const chipCloseStyle: CSSProperties = {
   padding: 0,
   lineHeight: 1,
   fontSize: font.size.caption,
-};
-
-const inputStyle: CSSProperties = {
-  flex: '0 1 140px',
-  minWidth: 90,
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.sm,
-  background: color.surface,
-  color: color.textPrimary,
-  padding: `2px ${space[2]}px`,
-  fontFamily: font.sans,
-  fontSize: font.size.caption,
-  outline: 'none',
 };
 
 const toolButtonStyle: CSSProperties = {
