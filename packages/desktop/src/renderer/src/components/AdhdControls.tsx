@@ -2,7 +2,7 @@ import { AllSelection } from '@tiptap/pm/state';
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
 import type { LineRange } from '../lib/adhd.js';
 import { type AdhdEditorApi, pushAdhdDecorations } from '../lib/adhdHighlight.js';
-import { blockSourceSpan, countNewlines, linesToBlockIds } from '../lib/editorFocus.js';
+import { blockReadSpan, countNewlines, linesToBlockIds } from '../lib/editorFocus.js';
 import type { SharedDoc } from '../lib/liveDoc.js';
 import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
 
@@ -216,10 +216,13 @@ export const AdhdControls = ({
   // Toggle one top-level block's read state — the spec's per-block checkbox click.
   // The block's id resolves to its canonical SOURCE line span (so the agent reads
   // the same ranges back); read state is also tracked by id for the in-session dim.
+  // blockReadSpan (not blockSourceSpan) extends the span over the trailing blank-line
+  // separator so the blank inherits this block's read state (spec §空行继承上一行) and
+  // adjacent read blocks coalesce in read_paragraphs with no false "unread" gap.
   const toggleBlockRead = useCallback(
     (blockId: string) => {
       const blocks = editor.document;
-      const span = blockSourceSpan(blocks, blockId, shared.byId, countNewlines(shared.frontmatter));
+      const span = blockReadSpan(blocks, blockId, shared.byId, countNewlines(shared.frontmatter));
       if (!span) return;
       const isRead = readIds.has(blockId);
       void runAdhd(isRead ? 'adhd.markUnread' : 'adhd.markRead', {

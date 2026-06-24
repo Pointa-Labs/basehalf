@@ -178,6 +178,42 @@ export function blockSourceSpan(
   return { start, end: entry ? start + tileSourceNewlines(entry) : start };
 }
 
+/** The source-line range to persist when a block is marked READ — {@link
+ *  blockSourceSpan} extended FORWARD to swallow the blank-line separator(s) up to
+ *  the next top-level block. Per the spec (§adhd: 空行的已读状态默认和上一行一致), a
+ *  blank line inherits the read state of the line ABOVE it, so the separator belongs
+ *  to the preceding block. `blockSourceSpan` ends a block on its last CONTENT line
+ *  (tileSourceNewlines drops the trailing `sep`), so without this, marking two
+ *  consecutive paragraphs read would leave the blank line between them outside every
+ *  read range — a false "unread" island an agent reading adhd.yaml literally would
+ *  see. (The in-editor dimming is unaffected: blank lines aren't blocks, so nothing
+ *  renders for them; this is purely about what lands in read_paragraphs.) The two
+ *  extended spans of adjacent read blocks become gap-adjacent, so core's
+ *  normalizeRanges coalesces them into one range. The LAST block has no following
+ *  block to bound a gap, so it keeps its content-end (a trailing blank at EOF sits
+ *  after the last paragraph, not between two, so it can't create a hole). A tight
+ *  separator (one newline, e.g. list items with no blank line) yields nextStart−1 ==
+ *  end, so nothing is absorbed. Pure. */
+export function blockReadSpan(
+  blocks: readonly FocusBlock[],
+  targetId: string,
+  byId: Map<string, ReuseEntry>,
+  frontmatterLines: number,
+): { start: number; end: number } | null {
+  const span = blockSourceSpan(blocks, targetId, byId, frontmatterLines);
+  if (span === null) return null;
+  const tl = topLevelBlockOf(blocks, targetId);
+  if (!tl) return span;
+  const idx = blocks.findIndex((b) => b.id === tl.block.id);
+  const next = idx >= 0 ? blocks[idx + 1] : undefined;
+  if (!next) return span; // last block: nothing after to bound a separator gap
+  const nextStart = blockFileLine(blocks, next.id, byId, frontmatterLines);
+  if (nextStart === null) return span;
+  // Lines (span.end, nextStart) are the blank/separator lines between the two
+  // blocks; absorb them so the blank inherits this (above) block's read state.
+  return { start: span.start, end: Math.max(span.end, nextStart - 1) };
+}
+
 /** Ids of every TOP-LEVEL block whose source-line span intersects any of `ranges`
  *  (canonical adhd `read_paragraphs`, 1-based inclusive). The inverse of
  *  read_paragraphs → blocks: used once, when a file opens, to seed the read-block

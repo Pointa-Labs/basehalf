@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { keywordHits } from '../src/renderer/src/lib/adhd.js';
 import {
   type FocusBlock,
+  blockReadSpan,
   blockSourceSpan,
   linesToBlockIds,
 } from '../src/renderer/src/lib/editorFocus.js';
@@ -79,6 +80,70 @@ describe('blockSourceSpan — a block → its [start, end] source line range', (
   it('returns null for an id not in the tree', () => {
     const { blocks, byId } = indexBody('only.\n');
     expect(blockSourceSpan(blocks, 'nope', byId, 0)).toBeNull();
+  });
+});
+
+describe('blockReadSpan — read span absorbs the trailing blank separator', () => {
+  it('extends a block over the blank line up to the next block (spec §空行继承上一行)', () => {
+    // Three single-line paragraphs, blank-separated: source lines 1, 3, 5; blanks at 2, 4.
+    const body = 'First paragraph.\n\nSecond paragraph here.\n\nThird one.\n';
+    const { blocks, byId } = indexBody(body);
+    // b0 (content line 1) absorbs the blank line 2 → [1,2]; b1 (line 3) absorbs blank
+    // line 4 → [3,4]; b2 is LAST → stays at its content line [5,5] (no following block).
+    expect(blockReadSpan(blocks, 'b0', byId, 0)).toEqual({ start: 1, end: 2 });
+    expect(blockReadSpan(blocks, 'b1', byId, 0)).toEqual({ start: 3, end: 4 });
+    expect(blockReadSpan(blocks, 'b2', byId, 0)).toEqual({ start: 5, end: 5 });
+  });
+
+  it('makes adjacent read blocks gap-adjacent so core coalesces them (no unread hole)', () => {
+    // The bug: blockSourceSpan gives b0=[1,1], b1=[3,3] → line 2 (blank) outside both =
+    // false "unread". blockReadSpan gives [1,2] and [3,4]: 2+1 === 3, so normalizeRanges
+    // merges them — no hole on the blank line.
+    const { blocks, byId } = indexBody('A.\n\nB.\n');
+    const a = blockReadSpan(blocks, 'b0', byId, 0);
+    const b = blockReadSpan(blocks, 'b1', byId, 0);
+    expect(a).toEqual({ start: 1, end: 2 }); // absorbs the blank line 2
+    expect(b).toEqual({ start: 3, end: 3 }); // last block, content-end
+    // gap-adjacent: a.end + 1 === b.start → core's normalizeRanges coalesces to [1,3].
+    expect((a?.end ?? 0) + 1).toBe(b?.start);
+  });
+
+  it('does NOT extend across a tight (single-newline) separator', () => {
+    // List items with no blank line between them: sep is one newline, so the next block
+    // starts on the very next line — nothing blank to absorb, span stays content-only.
+    const byId = new Map<string, ReuseEntry>([
+      ['i0', { key: '- a', raw: '- a\n', prefix: '', sep: '\n' }],
+      ['i1', { key: '- b', raw: '- b\n', prefix: '', sep: '\n' }],
+    ]);
+    const blocks: FocusBlock[] = [
+      { id: 'i0', type: 'bulletListItem' },
+      { id: 'i1', type: 'bulletListItem' },
+    ];
+    // i0 content is line 1, i1 starts on line 2 → nextStart-1 === 1 === content end.
+    expect(blockReadSpan(blocks, 'i0', byId, 0)).toEqual({ start: 1, end: 1 });
+    expect(blockReadSpan(blocks, 'i1', byId, 0)).toEqual({ start: 2, end: 2 });
+  });
+
+  it('a multi-line block absorbs the blank after it', () => {
+    // "Intro." then a 3-line fenced code block then a tail paragraph, all blank-separated.
+    const byId = new Map<string, ReuseEntry>([
+      ['p0', { key: 'Intro.', raw: 'Intro.\n\n', prefix: '', sep: '\n\n' }],
+      ['code', { key: '```\nx\n```', raw: '```\nx\n```\n\n', prefix: '', sep: '\n\n' }],
+      ['tail', { key: 'Tail.', raw: 'Tail.\n', prefix: '', sep: '\n' }],
+    ]);
+    const blocks: FocusBlock[] = [
+      { id: 'p0', type: 'paragraph' },
+      { id: 'code', type: 'codeBlock' },
+      { id: 'tail', type: 'paragraph' },
+    ];
+    // code content is [3,5]; tail starts on line 7, so code absorbs the blank line 6 → [3,6].
+    expect(blockSourceSpan(blocks, 'code', byId, 0)).toEqual({ start: 3, end: 5 });
+    expect(blockReadSpan(blocks, 'code', byId, 0)).toEqual({ start: 3, end: 6 });
+  });
+
+  it('returns null for an id not in the tree', () => {
+    const { blocks, byId } = indexBody('only.\n');
+    expect(blockReadSpan(blocks, 'nope', byId, 0)).toBeNull();
   });
 });
 
