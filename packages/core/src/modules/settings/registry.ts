@@ -55,7 +55,7 @@ export const SETTINGS: readonly SettingDescriptor[] = Object.freeze([
     default: false,
     label: 'Reading mode',
     description:
-      'Show ADHD reading aids — keyword highlights and read/unread dimming — when viewing Markdown.',
+      'Highlight keywords and track your place as you read a note — finished paragraphs fade so what is left stands out.',
   },
 ]);
 

@@ -129,6 +129,18 @@ body,
   }
 }
 
+/* The update chip's indeterminate download fill — used only when the total size
+   is unknown (no percentage to show), so a sliver sweeps across to signal motion
+   instead of a frozen-looking bar. */
+@keyframes bh-chip-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
 /* Native text inputs: subtle focus ring matching our accent.
  * Specific selectors avoid clobbering BlockNote's own input styling. */
 input[type="text"]:focus-visible,
@@ -345,15 +357,19 @@ header::-webkit-scrollbar {
   width: 15px;
   height: 15px;
   box-sizing: border-box;
+  /* A visible resting state — a filled box on the chrome, not a hover-only
+     outline — so the per-block read toggle is discoverable at a glance. */
   border: 1.5px solid #454545;
   border-radius: 3px;
-  background: transparent;
+  background: #252526;
   cursor: pointer;
   user-select: none;
+  transition: border-color 120ms ease, background 120ms ease;
 }
 
 .bh-adhd-check:hover {
   border-color: #0078d4;
+  background: #2a2d2e;
 }
 
 .bh-adhd-check--on {

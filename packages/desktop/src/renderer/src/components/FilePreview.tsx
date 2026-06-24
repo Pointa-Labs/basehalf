@@ -1217,8 +1217,9 @@ const TextViewer = ({ file }: { file: string }): JSX.Element => {
           empty file
         </div>
       ) : (
-        // The reading view with ADHD aids (keyword highlight + read/unread lines)
-        // and live visible-line focus sync — owns its own scroll container.
+        // The read-only code/text viewer with live visible-line focus sync —
+        // owns its own scroll container. (Reading aids are Markdown-only, in the
+        // rich editor; this viewer carries none.)
         <CodeReader file={file} text={state.text} truncated={state.truncated} />
       )}
     </div>

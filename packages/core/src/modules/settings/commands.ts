@@ -58,6 +58,19 @@ function descriptorOrThrow(key: string): SettingDescriptor {
   return d;
 }
 
+/** The "only workspace-scoped settings have a per-workspace layer" policy — the
+ *  single place it lives, called by both `setWorkspace` and `clearWorkspace`
+ *  (the small analogue of refusing an APPLICATION-scoped setting in workspace
+ *  settings). Exported so the guarantee is unit-testable without a global-scoped
+ *  setting needing to exist in the registry. */
+export function assertOverridable(d: SettingDescriptor): void {
+  if (d.scope !== 'workspace') {
+    throw new InvalidSettingValue(
+      `Setting "${d.key}" is global-only and cannot be overridden per workspace`,
+    );
+  }
+}
+
 /** Build the per-layer view + merged effective value for one setting. A stored
  *  value that fails its type check is ignored (falls through to the next layer)
  *  rather than poisoning the result. */
@@ -125,11 +138,7 @@ export const setWorkspace: Handler<SettingsSetWorkspaceArgs, SettingsSetWorkspac
   ctx,
 ) => {
   const d = descriptorOrThrow(args.key);
-  if (d.scope !== 'workspace') {
-    throw new InvalidSettingValue(
-      `Setting "${d.key}" is global-only and cannot be overridden per workspace`,
-    );
-  }
+  assertOverridable(d);
   if (!isValidValue(d, args.value)) {
     throw new InvalidSettingValue(`Setting "${d.key}" expects a ${d.type}`);
   }
@@ -155,13 +164,9 @@ export const clearWorkspace: Handler<
   SettingsClearWorkspaceResult
 > = async (args, ctx) => {
   const d = descriptorOrThrow(args.key);
-  if (d.scope !== 'workspace') {
-    // Symmetric with setWorkspace: a global-only setting has no workspace layer
-    // to clear, so reject rather than silently no-op.
-    throw new InvalidSettingValue(
-      `Setting "${d.key}" is global-only and has no per-workspace override`,
-    );
-  }
+  // Symmetric with setWorkspace: a global-only setting has no workspace layer
+  // to clear, so reject rather than silently no-op.
+  assertOverridable(d);
   const root = requireWorkspaceRoot(ctx);
   const wsKey = workspaceKey(root);
   return withSettingsLock(ctx.configDir, async () => {

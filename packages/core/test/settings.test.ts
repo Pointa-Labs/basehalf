@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createCore } from '../src/index.js';
+import { assertOverridable } from '../src/modules/settings/commands.js';
+import type { SettingDescriptor } from '../src/modules/settings/registry.js';
 import type { SettingInspect } from '../src/modules/settings/types.js';
 import { boundCore } from './helpers/bound-core.js';
 import { mockFs } from './helpers/mock-fs.js';
@@ -79,6 +81,23 @@ describe('settings two-layer resolution', () => {
     expect(onDisk.global).toEqual({ [KEY]: true });
   });
 
+  it('clearWorkspace prunes only the target key, preserving sibling overrides', async () => {
+    const { core, fs } = seed();
+    // Two override keys under the same workspace; only one is a known setting.
+    await fs.writeFile(
+      '/cfg/settings.json',
+      JSON.stringify({
+        version: 1,
+        global: {},
+        workspaces: { '/work': { [KEY]: true, 'future.ws': false } },
+      }),
+    );
+    await core.run('settings.clearWorkspace', { key: KEY });
+    const onDisk = JSON.parse((await fs.readFile('/cfg/settings.json')) ?? '{}');
+    // The target override is gone, the sibling survives, the entry is NOT pruned.
+    expect(onDisk.workspaces['/work']).toEqual({ 'future.ws': false });
+  });
+
   it('persists across a fresh core (re-read from disk)', async () => {
     const { core, fs } = seed();
     await core.run('settings.setGlobal', { key: KEY, value: true });
@@ -133,10 +152,41 @@ describe('settings workspace identity', () => {
   });
 });
 
+describe('settings scope policy', () => {
+  // The two-layer scope guard is exercised directly here so the guarantee holds
+  // even while the registry has only workspace-scoped settings (no global-only
+  // one yet). When the first global setting lands, the end-to-end command tests
+  // should assert setWorkspace/clearWorkspace reject it too.
+  const globalOnly: SettingDescriptor = {
+    key: 'app.example',
+    scope: 'global',
+    type: 'boolean',
+    default: false,
+    label: 'Example',
+    description: '',
+  };
+  const overridable: SettingDescriptor = {
+    ...globalOnly,
+    key: 'editor.example',
+    scope: 'workspace',
+  };
+
+  it('rejects a per-workspace write/clear for a global-only setting', () => {
+    expect(() => assertOverridable(globalOnly)).toThrow(/global-only/);
+  });
+
+  it('allows a per-workspace write/clear for a workspace-scoped setting', () => {
+    expect(() => assertOverridable(overridable)).not.toThrow();
+  });
+});
+
 describe('settings validation', () => {
   it('rejects an unknown key', async () => {
     const { core } = seed();
     await expect(core.run('settings.get', { key: 'no.such.setting' })).rejects.toThrow(
+      /Unknown setting/,
+    );
+    await expect(core.run('settings.inspect', { key: 'no.such.setting' })).rejects.toThrow(
       /Unknown setting/,
     );
   });

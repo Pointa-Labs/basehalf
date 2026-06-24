@@ -155,6 +155,17 @@ export const AdhdControls = ({
       const selected = (window.getSelection()?.toString() ?? '').trim();
       if (selected === '') return; // no word selected — leave the default menu
       const existing = keywords.find((k) => k.toLowerCase() === selected.toLowerCase());
+      const view = editor.prosemirrorView;
+      // Copy/Cut act on the ProseMirror selection — the exact text Cut deletes —
+      // so the two never diverge; fall back to the DOM selection if the view is
+      // somehow absent.
+      const clipText =
+        view?.state.doc.textBetween(
+          view.state.selection.from,
+          view.state.selection.to,
+          '\n',
+          '\n',
+        ) || selected;
       const items: ContextMenuItem[] = [
         existing
           ? {
@@ -168,16 +179,15 @@ export const AdhdControls = ({
               run: () => void runAdhd('adhd.addKeyword', { keyword: selected }),
             },
         { separator: true },
-        { id: 'copy', label: 'Copy', run: () => void navigator.clipboard.writeText(selected) },
+        { id: 'copy', label: 'Copy', run: () => void navigator.clipboard.writeText(clipText) },
       ];
-      const view = editor.prosemirrorView;
       if (view) {
         items.push(
           {
             id: 'cut',
             label: 'Cut',
             run: () => {
-              void navigator.clipboard.writeText(selected);
+              void navigator.clipboard.writeText(clipText);
               view.dispatch(view.state.tr.deleteSelection());
               view.focus();
             },
@@ -287,7 +297,9 @@ export const AdhdControls = ({
       {/* Keywords: add/remove by right-clicking a selected word in the text (see the
           contextmenu handler above). The chips show what's active + offer removal. */}
       <span style={{ color: color.textTertiary }}>
-        {keywords.length > 0 ? 'Highlighting' : 'Reading mode — right-click a word to highlight it'}
+        {keywords.length > 0
+          ? 'Highlighting — right-click a word to add or remove'
+          : 'Reading mode — right-click a word to highlight it'}
       </span>
       {keywords.map((kw) => (
         <span key={kw} style={chipStyle}>

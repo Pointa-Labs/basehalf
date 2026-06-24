@@ -117,6 +117,7 @@ const BooleanSettingRow = ({ descriptor }: { descriptor: SettingDescriptor }): J
       />
       {overridable && current !== null && (
         <SettingRow
+          inset
           label="This folder"
           description={`Override the default for the open folder. Currently ${effective ? 'on' : 'off'} here.`}
           control={

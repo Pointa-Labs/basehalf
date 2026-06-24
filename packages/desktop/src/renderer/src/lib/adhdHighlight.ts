@@ -44,8 +44,6 @@ export interface AdhdDecoPayload {
 export interface AdhdEditorApi {
   readonly document: readonly FocusBlock[];
   readonly prosemirrorView?: EditorView;
-  getSelection(): { readonly blocks: readonly { readonly id: string }[] } | undefined;
-  getTextCursorPosition(): { readonly block: { readonly id: string } };
   /** Subscribe to document changes; returns an unsubscribe fn. */
   onChange?(cb: () => void): (() => void) | undefined;
 }

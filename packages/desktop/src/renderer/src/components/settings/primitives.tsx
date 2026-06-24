@@ -27,12 +27,16 @@ export const SettingRow = ({
   description,
   descriptionColor,
   control,
+  inset,
 }: {
   label: string;
   description?: string;
   /** Override for state-carrying descriptions (e.g. errors in danger red). */
   descriptionColor?: string;
   control: ReactNode;
+  /** Render as a child refinement of the row above — indented with a left rail
+   *  (e.g. a per-workspace override nested under its global default). */
+  inset?: boolean;
 }): JSX.Element => (
   <div
     style={{
@@ -41,6 +45,11 @@ export const SettingRow = ({
       gap: space[4],
       padding: `${space[3]}px 0`,
       borderBottom: `1px solid ${color.divider}`,
+      ...(inset && {
+        marginLeft: space[4],
+        paddingLeft: space[4],
+        borderLeft: `2px solid ${color.border}`,
+      }),
     }}
   >
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -102,7 +111,7 @@ export const Toggle = ({
         width: 14,
         height: 14,
         borderRadius: '50%',
-        background: '#fff',
+        background: color.onAccent,
         boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
         transition: transition(['left']),
       }}
@@ -141,7 +150,7 @@ export const Segmented = ({
             border: 'none',
             borderLeft: i === 0 ? 'none' : `1px solid ${color.borderStrong}`,
             background: selected ? color.accent : color.surfaceMuted,
-            color: selected ? '#fff' : color.textSecondary,
+            color: selected ? color.onAccent : color.textSecondary,
             cursor: 'pointer',
             padding: `4px ${space[2]}px`,
             fontFamily: font.sans,

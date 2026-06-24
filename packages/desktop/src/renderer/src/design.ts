@@ -33,6 +33,7 @@ export const color = {
   accentSoft: '#04395e', // active-selection background
   accentSofter: '#37373d', // inactive-selection background
   accentHover: '#1177bb',
+  onAccent: '#ffffff', // foreground ON an accent fill (CTAs, accent pills, toggles)
 
   // Semantic — used for state, not chrome (dark-theme variants).
   warning: '#cca700',
