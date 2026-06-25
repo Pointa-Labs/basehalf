@@ -953,6 +953,24 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(hint).not.toMatch(/focus\.md|inbound\.json|\bbh (badge|focus|search|inbound)\b/);
   });
 
+  it('hint teaches source line vs on-screen line (the soft-wrap distinction)', async () => {
+    // The fragile layer is agent-interpreted, so this guards the ONE hardcore
+    // sentence that keeps an agent from dumping a long source line as the user's
+    // screen line. See private-docs/focus_mode_spec/cursor-coordinate-semantics.md.
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+    const hint = files.get('/work/CLAUDE.md') ?? '';
+    // The coordinate vocabulary the agent reasons with.
+    expect(hint).toMatch(/visible_blocks/);
+    expect(hint).toMatch(/line_precision/);
+    expect(hint).toMatch(/SOURCE/); // line/column are source positions
+    // The hardcore: a source line is NOT the on-screen line; soft-wrap is named.
+    expect(hint).toMatch(/soft-wrap/i);
+    expect(hint).toMatch(/on-screen line/i);
+  });
+
   it('appends hint section to existing CLAUDE.md (preserves prior content)', async () => {
     const { fs, files, dirs } = mockFs();
     dirs.add('/work');

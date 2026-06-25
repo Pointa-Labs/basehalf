@@ -60,9 +60,10 @@ focus file of the node the user is looking at right now:
   \`cursor\`, \`line\`/\`column\` are 1-based positions in the .md SOURCE (use them to
   locate/edit) and \`line_precision\` says how exact \`line\` is (\`exact\` |
   \`block_start\` | \`estimated\`); \`block\` is the ordinal of the rendered block they're
-  in — the "Nth block" they actually see. Blank lines and multi-line blocks make the
-  source line exceed the block count, so prefer \`block\` (and \`visible_blocks\`) when
-  describing where the user is.
+  in — the "Nth block" they actually see. Blank lines, multi-line blocks, and
+  soft-wrapped long lines mean a source line is **not** the user's on-screen line — so
+  use \`block\`/\`visible_blocks\` to say where they are, and \`line\`+\`column\` to
+  locate/edit; never hand the user a whole source line as "the line on your screen".
 - \`kind: folder\` → they're on a folder's canvas. Use that folder's \`badge.yaml\`
   and \`canvas.yaml\`, plus \`viewport_center\` and \`zoom\`.
 
