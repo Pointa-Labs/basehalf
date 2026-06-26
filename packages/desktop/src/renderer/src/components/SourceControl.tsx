@@ -43,7 +43,8 @@ const msg = (err: unknown): string => (err instanceof Error ? err.message : Stri
 
 // Platform-correct commit shortcut for the placeholder (the handler accepts
 // both ⌘/Ctrl, so the hint should name the right one rather than always "⌘").
-const COMMIT_KEY = navigator.platform.toUpperCase().includes('MAC') ? '⌘Enter' : 'Ctrl+Enter';
+// Uses the preload-injected platform, not the deprecated navigator.platform.
+const COMMIT_KEY = window.bh.platform === 'darwin' ? '⌘Enter' : 'Ctrl+Enter';
 
 /** A human status label for a row's aria-label (so a screen reader announces
  *  "name, 已修改, dir" instead of stopping at the filename). */

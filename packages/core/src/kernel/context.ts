@@ -281,6 +281,7 @@ export function defaultGit(): GitRunner {
       const outChunks: Buffer[] = [];
       const errChunks: Buffer[] = [];
       let outLen = 0;
+      let errLen = 0;
       let settled = false;
       const finish = (fn: () => void): void => {
         if (settled) return;
@@ -288,26 +289,36 @@ export function defaultGit(): GitRunner {
         clearTimeout(timer);
         fn();
       };
+      // Overflow on EITHER stream → kill + reject, never silently truncate. A half
+      // stdout fed to the porcelain parser corrupts the result (a cut-off `-z`
+      // field); an UNBOUNDED stderr is just as dangerous — push/pull/fetch stream
+      // progress to stderr under the 120s remote timeout, so it must be capped too.
+      const overflow = (): void => {
+        child.kill('SIGKILL');
+        finish(() =>
+          reject(new Error(`git ${args.join(' ')} output exceeded ${GIT_MAX_OUTPUT_BYTES} bytes`)),
+        );
+      };
       const timer = setTimeout(() => {
         child.kill('SIGKILL');
         finish(() => reject(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`)));
       }, timeoutMs);
       child.stdout.on('data', (c: Buffer) => {
         outLen += c.length;
-        // Overflow → kill + reject, never silently truncate: a half buffer fed to
-        // the porcelain parser would corrupt the result (a cut-off `-z` field).
         if (outLen > GIT_MAX_OUTPUT_BYTES) {
-          child.kill('SIGKILL');
-          finish(() =>
-            reject(
-              new Error(`git ${args.join(' ')} output exceeded ${GIT_MAX_OUTPUT_BYTES} bytes`),
-            ),
-          );
+          overflow();
           return;
         }
         outChunks.push(c);
       });
-      child.stderr.on('data', (c: Buffer) => errChunks.push(c));
+      child.stderr.on('data', (c: Buffer) => {
+        errLen += c.length;
+        if (errLen > GIT_MAX_OUTPUT_BYTES) {
+          overflow();
+          return;
+        }
+        errChunks.push(c);
+      });
       child.on('error', (err) => finish(() => reject(err)));
       child.on('close', (code) => {
         const exitCode = code ?? -1;

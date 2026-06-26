@@ -46,10 +46,11 @@ export function findConflicts(text: string): ConflictBlock[] {
     } else if (line.startsWith('|||||||') && start !== -1 && sep === -1 && base === -1) {
       // diff3 common-ancestor section: it ends the "current" side.
       base = i + 1;
-    } else if (line === '=======' && start !== -1 && sep === -1) {
-      // Exact match (the separator is bare 7 `=`), so a Markdown `=========`
-      // underline inside a block isn't mistaken for a separator. A stray
-      // `=======` outside an open conflict is still ignored (start === -1).
+    } else if (/^=======\r?$/.test(line) && start !== -1 && sep === -1) {
+      // Exact bare 7 `=` (a trailing \r tolerated for a CRLF buffer — getValue()
+      // isn't EOL-normalized), so a Markdown `=========` underline inside a block
+      // isn't mistaken for a separator. A stray `=======` outside an open conflict
+      // is still ignored (start === -1).
       sep = i + 1;
     } else if (line.startsWith('>>>>>>>') && start !== -1 && sep !== -1) {
       blocks.push(

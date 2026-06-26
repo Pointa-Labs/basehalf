@@ -68,6 +68,9 @@ export function computeLineChanges(original: string, modified: string): LineChan
       ? []
       : [{ kind: 'add', startLine: 1, endLine: mod.length }];
   }
+  // File cleared to empty → one delete marker (the engine reports this as a
+  // both-sides-present "modify", which would mislead as a blue bar).
+  if (modified === '') return [{ kind: 'delete', startLine: 1, endLine: 1 }];
   const { changes } = diffComputer.computeDiff(splitLines(original), mod, {
     ignoreTrimWhitespace: false, // git change-bars reflect whitespace-only edits too
     maxComputationTimeMs: 1000, // bounded; returns an approximation past the budget

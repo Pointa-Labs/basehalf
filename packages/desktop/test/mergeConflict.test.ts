@@ -34,6 +34,11 @@ describe('findConflicts', () => {
     ]);
   });
 
+  it('detects a conflict in a CRLF buffer (separator carries a trailing \\r)', () => {
+    const t = '<<<<<<< HEAD\r\nours\r\n=======\r\ntheirs\r\n>>>>>>> branch\r\n';
+    expect(findConflicts(t)).toEqual([{ startLine: 1, sepLine: 3, endLine: 5 }]);
+  });
+
   it('captures the diff3 ||||||| base marker', () => {
     const t = [
       '<<<<<<< HEAD',

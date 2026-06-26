@@ -15,9 +15,10 @@ import { ensureBhTheme, languageOf } from '../lib/monacoSetup.js';
 
 // The diff editor's `maxFileSize` option doesn't gate this (it's a workbench-layer
 // concept, not part of the embeddable createDiffEditor API), so we cap inputs
-// ourselves: above this, skip the diff rather than load both sides + churn a
-// worker on a huge file. The built-in maxComputationTime only bounds CPU, not memory.
-const MAX_DIFF_BYTES = 2 * 1024 * 1024;
+// ourselves: above this many CHARS (UTF-16 units — a generous size proxy), skip
+// the diff rather than load both sides + churn a worker on a huge file. The
+// built-in maxComputationTime only bounds CPU, not memory.
+const MAX_DIFF_CHARS = 2 * 1024 * 1024;
 export const GitDiffView = ({
   path,
   staged,
@@ -44,12 +45,21 @@ export const GitDiffView = ({
         }) as Promise<GitShowResult>;
         const rightP = staged
           ? (window.bh.run('git.show', { ref: '', path }) as Promise<GitShowResult>)
-          : (window.bh.run('workspace.readFile', { path }) as Promise<WorkspaceReadFileResult>);
+          : (
+              window.bh.run('workspace.readFile', { path }) as Promise<WorkspaceReadFileResult>
+            ).catch((err: unknown): WorkspaceReadFileResult => {
+              // A deleted working-tree file → the right side is simply empty (the
+              // read throws PATH_NOT_FOUND). Show the deletion, not an error banner.
+              if (err instanceof Error && err.message.startsWith('[PATH_NOT_FOUND]')) {
+                return { content: '' } as WorkspaceReadFileResult;
+              }
+              throw err;
+            });
         const [left, right] = await Promise.all([leftP, rightP]);
         if (cancelled) return;
         if (
-          (left.content?.length ?? 0) > MAX_DIFF_BYTES ||
-          (right.content?.length ?? 0) > MAX_DIFF_BYTES
+          (left.content?.length ?? 0) > MAX_DIFF_CHARS ||
+          (right.content?.length ?? 0) > MAX_DIFF_CHARS
         ) {
           setError('File is too large to show a diff.');
           return;

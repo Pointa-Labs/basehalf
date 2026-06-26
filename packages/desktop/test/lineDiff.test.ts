@@ -56,4 +56,10 @@ describe('computeLineChanges', () => {
   it('everything new (no baseline)', () => {
     expect(computeLineChanges('', 'a\nb')).toEqual([{ kind: 'add', startLine: 1, endLine: 2 }]);
   });
+
+  it('file cleared to empty → a single delete marker (not a modify)', () => {
+    expect(computeLineChanges('a\nb\nc', '')).toEqual([
+      { kind: 'delete', startLine: 1, endLine: 1 },
+    ]);
+  });
 });
