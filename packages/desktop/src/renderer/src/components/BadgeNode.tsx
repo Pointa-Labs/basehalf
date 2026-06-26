@@ -733,7 +733,7 @@ const BadgeDiffPreview = ({
     return (
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         <div style={previewMask}>
-          <UnifiedDiff rows={diff.rows} />
+          <UnifiedDiff rows={diff.rows} oldHtml={diff.oldHtml} newHtml={diff.newHtml} />
         </div>
       </div>
     );

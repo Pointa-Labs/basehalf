@@ -15,7 +15,15 @@ const MAX_DIFF_CHARS = 2 * 1024 * 1024;
 
 export type FileDiffState =
   | { readonly status: 'loading' }
-  | { readonly status: 'ready'; readonly rows: DiffRow[] }
+  | {
+      readonly status: 'ready';
+      readonly rows: DiffRow[];
+      // Per-line syntax-highlighted HTML (monaco colorize) for each side, indexed
+      // by lineNumber-1. Undefined when the language is unknown / colorize failed —
+      // the renderer falls back to plain text.
+      readonly oldHtml: readonly string[] | undefined;
+      readonly newHtml: readonly string[] | undefined;
+    }
   | { readonly status: 'error'; readonly message: string };
 
 export function useFileDiff(
@@ -51,7 +59,32 @@ export function useFileDiff(
           setState({ status: 'error', message: 'File is too large to show a diff.' });
           return;
         }
-        setState({ status: 'ready', rows: computeUnifiedDiff(original, modified, { context }) });
+        const rows = computeUnifiedDiff(original, modified, { context });
+        // Syntax-highlight both sides (monaco colorize → one HTML string per side,
+        // lines joined by <br/>). Best-effort: an unknown language / failure falls
+        // back to plain text in the renderer.
+        let oldHtml: string[] | undefined;
+        let newHtml: string[] | undefined;
+        try {
+          // Lazy-load monaco (a browser-only module that touches `window` at import
+          // time) only when the hook actually runs, so node test graphs that
+          // transitively import this hook don't eagerly pull it in.
+          const [monaco, { languageOf }] = await Promise.all([
+            import('monaco-editor'),
+            import('./monacoSetup.js'),
+          ]);
+          const language = languageOf(path);
+          const [o, m] = await Promise.all([
+            monaco.editor.colorize(original, language, { tabSize: 2 }),
+            monaco.editor.colorize(modified, language, { tabSize: 2 }),
+          ]);
+          if (cancelled) return;
+          oldHtml = o.split('<br/>');
+          newHtml = m.split('<br/>');
+        } catch {
+          // unknown language / colorize failure → plain fallback
+        }
+        setState({ status: 'ready', rows, oldHtml, newHtml });
       } catch (err) {
         if (!cancelled)
           setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });

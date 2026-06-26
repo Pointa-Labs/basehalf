@@ -203,14 +203,23 @@ export function computeUnifiedDiff(
     const all = orig.map(
       (text, i): DiffRow => ({ kind: 'context', oldLine: i + 1, newLine: i + 1, text }),
     );
-    return collapse(all, context);
+    return trimTrailingBlank(collapse(all, context));
   }
   const { changes } = diffComputer.computeDiff(orig, mod, {
     ignoreTrimWhitespace: false,
     maxComputationTimeMs: 1000,
     computeMoves: false,
   }) as unknown as { changes: EngineChange[] };
-  return collapse(buildRows(orig, mod, changes), context);
+  return trimTrailingBlank(collapse(buildRows(orig, mod, changes), context));
+}
+
+/** Drop the phantom trailing empty CONTEXT line — a file ending in "\n" splits to
+ *  a final "" that would otherwise render as a stray blank row (git/GitHub don't
+ *  show it). Only trims when it's unchanged context, never a real add/del. */
+function trimTrailingBlank(rows: DiffRow[]): DiffRow[] {
+  const last = rows[rows.length - 1];
+  if (last?.kind === 'context' && last.text === '') rows.pop();
+  return rows;
 }
 
 /** +N / −M counts for a file header badge. */

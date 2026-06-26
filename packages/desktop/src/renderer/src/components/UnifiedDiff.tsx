@@ -1,15 +1,17 @@
 import type { JSX } from 'react';
 import { color, font, space } from '../design.js';
-import type { DiffRow } from '../lib/unifiedDiff.js';
+import type { DiffRow, DiffSeg } from '../lib/unifiedDiff.js';
 
 /**
  * Renders GitHub-style UNIFIED diff rows (from lib/unifiedDiff) as lightweight
  * red/green/± lines — NO monaco editor instance, so it's cheap enough to drop
- * into a canvas card or the single-file diff view. Word-level `innerChanges`
- * segments get a stronger tint; long unchanged runs are shown as a collapsed gap.
+ * into a canvas card or the single-file diff view.
  *
- * Presentational + dumb: it only paints `rows`. Syntax highlighting (monaco
- * colorize) is a later pass; v1 is plain monospace + diff tints.
+ * Each line is painted as syntax-highlighted HTML (monaco colorize, passed in as
+ * `oldHtml`/`newHtml` per side) on top of a word-level highlight layer — the
+ * changed `innerChanges` segments get a stronger tint, positioned by `ch` columns
+ * (the font is monospace). Falls back to plain text when colorize is unavailable.
+ * Long unchanged runs collapse to a gap row.
  */
 
 // Line backgrounds (subtle) + word-level highlight (stronger), as alpha over the
@@ -21,7 +23,15 @@ const DEL_WORD = `${color.danger}40`;
 const NUM_WIDTH = 44;
 const SIGN_WIDTH = 20;
 
-export const UnifiedDiff = ({ rows }: { rows: readonly DiffRow[] }): JSX.Element => (
+export const UnifiedDiff = ({
+  rows,
+  oldHtml,
+  newHtml,
+}: {
+  rows: readonly DiffRow[];
+  oldHtml?: readonly string[] | undefined;
+  newHtml?: readonly string[] | undefined;
+}): JSX.Element => (
   <div
     data-testid="unified-diff"
     style={{
@@ -36,9 +46,15 @@ export const UnifiedDiff = ({ rows }: { rows: readonly DiffRow[] }): JSX.Element
     {/* Sizes to the widest row so each line's tint spans full width even when the
         container scrolls horizontally. */}
     <div style={{ minWidth: 'max-content' }}>
-      {rows.map((row, i) => (
-        <Row key={`${i}:${rowKey(row)}`} row={row} />
-      ))}
+      {rows.map((row, i) => {
+        const html =
+          row.kind === 'add'
+            ? newHtml?.[row.newLine - 1]
+            : row.kind === 'del' || row.kind === 'context'
+              ? oldHtml?.[row.oldLine - 1]
+              : undefined;
+        return <Row key={`${i}:${rowKey(row)}`} row={row} html={html} />;
+      })}
     </div>
   </div>
 );
@@ -72,7 +88,18 @@ const Gutter = ({ n }: { n: number | null }): JSX.Element => (
   </span>
 );
 
-const Row = ({ row }: { row: DiffRow }): JSX.Element => {
+/** Word-level highlight column ranges from the line's segments (1-based start). */
+const wordRanges = (segs: readonly DiffSeg[]): Array<{ start: number; len: number }> => {
+  const out: Array<{ start: number; len: number }> = [];
+  let col = 1;
+  for (const s of segs) {
+    if (s.hi) out.push({ start: col, len: s.text.length });
+    col += s.text.length;
+  }
+  return out;
+};
+
+const Row = ({ row, html }: { row: DiffRow; html: string | undefined }): JSX.Element => {
   if (row.kind === 'gap') {
     return (
       <div style={{ display: 'flex', background: color.surfaceMuted }}>
@@ -94,6 +121,8 @@ const Row = ({ row }: { row: DiffRow }): JSX.Element => {
   const isDel = row.kind === 'del';
   const oldNum = row.kind === 'context' || isDel ? row.oldLine : null;
   const newNum = row.kind === 'context' || isAdd ? row.newLine : null;
+  const words = isAdd || isDel ? wordRanges(row.segs) : [];
+  const plain = row.kind === 'context' ? row.text || ' ' : row.segs.map((s) => s.text).join('');
   return (
     <div
       style={{
@@ -115,20 +144,34 @@ const Row = ({ row }: { row: DiffRow }): JSX.Element => {
       >
         {isAdd ? '+' : isDel ? '−' : ' '}
       </span>
-      <span style={{ flex: 1, paddingRight: space[3], color: color.textPrimary }}>
-        {row.kind === 'context'
-          ? row.text || ' '
-          : row.segs.map((seg, j) =>
-              seg.hi ? (
-                // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional within a stable line.
-                <span key={j} style={{ background: isAdd ? ADD_WORD : DEL_WORD, borderRadius: 2 }}>
-                  {seg.text}
-                </span>
-              ) : (
-                // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional within a stable line.
-                <span key={j}>{seg.text}</span>
-              ),
-            )}
+      <span style={{ flex: 1, position: 'relative', paddingRight: space[3] }}>
+        {/* Word-level highlight rectangles, BEHIND the text (ch columns = monospace). */}
+        {words.map((w) => (
+          <span
+            key={`w${w.start}`}
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: `${w.start - 1}ch`,
+              width: `${w.len}ch`,
+              background: isAdd ? ADD_WORD : DEL_WORD,
+              borderRadius: 2,
+              zIndex: 0,
+            }}
+          />
+        ))}
+        {/* Syntax-highlighted line on top (transparent bg), or plain text fallback. */}
+        {html != null ? (
+          <span
+            style={{ position: 'relative', zIndex: 1, color: color.textPrimary }}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: monaco colorize output (escaped token spans), not user HTML.
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          <span style={{ position: 'relative', zIndex: 1, color: color.textPrimary }}>{plain}</span>
+        )}
       </span>
     </div>
   );

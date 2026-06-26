@@ -90,7 +90,7 @@ export const UnifiedDiffView = ({
         ) : diff.rows.length === 0 ? (
           <Centered color={color.textTertiary}>No changes.</Centered>
         ) : (
-          <UnifiedDiff rows={diff.rows} />
+          <UnifiedDiff rows={diff.rows} oldHtml={diff.oldHtml} newHtml={diff.newHtml} />
         )}
       </div>
     </div>

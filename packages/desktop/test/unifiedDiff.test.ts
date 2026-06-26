@@ -86,6 +86,13 @@ describe('computeUnifiedDiff', () => {
     expect(rows.every((r) => r.kind === 'context')).toBe(true);
     expect(rows).toHaveLength(3);
   });
+
+  it('drops the phantom trailing blank line from a file ending in \\n', () => {
+    // 'a\nb\n' splits to ['a','b',''] — the final '' must not show as a blank row.
+    const rows = computeUnifiedDiff('a\nb\n', 'a\nX\n', ALL);
+    expect(rows.map((r) => r.kind)).toEqual(['context', 'del', 'add']); // no trailing context ''
+    expect(rows.some((r) => r.kind === 'context' && r.text === '')).toBe(false);
+  });
 });
 
 describe('diffStat', () => {
