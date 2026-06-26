@@ -80,6 +80,59 @@ export interface GitShowResult {
   readonly content: string | null;
 }
 
+/** A person (author or committer) on a commit. `date` is strict ISO 8601 (%aI/%cI). */
+export interface GitPerson {
+  readonly name: string;
+  readonly email: string;
+  readonly date: string;
+}
+
+/**
+ * One commit from `git.log`. The history data layer feeding the commit graph,
+ * the ⌘K Git mode (search commits), and per-file history. `parents` (empty for a
+ * root commit, >1 for a merge) is what the graph's lane layout draws edges from.
+ * `refs` are the branch/tag/remote names decorating this commit (HEAD's own arrow
+ * is normalized into `head` + the pointed-at branch in `refs`).
+ */
+export interface GitCommit {
+  readonly hash: string;
+  readonly shortHash: string;
+  readonly parents: readonly string[];
+  readonly author: GitPerson;
+  readonly committer: GitPerson;
+  readonly subject: string;
+  readonly body: string;
+  readonly refs: readonly string[];
+  /** True when HEAD points at this commit (directly or via its branch). */
+  readonly head: boolean;
+}
+
+export interface GitLogArgs {
+  /** Start ref (default "HEAD"). Ignored when `all` is set. */
+  readonly ref?: string;
+  /** `--max-count` cap (omit for no limit); the panel paginates with this + `skip`. */
+  readonly maxCount?: number;
+  /** `--skip` offset for pagination. */
+  readonly skip?: number;
+  /** Limit to one path's history (workspace-relative) — the per-file timeline. */
+  readonly path?: string;
+  /** `--all`: walk every ref's history (the whole DAG, for the graph). */
+  readonly all?: boolean;
+}
+
+export interface GitLogResult {
+  readonly commits: readonly GitCommit[];
+}
+
+export interface GitDiffRefArgs {
+  /** Base ref. Omit to diff `to` against its first parent (`to^`). */
+  readonly from?: string;
+  /** Target ref (a SHA, branch, or "HEAD"). */
+  readonly to: string;
+  /** Limit the diff to one path (workspace-relative). */
+  readonly path?: string;
+}
+
 /** A remote/long operation (push/pull/fetch) — surfaces git's own output so the
  *  panel can show "Already up to date" etc. Throws (GitError) on failure. */
 export interface GitRemoteResult {

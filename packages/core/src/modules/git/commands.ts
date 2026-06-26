@@ -5,14 +5,17 @@ import {
   assertWorkspaceRelative,
   requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import { parseStatus } from './parse.js';
+import { parseLog, parseStatus } from './parse.js';
 import type {
   GitBranchesResult,
   GitCheckoutArgs,
   GitCommitArgs,
   GitCommitResult,
   GitDiffArgs,
+  GitDiffRefArgs,
   GitDiffResult,
+  GitLogArgs,
+  GitLogResult,
   GitOkResult,
   GitPathsArgs,
   GitRemoteResult,
@@ -33,6 +36,14 @@ import type {
 const REMOTE_TIMEOUT_MS = 120_000;
 const STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--branch'] as const;
 
+// A ref interpolated into a git arg (treeish, `<ref>:./path`, `<ref>^`) must be a
+// safe git revision: a constrained charset and never a leading '-' (git would read
+// it as a flag). `^`/`~`/`@`/`/` are valid in real refs (HEAD^, main~1, @{u}).
+const SAFE_REF = /^[\w./~^@][\w./~^@-]*$/;
+
+/** The empty-tree object — diff target for a root commit (which has no parent). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
 /** Run git in the bound workspace root. */
 const git = (
   ctx: Context,
@@ -42,6 +53,17 @@ const git = (
 
 function assertPaths(paths: readonly string[]): void {
   for (const p of paths) assertWorkspaceRelative(p);
+}
+
+function assertSafeRef(ref: string, label: string): void {
+  if (!SAFE_REF.test(ref)) throw new Error(`${label}: unsafe ref ${JSON.stringify(ref)}`);
+}
+
+/** A non-negative integer arg destined for a `--flag=<n>` (template-injection guard). */
+function assertCount(n: number | undefined, label: string): void {
+  if (n !== undefined && (!Number.isInteger(n) || n < 0)) {
+    throw new Error(`${label}: expected a non-negative integer, got ${JSON.stringify(n)}`);
+  }
 }
 
 export const status: Handler<unknown, GitStatusResult> = async (_args, ctx) => {
@@ -172,14 +194,73 @@ export const diff: Handler<GitDiffArgs, GitDiffResult> = async (args, ctx) => {
 
 export const show: Handler<GitShowArgs, GitShowResult> = async (args, ctx) => {
   assertWorkspaceRelative(args.path);
-  // `ref` is interpolated into the treeish below, so constrain it to a safe git
-  // revision charset and never a leading '-' (git would read it as a flag). Empty
-  // ref = the index version (`:./path`).
-  if (args.ref !== '' && !/^[\w./~^@][\w./~^@-]*$/.test(args.ref)) {
-    throw new Error(`git.show: unsafe ref ${JSON.stringify(args.ref)}`);
-  }
+  // Empty ref = the index version (`:./path`); any other ref must be safe.
+  if (args.ref !== '') assertSafeRef(args.ref, 'git.show');
   // `<ref>:./<path>` is cwd-relative (so a subdir workspace resolves correctly).
   // Exit 128 = the path doesn't exist at that ref (a new file has no baseline).
   const res = await git(ctx, ['show', `${args.ref}:./${args.path}`], { acceptExitCodes: [0, 128] });
   return { content: res.exitCode === 0 ? res.stdout : null };
+};
+
+// Commit fields joined by US (\x1f), records ended by RS (\x1e). See parse.ts —
+// these escapes emit the exact bytes parseLog splits on. Order MUST match parseLog:
+// hash, shortHash, parents, author{n,e,date}, committer{n,e,date}, refs, subject, body.
+const LOG_FORMAT = `${[
+  '%H',
+  '%h',
+  '%P',
+  '%an',
+  '%ae',
+  '%aI',
+  '%cn',
+  '%ce',
+  '%cI',
+  '%D',
+  '%s',
+  '%b',
+].join('%x1f')}%x1e`;
+
+export const log: Handler<GitLogArgs, GitLogResult> = async (args, ctx) => {
+  assertCount(args.maxCount, 'git.log maxCount');
+  assertCount(args.skip, 'git.log skip');
+  if (args.path !== undefined) assertWorkspaceRelative(args.path);
+  const cmd = ['log', `--format=${LOG_FORMAT}`];
+  if (args.maxCount !== undefined) cmd.push(`--max-count=${args.maxCount}`);
+  if (args.skip !== undefined) cmd.push(`--skip=${args.skip}`);
+  if (args.all === true) {
+    cmd.push('--all');
+  } else {
+    const ref = args.ref ?? 'HEAD';
+    assertSafeRef(ref, 'git.log');
+    cmd.push(ref);
+  }
+  if (args.path !== undefined) cmd.push('--', args.path);
+  // An unborn branch (no commits yet) exits 128 — surface that as an empty history,
+  // not an error (the graph/panel just shows nothing). A genuinely bad ref/flag also
+  // exits 128, but the safe-ref guard above already rejected those before we got here.
+  const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
+  if (res.exitCode !== 0) {
+    if (/does not have any commits yet|bad default revision/i.test(res.stderr)) {
+      return { commits: [] };
+    }
+    throw new Error(`git log failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
+  }
+  return { commits: parseLog(res.stdout) };
+};
+
+export const diffRef: Handler<GitDiffRefArgs, GitDiffResult> = async (args, ctx) => {
+  assertSafeRef(args.to, 'git.diffRef to');
+  if (args.from !== undefined) assertSafeRef(args.from, 'git.diffRef from');
+  if (args.path !== undefined) assertWorkspaceRelative(args.path);
+  const pathArgs = args.path !== undefined ? ['--', args.path] : [];
+  // No `from` → "what this commit changed" = its first parent vs itself (`to^ to`).
+  const from = args.from ?? `${args.to}^`;
+  const res = await git(ctx, ['diff', from, args.to, ...pathArgs], { acceptExitCodes: [0, 128] });
+  if (res.exitCode === 0) return { diff: res.stdout };
+  // A defaulted `to^` fails (128) when `to` is a root commit (no parent) — fall back
+  // to diffing against the empty tree so a repo's first commit still shows its diff.
+  if (args.from === undefined) {
+    return { diff: (await git(ctx, ['diff', EMPTY_TREE, args.to, ...pathArgs])).stdout };
+  }
+  throw new Error(`git diff failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
 };

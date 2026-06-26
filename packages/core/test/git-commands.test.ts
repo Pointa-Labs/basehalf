@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   type GitBranchesResult,
+  type GitDiffResult,
+  type GitLogResult,
   type GitRunner,
   type GitShowResult,
   type GitStatusResult,
   createCore,
 } from '../src/index.js';
+
+const US = '\x1f';
+const RS = '\x1e';
 
 interface Recorded {
   args: string[];
@@ -170,5 +175,105 @@ describe('git commands (injected fake runner)', () => {
     const core = createCore({ git, configDir: '/cfg' });
     await expect(core.run('git.stage', { paths: ['../escape'] }, ROOT)).rejects.toThrow();
     expect(calls).toHaveLength(0); // never reached git
+  });
+
+  it('git.log requests the US/RS format and parses the commits', async () => {
+    const fields = [
+      'c1',
+      'c1',
+      '',
+      'Ada',
+      'a@x',
+      '2026-06-27T10:00:00+00:00',
+      'Ada',
+      'a@x',
+      '2026-06-27T10:00:00+00:00',
+      'HEAD -> main',
+      'first',
+      '',
+    ];
+    const out = `${fields.join(US)}${RS}\n`;
+    const { git, calls } = makeFakeGit(() => ({ stdout: out }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.log', {}, ROOT)) as GitLogResult;
+    expect(calls[0].args[0]).toBe('log');
+    expect(calls[0].args).toContain('HEAD'); // defaults to HEAD
+    expect(r.commits).toHaveLength(1);
+    expect(r.commits[0]).toMatchObject({
+      hash: 'c1',
+      subject: 'first',
+      head: true,
+      refs: ['main'],
+    });
+  });
+
+  it('git.log passes maxCount/skip/all/path and uses --all instead of a ref', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.log', { maxCount: 50, skip: 10, all: true, path: 'src/a.ts' }, ROOT);
+    const a = calls[0].args;
+    expect(a).toContain('--max-count=50');
+    expect(a).toContain('--skip=10');
+    expect(a).toContain('--all');
+    expect(a).not.toContain('HEAD'); // --all supersedes the start ref
+    expect(a.slice(-2)).toEqual(['--', 'src/a.ts']);
+  });
+
+  it('git.log → empty history on an unborn branch (git exits 128)', async () => {
+    const { git } = makeFakeGit(() => ({
+      exitCode: 128,
+      stderr: "fatal: your current branch 'main' does not have any commits yet",
+    }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.log', {}, ROOT)) as GitLogResult;
+    expect(r.commits).toEqual([]);
+  });
+
+  it('git.log rejects an unsafe ref before reaching git', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.log', { ref: '--output=x' }, ROOT)).rejects.toThrow(/unsafe ref/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('git.log rejects a non-integer maxCount (template-injection guard)', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.log', { maxCount: 1.5 as number }, ROOT)).rejects.toThrow(
+      /non-negative integer/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('git.diffRef diffs to^..to by default', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'DIFF' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.diffRef', { to: 'abc123' }, ROOT)) as GitDiffResult;
+    expect(r.diff).toBe('DIFF');
+    expect(calls[0].args).toEqual(['diff', 'abc123^', 'abc123']);
+  });
+
+  it('git.diffRef falls back to the empty tree for a root commit (to^ fails 128)', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[1] === 'abc^' ? { exitCode: 128, stderr: 'bad revision' } : { stdout: 'ROOTDIFF' },
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.diffRef', { to: 'abc' }, ROOT)) as GitDiffResult;
+    expect(r.diff).toBe('ROOTDIFF');
+    expect(calls[1].args).toEqual(['diff', '4b825dc642cb6eb9a060e54bf8d69288fbee4904', 'abc']);
+  });
+
+  it('git.diffRef uses an explicit from..to and scopes to a path', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'D' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.diffRef', { from: 'main', to: 'feat', path: 'a.ts' }, ROOT);
+    expect(calls[0].args).toEqual(['diff', 'main', 'feat', '--', 'a.ts']);
+  });
+
+  it('git.diffRef rejects an unsafe ref before reaching git', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.diffRef', { to: '-x' }, ROOT)).rejects.toThrow(/unsafe ref/);
+    expect(calls).toHaveLength(0);
   });
 });

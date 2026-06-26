@@ -3,10 +3,10 @@ import * as git from './commands.js';
 
 /**
  * The `git` module — Source Control over the system git binary (via the injected
- * `ctx.git`). Reads (`git.status`/`diff`/`show`/`branches`) return structured,
- * parsed results; writes (`stage`/`unstage`/`discard`/`commit`/`checkout`/`init`)
- * and remote ops (`push`/`pull`/`fetch`) are explicit user actions. The desktop
- * SCM panel drives all of this over IPC.
+ * `ctx.git`). Reads (`git.status`/`diff`/`diffRef`/`show`/`branches`/`log`) return
+ * structured, parsed results; writes (`stage`/`unstage`/`discard`/`commit`/
+ * `checkout`/`init`) and remote ops (`push`/`pull`/`fetch`) are explicit user
+ * actions. The desktop SCM panel drives all of this over IPC.
  */
 export function registerGitModule(core: Core): void {
   core.register('git.status', git.status);
@@ -23,7 +23,9 @@ export function registerGitModule(core: Core): void {
   core.register('git.checkout', git.checkout);
   core.register('git.init', git.init);
   core.register('git.diff', git.diff);
+  core.register('git.diffRef', git.diffRef);
   core.register('git.show', git.show);
+  core.register('git.log', git.log);
 }
 
 export type * from './types.js';

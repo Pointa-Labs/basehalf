@@ -2,7 +2,7 @@
 // they're unit-testable without a real git (the trickiest, most regression-prone
 // part of the module). Grounded in the actual bytes of
 // `git status --porcelain=v1 -z --branch` (see git-parse.test.ts).
-import type { GitFileStatus } from './types.js';
+import type { GitCommit, GitFileStatus } from './types.js';
 
 export interface ParsedBranchHeader {
   readonly branch: string | null;
@@ -98,4 +98,72 @@ export function parseStatus(raw: string): ParsedStatus {
 export function isConflict(x: string, y: string): boolean {
   const xy = x + y;
   return xy === 'DD' || xy === 'AA' || xy === 'UU' || x === 'U' || y === 'U';
+}
+
+// ── git log parsing ──────────────────────────────────────────────────────────
+// `git.log` emits each commit with fields joined by US (\x1f) and records ended
+// by RS (\x1e) — ASCII control bytes that effectively never occur in commit text,
+// so subjects/bodies with spaces, newlines, or "..." parse cleanly (NUL can't be
+// used: a SHA/body is text, but the field set here mixes message bytes). The
+// `%x1f`/`%x1e` git format escapes in commands.ts (LOG_FORMAT) emit exactly these.
+const LOG_FIELD = '\x1f';
+const LOG_RECORD = '\x1e';
+
+/**
+ * Parse the `%D` decoration string (e.g. "HEAD -> main, origin/main, tag: v1")
+ * into the plain ref names pointing at a commit + whether HEAD is among them.
+ * "HEAD -> main" → head + ref "main"; bare "HEAD" (detached) → head, no ref;
+ * "tag: v1" → ref "v1".
+ */
+function parseDecorations(raw: string): { refs: string[]; head: boolean } {
+  const refs: string[] = [];
+  let head = false;
+  for (const token of raw.split(',').map((s) => s.trim())) {
+    if (token === '') continue;
+    if (token === 'HEAD') {
+      head = true;
+      continue;
+    }
+    const arrow = token.match(/^HEAD -> (.+)$/);
+    if (arrow) {
+      head = true;
+      if (arrow[1] !== undefined) refs.push(arrow[1]);
+      continue;
+    }
+    refs.push(token.startsWith('tag: ') ? token.slice(5) : token);
+  }
+  return { refs, head };
+}
+
+/**
+ * Parse the raw stdout of `git log --format=<LOG_FORMAT>` into structured commits.
+ * Records are RS-separated; git's `tformat` adds a trailing newline after each, so
+ * a leading newline is stripped per record. Defensive: a record with too few
+ * fields is skipped rather than throwing (one corrupt line shouldn't sink history).
+ */
+export function parseLog(raw: string): GitCommit[] {
+  const commits: GitCommit[] = [];
+  for (const rawRecord of raw.split(LOG_RECORD)) {
+    const record = rawRecord.replace(/^\n/, '');
+    if (record === '') continue;
+    const f = record.split(LOG_FIELD);
+    if (f.length < 12) continue;
+    const [hash, shortHash, parents, an, ae, ad, cn, ce, cd, decorations, subject, ...bodyParts] =
+      f;
+    // body is the last field; rejoin defensively in case it ever contained US.
+    const body = bodyParts.join(LOG_FIELD);
+    const { refs, head } = parseDecorations(decorations ?? '');
+    commits.push({
+      hash: hash ?? '',
+      shortHash: shortHash ?? '',
+      parents: (parents ?? '').split(' ').filter((p) => p.length > 0),
+      author: { name: an ?? '', email: ae ?? '', date: ad ?? '' },
+      committer: { name: cn ?? '', email: ce ?? '', date: cd ?? '' },
+      subject: subject ?? '',
+      body,
+      refs,
+      head,
+    });
+  }
+  return commits;
 }
