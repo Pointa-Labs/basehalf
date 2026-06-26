@@ -23,6 +23,7 @@ import { selectRegion } from './lib/appRegion.js';
 import { flushAll } from './lib/editorFlush.js';
 import { droppedPaths, handleExternalDrop } from './lib/importDrop.js';
 import { useReadingMode } from './lib/readingMode.js';
+import { scheduleGitStatusRefresh, useGitStatusStore } from './store/gitStatus.js';
 import { useLayoutStore } from './store/layout.js';
 import { wireUpdateBridge } from './store/updates.js';
 import { useWorkspaceStore } from './store/workspace.js';
@@ -76,6 +77,20 @@ export const App = (): JSX.Element => {
     });
     return unsub;
   }, []);
+
+  // Keep git status live for the SCM panel + the tree / canvas / gutter coloring:
+  // refresh on workspace change, and (debounced) on any working-tree file event.
+  // (A `.git/`-only change — e.g. an external branch switch — fires no fs event;
+  // the SCM panel's manual refresh covers those.)
+  useEffect(() => {
+    if (current === null) {
+      useGitStatusStore.getState().reset();
+      return;
+    }
+    void useGitStatusStore.getState().refresh();
+    const unsub = window.bh.onFileEvent(() => scheduleGitStatusRefresh());
+    return unsub;
+  }, [current]);
 
   // Global keyboard shortcuts:
   //  - Cmd/Ctrl+S  — open search (the primary shortcut; ⌘K is an alias)

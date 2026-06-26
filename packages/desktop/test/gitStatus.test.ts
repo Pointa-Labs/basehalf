@@ -1,6 +1,19 @@
 import type { GitFileStatus } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
-import { classifyStatus, totalChangeCount } from '../src/renderer/src/lib/gitStatus.js';
+import {
+  classifyStatus,
+  fileDecoration,
+  totalChangeCount,
+} from '../src/renderer/src/lib/gitStatus.js';
+
+const PAL = {
+  added: 'green',
+  modified: 'amber',
+  deleted: 'red',
+  conflict: 'purple',
+  renamed: 'blue',
+  untracked: 'teal',
+};
 
 const f = (path: string, x: string, y: string, orig?: string): GitFileStatus =>
   orig === undefined ? { path, x, y } : { path, x, y, orig };
@@ -44,5 +57,29 @@ describe('classifyStatus', () => {
     const g = classifyStatus([f('a.ts', 'M', 'M'), f('b.ts', '?', '?'), f('c.ts', 'U', 'U')]);
     // a → staged + changes (2 rows), b → changes (1), c → merge (1) = 4
     expect(totalChangeCount(g)).toBe(4);
+  });
+});
+
+describe('fileDecoration (single-file letter + color for tree / canvas)', () => {
+  it('unstaged modify → M, modified color', () => {
+    expect(fileDecoration(f('a', ' ', 'M'), PAL)).toEqual({ letter: 'M', color: 'amber' });
+  });
+  it('staged add → A, added color', () => {
+    expect(fileDecoration(f('a', 'A', ' '), PAL)).toEqual({ letter: 'A', color: 'green' });
+  });
+  it('untracked → U, untracked color', () => {
+    expect(fileDecoration(f('a', '?', '?'), PAL)).toEqual({ letter: 'U', color: 'teal' });
+  });
+  it('deleted → D, deleted color', () => {
+    expect(fileDecoration(f('a', ' ', 'D'), PAL)).toEqual({ letter: 'D', color: 'red' });
+  });
+  it('staged rename → R, renamed color', () => {
+    expect(fileDecoration(f('a', 'R', ' ', 'b'), PAL)).toEqual({ letter: 'R', color: 'blue' });
+  });
+  it('conflict → !, conflict color', () => {
+    expect(fileDecoration(f('a', 'U', 'U'), PAL)).toEqual({ letter: '!', color: 'purple' });
+  });
+  it('prefers the work-tree status over the staged one (MM → M)', () => {
+    expect(fileDecoration(f('a', 'M', 'M'), PAL).letter).toBe('M');
   });
 });

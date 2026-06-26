@@ -8,6 +8,7 @@ import {
   statusColor,
   totalChangeCount,
 } from '../lib/gitStatus.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { Button } from './primitives/Button.js';
 
@@ -33,7 +34,8 @@ const STATUS_PALETTE = {
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 export const SourceControl = (): JSX.Element => {
-  const [status, setStatus] = useState<GitStatusResult | null>(null);
+  const status = useGitStatusStore((s) => s.status);
+  const refresh = useGitStatusStore((s) => s.refresh);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,17 +48,8 @@ export const SourceControl = (): JSX.Element => {
     else openGitDiff(r.path, r.staged);
   };
 
-  const refresh = useCallback(async () => {
-    try {
-      setStatus((await window.bh.run('git.status', {})) as GitStatusResult);
-      setError(null);
-    } catch (err) {
-      setError(msg(err));
-    }
-  }, []);
-
-  // Fetch on mount. The parent keys this component by workspace path, so a
-  // workspace switch remounts it → a fresh read of the new repo.
+  // Fetch on mount (the global git-status sync also refreshes on file events;
+  // this guarantees a fresh read the moment the panel opens).
   useEffect(() => {
     void refresh();
   }, [refresh]);

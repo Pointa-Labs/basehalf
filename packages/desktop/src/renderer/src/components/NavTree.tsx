@@ -10,11 +10,24 @@ import {
 } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
+import { type GitDecoPalette, fileDecoration } from '../lib/gitStatus.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
 import { openContextMenu } from '../store/contextMenu.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { InlineEditInput } from './primitives/InlineEditInput.js';
+
+// File-tree git-status colors (VS Code conventions): added / untracked green,
+// modified amber, deleted red, conflict red, renamed accent.
+const GIT_PALETTE: GitDecoPalette = {
+  added: color.success,
+  modified: color.warning,
+  deleted: color.danger,
+  conflict: color.danger,
+  renamed: color.accent,
+  untracked: color.success,
+};
 
 interface NavTreeProps {
   rootPath: string;
@@ -63,6 +76,8 @@ const ROW_HEIGHT = 22; // matches the editor's compact tree-row height
 interface RowProps {
   depth: number;
   entry: WorkspaceListFilesEntry;
+  /** Workspace-relative POSIX path, for the git-status coloring lookup. */
+  rel: string;
   isExpanded: boolean;
   isSelected: boolean;
   onClick: () => void;
@@ -86,6 +101,7 @@ const isAgentHintFile = (depth: number, entry: WorkspaceListFilesEntry): boolean
 const Row = ({
   depth,
   entry,
+  rel,
   isExpanded,
   isSelected,
   onClick,
@@ -99,6 +115,9 @@ const Row = ({
   const isDir = entry.type === 'dir';
   const indent = space[2] + depth * 14;
   const agentHint = isAgentHintFile(depth, entry);
+  // git status for this path (a file, or an untracked dir reported as "rel/").
+  const git = useGitStatusStore((s) => s.byPath.get(rel) ?? s.byPath.get(`${rel}/`));
+  const deco = git ? fileDecoration(git, GIT_PALETTE) : null;
 
   const glyph = (
     <span
@@ -221,10 +240,27 @@ const Row = ({
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
+          ...(deco && !isSelected && { color: deco.color }),
         }}
       >
         {entry.name}
       </span>
+      {deco && (
+        <span
+          aria-hidden
+          title={`git: ${deco.letter}`}
+          style={{
+            marginLeft: 'auto',
+            flexShrink: 0,
+            fontFamily: font.mono,
+            fontSize: font.size.micro,
+            fontWeight: font.weight.semibold,
+            color: deco.color,
+          }}
+        >
+          {deco.letter}
+        </span>
+      )}
       {agentHint && (
         <span
           aria-hidden
@@ -498,6 +534,7 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
         <Row
           key={path}
           entry={entry}
+          rel={rel}
           depth={depth}
           isExpanded={isExpanded}
           isSelected={isSelected}

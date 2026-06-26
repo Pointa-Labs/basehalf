@@ -77,3 +77,30 @@ export function statusColor(
   if (row.status === 'R' || row.status === 'C') return palette.renamed;
   return palette.modified; // M / T / default
 }
+
+export interface GitDecoPalette {
+  readonly added: string;
+  readonly modified: string;
+  readonly deleted: string;
+  readonly conflict: string;
+  readonly renamed: string;
+  readonly untracked: string;
+}
+
+/**
+ * The single-letter status + color for ONE file — for coloring a file-tree row or
+ * a canvas card from its raw XY codes. Prefers the work-tree (unstaged) status
+ * over the staged one, so a file you just edited reads as Modified, not Staged.
+ */
+export function fileDecoration(
+  f: GitFileStatus,
+  palette: GitDecoPalette,
+): { letter: string; color: string } {
+  if (isConflict(f.x, f.y)) return { letter: '!', color: palette.conflict };
+  if (f.x === '?') return { letter: 'U', color: palette.untracked };
+  const code = f.y !== ' ' ? f.y : f.x;
+  if (code === 'A') return { letter: 'A', color: palette.added };
+  if (code === 'D') return { letter: 'D', color: palette.deleted };
+  if (code === 'R' || code === 'C') return { letter: code, color: palette.renamed };
+  return { letter: code === ' ' ? 'M' : code, color: palette.modified };
+}
