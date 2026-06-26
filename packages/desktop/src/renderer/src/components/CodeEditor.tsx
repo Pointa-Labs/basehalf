@@ -4,7 +4,7 @@ import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useRef, useS
 import { color, font, radius, shadow, space } from '../design.js';
 import { type FlushOptions, registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { makeFileFocusPusher } from '../lib/focusPush.js';
-import '../lib/monacoSetup.js';
+import { ensureBhTheme, languageOf } from '../lib/monacoSetup.js';
 import { Button } from './primitives/Button.js';
 
 /**
@@ -26,41 +26,6 @@ import { Button } from './primitives/Button.js';
  * the user is looking at). A binary mis-routed here (the read flags it) shows an
  * open-in-app fallback instead of mojibake.
  */
-
-// One dark theme whose background matches the app surface, so Monaco blends into
-// the Dark-Modern-modelled chrome instead of sitting on its own shade. Defined
-// once, lazily, on the first editor mount.
-let themeDefined = false;
-function ensureTheme(): void {
-  if (themeDefined) return;
-  monaco.editor.defineTheme('bh-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [],
-    colors: {
-      'editor.background': color.surface,
-      'editorGutter.background': color.surface,
-      'editorLineNumber.foreground': color.textGhost,
-      'editor.lineHighlightBorder': '#00000000',
-    },
-  });
-  themeDefined = true;
-}
-
-/** Monaco language id for a path, looked up from Monaco's own extension /
- *  filename registry (so `Dockerfile`, `.ts`, `.tf`… all resolve the way VS Code
- *  resolves them). Unknown → 'plaintext', still fully editable. */
-function languageOf(path: string): string {
-  const slash = path.lastIndexOf('/');
-  const name = (slash === -1 ? path : path.slice(slash + 1)).toLowerCase();
-  const dot = name.lastIndexOf('.');
-  const ext = dot > 0 ? name.slice(dot) : '';
-  for (const lang of monaco.languages.getLanguages()) {
-    if (lang.filenames?.some((f) => f.toLowerCase() === name)) return lang.id;
-    if (ext && lang.extensions?.some((e) => e.toLowerCase() === ext)) return lang.id;
-  }
-  return 'plaintext';
-}
 
 /** Which blocking dialog is up (mutually exclusive): the navigate-away unsaved
  *  prompt, or the disk-changed-under-us conflict banner. */
@@ -217,7 +182,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       }
       const text = res.content ?? '';
       lastSavedRef.current = text;
-      ensureTheme();
+      ensureBhTheme();
       const editor = monaco.editor.create(host, {
         value: text,
         language: languageOf(file),

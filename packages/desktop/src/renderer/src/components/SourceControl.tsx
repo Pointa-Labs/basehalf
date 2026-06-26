@@ -38,6 +38,13 @@ export const SourceControl = (): JSX.Element => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+  const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
+  // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
+  // (resolution is its own surface) opens the file directly instead.
+  const openRow = (r: GitRow): void => {
+    if (r.untracked || r.conflict) openInPanel(r.path);
+    else openGitDiff(r.path, r.staged);
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -200,7 +207,7 @@ export const SourceControl = (): JSX.Element => {
               title="Merge Changes"
               rows={groups.merge}
               show={groups.merge.length > 0}
-              onRow={(r) => openInPanel(r.path)}
+              onRow={openRow}
               actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
             />
             <Group
@@ -212,7 +219,7 @@ export const SourceControl = (): JSX.Element => {
                 glyph: '−',
                 onClick: () => void unstage(groups.staged.map((r) => r.path)),
               }}
-              onRow={(r) => openInPanel(r.path)}
+              onRow={openRow}
               actions={(r) => [
                 { label: 'Unstage', glyph: '−', onClick: () => void unstage([r.path]) },
               ]}
@@ -226,7 +233,7 @@ export const SourceControl = (): JSX.Element => {
                 glyph: '+',
                 onClick: () => void stage(groups.changes.map((r) => r.path)),
               }}
-              onRow={(r) => openInPanel(r.path)}
+              onRow={openRow}
               actions={(r) => [
                 { label: 'Discard', glyph: '↩', onClick: () => discard(r), danger: true },
                 { label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) },

@@ -6,6 +6,7 @@ import { useTerminalStore } from '../store/terminal.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { Breadcrumb } from './Breadcrumb.js';
 import { FilePreview } from './FilePreview.js';
+import { GitDiffView } from './GitDiffView.js';
 
 /**
  * The full-canvas editor overlay. When a file is open it covers the canvas
@@ -27,7 +28,8 @@ import { FilePreview } from './FilePreview.js';
  */
 export const EditorOverlay = (): JSX.Element | null => {
   const openFile = useWorkspaceStore((s) => s.openFile);
-  const closeEditor = useWorkspaceStore((s) => s.closeEditor);
+  const gitDiff = useWorkspaceStore((s) => s.gitDiff);
+  const closeGitDiff = useWorkspaceStore((s) => s.closeGitDiff);
   // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
   // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
   // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
@@ -42,14 +44,20 @@ export const EditorOverlay = (): JSX.Element | null => {
   // focus or an IME is composing — those press Esc to dismiss candidates / blur
   // their own field, not to close the document under the user.
   const close = useCallback((): void => {
-    if (useWorkspaceStore.getState().openFile === null) return;
-    useWorkspaceStore.getState().closeEditor();
+    const st = useWorkspaceStore.getState();
+    if (st.gitDiff !== null) {
+      st.closeGitDiff();
+      return;
+    }
+    if (st.openFile === null) return;
+    st.closeEditor();
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
-      if (useWorkspaceStore.getState().openFile === null) return;
+      const st = useWorkspaceStore.getState();
+      if (st.openFile === null && st.gitDiff === null) return;
       if (isImeComposing(e)) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -79,7 +87,7 @@ export const EditorOverlay = (): JSX.Element | null => {
     [close],
   );
 
-  if (openFile === null) return null;
+  if (openFile === null && gitDiff === null) return null;
 
   return (
     <div
@@ -102,13 +110,24 @@ export const EditorOverlay = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      <Breadcrumb />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-        {/* A stable synthetic paneId keys this file's flusher in the editorFlush
-            registry; FilePreview itself keys the editor by workspace-root + path,
-            so a switch remounts cleanly. */}
-        <FilePreview file={openFile} paneId={EDITOR_OVERLAY_PANE_ID} isActive />
-      </div>
+      {gitDiff !== null ? (
+        <GitDiffView
+          key={`${gitDiff.path}:${gitDiff.staged}`}
+          path={gitDiff.path}
+          staged={gitDiff.staged}
+          onClose={closeGitDiff}
+        />
+      ) : openFile !== null ? (
+        <>
+          <Breadcrumb />
+          <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
+            {/* A stable synthetic paneId keys this file's flusher in the editorFlush
+                registry; FilePreview itself keys the editor by workspace-root + path,
+                so a switch remounts cleanly. */}
+            <FilePreview file={openFile} paneId={EDITOR_OVERLAY_PANE_ID} isActive />
+          </div>
+        </>
+      ) : null}
     </div>
   );
 };

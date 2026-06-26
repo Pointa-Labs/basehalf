@@ -58,6 +58,12 @@ interface WorkspaceState {
    *  persists its last edits; an unresolved conflict / failed write keeps it
    *  open so the user resolves it). Esc / the ✕ / ⌘W drive this. */
   closeEditor: () => void;
+  /** A git diff open in the overlay (a Source Control row click): the file + whether
+   *  it's the staged diff (HEAD ↔ index) or the unstaged one (index ↔ working tree).
+   *  Takes precedence over `openFile` in the overlay. */
+  gitDiff: { path: string; staged: boolean } | null;
+  openGitDiff: (path: string, staged: boolean) => void;
+  closeGitDiff: () => void;
   /** Rebind the open file's path (the watcher saw it renamed on disk). No flush —
    *  the old path is gone; the editor remounts on the new bytes. No-op when the
    *  renamed file isn't the open one. */
@@ -264,6 +270,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
     openRoots: [],
     currentReachable: null,
     openFile: null,
+    gitDiff: null,
     currentFile: null,
     titleFocusPath: null,
     bodyFocusPath: null,
@@ -572,6 +579,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
         else set({ error: "Save or resolve this file's changes before closing it." });
       }, finish);
     },
+
+    openGitDiff: (path, staged) => {
+      // Flush any open editor first (its last edits persist; a conflict blocks),
+      // then swap the overlay to the read-only diff.
+      void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
+        if (ok) set({ openFile: null, gitDiff: { path, staged } });
+      });
+    },
+    closeGitDiff: () => set({ gitDiff: null }),
 
     consumeTitleFocus: () => set({ titleFocusPath: null }),
 
