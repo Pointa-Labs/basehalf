@@ -59,6 +59,41 @@ export interface GitCheckoutArgs {
   readonly create?: boolean;
 }
 
+export interface GitCreateBranchArgs {
+  /** New branch name (validated against git's refname rules before use). */
+  readonly name: string;
+  /** Start point (a ref/SHA); defaults to the current HEAD. */
+  readonly ref?: string;
+  /** Switch to the new branch after creating it (default true). */
+  readonly checkout?: boolean;
+}
+
+export interface GitDeleteBranchArgs {
+  readonly name: string;
+  /** `-D` (force) instead of `-d` — delete even if not fully merged. */
+  readonly force?: boolean;
+}
+
+export interface GitMergeArgs {
+  /** Branch (or ref) to merge INTO the current branch. */
+  readonly branch: string;
+}
+
+export interface GitMergeResult {
+  /** True when the merge completed; false when it stopped on conflicts. */
+  readonly merged: boolean;
+  /** True when the merge left the work tree with conflict markers to resolve. */
+  readonly conflicts: boolean;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface GitRenameBranchArgs {
+  /** Branch to rename; defaults to the current branch when omitted. */
+  readonly from?: string;
+  readonly to: string;
+}
+
 export interface GitDiffArgs {
   readonly path: string;
   /** Diff the staged version (index vs HEAD) instead of working-tree vs index. */

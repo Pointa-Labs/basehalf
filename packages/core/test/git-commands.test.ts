@@ -138,6 +138,74 @@ describe('git commands (injected fake runner)', () => {
     ]);
   });
 
+  it('git.createBranch creates and switches by default (checkout -b)', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.createBranch', { name: 'feat/x' }, ROOT);
+    expect(calls[0].args).toEqual(['checkout', '-b', 'feat/x']);
+  });
+
+  it('git.createBranch with checkout:false and a start ref just creates it', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.createBranch', { name: 'feat/x', ref: 'main', checkout: false }, ROOT);
+    expect(calls[0].args).toEqual(['branch', 'feat/x', 'main']);
+  });
+
+  it('git.createBranch rejects an injection-shaped name before git', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.createBranch', { name: '-D main' }, ROOT)).rejects.toThrow(
+      /invalid branch name/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it('git.deleteBranch uses -d, or -D when force', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.deleteBranch', { name: 'old' }, ROOT);
+    await core.run('git.deleteBranch', { name: 'old', force: true }, ROOT);
+    expect(calls[0].args).toEqual(['branch', '-d', 'old']);
+    expect(calls[1].args).toEqual(['branch', '-D', 'old']);
+  });
+
+  it('git.merge → merged on a clean merge', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'Fast-forward' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.merge', { branch: 'feat' }, ROOT)) as { merged: boolean };
+    expect(r.merged).toBe(true);
+    expect(calls[0].args).toEqual(['merge', 'feat']);
+  });
+
+  it('git.merge → conflicts:true (exit 1 with CONFLICT) is not an error', async () => {
+    const { git } = makeFakeGit(() => ({
+      exitCode: 1,
+      stdout: 'CONFLICT (content): Merge conflict in a.ts',
+    }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.merge', { branch: 'feat' }, ROOT)) as {
+      merged: boolean;
+      conflicts: boolean;
+    };
+    expect(r).toMatchObject({ merged: false, conflicts: true });
+  });
+
+  it('git.merge → a non-conflict exit 1 still throws', async () => {
+    const { git } = makeFakeGit(() => ({ exitCode: 1, stderr: 'not something we can merge' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.merge', { branch: 'nope' }, ROOT)).rejects.toThrow(/merge failed/);
+  });
+
+  it('git.renameBranch renames the current branch (or a named one)', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.renameBranch', { to: 'main2' }, ROOT);
+    await core.run('git.renameBranch', { from: 'old', to: 'new' }, ROOT);
+    expect(calls[0].args).toEqual(['branch', '-m', 'main2']);
+    expect(calls[1].args).toEqual(['branch', '-m', 'old', 'new']);
+  });
+
   it('git.show → null when the path is absent at the ref (exit 128)', async () => {
     const { git } = makeFakeGit(() => ({ exitCode: 128 }));
     const core = createCore({ git, configDir: '/cfg' });

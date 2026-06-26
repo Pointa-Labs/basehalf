@@ -11,14 +11,19 @@ import type {
   GitCheckoutArgs,
   GitCommitArgs,
   GitCommitResult,
+  GitCreateBranchArgs,
+  GitDeleteBranchArgs,
   GitDiffArgs,
   GitDiffRefArgs,
   GitDiffResult,
   GitLogArgs,
   GitLogResult,
+  GitMergeArgs,
+  GitMergeResult,
   GitOkResult,
   GitPathsArgs,
   GitRemoteResult,
+  GitRenameBranchArgs,
   GitShowArgs,
   GitShowResult,
   GitStatusResult,
@@ -57,6 +62,24 @@ function assertPaths(paths: readonly string[]): void {
 
 function assertSafeRef(ref: string, label: string): void {
   if (!SAFE_REF.test(ref)) throw new Error(`${label}: unsafe ref ${JSON.stringify(ref)}`);
+}
+
+/**
+ * Validate a NEW branch name before interpolating it into a git arg. Blocks the
+ * dangerous shapes (leading '-' → flag injection; whitespace/control chars; the
+ * `~^:?*[\` git refname metacharacters; `..`). git's own `check-ref-format` is the
+ * final authority — this is the injection guard, not a full refname validator.
+ */
+function assertBranchName(name: string, label: string): void {
+  if (
+    name === '' ||
+    name.startsWith('-') ||
+    name.includes('..') ||
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: blocking control chars is the point.
+    /[\s~^:?*[\\\x00-\x1f]/.test(name)
+  ) {
+    throw new Error(`${label}: invalid branch name ${JSON.stringify(name)}`);
+  }
 }
 
 /** A non-negative integer arg destined for a `--flag=<n>` (template-injection guard). */
@@ -177,6 +200,52 @@ export const checkout: Handler<GitCheckoutArgs, GitOkResult> = async (args, ctx)
     ctx,
     args.create === true ? ['checkout', '-b', args.branch] : ['checkout', args.branch],
   );
+  return { ok: true };
+};
+
+export const createBranch: Handler<GitCreateBranchArgs, GitOkResult> = async (args, ctx) => {
+  assertBranchName(args.name, 'git.createBranch');
+  if (args.ref !== undefined) assertSafeRef(args.ref, 'git.createBranch ref');
+  const start = args.ref !== undefined ? [args.ref] : [];
+  // Default: create AND switch (VS Code's "Create Branch"). checkout:false just
+  // creates it (`git branch <name> [start]`) without leaving the current branch.
+  const cmd =
+    args.checkout === false
+      ? ['branch', args.name, ...start]
+      : ['checkout', '-b', args.name, ...start];
+  await git(ctx, cmd);
+  return { ok: true };
+};
+
+export const deleteBranch: Handler<GitDeleteBranchArgs, GitOkResult> = async (args, ctx) => {
+  assertSafeRef(args.name, 'git.deleteBranch');
+  await git(ctx, ['branch', args.force === true ? '-D' : '-d', args.name]);
+  return { ok: true };
+};
+
+export const merge: Handler<GitMergeArgs, GitMergeResult> = async (args, ctx) => {
+  assertSafeRef(args.branch, 'git.merge');
+  // A merge that hits conflicts exits 1 and leaves the work tree with markers —
+  // that's a normal outcome the panel routes to the conflict UI, not an error.
+  // Other non-zero exits (bad branch, etc.) still throw.
+  const res = await git(ctx, ['merge', args.branch], { acceptExitCodes: [0, 1] });
+  if (res.exitCode === 0) {
+    return { merged: true, conflicts: false, stdout: res.stdout, stderr: res.stderr };
+  }
+  const conflicts = /conflict/i.test(res.stdout) || /conflict/i.test(res.stderr);
+  if (conflicts) {
+    return { merged: false, conflicts: true, stdout: res.stdout, stderr: res.stderr };
+  }
+  throw new Error(`git merge failed: ${res.stderr.trim() || res.stdout.trim() || 'exit 1'}`);
+};
+
+export const renameBranch: Handler<GitRenameBranchArgs, GitOkResult> = async (args, ctx) => {
+  assertBranchName(args.to, 'git.renameBranch to');
+  if (args.from !== undefined) assertSafeRef(args.from, 'git.renameBranch from');
+  // `branch -m [from] to` renames `from` (or the current branch) to `to`.
+  const cmd =
+    args.from !== undefined ? ['branch', '-m', args.from, args.to] : ['branch', '-m', args.to];
+  await git(ctx, cmd);
   return { ok: true };
 };
 
