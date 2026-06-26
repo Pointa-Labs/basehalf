@@ -250,12 +250,13 @@ const GIT_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
 
 /**
  * The production GitRunner: spawns the system `git`. Every call gets
- * `-c core.quotepath=false` (UTF-8 paths, no octal-escaping) and
- * `GIT_OPTIONAL_LOCKS=0` (a read never fights another process for index.lock).
- * Rejects with GitError when the exit code isn't accepted (default `[0]`), or a
- * plain Error on spawn failure (git not installed) / timeout. Exported so the
- * desktop host can wire it into createCore — core never imports child_process
- * elsewhere, keeping the git module mockable.
+ * `-c core.quotepath=false` (UTF-8 paths, no octal-escaping), `GIT_OPTIONAL_LOCKS=0`
+ * (a read never fights another process for index.lock), and a forced English +
+ * UTF-8 locale so stderr classification (not-a-repo / auth / conflict …) matches
+ * regardless of the host's locale. Rejects with GitError when the exit code isn't
+ * accepted (default `[0]`), or a plain Error on spawn failure (git not installed),
+ * timeout, or output overflow. Exported so the desktop host can wire it into
+ * createCore — core never imports child_process elsewhere, keeping git mockable.
  */
 export function defaultGit(): GitRunner {
   return (args, opts) =>
@@ -264,7 +265,17 @@ export function defaultGit(): GitRunner {
       const timeoutMs = opts.timeoutMs ?? GIT_DEFAULT_TIMEOUT_MS;
       const child = spawn('git', ['-c', 'core.quotepath=false', ...args], {
         cwd: opts.cwd,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        // Force English + UTF-8 (so we can match git's stderr text on any locale)
+        // and disable the pager (a TTY-less spawn could otherwise hang). Mirrors
+        // VS Code's git extension (extensions/git/src/git.ts spawn env).
+        env: {
+          ...process.env,
+          GIT_OPTIONAL_LOCKS: '0',
+          LC_ALL: 'en_US.UTF-8',
+          LANG: 'en_US.UTF-8',
+          LANGUAGE: 'en',
+          GIT_PAGER: 'cat',
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
       const outChunks: Buffer[] = [];
@@ -283,7 +294,18 @@ export function defaultGit(): GitRunner {
       }, timeoutMs);
       child.stdout.on('data', (c: Buffer) => {
         outLen += c.length;
-        if (outLen <= GIT_MAX_OUTPUT_BYTES) outChunks.push(c);
+        // Overflow → kill + reject, never silently truncate: a half buffer fed to
+        // the porcelain parser would corrupt the result (a cut-off `-z` field).
+        if (outLen > GIT_MAX_OUTPUT_BYTES) {
+          child.kill('SIGKILL');
+          finish(() =>
+            reject(
+              new Error(`git ${args.join(' ')} output exceeded ${GIT_MAX_OUTPUT_BYTES} bytes`),
+            ),
+          );
+          return;
+        }
+        outChunks.push(c);
       });
       child.stderr.on('data', (c: Buffer) => errChunks.push(c));
       child.on('error', (err) => finish(() => reject(err)));

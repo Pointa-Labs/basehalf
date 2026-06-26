@@ -54,8 +54,8 @@ export interface ParsedStatus extends ParsedBranchHeader {
 /**
  * Parse `git status --porcelain=v1 -z --branch`. NUL-separated fields: a leading
  * `## …` header, then one `XY␣path` field per change (X = index, Y = work-tree).
- * A rename/copy (X or Y is 'R'/'C') is followed by an extra field carrying the
- * ORIGINAL path. Untracked is `??`, ignored `!!`.
+ * A rename/copy is followed by an extra field carrying the ORIGINAL path. Untracked
+ * is `??`, ignored `!!`.
  */
 export function parseStatus(raw: string): ParsedStatus {
   const fields = raw.split('\0').filter((f) => f.length > 0);
@@ -78,8 +78,12 @@ export function parseStatus(raw: string): ParsedStatus {
     const x = field[0] ?? ' ';
     const y = field[1] ?? ' ';
     const path = field.slice(3);
-    if (x === 'R' || x === 'C') {
-      // The next NUL field is the rename/copy SOURCE path.
+    // A rename/copy carries an extra SOURCE field. The trigger is X OR Y being
+    // 'R', or X being 'C' — matching git's own porcelain emitter. Checking only
+    // X (the old code) mis-parsed a work-tree-side rename: the source path got
+    // consumed as the NEXT entry, cascading the whole remaining file list out of
+    // alignment. (Mirrors VS Code's GitStatusParser — extensions/git/src/git.ts.)
+    if (x === 'R' || y === 'R' || x === 'C') {
       const orig = fields[i + 1];
       i++;
       files.push(orig !== undefined ? { path, x, y, orig } : { path, x, y });

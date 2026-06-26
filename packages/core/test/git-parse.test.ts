@@ -77,6 +77,18 @@ describe('parseStatus (porcelain v1 -z --branch)', () => {
     ]);
   });
 
+  it('consumes the source field for a Y-column rename/copy (no list mis-alignment)', () => {
+    // A rename can land on the Y (work-tree) column too, e.g. " R" — the next NUL
+    // field is still the SOURCE. If the parser only checks X it eats the source as
+    // the next entry and cascades every following file out of alignment.
+    const raw = '## main\0 R new.txt\0old.txt\0 M after.txt\0';
+    const r = parseStatus(raw);
+    expect(r.files).toEqual([
+      { path: 'new.txt', x: ' ', y: 'R', orig: 'old.txt' },
+      { path: 'after.txt', x: ' ', y: 'M' }, // stays aligned — not mis-read as the source
+    ]);
+  });
+
   it('reads ahead/behind from the branch header', () => {
     const r = parseStatus('## main...origin/main [ahead 1, behind 2]\0 M a.txt\0');
     expect(r).toMatchObject({ branch: 'main', upstream: 'origin/main', ahead: 1, behind: 2 });
