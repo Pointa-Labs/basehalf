@@ -80,6 +80,9 @@ describe('computeUnifiedDiff', () => {
     // The hunk AFTER the gap is 1 context (line10) + 1 add (ADDED) → @@ -10,1 +10,2 @@
     expect(gap).toMatchObject({ oldStart: 10, oldCount: 1, newStart: 10, newCount: 2 });
     expect(rows[rows.length - 1]?.kind).toBe('add');
+    // The 9 collapsed context lines (line1..line9) are kept for click-to-expand.
+    expect(gap.hidden).toHaveLength(9);
+    expect(gap.hidden.every((r) => r.kind === 'context')).toBe(true);
   });
 
   it('identical text → all context', () => {

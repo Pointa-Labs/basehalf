@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { Fragment, type JSX, useState } from 'react';
 import { color, font, space } from '../design.js';
 import type { DiffRow, DiffSeg } from '../lib/unifiedDiff.js';
 
@@ -11,7 +11,8 @@ import type { DiffRow, DiffSeg } from '../lib/unifiedDiff.js';
  * `oldHtml`/`newHtml` per side) on top of a word-level highlight layer — the
  * changed `innerChanges` segments get a stronger tint, positioned by `ch` columns
  * (the font is monospace). Falls back to plain text when colorize is unavailable.
- * Long unchanged runs collapse to a gap row.
+ * A collapsed run renders as a clickable git hunk header (`@@ … @@`) that expands
+ * the hidden unchanged lines on click.
  */
 
 // Line backgrounds (subtle) + word-level highlight (stronger), as alpha over the
@@ -23,6 +24,9 @@ const DEL_WORD = `${color.danger}40`;
 const NUM_WIDTH = 44;
 const SIGN_WIDTH = 20;
 
+type LineRow = Exclude<DiffRow, { kind: 'gap' }>;
+type GapRow = Extract<DiffRow, { kind: 'gap' }>;
+
 export const UnifiedDiff = ({
   rows,
   oldHtml,
@@ -31,35 +35,59 @@ export const UnifiedDiff = ({
   rows: readonly DiffRow[];
   oldHtml?: readonly string[] | undefined;
   newHtml?: readonly string[] | undefined;
-}): JSX.Element => (
-  <div
-    data-testid="unified-diff"
-    style={{
-      fontFamily: font.mono,
-      fontSize: 12,
-      lineHeight: '18px',
-      background: color.bg,
-      overflowX: 'auto',
-      color: color.textSecondary,
-    }}
-  >
-    {/* Sizes to the widest row so each line's tint spans full width even when the
-        container scrolls horizontally. */}
-    <div style={{ minWidth: 'max-content' }}>
-      {rows.map((row, i) => {
-        const html =
-          row.kind === 'add'
-            ? newHtml?.[row.newLine - 1]
-            : row.kind === 'del' || row.kind === 'context'
-              ? oldHtml?.[row.oldLine - 1]
-              : undefined;
-        return <Row key={`${i}:${rowKey(row)}`} row={row} html={html} />;
-      })}
-    </div>
-  </div>
-);
+}): JSX.Element => {
+  // Which gaps the user expanded (keyed by the hunk's old-start line).
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
+  const toggle = (key: number): void =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const htmlFor = (row: LineRow): string | undefined =>
+    row.kind === 'add' ? newHtml?.[row.newLine - 1] : oldHtml?.[row.oldLine - 1];
 
-const rowKey = (row: DiffRow): string => {
+  return (
+    <div
+      data-testid="unified-diff"
+      style={{
+        fontFamily: font.mono,
+        fontSize: 12,
+        lineHeight: '18px',
+        background: color.bg,
+        overflowX: 'auto',
+        color: color.textSecondary,
+      }}
+    >
+      {/* Sizes to the widest row so each line's tint spans full width even when the
+          container scrolls horizontally. */}
+      <div style={{ minWidth: 'max-content' }}>
+        {rows.map((row, i) => {
+          if (row.kind === 'gap') {
+            const open = expanded.has(row.oldStart);
+            return (
+              <Fragment key={`g${row.oldStart}`}>
+                <HunkBar row={row} open={open} onToggle={() => toggle(row.oldStart)} />
+                {open &&
+                  row.hidden.map((h, k) => (
+                    <Row
+                      key={`h${row.oldStart}-${k}`}
+                      row={h as LineRow}
+                      html={htmlFor(h as LineRow)}
+                    />
+                  ))}
+              </Fragment>
+            );
+          }
+          return <Row key={`${i}:${rowKey(row)}`} row={row} html={htmlFor(row)} />;
+        })}
+      </div>
+    </div>
+  );
+};
+
+const rowKey = (row: LineRow): string => {
   switch (row.kind) {
     case 'context':
       return `c${row.oldLine}`;
@@ -67,10 +95,56 @@ const rowKey = (row: DiffRow): string => {
       return `d${row.oldLine}`;
     case 'add':
       return `a${row.newLine}`;
-    case 'gap':
-      return `g${row.oldStart}`;
   }
 };
+
+// The clickable git hunk header — a muted-blue bar showing `@@ -a,b +c,d @@`; the
+// ▸/▾ toggles the collapsed unchanged lines (GitHub's expand affordance).
+const HunkBar = ({
+  row,
+  open,
+  onToggle,
+}: {
+  row: GapRow;
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element => (
+  <button
+    type="button"
+    onClick={onToggle}
+    title={open ? '收起未改动的行' : '展开未改动的行'}
+    style={{
+      display: 'flex',
+      width: '100%',
+      alignItems: 'center',
+      background: `${color.accent}14`,
+      border: 'none',
+      padding: 0,
+      margin: 0,
+      cursor: 'pointer',
+      fontFamily: font.mono,
+      fontSize: 12,
+      lineHeight: '18px',
+      color: color.textTertiary,
+      textAlign: 'left',
+    }}
+  >
+    <span
+      style={{
+        width: NUM_WIDTH * 2 + SIGN_WIDTH,
+        flexShrink: 0,
+        textAlign: 'center',
+        color: color.accent,
+        userSelect: 'none',
+      }}
+    >
+      {open ? '▾' : '▸'}
+    </span>
+    <span style={{ padding: '1px 0' }}>
+      @@ -{row.oldStart},{row.oldCount} +{row.newStart},{row.newCount} @@
+    </span>
+  </button>
+);
 
 const Gutter = ({ n }: { n: number | null }): JSX.Element => (
   <span
@@ -99,18 +173,7 @@ const wordRanges = (segs: readonly DiffSeg[]): Array<{ start: number; len: numbe
   return out;
 };
 
-const Row = ({ row, html }: { row: DiffRow; html: string | undefined }): JSX.Element => {
-  if (row.kind === 'gap') {
-    // Git hunk header, GitHub-style: a muted-blue bar with `@@ -a,b +c,d @@`.
-    return (
-      <div style={{ display: 'flex', background: `${color.accent}14` }}>
-        <span style={{ width: NUM_WIDTH * 2 + SIGN_WIDTH, flexShrink: 0 }} />
-        <span style={{ color: color.textTertiary, padding: '1px 0' }}>
-          @@ -{row.oldStart},{row.oldCount} +{row.newStart},{row.newCount} @@
-        </span>
-      </div>
-    );
-  }
+const Row = ({ row, html }: { row: LineRow; html: string | undefined }): JSX.Element => {
   const isAdd = row.kind === 'add';
   const isDel = row.kind === 'del';
   const oldNum = row.kind === 'context' || isDel ? row.oldLine : null;

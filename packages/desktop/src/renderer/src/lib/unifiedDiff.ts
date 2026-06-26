@@ -38,6 +38,8 @@ export type DiffRow =
       readonly oldCount: number;
       readonly newStart: number;
       readonly newCount: number;
+      // The collapsed unchanged CONTEXT rows, kept so the gap can expand on click.
+      readonly hidden: readonly DiffRow[];
     };
 
 // The engine's richer change shape (no .d.ts ships for the deep import; lineDiff
@@ -184,7 +186,15 @@ function collapse(rows: readonly DiffRow[], context: number): DiffRow[] {
     const keepBot = atEnd ? 0 : context;
     if (runLen > keepTop + keepBot + 1) {
       for (let k = i; k < i + keepTop; k++) out.push(rows[k] as DiffRow);
-      out.push({ kind: 'gap', oldStart: 0, oldCount: 0, newStart: 0, newCount: 0 }); // ranges filled later
+      // ranges filled later; the collapsed middle is kept in `hidden` for expand.
+      out.push({
+        kind: 'gap',
+        oldStart: 0,
+        oldCount: 0,
+        newStart: 0,
+        newCount: 0,
+        hidden: rows.slice(i + keepTop, j - keepBot),
+      });
       for (let k = j - keepBot; k < j; k++) out.push(rows[k] as DiffRow);
     } else {
       for (let k = i; k < j; k++) out.push(rows[k] as DiffRow);
@@ -246,7 +256,14 @@ function fillHunkHeaders(rows: DiffRow[]): DiffRow[] {
         newCount++;
       }
     }
-    return { kind: 'gap', oldStart: oldStart || 1, newStart: newStart || 1, oldCount, newCount };
+    return {
+      kind: 'gap',
+      oldStart: oldStart || 1,
+      newStart: newStart || 1,
+      oldCount,
+      newCount,
+      hidden: row.hidden,
+    };
   });
 }
 
