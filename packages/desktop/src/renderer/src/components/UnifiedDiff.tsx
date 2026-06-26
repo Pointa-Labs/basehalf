@@ -68,7 +68,7 @@ const rowKey = (row: DiffRow): string => {
     case 'add':
       return `a${row.newLine}`;
     case 'gap':
-      return `g${row.count}`;
+      return `g${row.oldStart}`;
   }
 };
 
@@ -101,18 +101,12 @@ const wordRanges = (segs: readonly DiffSeg[]): Array<{ start: number; len: numbe
 
 const Row = ({ row, html }: { row: DiffRow; html: string | undefined }): JSX.Element => {
   if (row.kind === 'gap') {
+    // Git hunk header, GitHub-style: a muted-blue bar with `@@ -a,b +c,d @@`.
     return (
-      <div style={{ display: 'flex', background: color.surfaceMuted }}>
+      <div style={{ display: 'flex', background: `${color.accent}14` }}>
         <span style={{ width: NUM_WIDTH * 2 + SIGN_WIDTH, flexShrink: 0 }} />
-        <span
-          style={{
-            color: color.textTertiary,
-            fontFamily: font.sans,
-            fontSize: 11,
-            padding: '1px 0',
-          }}
-        >
-          ⋯ {row.count} 行未改动
+        <span style={{ color: color.textTertiary, padding: '1px 0' }}>
+          @@ -{row.oldStart},{row.oldCount} +{row.newStart},{row.newCount} @@
         </span>
       </div>
     );

@@ -11,7 +11,7 @@
  *   context — an unchanged line, shown with BOTH line numbers
  *   del     — a removed line (old number, '−'), split into word-level segments
  *   add     — an added line   (new number, '+'), split into word-level segments
- *   gap     — a run of unchanged lines collapsed away ("⋯ N unchanged lines")
+ *   gap     — a collapsed boundary, rendered as a git hunk header `@@ … @@`
  */
 import { diffComputer } from './lineDiff.js';
 
@@ -30,7 +30,15 @@ export type DiffRow =
     }
   | { readonly kind: 'del'; readonly oldLine: number; readonly segs: readonly DiffSeg[] }
   | { readonly kind: 'add'; readonly newLine: number; readonly segs: readonly DiffSeg[] }
-  | { readonly kind: 'gap'; readonly count: number };
+  // A collapsed boundary rendered as a git hunk header `@@ -oldStart,oldCount
+  // +newStart,newCount @@` (the ranges of the hunk that FOLLOWS the gap).
+  | {
+      readonly kind: 'gap';
+      readonly oldStart: number;
+      readonly oldCount: number;
+      readonly newStart: number;
+      readonly newCount: number;
+    };
 
 // The engine's richer change shape (no .d.ts ships for the deep import; lineDiff
 // types only the line ranges, so re-declare what we additionally consume here).
@@ -176,7 +184,7 @@ function collapse(rows: readonly DiffRow[], context: number): DiffRow[] {
     const keepBot = atEnd ? 0 : context;
     if (runLen > keepTop + keepBot + 1) {
       for (let k = i; k < i + keepTop; k++) out.push(rows[k] as DiffRow);
-      out.push({ kind: 'gap', count: runLen - keepTop - keepBot });
+      out.push({ kind: 'gap', oldStart: 0, oldCount: 0, newStart: 0, newCount: 0 }); // ranges filled later
       for (let k = j - keepBot; k < j; k++) out.push(rows[k] as DiffRow);
     } else {
       for (let k = i; k < j; k++) out.push(rows[k] as DiffRow);
@@ -203,14 +211,43 @@ export function computeUnifiedDiff(
     const all = orig.map(
       (text, i): DiffRow => ({ kind: 'context', oldLine: i + 1, newLine: i + 1, text }),
     );
-    return trimTrailingBlank(collapse(all, context));
+    return fillHunkHeaders(trimTrailingBlank(collapse(all, context)));
   }
   const { changes } = diffComputer.computeDiff(orig, mod, {
     ignoreTrimWhitespace: false,
     maxComputationTimeMs: 1000,
     computeMoves: false,
   }) as unknown as { changes: EngineChange[] };
-  return trimTrailingBlank(collapse(buildRows(orig, mod, changes), context));
+  return fillHunkHeaders(trimTrailingBlank(collapse(buildRows(orig, mod, changes), context)));
+}
+
+/** Fill each gap's hunk-header ranges from the hunk that FOLLOWS it (the rows up
+ *  to the next gap / end), so it renders as `@@ -oldStart,oldCount +newStart,
+ *  newCount @@` — git's hunk header. */
+function fillHunkHeaders(rows: DiffRow[]): DiffRow[] {
+  return rows.map((row, i): DiffRow => {
+    if (row.kind !== 'gap') return row;
+    let oldStart = 0;
+    let newStart = 0;
+    let oldCount = 0;
+    let newCount = 0;
+    for (let j = i + 1; j < rows.length && rows[j]?.kind !== 'gap'; j++) {
+      const r = rows[j] as DiffRow;
+      if (r.kind === 'context') {
+        if (oldStart === 0) oldStart = r.oldLine;
+        if (newStart === 0) newStart = r.newLine;
+        oldCount++;
+        newCount++;
+      } else if (r.kind === 'del') {
+        if (oldStart === 0) oldStart = r.oldLine;
+        oldCount++;
+      } else if (r.kind === 'add') {
+        if (newStart === 0) newStart = r.newLine;
+        newCount++;
+      }
+    }
+    return { kind: 'gap', oldStart: oldStart || 1, newStart: newStart || 1, oldCount, newCount };
+  });
 }
 
 /** Drop the phantom trailing empty CONTEXT line — a file ending in "\n" splits to

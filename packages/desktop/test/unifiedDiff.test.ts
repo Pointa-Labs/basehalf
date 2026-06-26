@@ -72,12 +72,13 @@ describe('computeUnifiedDiff', () => {
     expect(rows[rows.length - 1]).toEqual({ kind: 'context', oldLine: 3, newLine: 3, text: 'c' });
   });
 
-  it('collapses a long unchanged run into a gap', () => {
+  it('collapses a long unchanged run into a hunk-header gap', () => {
     const orig = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n');
     const rows = computeUnifiedDiff(orig, `${orig}\nADDED`, { context: 1 });
     const gap = rows.find((r) => r.kind === 'gap') as Extract<DiffRow, { kind: 'gap' }>;
     expect(gap).toBeDefined();
-    expect(gap.count).toBe(9); // 10 leading context, keep 1 next to the change → collapse 9
+    // The hunk AFTER the gap is 1 context (line10) + 1 add (ADDED) → @@ -10,1 +10,2 @@
+    expect(gap).toMatchObject({ oldStart: 10, oldCount: 1, newStart: 10, newCount: 2 });
     expect(rows[rows.length - 1]?.kind).toBe('add');
   });
 
