@@ -17,7 +17,7 @@ import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import { color } from '../design.js';
+import { color, font } from '../design.js';
 
 type WorkerEnv = { getWorker(workerId: string, label: string): Worker };
 
@@ -74,6 +74,12 @@ export function ensureGitGutterStyles(): void {
 .bh-git-gutter-add { border-left: 3px solid ${color.success}; box-sizing: border-box; }
 .bh-git-gutter-modify { border-left: 3px solid ${color.accent}; box-sizing: border-box; }
 .bh-git-gutter-delete { border-left: 3px solid ${color.danger}; box-sizing: border-box; }
+.bh-conflict-current { background: ${color.success}1f; }
+.bh-conflict-incoming { background: ${color.accent}1f; }
+.bh-conflict-marker { background: ${color.danger}2a; font-weight: 600; }
+.bh-conflict-actions { display: flex; gap: 4px; padding: 2px 0; z-index: 4; }
+.bh-conflict-actions button { font: 500 11px ${font.sans}; padding: 1px 7px; border-radius: 4px; border: 1px solid ${color.border}; background: ${color.surface}; color: ${color.textSecondary}; cursor: pointer; }
+.bh-conflict-actions button:hover { background: ${color.divider}; color: ${color.textPrimary}; }
 `;
   document.head.appendChild(style);
   gutterStylesInjected = true;

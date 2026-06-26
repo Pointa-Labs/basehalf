@@ -5,6 +5,12 @@ import { color, font, radius, shadow, space } from '../design.js';
 import { type FlushOptions, registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { makeFileFocusPusher } from '../lib/focusPush.js';
 import { computeLineChanges } from '../lib/lineDiff.js';
+import {
+  type ConflictBlock,
+  type ConflictChoice,
+  findConflicts,
+  resolveConflict,
+} from '../lib/mergeConflict.js';
 import { ensureBhTheme, ensureGitGutterStyles, languageOf } from '../lib/monacoSetup.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { Button } from './primitives/Button.js';
@@ -235,13 +241,91 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       // A commit / checkout moves HEAD → re-read the baseline + redraw.
       unsubGit = useGitStatusStore.subscribe(() => void fetchBaseline());
 
+      // ── inline merge-conflict resolution ───────────────────────────────────
+      const conflictWidgets: monaco.editor.IContentWidget[] = [];
+      let conflictDecoIds: string[] = [];
+      const clearConflicts = (): void => {
+        for (const w of conflictWidgets) editor.removeContentWidget(w);
+        conflictWidgets.length = 0;
+        conflictDecoIds = editor.deltaDecorations(conflictDecoIds, []);
+      };
+      const resolveBlock = (block: ConflictBlock, choice: ConflictChoice): void => {
+        const model = editor.getModel();
+        if (!model) return;
+        // Replace the whole block (markers included) with the chosen side. The
+        // resulting content change re-runs refreshConflicts via onDidChangeModelContent.
+        editor.executeEdits('bh-conflict', [
+          {
+            range: new monaco.Range(
+              block.startLine,
+              1,
+              block.endLine,
+              model.getLineMaxColumn(block.endLine),
+            ),
+            text: resolveConflict(editor.getValue(), block, choice),
+          },
+        ]);
+        editor.pushUndoStop();
+      };
+      const refreshConflicts = (): void => {
+        clearConflicts();
+        const decos: monaco.editor.IModelDeltaDecoration[] = [];
+        for (const block of findConflicts(editor.getValue())) {
+          const dom = document.createElement('div');
+          dom.className = 'bh-conflict-actions';
+          for (const [label, choice] of [
+            ['Accept Current', 'current'],
+            ['Accept Incoming', 'incoming'],
+            ['Accept Both', 'both'],
+          ] as const) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = label;
+            btn.onclick = () => resolveBlock(block, choice);
+            dom.appendChild(btn);
+          }
+          const widget: monaco.editor.IContentWidget = {
+            getId: () => `bh-conflict-${block.startLine}`,
+            getDomNode: () => dom,
+            getPosition: () => ({
+              position: { lineNumber: block.startLine, column: 1 },
+              preference: [monaco.editor.ContentWidgetPositionPreference.ABOVE],
+            }),
+          };
+          editor.addContentWidget(widget);
+          conflictWidgets.push(widget);
+          const marker = (line: number): monaco.editor.IModelDeltaDecoration => ({
+            range: new monaco.Range(line, 1, line, 1),
+            options: { isWholeLine: true, className: 'bh-conflict-marker' },
+          });
+          decos.push(marker(block.startLine), marker(block.sepLine), marker(block.endLine));
+          if (block.sepLine - 1 >= block.startLine + 1) {
+            decos.push({
+              range: new monaco.Range(block.startLine + 1, 1, block.sepLine - 1, 1),
+              options: { isWholeLine: true, className: 'bh-conflict-current' },
+            });
+          }
+          if (block.endLine - 1 >= block.sepLine + 1) {
+            decos.push({
+              range: new monaco.Range(block.sepLine + 1, 1, block.endLine - 1, 1),
+              options: { isWholeLine: true, className: 'bh-conflict-incoming' },
+            });
+          }
+        }
+        conflictDecoIds = editor.deltaDecorations(conflictDecoIds, decos);
+      };
+      refreshConflicts();
+
       editor.onDidChangeModelContent(() => {
         const d = editor.getValue() !== lastSavedRef.current;
         dirtyRef.current = d;
         setDirty(d);
         pushViewport();
         if (gutterTimer) clearTimeout(gutterTimer);
-        gutterTimer = setTimeout(recomputeGutter, 250);
+        gutterTimer = setTimeout(() => {
+          recomputeGutter();
+          refreshConflicts();
+        }, 250);
       });
       editor.onDidChangeCursorPosition(() => pushViewport());
       editor.onDidScrollChange(() => pushViewport());
