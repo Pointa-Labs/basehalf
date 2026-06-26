@@ -1,5 +1,6 @@
 import type { GitFileStatus, GitStatusResult } from '@basehalf/core';
 import { create } from 'zustand';
+import { useWorkspaceStore } from './workspace.js';
 
 /**
  * Shared git status for the whole renderer — the SCM panel, the file-tree /
@@ -24,14 +25,20 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
   error: null,
   byPath: new Map(),
   refresh: async () => {
+    // Bind to the workspace this read was issued for; a switch mid-flight must not
+    // let a stale result (for the OLD repo) land on top of the NEW repo's state.
+    const issuedFor = useWorkspaceStore.getState().current;
+    const stale = (): boolean => useWorkspaceStore.getState().current !== issuedFor;
     try {
       const status = (await window.bh.run('git.status', {})) as GitStatusResult;
+      if (stale()) return;
       set({
         status,
         byPath: new Map(status.files.map((f) => [f.path, f])),
         error: null,
       });
     } catch (err) {
+      if (stale()) return;
       set({
         status: null,
         byPath: new Map(),

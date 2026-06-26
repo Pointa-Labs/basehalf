@@ -45,19 +45,25 @@ function assertPaths(paths: readonly string[]): void {
 }
 
 export const status: Handler<unknown, GitStatusResult> = async (_args, ctx) => {
-  // `git status` exits 128 outside a repo — treat that as "not a repo" so the
-  // panel shows the Initialize affordance instead of surfacing an error.
+  // `git status` exits 128 outside a repo — treat ONLY that as "not a repo" so the
+  // panel shows the Initialize affordance. A 128 from a real fault (corrupt .git,
+  // unreadable HEAD, bad config) must surface as an error, not masquerade as
+  // "uninitialized" — otherwise clicking Initialize would run `git init` over an
+  // already-broken repo and bury the real cause.
   const res = await git(ctx, [...STATUS_ARGS], { acceptExitCodes: [0, 128] });
   if (res.exitCode !== 0) {
-    return {
-      isRepo: false,
-      branch: null,
-      detached: false,
-      upstream: null,
-      ahead: 0,
-      behind: 0,
-      files: [],
-    };
+    if (/not a git repository/i.test(res.stderr)) {
+      return {
+        isRepo: false,
+        branch: null,
+        detached: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        files: [],
+      };
+    }
+    throw new Error(`git status failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
   }
   return { isRepo: true, ...parseStatus(res.stdout) };
 };
@@ -161,6 +167,12 @@ export const diff: Handler<GitDiffArgs, GitDiffResult> = async (args, ctx) => {
 
 export const show: Handler<GitShowArgs, GitShowResult> = async (args, ctx) => {
   assertWorkspaceRelative(args.path);
+  // `ref` is interpolated into the treeish below, so constrain it to a safe git
+  // revision charset and never a leading '-' (git would read it as a flag). Empty
+  // ref = the index version (`:./path`).
+  if (args.ref !== '' && !/^[\w./~^@][\w./~^@-]*$/.test(args.ref)) {
+    throw new Error(`git.show: unsafe ref ${JSON.stringify(args.ref)}`);
+  }
   // `<ref>:./<path>` is cwd-relative (so a subdir workspace resolves correctly).
   // Exit 128 = the path doesn't exist at that ref (a new file has no baseline).
   const res = await git(ctx, ['show', `${args.ref}:./${args.path}`], { acceptExitCodes: [0, 128] });

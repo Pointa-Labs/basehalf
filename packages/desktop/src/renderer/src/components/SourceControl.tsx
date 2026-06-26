@@ -86,12 +86,17 @@ export const SourceControl = (): JSX.Element => {
   const discard = (row: GitRow): void => {
     const ok = window.confirm(`Discard changes in ${row.path}?\n\nThis can't be undone.`);
     if (!ok) return;
-    // Untracked files aren't git's to restore — trash them (recoverable).
-    void act(() =>
-      row.untracked
-        ? window.bh.run('workspace.deleteEntry', { path: row.path, kind: 'file' })
-        : window.bh.run('git.discard', { paths: [row.path] }),
-    );
+    void act(() => {
+      if (!row.untracked) return window.bh.run('git.discard', { paths: [row.path] });
+      // Untracked files/dirs aren't git's to restore — trash them (recoverable). A
+      // dir arrives as "dir/" (git collapses it); strip the slash + flag it a folder
+      // so its `.bh/` mirror subtree gets purged too, not left dangling.
+      const isDir = row.path.endsWith('/');
+      return window.bh.run('workspace.deleteEntry', {
+        path: isDir ? row.path.slice(0, -1) : row.path,
+        kind: isDir ? 'folder' : 'file',
+      });
+    });
   };
 
   const commit = (): void => {
@@ -115,6 +120,7 @@ export const SourceControl = (): JSX.Element => {
         <Button
           variant="primary"
           size="sm"
+          disabled={busy}
           onClick={() => void act(() => window.bh.run('git.init', {}))}
         >
           Initialize Repository
@@ -200,6 +206,7 @@ export const SourceControl = (): JSX.Element => {
               title="Merge Changes"
               rows={groups.merge}
               show={groups.merge.length > 0}
+              busy={busy}
               onRow={openRow}
               actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
             />
@@ -207,6 +214,7 @@ export const SourceControl = (): JSX.Element => {
               title="Staged Changes"
               rows={groups.staged}
               show={hasStaged}
+              busy={busy}
               groupAction={{
                 label: 'Unstage all',
                 glyph: '−',
@@ -221,6 +229,7 @@ export const SourceControl = (): JSX.Element => {
               title="Changes"
               rows={groups.changes}
               show={groups.changes.length > 0}
+              busy={busy}
               groupAction={{
                 label: 'Stage all',
                 glyph: '+',
@@ -302,6 +311,7 @@ const Group = ({
   title,
   rows,
   show,
+  busy,
   onRow,
   actions,
   groupAction,
@@ -309,6 +319,7 @@ const Group = ({
   title: string;
   rows: readonly GitRow[];
   show: boolean;
+  busy: boolean;
   onRow: (r: GitRow) => void;
   actions: (r: GitRow) => RowAction[];
   groupAction?: RowAction;
@@ -338,12 +349,19 @@ const Group = ({
               title={groupAction.label}
               glyph={groupAction.glyph}
               onClick={groupAction.onClick}
+              disabled={busy}
             />
           </span>
         )}
       </div>
       {rows.map((r) => (
-        <Row key={`${title}:${r.path}`} row={r} onOpen={() => onRow(r)} actions={actions(r)} />
+        <Row
+          key={`${title}:${r.path}`}
+          row={r}
+          busy={busy}
+          onOpen={() => onRow(r)}
+          actions={actions(r)}
+        />
       ))}
     </div>
   );
@@ -351,10 +369,12 @@ const Group = ({
 
 const Row = ({
   row,
+  busy,
   onOpen,
   actions,
 }: {
   row: GitRow;
+  busy: boolean;
   onOpen: () => void;
   actions: RowAction[];
 }): JSX.Element => {
@@ -411,6 +431,7 @@ const Row = ({
               glyph={a.glyph}
               onClick={a.onClick}
               danger={a.danger}
+              disabled={busy}
             />
           ))}
         </span>

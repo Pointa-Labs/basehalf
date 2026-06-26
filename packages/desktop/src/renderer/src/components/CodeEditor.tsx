@@ -39,6 +39,11 @@ import { Button } from './primitives/Button.js';
  *  prompt, or the disk-changed-under-us conflict banner. */
 type Prompt = 'unsaved' | 'conflict';
 
+/** Above this combined (baseline + buffer) size, skip the O(n·m) gutter line-diff
+ *  — a huge generated/minified/log file would otherwise freeze the renderer. The
+ *  change-bars are a nicety, not load-bearing, so dropping them is the right call. */
+const GUTTER_DIFF_MAX_CHARS = 1_000_000;
+
 export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -220,9 +225,14 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       const recomputeGutter = (): void => {
         const ed = editorRef.current;
         if (!ed) return;
+        const value = ed.getValue();
+        if (baselineRef.current.length + value.length > GUTTER_DIFF_MAX_CHARS) {
+          gutterIds = ed.deltaDecorations(gutterIds, []); // too big to diff — drop the bars
+          return;
+        }
         gutterIds = ed.deltaDecorations(
           gutterIds,
-          computeLineChanges(baselineRef.current, ed.getValue()).map((c) => ({
+          computeLineChanges(baselineRef.current, value).map((c) => ({
             range: new monaco.Range(c.startLine, 1, c.endLine, 1),
             options: { linesDecorationsClassName: `bh-git-gutter-${c.kind}` },
           })),
@@ -238,8 +248,24 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
         recomputeGutter();
       };
       void fetchBaseline();
-      // A commit / checkout moves HEAD → re-read the baseline + redraw.
-      unsubGit = useGitStatusStore.subscribe(() => void fetchBaseline());
+      // A commit / checkout moves HEAD → re-read the baseline + redraw. Re-fetch
+      // ONLY when the branch changed (checkout) or THIS file's status changed by
+      // value (commit/stage) — not on every working-tree event, else each save
+      // would re-spawn `git show` for every open editor (a subprocess storm).
+      const fileSig = (): string => {
+        const f = useGitStatusStore.getState().byPath.get(file);
+        return f ? `${f.x}${f.y}` : '';
+      };
+      let lastBranch = useGitStatusStore.getState().status?.branch;
+      let lastSig = fileSig();
+      unsubGit = useGitStatusStore.subscribe(() => {
+        const branch = useGitStatusStore.getState().status?.branch;
+        const sig = fileSig();
+        if (branch === lastBranch && sig === lastSig) return;
+        lastBranch = branch;
+        lastSig = sig;
+        void fetchBaseline();
+      });
 
       // ── inline merge-conflict resolution ───────────────────────────────────
       const conflictWidgets: monaco.editor.IContentWidget[] = [];
@@ -249,11 +275,14 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
         conflictWidgets.length = 0;
         conflictDecoIds = editor.deltaDecorations(conflictDecoIds, []);
       };
+      // Forward-declared so resolveBlock (below) can redraw synchronously after an
+      // edit, while refreshConflicts's button handlers call back into resolveBlock
+      // — a deliberate cycle, broken with this placeholder.
+      let refreshConflicts = (): void => undefined;
       const resolveBlock = (block: ConflictBlock, choice: ConflictChoice): void => {
         const model = editor.getModel();
         if (!model) return;
-        // Replace the whole block (markers included) with the chosen side. The
-        // resulting content change re-runs refreshConflicts via onDidChangeModelContent.
+        // Replace the whole block (markers included) with the chosen side.
         editor.executeEdits('bh-conflict', [
           {
             range: new monaco.Range(
@@ -266,8 +295,12 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
           },
         ]);
         editor.pushUndoStop();
+        // Rebuild widgets/decorations from the NEW buffer NOW — not on the 250ms
+        // debounce — so a quick second click can't resolve another block using its
+        // now-shifted, stale line numbers (which would corrupt the file).
+        refreshConflicts();
       };
-      const refreshConflicts = (): void => {
+      refreshConflicts = (): void => {
         clearConflicts();
         const decos: monaco.editor.IModelDeltaDecoration[] = [];
         for (const block of findConflicts(editor.getValue())) {

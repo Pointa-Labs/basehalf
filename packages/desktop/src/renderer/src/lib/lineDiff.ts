@@ -2,7 +2,8 @@
  * A minimal line-level diff (LCS) for the editor's git gutter change-bars:
  * compares the editor buffer to its git baseline and reports which lines in the
  * CURRENT (modified) doc are added / modified, and where content was deleted.
- * Pure + unit-tested. O(n·m) — the caller skips it for very large files.
+ * Pure + unit-tested. O(n·m) — the caller (recomputeGutter) skips it above a
+ * combined-size cap so a huge file can't freeze the renderer.
  */
 
 export type LineChangeKind = 'add' | 'modify' | 'delete';

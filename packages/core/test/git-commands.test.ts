@@ -58,6 +58,12 @@ describe('git commands (injected fake runner)', () => {
     expect(r.files).toEqual([]);
   });
 
+  it('git.status surfaces a real 128 fault (not every 128 is "not a repo")', async () => {
+    const { git } = makeFakeGit(() => ({ exitCode: 128, stderr: 'fatal: bad config line 1' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.status', {}, { workspaceRoot: '/x' })).rejects.toThrow(/bad config/);
+  });
+
   it('git.stage runs `add -- <paths>` in the workspace root', async () => {
     const { git, calls } = makeFakeGit(() => ({}));
     const core = createCore({ git, configDir: '/cfg' });
@@ -133,6 +139,23 @@ describe('git commands (injected fake runner)', () => {
     const r = (await core.run('git.show', { ref: 'HEAD', path: 'a.ts' }, ROOT)) as GitShowResult;
     expect(r.content).toBe('old content');
     expect(calls[0].args).toEqual(['show', 'HEAD:./a.ts']);
+  });
+
+  it('git.show rejects an unsafe ref (leading dash → would read as a flag)', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'x' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(
+      core.run('git.show', { ref: '--output=/etc/passwd', path: 'a.ts' }, ROOT),
+    ).rejects.toThrow(/unsafe ref/);
+    expect(calls).toHaveLength(0); // never reached git
+  });
+
+  it('git.show allows the empty ref (the index version)', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'staged content' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.show', { ref: '', path: 'a.ts' }, ROOT)) as GitShowResult;
+    expect(r.content).toBe('staged content');
+    expect(calls[0].args).toEqual(['show', ':./a.ts']);
   });
 
   it('rejects a path that escapes the workspace', async () => {
