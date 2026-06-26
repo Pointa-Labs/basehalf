@@ -1,5 +1,13 @@
 import type { GitStatusResult } from '@basehalf/core';
-import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type JSX,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import {
   type GitGroups,
@@ -32,6 +40,44 @@ const STATUS_PALETTE = {
 };
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+// Platform-correct commit shortcut for the placeholder (the handler accepts
+// both ⌘/Ctrl, so the hint should name the right one rather than always "⌘").
+const COMMIT_KEY = navigator.platform.toUpperCase().includes('MAC') ? '⌘Enter' : 'Ctrl+Enter';
+
+/** A human status label for a row's aria-label (so a screen reader announces
+ *  "name, 已修改, dir" instead of stopping at the filename). */
+const rowStatusText = (row: GitRow): string => {
+  if (row.conflict) return '合并冲突';
+  if (row.untracked) return '未跟踪';
+  const base =
+    row.status === 'A'
+      ? '已新增'
+      : row.status === 'D'
+        ? '已删除'
+        : row.status === 'R'
+          ? '已重命名'
+          : row.status === 'C'
+            ? '已复制'
+            : '已修改';
+  return row.staged ? `已暂存:${base}` : base;
+};
+
+/** Arrow-key navigation across the whole change list (one keyboard tree). */
+const handleTreeKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-scm-row]'));
+  if (items.length === 0) return;
+  const active = document.activeElement;
+  const idx = items.findIndex((el) => el === active || el.contains(active));
+  if (idx === -1) {
+    items[0]?.focus();
+  } else {
+    const next = e.key === 'ArrowDown' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
+    items[next]?.focus();
+  }
+  e.preventDefault();
+};
 
 export const SourceControl = (): JSX.Element => {
   const status = useGitStatusStore((s) => s.status);
@@ -84,13 +130,18 @@ export const SourceControl = (): JSX.Element => {
     act(() => window.bh.run('git.unstage', { paths }));
 
   const discard = (row: GitRow): void => {
-    const ok = window.confirm(`Discard changes in ${row.path}?\n\nThis can't be undone.`);
-    if (!ok) return;
+    // Accurate, action-specific wording: an untracked file goes to the OS Trash
+    // (recoverable); a tracked discard is a hard revert to HEAD (not recoverable).
+    // The old copy said "can't be undone" for BOTH — wrong for untracked.
+    const message = row.untracked
+      ? `Move “${row.path}” to the Trash?\n\nIt’s untracked — recoverable from the Trash.`
+      : `Discard changes in “${row.path}”?\n\nThis reverts to the last commit and can’t be undone.`;
+    if (!window.confirm(message)) return;
     void act(() => {
       if (!row.untracked) return window.bh.run('git.discard', { paths: [row.path] });
-      // Untracked files/dirs aren't git's to restore — trash them (recoverable). A
-      // dir arrives as "dir/" (git collapses it); strip the slash + flag it a folder
-      // so its `.bh/` mirror subtree gets purged too, not left dangling.
+      // Untracked files/dirs aren't git's to restore — trash them. A dir arrives as
+      // "dir/" (git collapses it); strip the slash + flag it a folder so its `.bh/`
+      // mirror subtree gets purged too, not left dangling.
       const isDir = row.path.endsWith('/');
       return window.bh.run('workspace.deleteEntry', {
         path: isDir ? row.path.slice(0, -1) : row.path,
@@ -146,6 +197,7 @@ export const SourceControl = (): JSX.Element => {
       <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
         <textarea
           value={message}
+          aria-label="Commit message"
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -153,7 +205,7 @@ export const SourceControl = (): JSX.Element => {
               commit();
             }
           }}
-          placeholder={hasStaged ? 'Message (⌘Enter to commit)' : 'Stage changes to commit'}
+          placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
           rows={2}
           style={{
             width: '100%',
@@ -193,7 +245,8 @@ export const SourceControl = (): JSX.Element => {
 
       {error !== null && <ErrorLine>{error}</ErrorLine>}
 
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      {/* Arrow-key host: ↑/↓ move between the row buttons (a keyboard tree). */}
+      <div onKeyDown={handleTreeKeyDown} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {count === 0 ? (
           <div
             style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
@@ -326,7 +379,7 @@ const Group = ({
 }): JSX.Element | null => {
   if (!show) return null;
   return (
-    <div>
+    <div role="group" aria-label={title}>
       <div
         style={{
           display: 'flex',
@@ -378,30 +431,42 @@ const Row = ({
   onOpen: () => void;
   actions: RowAction[];
 }): JSX.Element => {
-  const [hover, setHover] = useState(false);
+  // `active` = hovered OR keyboard-focused, so the inline actions show for both.
+  const [active, setActive] = useState(false);
   // Untracked DIRECTORIES come back as "dir/" (git collapses them with a trailing
   // slash) — strip it for the basename, then re-add so it still reads as a folder.
   const isDir = row.path.endsWith('/');
   const clean = isDir ? row.path.slice(0, -1) : row.path;
-  const name = `${clean.slice(clean.lastIndexOf('/') + 1)}${isDir ? '/' : ''}`;
+  const lastSlash = clean.lastIndexOf('/');
+  const name = `${clean.slice(lastSlash + 1)}${isDir ? '/' : ''}`;
+  const dir = lastSlash === -1 ? '' : clean.slice(0, lastSlash); // '' for a top-level file
+  const ariaLabel = `${name}, ${rowStatusText(row)}${dir ? `, ${dir}` : ''}`;
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setActive(false);
+      }}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: space[2],
         height: 24,
         padding: `0 ${space[3]}px`,
-        cursor: 'pointer',
-        background: hover ? color.divider : 'transparent',
+        background: active ? color.divider : 'transparent',
         fontFamily: font.sans,
         fontSize: font.size.caption,
       }}
     >
+      {/* The name is a real button: focusable + Enter-activatable natively, and it
+          carries the row's full aria-label so a screen reader announces the status,
+          not just the filename. Actions are siblings (a button can't nest buttons). */}
       <button
         type="button"
+        data-scm-row
+        aria-label={ariaLabel}
         onClick={onOpen}
         title={row.path}
         style={{
@@ -409,33 +474,44 @@ const Row = ({
           minWidth: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: space[2],
           background: 'none',
           border: 'none',
           padding: 0,
           cursor: 'pointer',
           textAlign: 'left',
           color: color.textPrimary,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          ...(row.status === 'D' && { textDecoration: 'line-through' }),
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
       </button>
-      {hover && (
-        <span style={{ display: 'flex', gap: space[1] }}>
-          {actions.map((a) => (
-            <IconBtn
-              key={a.label}
-              title={a.label}
-              glyph={a.glyph}
-              onClick={a.onClick}
-              danger={a.danger}
-              disabled={busy}
-            />
-          ))}
-        </span>
-      )}
+      {/* Inline actions stay in the DOM (so they're keyboard-reachable); only their
+          visibility + tab-stops toggle with hover/focus. */}
+      <span
+        style={{
+          display: 'flex',
+          gap: space[1],
+          opacity: active ? 1 : 0,
+          transition: transition(['opacity']),
+        }}
+      >
+        {actions.map((a) => (
+          <IconBtn
+            key={a.label}
+            title={a.label}
+            glyph={a.glyph}
+            onClick={a.onClick}
+            danger={a.danger}
+            disabled={busy}
+            tabIndex={active ? 0 : -1}
+          />
+        ))}
+      </span>
       <span
         aria-hidden
         style={{
@@ -458,19 +534,25 @@ const IconBtn = ({
   onClick,
   disabled,
   danger,
+  tabIndex,
 }: {
   glyph: string;
   title: string;
   onClick: () => void;
   disabled?: boolean;
   danger?: boolean;
+  tabIndex?: number;
 }): JSX.Element => (
   <button
     type="button"
     title={title}
     aria-label={title}
     disabled={disabled}
-    onClick={onClick}
+    tabIndex={tabIndex}
+    onClick={(e) => {
+      e.stopPropagation(); // don't let a row-action click also open the row's diff
+      onClick();
+    }}
     style={{
       width: 20,
       height: 20,
