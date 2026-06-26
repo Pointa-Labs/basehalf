@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
-import { type GitDecoPalette, fileDecoration } from '../lib/gitStatus.js';
+import { type GitDecoPalette, fileDecoration, statusTooltip } from '../lib/gitStatus.js';
 import { buildFileMenu } from '../lib/menus/fileMenu.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
@@ -116,7 +116,12 @@ const Row = ({
   const indent = space[2] + depth * 14;
   const agentHint = isAgentHintFile(depth, entry);
   // git status for this path (a file, or an untracked dir reported as "rel/").
-  const git = useGitStatusStore((s) => s.byPath.get(rel) ?? s.byPath.get(`${rel}/`));
+  const direct = useGitStatusStore((s) => s.byPath.get(rel) ?? s.byPath.get(`${rel}/`));
+  // A tracked folder with no direct entry inherits a propagated mark if a
+  // descendant changed — so a collapsed folder with edits inside still reads.
+  const folderAgg = useGitStatusStore((s) => (isDir ? s.folderStatus.get(rel) : undefined));
+  const git = direct ?? folderAgg;
+  const propagated = direct === undefined && folderAgg !== undefined;
   const deco = git ? fileDecoration(git, GIT_PALETTE) : null;
 
   const glyph = (
@@ -241,14 +246,15 @@ const Row = ({
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
           ...(deco && !isSelected && { color: deco.color }),
+          ...(deco?.strikeThrough && { textDecoration: 'line-through' }),
         }}
       >
         {entry.name}
       </span>
-      {deco && (
+      {deco && git && (
         <span
           aria-hidden
-          title={`git: ${deco.letter}`}
+          title={propagated ? '此文件夹包含改动' : statusTooltip(git)}
           style={{
             marginLeft: 'auto',
             flexShrink: 0,
@@ -258,7 +264,8 @@ const Row = ({
             color: deco.color,
           }}
         >
-          {deco.letter}
+          {/* A propagated folder shows a dot (a letter on a folder reads oddly). */}
+          {propagated ? '●' : deco.letter}
         </span>
       )}
       {agentHint && (

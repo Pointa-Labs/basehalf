@@ -10,7 +10,7 @@ import {
   cardLodForHeight,
 } from '../lib/cardLod.js';
 import { fileUrl } from '../lib/fileUrl.js';
-import { type GitDecoPalette, fileDecoration } from '../lib/gitStatus.js';
+import { type GitDecoPalette, fileDecoration, statusTooltip } from '../lib/gitStatus.js';
 import { markdownToHtml } from '../lib/mdRender.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -135,7 +135,13 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const dirname = lastSlash === -1 ? '' : d.label.slice(0, lastSlash);
   const type = badgeType(d.label, isFolder);
   // git status for this card (a file, or an untracked dir reported as "label/").
-  const gitFile = useGitStatusStore((s) => s.byPath.get(d.label) ?? s.byPath.get(`${d.label}/`));
+  const gitDirect = useGitStatusStore((s) => s.byPath.get(d.label) ?? s.byPath.get(`${d.label}/`));
+  // A folder card inherits a propagated mark when a descendant changed.
+  const gitFolderAgg = useGitStatusStore((s) =>
+    isFolder ? s.folderStatus.get(d.label) : undefined,
+  );
+  const gitFile = gitDirect ?? gitFolderAgg;
+  const gitPropagated = gitDirect === undefined && gitFolderAgg !== undefined;
   const gitDeco = gitFile ? fileDecoration(gitFile, CARD_GIT_PALETTE) : null;
   // The in-card badge face's flush key. Synthetic (not a real pane) — the hook
   // registers a flusher under it AND flushes its debounced prompt edit on unmount,
@@ -307,10 +313,10 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
         cursor: 'grab',
       }}
     >
-      {gitDeco && (
+      {gitDeco && gitFile && (
         <span
           aria-hidden
-          title={`git: ${gitDeco.letter}`}
+          title={gitPropagated ? '此文件夹包含改动' : statusTooltip(gitFile)}
           style={{
             position: 'absolute',
             top: 6,

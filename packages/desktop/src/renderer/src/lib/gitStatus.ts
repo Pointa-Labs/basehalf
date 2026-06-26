@@ -3,7 +3,7 @@ import type { GitFileStatus } from '@basehalf/core';
 /**
  * Turn the raw `git.status` file list (each with an index `x` + work-tree `y`
  * porcelain code) into the three SCM-panel groups — Merge / Staged / Changes —
- * the way VS Code's Source Control view does. A file with BOTH a staged and an
+ * the way a mature source-control view does. A file with BOTH a staged and an
  * unstaged change (e.g. x='M', y='M') appears in Staged AND Changes. Pure +
  * path-only so it's unit-tested without a real git.
  */
@@ -66,7 +66,7 @@ export function totalChangeCount(groups: GitGroups): number {
   return groups.merge.length + groups.staged.length + groups.changes.length;
 }
 
-/** Foreground color for a status letter, matching VS Code's SCM conventions. */
+/** Foreground color for a status letter, matching common SCM conventions. */
 export function statusColor(
   row: GitRow,
   palette: { added: string; modified: string; deleted: string; conflict: string; renamed: string },
@@ -95,12 +95,68 @@ export interface GitDecoPalette {
 export function fileDecoration(
   f: GitFileStatus,
   palette: GitDecoPalette,
-): { letter: string; color: string } {
-  if (isConflict(f.x, f.y)) return { letter: '!', color: palette.conflict };
-  if (f.x === '?') return { letter: 'U', color: palette.untracked };
+): { letter: string; color: string; strikeThrough: boolean } {
+  if (isConflict(f.x, f.y)) return { letter: '!', color: palette.conflict, strikeThrough: false };
+  if (f.x === '?') return { letter: 'U', color: palette.untracked, strikeThrough: false };
   const code = f.y !== ' ' ? f.y : f.x;
-  if (code === 'A') return { letter: 'A', color: palette.added };
-  if (code === 'D') return { letter: 'D', color: palette.deleted };
-  if (code === 'R' || code === 'C') return { letter: code, color: palette.renamed };
-  return { letter: code === ' ' ? 'M' : code, color: palette.modified };
+  if (code === 'A') return { letter: 'A', color: palette.added, strikeThrough: false };
+  // Deleted: strike the name through, so "this file is gone" reads without the letter.
+  if (code === 'D') return { letter: 'D', color: palette.deleted, strikeThrough: true };
+  if (code === 'R' || code === 'C')
+    return { letter: code, color: palette.renamed, strikeThrough: false };
+  return { letter: code === ' ' ? 'M' : code, color: palette.modified, strikeThrough: false };
+}
+
+/** A human-readable status label (for a tree/card tooltip) instead of a bare
+ *  letter — the way a mature SCM names each state. Distinguishes a staged-only
+ *  change ("已暂存的…") from a work-tree one. */
+export function statusTooltip(f: GitFileStatus): string {
+  if (isConflict(f.x, f.y)) return '合并冲突';
+  if (f.x === '?') return '未跟踪';
+  const staged = f.y === ' ' && f.x !== ' ';
+  const code = f.y !== ' ' ? f.y : f.x;
+  const base =
+    code === 'A'
+      ? '已新增'
+      : code === 'D'
+        ? '已删除'
+        : code === 'R'
+          ? '已重命名'
+          : code === 'C'
+            ? '已复制'
+            : code === 'T'
+              ? '类型已变更'
+              : '已修改';
+  return staged ? `已暂存:${base}` : base;
+}
+
+/**
+ * Propagate each changed file's status up its ancestor folders, so a collapsed
+ * folder containing edits shows as changed too (a mature SCM does this). Returns
+ * folder-path → a representative changed descendant. DELETED files do NOT
+ * propagate (else one delete would paint the whole parent chain). Conflicts win
+ * over edits win over adds/untracked when a folder has several kinds inside.
+ */
+export function buildFolderStatus(files: readonly GitFileStatus[]): Map<string, GitFileStatus> {
+  const rank = (f: GitFileStatus): number => {
+    if (isConflict(f.x, f.y)) return 4;
+    const code = f.y !== ' ' ? f.y : f.x;
+    if (code === 'M' || code === 'T') return 3;
+    if (code === 'R' || code === 'C') return 2;
+    return 1; // A / U / others
+  };
+  const folders = new Map<string, GitFileStatus>();
+  for (const f of files) {
+    if (!isConflict(f.x, f.y) && (f.y !== ' ' ? f.y : f.x) === 'D') continue; // no delete propagation
+    const clean = f.path.endsWith('/') ? f.path.slice(0, -1) : f.path;
+    const parts = clean.split('/');
+    parts.pop(); // drop the leaf — only ancestors get the propagated mark
+    let acc = '';
+    for (const part of parts) {
+      acc = acc === '' ? part : `${acc}/${part}`;
+      const cur = folders.get(acc);
+      if (cur === undefined || rank(f) > rank(cur)) folders.set(acc, f);
+    }
+  }
+  return folders;
 }

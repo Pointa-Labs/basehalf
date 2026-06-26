@@ -1,8 +1,10 @@
 import type { GitFileStatus } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
 import {
+  buildFolderStatus,
   classifyStatus,
   fileDecoration,
+  statusTooltip,
   totalChangeCount,
 } from '../src/renderer/src/lib/gitStatus.js';
 
@@ -62,24 +64,81 @@ describe('classifyStatus', () => {
 
 describe('fileDecoration (single-file letter + color for tree / canvas)', () => {
   it('unstaged modify → M, modified color', () => {
-    expect(fileDecoration(f('a', ' ', 'M'), PAL)).toEqual({ letter: 'M', color: 'amber' });
+    expect(fileDecoration(f('a', ' ', 'M'), PAL)).toEqual({
+      letter: 'M',
+      color: 'amber',
+      strikeThrough: false,
+    });
   });
   it('staged add → A, added color', () => {
-    expect(fileDecoration(f('a', 'A', ' '), PAL)).toEqual({ letter: 'A', color: 'green' });
+    expect(fileDecoration(f('a', 'A', ' '), PAL)).toEqual({
+      letter: 'A',
+      color: 'green',
+      strikeThrough: false,
+    });
   });
   it('untracked → U, untracked color', () => {
-    expect(fileDecoration(f('a', '?', '?'), PAL)).toEqual({ letter: 'U', color: 'teal' });
+    expect(fileDecoration(f('a', '?', '?'), PAL)).toEqual({
+      letter: 'U',
+      color: 'teal',
+      strikeThrough: false,
+    });
   });
-  it('deleted → D, deleted color', () => {
-    expect(fileDecoration(f('a', ' ', 'D'), PAL)).toEqual({ letter: 'D', color: 'red' });
+  it('deleted → D, deleted color, struck through', () => {
+    expect(fileDecoration(f('a', ' ', 'D'), PAL)).toEqual({
+      letter: 'D',
+      color: 'red',
+      strikeThrough: true,
+    });
   });
   it('staged rename → R, renamed color', () => {
-    expect(fileDecoration(f('a', 'R', ' ', 'b'), PAL)).toEqual({ letter: 'R', color: 'blue' });
+    expect(fileDecoration(f('a', 'R', ' ', 'b'), PAL)).toEqual({
+      letter: 'R',
+      color: 'blue',
+      strikeThrough: false,
+    });
   });
   it('conflict → !, conflict color', () => {
-    expect(fileDecoration(f('a', 'U', 'U'), PAL)).toEqual({ letter: '!', color: 'purple' });
+    expect(fileDecoration(f('a', 'U', 'U'), PAL)).toEqual({
+      letter: '!',
+      color: 'purple',
+      strikeThrough: false,
+    });
   });
   it('prefers the work-tree status over the staged one (MM → M)', () => {
     expect(fileDecoration(f('a', 'M', 'M'), PAL).letter).toBe('M');
+  });
+});
+
+describe('statusTooltip (human label)', () => {
+  it('names each state in plain words', () => {
+    expect(statusTooltip(f('a', ' ', 'M'))).toBe('已修改');
+    expect(statusTooltip(f('a', '?', '?'))).toBe('未跟踪');
+    expect(statusTooltip(f('a', ' ', 'D'))).toBe('已删除');
+    expect(statusTooltip(f('a', 'U', 'U'))).toBe('合并冲突');
+  });
+  it('distinguishes a staged-only change', () => {
+    expect(statusTooltip(f('a', 'A', ' '))).toBe('已暂存:已新增');
+    expect(statusTooltip(f('a', 'M', ' '))).toBe('已暂存:已修改');
+  });
+});
+
+describe('buildFolderStatus (propagate child status up the tree)', () => {
+  it('marks every ancestor of a changed file', () => {
+    const m = buildFolderStatus([f('src/app/main.ts', ' ', 'M')]);
+    expect([...m.keys()].sort()).toEqual(['src', 'src/app']);
+    expect(m.get('src')?.path).toBe('src/app/main.ts');
+  });
+  it('does NOT propagate a deletion', () => {
+    const m = buildFolderStatus([f('src/gone.ts', ' ', 'D')]);
+    expect(m.size).toBe(0);
+  });
+  it('a conflict outranks a plain edit for the folder mark', () => {
+    const m = buildFolderStatus([f('src/a.ts', ' ', 'M'), f('src/b.ts', 'U', 'U')]);
+    expect(statusTooltip(m.get('src') as GitFileStatus)).toBe('合并冲突');
+  });
+  it('handles an untracked dir reported as "dir/"', () => {
+    const m = buildFolderStatus([f('src/new/', '?', '?')]);
+    expect([...m.keys()]).toEqual(['src']); // the leaf "new" is the node itself, not an ancestor
   });
 });
