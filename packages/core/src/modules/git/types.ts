@@ -185,6 +185,15 @@ export interface GitCommitFilesResult {
   readonly files: readonly GitCommitFile[];
 }
 
+export interface GitApplyArgs {
+  /** A unified-diff patch (e.g. one hunk extracted from `git.diff`). */
+  readonly patch: string;
+  /** Apply to the index (`--cached`) — stage/unstage a hunk vs touch the work tree. */
+  readonly cached?: boolean;
+  /** Apply in reverse (`--reverse`) — unstage a hunk, or discard one from the tree. */
+  readonly reverse?: boolean;
+}
+
 /** A remote/long operation (push/pull/fetch) — surfaces git's own output so the
  *  panel can show "Already up to date" etc. Throws (GitError) on failure. */
 export interface GitRemoteResult {

@@ -313,6 +313,23 @@ describe('git commands (injected fake runner)', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('git.apply stages a hunk patch via stdin (--cached)', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    const patch = '--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n';
+    await core.run('git.apply', { patch, cached: true }, ROOT);
+    expect(calls[0].args).toEqual(['apply', '--cached', '-']);
+    expect(calls[0].stdin).toBe(patch);
+  });
+
+  it('git.apply --reverse for discard/unstage; rejects an empty patch', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.apply', { patch: '@@ -1 +1 @@\n-a\n+b\n', reverse: true }, ROOT);
+    expect(calls[0].args).toEqual(['apply', '--reverse', '-']);
+    await expect(core.run('git.apply', { patch: '  ' }, ROOT)).rejects.toThrow(/empty patch/);
+  });
+
   it('git.diffRef diffs to^..to by default', async () => {
     const { git, calls } = makeFakeGit(() => ({ stdout: 'DIFF' }));
     const core = createCore({ git, configDir: '/cfg' });

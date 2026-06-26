@@ -1,16 +1,47 @@
-import { type JSX, useMemo } from 'react';
+import { type JSX, useCallback, useMemo, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { diffStat } from '../lib/unifiedDiff.js';
+import { extractHunkPatch } from '../lib/hunkPatch.js';
+import { type DiffRow, diffStat } from '../lib/unifiedDiff.js';
 import { useFileDiff } from '../lib/useFileDiff.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { UnifiedDiff } from './UnifiedDiff.js';
 
 /**
  * The single-file git diff — a GitHub-style read-only UNIFIED view (red/green/±)
  * opened by clicking a changed file in the Source Control panel:
- *   staged row   → HEAD  vs the staged (index) version
- *   unstaged row → index vs the working-tree file
+ *   staged row   → HEAD  vs the staged (index) version  → per-hunk Unstage
+ *   unstaged row → index vs the working-tree file        → per-hunk Stage / Revert
+ *   commit file  → parent ↔ commit (refs set)            → read-only
  * Sides + rows come from the shared useFileDiff hook; <UnifiedDiff> paints them.
+ * The header offers prev/next-change navigation and an ignore-whitespace toggle.
  */
+
+/** Per-hunk old-side line range (keyed by the same hunkIndex UnifiedDiff renders):
+ *  the gap-delimited group's min/max OLD line, used to pick the matching git hunk. */
+function hunkRanges(rows: readonly DiffRow[]): Array<{ oldFrom: number; oldTo: number }> {
+  const out: Array<{ oldFrom: number; oldTo: number }> = [];
+  let idx = 0;
+  const at = (i: number): { oldFrom: number; oldTo: number } => {
+    while (out.length <= i)
+      out.push({ oldFrom: Number.POSITIVE_INFINITY, oldTo: Number.NEGATIVE_INFINITY });
+    return out[i] as { oldFrom: number; oldTo: number };
+  };
+  for (const r of rows) {
+    if (r.kind === 'gap') {
+      idx++;
+      continue;
+    }
+    if (r.kind === 'context' || r.kind === 'del') {
+      const g = at(idx);
+      g.oldFrom = Math.min(g.oldFrom, r.oldLine);
+      g.oldTo = Math.max(g.oldTo, r.oldLine);
+    }
+  }
+  return out;
+}
+
+const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 export const UnifiedDiffView = ({
   path,
   staged,
@@ -27,15 +58,80 @@ export const UnifiedDiffView = ({
   title?: string;
   onClose: () => void;
 }): JSX.Element => {
-  // Commit-file diff (refs set) → parent ↔ commit; else the working-tree / staged diff.
   const isCommitDiff = rightRef !== undefined;
-  const diff = useFileDiff(path, {
-    leftRef: isCommitDiff ? (leftRef ?? '') : staged ? 'HEAD' : '',
-    rightWorktree: isCommitDiff ? false : !staged,
-    rightRef,
-  });
+  const [ignoreWs, setIgnoreWs] = useState(false);
+  const [rev, setRev] = useState(0); // bump → refetch after a hunk apply
+  const [err, setErr] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const diff = useFileDiff(
+    path,
+    {
+      leftRef: isCommitDiff ? (leftRef ?? '') : staged ? 'HEAD' : '',
+      rightWorktree: isCommitDiff ? false : !staged,
+      rightRef,
+      ignoreWhitespace: ignoreWs,
+    },
+    rev,
+  );
   const name = path.slice(path.lastIndexOf('/') + 1);
   const stat = useMemo(() => (diff.status === 'ready' ? diffStat(diff.rows) : null), [diff]);
+  const ranges = useMemo(() => (diff.status === 'ready' ? hunkRanges(diff.rows) : []), [diff]);
+
+  // Prev/next change: scroll between the hunk anchors UnifiedDiff marked.
+  const navigate = useCallback((dir: 1 | -1): void => {
+    const host = scrollRef.current;
+    if (!host) return;
+    const anchors = Array.from(host.querySelectorAll<HTMLElement>('[data-hunk-anchor]'));
+    if (anchors.length === 0) return;
+    const top = host.scrollTop;
+    const tops = anchors.map((a) => a.offsetTop);
+    let target: number | undefined;
+    if (dir === 1) target = tops.find((t) => t > top + 4);
+    else target = [...tops].reverse().find((t) => t < top - 4);
+    if (target === undefined) target = dir === 1 ? tops[0] : tops[tops.length - 1];
+    if (target !== undefined) host.scrollTo({ top: Math.max(0, target - 8), behavior: 'smooth' });
+  }, []);
+
+  // Apply one hunk: pull git's raw diff, slice out the matching hunk's exact bytes,
+  // and git.apply it. mode → which index/tree side and direction.
+  const applyHunk = useCallback(
+    async (hunkIndex: number, mode: 'stage' | 'unstage' | 'revert'): Promise<void> => {
+      const range = ranges[hunkIndex];
+      if (!range || range.oldFrom === Number.POSITIVE_INFINITY) return;
+      setErr(null);
+      try {
+        const raw = ((await window.bh.run('git.diff', { path, staged })) as { diff: string }).diff;
+        const patch = extractHunkPatch(raw, range.oldFrom, range.oldTo);
+        if (patch === null) {
+          setErr('找不到对应的改动块。');
+          return;
+        }
+        const cached = mode !== 'revert';
+        const reverse = mode !== 'stage';
+        await window.bh.run('git.apply', { patch, cached, reverse });
+        await useGitStatusStore.getState().refresh();
+        setRev((r) => r + 1);
+      } catch (e) {
+        setErr(msg(e));
+      }
+    },
+    [path, staged, ranges],
+  );
+
+  // The per-hunk control (Stage/Revert for unstaged, Unstage for staged; none for
+  // a commit/read-only diff).
+  const renderHunkAction = isCommitDiff
+    ? undefined
+    : (hunkIndex: number): JSX.Element | null =>
+        staged ? (
+          <HunkBtn label="取消暂存" onClick={() => void applyHunk(hunkIndex, 'unstage')} />
+        ) : (
+          <>
+            <HunkBtn label="暂存" onClick={() => void applyHunk(hunkIndex, 'stage')} />
+            <HunkBtn label="放弃" danger onClick={() => void applyHunk(hunkIndex, 'revert')} />
+          </>
+        );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -67,39 +163,39 @@ export const UnifiedDiffView = ({
             {stat.removed > 0 && <span style={{ color: color.danger }}>−{stat.removed}</span>}
           </span>
         )}
-        <button
-          type="button"
-          title="Close diff"
-          aria-label="Close diff"
-          onClick={onClose}
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: space[1] }}>
+          <IconBtn title="上一处改动" onClick={() => navigate(-1)}>
+            ↑
+          </IconBtn>
+          <IconBtn title="下一处改动" onClick={() => navigate(1)}>
+            ↓
+          </IconBtn>
+          <IconBtn
+            title={ignoreWs ? '显示空白差异' : '忽略空白差异'}
+            active={ignoreWs}
+            onClick={() => setIgnoreWs((v) => !v)}
+          >
+            ⊘
+          </IconBtn>
+          <IconBtn title="关闭差异" onClick={onClose}>
+            ✕
+          </IconBtn>
+        </span>
+      </div>
+      {err !== null && (
+        <div
           style={{
-            marginLeft: 'auto',
-            width: 22,
-            height: 22,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: 'none',
-            border: 'none',
-            borderRadius: radius.sm,
-            cursor: 'pointer',
-            color: color.textTertiary,
-            fontSize: font.size.body,
-            transition: transition(['background', 'color']),
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = color.divider;
-            e.currentTarget.style.color = color.textPrimary;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'none';
-            e.currentTarget.style.color = color.textTertiary;
+            padding: `${space[1]}px ${space[3]}px`,
+            color: color.danger,
+            fontFamily: font.sans,
+            fontSize: font.size.micro,
+            flexShrink: 0,
           }}
         >
-          ✕
-        </button>
-      </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+          {err}
+        </div>
+      )}
+      <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {diff.status === 'error' ? (
           <Centered color={color.danger}>{diff.message}</Centered>
         ) : diff.status === 'loading' ? (
@@ -107,12 +203,89 @@ export const UnifiedDiffView = ({
         ) : diff.rows.length === 0 ? (
           <Centered color={color.textTertiary}>No changes.</Centered>
         ) : (
-          <UnifiedDiff rows={diff.rows} oldHtml={diff.oldHtml} newHtml={diff.newHtml} />
+          <UnifiedDiff
+            rows={diff.rows}
+            oldHtml={diff.oldHtml}
+            newHtml={diff.newHtml}
+            renderHunkAction={renderHunkAction}
+          />
         )}
       </div>
     </div>
   );
 };
+
+const HunkBtn = ({
+  label,
+  onClick,
+  danger,
+}: {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}): JSX.Element => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={{
+      padding: `1px ${space[2]}px`,
+      marginLeft: space[1],
+      background: color.surface,
+      border: `1px solid ${color.border}`,
+      borderRadius: radius.sm,
+      color: danger ? color.danger : color.accent,
+      fontFamily: font.sans,
+      fontSize: font.size.micro,
+      cursor: 'pointer',
+      boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+    }}
+  >
+    {label}
+  </button>
+);
+
+const IconBtn = ({
+  title,
+  onClick,
+  active,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  children: string;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onClick={onClick}
+    style={{
+      width: 22,
+      height: 22,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: active ? color.divider : 'none',
+      border: 'none',
+      borderRadius: radius.sm,
+      cursor: 'pointer',
+      color: active ? color.textPrimary : color.textTertiary,
+      fontSize: font.size.body,
+      transition: transition(['background', 'color']),
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.divider;
+      e.currentTarget.style.color = color.textPrimary;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = active ? color.divider : 'none';
+      e.currentTarget.style.color = active ? color.textPrimary : color.textTertiary;
+    }}
+  >
+    {children}
+  </button>
+);
 
 const Centered = ({ children, color: c }: { children: string; color: string }): JSX.Element => (
   <div style={{ padding: space[4], color: c, fontFamily: font.sans, fontSize: font.size.caption }}>

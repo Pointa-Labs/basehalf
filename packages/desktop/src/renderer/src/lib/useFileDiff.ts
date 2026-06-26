@@ -48,10 +48,16 @@ export type FileDiffState =
 
 export function useFileDiff(
   path: string,
-  opts: { leftRef: string; rightWorktree: boolean; rightRef?: string; context?: number },
+  opts: {
+    leftRef: string;
+    rightWorktree: boolean;
+    rightRef?: string;
+    context?: number;
+    ignoreWhitespace?: boolean;
+  },
   revision?: unknown,
 ): FileDiffState {
-  const { leftRef, rightWorktree, rightRef, context } = opts;
+  const { leftRef, rightWorktree, rightRef, context, ignoreWhitespace } = opts;
   const [state, setState] = useState<FileDiffState>({ status: 'loading' });
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is an intentional refetch trigger (not read in the body).
   useEffect(() => {
@@ -82,7 +88,7 @@ export function useFileDiff(
           setState({ status: 'error', message: 'File is too large to show a diff.' });
           return;
         }
-        const rows = computeUnifiedDiff(original, modified, { context });
+        const rows = computeUnifiedDiff(original, modified, { context, ignoreWhitespace });
         // Syntax-highlight both sides (monaco colorize → one HTML string per side,
         // lines joined by <br/>). Best-effort: an unknown language / failure falls
         // back to plain text in the renderer.
@@ -118,6 +124,6 @@ export function useFileDiff(
     return () => {
       cancelled = true;
     };
-  }, [path, leftRef, rightWorktree, rightRef, context, revision]);
+  }, [path, leftRef, rightWorktree, rightRef, context, ignoreWhitespace, revision]);
   return state;
 }

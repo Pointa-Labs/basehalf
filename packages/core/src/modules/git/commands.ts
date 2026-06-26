@@ -7,6 +7,7 @@ import {
 } from '../../kernel/index.js';
 import { parseLog, parseNameStatus, parseStatus } from './parse.js';
 import type {
+  GitApplyArgs,
   GitBranchesResult,
   GitCheckoutArgs,
   GitCommitArgs,
@@ -253,6 +254,21 @@ export const renameBranch: Handler<GitRenameBranchArgs, GitOkResult> = async (ar
 
 export const init: Handler<unknown, GitOkResult> = async (_args, ctx) => {
   await git(ctx, ['init']);
+  return { ok: true };
+};
+
+export const apply: Handler<GitApplyArgs, GitOkResult> = async (args, ctx) => {
+  // Hunk-level staging: apply a single-hunk patch (extracted from git's own
+  // diff bytes, so it round-trips cleanly). `--cached` targets the index;
+  // `--reverse` unstages / discards. The patch comes via stdin (no shell).
+  if (typeof args.patch !== 'string' || args.patch.trim() === '') {
+    throw new Error('git.apply: empty patch');
+  }
+  const cmd = ['apply'];
+  if (args.cached === true) cmd.push('--cached');
+  if (args.reverse === true) cmd.push('--reverse');
+  cmd.push('-');
+  await git(ctx, cmd, { stdin: args.patch });
   return { ok: true };
 };
 

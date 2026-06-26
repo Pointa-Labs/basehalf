@@ -31,10 +31,15 @@ export const UnifiedDiff = ({
   rows,
   oldHtml,
   newHtml,
+  renderHunkAction,
 }: {
   rows: readonly DiffRow[];
   oldHtml?: readonly string[] | undefined;
   newHtml?: readonly string[] | undefined;
+  /** Optional per-hunk action (Stage/Revert) shown at each hunk's first changed
+   *  row. `hunkIndex` = number of gaps before the row — the same index the diff
+   *  view uses to look up the hunk's line range. Omitted for read-only previews. */
+  renderHunkAction?: (hunkIndex: number) => JSX.Element | null;
 }): JSX.Element => {
   // Which gaps the user expanded (keyed by the hunk's old-start line).
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set());
@@ -69,25 +74,54 @@ export const UnifiedDiff = ({
       {/* Sizes to the widest row so each line's tint spans full width even when the
           container scrolls horizontally. */}
       <div style={{ minWidth: 'max-content' }}>
-        {rows.map((row, i) => {
-          if (row.kind === 'gap') {
-            // Key the expand state by the gap's POSITION (i), not row.oldStart —
-            // two pure-add hunks both fall back to oldStart 1 and would collide.
-            const open = expanded.has(i);
+        {(() => {
+          // hunkIndex = gaps seen so far; the diff view keys hunk line-ranges the
+          // same way. The Stage/Revert control lands on the FIRST changed row of
+          // each hunk (rendered once per hunk).
+          let hunkIndex = 0;
+          let anchoredHunk = -1;
+          return rows.map((row, i) => {
+            if (row.kind === 'gap') {
+              // Key the expand state by the gap's POSITION (i), not row.oldStart —
+              // two pure-add hunks both fall back to oldStart 1 and would collide.
+              const open = expanded.has(i);
+              const bar = (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a gap's identity IS its position — rows are recomputed wholesale, never reordered.
+                <Fragment key={`g${i}`}>
+                  <HunkBar row={row} open={open} onToggle={() => toggle(i)} />
+                  {open &&
+                    row.hidden.map((h, k) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: positional hidden rows within a stable gap.
+                      <Row key={`h${i}-${k}`} row={h as LineRow} html={htmlFor(h as LineRow)} />
+                    ))}
+                </Fragment>
+              );
+              hunkIndex++;
+              return bar;
+            }
+            const rowEl = <Row key={`${i}:${rowKey(row)}`} row={row} html={htmlFor(row)} />;
+            // First changed row of a hunk → a nav anchor (+ the optional Stage/Revert).
+            const isHunkStart =
+              (row.kind === 'del' || row.kind === 'add') && anchoredHunk !== hunkIndex;
+            if (!isHunkStart) return rowEl;
+            anchoredHunk = hunkIndex;
+            const action = renderHunkAction?.(hunkIndex) ?? null;
             return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a gap's identity IS its position — rows are recomputed wholesale, never reordered.
-              <Fragment key={`g${i}`}>
-                <HunkBar row={row} open={open} onToggle={() => toggle(i)} />
-                {open &&
-                  row.hidden.map((h, k) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: positional hidden rows within a stable gap.
-                    <Row key={`h${i}-${k}`} row={h as LineRow} html={htmlFor(h as LineRow)} />
-                  ))}
-              </Fragment>
+              <div
+                key={`hr${rowKey(row)}`}
+                data-hunk-anchor={hunkIndex}
+                style={{ position: 'relative' }}
+              >
+                {rowEl}
+                {action !== null && (
+                  <div style={{ position: 'absolute', top: 0, right: space[2], display: 'flex' }}>
+                    {action}
+                  </div>
+                )}
+              </div>
             );
-          }
-          return <Row key={`${i}:${rowKey(row)}`} row={row} html={htmlFor(row)} />;
-        })}
+          });
+        })()}
       </div>
     </div>
   );

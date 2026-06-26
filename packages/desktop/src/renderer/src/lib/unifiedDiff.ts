@@ -212,7 +212,7 @@ function collapse(rows: readonly DiffRow[], context: number): DiffRow[] {
 export function computeUnifiedDiff(
   original: string,
   modified: string,
-  opts: { context?: number } = {},
+  opts: { context?: number; ignoreWhitespace?: boolean } = {},
 ): DiffRow[] {
   const context = opts.context ?? DEFAULT_CONTEXT;
   const orig = splitLines(original);
@@ -224,7 +224,7 @@ export function computeUnifiedDiff(
     return fillHunkHeaders(trimTrailingBlank(collapse(all, context)));
   }
   const { changes } = diffComputer.computeDiff(orig, mod, {
-    ignoreTrimWhitespace: false,
+    ignoreTrimWhitespace: opts.ignoreWhitespace ?? false,
     maxComputationTimeMs: 1000,
     computeMoves: false,
   }) as unknown as { changes: EngineChange[] };
