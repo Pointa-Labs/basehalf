@@ -5,6 +5,10 @@ import { create } from 'zustand';
 // title-bar toggle (no always-visible thin strip / vertical icon rail).
 const OPEN_KEY = 'bh:sidebar-open';
 const WIDTH_KEY = 'bh:sidebar-width';
+const VIEW_KEY = 'bh:sidebar-view';
+/** Which view the left sidebar shows — the file tree or Source Control (git),
+ *  switched from the activity-bar icon strip at the sidebar's top. */
+export type SidebarView = 'files' | 'scm';
 export const SIDEBAR_DEFAULT_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 170; // resize floor
 export const SIDEBAR_MAX_WIDTH = 640;
@@ -69,6 +73,9 @@ interface LayoutState {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (width: number) => void;
+  /** Which view the sidebar shows: the file tree or Source Control (git). */
+  sidebarView: SidebarView;
+  setSidebarView: (view: SidebarView) => void;
   /** Width of the right-most terminal dock (the embedded agent runner). */
   terminalWidth: number;
   setTerminalWidth: (width: number) => void;
@@ -80,6 +87,13 @@ interface LayoutState {
 export const useLayoutStore = create<LayoutState>((set, get) => {
   const sidebarOpen0 = readBool(OPEN_KEY, true);
   const sidebarWidth0 = clampWidth(readNum(WIDTH_KEY, SIDEBAR_DEFAULT_WIDTH));
+  const sidebarView0: SidebarView = ((): SidebarView => {
+    try {
+      return localStorage.getItem(VIEW_KEY) === 'scm' ? 'scm' : 'files';
+    } catch {
+      return 'files';
+    }
+  })();
   // The sidebar floats OVER the canvas, so its open/width state is independent of
   // every docked region. Each concern owns its own field.
   return {
@@ -98,6 +112,11 @@ export const useLayoutStore = create<LayoutState>((set, get) => {
       const w = clampWidth(width);
       persist(WIDTH_KEY, String(w));
       set({ sidebarWidth: w });
+    },
+    sidebarView: sidebarView0,
+    setSidebarView: (view) => {
+      persist(VIEW_KEY, view);
+      set({ sidebarView: view });
     },
     terminalWidth: clampTerminalWidth(readNum(TERMINAL_WIDTH_KEY, TERMINAL_DEFAULT_WIDTH)),
     setTerminalWidth: (width) => {

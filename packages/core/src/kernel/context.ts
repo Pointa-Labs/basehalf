@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer';
+import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import {
   copyFile,
@@ -19,7 +20,7 @@ import {
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { PathEscape } from './contain.js';
-import type { Context, FsLike, Run } from './types.js';
+import type { Context, FsLike, GitRunResult, GitRunner, Run } from './types.js';
 
 /**
  * Build the Context handed to every command handler.
@@ -38,12 +39,14 @@ export function createContext(opts: {
   fs?: FsLike;
   configDir?: string;
   workspaceRoot?: string | null;
+  git?: GitRunner;
 }): Context {
   return Object.freeze({
     fs: opts.fs ?? defaultFs(),
     configDir: opts.configDir ?? defaultConfigDir(),
     workspaceRoot: opts.workspaceRoot ?? null,
     run: opts.run,
+    git: opts.git ?? defaultGit(),
   });
 }
 
@@ -226,6 +229,76 @@ export function defaultFs(): FsLike {
       }
     },
   };
+}
+
+/** Thrown by defaultGit when git exits with an unaccepted code. Carries the
+ *  exit code + stderr so the git module can classify (conflict / auth / not-a-repo). */
+export class GitError extends Error {
+  override readonly name = 'GitError';
+  constructor(
+    readonly exitCode: number,
+    readonly stderr: string,
+    readonly args: readonly string[],
+  ) {
+    super(`git ${args.join(' ')} failed (exit ${exitCode}): ${stderr.trim().split('\n')[0] ?? ''}`);
+  }
+}
+
+const GIT_DEFAULT_TIMEOUT_MS = 30_000;
+// Diffs / logs can be large; cap stdout so a pathological repo can't OOM the host.
+const GIT_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
+
+/**
+ * The production GitRunner: spawns the system `git`. Every call gets
+ * `-c core.quotepath=false` (UTF-8 paths, no octal-escaping) and
+ * `GIT_OPTIONAL_LOCKS=0` (a read never fights another process for index.lock).
+ * Rejects with GitError when the exit code isn't accepted (default `[0]`), or a
+ * plain Error on spawn failure (git not installed) / timeout. Exported so the
+ * desktop host can wire it into createCore — core never imports child_process
+ * elsewhere, keeping the git module mockable.
+ */
+export function defaultGit(): GitRunner {
+  return (args, opts) =>
+    new Promise<GitRunResult>((resolve, reject) => {
+      const accept = opts.acceptExitCodes ?? [0];
+      const timeoutMs = opts.timeoutMs ?? GIT_DEFAULT_TIMEOUT_MS;
+      const child = spawn('git', ['-c', 'core.quotepath=false', ...args], {
+        cwd: opts.cwd,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const outChunks: Buffer[] = [];
+      const errChunks: Buffer[] = [];
+      let outLen = 0;
+      let settled = false;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        finish(() => reject(new Error(`git ${args.join(' ')} timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+      child.stdout.on('data', (c: Buffer) => {
+        outLen += c.length;
+        if (outLen <= GIT_MAX_OUTPUT_BYTES) outChunks.push(c);
+      });
+      child.stderr.on('data', (c: Buffer) => errChunks.push(c));
+      child.on('error', (err) => finish(() => reject(err)));
+      child.on('close', (code) => {
+        const exitCode = code ?? -1;
+        const stdout = Buffer.concat(outChunks).toString('utf8');
+        const stderr = Buffer.concat(errChunks).toString('utf8');
+        finish(() =>
+          accept.includes(exitCode)
+            ? resolve({ stdout, stderr, exitCode })
+            : reject(new GitError(exitCode, stderr, args)),
+        );
+      });
+      child.stdin.end(opts.stdin ?? '');
+    });
 }
 
 /**

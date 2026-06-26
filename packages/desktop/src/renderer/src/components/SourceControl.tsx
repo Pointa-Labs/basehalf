@@ -1,0 +1,532 @@
+import type { GitStatusResult } from '@basehalf/core';
+import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { color, font, radius, space, transition } from '../design.js';
+import {
+  type GitGroups,
+  type GitRow,
+  classifyStatus,
+  statusColor,
+  totalChangeCount,
+} from '../lib/gitStatus.js';
+import { useWorkspaceStore } from '../store/workspace.js';
+import { Button } from './primitives/Button.js';
+
+/**
+ * The Source Control panel — the git SCM view that replaces the file tree in the
+ * sidebar when the activity-bar git icon is active. Reads `git.status` (parsed
+ * into Staged / Changes / Merge groups), commits, and stages / unstages /
+ * discards files. All git work goes through `@basehalf/core`'s `git.*` commands
+ * over IPC; the disk file is the truth, this is a control surface over it.
+ *
+ * Refreshes on mount (the panel mounts when you switch to this view), after each
+ * action, and via the manual refresh button. Click a row to open the file.
+ */
+
+const STATUS_PALETTE = {
+  added: color.success,
+  modified: color.warning,
+  deleted: color.danger,
+  conflict: color.danger,
+  renamed: color.accent,
+};
+
+const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+export const SourceControl = (): JSX.Element => {
+  const [status, setStatus] = useState<GitStatusResult | null>(null);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+
+  const refresh = useCallback(async () => {
+    try {
+      setStatus((await window.bh.run('git.status', {})) as GitStatusResult);
+      setError(null);
+    } catch (err) {
+      setError(msg(err));
+    }
+  }, []);
+
+  // Fetch on mount. The parent keys this component by workspace path, so a
+  // workspace switch remounts it → a fresh read of the new repo.
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Run a git action, surface failures, then re-read status from disk truth.
+  const act = useCallback(
+    async (fn: () => Promise<unknown>): Promise<void> => {
+      setBusy(true);
+      setError(null);
+      try {
+        await fn();
+        await refresh();
+      } catch (err) {
+        setError(msg(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
+  const groups = useMemo<GitGroups>(
+    () => (status?.isRepo ? classifyStatus(status.files) : { merge: [], staged: [], changes: [] }),
+    [status],
+  );
+  const hasStaged = groups.staged.length > 0;
+  const canCommit = message.trim().length > 0 && hasStaged && !busy;
+
+  const stage = (paths: string[]): Promise<void> =>
+    act(() => window.bh.run('git.stage', { paths }));
+  const unstage = (paths: string[]): Promise<void> =>
+    act(() => window.bh.run('git.unstage', { paths }));
+
+  const discard = (row: GitRow): void => {
+    const ok = window.confirm(`Discard changes in ${row.path}?\n\nThis can't be undone.`);
+    if (!ok) return;
+    // Untracked files aren't git's to restore — trash them (recoverable).
+    void act(() =>
+      row.untracked
+        ? window.bh.run('workspace.deleteEntry', { path: row.path, kind: 'file' })
+        : window.bh.run('git.discard', { paths: [row.path] }),
+    );
+  };
+
+  const commit = (): void => {
+    if (!canCommit) return;
+    void act(async () => {
+      await window.bh.run('git.commit', { message: message.trim() });
+      setMessage('');
+    });
+  };
+
+  if (status === null) {
+    return <Centered>{error ?? '…'}</Centered>;
+  }
+
+  if (!status.isRepo) {
+    return (
+      <Centered>
+        <div style={{ color: color.textSecondary, marginBottom: space[3], lineHeight: 1.5 }}>
+          This folder isn’t a git repository yet.
+        </div>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void act(() => window.bh.run('git.init', {}))}
+        >
+          Initialize Repository
+        </Button>
+        {error !== null && <ErrorLine>{error}</ErrorLine>}
+      </Centered>
+    );
+  }
+
+  const count = totalChangeCount(groups);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <Header
+        status={status}
+        busy={busy}
+        onRefresh={() => void refresh()}
+        onPush={() => void act(() => window.bh.run('git.push', {}))}
+        onPull={() => void act(() => window.bh.run('git.pull', {}))}
+      />
+
+      {/* Commit message + button. */}
+      <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          placeholder={hasStaged ? 'Message (⌘Enter to commit)' : 'Stage changes to commit'}
+          rows={2}
+          style={{
+            width: '100%',
+            resize: 'vertical',
+            boxSizing: 'border-box',
+            background: color.bg,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.md,
+            color: color.textPrimary,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            padding: `${space[2]}px ${space[3]}px`,
+            outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          disabled={!canCommit}
+          onClick={commit}
+          style={{
+            width: '100%',
+            marginTop: space[2],
+            padding: `${space[2]}px`,
+            background: canCommit ? color.accent : color.surfaceMuted,
+            color: canCommit ? color.onAccent : color.textGhost,
+            border: 'none',
+            borderRadius: radius.md,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            fontWeight: font.weight.medium,
+            cursor: canCommit ? 'pointer' : 'default',
+          }}
+        >
+          {`✓ Commit${hasStaged ? ` (${groups.staged.length})` : ''}`}
+        </button>
+      </div>
+
+      {error !== null && <ErrorLine>{error}</ErrorLine>}
+
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        {count === 0 ? (
+          <div
+            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
+          >
+            No changes — working tree clean.
+          </div>
+        ) : (
+          <>
+            <Group
+              title="Merge Changes"
+              rows={groups.merge}
+              show={groups.merge.length > 0}
+              onRow={(r) => openInPanel(r.path)}
+              actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
+            />
+            <Group
+              title="Staged Changes"
+              rows={groups.staged}
+              show={hasStaged}
+              groupAction={{
+                label: 'Unstage all',
+                glyph: '−',
+                onClick: () => void unstage(groups.staged.map((r) => r.path)),
+              }}
+              onRow={(r) => openInPanel(r.path)}
+              actions={(r) => [
+                { label: 'Unstage', glyph: '−', onClick: () => void unstage([r.path]) },
+              ]}
+            />
+            <Group
+              title="Changes"
+              rows={groups.changes}
+              show={groups.changes.length > 0}
+              groupAction={{
+                label: 'Stage all',
+                glyph: '+',
+                onClick: () => void stage(groups.changes.map((r) => r.path)),
+              }}
+              onRow={(r) => openInPanel(r.path)}
+              actions={(r) => [
+                { label: 'Discard', glyph: '↩', onClick: () => discard(r), danger: true },
+                { label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) },
+              ]}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Header: branch + ahead/behind + refresh/push/pull ────────────────────────
+const Header = ({
+  status,
+  busy,
+  onRefresh,
+  onPush,
+  onPull,
+}: {
+  status: GitStatusResult;
+  busy: boolean;
+  onRefresh: () => void;
+  onPush: () => void;
+  onPull: () => void;
+}): JSX.Element => {
+  const branch = status.detached ? 'detached' : (status.branch ?? '—');
+  const sync =
+    status.ahead > 0 || status.behind > 0
+      ? `${status.behind > 0 ? `↓${status.behind}` : ''}${status.ahead > 0 ? `↑${status.ahead}` : ''}`
+      : '';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: space[2],
+        padding: `${space[2]}px ${space[3]}px`,
+        borderBottom: `1px solid ${color.divider}`,
+        flexShrink: 0,
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+        color: color.textSecondary,
+      }}
+    >
+      <BranchGlyph />
+      <span
+        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+        title={status.upstream ?? undefined}
+      >
+        {branch}
+      </span>
+      {sync !== '' && (
+        <span style={{ color: color.textTertiary, fontFamily: font.mono }}>{sync}</span>
+      )}
+      <span style={{ marginLeft: 'auto', display: 'flex', gap: space[1] }}>
+        <IconBtn title="Pull" onClick={onPull} disabled={busy} glyph="↓" />
+        <IconBtn title="Push" onClick={onPush} disabled={busy} glyph="↑" />
+        <IconBtn title="Refresh" onClick={onRefresh} disabled={busy} glyph="↻" />
+      </span>
+    </div>
+  );
+};
+
+// ── A resource group (Staged / Changes / Merge) ──────────────────────────────
+interface RowAction {
+  label: string;
+  glyph: string;
+  onClick: () => void;
+  danger?: boolean;
+}
+const Group = ({
+  title,
+  rows,
+  show,
+  onRow,
+  actions,
+  groupAction,
+}: {
+  title: string;
+  rows: readonly GitRow[];
+  show: boolean;
+  onRow: (r: GitRow) => void;
+  actions: (r: GitRow) => RowAction[];
+  groupAction?: RowAction;
+}): JSX.Element | null => {
+  if (!show) return null;
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: space[2],
+          padding: `${space[1]}px ${space[3]}px`,
+          fontSize: font.size.micro,
+          fontWeight: font.weight.semibold,
+          letterSpacing: font.trackedCaps,
+          textTransform: 'uppercase',
+          color: color.textTertiary,
+          userSelect: 'none',
+        }}
+      >
+        <span>{title}</span>
+        <span style={{ color: color.textGhost }}>{rows.length}</span>
+        {groupAction && (
+          <span style={{ marginLeft: 'auto' }}>
+            <IconBtn
+              title={groupAction.label}
+              glyph={groupAction.glyph}
+              onClick={groupAction.onClick}
+            />
+          </span>
+        )}
+      </div>
+      {rows.map((r) => (
+        <Row key={`${title}:${r.path}`} row={r} onOpen={() => onRow(r)} actions={actions(r)} />
+      ))}
+    </div>
+  );
+};
+
+const Row = ({
+  row,
+  onOpen,
+  actions,
+}: {
+  row: GitRow;
+  onOpen: () => void;
+  actions: RowAction[];
+}): JSX.Element => {
+  const [hover, setHover] = useState(false);
+  // Untracked DIRECTORIES come back as "dir/" (git collapses them with a trailing
+  // slash) — strip it for the basename, then re-add so it still reads as a folder.
+  const isDir = row.path.endsWith('/');
+  const clean = isDir ? row.path.slice(0, -1) : row.path;
+  const name = `${clean.slice(clean.lastIndexOf('/') + 1)}${isDir ? '/' : ''}`;
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: space[2],
+        height: 24,
+        padding: `0 ${space[3]}px`,
+        cursor: 'pointer',
+        background: hover ? color.divider : 'transparent',
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        title={row.path}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: space[2],
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          color: color.textPrimary,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {name}
+        </span>
+      </button>
+      {hover && (
+        <span style={{ display: 'flex', gap: space[1] }}>
+          {actions.map((a) => (
+            <IconBtn
+              key={a.label}
+              title={a.label}
+              glyph={a.glyph}
+              onClick={a.onClick}
+              danger={a.danger}
+            />
+          ))}
+        </span>
+      )}
+      <span
+        aria-hidden
+        style={{
+          width: 14,
+          textAlign: 'center',
+          fontFamily: font.mono,
+          fontWeight: font.weight.semibold,
+          color: statusColor(row, STATUS_PALETTE),
+        }}
+      >
+        {row.status}
+      </span>
+    </div>
+  );
+};
+
+const IconBtn = ({
+  glyph,
+  title,
+  onClick,
+  disabled,
+  danger,
+}: {
+  glyph: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    disabled={disabled}
+    onClick={onClick}
+    style={{
+      width: 20,
+      height: 20,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'none',
+      border: 'none',
+      borderRadius: radius.sm,
+      cursor: disabled ? 'default' : 'pointer',
+      opacity: disabled ? 0.4 : 1,
+      color: danger ? color.danger : color.textTertiary,
+      fontFamily: font.mono,
+      fontSize: font.size.body,
+      lineHeight: 1,
+      transition: transition(['background', 'color']),
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.divider;
+      e.currentTarget.style.color = danger ? color.danger : color.textPrimary;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'none';
+      e.currentTarget.style.color = danger ? color.danger : color.textTertiary;
+    }}
+  >
+    {glyph}
+  </button>
+);
+
+const Centered = ({ children }: { children: ReactNode }): JSX.Element => (
+  <div
+    style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      padding: space[5],
+      textAlign: 'center',
+      fontFamily: font.sans,
+      fontSize: font.size.caption,
+      color: color.textTertiary,
+    }}
+  >
+    {children}
+  </div>
+);
+
+const ErrorLine = ({ children }: { children: ReactNode }): JSX.Element => (
+  <div
+    style={{
+      padding: `${space[2]}px ${space[3]}px`,
+      color: color.danger,
+      fontFamily: font.sans,
+      fontSize: font.size.caption,
+      flexShrink: 0,
+      wordBreak: 'break-word',
+    }}
+  >
+    {children}
+  </div>
+);
+
+const BranchGlyph = (): JSX.Element => (
+  <svg
+    width={13}
+    height={13}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.3}
+    aria-hidden
+  >
+    <circle cx={4} cy={3.5} r={1.8} />
+    <circle cx={4} cy={12.5} r={1.8} />
+    <circle cx={12} cy={3.5} r={1.8} />
+    <path d="M4 5.3v5.4M12 5.3c0 3-2.5 3.2-5 3.7" strokeLinecap="round" />
+  </svg>
+);

@@ -1,14 +1,17 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useState } from 'react';
-import { color, font, shadow, space, transition } from '../design.js';
-import { SIDEBAR_SNAP_WIDTH, useLayoutStore } from '../store/layout.js';
+import { color, font, radius, shadow, space, transition } from '../design.js';
+import { SIDEBAR_SNAP_WIDTH, type SidebarView, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
+import { SourceControl } from './SourceControl.js';
 
 export const Sidebar = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const sidebarOpen = useLayoutStore((s) => s.sidebarOpen);
   const sidebarWidth = useLayoutStore((s) => s.sidebarWidth);
+  const sidebarView = useLayoutStore((s) => s.sidebarView);
+  const setSidebarView = useLayoutStore((s) => s.setSidebarView);
   const currentWs = workspaces.find((w) => w.name === current);
 
   // Fully closed — render nothing (the title-bar toggle brings it back), like
@@ -38,65 +41,174 @@ export const Sidebar = (): JSX.Element | null => {
         overflow: 'hidden',
       }}
     >
-      {/* A single line at the very top = WHERE you are (the active workspace's
-          name), the way a file explorer's header shows the open folder. No
-          switcher / actions / path clutter — switch with ⌘K or File ▸ Open
-          Folder (⌘O); the full path shows on hover. */}
-      {current && (
-        <div
-          title={currentWs?.path}
-          style={{
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            height: 22,
-            padding: `0 ${space[4]}px`,
-            fontFamily: font.sans,
-            fontSize: font.size.micro,
-            fontWeight: font.weight.semibold,
-            letterSpacing: font.trackedCaps,
-            textTransform: 'uppercase',
-            color: color.textSecondary,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            userSelect: 'none',
-          }}
-        >
-          {current}
+      {/* Activity bar — the top icon strip; switches the panel below between the
+          file tree and Source Control (git). Room for more entries (search, …)
+          as those features land. */}
+      <ActivityBar view={sidebarView} onSelect={setSidebarView} />
+      {sidebarView === 'scm' && currentWs ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <SourceControl key={currentWs.path} />
         </div>
-      )}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {currentWs ? (
-          // No unreachable branch: App's selectRegion routes the folder-missing
-          // case to a full-region <WorkspaceMissing/>, so the Sidebar (which mounts
-          // only in the 'canvas' region) is always showing a reachable workspace.
-          <NavTree rootPath={currentWs.path} />
-        ) : (
+      ) : (
+        <>
+          {/* WHERE you are: the active workspace name, the way a file explorer's
+              header shows the open folder. Switch with ⌘K or File ▸ Open Folder. */}
+          {current && (
+            <div
+              title={currentWs?.path}
+              style={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                height: 22,
+                padding: `0 ${space[4]}px`,
+                fontFamily: font.sans,
+                fontSize: font.size.micro,
+                fontWeight: font.weight.semibold,
+                letterSpacing: font.trackedCaps,
+                textTransform: 'uppercase',
+                color: color.textSecondary,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                userSelect: 'none',
+              }}
+            >
+              {current}
+            </div>
+          )}
           <div
             style={{
-              padding: `${space[5]}px ${space[4]}px`,
-              color: color.textTertiary,
-              fontSize: font.size.caption,
-              lineHeight: 1.5,
+              flex: 1,
+              minHeight: 0,
+              overflow: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
-            Open a folder to get started — press <code>⌘O</code>, or <code>⌘K</code> for everything.
+            {currentWs ? (
+              // No unreachable branch: App's selectRegion routes the folder-missing
+              // case to a full-region <WorkspaceMissing/>, so the Sidebar (which mounts
+              // only in the 'canvas' region) is always showing a reachable workspace.
+              <NavTree rootPath={currentWs.path} />
+            ) : (
+              <div
+                style={{
+                  padding: `${space[5]}px ${space[4]}px`,
+                  color: color.textTertiary,
+                  fontSize: font.size.caption,
+                  lineHeight: 1.5,
+                }}
+              >
+                Open a folder to get started — press <code>⌘O</code>, or <code>⌘K</code> for
+                everything.
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
       <SidebarSash />
     </aside>
   );
 };
+
+// The top icon strip. Each entry switches the panel below; the active one is
+// tinted. Built for the two views with destinations today (Files, Source
+// Control) — search / agent entries slot in beside them later.
+const ActivityBar = ({
+  view,
+  onSelect,
+}: {
+  view: SidebarView;
+  onSelect: (v: SidebarView) => void;
+}): JSX.Element => (
+  <div
+    style={{
+      flexShrink: 0,
+      display: 'flex',
+      alignItems: 'center',
+      gap: space[1],
+      height: 38,
+      padding: `0 ${space[2]}px`,
+      borderBottom: `1px solid ${color.border}`,
+    }}
+  >
+    <ActivityIcon active={view === 'files'} title="Files" onClick={() => onSelect('files')}>
+      <FilesGlyph />
+    </ActivityIcon>
+    <ActivityIcon active={view === 'scm'} title="Source Control" onClick={() => onSelect('scm')}>
+      <GitGlyph />
+    </ActivityIcon>
+  </div>
+);
+
+const ActivityIcon = ({
+  active,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  onClick: () => void;
+  children: JSX.Element;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onClick={onClick}
+    style={{
+      width: 30,
+      height: 30,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: active ? color.divider : 'transparent',
+      border: 'none',
+      borderRadius: radius.md,
+      cursor: 'pointer',
+      color: active ? color.textPrimary : color.textTertiary,
+      transition: transition(['background', 'color']),
+    }}
+  >
+    {children}
+  </button>
+);
+
+const FilesGlyph = (): JSX.Element => (
+  <svg
+    width={16}
+    height={16}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.3}
+    aria-hidden
+  >
+    <path
+      d="M2.5 3a1 1 0 0 1 1-1H7l1.5 1.6H12.5a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V3z"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+const GitGlyph = (): JSX.Element => (
+  <svg
+    width={16}
+    height={16}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.3}
+    aria-hidden
+  >
+    <circle cx={4.5} cy={4} r={1.8} />
+    <circle cx={4.5} cy={12} r={1.8} />
+    <circle cx={11.5} cy={6} r={1.8} />
+    <path d="M4.5 5.8v4.4M11.5 7.8c0 2.7-2.6 2.5-4.6 3.8" strokeLinecap="round" />
+  </svg>
+);
 
 // A "sash": a thin grab strip on the right edge; drag to resize. A 6px hit
 // area with a 2px accent line that lights on hover / while dragging.

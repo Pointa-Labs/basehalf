@@ -1,5 +1,12 @@
 export { Registry } from './registry.js';
-export { createContext, defaultConfigDir, defaultFs, requireWorkspaceRoot } from './context.js';
+export {
+  GitError,
+  createContext,
+  defaultConfigDir,
+  defaultFs,
+  defaultGit,
+  requireWorkspaceRoot,
+} from './context.js';
 export { assertWorkspaceRelative } from './paths.js';
 export {
   PathEscape,
@@ -29,5 +36,16 @@ export {
   mirrorRevision,
 } from './mirror.js';
 export type { MirrorKind } from './mirror.js';
-export type { Context, FsLike, Handler, CoreOptions, Core, Run, RunOptions } from './types.js';
+export type {
+  Context,
+  FsLike,
+  GitRunner,
+  GitRunOptions,
+  GitRunResult,
+  Handler,
+  CoreOptions,
+  Core,
+  Run,
+  RunOptions,
+} from './types.js';
 export { UnknownCommand } from './types.js';

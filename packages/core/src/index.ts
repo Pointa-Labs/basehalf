@@ -15,6 +15,7 @@ import { registerAdhdModule } from './modules/adhd/index.js';
 import { registerBadgesModule } from './modules/badges/index.js';
 import { registerCanvasModule } from './modules/canvas/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
+import { registerGitModule } from './modules/git/index.js';
 import { registerSearchModule } from './modules/search/index.js';
 import { registerSettingsModule } from './modules/settings/index.js';
 import { registerWatcherModule } from './modules/watcher/index.js';
@@ -44,6 +45,7 @@ export function createCore(opts: CoreOptions = {}): Core {
       configDir: baseCtx.configDir,
       workspaceRoot,
       run: (n, a, o) => run(n, a, o ?? { workspaceRoot }),
+      git: baseCtx.git,
     };
     return (await handler(args, callCtx)) as never;
   };
@@ -52,6 +54,7 @@ export function createCore(opts: CoreOptions = {}): Core {
     run,
     ...(opts.fs !== undefined && { fs: opts.fs }),
     ...(opts.configDir !== undefined && { configDir: opts.configDir }),
+    ...(opts.git !== undefined && { git: opts.git }),
   });
 
   const core: Core = Object.freeze({
@@ -74,6 +77,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerWatcherModule(core);
   registerSearchModule(core);
   registerSettingsModule(core);
+  registerGitModule(core);
 
   return core;
 }
@@ -82,6 +86,9 @@ export function createCore(opts: CoreOptions = {}): Core {
 export type {
   Context,
   FsLike,
+  GitRunner,
+  GitRunOptions,
+  GitRunResult,
   Handler,
   CoreOptions,
   Core,
@@ -89,9 +96,11 @@ export type {
   RunOptions,
 } from './kernel/index.js';
 export {
+  GitError,
   UnknownCommand,
   defaultConfigDir,
   defaultFs,
+  defaultGit,
   requireWorkspaceRoot,
 } from './kernel/index.js';
 
@@ -105,6 +114,7 @@ export type * from './modules/adhd/types.js';
 export { AdhdCorrupt } from './modules/adhd/types.js';
 export type * from './modules/focus/types.js';
 export { FocusCorrupt } from './modules/focus/types.js';
+export type * from './modules/git/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';
 export type * from './modules/settings/types.js';

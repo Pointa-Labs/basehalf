@@ -178,11 +178,38 @@ export type Run = <TArgs = unknown, TResult = unknown>(
  *   `run({ workspaceRoot })` opt and inherited by nested `ctx.run` calls.
  * - `run` — call another command (module-to-module composition).
  */
+/** Options for one git invocation (see GitRunner / defaultGit). */
+export interface GitRunOptions {
+  /** The repo working directory git runs in (normally the bound workspace root). */
+  readonly cwd: string;
+  /** Fed to git's stdin (e.g. a commit message via `commit -F -`). */
+  readonly stdin?: string;
+  /** Kill + reject after this many ms (default 30s; long ops like push/pull pass more). */
+  readonly timeoutMs?: number;
+  /** Exit codes treated as success (default `[0]`); any other throws GitError. */
+  readonly acceptExitCodes?: readonly number[];
+}
+
+export interface GitRunResult {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}
+
+/**
+ * Runs the system `git` binary in a repo. Injected on Context the same way `fs`
+ * is, so the git module stays testable (tests pass a fake runner) and core never
+ * hard-depends on node:child_process. The host (desktop main) wires defaultGit().
+ */
+export type GitRunner = (args: readonly string[], opts: GitRunOptions) => Promise<GitRunResult>;
+
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
   readonly workspaceRoot: string | null;
   readonly run: Run;
+  /** The system-git runner (see GitRunner) — used by the git module. */
+  readonly git: GitRunner;
 }
 
 /**
@@ -201,6 +228,8 @@ export interface CoreOptions {
   readonly fs?: FsLike;
   /** Override the global config directory. Defaults to XDG / OS conventions. */
   readonly configDir?: string;
+  /** Inject a different git runner (fake for tests). Defaults to spawning system git. */
+  readonly git?: GitRunner;
 }
 
 /**
