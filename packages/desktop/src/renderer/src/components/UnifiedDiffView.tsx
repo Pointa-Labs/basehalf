@@ -1,7 +1,7 @@
-import type { GitShowResult, WorkspaceReadFileResult } from '@basehalf/core';
-import { type JSX, useEffect, useMemo, useState } from 'react';
+import { type JSX, useMemo } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { type DiffRow, computeUnifiedDiff, diffStat } from '../lib/unifiedDiff.js';
+import { diffStat } from '../lib/unifiedDiff.js';
+import { useFileDiff } from '../lib/useFileDiff.js';
 import { UnifiedDiff } from './UnifiedDiff.js';
 
 /**
@@ -9,16 +9,8 @@ import { UnifiedDiff } from './UnifiedDiff.js';
  * opened by clicking a changed file in the Source Control panel:
  *   staged row   → HEAD  vs the staged (index) version
  *   unstaged row → index vs the working-tree file
- * Sides come from core's `git.show` (`<ref>:./path`) + `workspace.readFile`; the
- * rows are computed by lib/unifiedDiff and painted by <UnifiedDiff>. Never writes.
+ * Sides + rows come from the shared useFileDiff hook; <UnifiedDiff> paints them.
  */
-
-// Cap inputs ourselves (chars, a generous size proxy) — past this we skip the diff
-// rather than diff two huge strings.
-const MAX_DIFF_CHARS = 2 * 1024 * 1024;
-
-type Loaded = { rows: DiffRow[] };
-
 export const UnifiedDiffView = ({
   path,
   staged,
@@ -28,50 +20,9 @@ export const UnifiedDiffView = ({
   staged: boolean;
   onClose: () => void;
 }): JSX.Element => {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoaded(null);
-    setError(null);
-    void (async () => {
-      try {
-        const leftP = window.bh.run('git.show', {
-          ref: staged ? 'HEAD' : '',
-          path,
-        }) as Promise<GitShowResult>;
-        const rightP = staged
-          ? (window.bh.run('git.show', { ref: '', path }) as Promise<GitShowResult>)
-          : (
-              window.bh.run('workspace.readFile', { path }) as Promise<WorkspaceReadFileResult>
-            ).catch((err: unknown): WorkspaceReadFileResult => {
-              // A deleted working-tree file → the right side is simply empty.
-              if (err instanceof Error && err.message.startsWith('[PATH_NOT_FOUND]')) {
-                return { content: '' } as WorkspaceReadFileResult;
-              }
-              throw err;
-            });
-        const [left, right] = await Promise.all([leftP, rightP]);
-        if (cancelled) return;
-        const original = left.content ?? '';
-        const modified = right.content ?? '';
-        if (original.length > MAX_DIFF_CHARS || modified.length > MAX_DIFF_CHARS) {
-          setError('File is too large to show a diff.');
-          return;
-        }
-        setLoaded({ rows: computeUnifiedDiff(original, modified) });
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [path, staged]);
-
+  const diff = useFileDiff(path, { leftRef: staged ? 'HEAD' : '', rightWorktree: !staged });
   const name = path.slice(path.lastIndexOf('/') + 1);
-  const stat = useMemo(() => (loaded ? diffStat(loaded.rows) : null), [loaded]);
+  const stat = useMemo(() => (diff.status === 'ready' ? diffStat(diff.rows) : null), [diff]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -132,40 +83,22 @@ export const UnifiedDiffView = ({
         </button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {error !== null ? (
-          <div
-            style={{
-              padding: space[4],
-              color: color.danger,
-              fontFamily: font.sans,
-              fontSize: font.size.caption,
-            }}
-          >
-            {error}
-          </div>
-        ) : loaded ? (
-          loaded.rows.length === 0 ? (
-            <div
-              style={{
-                padding: space[4],
-                color: color.textTertiary,
-                fontFamily: font.sans,
-                fontSize: font.size.caption,
-              }}
-            >
-              No changes.
-            </div>
-          ) : (
-            <UnifiedDiff rows={loaded.rows} />
-          )
+        {diff.status === 'error' ? (
+          <Centered color={color.danger}>{diff.message}</Centered>
+        ) : diff.status === 'loading' ? (
+          <Centered color={color.textTertiary}>…</Centered>
+        ) : diff.rows.length === 0 ? (
+          <Centered color={color.textTertiary}>No changes.</Centered>
         ) : (
-          <div
-            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
-          >
-            …
-          </div>
+          <UnifiedDiff rows={diff.rows} />
         )}
       </div>
     </div>
   );
 };
+
+const Centered = ({ children, color: c }: { children: string; color: string }): JSX.Element => (
+  <div style={{ padding: space[4], color: c, fontFamily: font.sans, fontSize: font.size.caption }}>
+    {children}
+  </div>
+);

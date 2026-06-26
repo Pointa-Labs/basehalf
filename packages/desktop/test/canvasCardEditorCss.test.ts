@@ -84,7 +84,15 @@ describe('canvas card editor CSS', () => {
     expect(badgeNodeSource).not.toContain('MdEditor');
     expect(badgeNodeSource).not.toContain('inlineEditing');
     expect(badgeNodeSource).toMatch(/showBadgeFace && canShowBadgeFace \? \(\s*<CardBadgeFace/);
-    expect(badgeNodeSource).toMatch(/\) : showPreview \? \(\s*<BadgePreview/);
+    // A changed file's card shows a LIGHTWEIGHT unified-diff preview (plain HTML via
+    // <UnifiedDiff>, NOT a monaco editor); otherwise the normal content preview.
+    // Both only DISPLAY — no heavy per-tile editor.
+    expect(badgeNodeSource).toMatch(
+      /\) : showPreview \? \(\s*showFileDiff \? \(\s*<BadgeDiffPreview/,
+    );
+    expect(badgeNodeSource).toMatch(/\) : \(\s*<BadgePreview/);
+    expect(badgeNodeSource).toContain('<UnifiedDiff rows={diff.rows}');
+    expect(badgeNodeSource).not.toContain('createDiffEditor');
     // Size-aware level-of-detail: the WHEN-to-show-what decision is delegated to
     // the pure, unit-tested lib/cardLod policy; the component just feeds it the
     // node's measured height and the canvas zoom. A card too small (shrunk) or the

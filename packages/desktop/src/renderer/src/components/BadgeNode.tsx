@@ -12,10 +12,12 @@ import {
 import { fileUrl } from '../lib/fileUrl.js';
 import { type GitDecoPalette, fileDecoration, statusTooltip } from '../lib/gitStatus.js';
 import { markdownToHtml } from '../lib/mdRender.js';
+import { useFileDiff } from '../lib/useFileDiff.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { CardBadgeFace } from './CardBadgeFace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
+import { UnifiedDiff } from './UnifiedDiff.js';
 import { InlineEditInput } from './primitives/InlineEditInput.js';
 
 // A badge is a *living tile*: when it's big enough on screen to read, it shows a
@@ -192,6 +194,16 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // and folders have nothing to preview.
   const previewable = type === 'image' || type === 'text' || type === 'code';
   const showPreview = previewable && !orphan && !isFolder;
+  // A changed text/code file shows its DIFF (red/green/±) in place of the plain
+  // content — the canvas becomes a spatial "what changed" board (the multi-file
+  // overview). Skip images (a diff is meaningless) and conflicts (a U on either
+  // side); those keep their normal preview.
+  const showFileDiff =
+    showPreview &&
+    type !== 'image' &&
+    gitDirect != null &&
+    gitDirect.x !== 'U' &&
+    gitDirect.y !== 'U';
   // The badge face always forces full detail — you can't edit a collapsed chip.
   const lod = showBadgeFace ? 'full' : sizeLod;
   // The badge face (in-card prompt + refs + inbound + focus) replaces the body
@@ -546,7 +558,11 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
             paneId={badgeFacePaneId}
           />
         ) : showPreview ? (
-          <BadgePreview type={type} label={d.label} wsPath={wsPath} />
+          showFileDiff ? (
+            <BadgeDiffPreview type={type} label={d.label} wsPath={wsPath} />
+          ) : (
+            <BadgePreview type={type} label={d.label} wsPath={wsPath} />
+          )
         ) : isFolder && !orphan && d.preview ? (
           <FolderContents preview={d.preview} prompt={d.prompt} />
         ) : (
@@ -682,6 +698,47 @@ const previewMask: CSSProperties = {
   overflow: 'hidden',
   maskImage: 'linear-gradient(to bottom, #000 70%, transparent)',
   WebkitMaskImage: 'linear-gradient(to bottom, #000 70%, transparent)',
+};
+
+// A changed file's card shows its DIFF preview (red/green/±) — the canvas as a
+// spatial review board. HEAD ↔ working tree = all uncommitted changes, compact
+// context. Re-fetches when the file changes on disk (the tile event hub) and
+// falls back to the normal content preview while loading / on error / when empty,
+// so the tile never flashes blank.
+const BadgeDiffPreview = ({
+  type,
+  label,
+  wsPath,
+}: {
+  type: BadgeType;
+  label: string;
+  wsPath: string;
+}): JSX.Element => {
+  const [rev, setRev] = useState(0);
+  useEffect(
+    () =>
+      subscribeTile((e) => {
+        const touched =
+          e.type === 'change' || e.type === 'unlink'
+            ? e.relPath === label
+            : e.type === 'rename'
+              ? e.fromRelPath === label || e.toRelPath === label
+              : false;
+        if (touched) setRev((r) => r + 1);
+      }),
+    [label],
+  );
+  const diff = useFileDiff(label, { leftRef: 'HEAD', rightWorktree: true, context: 2 }, rev);
+  if (diff.status === 'ready' && diff.rows.length > 0) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+        <div style={previewMask}>
+          <UnifiedDiff rows={diff.rows} />
+        </div>
+      </div>
+    );
+  }
+  return <BadgePreview type={type} label={label} wsPath={wsPath} />;
 };
 
 // Read (and cache) a bounded excerpt of a file's raw text, re-reading when the
