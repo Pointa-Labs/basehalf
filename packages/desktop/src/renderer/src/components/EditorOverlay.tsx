@@ -6,7 +6,7 @@ import { useTerminalStore } from '../store/terminal.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { Breadcrumb } from './Breadcrumb.js';
 import { FilePreview } from './FilePreview.js';
-import { GitDiffView } from './GitDiffView.js';
+import { UnifiedDiffView } from './UnifiedDiffView.js';
 
 /**
  * The full-canvas editor overlay. When a file is open it covers the canvas
@@ -111,7 +111,7 @@ export const EditorOverlay = (): JSX.Element | null => {
       }}
     >
       {gitDiff !== null ? (
-        <GitDiffView
+        <UnifiedDiffView
           key={`${gitDiff.path}:${gitDiff.staged}`}
           path={gitDiff.path}
           staged={gitDiff.staged}

@@ -1,0 +1,96 @@
+import { describe, expect, it } from 'vitest';
+import {
+  type DiffRow,
+  type DiffSeg,
+  computeUnifiedDiff,
+  diffStat,
+  segmentLine,
+} from '../src/renderer/src/lib/unifiedDiff.js';
+
+const ALL = { context: Number.POSITIVE_INFINITY };
+const join = (segs: readonly DiffSeg[]): string => segs.map((s) => s.text).join('');
+const hi = (segs: readonly DiffSeg[]): string =>
+  segs
+    .filter((s) => s.hi)
+    .map((s) => s.text)
+    .join('');
+
+describe('segmentLine', () => {
+  it('no ranges → one plain segment', () => {
+    expect(segmentLine('hello', [])).toEqual([{ text: 'hello', hi: false }]);
+  });
+  it('splits a middle highlight (1-based, end exclusive)', () => {
+    expect(segmentLine('abcdef', [[3, 6]])).toEqual([
+      { text: 'ab', hi: false },
+      { text: 'cde', hi: true },
+      { text: 'f', hi: false },
+    ]);
+  });
+  it('highlight running to the end of the line', () => {
+    expect(segmentLine('abc', [[2, 4]])).toEqual([
+      { text: 'a', hi: false },
+      { text: 'bc', hi: true },
+    ]);
+  });
+});
+
+describe('computeUnifiedDiff', () => {
+  it('a modify → del then add, with word-level segments', () => {
+    const rows = computeUnifiedDiff('const b = oldValue;', 'const b = newValue + extra;', ALL);
+    const del = rows.find((r) => r.kind === 'del') as Extract<DiffRow, { kind: 'del' }>;
+    const add = rows.find((r) => r.kind === 'add') as Extract<DiffRow, { kind: 'add' }>;
+    expect(del.oldLine).toBe(1);
+    expect(add.newLine).toBe(1);
+    // segments reconstruct the full line
+    expect(join(del.segs)).toBe('const b = oldValue;');
+    expect(join(add.segs)).toBe('const b = newValue + extra;');
+    // and the changed span is the word-level highlight
+    expect(hi(del.segs)).toBe('oldValue');
+    expect(hi(add.segs)).toContain('newValue');
+  });
+
+  it('a pure add → context + add rows, no del', () => {
+    const rows = computeUnifiedDiff('a\nb', 'a\nNEW\nb', ALL);
+    expect(rows.map((r) => r.kind)).toEqual(['context', 'add', 'context']);
+    const add = rows[1] as Extract<DiffRow, { kind: 'add' }>;
+    expect(add.newLine).toBe(2);
+    expect(join(add.segs)).toBe('NEW');
+    expect(hi(add.segs)).toBe(''); // a pure add has NO word-level highlight (whole line is new)
+  });
+
+  it('a pure delete → context + del rows', () => {
+    const rows = computeUnifiedDiff('a\nGONE\nb', 'a\nb', ALL);
+    expect(rows.map((r) => r.kind)).toEqual(['context', 'del', 'context']);
+    const del = rows[1] as Extract<DiffRow, { kind: 'del' }>;
+    expect(del.oldLine).toBe(2);
+    expect(join(del.segs)).toBe('GONE');
+  });
+
+  it('context lines carry BOTH line numbers', () => {
+    const rows = computeUnifiedDiff('a\nb\nc', 'a\nX\nc', ALL);
+    expect(rows[0]).toEqual({ kind: 'context', oldLine: 1, newLine: 1, text: 'a' });
+    expect(rows[rows.length - 1]).toEqual({ kind: 'context', oldLine: 3, newLine: 3, text: 'c' });
+  });
+
+  it('collapses a long unchanged run into a gap', () => {
+    const orig = Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n');
+    const rows = computeUnifiedDiff(orig, `${orig}\nADDED`, { context: 1 });
+    const gap = rows.find((r) => r.kind === 'gap') as Extract<DiffRow, { kind: 'gap' }>;
+    expect(gap).toBeDefined();
+    expect(gap.count).toBe(9); // 10 leading context, keep 1 next to the change → collapse 9
+    expect(rows[rows.length - 1]?.kind).toBe('add');
+  });
+
+  it('identical text → all context', () => {
+    const rows = computeUnifiedDiff('a\nb\nc', 'a\nb\nc', ALL);
+    expect(rows.every((r) => r.kind === 'context')).toBe(true);
+    expect(rows).toHaveLength(3);
+  });
+});
+
+describe('diffStat', () => {
+  it('counts add / del rows', () => {
+    const rows = computeUnifiedDiff('a\nb\nc', 'a\nX\nY\nc', ALL);
+    expect(diffStat(rows)).toEqual({ added: 2, removed: 1 });
+  });
+});
