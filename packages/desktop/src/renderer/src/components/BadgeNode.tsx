@@ -10,7 +10,9 @@ import {
   cardLodForHeight,
 } from '../lib/cardLod.js';
 import { fileUrl } from '../lib/fileUrl.js';
+import { type GitDecoPalette, fileDecoration } from '../lib/gitStatus.js';
 import { markdownToHtml } from '../lib/mdRender.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { CardBadgeFace } from './CardBadgeFace.js';
 import { type BadgeType, FileGlyph, badgeType } from './FileGlyph.js';
@@ -113,6 +115,17 @@ export interface BadgeNodeData extends Record<string, unknown> {
 
 type BadgeFlowNode = Node<BadgeNodeData, 'badge'>;
 
+// Canvas-card git-status colors (matches the file tree): added / untracked green,
+// modified amber, deleted red, conflict red, renamed accent.
+const CARD_GIT_PALETTE: GitDecoPalette = {
+  added: color.success,
+  modified: color.warning,
+  deleted: color.danger,
+  conflict: color.danger,
+  renamed: color.accent,
+  untracked: color.success,
+};
+
 export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX.Element => {
   const d = data as unknown as BadgeNodeData;
   const isFolder = d.kind === 'folder';
@@ -121,6 +134,9 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   const basename = lastSlash === -1 ? d.label : d.label.slice(lastSlash + 1);
   const dirname = lastSlash === -1 ? '' : d.label.slice(0, lastSlash);
   const type = badgeType(d.label, isFolder);
+  // git status for this card (a file, or an untracked dir reported as "label/").
+  const gitFile = useGitStatusStore((s) => s.byPath.get(d.label) ?? s.byPath.get(`${d.label}/`));
+  const gitDeco = gitFile ? fileDecoration(gitFile, CARD_GIT_PALETTE) : null;
   // The in-card badge face's flush key. Synthetic (not a real pane) — the hook
   // registers a flusher under it AND flushes its debounced prompt edit on unmount,
   // so an in-card edit persists even though the badge face has no editor pane.
@@ -291,6 +307,24 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
         cursor: 'grab',
       }}
     >
+      {gitDeco && (
+        <span
+          aria-hidden
+          title={`git: ${gitDeco.letter}`}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 9,
+            height: 9,
+            borderRadius: '50%',
+            background: gitDeco.color,
+            border: `1.5px solid ${baseBg}`,
+            zIndex: 3,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
       <NodeResizer
         isVisible={showResizeControls}
         minWidth={CARD_MIN_WIDTH}

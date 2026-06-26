@@ -63,6 +63,22 @@ export function ensureBhTheme(): void {
   themeDefined = true;
 }
 
+let gutterStylesInjected = false;
+/** Inject (once) the CSS for the editor's git change-bars — a colored vertical
+ *  bar in Monaco's lines-decorations lane: added green, modified accent-blue,
+ *  deleted red. Driven by the `bh-git-gutter-*` decoration classes. */
+export function ensureGitGutterStyles(): void {
+  if (gutterStylesInjected) return;
+  const style = document.createElement('style');
+  style.textContent = `
+.bh-git-gutter-add { border-left: 3px solid ${color.success}; box-sizing: border-box; }
+.bh-git-gutter-modify { border-left: 3px solid ${color.accent}; box-sizing: border-box; }
+.bh-git-gutter-delete { border-left: 3px solid ${color.danger}; box-sizing: border-box; }
+`;
+  document.head.appendChild(style);
+  gutterStylesInjected = true;
+}
+
 /** Monaco language id for a path, from Monaco's own extension / filename registry
  *  (so `Dockerfile`, `.ts`, `.tf`… resolve the way VS Code resolves them).
  *  Unknown → 'plaintext'. */

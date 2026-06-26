@@ -1,10 +1,12 @@
-import type { WorkspaceReadFileResult } from '@basehalf/core';
+import type { GitShowResult, WorkspaceReadFileResult } from '@basehalf/core';
 import * as monaco from 'monaco-editor';
 import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, radius, shadow, space } from '../design.js';
 import { type FlushOptions, registerFlusher, unregisterFlusher } from '../lib/editorFlush.js';
 import { makeFileFocusPusher } from '../lib/focusPush.js';
-import { ensureBhTheme, languageOf } from '../lib/monacoSetup.js';
+import { computeLineChanges } from '../lib/lineDiff.js';
+import { ensureBhTheme, ensureGitGutterStyles, languageOf } from '../lib/monacoSetup.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { Button } from './primitives/Button.js';
 
 /**
@@ -34,6 +36,8 @@ type Prompt = 'unsaved' | 'conflict';
 export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): JSX.Element => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  // The git HEAD baseline of this file, for the gutter change-bars (buffer vs this).
+  const baselineRef = useRef('');
   // The exact bytes we last read from / wrote to disk. dirty = buffer ≠ this.
   const lastSavedRef = useRef<string>('');
   const dirtyRef = useRef(false); // synchronous mirror the flusher reads
@@ -153,6 +157,8 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
   // workspace-root + path, so a different file is a fresh mount).
   useEffect(() => {
     let cancelled = false;
+    let gutterTimer: ReturnType<typeof setTimeout> | undefined;
+    let unsubGit: () => void = () => undefined;
     void (async () => {
       let res: WorkspaceReadFileResult;
       try {
@@ -201,11 +207,41 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       });
       editorRef.current = editor;
       setLoading(false);
+
+      // ── git gutter change-bars (the buffer vs the HEAD baseline) ───────────
+      ensureGitGutterStyles();
+      let gutterIds: string[] = [];
+      const recomputeGutter = (): void => {
+        const ed = editorRef.current;
+        if (!ed) return;
+        gutterIds = ed.deltaDecorations(
+          gutterIds,
+          computeLineChanges(baselineRef.current, ed.getValue()).map((c) => ({
+            range: new monaco.Range(c.startLine, 1, c.endLine, 1),
+            options: { linesDecorationsClassName: `bh-git-gutter-${c.kind}` },
+          })),
+        );
+      };
+      const fetchBaseline = async (): Promise<void> => {
+        try {
+          const r = (await window.bh.run('git.show', { ref: 'HEAD', path: file })) as GitShowResult;
+          baselineRef.current = r.content ?? '';
+        } catch {
+          baselineRef.current = ''; // not a repo / no HEAD → nothing to diff against
+        }
+        recomputeGutter();
+      };
+      void fetchBaseline();
+      // A commit / checkout moves HEAD → re-read the baseline + redraw.
+      unsubGit = useGitStatusStore.subscribe(() => void fetchBaseline());
+
       editor.onDidChangeModelContent(() => {
         const d = editor.getValue() !== lastSavedRef.current;
         dirtyRef.current = d;
         setDirty(d);
         pushViewport();
+        if (gutterTimer) clearTimeout(gutterTimer);
+        gutterTimer = setTimeout(recomputeGutter, 250);
       });
       editor.onDidChangeCursorPosition(() => pushViewport());
       editor.onDidScrollChange(() => pushViewport());
@@ -218,6 +254,8 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
     })();
     return () => {
       cancelled = true;
+      if (gutterTimer) clearTimeout(gutterTimer);
+      unsubGit();
       editorRef.current?.dispose();
       editorRef.current = null;
     };
