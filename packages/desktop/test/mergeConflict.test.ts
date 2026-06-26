@@ -33,6 +33,19 @@ describe('findConflicts', () => {
       { startLine: 7, sepLine: 9, endLine: 11 },
     ]);
   });
+
+  it('captures the diff3 ||||||| base marker', () => {
+    const t = [
+      '<<<<<<< HEAD',
+      'ours',
+      '||||||| base',
+      'original',
+      '=======',
+      'theirs',
+      '>>>>>>> branch',
+    ].join('\n');
+    expect(findConflicts(t)).toEqual([{ startLine: 1, baseLine: 3, sepLine: 5, endLine: 7 }]);
+  });
 });
 
 describe('resolveConflict', () => {
@@ -48,5 +61,31 @@ describe('resolveConflict', () => {
 
   it('both → ours then theirs', () => {
     expect(resolveConflict(TEXT, block, 'both')).toBe('ours A\nours B\ntheirs X');
+  });
+});
+
+describe('resolveConflict with a diff3 base section', () => {
+  // current ends at |||||||, not =======; the base is dropped on every choice.
+  const DIFF3 = [
+    '<<<<<<< HEAD',
+    'ours',
+    '||||||| base',
+    'original',
+    '=======',
+    'theirs',
+    '>>>>>>> branch',
+  ].join('\n');
+  const block = { startLine: 1, baseLine: 3, sepLine: 5, endLine: 7 };
+
+  it('current → ours only (no base marker / base content leaks)', () => {
+    expect(resolveConflict(DIFF3, block, 'current')).toBe('ours');
+  });
+
+  it('incoming → theirs', () => {
+    expect(resolveConflict(DIFF3, block, 'incoming')).toBe('theirs');
+  });
+
+  it('both → ours then theirs, base dropped', () => {
+    expect(resolveConflict(DIFF3, block, 'both')).toBe('ours\ntheirs');
   });
 });

@@ -282,6 +282,14 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       const resolveBlock = (block: ConflictBlock, choice: ConflictChoice): void => {
         const model = editor.getModel();
         if (!model) return;
+        // Stale-click guard (VS Code's per-conflict `applied` gate, adapted): only
+        // act if the block's `<<<<<<<` marker is STILL exactly where it was when
+        // this widget was built. If a prior resolve shifted the buffer, the line no
+        // longer holds the marker → bail rather than edit the wrong region. With the
+        // synchronous refresh below this is belt-and-suspenders, but it severs the
+        // root cause (a captured line number) for good.
+        if (block.startLine > model.getLineCount()) return;
+        if (!model.getLineContent(block.startLine).startsWith('<<<<<<<')) return;
         // Replace the whole block (markers included) with the chosen side.
         editor.executeEdits('bh-conflict', [
           {
