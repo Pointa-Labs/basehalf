@@ -12,6 +12,12 @@ import { ensureBhTheme, languageOf } from '../lib/monacoSetup.js';
  * Sides are fetched through core's `git.show` (`<ref>:./path`) and
  * `workspace.readFile`; the view never writes.
  */
+
+// The diff editor's `maxFileSize` option doesn't gate this (it's a workbench-layer
+// concept, not part of the embeddable createDiffEditor API), so we cap inputs
+// ourselves: above this, skip the diff rather than load both sides + churn a
+// worker on a huge file. The built-in maxComputationTime only bounds CPU, not memory.
+const MAX_DIFF_BYTES = 2 * 1024 * 1024;
 export const GitDiffView = ({
   path,
   staged,
@@ -41,6 +47,13 @@ export const GitDiffView = ({
           : (window.bh.run('workspace.readFile', { path }) as Promise<WorkspaceReadFileResult>);
         const [left, right] = await Promise.all([leftP, rightP]);
         if (cancelled) return;
+        if (
+          (left.content?.length ?? 0) > MAX_DIFF_BYTES ||
+          (right.content?.length ?? 0) > MAX_DIFF_BYTES
+        ) {
+          setError('File is too large to show a diff.');
+          return;
+        }
         const host = hostRef.current;
         if (!host) return;
         ensureBhTheme();
@@ -53,6 +66,17 @@ export const GitDiffView = ({
           originalEditable: false,
           automaticLayout: true,
           renderSideBySide: true,
+          // A narrow panel falls back to a single inline view instead of two cramped columns.
+          useInlineViewWhenSpaceIsLimited: true,
+          renderSideBySideInlineBreakpoint: 600,
+          // A git diff should surface whitespace-only changes (re-indents, trailing ws).
+          ignoreTrimWhitespace: false,
+          // Read-only preview: drop the overview ruler (minimap is already off) and the
+          // hunk revert menu (empty when read-only) to keep the chrome clean.
+          renderOverviewRuler: false,
+          renderGutterMenu: false,
+          // Bound the diff computation on a large file (returns a partial result, no hang).
+          maxComputationTime: 5000,
           fontFamily: font.mono,
           fontSize: 13,
           lineHeight: 20,
