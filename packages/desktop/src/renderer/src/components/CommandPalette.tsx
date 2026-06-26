@@ -25,7 +25,12 @@
 /** Empty-state quick-open shows at most this many recent files (⌘P pattern). */
 const EMPTY_RECENT_CAP = 8;
 
-import type { SearchQueryResult } from '@basehalf/core';
+import type {
+  GitBranchesResult,
+  GitLogResult,
+  GitStatusResult,
+  SearchQueryResult,
+} from '@basehalf/core';
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space, transition } from '../design.js';
@@ -34,6 +39,9 @@ import { type IMatch, createMatches, fuzzyMatch } from '../lib/fuzzyScore.js';
 import { highlightSegments } from '../lib/highlight.js';
 import { isImeComposing } from '../lib/imeGuard.js';
 import { recentFilesFor } from '../lib/recent-files.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
+import { useLayoutStore } from '../store/layout.js';
+import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { openSettings } from './Settings.js';
 
@@ -59,6 +67,25 @@ export function closeCommandPalette(): void {
   usePaletteStore.getState().setOpen(false);
 }
 
+// ── Git-mode helpers: drive the SCM view from a palette action ────────────────
+/** Open the sidebar's Source Control view on a given tab. */
+function showSourceControl(tab: 'changes' | 'graph'): void {
+  useLayoutStore.getState().setSidebarOpen(true);
+  useLayoutStore.getState().setSidebarView('scm');
+  useScmViewStore.getState().setTab(tab);
+}
+/** Open SCM ▸ Graph and reveal a specific commit (⌘K "jump to commit"). */
+function revealCommitInGraph(hash: string): void {
+  useLayoutStore.getState().setSidebarOpen(true);
+  useLayoutStore.getState().setSidebarView('scm');
+  useScmViewStore.getState().revealCommit(hash);
+}
+/** Run a git mutation from the palette, then refresh the SCM status from disk. */
+async function runGit(name: string, args: Record<string, unknown> = {}): Promise<void> {
+  await window.bh.run(name, args);
+  await useGitStatusStore.getState().refresh();
+}
+
 // Workspace management (rename / remove) deliberately does NOT live here — those
 // are rare, destructive ops, and the palette's job is the everyday loop (open a
 // file). They live in the File menu (see lib/actions.ts).
@@ -70,8 +97,8 @@ interface Action {
   label: string;
   /** Optional secondary text shown on the right (path, count, etc.). */
   hint?: string;
-  /** Short category prefix (Workspace, File, Action, Search) shown left. */
-  category: 'Workspace' | 'File' | 'Action' | 'Search';
+  /** Short category prefix (Workspace, File, Action, Git, Search) shown left. */
+  category: 'Workspace' | 'File' | 'Action' | 'Git' | 'Search';
   /** Optional dimmer second line under the label — used by Search rows to
    *  show the matching snippet so you can see WHY a file matched. */
   sub?: string;
@@ -270,6 +297,48 @@ export const CommandPalette = (): JSX.Element | null => {
   const [contentHits, setContentHits] = useState<SearchQueryResult['hits']>([]);
   const [hitsQuery, setHitsQuery] = useState('');
   const [hitsWorkspace, setHitsWorkspace] = useState<string | null>(null);
+
+  // Git state for the palette's Git mode — repo flag + branches + recent commits,
+  // fetched once when the palette opens (and re-fetched on a workspace switch).
+  // `gitWorkspace` guards rows from a previous workspace, like `filesWorkspace`.
+  const [gitRepo, setGitRepo] = useState(false);
+  const [gitBranches, setGitBranches] = useState<GitBranchesResult['branches']>([]);
+  const [gitCommits, setGitCommits] = useState<GitLogResult['commits']>([]);
+  const [gitWorkspace, setGitWorkspace] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setGitRepo(false);
+    setGitBranches([]);
+    setGitCommits([]);
+    setGitWorkspace(null);
+    if (current === null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = (await window.bh.run('git.status', {})) as GitStatusResult;
+        if (cancelled) return;
+        setGitRepo(status.isRepo);
+        if (!status.isRepo) {
+          setGitWorkspace(current);
+          return;
+        }
+        const [branches, log] = (await Promise.all([
+          window.bh.run('git.branches', {}),
+          window.bh.run('git.log', { maxCount: 60 }),
+        ])) as [GitBranchesResult, GitLogResult];
+        if (cancelled) return;
+        setGitBranches(branches.branches);
+        setGitCommits(log.commits);
+        setGitWorkspace(current);
+      } catch {
+        // A non-repo / transient git error just leaves the Git rows empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, current]);
+
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Whether the user is currently steering with the mouse. A good command
   // palette ignores hover-driven selection until the mouse actually moves,
@@ -378,8 +447,53 @@ export const CommandPalette = (): JSX.Element | null => {
       run: openSettings,
     });
 
+    // Git command actions — fuzzy-findable by "git", "branch", "push", … Gated on
+    // a confirmed repo for the CURRENT workspace (else the rows would act on the
+    // wrong/stale repo). A non-repo offers only Initialize.
+    if (gitWorkspace === current && current !== null) {
+      if (!gitRepo) {
+        out.push({
+          id: 'git:init',
+          label: 'Git: Initialize Repository',
+          category: 'Git',
+          run: () => void runGit('git.init'),
+        });
+      } else {
+        const G = (id: string, label: string, run: () => void): Action => ({
+          id,
+          label,
+          category: 'Git',
+          searchAlso: 'git',
+          run,
+        });
+        out.push(
+          G('git:create-branch', 'Git: Create Branch…', () => {
+            const name = window.prompt('新分支名')?.trim();
+            if (name) void runGit('git.createBranch', { name });
+          }),
+          G('git:commit', 'Git: Commit…', () => showSourceControl('changes')),
+          G('git:graph', 'Git: Show Commit Graph', () => showSourceControl('graph')),
+          G('git:stage-all', 'Git: Stage All Changes', () => void runGit('git.stageAll')),
+          G('git:unstage-all', 'Git: Unstage All Changes', () => void runGit('git.unstageAll')),
+          G('git:push', 'Git: Push', () => void runGit('git.push')),
+          G('git:pull', 'Git: Pull', () => void runGit('git.pull')),
+          G('git:fetch', 'Git: Fetch', () => void runGit('git.fetch')),
+        );
+      }
+    }
+
     return out;
-  }, [workspaces, current, files, filesWorkspace, use, openInPanel, pickAndAdd]);
+  }, [
+    workspaces,
+    current,
+    files,
+    filesWorkspace,
+    use,
+    openInPanel,
+    pickAndAdd,
+    gitRepo,
+    gitWorkspace,
+  ]);
 
   // The visible name/prompt rows + the highlight ranges for each row's label.
   // Two modes:
@@ -479,8 +593,50 @@ export const CommandPalette = (): JSX.Element | null => {
     return out;
   }, [contentHits, hitsQuery, hitsWorkspace, current, query, filtered, openInPanel]);
 
-  // The full navigable list: instant matches first, then content matches.
-  const rows = useMemo(() => [...filtered, ...contentActions], [filtered, contentActions]);
+  // Git entities — branches (switch) + commits (jump to graph) matching the typed
+  // query. Like content search, these are typed-only (an empty query shows the
+  // quick-open recents, not every branch/commit) and workspace-guarded.
+  const gitMatches = useMemo<Action[]>(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length === 0 || gitWorkspace !== current || !gitRepo) return [];
+    const out: Action[] = [];
+    for (const b of gitBranches) {
+      if (!b.name.toLowerCase().includes(q)) continue;
+      out.push({
+        id: `git:branch:${b.name}`,
+        label: b.name,
+        category: 'Git',
+        hint: b.current ? '当前分支' : '切换到此分支',
+        searchAlso: 'branch 分支',
+        run: () => {
+          if (!b.current) void runGit('git.checkout', { branch: b.name });
+        },
+      });
+      if (out.length >= 6) break;
+    }
+    let commitCount = 0;
+    for (const c of gitCommits) {
+      if (commitCount >= 8) break;
+      if (!c.subject.toLowerCase().includes(q) && !c.shortHash.toLowerCase().includes(q)) continue;
+      commitCount++;
+      out.push({
+        id: `git:commit:${c.hash}`,
+        label: c.subject,
+        hint: c.shortHash,
+        category: 'Git',
+        sub: c.author.name,
+        searchAlso: `commit ${c.shortHash}`,
+        run: () => revealCommitInGraph(c.hash),
+      });
+    }
+    return out;
+  }, [query, gitWorkspace, current, gitRepo, gitBranches, gitCommits]);
+
+  // The full navigable list: instant matches first, then content + git matches.
+  const rows = useMemo(
+    () => [...filtered, ...contentActions, ...gitMatches],
+    [filtered, contentActions, gitMatches],
+  );
 
   // Reset state each time we open. Also focus the input so the user
   // can type immediately.

@@ -1,7 +1,8 @@
 import type { GitCommit, GitCommitFilesResult, GitLogResult } from '@basehalf/core';
-import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
+import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { type GraphRow, laneColor, layoutGraph } from '../lib/gitGraph.js';
+import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 /**
@@ -33,6 +34,9 @@ export const GitGraph = (): JSX.Element => {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const focusCommit = useScmViewStore((s) => s.focusCommit);
+  const consumeFocus = useScmViewStore((s) => s.consumeFocus);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const loadPage = useCallback(async (skip: number): Promise<void> => {
     setLoading(true);
@@ -59,6 +63,16 @@ export const GitGraph = (): JSX.Element => {
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const gutterW = PAD * 2 + Math.max(1, width) * COL;
 
+  // ⌘K "jump to commit": once the target commit is loaded, expand + scroll to it.
+  useEffect(() => {
+    if (focusCommit === null) return;
+    if (!commits.some((c) => c.hash === focusCommit)) return; // not in a loaded page yet
+    setSelected(focusCommit);
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-commit="${focusCommit}"]`);
+    el?.scrollIntoView({ block: 'center' });
+    consumeFocus();
+  }, [focusCommit, commits, consumeFocus]);
+
   if (error !== null) {
     return <Hint color={color.danger}>{error}</Hint>;
   }
@@ -67,7 +81,7 @@ export const GitGraph = (): JSX.Element => {
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+    <div ref={scrollRef} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
       {rows.map((row) => (
         <CommitItem
           key={row.commit.hash}
@@ -115,7 +129,7 @@ const CommitItem = ({
   const { commit } = row;
   const [hover, setHover] = useState(false);
   return (
-    <div>
+    <div data-commit={commit.hash}>
       <div
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}

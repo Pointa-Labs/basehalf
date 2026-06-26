@@ -17,6 +17,7 @@ import {
   totalChangeCount,
 } from '../lib/gitStatus.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
+import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BranchSelector } from './BranchSelector.js';
 import { GitGraph } from './GitGraph.js';
@@ -88,7 +89,8 @@ export const SourceControl = (): JSX.Element => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'changes' | 'graph'>('changes');
+  const tab = useScmViewStore((s) => s.tab);
+  const setTab = useScmViewStore((s) => s.setTab);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
   // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
