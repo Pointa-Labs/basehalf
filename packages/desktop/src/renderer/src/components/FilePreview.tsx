@@ -53,7 +53,7 @@ import { scrollToFirstMatch } from '../lib/scrollToMatch.js';
 import { modeOf } from '../lib/viewerMode.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { AdhdControls } from './AdhdControls.js';
-import { CodeReader } from './CodeReader.js';
+import { CodeEditor } from './CodeEditor.js';
 import { NoteBadge } from './NoteBadge.js';
 import { NoteTitle } from './NoteTitle.js';
 import { Button } from './primitives/Button.js';
@@ -187,7 +187,7 @@ export const FilePreview = ({
     >
       <div ref={contentRef} style={{ flex: 1, overflow: 'auto' }}>
         {mode === 'md' && <MdEditor key={viewKey} file={file} paneId={paneId} docKey={viewKey} />}
-        {mode === 'text' && <TextViewer key={viewKey} file={file} />}
+        {mode === 'code' && <CodeEditor key={viewKey} file={file} paneId={paneId} />}
         {mode === 'pdf' && <PdfViewer absPath={absPath} />}
         {mode === 'image' && <ImageViewer absPath={absPath} />}
         {mode === 'audio' && (
@@ -410,18 +410,18 @@ export const MdEditor = ({
       // write echoes back equal to this — so merely viewing never rewrites.
       shared.lastDisk = original;
       pendingRef.current = false;
-      // Only plain .txt stays view-only — it isn't Markdown, so BlockNote would
-      // reinterpret its structure. Every Markdown file is now editable; the
-      // splice-save preserves anything the user doesn't touch (incl. constructs
-      // BlockNote can't model, kept as read-only passthrough blocks).
-      setViewOnly(/\.txt$/i.test(file));
+      // MdEditor only ever holds real Markdown now: plain .txt routes to the code
+      // editor (see viewerMode), so there's no view-only case left here. Every
+      // Markdown file is editable; splice-save preserves anything the user doesn't
+      // touch (incl. constructs BlockNote can't model, kept as passthrough blocks).
+      setViewOnly(false);
       setReloadPrompt(false);
       setError('');
       setTimeout(() => {
         initialLoad.current = false;
       }, 50);
     },
-    [editor, file, shared],
+    [editor, shared],
   );
 
   // Reload on an EXTERNAL change: the OWNER's watcher / acceptReload bump loadKey.
@@ -589,9 +589,10 @@ export const MdEditor = ({
       })();
     } else {
       // Joining an already-seeded doc: the content arrives via Yjs. Set the per-view
-      // flags the seeder's applyContent would have (view-only by extension, cleared
-      // banners) and lift the initial-load guard once the sync has settled.
-      setViewOnly(/\.txt$/i.test(file));
+      // flags the seeder's applyContent would have (always editable now — .txt
+      // routes to the code editor — and cleared banners) and lift the initial-load
+      // guard once the sync has settled.
+      setViewOnly(false);
       setReloadPrompt(false);
       setError('');
       initialLoad.current = true;
@@ -1076,153 +1077,6 @@ export const MdEditor = ({
           />
         </div>
       </div>
-    </div>
-  );
-};
-
-// Read-only viewer for code + text files (the editor handles .md/.txt; media
-// have their own viewers). bh is the workspace VIEW for these — agents/IDEs do
-// the editing — so this is deliberately read-only, with a quiet line saying so.
-// Huge files are capped to keep a <pre> from janking the UI.
-const TEXT_VIEW_CAP = 200_000;
-const TextViewer = ({ file }: { file: string }): JSX.Element => {
-  const [state, setState] = useState<{ text: string; truncated: boolean; binary: boolean } | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
-  // A file optimistically routed here can turn out binary (the content-sniff
-  // flags it). Offer the same "open in default app" escape hatch the
-  // UnsupportedFileViewer gives, so a sniffed binary is never a dead end.
-  const [openError, setOpenError] = useState<string | null>(null);
-  const openInApp = useCallback(async () => {
-    setOpenError(null);
-    try {
-      const res = await window.bh.openPath(file);
-      if (!res.ok) setOpenError(res.error ?? "Couldn't open the file.");
-    } catch (err) {
-      setOpenError(err instanceof Error ? err.message : String(err));
-    }
-  }, [file]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setState(null);
-    setError(null);
-    void (async () => {
-      try {
-        // Ask core for only the prefix we'll render — a multi-MB file (a big
-        // package-lock.json, a minified bundle, a long .log) must NOT be shipped
-        // whole across IPC and held in renderer memory just to show 200k chars.
-        const res = (await window.bh.run('workspace.readFile', {
-          path: file,
-          maxChars: TEXT_VIEW_CAP,
-        })) as WorkspaceReadFileResult;
-        if (!cancelled) {
-          setState({
-            text: res.content ?? '',
-            truncated: res.truncated === true,
-            binary: res.binary === true,
-          });
-        }
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [file]);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: space[2],
-          padding: `${space[2]}px ${space[4]}px`,
-          borderBottom: `1px solid ${color.divider}`,
-          fontFamily: font.sans,
-          fontSize: font.size.caption,
-          color: color.textTertiary,
-          flexShrink: 0,
-        }}
-      >
-        <span
-          aria-hidden
-          style={{ width: 8, height: 8, borderRadius: '50%', background: color.textGhost }}
-        />
-        Read-only — edit with your own tools
-      </div>
-      {error !== null ? (
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: space[4],
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            color: color.danger,
-          }}
-        >
-          {error}
-        </div>
-      ) : state === null ? (
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: space[4],
-            color: color.textTertiary,
-            fontSize: font.size.caption,
-          }}
-        >
-          …
-        </div>
-      ) : state.binary ? (
-        // Content-sniff found binary bytes in a file optimistically routed to the
-        // text viewer. Show a clean message + an open-in-app affordance instead of
-        // rendering mojibake or dead-ending.
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: space[4],
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            color: color.textTertiary,
-            lineHeight: 1.5,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: space[3],
-            alignItems: 'flex-start',
-          }}
-        >
-          <span>This looks like a binary file, so it can’t be shown as text.</span>
-          <Button variant="primary" onClick={() => void openInApp()}>
-            Open in default app
-          </Button>
-          {openError !== null && <span style={{ color: color.danger }}>{openError}</span>}
-        </div>
-      ) : state.text === '' ? (
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: space[4],
-            fontFamily: font.mono,
-            fontSize: font.size.caption,
-            color: color.textTertiary,
-          }}
-        >
-          empty file
-        </div>
-      ) : (
-        // The read-only code/text viewer with live visible-line focus sync —
-        // owns its own scroll container. (Reading aids are Markdown-only, in the
-        // rich editor; this viewer carries none.)
-        <CodeReader file={file} text={state.text} truncated={state.truncated} />
-      )}
     </div>
   );
 };

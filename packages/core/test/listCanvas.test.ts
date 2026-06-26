@@ -35,6 +35,7 @@ interface ListCanvasResult {
   size?: { width: number; height: number };
   children: CanvasChildBadge[];
   edges: CanvasEdge[];
+  truncated?: number;
 }
 
 async function listCanvas(ctx: TestContext, folder: string | null): Promise<ListCanvasResult> {
@@ -94,13 +95,15 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     expect(children.find((b) => b.path === 'a.md')?.kind).toBe('file');
   });
 
-  it('applies the supported-ext whitelist + skip-dir blacklist', async () => {
+  it('shows every file as a tile (code + extensionless) but skips tooling dirs + OS junk', async () => {
     await openWorkspace(ctx, {
       dirs: ['node_modules', '.git'],
       files: {
         'doc.md': '',
         'pic.png': '',
-        'script.sh': '', // code → NavTree only, not a canvas tile
+        'script.sh': '', // code → a canvas tile now, not just the NavTree
+        Dockerfile: '', // extensionless → also a tile
+        '.DS_Store': '', // OS junk → never a tile
         'node_modules/x.md': '',
         '.git/HEAD': '',
       },
@@ -108,7 +111,9 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     const names = (await listChildren(ctx, null)).map((b) => b.path);
     expect(names).toContain('doc.md');
     expect(names).toContain('pic.png');
-    expect(names).not.toContain('script.sh');
+    expect(names).toContain('script.sh'); // code is first-class on the canvas now
+    expect(names).toContain('Dockerfile');
+    expect(names).not.toContain('.DS_Store'); // OS junk stays hidden
     expect(names).not.toContain('node_modules');
     expect(names).not.toContain('.git');
   });
@@ -163,24 +168,25 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     expect(notes?.description).toBe('my notes');
   });
 
-  it('attaches a folder contents preview (total + items), folders-first, supported-only', async () => {
+  it('attaches a folder contents preview (total + items), folders-first, code included', async () => {
     await openWorkspace(ctx, {
       dirs: ['notes', 'notes/sub'],
       files: {
         'notes/a.md': '',
         'notes/b.png': '',
-        'notes/code.sh': '', // unsupported → excluded from total + items
+        'notes/code.sh': '', // code → part of total + items now
         'notes/sub/deep.md': '',
       },
     });
     const notes = (await listChildren(ctx, null)).find((b) => b.path === 'notes');
-    // 3 supported direct children: sub/ (folder), a.md, b.png. code.sh excluded.
-    expect(notes?.preview?.total).toBe(3);
-    // listFiles sorts folders-first then alpha → sub, a.md, b.png.
+    // 4 direct children now: sub/ (folder), a.md, b.png, code.sh.
+    expect(notes?.preview?.total).toBe(4);
+    // listFiles sorts folders-first then alpha → sub, a.md, b.png, code.sh.
     expect(notes?.preview?.items).toEqual([
       { name: 'sub', kind: 'folder' },
       { name: 'a.md', kind: 'file' },
       { name: 'b.png', kind: 'file' },
+      { name: 'code.sh', kind: 'file' },
     ]);
   });
 
@@ -212,6 +218,28 @@ describe('workspace.listCanvas (filesystem-as-tree, sparse badges)', () => {
     const a = children.find((b) => b.path === 'a.md');
     expect(a).toBeDefined();
     expect(a?.references).toEqual([]); // synthesized — the corrupt file didn't crash the canvas
+  });
+
+  it('leaves a normal-sized folder uncapped (no truncated field)', async () => {
+    await openWorkspace(ctx, { files: { 'a.md': '', 'b.md': '' } });
+    const res = await listCanvas(ctx, null);
+    expect(res.children.length).toBe(2);
+    expect(res.truncated).toBeUndefined();
+  });
+
+  it('caps a pathologically flat folder, keeping annotated children + reporting truncated', async () => {
+    // 305 plain files in ONE folder — over the 300 CANVAS_CHILD_LIMIT.
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 305; i++) files[`big/f${String(i).padStart(3, '0')}.md`] = '';
+    await openWorkspace(ctx, { dirs: ['big'], files });
+    // Annotate one child that alphabetical fill would otherwise drop (f303).
+    await ctx.core.run('badge.set', { file: 'big/f303.md', patch: { description: 'kept' } });
+    const res = await listCanvas(ctx, 'big');
+    expect(res.children.length).toBe(300); // bounded at the cap
+    expect(res.truncated).toBe(5); // 305 − 300 held back
+    const paths = res.children.map((c) => c.path);
+    expect(paths).toContain('big/f303.md'); // annotated → never dropped
+    expect(paths).not.toContain('big/f304.md'); // plain filler beyond the cap
   });
 
   it('throws when there is no workspace bound to the call', async () => {
@@ -294,7 +322,7 @@ describe('workspace.listSupportedFiles (recursive)', () => {
     ctx = freshCore();
   });
 
-  it('collects supported files recursively, skipping blacklist dirs + code files', async () => {
+  it('collects every file recursively (code included), skipping only blacklist dirs', async () => {
     await openWorkspace(ctx, {
       dirs: ['sub', 'sub/deep', 'node_modules'],
       files: {
@@ -308,7 +336,8 @@ describe('workspace.listSupportedFiles (recursive)', () => {
     const { files } = (await ctx.core.run('workspace.listSupportedFiles', { folder: null })) as {
       files: string[];
     };
-    expect(files).toEqual(['sub/a.md', 'sub/deep/b.png', 'top.md']);
+    // code.sh is collected now; node_modules is still skipped.
+    expect(files).toEqual(['sub/a.md', 'sub/code.sh', 'sub/deep/b.png', 'top.md']);
   });
 
   it('scopes to a subfolder', async () => {

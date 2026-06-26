@@ -233,6 +233,10 @@ export interface WorkspaceListCanvasResult {
   /** Connections between this folder's children (from canvas.yaml), filtered to
    *  edges whose both endpoints are present children. */
   readonly edges: readonly CanvasEdge[];
+  /** How many child cards were held back because the folder exceeded the canvas
+   *  child cap (absent / 0 = none). A safety net for a pathologically flat folder
+   *  — the sidebar + ⌘K still list every file, so nothing is truly hidden. */
+  readonly truncated?: number;
 }
 
 /** `workspace.listSupportedFiles({folder})` — all canvas-supported files under

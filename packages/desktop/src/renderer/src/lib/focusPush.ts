@@ -1,10 +1,10 @@
 import { useWorkspaceStore } from '../store/workspace.js';
 /**
  * The one place that owns the `focus.set`-for-a-file contract: a debounced writer
- * of the user's viewport into focus.yaml. Both viewers of a file's source — the
- * read-only CodeReader (visible line) and the Markdown editor (cursor + visible
- * line) — push through this, so the debounce / late-fire handling lives once
- * instead of being re-derived per surface.
+ * of the user's viewport into focus.yaml. Both editors of a file's source — the
+ * Monaco code editor (cursor + visible line) and the Markdown editor (cursor +
+ * visible line) — push through this, so the debounce / late-fire handling lives
+ * once instead of being re-derived per surface.
  *
  * focus.set is a FIELD-SCOPED merge in core, so a cursor-only and a visible-only
  * write compose without clobbering each other. main injects this window's bound

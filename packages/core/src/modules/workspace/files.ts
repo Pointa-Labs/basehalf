@@ -15,7 +15,7 @@ import {
 } from '../../kernel/index.js';
 import type { BadgeFile } from '../badges/types.js';
 import type { CanvasEdge, CanvasFile } from '../canvas/types.js';
-import { SKIP_NAMES, hasSupportedExt, toPosix } from './supported.js';
+import { SKIP_NAMES, isCanvasFile, toPosix } from './supported.js';
 import type {
   CanvasChildBadge,
   CanvasFolderPreview,
@@ -135,11 +135,12 @@ export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult
  * mirror, so a huge or deeply-nested workspace stays fast and there is no eager
  * badge-per-file. Read-only: it never writes a badge.
  */
-/** The canvas-surface filter: a subfolder (minus tooling dirs) or a
- *  supported-type file. Shared by listCanvas and its folder-contents preview so
- *  the card's "what's inside" list matches exactly what entering the folder shows. */
+/** The canvas-surface filter: a subfolder (minus tooling dirs) or any file that
+ *  isn't OS/editor cruft (code files included now). Shared by listCanvas and its
+ *  folder-contents preview so the card's "what's inside" list matches exactly
+ *  what entering the folder shows. */
 const isCanvasEntry = (entry: WorkspaceListFilesEntry): boolean =>
-  entry.type === 'dir' ? !SKIP_NAMES.has(entry.name) : hasSupportedExt(entry.name);
+  entry.type === 'dir' ? !SKIP_NAMES.has(entry.name) : isCanvasFile(entry.name);
 
 /** The agent-protocol pointer files setup installs at the workspace root.
  *  They are scaffolding, not content — the canvas is the user's map of THEIR
@@ -153,6 +154,39 @@ const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
  *  peek, not the folder. listFiles already sorts folders-first then alpha, so the
  *  slice is the same order you see on entering the folder. */
 const FOLDER_PREVIEW_LIMIT = 6;
+
+/** Cap for how many child cards ONE folder canvas renders. A normal folder is
+ *  far under this; the cap only bites a pathologically FLAT folder (hundreds of
+ *  direct children — likelier now that code files aren't filtered), keeping React
+ *  Flow and the IPC payload bounded. Tune here. */
+const CANVAS_CHILD_LIMIT = 300;
+
+/** A child the user has TOUCHED — described, linked, placed, or orphaned. The cap
+ *  never drops these (they're the curated set); only un-annotated filler is cut. */
+const isAnnotatedChild = (c: CanvasChildBadge): boolean =>
+  c.description !== undefined ||
+  c.references.length > 0 ||
+  c.referenced_by.length > 0 ||
+  c.card !== undefined ||
+  c.orphan === true;
+
+/** Bound a folder's child list at CANVAS_CHILD_LIMIT: keep every annotated child
+ *  plus enough un-annotated ones (alpha order) to reach the cap, and report how
+ *  many were held back. The sidebar + ⌘K still list them all, so nothing is truly
+ *  hidden — just kept off a canvas that React Flow couldn't lay out sanely. */
+function capCanvasChildren(all: readonly CanvasChildBadge[]): {
+  children: CanvasChildBadge[];
+  truncated: number;
+} {
+  if (all.length <= CANVAS_CHILD_LIMIT) return { children: [...all], truncated: 0 };
+  const annotated = all.filter(isAnnotatedChild);
+  const plain = all.filter((c) => !isAnnotatedChild(c));
+  const keepPlain = Math.max(0, CANVAS_CHILD_LIMIT - annotated.length);
+  const children = [...annotated, ...plain.slice(0, keepPlain)].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
+  return { children, truncated: all.length - children.length };
+}
 
 /** Peek at a folder's DIRECT contents for its card. Reuses the hardened,
  *  symlink-contained listFiles (escaped children already dropped there); a read
@@ -208,8 +242,7 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
   }
   const cardByPath = new Map((canvas?.cards ?? []).map((c) => [c.path, c]));
 
-  const children: CanvasChildBadge[] = [];
-  const childPaths = new Set<string>();
+  const built: CanvasChildBadge[] = [];
   for (const entry of entries) {
     if (!isCanvasEntry(entry)) continue;
     if (folder === null && entry.type === 'file' && AGENT_HINT_FILES.has(entry.name)) continue;
@@ -232,8 +265,7 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
       }
     }
     const card = cardByPath.get(rel);
-    childPaths.add(rel);
-    children.push({
+    built.push({
       path: rel,
       kind,
       ...(badge?.description !== undefined && { description: badge.description }),
@@ -246,7 +278,12 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
       ...(preview !== undefined && { preview }),
     });
   }
-  children.sort((a, b) => a.path.localeCompare(b.path));
+  built.sort((a, b) => a.path.localeCompare(b.path));
+  // Bound a pathologically large flat folder so the canvas + IPC payload stay
+  // sane; annotated children are always kept (see capCanvasChildren). The
+  // edge derivation below runs over the CAPPED set + its rebuilt childPaths.
+  const { children, truncated } = capCanvasChildren(built);
+  const childPaths = new Set(children.map((c) => c.path));
   // The edge set is DERIVED from the reference graph: an edge exists iff a child
   // references a SIBLING child (both present on this canvas). canvas.yaml's stored
   // edges supply only the non-derivable styling (anchors + label). So a reference
@@ -272,6 +309,7 @@ export const listCanvas: Handler<WorkspaceListCanvasArgs, WorkspaceListCanvasRes
     ...(canvas?.size !== undefined && { size: canvas.size }),
     children,
     edges,
+    ...(truncated > 0 && { truncated }),
   };
 };
 
@@ -318,7 +356,7 @@ export const listSupportedFiles: Handler<
       if (entry.type === 'dir') {
         if (SKIP_NAMES.has(entry.name)) continue;
         stack.push({ abs: join(abs, entry.name), rel: childRel });
-      } else if (hasSupportedExt(entry.name)) {
+      } else if (isCanvasFile(entry.name)) {
         files.push(childRel);
       }
     }
@@ -550,7 +588,7 @@ export const importFile: Handler<WorkspaceImportFileArgs, WorkspaceImportFileRes
   if (isContained(realRoot, realFrom)) {
     const rel = toPosix(realFrom.slice(realRoot.length + 1));
     const name = basename(realFrom);
-    return { path: rel, name, imported: false, supported: hasSupportedExt(name) };
+    return { path: rel, name, imported: false, supported: isCanvasFile(name) };
   }
   const toFolder = args.to ?? null;
   if (toFolder !== null) assertWorkspaceRelative(toFolder);
@@ -592,7 +630,7 @@ export const importFile: Handler<WorkspaceImportFileArgs, WorkspaceImportFileRes
     }
   }
   const rel = toFolder === null ? name : toPosix(`${toFolder}/${name}`);
-  return { path: rel, name, imported: true, supported: hasSupportedExt(name) };
+  return { path: rel, name, imported: true, supported: isCanvasFile(name) };
 };
 
 /** Split a workspace-relative POSIX path into its parent dir (`''` at root) and

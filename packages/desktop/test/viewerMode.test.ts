@@ -1,45 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import { extOf, modeOf } from '../src/renderer/src/lib/viewerMode.js';
 
-describe('modeOf — deny-list routing: unknown / extension-less files open in the text viewer', () => {
-  // The codex P2 on #97: an allow-list left arbitrary extension-less names
-  // dead-ending at "No built-in viewer". These must now route to the text
-  // viewer (where the binary content-sniff is the safety net).
-  it('routes arbitrary extension-less names to the text viewer', () => {
+describe('modeOf — deny-list routing: unknown / extension-less / code files open in the code editor', () => {
+  // An allow-list left arbitrary extension-less names dead-ending at "No built-in
+  // viewer". These route to the editable code editor (Monaco), where the binary
+  // content-sniff is the safety net.
+  it('routes arbitrary extension-less names to the code editor', () => {
     for (const name of ['VERSION', 'TODO', 'INSTALL', 'HACKING', 'CODEOWNERS', 'AUTHORS']) {
-      expect(modeOf(name)).toBe('text');
+      expect(modeOf(name)).toBe('code');
     }
   });
 
-  it('routes extension-less names nested in folders to the text viewer', () => {
-    expect(modeOf('src/cmd/VERSION')).toBe('text');
-    expect(modeOf('deep/nested/dir/TODO')).toBe('text');
+  it('routes extension-less names nested in folders to the code editor', () => {
+    expect(modeOf('src/cmd/VERSION')).toBe('code');
+    expect(modeOf('deep/nested/dir/TODO')).toBe('code');
   });
 
-  it('routes unknown extensions to the text viewer (no allowlist to grow)', () => {
+  it('routes unknown extensions to the code editor (no allowlist to grow)', () => {
     for (const name of ['main.tf', 'infra.hcl', 'weird.foo', 'thing.bar', 'app.zig', 'x.nim']) {
-      expect(modeOf(name)).toBe('text');
+      expect(modeOf(name)).toBe('code');
     }
   });
 
-  it('routes dotfiles (name is the signal) to the text viewer', () => {
-    expect(modeOf('.gitignore')).toBe('text');
-    expect(modeOf('repo/.dockerignore')).toBe('text');
-    expect(modeOf('.editorconfig')).toBe('text');
+  it('routes dotfiles (name is the signal) to the code editor', () => {
+    expect(modeOf('.gitignore')).toBe('code');
+    expect(modeOf('repo/.dockerignore')).toBe('code');
+    expect(modeOf('.editorconfig')).toBe('code');
   });
 
-  it('keeps known code/text extensions in the text viewer', () => {
+  it('routes known code/text extensions to the code editor', () => {
     for (const name of ['a.ts', 'b.py', 'c.json', 'd.conf', 'e.ini', 'f.env', 'g.yaml']) {
-      expect(modeOf(name)).toBe('text');
+      expect(modeOf(name)).toBe('code');
     }
   });
 });
 
 describe('modeOf — dedicated viewers and open-in-app are preserved (no regressions)', () => {
-  it('routes Markdown / plain text to the editor', () => {
+  it('routes Markdown to the rich editor, plain text to the code editor', () => {
     expect(modeOf('readme.md')).toBe('md');
     expect(modeOf('notes.markdown')).toBe('md');
-    expect(modeOf('log.txt')).toBe('md');
+    // .txt is plain text, not Markdown — code-edited now (editable), so its raw
+    // `*` / `#` aren't mis-rendered as rich formatting.
+    expect(modeOf('log.txt')).toBe('code');
   });
 
   it('routes PDFs to the pdf viewer', () => {
@@ -77,7 +79,7 @@ describe('extOf — basename-scoped extension extraction', () => {
   it('ignores a dot in a parent directory name', () => {
     // Latent bug in the old path-global extOf: `my.app/README` reported `.app/readme`.
     expect(extOf('my.app/README')).toBe('');
-    expect(modeOf('my.app/README')).toBe('text');
+    expect(modeOf('my.app/README')).toBe('code');
   });
 
   it('treats a leading-dot dotfile as extension-less', () => {

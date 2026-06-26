@@ -143,11 +143,19 @@ describe('workspace.importFile', () => {
     );
   });
 
-  it('flags unsupported types so callers skip canvas placement', async () => {
-    const src = join(outside, 'tool.bin');
-    await writeFile(src, 'x');
-    const r = await core.run('workspace.importFile', { from: src });
-    expect(r.supported).toBe(false);
+  it('flags every imported file supported (code/binary included) except OS junk', async () => {
+    // A binary the canvas can't preview is still a real file the user dropped —
+    // it earns a card (opens in the system app), same as a .docx. Only OS junk
+    // (.DS_Store) is flagged unsupported so the drop handler skips its card.
+    const bin = join(outside, 'tool.bin');
+    await writeFile(bin, 'x');
+    const r = await core.run('workspace.importFile', { from: bin });
+    expect(r.supported).toBe(true);
     expect(await readFile(join(ws, 'tool.bin'), 'utf8')).toBe('x');
+
+    const junk = join(outside, '.DS_Store');
+    await writeFile(junk, 'x');
+    const j = await core.run('workspace.importFile', { from: junk });
+    expect(j.supported).toBe(false); // copied, but no canvas card
   });
 });

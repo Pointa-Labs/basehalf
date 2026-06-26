@@ -5,10 +5,11 @@
  * (Office/iWork docs, archives, fonts, media we don't render inline) hand off to
  * the OS "open in default app" path; EVERYTHING ELSE — known code/text, unknown
  * extensions, AND extension-less names like `VERSION` / `TODO` / `CODEOWNERS` —
- * optimistically opens in the read-only text viewer. The viewer's capped binary
+ * optimistically opens in the editable code editor (Monaco). Its binary
  * content-sniff (`workspace.readFile` flags a NUL byte / invalid UTF-8) is the
  * safety net: a binary that slips through renders a "binary file — open in the
- * right app" message, never mojibake.
+ * right app" message, never mojibake. (`.md` / `.markdown` go to the rich
+ * Markdown editor instead; plain `.txt` is code-edited here, not rich-edited.)
  *
  * Why deny-list and not the old allow-list: a list of "known text extensions"
  * can never be complete — a real repo has `Dockerfile`, `VERSION`, `*.tf`,
@@ -20,7 +21,7 @@
  * visual identity, this is viewer routing. They intentionally don't share a map.
  */
 
-export type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'text' | 'other';
+export type ViewerMode = 'md' | 'pdf' | 'image' | 'audio' | 'video' | 'code' | 'other';
 
 /**
  * Lowercased, leading-dot extension of a path's basename, or '' when there's no
@@ -36,7 +37,10 @@ export function extOf(path: string): string {
   return dot <= 0 ? '' : name.slice(dot).toLowerCase();
 }
 
-const MD_EXT = new Set(['.md', '.markdown', '.txt']);
+// Only true Markdown opens in the rich BlockNote editor. Plain `.txt` is NOT
+// Markdown — it falls through to the code editor (editable plain text), where
+// `.md` syntax wouldn't be mis-rendered as formatting.
+const MD_EXT = new Set(['.md', '.markdown']);
 // Inline media we actually render here (Electron/Chromium-decodable). Formats
 // NOT in these sets fall to OPEN_IN_APP so they get a clean "open in default
 // app" rather than a broken <img>/<audio>/<video> element.
@@ -136,7 +140,7 @@ export function modeOf(path: string): ViewerMode {
   // Known non-text formats keep "open in system app".
   if (OPEN_IN_APP_EXT.has(e)) return 'other';
   // Everything else — known code/text, unknown extensions, and extension-less
-  // names — is optimistically routed to the read-only text viewer; its binary
-  // content-sniff downgrades a true binary to the "binary file" message.
-  return 'text';
+  // names — is optimistically routed to the editable code editor (Monaco); its
+  // binary content-sniff downgrades a true binary to the "binary file" message.
+  return 'code';
 }

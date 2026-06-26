@@ -233,6 +233,8 @@ export const Canvas = (): JSX.Element => {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
   const [error, setError] = useState<string>('');
+  // How many child cards this folder held back (a folder over CANVAS_CHILD_LIMIT).
+  const [truncated, setTruncated] = useState(0);
   const nodesRef = useRef<Node<BadgeNodeData>[]>([]);
   // Monotonic sequence for loadData staleness checks (see loadData).
   const loadSeqRef = useRef(0);
@@ -308,12 +310,17 @@ export const Canvas = (): JSX.Element => {
       // indicators (coverage bars, first-annotation hint) need a whole-workspace
       // walk and used to block this render — that was the folder-entry lag. They
       // now land in PHASE 2 below, after the cards are already on screen.
-      const { children, edges: canvasEdges } = (await window.bh.run('workspace.listCanvas', {
+      const {
+        children,
+        edges: canvasEdges,
+        truncated: held,
+      } = (await window.bh.run('workspace.listCanvas', {
         folder: folderScope,
       })) as WorkspaceListCanvasResult;
       if (!fresh()) return;
       const nextNodes = children.map((b, i) => badgeToNode(b, i, children.length));
       setNodes(nextNodes);
+      setTruncated(held ?? 0);
       setEdges(connectionEdges(canvasEdges, nextNodes));
       setSnapGuides([]);
       setFrame({ key: `${current}|${folderScope ?? ''}`, vp: null });
@@ -1207,6 +1214,28 @@ export const Canvas = (): JSX.Element => {
           }}
         >
           {error}
+        </div>
+      )}
+      {truncated > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: space[3],
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: color.surface,
+            border: `1px solid ${color.border}`,
+            padding: `${space[1]}px ${space[3]}px`,
+            fontSize: font.size.caption,
+            fontFamily: font.sans,
+            color: color.textTertiary,
+            borderRadius: radius.pill,
+            boxShadow: shadow.raised,
+            zIndex: 10,
+          }}
+        >
+          {truncated} more file{truncated === 1 ? '' : 's'} not shown — find them in the sidebar or
+          ⌘K
         </div>
       )}
       {showGhostCard && <GhostNoteCard folderScope={folderScope} />}
