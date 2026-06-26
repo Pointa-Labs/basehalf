@@ -1,7 +1,12 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `@basehalf/core` ships seven modules: `workspace`, `badges`,
-> `canvas`, `focus`, `adhd`, `search` (plus an internal `watcher`). The desktop
+> **Status:** `@basehalf/core` ships eight modules: `workspace`, `badges`,
+> `canvas`, `focus`, `adhd`, `search`, `git` (plus an internal `watcher`). The
+> `git` module is a full source-control surface (status/stage/commit/push/pull,
+> branch create/checkout/merge/delete/rename, `log`/`diffRef`/`commitFiles` for
+> the commit graph + commit diffs, `apply` for hunk staging, stash/revert) driven
+> by the desktop SCM panel, commit-graph view, ⌘K Git mode, and inline diff. The
+> desktop
 > app drives core over IPC (see [docs/roadmap.md](docs/roadmap.md)); there is no
 > standalone CLI. `workspace.add` with `setup` (and the desktop's Open Folder)
 > installs the **agent protocol** hint pointing agents at
