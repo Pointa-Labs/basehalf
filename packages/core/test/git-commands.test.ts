@@ -80,6 +80,13 @@ describe('git commands (injected fake runner)', () => {
     expect(calls[0].stdin).toBe('subject\n\nbody');
   });
 
+  it('git.commit rejects an empty/whitespace message in core (not via git stderr)', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.commit', { message: '   \n  ' }, ROOT)).rejects.toThrow(/message/i);
+    expect(calls).toHaveLength(0); // never reached git
+  });
+
   it('git.commit --amend appends the flag', async () => {
     const { git, calls } = makeFakeGit(() => ({}));
     const core = createCore({ git, configDir: '/cfg' });

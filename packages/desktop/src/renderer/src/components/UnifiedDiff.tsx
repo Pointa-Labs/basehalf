@@ -1,4 +1,4 @@
-import { Fragment, type JSX, useState } from 'react';
+import { Fragment, type JSX, useEffect, useState } from 'react';
 import { color, font, space } from '../design.js';
 import type { DiffRow, DiffSeg } from '../lib/unifiedDiff.js';
 
@@ -47,6 +47,12 @@ export const UnifiedDiff = ({
     });
   const htmlFor = (row: LineRow): string | undefined =>
     row.kind === 'add' ? newHtml?.[row.newLine - 1] : oldHtml?.[row.oldLine - 1];
+  // A re-fetch yields a fresh `rows` array → reset expansion (gaps moved, and the
+  // position-index keys below would otherwise carry stale expand state across diffs).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rows` is the reset trigger (not read in the body).
+  useEffect(() => {
+    setExpanded(new Set());
+  }, [rows]);
 
   return (
     <div
@@ -65,17 +71,17 @@ export const UnifiedDiff = ({
       <div style={{ minWidth: 'max-content' }}>
         {rows.map((row, i) => {
           if (row.kind === 'gap') {
-            const open = expanded.has(row.oldStart);
+            // Key the expand state by the gap's POSITION (i), not row.oldStart —
+            // two pure-add hunks both fall back to oldStart 1 and would collide.
+            const open = expanded.has(i);
             return (
-              <Fragment key={`g${row.oldStart}`}>
-                <HunkBar row={row} open={open} onToggle={() => toggle(row.oldStart)} />
+              // biome-ignore lint/suspicious/noArrayIndexKey: a gap's identity IS its position — rows are recomputed wholesale, never reordered.
+              <Fragment key={`g${i}`}>
+                <HunkBar row={row} open={open} onToggle={() => toggle(i)} />
                 {open &&
                   row.hidden.map((h, k) => (
-                    <Row
-                      key={`h${row.oldStart}-${k}`}
-                      row={h as LineRow}
-                      html={htmlFor(h as LineRow)}
-                    />
+                    // biome-ignore lint/suspicious/noArrayIndexKey: positional hidden rows within a stable gap.
+                    <Row key={`h${i}-${k}`} row={h as LineRow} html={htmlFor(h as LineRow)} />
                   ))}
               </Fragment>
             );
@@ -162,13 +168,42 @@ const Gutter = ({ n }: { n: number | null }): JSX.Element => (
   </span>
 );
 
-/** Word-level highlight column ranges from the line's segments (1-based start). */
+// The colorize tabSize (must match useFileDiff). Tabs render as this many columns.
+const TAB_SIZE = 2;
+
+/** Roughly East-Asian Wide/Fullwidth — the CJK ranges monaco renders at DOUBLE
+ *  width. Not exhaustive, but covers the dominant cases (Chinese / Japanese /
+ *  Korean + fullwidth forms) so the overlay lines up in this Chinese-heavy app. */
+const isFullWidth = (code: number): boolean =>
+  (code >= 0x1100 && code <= 0x115f) ||
+  (code >= 0x2e80 && code <= 0xa4cf) ||
+  (code >= 0xac00 && code <= 0xd7a3) ||
+  (code >= 0xf900 && code <= 0xfaff) ||
+  (code >= 0xfe30 && code <= 0xfe4f) ||
+  (code >= 0xff00 && code <= 0xff60) ||
+  (code >= 0xffe0 && code <= 0xffe6) ||
+  (code >= 0x20000 && code <= 0x3fffd);
+
+/** Visible-column width of a string starting at `startVis`, accounting for tab
+ *  expansion + full-width chars — so the `ch`-positioned overlay matches what
+ *  monaco renders (a tab → TAB_SIZE cols, a CJK char → 2 cols). */
+const visibleWidth = (text: string, startVis: number): number => {
+  let w = 0;
+  for (const ch of text) {
+    if (ch === '\t') w += TAB_SIZE - ((startVis + w) % TAB_SIZE);
+    else w += isFullWidth(ch.codePointAt(0) ?? 0) ? 2 : 1;
+  }
+  return w;
+};
+
+/** Word-level highlight ranges in 0-based VISIBLE columns (not source columns). */
 const wordRanges = (segs: readonly DiffSeg[]): Array<{ start: number; len: number }> => {
   const out: Array<{ start: number; len: number }> = [];
-  let col = 1;
+  let vis = 0;
   for (const s of segs) {
-    if (s.hi) out.push({ start: col, len: s.text.length });
-    col += s.text.length;
+    const w = visibleWidth(s.text, vis);
+    if (s.hi) out.push({ start: vis, len: w });
+    vis += w;
   }
   return out;
 };
@@ -211,7 +246,7 @@ const Row = ({ row, html }: { row: LineRow; html: string | undefined }): JSX.Ele
               position: 'absolute',
               top: 0,
               bottom: 0,
-              left: `${w.start - 1}ch`,
+              left: `${w.start}ch`,
               width: `${w.len}ch`,
               background: isAdd ? ADD_WORD : DEL_WORD,
               borderRadius: 2,

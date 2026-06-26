@@ -103,6 +103,11 @@ export const discard: Handler<GitPathsArgs, GitOkResult> = async (args, ctx) => 
 };
 
 export const commit: Handler<GitCommitArgs, GitCommitResult> = async (args, ctx) => {
+  // Reject an empty/whitespace message here rather than leaning on git's localized
+  // "Aborting commit due to empty commit message" stderr (a fragile contract).
+  if (typeof args.message !== 'string' || args.message.trim() === '') {
+    throw new Error('A commit message is required.');
+  }
   // Message via stdin (`-F -`) so there's no shell escaping. gpgsign is left to
   // the user's config (a signed-commit setup is honored).
   const cmd = ['commit', '-F', '-'];

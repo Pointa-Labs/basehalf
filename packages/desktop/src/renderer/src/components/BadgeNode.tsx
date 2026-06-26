@@ -738,6 +738,13 @@ const BadgeDiffPreview = ({
       </div>
     );
   }
+  // While the diff loads, a quiet placeholder — NOT a full <BadgePreview>, which
+  // would spin up a SECOND read chain (+ a wasted Markdown render) for the same
+  // file just to be replaced a frame later. Only a no-diff (matches HEAD) or an
+  // error falls back to the real content preview.
+  if (diff.status === 'loading') {
+    return <div style={{ flex: 1, minHeight: 0 }} />;
+  }
   return <BadgePreview type={type} label={label} wsPath={wsPath} />;
 };
 

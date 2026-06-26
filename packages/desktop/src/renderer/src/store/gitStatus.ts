@@ -24,6 +24,12 @@ interface GitStatusState {
   reset: () => void;
 }
 
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+const clearDebounce = (): void => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = undefined;
+};
+
 export const useGitStatusStore = create<GitStatusState>((set) => ({
   status: null,
   error: null,
@@ -33,6 +39,7 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
     // Bind to the workspace this read was issued for; a switch mid-flight must not
     // let a stale result (for the OLD repo) land on top of the NEW repo's state.
     const issuedFor = useWorkspaceStore.getState().current;
+    if (issuedFor === null) return; // no workspace open → nothing to read (welcome state)
     const stale = (): boolean => useWorkspaceStore.getState().current !== issuedFor;
     try {
       const status = (await window.bh.run('git.status', {})) as GitStatusResult;
@@ -53,12 +60,16 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
       });
     }
   },
-  reset: () => set({ status: null, byPath: new Map(), folderStatus: new Map(), error: null }),
+  reset: () => {
+    // Drop any in-flight debounced refresh so a late result can't clobber the
+    // just-cleared (welcome) state.
+    clearDebounce();
+    set({ status: null, byPath: new Map(), folderStatus: new Map(), error: null });
+  },
 }));
 
-let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 /** Coalesce a burst of file events into a single git.status read. */
 export function scheduleGitStatusRefresh(delayMs = 300): void {
-  if (debounceTimer) clearTimeout(debounceTimer);
+  clearDebounce();
   debounceTimer = setTimeout(() => void useGitStatusStore.getState().refresh(), delayMs);
 }

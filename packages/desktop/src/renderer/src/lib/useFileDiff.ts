@@ -13,6 +13,26 @@ import { type DiffRow, computeUnifiedDiff } from './unifiedDiff.js';
  */
 const MAX_DIFF_CHARS = 2 * 1024 * 1024;
 
+// monaco.colorize tokenizes on the MAIN thread, so a canvas full of changed cards
+// mounting together would fire dozens in one frame and freeze. Cap how many files
+// colorize at once; the rest queue (total work is unchanged — colorize can't run
+// in parallel anyway — but it's spread across frames instead of one big stall).
+const MAX_CONCURRENT_COLORIZE = 3;
+let colorizeActive = 0;
+const colorizeQueue: Array<() => void> = [];
+async function withColorizeSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (colorizeActive >= MAX_CONCURRENT_COLORIZE) {
+    await new Promise<void>((resolve) => colorizeQueue.push(resolve));
+  }
+  colorizeActive++;
+  try {
+    return await fn();
+  } finally {
+    colorizeActive--;
+    colorizeQueue.shift()?.();
+  }
+}
+
 export type FileDiffState =
   | { readonly status: 'loading' }
   | {
@@ -74,10 +94,12 @@ export function useFileDiff(
             import('./monacoSetup.js'),
           ]);
           const language = languageOf(path);
-          const [o, m] = await Promise.all([
-            monaco.editor.colorize(original, language, { tabSize: 2 }),
-            monaco.editor.colorize(modified, language, { tabSize: 2 }),
-          ]);
+          const [o, m] = await withColorizeSlot(() =>
+            Promise.all([
+              monaco.editor.colorize(original, language, { tabSize: 2 }),
+              monaco.editor.colorize(modified, language, { tabSize: 2 }),
+            ]),
+          );
           if (cancelled) return;
           oldHtml = o.split('<br/>');
           newHtml = m.split('<br/>');

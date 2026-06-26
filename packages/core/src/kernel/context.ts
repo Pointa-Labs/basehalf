@@ -320,6 +320,11 @@ export function defaultGit(): GitRunner {
         errChunks.push(c);
       });
       child.on('error', (err) => finish(() => reject(err)));
+      // Swallow stdin write errors: if git exits before draining stdin (a rejected
+      // commit, an empty/over-buffer message), the write end gets EPIPE — an
+      // unhandled 'error' on the stream would crash the host. The real failure is
+      // reported by the close handler's exit code.
+      child.stdin.on('error', () => undefined);
       child.on('close', (code) => {
         const exitCode = code ?? -1;
         const stdout = Buffer.concat(outChunks).toString('utf8');
