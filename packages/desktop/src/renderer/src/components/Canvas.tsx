@@ -222,6 +222,11 @@ export const Canvas = (): JSX.Element => {
   // Its own breadcrumb header then owns navigation, so the canvas's floating
   // chrome (breadcrumb pill, New-note button) hides rather than bleed on top.
   const openFile = useWorkspaceStore((s) => s.openFile);
+  // A git diff covers the canvas too (openFile is null then, but gitDiff is set),
+  // so the canvas chrome below must hide for it as well — else the floating
+  // "New note" + breadcrumb (z-index 8) bleed OVER the diff overlay (z-index 5).
+  const gitDiff = useWorkspaceStore((s) => s.gitDiff);
+  const overlayOpen = openFile !== null || gitDiff !== null;
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   // While a card is being inline-edited, suspend viewport virtualization so a
@@ -1116,10 +1121,10 @@ export const Canvas = (): JSX.Element => {
     >
       {/* New note — top-right of the canvas. A real `untitled-N.md` opens for
           typing immediately (no filename dialog); inside a folder scope it's
-          created in that folder. Hidden while a file is open — the editor
-          overlay covers the canvas, so a floating button there just clutters
-          the document (the ⌘N shortcut still works). */}
-      {!openFile && (
+          created in that folder. Hidden while a file OR a diff is open — the
+          editor overlay covers the canvas, so a floating button there just
+          clutters the document (the ⌘N shortcut still works). */}
+      {!overlayOpen && (
         <div
           style={{
             position: 'absolute',
@@ -1146,7 +1151,7 @@ export const Canvas = (): JSX.Element => {
           one breadcrumb everywhere. It always carries a compact "Edit prompt"
           action — for the scoped folder, or the workspace itself at root. Compact
           (crumb-sized) so the bar keeps one height across every context. */}
-      {!openFile && (
+      {!overlayOpen && (
         <div
           data-testid="canvas-breadcrumb"
           style={{ position: 'absolute', top: 0, left: sidebarInset, right: 0, zIndex: 8 }}
