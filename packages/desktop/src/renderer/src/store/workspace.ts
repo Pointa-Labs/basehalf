@@ -58,11 +58,21 @@ interface WorkspaceState {
    *  persists its last edits; an unresolved conflict / failed write keeps it
    *  open so the user resolves it). Esc / the ✕ / ⌘W drive this. */
   closeEditor: () => void;
-  /** A git diff open in the overlay (a Source Control row click): the file + whether
-   *  it's the staged diff (HEAD ↔ index) or the unstaged one (index ↔ working tree).
+  /** A git diff open in the overlay (a Source Control row / commit-file click).
+   *  Working-tree diffs leave refs unset (staged picks HEAD↔index vs index↔tree);
+   *  a commit-file diff sets leftRef/rightRef (parent ↔ commit) + a title.
    *  Takes precedence over `openFile` in the overlay. */
-  gitDiff: { path: string; staged: boolean } | null;
+  gitDiff: {
+    path: string;
+    staged: boolean;
+    leftRef?: string;
+    rightRef?: string;
+    title?: string;
+  } | null;
   openGitDiff: (path: string, staged: boolean) => void;
+  /** Open a historical commit's change to one file (parent ↔ commit) in the diff
+   *  overlay. `parentRef` defaults to `${ref}^`; a root commit shows a full add. */
+  openCommitDiff: (path: string, ref: string, parentRef?: string, title?: string) => void;
   closeGitDiff: () => void;
   /** Rebind the open file's path (the watcher saw it renamed on disk). No flush —
    *  the old path is gone; the editor remounts on the new bytes. No-op when the
@@ -585,6 +595,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       // then swap the overlay to the read-only diff.
       void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
         if (ok) set({ openFile: null, gitDiff: { path, staged } });
+      });
+    },
+    openCommitDiff: (path, ref, parentRef, title) => {
+      void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
+        if (ok)
+          set({
+            openFile: null,
+            gitDiff: { path, staged: false, leftRef: parentRef ?? `${ref}^`, rightRef: ref, title },
+          });
       });
     },
     closeGitDiff: () => set({ gitDiff: null }),

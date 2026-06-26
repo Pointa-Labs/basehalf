@@ -18,6 +18,8 @@ import {
 } from '../lib/gitStatus.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { BranchSelector } from './BranchSelector.js';
+import { GitGraph } from './GitGraph.js';
 import { Button } from './primitives/Button.js';
 
 /**
@@ -86,6 +88,7 @@ export const SourceControl = (): JSX.Element => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'changes' | 'graph'>('changes');
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
   // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
@@ -192,115 +195,233 @@ export const SourceControl = (): JSX.Element => {
         onRefresh={() => void refresh()}
         onPush={() => void act(() => window.bh.run('git.push', {}))}
         onPull={() => void act(() => window.bh.run('git.pull', {}))}
+        onAfterBranch={refresh}
       />
 
-      {/* Commit message + button. */}
-      <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
-        <textarea
-          value={message}
-          aria-label="Commit message"
-          onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              commit();
-            }
-          }}
-          placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
-          rows={2}
-          style={{
-            width: '100%',
-            resize: 'vertical',
-            boxSizing: 'border-box',
-            background: color.bg,
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.md,
-            color: color.textPrimary,
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            padding: `${space[2]}px ${space[3]}px`,
-            outline: 'none',
-          }}
+      <Tabs tab={tab} onChange={setTab} changeCount={count} />
+
+      {tab === 'graph' ? (
+        <GitGraph />
+      ) : (
+        <ChangesView
+          message={message}
+          setMessage={setMessage}
+          canCommit={canCommit}
+          hasStaged={hasStaged}
+          stagedCount={groups.staged.length}
+          commit={commit}
+          error={error}
+          count={count}
+          groups={groups}
+          busy={busy}
+          openRow={openRow}
+          stage={stage}
+          unstage={unstage}
+          discard={discard}
         />
-        <button
-          type="button"
-          disabled={!canCommit}
-          onClick={commit}
-          style={{
-            width: '100%',
-            marginTop: space[2],
-            padding: `${space[2]}px`,
-            background: canCommit ? color.accent : color.surfaceMuted,
-            color: canCommit ? color.onAccent : color.textGhost,
-            border: 'none',
-            borderRadius: radius.md,
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            fontWeight: font.weight.medium,
-            cursor: canCommit ? 'pointer' : 'default',
-          }}
-        >
-          {`✓ Commit${hasStaged ? ` (${groups.staged.length})` : ''}`}
-        </button>
-      </div>
-
-      {error !== null && <ErrorLine>{error}</ErrorLine>}
-
-      {/* Arrow-key host: ↑/↓ move between the row buttons (a keyboard tree). */}
-      <div onKeyDown={handleTreeKeyDown} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {count === 0 ? (
-          <div
-            style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}
-          >
-            No changes — working tree clean.
-          </div>
-        ) : (
-          <>
-            <Group
-              title="Merge Changes"
-              rows={groups.merge}
-              show={groups.merge.length > 0}
-              busy={busy}
-              onRow={openRow}
-              actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
-            />
-            <Group
-              title="Staged Changes"
-              rows={groups.staged}
-              show={hasStaged}
-              busy={busy}
-              groupAction={{
-                label: 'Unstage all',
-                glyph: '−',
-                onClick: () => void unstage(groups.staged.map((r) => r.path)),
-              }}
-              onRow={openRow}
-              actions={(r) => [
-                { label: 'Unstage', glyph: '−', onClick: () => void unstage([r.path]) },
-              ]}
-            />
-            <Group
-              title="Changes"
-              rows={groups.changes}
-              show={groups.changes.length > 0}
-              busy={busy}
-              groupAction={{
-                label: 'Stage all',
-                glyph: '+',
-                onClick: () => void stage(groups.changes.map((r) => r.path)),
-              }}
-              onRow={openRow}
-              actions={(r) => [
-                { label: 'Discard', glyph: '↩', onClick: () => discard(r), danger: true },
-                { label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) },
-              ]}
-            />
-          </>
-        )}
-      </div>
+      )}
     </div>
   );
 };
+
+// ── Changes / Graph segmented toggle ─────────────────────────────────────────
+const Tabs = ({
+  tab,
+  onChange,
+  changeCount,
+}: {
+  tab: 'changes' | 'graph';
+  onChange: (t: 'changes' | 'graph') => void;
+  changeCount: number;
+}): JSX.Element => (
+  <div
+    role="tablist"
+    aria-label="源代码管理视图"
+    style={{
+      display: 'flex',
+      gap: space[1],
+      padding: `${space[1]}px ${space[3]}px`,
+      borderBottom: `1px solid ${color.divider}`,
+      flexShrink: 0,
+    }}
+  >
+    <TabBtn active={tab === 'changes'} onClick={() => onChange('changes')}>
+      {`更改${changeCount > 0 ? ` (${changeCount})` : ''}`}
+    </TabBtn>
+    <TabBtn active={tab === 'graph'} onClick={() => onChange('graph')}>
+      图谱
+    </TabBtn>
+  </div>
+);
+
+const TabBtn = ({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): JSX.Element => (
+  <button
+    type="button"
+    role="tab"
+    aria-selected={active}
+    onClick={onClick}
+    style={{
+      padding: `${space[1]}px ${space[2]}px`,
+      background: active ? color.surfaceMuted : 'none',
+      border: 'none',
+      borderRadius: radius.sm,
+      color: active ? color.textPrimary : color.textTertiary,
+      fontFamily: font.sans,
+      fontSize: font.size.caption,
+      fontWeight: active ? font.weight.medium : font.weight.regular,
+      cursor: 'pointer',
+      transition: transition(['background', 'color']),
+    }}
+  >
+    {children}
+  </button>
+);
+
+// ── The Changes view (commit box + the three resource groups) ────────────────
+const ChangesView = ({
+  message,
+  setMessage,
+  canCommit,
+  hasStaged,
+  stagedCount,
+  commit,
+  error,
+  count,
+  groups,
+  busy,
+  openRow,
+  stage,
+  unstage,
+  discard,
+}: {
+  message: string;
+  setMessage: (s: string) => void;
+  canCommit: boolean;
+  hasStaged: boolean;
+  stagedCount: number;
+  commit: () => void;
+  error: string | null;
+  count: number;
+  groups: GitGroups;
+  busy: boolean;
+  openRow: (r: GitRow) => void;
+  stage: (paths: string[]) => Promise<void>;
+  unstage: (paths: string[]) => Promise<void>;
+  discard: (r: GitRow) => void;
+}): JSX.Element => (
+  <>
+    {/* Commit message + button. */}
+    <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
+      <textarea
+        value={message}
+        aria-label="Commit message"
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
+        rows={2}
+        style={{
+          width: '100%',
+          resize: 'vertical',
+          boxSizing: 'border-box',
+          background: color.bg,
+          border: `1px solid ${color.border}`,
+          borderRadius: radius.md,
+          color: color.textPrimary,
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          padding: `${space[2]}px ${space[3]}px`,
+          outline: 'none',
+        }}
+      />
+      <button
+        type="button"
+        disabled={!canCommit}
+        onClick={commit}
+        style={{
+          width: '100%',
+          marginTop: space[2],
+          padding: `${space[2]}px`,
+          background: canCommit ? color.accent : color.surfaceMuted,
+          color: canCommit ? color.onAccent : color.textGhost,
+          border: 'none',
+          borderRadius: radius.md,
+          fontFamily: font.sans,
+          fontSize: font.size.caption,
+          fontWeight: font.weight.medium,
+          cursor: canCommit ? 'pointer' : 'default',
+        }}
+      >
+        {`✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
+      </button>
+    </div>
+
+    {error !== null && <ErrorLine>{error}</ErrorLine>}
+
+    {/* Arrow-key host: ↑/↓ move between the row buttons (a keyboard tree). */}
+    <div onKeyDown={handleTreeKeyDown} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+      {count === 0 ? (
+        <div style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}>
+          No changes — working tree clean.
+        </div>
+      ) : (
+        <>
+          <Group
+            title="Merge Changes"
+            rows={groups.merge}
+            show={groups.merge.length > 0}
+            busy={busy}
+            onRow={openRow}
+            actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
+          />
+          <Group
+            title="Staged Changes"
+            rows={groups.staged}
+            show={hasStaged}
+            busy={busy}
+            groupAction={{
+              label: 'Unstage all',
+              glyph: '−',
+              onClick: () => void unstage(groups.staged.map((r) => r.path)),
+            }}
+            onRow={openRow}
+            actions={(r) => [
+              { label: 'Unstage', glyph: '−', onClick: () => void unstage([r.path]) },
+            ]}
+          />
+          <Group
+            title="Changes"
+            rows={groups.changes}
+            show={groups.changes.length > 0}
+            busy={busy}
+            groupAction={{
+              label: 'Stage all',
+              glyph: '+',
+              onClick: () => void stage(groups.changes.map((r) => r.path)),
+            }}
+            onRow={openRow}
+            actions={(r) => [
+              { label: 'Discard', glyph: '↩', onClick: () => discard(r), danger: true },
+              { label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) },
+            ]}
+          />
+        </>
+      )}
+    </div>
+  </>
+);
 
 // ── Header: branch + ahead/behind + refresh/push/pull ────────────────────────
 const Header = ({
@@ -309,14 +430,15 @@ const Header = ({
   onRefresh,
   onPush,
   onPull,
+  onAfterBranch,
 }: {
   status: GitStatusResult;
   busy: boolean;
   onRefresh: () => void;
   onPush: () => void;
   onPull: () => void;
+  onAfterBranch: () => void | Promise<void>;
 }): JSX.Element => {
-  const branch = status.detached ? 'detached' : (status.branch ?? '—');
   const sync =
     status.ahead > 0 || status.behind > 0
       ? `${status.behind > 0 ? `↓${status.behind}` : ''}${status.ahead > 0 ? `↑${status.ahead}` : ''}`
@@ -333,19 +455,16 @@ const Header = ({
         fontFamily: font.sans,
         fontSize: font.size.caption,
         color: color.textSecondary,
+        minWidth: 0,
       }}
     >
-      <BranchGlyph />
-      <span
-        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
-        title={status.upstream ?? undefined}
-      >
-        {branch}
-      </span>
+      <BranchSelector status={status} disabled={busy} onAfter={onAfterBranch} />
       {sync !== '' && (
-        <span style={{ color: color.textTertiary, fontFamily: font.mono }}>{sync}</span>
+        <span style={{ color: color.textTertiary, fontFamily: font.mono, flexShrink: 0 }}>
+          {sync}
+        </span>
       )}
-      <span style={{ marginLeft: 'auto', display: 'flex', gap: space[1] }}>
+      <span style={{ marginLeft: 'auto', display: 'flex', gap: space[1], flexShrink: 0 }}>
         <IconBtn title="Pull" onClick={onPull} disabled={busy} glyph="↓" />
         <IconBtn title="Push" onClick={onPush} disabled={busy} glyph="↑" />
         <IconBtn title="Refresh" onClick={onRefresh} disabled={busy} glyph="↻" />
@@ -616,21 +735,4 @@ const ErrorLine = ({ children }: { children: ReactNode }): JSX.Element => (
   >
     {children}
   </div>
-);
-
-const BranchGlyph = (): JSX.Element => (
-  <svg
-    width={13}
-    height={13}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.3}
-    aria-hidden
-  >
-    <circle cx={4} cy={3.5} r={1.8} />
-    <circle cx={4} cy={12.5} r={1.8} />
-    <circle cx={12} cy={3.5} r={1.8} />
-    <path d="M4 5.3v5.4M12 5.3c0 3-2.5 3.2-5 3.7" strokeLinecap="round" />
-  </svg>
 );

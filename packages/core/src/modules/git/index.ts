@@ -28,6 +28,7 @@ export function registerGitModule(core: Core): void {
   core.register('git.init', git.init);
   core.register('git.diff', git.diff);
   core.register('git.diffRef', git.diffRef);
+  core.register('git.commitFiles', git.commitFiles);
   core.register('git.show', git.show);
   core.register('git.log', git.log);
 }

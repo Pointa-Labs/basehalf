@@ -331,6 +331,34 @@ describe('git commands (injected fake runner)', () => {
     expect(calls[1].args).toEqual(['diff', '4b825dc642cb6eb9a060e54bf8d69288fbee4904', 'abc']);
   });
 
+  it('git.commitFiles lists a commit name-status (rename-aware)', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: 'M\0a.ts\0R100\0old.ts\0new.ts\0' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.commitFiles', { ref: 'abc' }, ROOT)) as {
+      files: Array<{ path: string; status: string; orig?: string }>;
+    };
+    expect(calls[0].args).toEqual([
+      'diff-tree',
+      '--no-commit-id',
+      '--name-status',
+      '-r',
+      '--root',
+      '-z',
+      'abc',
+    ]);
+    expect(r.files).toEqual([
+      { path: 'a.ts', status: 'M' },
+      { path: 'new.ts', status: 'R', orig: 'old.ts' },
+    ]);
+  });
+
+  it('git.commitFiles rejects an unsafe ref', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.commitFiles', { ref: '--x' }, ROOT)).rejects.toThrow(/unsafe ref/);
+    expect(calls).toHaveLength(0);
+  });
+
   it('git.diffRef uses an explicit from..to and scopes to a path', async () => {
     const { git, calls } = makeFakeGit(() => ({ stdout: 'D' }));
     const core = createCore({ git, configDir: '/cfg' });

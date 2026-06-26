@@ -112,9 +112,12 @@ export const EditorOverlay = (): JSX.Element | null => {
     >
       {gitDiff !== null ? (
         <UnifiedDiffView
-          key={`${gitDiff.path}:${gitDiff.staged}`}
+          key={`${gitDiff.path}:${gitDiff.staged}:${gitDiff.rightRef ?? ''}`}
           path={gitDiff.path}
           staged={gitDiff.staged}
+          leftRef={gitDiff.leftRef}
+          rightRef={gitDiff.rightRef}
+          title={gitDiff.title}
           onClose={closeGitDiff}
         />
       ) : openFile !== null ? (

@@ -2,7 +2,7 @@
 // they're unit-testable without a real git (the trickiest, most regression-prone
 // part of the module). Grounded in the actual bytes of
 // `git status --porcelain=v1 -z --branch` (see git-parse.test.ts).
-import type { GitCommit, GitFileStatus } from './types.js';
+import type { GitCommit, GitCommitFile, GitFileStatus } from './types.js';
 
 export interface ParsedBranchHeader {
   readonly branch: string | null;
@@ -166,4 +166,33 @@ export function parseLog(raw: string): GitCommit[] {
     });
   }
   return commits;
+}
+
+/**
+ * Parse `git diff-tree --name-status -r -z` (NUL-separated). Each entry is a
+ * status field (`M`, `A`, `D`, `R100`, `C75`, …) followed by its path; a rename
+ * or copy (`R`/`C`) carries TWO paths — the source then the destination. Mirrors
+ * the rename handling in parseStatus, just over diff-tree's name-status stream.
+ */
+export function parseNameStatus(raw: string): GitCommitFile[] {
+  const fields = raw.split('\0').filter((f) => f.length > 0);
+  const files: GitCommitFile[] = [];
+  for (let i = 0; i < fields.length; i++) {
+    const code = fields[i];
+    if (code === undefined) continue;
+    const status = code[0] ?? 'M';
+    if (status === 'R' || status === 'C') {
+      const orig = fields[i + 1];
+      const dest = fields[i + 2];
+      i += 2;
+      if (dest !== undefined) {
+        files.push(orig !== undefined ? { path: dest, status, orig } : { path: dest, status });
+      }
+    } else {
+      const path = fields[i + 1];
+      i += 1;
+      if (path !== undefined) files.push({ path, status });
+    }
+  }
+  return files;
 }

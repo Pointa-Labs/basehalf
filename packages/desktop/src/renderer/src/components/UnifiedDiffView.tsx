@@ -14,13 +14,26 @@ import { UnifiedDiff } from './UnifiedDiff.js';
 export const UnifiedDiffView = ({
   path,
   staged,
+  leftRef,
+  rightRef,
+  title,
   onClose,
 }: {
   path: string;
   staged: boolean;
+  /** A commit-file diff sets both refs (parent ↔ commit); omit for working-tree diffs. */
+  leftRef?: string;
+  rightRef?: string;
+  title?: string;
   onClose: () => void;
 }): JSX.Element => {
-  const diff = useFileDiff(path, { leftRef: staged ? 'HEAD' : '', rightWorktree: !staged });
+  // Commit-file diff (refs set) → parent ↔ commit; else the working-tree / staged diff.
+  const isCommitDiff = rightRef !== undefined;
+  const diff = useFileDiff(path, {
+    leftRef: isCommitDiff ? (leftRef ?? '') : staged ? 'HEAD' : '',
+    rightWorktree: isCommitDiff ? false : !staged,
+    rightRef,
+  });
   const name = path.slice(path.lastIndexOf('/') + 1);
   const stat = useMemo(() => (diff.status === 'ready' ? diffStat(diff.rows) : null), [diff]);
 
@@ -41,7 +54,11 @@ export const UnifiedDiffView = ({
       >
         <span style={{ fontWeight: font.weight.medium, color: color.textPrimary }}>{name}</span>
         <span style={{ color: color.textTertiary }}>
-          {staged ? 'Staged ↔ HEAD' : 'Working Tree ↔ Index'}
+          {isCommitDiff
+            ? (title ?? 'Commit ↔ Parent')
+            : staged
+              ? 'Staged ↔ HEAD'
+              : 'Working Tree ↔ Index'}
         </span>
         {stat && (stat.added > 0 || stat.removed > 0) && (
           <span style={{ fontFamily: font.mono, fontSize: font.size.micro }}>

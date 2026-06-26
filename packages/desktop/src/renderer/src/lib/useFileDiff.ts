@@ -48,10 +48,10 @@ export type FileDiffState =
 
 export function useFileDiff(
   path: string,
-  opts: { leftRef: string; rightWorktree: boolean; context?: number },
+  opts: { leftRef: string; rightWorktree: boolean; rightRef?: string; context?: number },
   revision?: unknown,
 ): FileDiffState {
-  const { leftRef, rightWorktree, context } = opts;
+  const { leftRef, rightWorktree, rightRef, context } = opts;
   const [state, setState] = useState<FileDiffState>({ status: 'loading' });
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is an intentional refetch trigger (not read in the body).
   useEffect(() => {
@@ -70,7 +70,10 @@ export function useFileDiff(
               }
               throw err;
             })
-          : (window.bh.run('git.show', { ref: '', path }) as Promise<GitShowResult>);
+          : // rightRef set → a historical commit's version (commit diff); else the
+            // index version (ref ''). Lets one hook serve worktree, staged, and
+            // commit-to-commit diffs.
+            (window.bh.run('git.show', { ref: rightRef ?? '', path }) as Promise<GitShowResult>);
         const [left, right] = await Promise.all([leftP, rightP]);
         if (cancelled) return;
         const original = left.content ?? '';
@@ -115,6 +118,6 @@ export function useFileDiff(
     return () => {
       cancelled = true;
     };
-  }, [path, leftRef, rightWorktree, context, revision]);
+  }, [path, leftRef, rightWorktree, rightRef, context, revision]);
   return state;
 }

@@ -168,6 +168,23 @@ export interface GitDiffRefArgs {
   readonly path?: string;
 }
 
+/** One file changed by a commit (`git.commitFiles`). `status` is the porcelain
+ *  letter (A/M/D/R/C/T); `orig` is the source path for a rename/copy. */
+export interface GitCommitFile {
+  readonly path: string;
+  readonly status: string;
+  readonly orig?: string;
+}
+
+export interface GitCommitFilesArgs {
+  /** The commit to list (a SHA / "HEAD" / branch). */
+  readonly ref: string;
+}
+
+export interface GitCommitFilesResult {
+  readonly files: readonly GitCommitFile[];
+}
+
 /** A remote/long operation (push/pull/fetch) — surfaces git's own output so the
  *  panel can show "Already up to date" etc. Throws (GitError) on failure. */
 export interface GitRemoteResult {

@@ -5,11 +5,13 @@ import {
   assertWorkspaceRelative,
   requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import { parseLog, parseStatus } from './parse.js';
+import { parseLog, parseNameStatus, parseStatus } from './parse.js';
 import type {
   GitBranchesResult,
   GitCheckoutArgs,
   GitCommitArgs,
+  GitCommitFilesArgs,
+  GitCommitFilesResult,
   GitCommitResult,
   GitCreateBranchArgs,
   GitDeleteBranchArgs,
@@ -315,6 +317,22 @@ export const log: Handler<GitLogArgs, GitLogResult> = async (args, ctx) => {
     throw new Error(`git log failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
   }
   return { commits: parseLog(res.stdout) };
+};
+
+export const commitFiles: Handler<GitCommitFilesArgs, GitCommitFilesResult> = async (args, ctx) => {
+  assertSafeRef(args.ref, 'git.commitFiles');
+  // `diff-tree --root` makes a root commit list its files as adds; `-r` recurses
+  // into subtrees; `-z` + `--name-status` is the machine-readable rename-safe form.
+  const res = await git(ctx, [
+    'diff-tree',
+    '--no-commit-id',
+    '--name-status',
+    '-r',
+    '--root',
+    '-z',
+    args.ref,
+  ]);
+  return { files: parseNameStatus(res.stdout) };
 };
 
 export const diffRef: Handler<GitDiffRefArgs, GitDiffResult> = async (args, ctx) => {

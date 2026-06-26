@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isConflict, parseBranchHeader, parseLog, parseStatus } from '../src/modules/git/parse.js';
+import {
+  isConflict,
+  parseBranchHeader,
+  parseLog,
+  parseNameStatus,
+  parseStatus,
+} from '../src/modules/git/parse.js';
 
 // Build a raw `git log --format=<LOG_FORMAT>` payload the way git emits it: fields
 // joined by US (\x1f), each record ended by RS (\x1e) + the tformat trailing \n.
@@ -184,6 +190,29 @@ describe('parseLog (--format with US/RS delimiters)', () => {
   it('empty output → no commits; a short/corrupt record is skipped', () => {
     expect(parseLog('')).toEqual([]);
     expect(parseLog(`onlytwo${US}fields${RS}\n`)).toEqual([]);
+  });
+});
+
+describe('parseNameStatus (diff-tree --name-status -r -z)', () => {
+  it('parses adds/modifies/deletes', () => {
+    expect(parseNameStatus('A\0new.ts\0M\0mod.ts\0D\0gone.ts\0')).toEqual([
+      { path: 'new.ts', status: 'A' },
+      { path: 'mod.ts', status: 'M' },
+      { path: 'gone.ts', status: 'D' },
+    ]);
+  });
+
+  it('consumes the source path for a rename/copy (status carries similarity)', () => {
+    const r = parseNameStatus('R100\0old.ts\0new.ts\0C75\0src.ts\0copy.ts\0M\0after.ts\0');
+    expect(r).toEqual([
+      { path: 'new.ts', status: 'R', orig: 'old.ts' },
+      { path: 'copy.ts', status: 'C', orig: 'src.ts' },
+      { path: 'after.ts', status: 'M' }, // stays aligned after the two-path entries
+    ]);
+  });
+
+  it('empty → no files', () => {
+    expect(parseNameStatus('')).toEqual([]);
   });
 });
 
