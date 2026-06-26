@@ -126,7 +126,9 @@ describe('git commands (injected fake runner)', () => {
 
   it('git.branches marks the current branch', async () => {
     const { git } = makeFakeGit((args) =>
-      args[0] === 'status' ? { stdout: '## main\0' } : { stdout: 'main\nfeature-x\nold\n' },
+      args[0] === 'status'
+        ? { stdout: '## main\0' }
+        : { stdout: 'refs/heads/main\nrefs/heads/feature-x\nrefs/heads/old\n' },
     );
     const core = createCore({ git, configDir: '/cfg' });
     const r = (await core.run('git.branches', {}, ROOT)) as GitBranchesResult;
@@ -136,6 +138,62 @@ describe('git commands (injected fake runner)', () => {
       { name: 'feature-x', current: false },
       { name: 'old', current: false },
     ]);
+  });
+
+  it('git.branches includeRemote lists remote-tracking refs (minus origin/HEAD)', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[0] === 'status'
+        ? { stdout: '## main\0' }
+        : {
+            stdout:
+              'refs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main\nrefs/remotes/origin/feat\n',
+          },
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.branches', { includeRemote: true }, ROOT)) as GitBranchesResult;
+    expect(calls.find((c) => c.args[0] === 'for-each-ref')?.args).toContain('refs/remotes');
+    expect(r.branches).toEqual([
+      { name: 'main', current: true },
+      { name: 'origin/main', current: false, remote: true },
+      { name: 'origin/feat', current: false, remote: true },
+    ]);
+  });
+
+  it('git.stash pushes, and reports nothing-to-stash', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[1] === 'push' && args.length === 2 ? { stdout: 'No local changes to save' } : {},
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.stash', { message: 'wip' }, ROOT);
+    expect(calls[0].args).toEqual(['stash', 'push', '-m', 'wip']);
+    const r = (await core.run('git.stash', {}, ROOT)) as { stashed: boolean };
+    expect(r.stashed).toBe(false);
+  });
+
+  it('git.stashList parses the ref + subject', async () => {
+    const { git } = makeFakeGit(() => ({
+      stdout: 'stash@{0}\x1fWIP on main: abc\nstash@{1}\x1fkeep\n',
+    }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.stashList', {}, ROOT)) as {
+      entries: Array<{ ref: string; message: string }>;
+    };
+    expect(r.entries).toEqual([
+      { ref: 'stash@{0}', message: 'WIP on main: abc' },
+      { ref: 'stash@{1}', message: 'keep' },
+    ]);
+  });
+
+  it('git.revert → reverted, and conflicts:true on a conflict (exit 1)', async () => {
+    const ok = makeFakeGit(() => ({ stdout: '' }));
+    const core1 = createCore({ git: ok.git, configDir: '/cfg' });
+    const r1 = (await core1.run('git.revert', { ref: 'abc' }, ROOT)) as { reverted: boolean };
+    expect(ok.calls[0].args).toEqual(['revert', '--no-edit', 'abc']);
+    expect(r1.reverted).toBe(true);
+    const conf = makeFakeGit(() => ({ exitCode: 1, stdout: 'error: could not revert\nCONFLICT' }));
+    const core2 = createCore({ git: conf.git, configDir: '/cfg' });
+    const r2 = (await core2.run('git.revert', { ref: 'abc' }, ROOT)) as { conflicts: boolean };
+    expect(r2.conflicts).toBe(true);
   });
 
   it('git.createBranch creates and switches by default (checkout -b)', async () => {

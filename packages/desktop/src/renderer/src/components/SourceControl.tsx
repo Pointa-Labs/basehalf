@@ -128,7 +128,34 @@ export const SourceControl = (): JSX.Element => {
     [status],
   );
   const hasStaged = groups.staged.length > 0;
-  const canCommit = message.trim().length > 0 && hasStaged && !busy;
+  const [amend, setAmend] = useState(false);
+  // Amend lets you re-commit HEAD with a new message / extra staged changes, so it
+  // needs a message but NOT necessarily fresh staged changes; a normal commit needs
+  // both a message and something staged.
+  const canCommit = message.trim().length > 0 && !busy && (amend || hasStaged);
+
+  // Toggling amend on prefills the commit box with HEAD's message (if empty), the
+  // way an editor's "amend" does — you tweak it rather than retype it.
+  const toggleAmend = useCallback(() => {
+    setAmend((on) => {
+      const next = !on;
+      if (next && message.trim() === '') {
+        void (async () => {
+          try {
+            const r = (await window.bh.run('git.log', { maxCount: 1 })) as {
+              commits: { subject: string; body: string }[];
+            };
+            const head = r.commits[0];
+            if (head)
+              setMessage(head.body.trim() ? `${head.subject}\n\n${head.body}` : head.subject);
+          } catch {
+            // no HEAD yet (unborn) — just leave the box empty
+          }
+        })();
+      }
+      return next;
+    });
+  }, [message]);
 
   const stage = (paths: string[]): Promise<void> =>
     act(() => window.bh.run('git.stage', { paths }));
@@ -159,8 +186,9 @@ export const SourceControl = (): JSX.Element => {
   const commit = (): void => {
     if (!canCommit) return;
     void act(async () => {
-      await window.bh.run('git.commit', { message: message.trim() });
+      await window.bh.run('git.commit', { message: message.trim(), amend });
       setMessage('');
+      setAmend(false);
     });
   };
 
@@ -211,6 +239,8 @@ export const SourceControl = (): JSX.Element => {
           canCommit={canCommit}
           hasStaged={hasStaged}
           stagedCount={groups.staged.length}
+          amend={amend}
+          onToggleAmend={toggleAmend}
           commit={commit}
           error={error}
           count={count}
@@ -294,6 +324,8 @@ const ChangesView = ({
   canCommit,
   hasStaged,
   stagedCount,
+  amend,
+  onToggleAmend,
   commit,
   error,
   count,
@@ -309,6 +341,8 @@ const ChangesView = ({
   canCommit: boolean;
   hasStaged: boolean;
   stagedCount: number;
+  amend: boolean;
+  onToggleAmend: () => void;
   commit: () => void;
   error: string | null;
   count: number;
@@ -366,7 +400,26 @@ const ChangesView = ({
           cursor: canCommit ? 'pointer' : 'default',
         }}
       >
-        {`✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
+        {amend ? '✎ 修订上次提交' : `✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
+      </button>
+      <button
+        type="button"
+        onClick={onToggleAmend}
+        aria-pressed={amend}
+        style={{
+          marginTop: space[1],
+          width: '100%',
+          padding: `${space[1]}px`,
+          background: 'none',
+          border: 'none',
+          color: amend ? color.accent : color.textTertiary,
+          fontFamily: font.sans,
+          fontSize: font.size.micro,
+          cursor: 'pointer',
+          textAlign: 'center',
+        }}
+      >
+        {amend ? '☑' : '☐'} 修订上次提交（amend）
       </button>
     </div>
 

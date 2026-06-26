@@ -45,7 +45,9 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
 
   const loadBranches = useCallback(async (): Promise<void> => {
     try {
-      const r = (await window.bh.run('git.branches', {})) as GitBranchesResult;
+      const r = (await window.bh.run('git.branches', {
+        includeRemote: true,
+      })) as GitBranchesResult;
       setBranches(r.branches);
     } catch (err) {
       setNote(msg(err));
@@ -86,6 +88,21 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
 
   const switchTo = (name: string): void =>
     void run(() => window.bh.run('git.checkout', { branch: name }));
+
+  // Picking a remote-tracking branch (origin/feat) checks out its short name,
+  // letting git DWIM-create a local tracking branch.
+  const pick = (b: GitBranchInfo): void => {
+    if (mode === 'merge') {
+      mergeFrom(b.name);
+      return;
+    }
+    if (b.remote) {
+      const short = b.name.slice(b.name.indexOf('/') + 1);
+      void run(() => window.bh.run('git.checkout', { branch: short }));
+    } else {
+      switchTo(b.name);
+    }
+  };
 
   const mergeFrom = (name: string): void =>
     void run(
@@ -223,7 +240,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                     branch={b}
                     mode={mode}
                     disabled={working}
-                    onPick={() => (mode === 'merge' ? mergeFrom(b.name) : switchTo(b.name))}
+                    onPick={() => pick(b)}
                     onDelete={() => deleteBranch(b.name)}
                   />
                 ))
@@ -327,8 +344,9 @@ const BranchRow = ({
   onDelete: () => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
-  // Can't delete the current branch; in merge mode the current branch is the target.
-  const deletable = !branch.current && mode === 'switch';
+  // Can't delete the current branch or a remote-tracking ref; in merge mode the
+  // current branch is the target.
+  const deletable = !branch.current && branch.remote !== true && mode === 'switch';
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -370,6 +388,11 @@ const BranchRow = ({
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {branch.name}
         </span>
+        {branch.remote === true && (
+          <span style={{ marginLeft: 'auto', color: color.textGhost, fontSize: font.size.micro }}>
+            远程
+          </span>
+        )}
       </button>
       {deletable && hover && (
         <button

@@ -46,11 +46,49 @@ export interface GitCommitResult {
 export interface GitBranchInfo {
   readonly name: string;
   readonly current: boolean;
+  /** True for a remote-tracking branch (e.g. "origin/feat") when includeRemote. */
+  readonly remote?: boolean;
+}
+
+export interface GitBranchesArgs {
+  /** Also list remote-tracking branches (refs/remotes, minus each remote's HEAD). */
+  readonly includeRemote?: boolean;
 }
 
 export interface GitBranchesResult {
   readonly branches: readonly GitBranchInfo[];
   readonly current: string | null;
+}
+
+export interface GitStashArgs {
+  /** Optional stash message (`git stash push -m`). */
+  readonly message?: string;
+}
+
+export interface GitStashResult {
+  /** False when there was nothing to stash. */
+  readonly stashed: boolean;
+}
+
+export interface GitStashEntry {
+  /** The stash ref, e.g. "stash@{0}". */
+  readonly ref: string;
+  readonly message: string;
+}
+
+export interface GitStashListResult {
+  readonly entries: readonly GitStashEntry[];
+}
+
+export interface GitRevertArgs {
+  /** The commit to revert (a SHA / "HEAD" / ref). */
+  readonly ref: string;
+}
+
+export interface GitRevertResult {
+  readonly reverted: boolean;
+  /** True when the revert stopped on conflicts to resolve. */
+  readonly conflicts: boolean;
 }
 
 export interface GitCheckoutArgs {

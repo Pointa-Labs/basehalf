@@ -2,7 +2,7 @@
 // they're unit-testable without a real git (the trickiest, most regression-prone
 // part of the module). Grounded in the actual bytes of
 // `git status --porcelain=v1 -z --branch` (see git-parse.test.ts).
-import type { GitCommit, GitCommitFile, GitFileStatus } from './types.js';
+import type { GitCommit, GitCommitFile, GitFileStatus, GitStashEntry } from './types.js';
 
 export interface ParsedBranchHeader {
   readonly branch: string | null;
@@ -92,6 +92,24 @@ export function parseStatus(raw: string): ParsedStatus {
     }
   }
   return { ...header, files };
+}
+
+/**
+ * Parse `git stash list --format=%gd%x1f%s` — one entry per line, the stash ref
+ * (`stash@{0}`) and its subject separated by US (\x1f).
+ */
+export function parseStashList(raw: string): GitStashEntry[] {
+  const entries: GitStashEntry[] = [];
+  for (const line of raw.split('\n')) {
+    if (line === '') continue;
+    const sep = line.indexOf('\x1f');
+    if (sep === -1) {
+      entries.push({ ref: line, message: '' });
+    } else {
+      entries.push({ ref: line.slice(0, sep), message: line.slice(sep + 1) });
+    }
+  }
+  return entries;
 }
 
 /** True for a porcelain XY pair that marks an unmerged (conflict) entry. */

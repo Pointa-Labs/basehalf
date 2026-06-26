@@ -5,9 +5,11 @@ import {
   assertWorkspaceRelative,
   requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import { parseLog, parseNameStatus, parseStatus } from './parse.js';
+import { parseLog, parseNameStatus, parseStashList, parseStatus } from './parse.js';
 import type {
   GitApplyArgs,
+  GitBranchInfo,
+  GitBranchesArgs,
   GitBranchesResult,
   GitCheckoutArgs,
   GitCommitArgs,
@@ -27,8 +29,13 @@ import type {
   GitPathsArgs,
   GitRemoteResult,
   GitRenameBranchArgs,
+  GitRevertArgs,
+  GitRevertResult,
   GitShowArgs,
   GitShowResult,
+  GitStashArgs,
+  GitStashListResult,
+  GitStashResult,
   GitStatusResult,
 } from './types.js';
 
@@ -183,19 +190,29 @@ export const fetch: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const branches: Handler<unknown, GitBranchesResult> = async (_args, ctx) => {
+export const branches: Handler<GitBranchesArgs, GitBranchesResult> = async (args, ctx) => {
   const current = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout).branch;
+  const refs = args?.includeRemote === true ? ['refs/heads', 'refs/remotes'] : ['refs/heads'];
+  // `%(refname)` (full) so we can tell a local head from a remote-tracking ref.
   const out = await git(ctx, [
     'for-each-ref',
     '--sort=-committerdate',
-    '--format=%(refname:short)',
-    'refs/heads',
+    '--format=%(refname)',
+    ...refs,
   ]);
-  const names = out.stdout
-    .split('\n')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  return { branches: names.map((name) => ({ name, current: name === current })), current };
+  const list: GitBranchInfo[] = [];
+  for (const line of out.stdout.split('\n')) {
+    const ref = line.trim();
+    if (ref.startsWith('refs/heads/')) {
+      const name = ref.slice('refs/heads/'.length);
+      list.push({ name, current: name === current });
+    } else if (ref.startsWith('refs/remotes/')) {
+      const name = ref.slice('refs/remotes/'.length);
+      if (name.endsWith('/HEAD')) continue; // skip the symbolic origin/HEAD
+      list.push({ name, current: false, remote: true });
+    }
+  }
+  return { branches: list, current };
 };
 
 export const checkout: Handler<GitCheckoutArgs, GitOkResult> = async (args, ctx) => {
@@ -270,6 +287,41 @@ export const apply: Handler<GitApplyArgs, GitOkResult> = async (args, ctx) => {
   cmd.push('-');
   await git(ctx, cmd, { stdin: args.patch });
   return { ok: true };
+};
+
+export const stash: Handler<GitStashArgs, GitStashResult> = async (args, ctx) => {
+  // Message via stdin-free args is fine — git stash takes -m <msg> as one arg, so
+  // no shell escaping concern (ctx.git spawns argv, not a shell).
+  const cmd =
+    typeof args.message === 'string' && args.message.trim() !== ''
+      ? ['stash', 'push', '-m', args.message]
+      : ['stash', 'push'];
+  const res = await git(ctx, cmd);
+  // git prints "No local changes to save" and exits 0 when there's nothing to stash.
+  return { stashed: !/no local changes to save/i.test(res.stdout) };
+};
+
+export const stashPop: Handler<unknown, GitOkResult> = async (_args, ctx) => {
+  // A pop can conflict (exit 1) — that's a normal outcome the panel surfaces via
+  // the refreshed status, not an error.
+  await git(ctx, ['stash', 'pop'], { acceptExitCodes: [0, 1] });
+  return { ok: true };
+};
+
+export const stashList: Handler<unknown, GitStashListResult> = async (_args, ctx) => {
+  const res = await git(ctx, ['stash', 'list', '--format=%gd%x1f%s']);
+  return { entries: parseStashList(res.stdout) };
+};
+
+export const revert: Handler<GitRevertArgs, GitRevertResult> = async (args, ctx) => {
+  assertSafeRef(args.ref, 'git.revert');
+  // `--no-edit` keeps the default "Revert ..." message (no editor). A conflict
+  // exits 1 and leaves markers — a normal outcome routed to the conflict UI.
+  const res = await git(ctx, ['revert', '--no-edit', args.ref], { acceptExitCodes: [0, 1] });
+  if (res.exitCode === 0) return { reverted: true, conflicts: false };
+  const conflicts = /conflict/i.test(res.stdout) || /conflict/i.test(res.stderr);
+  if (conflicts) return { reverted: false, conflicts: true };
+  throw new Error(`git revert failed: ${res.stderr.trim() || res.stdout.trim() || 'exit 1'}`);
 };
 
 export const diff: Handler<GitDiffArgs, GitDiffResult> = async (args, ctx) => {

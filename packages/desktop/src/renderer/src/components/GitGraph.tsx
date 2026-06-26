@@ -2,6 +2,7 @@ import type { GitCommit, GitCommitFilesResult, GitLogResult } from '@basehalf/co
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { type GraphRow, laneColor, layoutGraph } from '../lib/gitGraph.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
@@ -216,6 +217,21 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
   const [files, setFiles] = useState<GitCommitFilesResult['files'] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const revert = (): void => {
+    if (!window.confirm(`撤销提交 “${commit.subject}”？\n\n会生成一个反向提交。`)) return;
+    void (async () => {
+      try {
+        const r = (await window.bh.run('git.revert', { ref: commit.hash })) as {
+          conflicts: boolean;
+        };
+        await useGitStatusStore.getState().refresh();
+        if (r.conflicts) setError('撤销产生冲突，请在「合并更改」中解决后提交。');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  };
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -242,6 +258,25 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
         borderBottom: `1px solid ${color.divider}`,
       }}
     >
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: space[1] }}>
+        <button
+          type="button"
+          onClick={revert}
+          title="生成一个反向提交以撤销此提交"
+          style={{
+            padding: `1px ${space[2]}px`,
+            background: 'none',
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.sm,
+            color: color.textSecondary,
+            fontFamily: font.sans,
+            fontSize: font.size.micro,
+            cursor: 'pointer',
+          }}
+        >
+          ↩ 撤销此提交
+        </button>
+      </div>
       {commit.body.trim() !== '' && (
         <div
           style={{
