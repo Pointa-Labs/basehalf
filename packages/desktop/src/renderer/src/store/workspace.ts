@@ -13,6 +13,14 @@ import { noteOpenedFile } from '../lib/recent-files.js';
  *  ever one open file, so one stable key suffices (no pane tree). */
 export const EDITOR_OVERLAY_PANE_ID = 'editor-overlay';
 
+/** Roots whose BaseHalf scaffold this window has already ensured. `refresh()`
+ *  runs on every registry/window broadcast (not just first load), but the
+ *  app-update migration only needs to run ONCE per bound root per window — so we
+ *  gate `workspace.ensureSetup` here instead of re-running the whole installer
+ *  on every broadcast. Module-scoped = per renderer = per window, which is the
+ *  right granularity (one window binds one root). */
+const ensuredRoots = new Set<string>();
+
 export type CanvasSelection =
   | { kind: 'file'; files: readonly string[]; source: 'canvas' }
   | { kind: 'folder'; folder: string; source: 'canvas' }
@@ -309,6 +317,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
           try {
             await window.bh.run('workspace.listFiles', { path: currentWs.path });
             set({ currentReachable: true });
+            // App-update migration path for already-registered workspaces. New
+            // folders get setup via workspace.add({ setup:true }); existing
+            // folders opened after an update get the same idempotent scaffold
+            // here, scoped to this window's bound root. Gated to once per root so
+            // routine registry/window broadcasts (which also call refresh) don't
+            // re-run the installer; fire-and-forget so it never blocks the canvas.
+            if (!ensuredRoots.has(currentWs.path)) {
+              ensuredRoots.add(currentWs.path);
+              void window.bh.run('workspace.ensureSetup', {}).catch(() => undefined);
+            }
             await startWatcher();
             // On every workspace LOAD, reconcile the derived mirror against disk
             // (the on-open liveness sweep core's `add`/`use` no longer runs — it

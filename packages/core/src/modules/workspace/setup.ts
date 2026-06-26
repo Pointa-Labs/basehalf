@@ -29,6 +29,10 @@ import type { SetupReport } from './types.js';
  *    guarded by a marker so re-running `bh init` is idempotent (CLAUDE.md
  *    also detects the legacy `bh:recall-hint` marker). Files are created if
  *    missing; existing content is preserved (the hint is appended).
+ *  - Agent harness: writes BaseHalf-owned progressive-disclosure docs under
+ *    `.bh/agent-harness/`. AGENTS.md / CLAUDE.md stay short and point agents
+ *    to the harness index only when a BaseHalf-specific workflow needs deeper
+ *    rules.
  */
 
 const HINT_MARKER = '<!-- bh:workspace-hint -->';
@@ -38,7 +42,120 @@ const HINT_MARKER = '<!-- bh:workspace-hint -->';
 // (the section ran to EOF); we upgrade those too. See installHint.
 const HINT_END_MARKER = '<!-- /bh:workspace-hint -->';
 const LEGACY_CLAUDE_HINT_MARKER = '<!-- bh:recall-hint -->';
+const AGENT_HARNESS_DIR = '.bh/agent-harness';
+const AGENT_HARNESS_SCENARIOS_DIR = `${AGENT_HARNESS_DIR}/scenarios`;
+const AGENT_HARNESS_INDEX_REL = `${AGENT_HARNESS_DIR}/index.md`;
+// Marks a file as BaseHalf-managed. It pulls triple duty: (1) a visible
+// "don't hand-edit, regenerated on update" banner; (2) the licence for the
+// sync to OVERWRITE it to the current app version; (3) the signal that lets the
+// cross-version sweep DELETE a file this version no longer ships WITHOUT ever
+// touching a file the user dropped in alongside it — no sentinel → not ours.
+// MARKER is the stable recognition token: the prune matches this PREFIX, never
+// the whole line, so the human-readable tail can be reworded in a later version
+// without orphaning files an earlier version already stamped.
+const AGENT_HARNESS_MARKER = '<!-- bh:agent-harness managed';
+const AGENT_HARNESS_SENTINEL = `${AGENT_HARNESS_MARKER} — regenerated on BaseHalf update; edits are overwritten -->`;
 
+const managedDoc = (lines: readonly string[]): string =>
+  `${AGENT_HARNESS_SENTINEL}\n\n${lines.join('\n')}\n`;
+
+const AGENT_HARNESS_FILES = [
+  {
+    relPath: AGENT_HARNESS_INDEX_REL,
+    content: managedDoc([
+      '# BaseHalf Agent Harness',
+      '',
+      '> Generated and maintained by BaseHalf. These files are refreshed on each app',
+      "> update, so hand-edits are overwritten — don't store your own notes here.",
+      '',
+      'This directory contains BaseHalf-specific operational contracts for coding',
+      'agents. Treat this file as the scenario index. Load only the scenario that',
+      "matches the user's request.",
+      '',
+      '## Scenarios',
+      '',
+      '- Editing or rewriting the focused file: [scenarios/open-file-editing.md](scenarios/open-file-editing.md)',
+      '- Answering cursor, line, or viewport questions: [scenarios/focus-coordinates.md](scenarios/focus-coordinates.md)',
+      '- Generating or updating .bh mirror files: [scenarios/bh-mirror-writing.md](scenarios/bh-mirror-writing.md)',
+      '',
+      '## Boundary',
+      '',
+      'AGENTS.md / CLAUDE.md hold the always-on rules. This harness holds detailed,',
+      'task-specific rules that should be loaded only when relevant.',
+    ]),
+  },
+  {
+    relPath: `${AGENT_HARNESS_SCENARIOS_DIR}/open-file-editing.md`,
+    content: managedDoc([
+      '# Open File Editing',
+      '',
+      'Use this scenario when the user asks to clear, rewrite, replace, regenerate, or',
+      'transform the currently focused file.',
+      '',
+      '## Contract',
+      '',
+      'Treat the focused file as an open editor buffer. Preserve the file node and edit',
+      'its bytes in place.',
+      '',
+      '## Allowed',
+      '',
+      '- Patch or replace content at the same path.',
+      '- Truncate and write the same path without unlinking it.',
+      '- Use the path from .bh/current_focus.yaml when the user says "this page",',
+      '  "here", or "the current document".',
+      '',
+      '## Forbidden',
+      '',
+      '- Delete the focused file and add a new file at the same path.',
+      '- Rename the focused file away and recreate it.',
+      '- Use a delete-and-add sequence to satisfy a clear/rewrite/regenerate request.',
+      '',
+      'BaseHalf watches open documents through filesystem events. A delete-and-add',
+      'sequence makes the open editor observe an unlink event and can surface a',
+      'deleted-file state to the user even if a same-path file appears right after it.',
+    ]),
+  },
+  {
+    relPath: `${AGENT_HARNESS_SCENARIOS_DIR}/focus-coordinates.md`,
+    content: managedDoc([
+      '# Focus Coordinates',
+      '',
+      'Use this scenario when the user asks where their cursor is, what line they are',
+      'looking at, or what text is near the cursor.',
+      '',
+      '## Coordinate Types',
+      '',
+      '- cursor.line / cursor.column are 1-based positions in the Markdown source.',
+      '- cursor.block and visible_blocks.start are rendered block ordinals.',
+      '- The visual screen line is not currently represented; soft wrapping can make a',
+      '  source line appear as multiple on-screen rows.',
+      '',
+      '## Contract',
+      '',
+      'Use line + column to inspect or edit source text. Use block / visible_blocks to',
+      'describe where the user is in the rendered editor. Do not present a whole source',
+      'line as "the line on your screen" when soft wrapping may be involved.',
+    ]),
+  },
+  {
+    relPath: `${AGENT_HARNESS_SCENARIOS_DIR}/bh-mirror-writing.md`,
+    content: managedDoc([
+      '# .bh Mirror Writing',
+      '',
+      'Use this scenario when the user explicitly asks you to generate or update .bh',
+      'mirror files.',
+      '',
+      '## Contract',
+      '',
+      'User files are the source of truth. .bh files are derived BaseHalf state.',
+      '',
+      'Before modifying a .bh file, read the latest version from disk. Match the',
+      'existing YAML shape. Do not write data that is derivable from paths, line',
+      'numbers, or the reference graph. Never replace .bh/current_focus.yaml with a',
+      'regular file; it must remain a symlink.',
+    ]),
+  },
+] as const;
 // A SHORT pointer, not an essay: the shorter the hint, the more reliably an agent
 // reads it. It points at the live signal (current_focus) and the four-file mirror,
 // so it lands for any agent that can read files. Usage beyond this is a versionable
@@ -89,6 +206,11 @@ app or the user just wrote; don't store anything derivable from paths, line numb
 or the reference graph. \`.bh/current_focus.yaml\` is a symlink — never replace it
 with a regular file.
 
+For BaseHalf-specific workflows, use \`${AGENT_HARNESS_INDEX_REL}\` as the
+progressive-disclosure index. Load only the matching scenario, such as focused-file
+rewrites, cursor/viewport questions, or \`.bh/\` mirror writes, when that behavior
+matters.
+
 The user's files are the source of truth; \`.bh/\` is derived. Edit user files with
 your own tools; the app owns \`.bh/\`. \`.bh/cache/\` is gitignored and rebuildable;
 the rest of \`.bh/\` stays in git so the map travels with the folder.`;
@@ -122,11 +244,14 @@ const AGENTS_TARGET: HintTarget = {
 
 export async function runSetup(fs: FsLike, workspaceRoot: string): Promise<SetupReport> {
   const gitignore = await updateGitignore(fs, workspaceRoot);
+  const agentHarness = await installAgentHarness(fs, workspaceRoot);
   const claude = await installHint(fs, workspaceRoot, CLAUDE_TARGET);
   const agents = await installHint(fs, workspaceRoot, AGENTS_TARGET);
 
   return {
     ...gitignore,
+    agentHarnessUpdated: agentHarness.updated,
+    agentHarnessSkipped: agentHarness.skipped,
     claudeMdUpdated: claude.updated,
     claudeMdSkipped: claude.skipped,
     agentsMdUpdated: agents.updated,
@@ -174,6 +299,131 @@ async function updateGitignore(
     }
     throw err;
   }
+}
+
+async function installAgentHarness(
+  fs: FsLike,
+  workspaceRoot: string,
+): Promise<{ updated: boolean; skipped: boolean }> {
+  try {
+    await assertWriteContained(fs, workspaceRoot, join(workspaceRoot, AGENT_HARNESS_DIR, '.keep'));
+    await fs.mkdir(join(workspaceRoot, AGENT_HARNESS_DIR), { recursive: true });
+    await assertWriteContained(
+      fs,
+      workspaceRoot,
+      join(workspaceRoot, AGENT_HARNESS_SCENARIOS_DIR, '.keep'),
+    );
+    await fs.mkdir(join(workspaceRoot, AGENT_HARNESS_SCENARIOS_DIR), { recursive: true });
+  } catch (err) {
+    // A symlinked/escaping harness dir (or parent) is refused, not clobbered.
+    if (err instanceof Error && err.name === 'PathEscape') return { updated: false, skipped: true };
+    throw err;
+  }
+
+  let updated = false;
+  // Per-file write loop. Each entry stands alone: one tampered leaf (a planted
+  // symlink → PathEscape, or an odd directory-at-leaf → EISDIR) skips THAT file
+  // only — it never short-circuits the rest of the manifest or the prune below.
+  for (const file of AGENT_HARNESS_FILES) {
+    if (await writeManagedFile(fs, workspaceRoot, file.relPath, file.content)) updated = true;
+  }
+  // Cross-version cleanup: a PRIOR app version may have installed a scenario
+  // this version renamed or retired. The write loop above never removes, so
+  // without this sweep that file lingers forever and an agent could load a
+  // contract we've since dropped. Only sentinel-bearing files are eligible —
+  // a user-authored file in the same dir is never ours to delete.
+  const managed = new Set<string>(AGENT_HARNESS_FILES.map((f) => f.relPath));
+  for (const dir of [AGENT_HARNESS_DIR, AGENT_HARNESS_SCENARIOS_DIR]) {
+    if (await pruneOrphanHarnessFiles(fs, workspaceRoot, dir, managed)) updated = true;
+  }
+  return { updated, skipped: !updated };
+}
+
+/**
+ * Write one managed harness file when its on-disk content differs. Returns true
+ * if it wrote. The compare NORMALIZES CRLF→LF: these files travel in git, so a
+ * checkout under `core.autocrlf` hands back `\r\n` that would otherwise never
+ * equal the `\n` manifest — making every open rewrite them forever. Normalizing
+ * lets a CRLF checkout converge to "skip". A leaf that is a symlink (PathEscape)
+ * or a directory (EISDIR) is skipped — never our file to write — so one odd node
+ * can't abort the whole install.
+ */
+async function writeManagedFile(
+  fs: FsLike,
+  workspaceRoot: string,
+  relPath: string,
+  content: string,
+): Promise<boolean> {
+  const lexical = join(workspaceRoot, relPath);
+  try {
+    const current = await readMaybeNoFollow(
+      fs,
+      await assertReadContained(fs, workspaceRoot, lexical),
+    );
+    if (current !== null && current.replace(/\r\n/g, '\n') === content) return false;
+    await writeMaybeNoFollow(fs, await assertWriteContained(fs, workspaceRoot, lexical), content);
+    return true;
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'PathEscape' || errnoCode(err) === 'EISDIR')) {
+      return false;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Remove managed harness files in `dir` (one level, non-recursive) that the
+ * current manifest no longer lists — the cross-version rename/retire path.
+ * Returns true if anything was removed. A file is deleted only when it carries
+ * the managed sentinel, so a user-authored file is left untouched; a planted
+ * symlink is refused by the no-follow read (PathEscape) and skipped, never
+ * unlinked. Best-effort: a per-entry filesystem error (a contained-escape, a
+ * symlink cycle → ELOOP from stat, or a TOCTOU vanish/lock between readdir and
+ * unlink → ENOENT/EPERM) skips that entry, it never aborts the sweep. A non-fs
+ * (programmer) error still surfaces.
+ */
+async function pruneOrphanHarnessFiles(
+  fs: FsLike,
+  workspaceRoot: string,
+  dir: string,
+  managed: ReadonlySet<string>,
+): Promise<boolean> {
+  let removed = false;
+  for (const name of await fs.readdir(join(workspaceRoot, dir))) {
+    const rel = `${dir}/${name}`;
+    if (managed.has(rel)) continue;
+    const lexical = join(workspaceRoot, rel);
+    try {
+      // stat (follow) filters out subdirs (e.g. scenarios/ during the root sweep);
+      // the read + unlink below are containment-guarded, so a symlink that stats
+      // as a file is refused there, not acted on.
+      const st = await fs.stat(lexical);
+      if (!st?.isFile) continue;
+      const current = await readMaybeNoFollow(
+        fs,
+        await assertReadContained(fs, workspaceRoot, lexical),
+      );
+      if (current === null || !current.startsWith(AGENT_HARNESS_MARKER)) continue;
+      await fs.unlink(await assertWriteContained(fs, workspaceRoot, lexical));
+      removed = true;
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'PathEscape' || errnoCode(err) !== undefined)) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  return removed;
+}
+
+/** The node:fs errno string (`ENOENT`, `ELOOP`, `EISDIR`, …) on an error, or
+ *  undefined for a non-filesystem error. */
+function errnoCode(err: unknown): string | undefined {
+  if (typeof err === 'object' && err !== null) {
+    const code = (err as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
 }
 
 /**

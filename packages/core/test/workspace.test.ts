@@ -802,9 +802,11 @@ describe('workspace module (integration, real FS)', () => {
 
 type SetupReport = {
   gitignoreUpdated: boolean;
+  agentHarnessUpdated: boolean;
   claudeMdUpdated: boolean;
   agentsMdUpdated: boolean;
   gitignoreSkipped: boolean;
+  agentHarnessSkipped: boolean;
   claudeMdSkipped: boolean;
   agentsMdSkipped: boolean;
   gitignoreAbsent: boolean;
@@ -926,6 +928,7 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     // …and it still teaches the agent's entry point + the mirror tree.
     expect(claude).toContain('.bh/current_focus.yaml');
     expect(claude).toContain('.bh/mirror/');
+    expect(claude).toContain('.bh/agent-harness/index.md');
   });
 
   it('hint body names every load-bearing contract surface (regression guard)', async () => {
@@ -945,12 +948,171 @@ describe('workspace --setup (mock FS, non-destructive)', () => {
     expect(hint).toMatch(/canvas\.yaml/);
     expect(hint).toMatch(/focus\.yaml/);
     expect(hint).toMatch(/adhd\.yaml/);
+    expect(hint).toMatch(/\.bh\/agent-harness\/index\.md/);
     expect(hint).toMatch(/referenced_by/); // both directions of the reference graph
     // Constraints that prevent agents from corrupting bh's state.
     expect(hint).toMatch(/\.bh\/cache\//);
     expect(hint).toMatch(/source of truth/i);
     // The deleted surfaces must NOT reappear.
     expect(hint).not.toMatch(/focus\.md|inbound\.json|\bbh (badge|focus|search|inbound)\b/);
+  });
+
+  it('installs the agent harness scaffold under .bh/agent-harness', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+
+    expect(r.setup.agentHarnessUpdated).toBe(true);
+    // Every managed file leads with the sentinel — it is both the "don't edit"
+    // banner and the marker the cross-version prune keys on.
+    expect(files.get('/work/.bh/agent-harness/index.md')).toMatch(/^<!-- bh:agent-harness managed/);
+    expect(files.get('/work/.bh/agent-harness/scenarios/open-file-editing.md')).toMatch(
+      /^<!-- bh:agent-harness managed/,
+    );
+    expect(files.get('/work/.bh/agent-harness/index.md')).toContain('BaseHalf Agent Harness');
+    expect(files.get('/work/.bh/agent-harness/index.md')).toContain(
+      'scenarios/open-file-editing.md',
+    );
+    expect(files.get('/work/.bh/agent-harness/scenarios/open-file-editing.md')).toContain(
+      'its bytes in place',
+    );
+    expect(files.get('/work/.bh/agent-harness/scenarios/focus-coordinates.md')).toContain(
+      'visual screen line',
+    );
+    expect(files.get('/work/.bh/agent-harness/scenarios/bh-mirror-writing.md')).toContain(
+      'User files are the source of truth',
+    );
+  });
+
+  it('updates a stale agent harness and then skips when current', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    dirs.add('/work/.bh');
+    dirs.add('/work/.bh/agent-harness');
+    files.set('/work/.bh/agent-harness/index.md', 'old harness\n');
+    const core = createCore({ fs, configDir: '/cfg' });
+    const first = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(first.setup.agentHarnessUpdated).toBe(true);
+    expect(files.get('/work/.bh/agent-harness/index.md')).not.toBe('old harness\n');
+
+    const second = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(second.setup.agentHarnessUpdated).toBe(false);
+    expect(second.setup.agentHarnessSkipped).toBe(true);
+  });
+
+  it('prunes a managed scenario a new version dropped, but keeps user-added files', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    // First install so the manifest's files (and the sentinel) are on disk.
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+
+    // Read the sentinel from a shipped file so this test doesn't hardcode it.
+    const sentinel = (files.get('/work/.bh/agent-harness/index.md') as string).split('\n')[0];
+    expect(sentinel).toMatch(/^<!-- bh:agent-harness managed/);
+
+    // Simulate a scenario a PRIOR app version shipped (carries the sentinel)
+    // that the current manifest no longer lists, plus a file the user authored
+    // themselves in the same dir (no sentinel).
+    files.set('/work/.bh/agent-harness/scenarios/retired.md', `${sentinel}\n\n# Retired\n`);
+    files.set('/work/.bh/agent-harness/scenarios/my-notes.md', '# my own notes\n');
+    // And a stray managed file at the harness root (covers the non-scenarios sweep).
+    files.set('/work/.bh/agent-harness/legacy.md', `${sentinel}\n\n# Legacy\n`);
+
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+
+    // The orphaned managed files are gone…
+    expect(files.has('/work/.bh/agent-harness/scenarios/retired.md')).toBe(false);
+    expect(files.has('/work/.bh/agent-harness/legacy.md')).toBe(false);
+    // …the user's own file survives untouched…
+    expect(files.get('/work/.bh/agent-harness/scenarios/my-notes.md')).toBe('# my own notes\n');
+    // …the shipped scenarios remain…
+    expect(files.has('/work/.bh/agent-harness/scenarios/open-file-editing.md')).toBe(true);
+    // …and a removal counts as an update.
+    expect(r.setup.agentHarnessUpdated).toBe(true);
+  });
+
+  it('treats a CRLF checkout of a managed file as unchanged (no rewrite churn)', async () => {
+    // The harness files travel in git, so a Windows/autocrlf checkout hands them
+    // back with \r\n. A byte-exact compare would never match the \n manifest and
+    // rewrite all of them on every open (phantom git diff). The compare must
+    // normalize EOL so a CRLF checkout converges to "skip".
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const core = createCore({ fs, configDir: '/cfg' });
+    await core.run('workspace.add', { path: '/work', name: 'w', setup: true });
+
+    const lf = files.get('/work/.bh/agent-harness/index.md') as string;
+    files.set('/work/.bh/agent-harness/index.md', lf.replace(/\n/g, '\r\n'));
+
+    const r = await core.run<unknown, { setup: SetupReport }>('workspace.add', {
+      path: '/work',
+      name: 'w',
+      setup: true,
+    });
+    expect(r.setup.agentHarnessUpdated).toBe(false);
+    // The CRLF bytes are left in place — not rewritten back to LF on every open.
+    expect(files.get('/work/.bh/agent-harness/index.md')).toContain('\r\n');
+  });
+
+  it('ensureSetup upgrades an already-registered bound workspace after app update', async () => {
+    const { fs, files, dirs } = mockFs();
+    dirs.add('/work');
+    const raw = createCore({ fs, configDir: '/cfg' });
+    await raw.run('workspace.add', { path: '/work', name: 'w' });
+
+    expect(files.has('/work/AGENTS.md')).toBe(false);
+    expect(files.has('/work/.bh/agent-harness/index.md')).toBe(false);
+
+    const core = boundCore(raw, '/work');
+    const first = await core.run<unknown, SetupReport>('workspace.ensureSetup', {});
+    expect(first.agentHarnessUpdated).toBe(true);
+    expect(first.agentsMdUpdated).toBe(true);
+    expect(first.claudeMdUpdated).toBe(true);
+    expect(files.get('/work/.bh/agent-harness/index.md')).toContain('BaseHalf Agent Harness');
+    expect(files.get('/work/AGENTS.md')).toContain('.bh/agent-harness/index.md');
+
+    const second = await core.run<unknown, SetupReport>('workspace.ensureSetup', {});
+    expect(second.agentHarnessUpdated).toBe(false);
+    expect(second.agentHarnessSkipped).toBe(true);
+    expect(second.agentsMdSkipped).toBe(true);
+    expect(second.claudeMdSkipped).toBe(true);
+  });
+
+  it('ensureSetup requires a reachable bound workspace and never creates a missing root', async () => {
+    const { fs, files, dirs } = mockFs();
+    const raw = createCore({ fs, configDir: '/cfg' });
+
+    await expect(raw.run('workspace.ensureSetup', {})).rejects.toThrow(/No workspace bound/);
+    await expect(boundCore(raw, '/missing').run('workspace.ensureSetup', {})).rejects.toThrow(
+      /Path does not exist/,
+    );
+    // A path that exists but is a FILE is refused before runSetup touches disk.
+    files.set('/afile', 'not a dir\n');
+    await expect(boundCore(raw, '/afile').run('workspace.ensureSetup', {})).rejects.toThrow(
+      /not a directory/,
+    );
+
+    expect(dirs.has('/missing')).toBe(false);
+    expect(files.has('/missing/AGENTS.md')).toBe(false);
+    expect(files.has('/missing/.bh/agent-harness/index.md')).toBe(false);
   });
 
   it('hint teaches source line vs on-screen line (the soft-wrap distinction)', async () => {

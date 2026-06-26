@@ -215,13 +215,13 @@ export const createDemo: Handler<WorkspaceCreateDemoArgs, WorkspaceCreateDemoRes
     filesCreated,
     setup: addResult.setup ?? {
       gitignoreUpdated: false,
+      agentHarnessUpdated: false,
       claudeMdUpdated: false,
       agentsMdUpdated: false,
-      copilotMdUpdated: false,
       gitignoreSkipped: false,
+      agentHarnessSkipped: false,
       claudeMdSkipped: false,
       agentsMdSkipped: false,
-      copilotMdSkipped: false,
       gitignoreAbsent: true,
     },
   };

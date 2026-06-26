@@ -269,6 +269,50 @@ describe('workspace setup — symlinked CLAUDE.md / .gitignore (the missed runSe
     // The retired third target stays retired — no hidden directory conjured.
     expect(existsSync(join(fresh, '.github'))).toBe(false);
   });
+
+  // The agent-harness prune is a NEW destructive op (fs.unlink driven by a
+  // content marker). These cover its symlink-safety on the REAL fs, which the
+  // mock cannot represent (identity realpath, no ELOOP).
+  it('prune removes a real orphan but never deletes THROUGH a symlinked orphan', async () => {
+    const fresh = join(base, 'wss7');
+    const scen = join(fresh, '.bh/agent-harness/scenarios');
+    const victim = join(outside, 'victim-scenario.md');
+    const marker = '<!-- bh:agent-harness managed'; // stable recognition prefix
+    await mkdir(scen, { recursive: true });
+    // (a) a real orphan carrying the marker → eligible for prune
+    await writeFile(join(scen, 'retired.md'), `${marker} -->\n\n# retired\n`);
+    // (b) an outside marker-bearing file + a symlink orphan pointing at it
+    await writeFile(victim, `${marker} -->\n\n# OUTSIDE\n`);
+    await symlink(victim, join(scen, 'evil.md'));
+
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss7', setup: true });
+    expect(res.setup.agentHarnessUpdated).toBe(true);
+
+    // The real orphan is pruned…
+    expect(existsSync(join(scen, 'retired.md'))).toBe(false);
+    // …the symlinked orphan is NOT unlinked and its outside target is intact…
+    expect(existsSync(join(scen, 'evil.md'))).toBe(true);
+    expect(await readFile(victim, 'utf8')).toContain('OUTSIDE');
+    // …and the shipped manifest still installed.
+    expect(existsSync(join(scen, 'open-file-editing.md'))).toBe(true);
+  });
+
+  it('prune survives a symlink CYCLE in the harness dir (stat ELOOP) and still prunes', async () => {
+    const fresh = join(base, 'wss8');
+    const scen = join(fresh, '.bh/agent-harness/scenarios');
+    const marker = '<!-- bh:agent-harness managed';
+    await mkdir(scen, { recursive: true });
+    await writeFile(join(scen, 'retired.md'), `${marker} -->\n\n# retired\n`);
+    // A mutual symlink cycle → fs.stat(follow) throws ELOOP; the sweep must skip
+    // it (not abort) so the real orphan is still pruned and setup does not reject.
+    await symlink(join(scen, 'cyc-b.md'), join(scen, 'cyc-a.md'));
+    await symlink(join(scen, 'cyc-a.md'), join(scen, 'cyc-b.md'));
+
+    const res = await core.run('workspace.add', { path: fresh, name: 'wss8', setup: true });
+    expect(res.setup.agentHarnessUpdated).toBe(true);
+    expect(existsSync(join(scen, 'retired.md'))).toBe(false);
+    expect(existsSync(join(scen, 'open-file-editing.md'))).toBe(true);
+  });
 });
 
 describe('read dangling-symlink TOCTOU + write dangling-symlink directory', () => {

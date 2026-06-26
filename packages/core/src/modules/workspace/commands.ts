@@ -1,5 +1,5 @@
 import { basename, isAbsolute, resolve } from 'node:path';
-import type { Context, Handler } from '../../kernel/index.js';
+import { type Context, type Handler, requireWorkspaceRoot } from '../../kernel/index.js';
 import { createDemo } from './demo.js';
 import {
   createFile,
@@ -22,6 +22,8 @@ import type {
   WorkspaceAddResult,
   WorkspaceCurrentArgs,
   WorkspaceCurrentResult,
+  WorkspaceEnsureSetupArgs,
+  WorkspaceEnsureSetupResult,
   WorkspaceEntry,
   WorkspaceListArgs,
   WorkspaceListResult,
@@ -252,6 +254,28 @@ export const touch: Handler<WorkspaceTouchArgs, WorkspaceTouchResult> = async (a
 };
 
 /**
+ * `workspace.ensureSetup()` — run BaseHalf's idempotent scaffold installer for
+ * the workspace THIS call is bound to. This is the app-update path for existing
+ * workspaces: unlike `workspace.add({ setup:true })`, it does not touch the
+ * registry or switch windows; unlike a global migration, it only mutates the
+ * folder the user has actually opened.
+ */
+export const ensureSetup: Handler<WorkspaceEnsureSetupArgs, WorkspaceEnsureSetupResult> = async (
+  _args,
+  ctx,
+) => {
+  const root = requireWorkspaceRoot(ctx);
+  const stat = await ctx.fs.stat(root);
+  if (!stat) {
+    throw new Error(`Path does not exist: ${root}`);
+  }
+  if (!stat.isDirectory) {
+    throw new Error(`Path is not a directory: ${root}`);
+  }
+  return runSetup(ctx.fs, root);
+};
+
+/**
  * `workspace remove <name>` — unregister. Does NOT delete files or `.bh/` —
  * BaseHalf is an "observer", never an owner of user files. There is no global
  * current pointer to clear; if the removed workspace was the one a window had
@@ -413,6 +437,7 @@ export function commands(): ReadonlyArray<
     ['workspace.use', use as unknown as Handler<never, unknown>],
     ['workspace.current', current as unknown as Handler<never, unknown>],
     ['workspace.touch', touch as unknown as Handler<never, unknown>],
+    ['workspace.ensureSetup', ensureSetup as unknown as Handler<never, unknown>],
     ['workspace.remove', remove as unknown as Handler<never, unknown>],
     ['workspace.rename', rename as unknown as Handler<never, unknown>],
     ['workspace.repath', repath as unknown as Handler<never, unknown>],

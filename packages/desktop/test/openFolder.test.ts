@@ -22,6 +22,7 @@ interface WsEntry {
 }
 
 let registry: WsEntry[];
+let currentName: string | null;
 let pickResult: string | null;
 let runCalls: string[];
 /** Workspaces opened-or-focused via window.bh.openWorkspace. */
@@ -72,7 +73,7 @@ const bh = {
         return { removed: a.name };
       }
       case 'workspace.list':
-        return { current: null, workspaces: [...registry] };
+        return { current: currentName, workspaces: [...registry] };
       case 'workspace.listFiles':
         return { files: [] };
       default:
@@ -83,6 +84,7 @@ const bh = {
 
 beforeEach(() => {
   registry = [];
+  currentName = null;
   pickResult = null;
   runCalls = [];
   openCalls = [];
@@ -94,6 +96,22 @@ beforeEach(() => {
     removeItem: () => undefined,
   };
   useWorkspaceStore.setState({ workspaces: [], current: null, busy: false, error: '' });
+});
+
+describe('refresh', () => {
+  it('ensures BaseHalf setup for a reachable current workspace', async () => {
+    registry = [{ name: 'docs', path: '/docs', addedAt: 'x' }];
+    currentName = 'docs';
+
+    await useWorkspaceStore.getState().refresh();
+
+    expect(useWorkspaceStore.getState().currentReachable).toBe(true);
+    expect(runCalls).toContain('workspace.listFiles');
+    expect(runCalls).toContain('workspace.ensureSetup');
+    expect(runCalls.indexOf('workspace.ensureSetup')).toBeGreaterThan(
+      runCalls.indexOf('workspace.listFiles'),
+    );
+  });
 });
 
 describe('pickAndAdd (File ▸ Open Folder)', () => {

@@ -42,20 +42,25 @@ export const EMPTY_WORKSPACES: WorkspacesFile = Object.freeze({
 export interface WorkspaceAddArgs {
   readonly path: string;
   readonly name?: string;
-  /** If true: also append `.bh/cache/` to .gitignore + append the
-   *  agent-protocol hint to CLAUDE.md (both non-destructive + idempotent). */
+  /** If true: also append `.bh/cache/` to .gitignore, install the
+   *  agent-protocol hint, and write `.bh/agent-harness/` docs.
+   *  All setup writes are non-destructive + idempotent. */
   readonly setup?: boolean;
 }
 
 export interface SetupReport {
   /** `.bh/cache/` line added to .gitignore. */
   readonly gitignoreUpdated: boolean;
+  /** Agent harness docs written under `.bh/agent-harness/`. */
+  readonly agentHarnessUpdated: boolean;
   /** Workspace-hint section added to CLAUDE.md (Claude Code). */
   readonly claudeMdUpdated: boolean;
   /** Workspace-hint section added to AGENTS.md (the cross-tool convention). */
   readonly agentsMdUpdated: boolean;
   /** `.gitignore` already had `.bh/cache/` — skipped. */
   readonly gitignoreSkipped: boolean;
+  /** Agent harness docs already matched, or a symlink/path escape was refused. */
+  readonly agentHarnessSkipped: boolean;
   /** CLAUDE.md already had the hint marker (or a symlink was refused) — skipped. */
   readonly claudeMdSkipped: boolean;
   /** AGENTS.md already had the hint marker (or a symlink was refused) — skipped. */
@@ -106,6 +111,12 @@ export type WorkspaceCurrentArgs = Record<string, never>;
 export type WorkspaceCurrentResult =
   | { readonly current: WorkspaceEntry }
   | { readonly current: null };
+
+/** `workspace.ensureSetup()` — run the idempotent BaseHalf workspace scaffold
+ *  installer for the workspace bound to this call. Used when an existing
+ *  workspace is opened after an app update. */
+export type WorkspaceEnsureSetupArgs = Record<string, never>;
+export type WorkspaceEnsureSetupResult = SetupReport;
 
 export interface WorkspaceRemoveArgs {
   readonly name: string;
