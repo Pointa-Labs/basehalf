@@ -23,6 +23,7 @@ import {
   applyNodeChanges,
   useNodesInitialized,
   useReactFlow,
+  useStore,
   useViewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -1441,6 +1442,10 @@ const CanvasFramer = ({
 }: { frame: { key: string; vp: ViewportState | null } | null }): null => {
   const { setViewport, fitView, getNodes } = useReactFlow();
   const nodesInitialized = useNodesInitialized();
+  // React Flow's measured pane width. It can keep SETTLING for a beat after the
+  // nodes initialize (the terminal dock collapsing widens the canvas from a
+  // transient narrow value), so the fit waits for it to stabilize — see below.
+  const rfWidth = useStore((s) => s.width);
   // The sidebar FLOATS over the canvas's left, so `main` (and thus fitView's
   // frame) spans the full width INCLUDING the area the sidebar covers. Inset the
   // fit by the sidebar's width so a fresh fit lands content in the VISIBLE region
@@ -1450,21 +1455,35 @@ const CanvasFramer = ({
   const sidebarInset = useLayoutStore((s) => (s.sidebarOpen ? s.sidebarWidth : 0));
   const framedKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!frame || !nodesInitialized) return;
+    if (!frame || !nodesInitialized || rfWidth === 0) return;
     // Frame once per context. A same-key refresh (a watcher file event, a
     // context changes must NOT re-frame — that would yank the canvas out from
     // under the user mid-work.
     if (framedKey.current === frame.key) return;
-    framedKey.current = frame.key;
-    if (frame.vp) {
-      setViewport({ x: frame.vp.offsetX, y: frame.vp.offsetY, zoom: frame.vp.scale });
-    } else if (getNodes().length > 0) {
-      const padding =
-        sidebarInset > 0
-          ? { top: 0.2, right: 0.2, bottom: 0.2, left: `${sidebarInset + 32}px` as `${number}px` }
-          : 0.2;
-      void fitView({ padding, maxZoom: 1, duration: 0 });
-    }
-  }, [frame, nodesInitialized, setViewport, fitView, getNodes, sidebarInset]);
+    // The pane width can still be settling right after the nodes initialize.
+    // Fitting at a transient NARROW width over-zooms out — the px sidebar-inset
+    // padding can exceed the width, making (width − paddingX) negative so
+    // fitView clamps to minZoom (a tiny, unreadable card). Debounce: each width
+    // change resets the timer, so the fit fires once the width has stopped
+    // changing — at the SETTLED size. (The framedKey guard still fires it only
+    // once per context; a later resize never re-frames.)
+    const t = setTimeout(() => {
+      framedKey.current = frame.key;
+      if (frame.vp) {
+        setViewport({ x: frame.vp.offsetX, y: frame.vp.offsetY, zoom: frame.vp.scale });
+      } else if (getNodes().length > 0) {
+        // Cap the left inset so it can never exceed the pane width (which would
+        // re-introduce the negative-zoom clamp on a still-narrow pane); leave at
+        // least 160px for the content itself.
+        const leftPx = Math.min(sidebarInset + 32, Math.max(0, rfWidth - 160));
+        const padding =
+          leftPx > 0
+            ? { top: 0.2, right: 0.2, bottom: 0.2, left: `${leftPx}px` as `${number}px` }
+            : 0.2;
+        void fitView({ padding, maxZoom: 1, duration: 0 });
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [frame, nodesInitialized, rfWidth, setViewport, fitView, getNodes, sidebarInset]);
   return null;
 };
