@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeLineChanges } from '../src/renderer/src/lib/lineDiff.js';
+import { computeLineChanges, diffComputer } from '../src/renderer/src/lib/lineDiff.js';
+
+describe('diff engine import guard', () => {
+  it('the bundled monaco diff computer is present (a version bump moving the deep path fails here)', () => {
+    expect(typeof diffComputer?.computeDiff).toBe('function');
+  });
+});
 
 describe('computeLineChanges', () => {
   it('identical → no changes', () => {
