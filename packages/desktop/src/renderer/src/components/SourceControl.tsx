@@ -299,6 +299,7 @@ export const SourceControl = (): JSX.Element => {
             setMessage={setMessage}
             canCommit={canCommit}
             hasStaged={hasStaged}
+            commitBranch={status.detached ? 'detached' : (status.branch ?? '')}
             stagedCount={groups.staged.length}
             amend={amend}
             onToggleAmend={toggleAmend}
@@ -371,6 +372,7 @@ const ChangesView = ({
   setMessage,
   canCommit,
   hasStaged,
+  commitBranch,
   stagedCount,
   amend,
   onToggleAmend,
@@ -387,6 +389,7 @@ const ChangesView = ({
   setMessage: (s: string) => void;
   canCommit: boolean;
   hasStaged: boolean;
+  commitBranch: string;
   stagedCount: number;
   amend: boolean;
   onToggleAmend: () => void;
@@ -414,7 +417,11 @@ const ChangesView = ({
               commit();
             }
           }}
-          placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
+          placeholder={
+            commitBranch !== ''
+              ? `Message (${COMMIT_KEY} to commit on “${commitBranch}”)`
+              : `Message (${COMMIT_KEY} to commit)`
+          }
           rows={2}
           style={{
             width: '100%',
