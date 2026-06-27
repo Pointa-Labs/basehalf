@@ -342,6 +342,14 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
     [runGit],
   );
 
+  // Local-branch names — used to tell a local branch ref (rename/delete-able, even
+  // when it contains a "/" like feature/x) from a remote-tracking ref. A plain
+  // `name.includes('/')` test is wrong: local branches can carry slashes.
+  const localBranches = useMemo(
+    () => new Set(branches.filter((b) => !b.remote).map((b) => b.name)),
+    [branches],
+  );
+
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const graphW = OFF_X * 2 + Math.max(1, width) * GX;
   const gridCols = `${graphW}px minmax(120px, 1fr) 150px 130px 70px`;
@@ -532,6 +540,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   key={row.commit.hash}
                   commit={row.commit}
                   gridCols={gridCols}
+                  localBranches={localBranches}
                   selected={selected === row.commit.hash}
                   highlighted={matches(row.commit)}
                   onSelect={() => setSelected(row.commit.hash)}
@@ -713,6 +722,7 @@ const Header = ({
 const CommitRow = ({
   commit,
   gridCols,
+  localBranches,
   selected,
   highlighted,
   onSelect,
@@ -721,6 +731,7 @@ const CommitRow = ({
 }: {
   commit: GitCommit;
   gridCols: string;
+  localBranches: ReadonlySet<string>;
   selected: boolean;
   highlighted: boolean;
   onSelect: () => void;
@@ -773,7 +784,7 @@ const CommitRow = ({
       >
         {commit.head && <Pill text="HEAD" kind="head" />}
         {commit.refs.map((r) => {
-          const kind = r.includes('/') ? 'remote' : 'branch';
+          const kind = localBranches.has(r) ? 'branch' : 'remote';
           return <Pill key={r} text={r} kind={kind} onContextMenu={(e) => onRefMenu(e, r, kind)} />;
         })}
         {commit.tags.map((t) => (
