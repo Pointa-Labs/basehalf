@@ -62,6 +62,46 @@ function clampPositive(value: number | undefined, fallback: number): number {
   return Math.floor(value);
 }
 
+// ── Matcher — substring / whole-word / regex, case-(in)sensitive ──────────────
+// VS Code's search options (Aa / ab| / .*) modeled as one non-global RegExp.
+// Non-global so `.test()` / `.exec()` carry no lastIndex state (each starts at 0).
+interface Matcher {
+  /** Any match anywhere in `s` (the content pre-filter). */
+  test(s: string): boolean;
+  /** The first match in one line, or null. */
+  firstMatch(line: string): { readonly index: number; readonly length: number } | null;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Build a Matcher, or null for an invalid user regex (→ caller returns no hits). */
+function buildMatcher(
+  needle: string,
+  opts: {
+    caseSensitive?: boolean | undefined;
+    wholeWord?: boolean | undefined;
+    regex?: boolean | undefined;
+  },
+): Matcher | null {
+  let source = opts.regex === true ? needle : escapeRegExp(needle);
+  if (opts.wholeWord === true) source = `\\b(?:${source})\\b`;
+  let re: RegExp;
+  try {
+    re = new RegExp(source, opts.caseSensitive === true ? '' : 'i');
+  } catch {
+    return null; // malformed regex — graceful empty result
+  }
+  return {
+    test: (s) => re.test(s),
+    firstMatch: (line) => {
+      const m = re.exec(line);
+      return m ? { index: m.index, length: m[0].length } : null;
+    },
+  };
+}
+
 /**
  * Window a matching line around the first occurrence of the needle, trimmed and
  * capped to SNIPPET_MAX_CHARS with leading/trailing ellipses when clipped. Keeps
@@ -76,7 +116,7 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-function snippet(line: string, lineLower: string, needleLower: string): string {
+function snippet(line: string, matchIndex: number, matchLen: number): string {
   const trimmedStart = line.length - line.trimStart().length;
   const collapsed = line.trim();
   if (collapsed.length <= SNIPPET_MAX_CHARS) return collapsed;
@@ -84,9 +124,8 @@ function snippet(line: string, lineLower: string, needleLower: string): string {
   // line, since that's what we return). `half` is clamped to ≥0 so a needle
   // LONGER than the window (a pasted long phrase) still anchors the window at
   // the match start instead of being pushed past it.
-  const matchInLine = lineLower.indexOf(needleLower);
-  const matchInTrimmed = Math.max(0, matchInLine - trimmedStart);
-  const half = Math.max(0, Math.floor((SNIPPET_MAX_CHARS - needleLower.length) / 2));
+  const matchInTrimmed = Math.max(0, matchIndex - trimmedStart);
+  const half = Math.max(0, Math.floor((SNIPPET_MAX_CHARS - matchLen) / 2));
   let start = Math.max(0, matchInTrimmed - half);
   let end = Math.min(collapsed.length, start + SNIPPET_MAX_CHARS);
   // If clamping at the end pulled the window short, slide it left to fill.
@@ -116,6 +155,13 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
   const needle = (args.query ?? '').trim();
   if (needle.length === 0) return { query: '', hits: [] };
   const needleLower = needle.toLowerCase();
+  const matcher = buildMatcher(needle, {
+    caseSensitive: args.caseSensitive,
+    wholeWord: args.wholeWord,
+    regex: args.regex,
+  });
+  // Malformed user regex → no hits (the panel just shows "no results").
+  if (matcher === null) return { query: needle, hits: [] };
 
   const root = requireWorkspaceRoot(ctx);
 
@@ -204,8 +250,7 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
       // whether or not the prefix matched, so "no matches" never hides a capped
       // large file.
       if (file.truncated) truncated = true;
-      const contentLower = file.content.toLowerCase();
-      if (!contentLower.includes(needleLower)) continue;
+      if (!matcher.test(file.content)) continue;
 
       // Split on LF, CRLF, AND bare CR (classic-Mac) so line numbers + per-line
       // snippets stay correct and no interior \r leaks into a snippet.
@@ -214,15 +259,15 @@ export const query: Handler<SearchQueryArgs, SearchQueryResult> = async (args, c
       let total = 0;
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i] ?? '';
-        const lineLower = line.toLowerCase();
-        if (!lineLower.includes(needleLower)) continue;
+        const fm = matcher.firstMatch(line);
+        if (fm === null) continue;
         total++;
         if (matches.length < maxMatchesPerFile) {
-          matches.push({ line: i + 1, text: snippet(line, lineLower, needleLower) });
+          matches.push({ line: i + 1, text: snippet(line, fm.index, fm.length) });
         }
       }
-      // contentLower matched but no single line did → the needle straddled a
-      // newline (a multi-line query). Skip rather than emit a hit with no
+      // content matched but no single line did → the needle straddled a newline
+      // (a multi-line query / regex). Skip rather than emit a hit with no
       // snippet; per-line is our snippet unit.
       if (total === 0) continue;
 

@@ -18,6 +18,13 @@ export interface SearchQueryArgs {
   /** Max snippet lines to return PER file (default 5). `hit.total` still
    *  reports the real per-file match count even when capped here. */
   readonly maxMatchesPerFile?: number;
+  /** Match case (default false → case-insensitive). VS Code's `Aa` toggle. */
+  readonly caseSensitive?: boolean;
+  /** Match whole words only (word-boundary wrap). VS Code's `ab|` toggle. */
+  readonly wholeWord?: boolean;
+  /** Treat `query` as a JS regular expression. VS Code's `.*` toggle. An invalid
+   *  pattern yields no hits (never throws). */
+  readonly regex?: boolean;
 }
 
 /** One matching line inside a file. */

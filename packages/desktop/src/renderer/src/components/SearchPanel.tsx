@@ -1,7 +1,6 @@
 import type { SearchQueryResult } from '@basehalf/core';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
-import { highlightSegments } from '../lib/highlight.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { CountBadge } from './primitives/CountBadge.js';
@@ -20,6 +19,41 @@ import { CountBadge } from './primitives/CountBadge.js';
 const MAX_FILES = 40;
 const MAX_PER_FILE = 20;
 
+/** Build the highlight regex matching the core matcher (same case/word/regex
+ *  semantics), global so a snippet line can highlight EVERY match. null = the
+ *  pattern is invalid / empty (renderer falls back to plain text). */
+function buildHighlightRe(
+  query: string,
+  opts: { caseSensitive: boolean; wholeWord: boolean; regex: boolean },
+): RegExp | null {
+  if (query === '') return null;
+  let src = opts.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (opts.wholeWord) src = `\\b(?:${src})\\b`;
+  try {
+    return new RegExp(src, opts.caseSensitive ? 'g' : 'gi');
+  } catch {
+    return null;
+  }
+}
+
+/** Split a line into highlighted/plain segments by a global regex. */
+function segmentsFor(text: string, re: RegExp | null): Array<{ text: string; match: boolean }> {
+  if (re === null) return [{ text, match: false }];
+  const out: Array<{ text: string; match: boolean }> = [];
+  let last = 0;
+  re.lastIndex = 0;
+  let m = re.exec(text);
+  while (m !== null) {
+    if (m.index > last) out.push({ text: text.slice(last, m.index), match: false });
+    out.push({ text: m[0], match: true });
+    last = m.index + m[0].length;
+    if (m[0].length === 0) re.lastIndex++; // never loop forever on an empty match
+    m = re.exec(text);
+  }
+  if (last < text.length) out.push({ text: text.slice(last), match: false });
+  return out;
+}
+
 export const SearchPanel = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
@@ -27,6 +61,9 @@ export const SearchPanel = (): JSX.Element => {
   const [result, setResult] = useState<SearchQueryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
+  const [regex, setRegex] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Focus the box when the view opens.
@@ -51,6 +88,9 @@ export const SearchPanel = (): JSX.Element => {
             query: q,
             maxFiles: MAX_FILES,
             maxMatchesPerFile: MAX_PER_FILE,
+            caseSensitive,
+            wholeWord,
+            regex,
           })) as SearchQueryResult;
           if (!cancelled) {
             setResult(r);
@@ -67,7 +107,7 @@ export const SearchPanel = (): JSX.Element => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, current]);
+  }, [query, current, caseSensitive, wholeWord, regex]);
 
   const toggle = (file: string): void =>
     setCollapsed((prev) => {
@@ -79,31 +119,63 @@ export const SearchPanel = (): JSX.Element => {
 
   const hits = result?.hits ?? [];
   const totalMatches = hits.reduce((n, h) => n + h.total, 0);
+  const highlightRe = buildHighlightRe(query.trim(), { caseSensitive, wholeWord, regex });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索"
-          aria-label="搜索工作区"
-          data-testid="search-panel-input"
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            height: 26,
-            background: color.bg,
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.md,
-            color: color.textPrimary,
-            fontFamily: font.sans,
-            fontSize: font.size.caption,
-            padding: `0 ${space[2]}px`,
-            outline: 'none',
-          }}
-        />
+        <div style={{ position: 'relative' }}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索"
+            aria-label="搜索工作区"
+            data-testid="search-panel-input"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              height: 26,
+              background: color.bg,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.md,
+              color: color.textPrimary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              padding: `0 64px 0 ${space[2]}px`,
+              outline: 'none',
+            }}
+          />
+          {/* VS Code's search options: match case / whole word / regex. */}
+          <div
+            style={{
+              position: 'absolute',
+              top: 3,
+              right: 3,
+              display: 'flex',
+              gap: 1,
+            }}
+          >
+            <OptBtn
+              label="Aa"
+              title="区分大小写"
+              active={caseSensitive}
+              onClick={() => setCaseSensitive((v) => !v)}
+            />
+            <OptBtn
+              label="ab|"
+              title="全字匹配"
+              active={wholeWord}
+              onClick={() => setWholeWord((v) => !v)}
+            />
+            <OptBtn
+              label=".*"
+              title="使用正则表达式"
+              active={regex}
+              onClick={() => setRegex((v) => !v)}
+            />
+          </div>
+        </div>
         {query.trim().length >= 2 && !loading && (
           <div
             style={{
@@ -234,7 +306,7 @@ export const SearchPanel = (): JSX.Element => {
                           // Key by each segment's char offset (stable + unique),
                           // not the array index.
                           let off = 0;
-                          return highlightSegments(m.text, query.trim()).map((seg) => {
+                          return segmentsFor(m.text, highlightRe).map((seg) => {
                             const key = off;
                             off += seg.text.length;
                             return seg.match ? (
@@ -264,6 +336,43 @@ export const SearchPanel = (): JSX.Element => {
     </div>
   );
 };
+
+const OptBtn = ({
+  label,
+  title,
+  active,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    aria-pressed={active}
+    onClick={onClick}
+    style={{
+      width: 20,
+      height: 20,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: active ? color.accentSofter : 'none',
+      border: `1px solid ${active ? color.accent : 'transparent'}`,
+      borderRadius: radius.sm,
+      cursor: 'pointer',
+      color: active ? color.accent : color.textTertiary,
+      fontFamily: font.mono,
+      fontSize: 10,
+      lineHeight: 1,
+    }}
+  >
+    {label}
+  </button>
+);
 
 const Hint = ({ children }: { children: string }): JSX.Element => (
   <div

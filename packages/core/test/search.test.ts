@@ -47,6 +47,37 @@ describe('search.query', () => {
     expect(res.hits[0]?.matches[0]?.text).toBe('The AUTH Redesign doc');
   });
 
+  it('caseSensitive only matches the exact case', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'AUTH here');
+      m.files.set('/v/b.md', 'auth here');
+    });
+    const res = await run(core, { query: 'auth', caseSensitive: true });
+    expect(res.hits).toHaveLength(1);
+    expect(res.hits[0]?.file).toBe('b.md');
+  });
+
+  it('wholeWord does not match a substring of a larger word', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'authentication flow'); // contains "auth" but not the word
+      m.files.set('/v/b.md', 'the auth layer'); // the word "auth"
+    });
+    const res = await run(core, { query: 'auth', wholeWord: true });
+    expect(res.hits).toHaveLength(1);
+    expect(res.hits[0]?.file).toBe('b.md');
+  });
+
+  it('regex matches a pattern; an invalid pattern yields no hits', async () => {
+    const { core } = await setup((m) => {
+      m.files.set('/v/a.md', 'order #42 shipped\norder #7 pending');
+    });
+    const ok = await run(core, { query: '#\\d+', regex: true });
+    expect(ok.hits).toHaveLength(1);
+    expect(ok.hits[0]?.total).toBe(2);
+    const bad = await run(core, { query: '(unclosed', regex: true });
+    expect(bad.hits).toEqual([]);
+  });
+
   it('returns empty hits for an empty or whitespace query (no walk)', async () => {
     const { core } = await setup((m) => {
       m.files.set('/v/note.md', 'anything');
