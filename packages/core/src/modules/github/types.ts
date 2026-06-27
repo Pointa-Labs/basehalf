@@ -60,6 +60,21 @@ export interface GithubPullRequestFilesResult {
   readonly files: readonly GhPrFile[];
 }
 
+/** Submit a review on a PR (POST /pulls/{n}/reviews). REQUEST_CHANGES/COMMENT
+ *  require a body; APPROVE may omit it. Needs a token with write access. */
+export interface GithubReviewArgs {
+  readonly remoteUrl: string;
+  readonly number: number;
+  readonly event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+  readonly body?: string;
+}
+
+export interface GithubReviewResult {
+  /** The created review's state (APPROVED / CHANGES_REQUESTED / COMMENTED). */
+  readonly state: string;
+  readonly url: string;
+}
+
 /** Verify + persist a token (GET /user). The token is stored via ctx.secrets and
  *  never returned to the renderer thereafter. */
 export interface GithubSignInArgs {

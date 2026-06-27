@@ -141,6 +141,42 @@ describe('github.pullRequestFiles', () => {
   });
 });
 
+describe('github.reviewPullRequest', () => {
+  it('APPROVE posts to /reviews with no body required', async () => {
+    const { http, calls } = makeFakeHttp(() => ({ body: '{"state":"APPROVED","html_url":"u"}' }));
+    const core = createCore({ http, secrets: await secretsWithToken('t'), configDir: '/cfg' });
+    const r = (await core.run(
+      'github.reviewPullRequest',
+      { remoteUrl: 'https://github.com/o/r', number: 7, event: 'APPROVE' },
+      ROOT,
+    )) as { state: string };
+    expect(calls[0]?.method).toBe('POST');
+    expect(calls[0]?.url).toBe('https://api.github.com/repos/o/r/pulls/7/reviews');
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ event: 'APPROVE' });
+    expect(r.state).toBe('APPROVED');
+  });
+
+  it('COMMENT/REQUEST_CHANGES include the body; empty body is rejected before any request', async () => {
+    const { http, calls } = makeFakeHttp(() => ({ body: '{"state":"COMMENTED"}' }));
+    const core = createCore({ http, secrets: await secretsWithToken('t'), configDir: '/cfg' });
+    await core.run(
+      'github.reviewPullRequest',
+      { remoteUrl: 'https://github.com/o/r', number: 7, event: 'COMMENT', body: 'nice' },
+      ROOT,
+    );
+    expect(JSON.parse(calls[0]?.body ?? '{}')).toEqual({ event: 'COMMENT', body: 'nice' });
+
+    await expect(
+      core.run(
+        'github.reviewPullRequest',
+        { remoteUrl: 'https://github.com/o/r', number: 7, event: 'REQUEST_CHANGES', body: '  ' },
+        ROOT,
+      ),
+    ).rejects.toThrow(/需要填写说明/);
+    expect(calls).toHaveLength(1); // the rejected one never hit the network
+  });
+});
+
 describe('github.signIn / signOut / viewer (secrets-backed)', () => {
   it('signIn verifies + stores the token; viewer then reports the login; signOut clears', async () => {
     const { http } = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));

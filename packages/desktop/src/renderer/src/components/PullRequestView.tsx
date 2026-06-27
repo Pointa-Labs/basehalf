@@ -2,14 +2,16 @@ import type { GhPrFile } from '@basehalf/core';
 import { type JSX, useEffect, useMemo, useState } from 'react';
 import { color, font, radius, space } from '../design.js';
 import { parseUnifiedPatch } from '../lib/parseUnifiedPatch.js';
+import { toast } from '../store/toast.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { UnifiedDiff } from './UnifiedDiff.js';
+import { Button } from './primitives/Button.js';
 
 /**
  * In-app PR viewer — opens a GitHub pull request's changed files and renders each
- * file's diff inline (GitHub's per-file patch parsed into our UnifiedDiff rows).
- * Read-only review surface; "在浏览器打开" links to github.com for actions we don't
- * host yet. Files come from github.pullRequestFiles (token stays in core).
+ * file's diff inline (GitHub's per-file patch parsed into our UnifiedDiff rows),
+ * with a review footer (Approve / Request changes / Comment) that submits via the
+ * API. Files come from github.pullRequestFiles; the token stays in core.
  */
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -30,6 +32,33 @@ export const PullRequestView = ({
   const [files, setFiles] = useState<GhPrFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [reviewBody, setReviewBody] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submitReview = (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'): void =>
+    void (async () => {
+      setSubmitting(true);
+      try {
+        await window.bh.run('github.reviewPullRequest', {
+          remoteUrl,
+          number,
+          event,
+          body: reviewBody,
+        });
+        setReviewBody('');
+        toast.success(
+          event === 'APPROVE'
+            ? '已批准。'
+            : event === 'REQUEST_CHANGES'
+              ? '已请求修改。'
+              : '已评论。',
+        );
+      } catch (e) {
+        toast.error(msg(e));
+      } finally {
+        setSubmitting(false);
+      }
+    })();
 
   useEffect(() => {
     let cancelled = false;
@@ -161,6 +190,69 @@ export const PullRequestView = ({
             ) : (
               <UnifiedDiff rows={rows} />
             )}
+          </div>
+        </div>
+      )}
+      {/* Review footer — submit a review (needs a write-scoped token). */}
+      {error === null && (
+        <div
+          data-testid="pr-review"
+          style={{
+            flexShrink: 0,
+            borderTop: `1px solid ${color.divider}`,
+            padding: space[2],
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: space[2],
+          }}
+        >
+          <textarea
+            value={reviewBody}
+            onChange={(e) => setReviewBody(e.target.value)}
+            placeholder="留下评审意见（批准可不填）…"
+            data-testid="pr-review-body"
+            rows={2}
+            style={{
+              flex: 1,
+              resize: 'none',
+              boxSizing: 'border-box',
+              background: color.bg,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.md,
+              color: color.textPrimary,
+              fontFamily: font.sans,
+              fontSize: font.size.caption,
+              padding: `${space[1]}px ${space[2]}px`,
+              outline: 'none',
+            }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: space[1] }}>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={submitting}
+              onClick={() => submitReview('APPROVE')}
+            >
+              批准
+            </Button>
+            <div style={{ display: 'flex', gap: space[1] }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={submitting}
+                onClick={() => submitReview('REQUEST_CHANGES')}
+              >
+                请求修改
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={submitting}
+                onClick={() => submitReview('COMMENT')}
+              >
+                评论
+              </Button>
+            </div>
           </div>
         </div>
       )}

@@ -7,6 +7,8 @@ import type {
   GithubPullRequestFilesArgs,
   GithubPullRequestFilesResult,
   GithubRepo,
+  GithubReviewArgs,
+  GithubReviewResult,
   GithubSignInArgs,
   GithubSignInResult,
   GithubViewerResult,
@@ -178,6 +180,29 @@ export const pullRequestFiles: Handler<
     ...(f.previous_filename !== undefined && { previousFilename: f.previous_filename }),
   }));
   return { files };
+};
+
+export const reviewPullRequest: Handler<GithubReviewArgs, GithubReviewResult> = async (
+  args,
+  ctx,
+) => {
+  if (!Number.isInteger(args.number) || args.number <= 0) throw new Error('无效的 PR 编号。');
+  if (args.event !== 'APPROVE' && args.event !== 'REQUEST_CHANGES' && args.event !== 'COMMENT') {
+    throw new Error('无效的评审类型。');
+  }
+  const body = (args.body ?? '').trim();
+  // GitHub requires a body for REQUEST_CHANGES and COMMENT; APPROVE may omit it.
+  if (args.event !== 'APPROVE' && body === '') {
+    throw new Error('「请求修改」或「评论」需要填写说明。');
+  }
+  const token = await requireToken(ctx);
+  const { owner, repo } = repoOf(args.remoteUrl);
+  const res = await gh(ctx, token, 'POST', `/repos/${owner}/${repo}/pulls/${args.number}/reviews`, {
+    event: args.event,
+    ...(body !== '' && { body }),
+  });
+  const j = JSON.parse(res.body) as { state?: string; html_url?: string };
+  return { state: j.state ?? '', url: j.html_url ?? '' };
 };
 
 /** Look up the login for a token (GET /user); null on any failure. */
