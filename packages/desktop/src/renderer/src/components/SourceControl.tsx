@@ -762,18 +762,22 @@ const Group = ({
     <div role="group" aria-label={title}>
       <div
         style={{
+          // VS Code resource-group header: a 22px list row, label + count
+          // (margin-left 6px), actions pushed right. Not uppercase.
           display: 'flex',
           alignItems: 'center',
-          gap: space[2],
-          padding: `${space[1]}px ${space[3]}px`,
-          fontSize: font.size.micro,
+          height: 22,
+          padding: `0 ${space[3]}px`,
+          fontSize: font.size.caption,
           fontWeight: font.weight.semibold,
-          color: color.textTertiary,
+          color: color.textSecondary,
           userSelect: 'none',
         }}
       >
         <span>{title}</span>
-        <CountBadge count={rows.length} />
+        <span style={{ marginLeft: 6, display: 'flex' }}>
+          <CountBadge count={rows.length} />
+        </span>
         {groupAction && (
           <span style={{ marginLeft: 'auto' }}>
             <IconBtn
@@ -828,10 +832,11 @@ const Row = ({
         if (!e.currentTarget.contains(e.relatedTarget)) setActive(false);
       }}
       style={{
+        // VS Code SCM list rows are line-height: 22px (scm.css .monaco-list-row).
         display: 'flex',
         alignItems: 'center',
         gap: space[2],
-        height: 24,
+        height: 22,
         padding: `0 ${space[3]}px`,
         background: active ? color.divider : 'transparent',
         fontFamily: font.sans,
@@ -921,10 +926,12 @@ const Row = ({
           />
         ))}
       </span>
+      {/* VS Code's resource `.decoration-icon`: 16px, margin-left 5px, on the right. */}
       <span
         aria-hidden
         style={{
-          width: 14,
+          width: 16,
+          marginLeft: 5,
           textAlign: 'center',
           fontFamily: font.mono,
           fontWeight: font.weight.semibold,
@@ -957,10 +964,11 @@ const StashRow = ({
       onMouseEnter={() => setActive(true)}
       onMouseLeave={() => setActive(false)}
       style={{
+        // VS Code SCM list rows are line-height: 22px (scm.css .monaco-list-row).
         display: 'flex',
         alignItems: 'center',
         gap: space[2],
-        height: 24,
+        height: 22,
         padding: `0 ${space[3]}px`,
         background: active ? color.divider : 'transparent',
         fontFamily: font.sans,
