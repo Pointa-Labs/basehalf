@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
 import { SearchPanel } from './SearchPanel.js';
 import { SourceControl } from './SourceControl.js';
+import { Timeline } from './Timeline.js';
 
 export const Sidebar = (): JSX.Element | null => {
   const current = useWorkspaceStore((s) => s.current);
@@ -62,7 +63,13 @@ export const Sidebar = (): JSX.Element | null => {
             // File/Folder/Refresh/Collapse actions) + scroll. No unreachable branch:
             // App's selectRegion routes folder-missing to a full-region
             // <WorkspaceMissing/>, so the Sidebar always shows a reachable workspace.
-            <NavTree rootPath={currentWs.path} />
+            // Below it: the Timeline (the open file's git history), VS Code-style.
+            <>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                <NavTree rootPath={currentWs.path} />
+              </div>
+              <Timeline />
+            </>
           ) : (
             <div
               style={{
