@@ -42,6 +42,7 @@ import type {
   GitStashResult,
   GitStatusResult,
   GitTagArgs,
+  GitTagDeleteArgs,
 } from './types.js';
 
 /**
@@ -346,6 +347,12 @@ export const tag: Handler<GitTagArgs, GitOkResult> = async (args, ctx) => {
   assertBranchName(args.name, 'git.tag'); // tag names share git's refname rules
   if (args.ref !== undefined) assertSafeRef(args.ref, 'git.tag ref');
   await git(ctx, args.ref !== undefined ? ['tag', args.name, args.ref] : ['tag', args.name]);
+  return { ok: true };
+};
+
+export const tagDelete: Handler<GitTagDeleteArgs, GitOkResult> = async (args, ctx) => {
+  assertSafeRef(args.name, 'git.tagDelete');
+  await git(ctx, ['tag', '-d', args.name]);
   return { ok: true };
 };
 

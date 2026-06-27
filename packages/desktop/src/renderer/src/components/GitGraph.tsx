@@ -177,6 +177,9 @@ const CommitItem = ({
             {commit.refs.map((r) => (
               <RefPill key={r} text={r} tone={r.includes('/') ? 'remote' : 'branch'} />
             ))}
+            {commit.tags.map((t) => (
+              <RefPill key={`tag:${t}`} text={`🏷 ${t}`} tone="remote" />
+            ))}
             <span
               style={{
                 overflow: 'hidden',

@@ -12,6 +12,7 @@ const c = (hash: string, parents: string[] = []): GitCommit => ({
   subject: hash,
   body: '',
   refs: [],
+  tags: [],
   head: false,
 });
 

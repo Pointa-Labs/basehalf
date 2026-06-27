@@ -129,12 +129,13 @@ const LOG_RECORD = '\x1e';
 
 /**
  * Parse the `%D` decoration string (e.g. "HEAD -> main, origin/main, tag: v1")
- * into the plain ref names pointing at a commit + whether HEAD is among them.
- * "HEAD -> main" → head + ref "main"; bare "HEAD" (detached) → head, no ref;
- * "tag: v1" → ref "v1".
+ * into the branch/remote ref names (`refs`), the TAG names (`tags`, separated so a
+ * UI can style them distinctly), and whether HEAD is among them. "HEAD -> main" →
+ * head + ref "main"; bare "HEAD" (detached) → head, no ref; "tag: v1" → tag "v1".
  */
-function parseDecorations(raw: string): { refs: string[]; head: boolean } {
+function parseDecorations(raw: string): { refs: string[]; tags: string[]; head: boolean } {
   const refs: string[] = [];
+  const tags: string[] = [];
   let head = false;
   for (const token of raw.split(',').map((s) => s.trim())) {
     if (token === '') continue;
@@ -148,9 +149,10 @@ function parseDecorations(raw: string): { refs: string[]; head: boolean } {
       if (arrow[1] !== undefined) refs.push(arrow[1]);
       continue;
     }
-    refs.push(token.startsWith('tag: ') ? token.slice(5) : token);
+    if (token.startsWith('tag: ')) tags.push(token.slice(5));
+    else refs.push(token);
   }
-  return { refs, head };
+  return { refs, tags, head };
 }
 
 /**
@@ -170,7 +172,7 @@ export function parseLog(raw: string): GitCommit[] {
       f;
     // body is the last field; rejoin defensively in case it ever contained US.
     const body = bodyParts.join(LOG_FIELD);
-    const { refs, head } = parseDecorations(decorations ?? '');
+    const { refs, tags, head } = parseDecorations(decorations ?? '');
     commits.push({
       hash: hash ?? '',
       shortHash: shortHash ?? '',
@@ -180,6 +182,7 @@ export function parseLog(raw: string): GitCommit[] {
       subject: subject ?? '',
       body,
       refs,
+      tags,
       head,
     });
   }

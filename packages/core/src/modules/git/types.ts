@@ -97,6 +97,10 @@ export interface GitTagArgs {
   readonly ref?: string;
 }
 
+export interface GitTagDeleteArgs {
+  readonly name: string;
+}
+
 export interface GitCherryPickArgs {
   /** The commit to cherry-pick onto the current branch. */
   readonly ref: string;
@@ -205,7 +209,10 @@ export interface GitCommit {
   readonly committer: GitPerson;
   readonly subject: string;
   readonly body: string;
+  /** Branch + remote-tracking ref names decorating this commit (tags excluded). */
   readonly refs: readonly string[];
+  /** Tag names on this commit (separated so a UI can style them distinctly). */
+  readonly tags: readonly string[];
   /** True when HEAD points at this commit (directly or via its branch). */
   readonly head: boolean;
 }

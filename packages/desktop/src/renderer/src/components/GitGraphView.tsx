@@ -248,6 +248,100 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
     [runGit],
   );
 
+  // Right-click a ref pill → branch/tag actions (Git Graph's ref context menu).
+  const refMenu = useCallback(
+    (name: string, kind: 'branch' | 'remote' | 'tag'): ContextMenuItem[] => {
+      if (kind === 'tag') {
+        return [
+          {
+            id: 'checkout',
+            label: `签出标签 ${name}`,
+            run: () => runGit(() => window.bh.run('git.checkout', { branch: name })),
+          },
+          {
+            id: 'delete',
+            label: '删除标签',
+            danger: true,
+            run: () =>
+              void confirm({
+                title: `删除标签 ${name}？`,
+                confirmText: '删除',
+                destructive: true,
+              }).then((ok) => {
+                if (ok) runGit(() => window.bh.run('git.tagDelete', { name }));
+              }),
+          },
+        ];
+      }
+      // A remote-tracking ref → checkout its short name (DWIM tracking branch).
+      const checkoutTarget = kind === 'remote' ? name.slice(name.indexOf('/') + 1) : name;
+      const items: ContextMenuItem[] = [
+        {
+          id: 'checkout',
+          label: `签出 ${checkoutTarget}`,
+          run: () => runGit(() => window.bh.run('git.checkout', { branch: checkoutTarget })),
+        },
+        {
+          id: 'merge',
+          label: '合并到当前分支',
+          run: () =>
+            runGit(async () => {
+              const r = (await window.bh.run('git.merge', { branch: name })) as {
+                conflicts: boolean;
+              };
+              if (r.conflicts) toast.error('合并产生冲突，请在「合并更改」中解决。');
+            }),
+        },
+      ];
+      if (kind === 'branch') {
+        items.push(
+          {
+            id: 'rename',
+            label: '重命名分支…',
+            run: () =>
+              void prompt({ title: `重命名 ${name}`, label: '新名称', defaultValue: name }).then(
+                (n) => {
+                  const to = n?.trim();
+                  if (to && to !== name)
+                    runGit(() => window.bh.run('git.renameBranch', { from: name, to }));
+                },
+              ),
+          },
+          { separator: true },
+          {
+            id: 'delete',
+            label: '删除分支',
+            danger: true,
+            run: () =>
+              void confirm({
+                title: `删除分支 ${name}？`,
+                confirmText: '删除',
+                destructive: true,
+              }).then((ok) => {
+                if (!ok) return;
+                runGit(async () => {
+                  try {
+                    await window.bh.run('git.deleteBranch', { name });
+                  } catch {
+                    if (
+                      await confirm({
+                        title: `分支 ${name} 尚未合并，强制删除？`,
+                        confirmText: '强制删除',
+                        destructive: true,
+                      })
+                    )
+                      await window.bh.run('git.deleteBranch', { name, force: true });
+                  }
+                });
+              }),
+          },
+        );
+      }
+      return items;
+    },
+    [runGit],
+  );
+
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const graphW = OFF_X * 2 + Math.max(1, width) * GX;
   const gridCols = `${graphW}px minmax(120px, 1fr) 150px 130px 70px`;
@@ -445,6 +539,11 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                     e.preventDefault();
                     openContextMenu(e.clientX, e.clientY, commitMenu(row.commit));
                   }}
+                  onRefMenu={(e, name, kind) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openContextMenu(e.clientX, e.clientY, refMenu(name, kind));
+                  }}
                 />
               ))}
             </div>
@@ -618,6 +717,7 @@ const CommitRow = ({
   highlighted,
   onSelect,
   onContextMenu,
+  onRefMenu,
 }: {
   commit: GitCommit;
   gridCols: string;
@@ -625,6 +725,7 @@ const CommitRow = ({
   highlighted: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onRefMenu: (e: React.MouseEvent, name: string, kind: 'branch' | 'remote' | 'tag') => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
   return (
@@ -671,11 +772,16 @@ const CommitRow = ({
         }}
       >
         {commit.head && <Pill text="HEAD" kind="head" />}
-        {commit.refs.map((r) => (
+        {commit.refs.map((r) => {
+          const kind = r.includes('/') ? 'remote' : 'branch';
+          return <Pill key={r} text={r} kind={kind} onContextMenu={(e) => onRefMenu(e, r, kind)} />;
+        })}
+        {commit.tags.map((t) => (
           <Pill
-            key={r}
-            text={r}
-            kind={r.startsWith('tag:') ? 'tag' : r.includes('/') ? 'remote' : 'branch'}
+            key={`tag:${t}`}
+            text={t}
+            kind="tag"
+            onContextMenu={(e) => onRefMenu(e, t, 'tag')}
           />
         ))}
         <span
@@ -875,7 +981,12 @@ const CommitDetails = ({
 const Pill = ({
   text,
   kind,
-}: { text: string; kind: 'head' | 'branch' | 'remote' | 'tag' }): JSX.Element => {
+  onContextMenu,
+}: {
+  text: string;
+  kind: 'head' | 'branch' | 'remote' | 'tag';
+  onContextMenu?: (e: React.MouseEvent) => void;
+}): JSX.Element => {
   const label = kind === 'tag' ? text.replace(/^tag:\s*/, '') : text;
   const bg =
     kind === 'head'
@@ -895,6 +1006,7 @@ const Pill = ({
           : color.accent;
   return (
     <span
+      onContextMenu={onContextMenu}
       style={{
         flexShrink: 0,
         padding: `0 ${space[1]}px`,
@@ -909,6 +1021,7 @@ const Pill = ({
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
+        cursor: onContextMenu && kind !== 'head' ? 'context-menu' : undefined,
       }}
     >
       {kind === 'tag' ? `🏷 ${label}` : label}

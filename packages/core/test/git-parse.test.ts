@@ -155,6 +155,7 @@ describe('parseLog (--format with US/RS delimiters)', () => {
       subject: 'Initial work',
       body: '',
       refs: [],
+      tags: [],
       head: false,
     });
   });
@@ -169,10 +170,11 @@ describe('parseLog (--format with US/RS delimiters)', () => {
     expect(parseLog(rec(FIELDS({ parents: '' })))[0].parents).toEqual([]);
   });
 
-  it('normalizes %D decorations: HEAD arrow, remote, and tag', () => {
+  it('normalizes %D decorations: HEAD arrow, remote, and tag (tags split out)', () => {
     const c = parseLog(rec(FIELDS({ dec: 'HEAD -> main, origin/main, tag: v1.0' })))[0];
     expect(c.head).toBe(true);
-    expect(c.refs).toEqual(['main', 'origin/main', 'v1.0']);
+    expect(c.refs).toEqual(['main', 'origin/main']);
+    expect(c.tags).toEqual(['v1.0']);
   });
 
   it('handles a detached HEAD decoration (bare HEAD, no branch ref)', () => {
