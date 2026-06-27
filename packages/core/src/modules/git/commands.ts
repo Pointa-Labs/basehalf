@@ -35,6 +35,8 @@ import type {
   GitPathsArgs,
   GitPullArgs,
   GitPushArgs,
+  GitRebaseInteractiveArgs,
+  GitRebaseResult,
   GitRemoteResult,
   GitRemoteUrlArgs,
   GitRemoteUrlResult,
@@ -437,6 +439,70 @@ export const searchHistory: Handler<GitSearchHistoryArgs, GitLogResult> = async 
   if (args.path !== undefined) cmd.push('--', args.path);
   const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
   return { commits: res.exitCode === 0 ? parseLog(res.stdout) : [] };
+};
+
+export const rebaseInteractive: Handler<GitRebaseInteractiveArgs, GitRebaseResult> = async (
+  args,
+  ctx,
+) => {
+  assertSafeRef(args.base, 'git.rebaseInteractive base');
+  for (const it of args.items) assertSafeRef(it.sha, 'git.rebaseInteractive sha');
+  // Refuse on TRACKED changes (staged/unstaged) — a checkout/cherry-pick would
+  // fail or strand them. UNTRACKED files are fine (git rebase ignores them too),
+  // so don't count `??` entries, or a workspace's own untracked files (.bh/ …)
+  // would block every rebase.
+  const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
+  const trackedDirty = st.files.some((f) => !(f.x === '?' && f.y === '?'));
+  if (trackedDirty) throw new Error('请先提交或贮藏工作区改动后再变基。');
+  if (st.branch === null) throw new Error('当前为分离 HEAD，无法变基。');
+  const branch = st.branch;
+  // base must be an ancestor of HEAD (exit 0 = yes, 1 = no).
+  const anc = await git(ctx, ['merge-base', '--is-ancestor', args.base, 'HEAD'], {
+    acceptExitCodes: [0, 1],
+  });
+  if (anc.exitCode !== 0) throw new Error('所选基点不是当前分支的祖先提交。');
+  const originalHead = (await git(ctx, ['rev-parse', 'HEAD'])).stdout.trim();
+  const plan = args.items.filter((i) => i.action !== 'drop');
+
+  // Roll back to the untouched branch on ANY failure — the rebase is all-or-nothing
+  // (the original commit stays in the reflog regardless).
+  const restore = async (): Promise<void> => {
+    await git(ctx, ['cherry-pick', '--abort'], { acceptExitCodes: [0, 128] });
+    await git(ctx, ['checkout', '--force', branch], { acceptExitCodes: [0, 1, 128] });
+    await git(ctx, ['reset', '--hard', originalHead], { acceptExitCodes: [0, 1] });
+  };
+
+  try {
+    await git(ctx, ['checkout', '--detach', args.base]);
+    let pickedAny = false;
+    for (const item of plan) {
+      if (item.action === 'fixup' && pickedAny) {
+        // Apply the changes without committing, then meld into the previous commit.
+        const r = await git(ctx, ['cherry-pick', '-n', item.sha], { acceptExitCodes: [0, 1, 128] });
+        if (r.exitCode !== 0) {
+          await restore();
+          return { ok: false, conflicts: true };
+        }
+        await git(ctx, ['commit', '--amend', '--no-edit']);
+      } else {
+        const r = await git(ctx, ['cherry-pick', item.sha], { acceptExitCodes: [0, 1, 128] });
+        if (r.exitCode !== 0) {
+          await restore();
+          return { ok: false, conflicts: true };
+        }
+        pickedAny = true;
+        if (item.action === 'reword' && typeof item.message === 'string' && item.message.trim()) {
+          await git(ctx, ['commit', '--amend', '-F', '-'], { stdin: item.message });
+        }
+      }
+    }
+    // Move the branch to the replayed HEAD and switch back onto it.
+    await git(ctx, ['checkout', '-B', branch]);
+    return { ok: true };
+  } catch (e) {
+    await restore();
+    throw e;
+  }
 };
 
 export const conflictStages: Handler<GitConflictStagesArgs, GitConflictStagesResult> = async (

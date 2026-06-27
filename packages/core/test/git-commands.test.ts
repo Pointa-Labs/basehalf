@@ -272,6 +272,87 @@ describe('git commands (injected fake runner)', () => {
     ]);
   });
 
+  it('git.rebaseInteractive replays picks/fixup/reword onto base, then moves the branch', async () => {
+    const cp: string[][] = [];
+    const { git } = makeFakeGit((args) => {
+      cp.push([...args]);
+      if (args[0] === 'status') return { stdout: '## main\0' }; // clean tree, on main
+      if (args[0] === 'merge-base') return { exitCode: 0 }; // base is an ancestor
+      if (args[0] === 'rev-parse') return { stdout: 'ORIGHEAD\n' };
+      return {}; // checkout / cherry-pick / commit all succeed
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run(
+      'git.rebaseInteractive',
+      {
+        base: 'BASE',
+        items: [
+          { sha: 'c1', action: 'pick' },
+          { sha: 'c2', action: 'drop' },
+          { sha: 'c3', action: 'reword', message: 'new msg' },
+          { sha: 'c4', action: 'fixup' },
+        ],
+      },
+      ROOT,
+    )) as { ok: boolean };
+    expect(r.ok).toBe(true);
+    const seq = cp.map((a) => a.join(' '));
+    expect(seq).toContain('checkout --detach BASE');
+    expect(seq).toContain('cherry-pick c1');
+    expect(seq).not.toContain('cherry-pick c2'); // dropped
+    expect(seq).toContain('cherry-pick c3');
+    expect(seq).toContain('commit --amend -F -'); // reword
+    expect(seq).toContain('cherry-pick -n c4'); // fixup applies without committing
+    expect(seq).toContain('commit --amend --no-edit'); // ...then melds
+    expect(seq).toContain('checkout -B main'); // branch moved onto the replay
+  });
+
+  it('git.rebaseInteractive aborts + restores on a cherry-pick conflict (all-or-nothing)', async () => {
+    const seen: string[][] = [];
+    const { git } = makeFakeGit((args) => {
+      seen.push([...args]);
+      if (args[0] === 'status') return { stdout: '## main\0' };
+      if (args[0] === 'merge-base') return { exitCode: 0 };
+      if (args[0] === 'rev-parse') return { stdout: 'ORIGHEAD\n' };
+      if (args[0] === 'cherry-pick' && args[1] === 'c1') return { exitCode: 1 }; // conflict
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run(
+      'git.rebaseInteractive',
+      { base: 'BASE', items: [{ sha: 'c1', action: 'pick' }] },
+      ROOT,
+    )) as { ok: boolean; conflicts?: boolean };
+    expect(r).toEqual({ ok: false, conflicts: true });
+    const seq = seen.map((a) => a.join(' '));
+    expect(seq).toContain('cherry-pick --abort');
+    expect(seq).toContain('checkout --force main');
+    expect(seq).toContain('reset --hard ORIGHEAD'); // restored to the original commit
+  });
+
+  it('git.rebaseInteractive refuses a TRACKED-dirty tree but allows untracked files', async () => {
+    const dirty = makeFakeGit((args) =>
+      args[0] === 'status' ? { stdout: '## main\0 M f.txt\0' } : {},
+    );
+    const core1 = createCore({ git: dirty.git, configDir: '/cfg' });
+    await expect(
+      core1.run('git.rebaseInteractive', { base: 'BASE', items: [] }, ROOT),
+    ).rejects.toThrow(/提交或贮藏/);
+
+    // Untracked files (?? — e.g. a workspace's own .bh/) must NOT block the rebase.
+    const untracked = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## main\0?? .bh/\0?? CLAUDE.md\0' };
+      if (args[0] === 'merge-base') return { exitCode: 0 };
+      if (args[0] === 'rev-parse') return { stdout: 'H\n' };
+      return {};
+    });
+    const core2 = createCore({ git: untracked.git, configDir: '/cfg' });
+    const r = (await core2.run('git.rebaseInteractive', { base: 'BASE', items: [] }, ROOT)) as {
+      ok: boolean;
+    };
+    expect(r.ok).toBe(true);
+  });
+
   it('git.conflictStages reads index stages 1/2/3 (base/ours/theirs); missing → null', async () => {
     const { git, calls } = makeFakeGit((args) => {
       const spec = args[1]; // `show :N:./f.txt`

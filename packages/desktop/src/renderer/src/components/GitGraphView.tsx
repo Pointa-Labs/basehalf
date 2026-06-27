@@ -15,6 +15,7 @@ import { useLayoutStore } from '../store/layout.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { confirm, prompt } from './Dialog.js';
+import { RebasePlanner } from './RebasePlanner.js';
 import { Menu } from './primitives/Menu.js';
 
 /**
@@ -71,6 +72,8 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const [find, setFind] = useState('');
   const [branches, setBranches] = useState<GitBranchesResult['branches']>([]);
   const [uncommitted, setUncommitted] = useState(0);
+  // The interactive-rebase planner, opened (base = a commit) from the commit menu.
+  const [rebaseBase, setRebaseBase] = useState<string | null>(null);
   const [stashes, setStashes] = useState<GitStashListResult['entries']>([]);
   // Date column format — Git Graph's "Date Format" setting (absolute ↔ relative).
   const [dateMode, setDateMode] = useState<'absolute' | 'relative'>('absolute');
@@ -244,6 +247,12 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
             }).then((ok) => {
               if (ok) runGit(() => window.bh.run('git.reset', { ref: sha, mode: 'hard' }));
             }),
+        },
+        { separator: true },
+        {
+          id: 'rebase',
+          label: '整理此提交之后的历史…（Rebase）',
+          run: () => setRebaseBase(sha),
         },
         { separator: true },
         {
@@ -721,6 +730,16 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
           />
         )}
       </div>
+      {rebaseBase !== null && (
+        <RebasePlanner
+          base={rebaseBase}
+          onClose={() => setRebaseBase(null)}
+          onApplied={() => {
+            void loadPage(0);
+            void useGitStatusStore.getState().refresh();
+          }}
+        />
+      )}
     </div>
   );
 };

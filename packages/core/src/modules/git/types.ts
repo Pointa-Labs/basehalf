@@ -154,6 +154,29 @@ export interface GitRemoteUrlResult {
   readonly url: string | null;
 }
 
+export interface GitRebaseItem {
+  readonly sha: string;
+  /** pick = keep, drop = remove, fixup = meld into the previous kept commit
+   *  (message discarded), reword = keep changes with a new `message`. */
+  readonly action: 'pick' | 'drop' | 'fixup' | 'reword';
+  /** New commit message for a `reword` (ignored otherwise). */
+  readonly message?: string;
+}
+
+export interface GitRebaseInteractiveArgs {
+  /** The commit to rebase ONTO (its descendants up to HEAD get replayed). */
+  readonly base: string;
+  /** The commits base..HEAD in the desired final order (drops omitted-or-marked). */
+  readonly items: readonly GitRebaseItem[];
+}
+
+export interface GitRebaseResult {
+  readonly ok: boolean;
+  /** True when a cherry-pick hit a conflict — the rebase was aborted and the
+   *  branch left exactly as it was (all-or-nothing, never half-applied). */
+  readonly conflicts?: boolean;
+}
+
 export interface GitConflictStagesArgs {
   readonly path: string;
 }
