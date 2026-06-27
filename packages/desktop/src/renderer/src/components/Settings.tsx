@@ -23,6 +23,7 @@ import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react
 import { create } from 'zustand';
 import { color, font, motion, radius, shadow, space } from '../design.js';
 import { Button } from './primitives/Button.js';
+import { GithubAccount } from './settings/GithubAccount.js';
 import { RegistrySettings } from './settings/RegistrySettings.js';
 import { SettingRow, Toggle, sectionLabelStyle } from './settings/primitives.js';
 
@@ -249,6 +250,9 @@ const SettingsCard = (): JSX.Element => {
 
       {/* Registry settings — data-driven from settings.describe(). */}
       <RegistrySettings filter={filter} />
+
+      {/* GitHub account — sign in to view Pull Requests in-app. Respects the search. */}
+      {(q === '' || 'github pull request 账户 登录 token'.includes(q)) && <GithubAccount />}
 
       {aboutRows.length > 0 && <div style={sectionLabelStyle}>About</div>}
       {aboutRows.map((r) => (
