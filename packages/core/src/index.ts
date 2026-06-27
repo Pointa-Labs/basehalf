@@ -16,6 +16,7 @@ import { registerBadgesModule } from './modules/badges/index.js';
 import { registerCanvasModule } from './modules/canvas/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
 import { registerGitModule } from './modules/git/index.js';
+import { registerGithubModule } from './modules/github/index.js';
 import { registerSearchModule } from './modules/search/index.js';
 import { registerSettingsModule } from './modules/settings/index.js';
 import { registerWatcherModule } from './modules/watcher/index.js';
@@ -46,6 +47,7 @@ export function createCore(opts: CoreOptions = {}): Core {
       workspaceRoot,
       run: (n, a, o) => run(n, a, o ?? { workspaceRoot }),
       git: baseCtx.git,
+      http: baseCtx.http,
     };
     return (await handler(args, callCtx)) as never;
   };
@@ -55,6 +57,7 @@ export function createCore(opts: CoreOptions = {}): Core {
     ...(opts.fs !== undefined && { fs: opts.fs }),
     ...(opts.configDir !== undefined && { configDir: opts.configDir }),
     ...(opts.git !== undefined && { git: opts.git }),
+    ...(opts.http !== undefined && { http: opts.http }),
   });
 
   const core: Core = Object.freeze({
@@ -78,6 +81,7 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerSearchModule(core);
   registerSettingsModule(core);
   registerGitModule(core);
+  registerGithubModule(core);
 
   return core;
 }
@@ -115,6 +119,7 @@ export { AdhdCorrupt } from './modules/adhd/types.js';
 export type * from './modules/focus/types.js';
 export { FocusCorrupt } from './modules/focus/types.js';
 export type * from './modules/git/types.js';
+export type * from './modules/github/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';
 export type * from './modules/settings/types.js';

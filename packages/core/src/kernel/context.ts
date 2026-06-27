@@ -20,7 +20,7 @@ import {
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { PathEscape } from './contain.js';
-import type { Context, FsLike, GitRunResult, GitRunner, Run } from './types.js';
+import type { Context, FsLike, GitRunResult, GitRunner, HttpRunner, Run } from './types.js';
 
 /**
  * Build the Context handed to every command handler.
@@ -40,6 +40,7 @@ export function createContext(opts: {
   configDir?: string;
   workspaceRoot?: string | null;
   git?: GitRunner;
+  http?: HttpRunner;
 }): Context {
   return Object.freeze({
     fs: opts.fs ?? defaultFs(),
@@ -47,7 +48,36 @@ export function createContext(opts: {
     workspaceRoot: opts.workspaceRoot ?? null,
     run: opts.run,
     git: opts.git ?? defaultGit(),
+    http: opts.http ?? defaultHttp(),
   });
+}
+
+/**
+ * The default HTTP runner — global fetch with a timeout. Wired by the host into
+ * Context; the remote-provider modules call it via `ctx.http`. Kept dependency-
+ * free (no axios/node-fetch) so core stays light; tests inject a fake instead.
+ */
+export function defaultHttp(): HttpRunner {
+  return async (req) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), req.timeoutMs ?? 20_000);
+    try {
+      const res = await fetch(req.url, {
+        method: req.method,
+        ...(req.headers !== undefined && { headers: { ...req.headers } }),
+        ...(req.body !== undefined && { body: req.body }),
+        signal: controller.signal,
+      });
+      const body = await res.text();
+      const headers: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      return { status: res.status, headers, body };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 }
 
 /**

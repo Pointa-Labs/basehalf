@@ -5,6 +5,7 @@ export {
   defaultConfigDir,
   defaultFs,
   defaultGit,
+  defaultHttp,
   requireWorkspaceRoot,
 } from './context.js';
 export { assertWorkspaceRelative } from './paths.js';
@@ -42,6 +43,9 @@ export type {
   GitRunner,
   GitRunOptions,
   GitRunResult,
+  HttpRunner,
+  HttpRequest,
+  HttpResponse,
   Handler,
   CoreOptions,
   Core,

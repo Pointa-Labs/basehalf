@@ -203,6 +203,28 @@ export interface GitRunResult {
  */
 export type GitRunner = (args: readonly string[], opts: GitRunOptions) => Promise<GitRunResult>;
 
+export interface HttpRequest {
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+  readonly url: string;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
+  /** Abort + reject after this many ms (default 20s). */
+  readonly timeoutMs?: number;
+}
+
+export interface HttpResponse {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: string;
+}
+
+/**
+ * An HTTP client, injected on Context the same way `git`/`fs` are — so the
+ * remote-provider modules (github …) stay testable (tests pass a fake runner)
+ * and core never hard-depends on global `fetch`. The host wires `defaultHttp()`.
+ */
+export type HttpRunner = (req: HttpRequest) => Promise<HttpResponse>;
+
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
@@ -210,6 +232,8 @@ export interface Context {
   readonly run: Run;
   /** The system-git runner (see GitRunner) — used by the git module. */
   readonly git: GitRunner;
+  /** HTTP client — used by remote-provider modules (github …). */
+  readonly http: HttpRunner;
 }
 
 /**
@@ -230,6 +254,8 @@ export interface CoreOptions {
   readonly configDir?: string;
   /** Inject a different git runner (fake for tests). Defaults to spawning system git. */
   readonly git?: GitRunner;
+  /** Inject a different HTTP runner (fake for tests). Defaults to global fetch. */
+  readonly http?: HttpRunner;
 }
 
 /**
