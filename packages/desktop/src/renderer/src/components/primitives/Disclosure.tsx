@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from 'react';
 import { color, font, space, transition } from '../../design.js';
+import { CountBadge } from './CountBadge.js';
 
 /**
  * Disclosure — a collapsible section with a VS Code-style header: a ▸/▾ chevron,
@@ -72,9 +73,7 @@ export const Disclosure = ({
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}
         </span>
-        {count !== undefined && count > 0 && (
-          <span style={{ color: color.textGhost, fontWeight: font.weight.regular }}>{count}</span>
-        )}
+        {count !== undefined && count > 0 && <CountBadge count={count} />}
       </button>
       {open && actions !== undefined && (
         <span style={{ display: 'flex', alignItems: 'center', gap: space[1] }}>{actions}</span>

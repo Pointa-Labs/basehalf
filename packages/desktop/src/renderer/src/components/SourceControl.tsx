@@ -24,6 +24,7 @@ import { BranchSelector } from './BranchSelector.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { GitGraph } from './GitGraph.js';
 import { Button } from './primitives/Button.js';
+import { CountBadge } from './primitives/CountBadge.js';
 import { Disclosure } from './primitives/Disclosure.js';
 import { Menu, type MenuAction } from './primitives/Menu.js';
 
@@ -215,6 +216,19 @@ export const SourceControl = (): JSX.Element => {
     const name = window.prompt('新分支名')?.trim();
     if (name) void act(() => window.bh.run('git.createBranch', { name }));
   };
+  // GRAPH header "Go to Current History Item" (VS Code) — reveal HEAD in the graph.
+  const revealHead = (): void =>
+    void (async () => {
+      try {
+        const r = (await window.bh.run('git.log', { maxCount: 1 })) as {
+          commits: { hash: string }[];
+        };
+        const h = r.commits[0]?.hash;
+        if (h !== undefined) useScmViewStore.getState().revealCommit(h);
+      } catch {
+        /* no HEAD yet */
+      }
+    })();
   const onSync = (): void =>
     void act(async () => {
       await window.bh.run('git.pull', {});
@@ -299,7 +313,51 @@ export const SourceControl = (): JSX.Element => {
           />
         </Disclosure>
 
-        <Disclosure title="图谱" open={graphOpen} onToggle={() => setGraphOpen(!graphOpen)}>
+        <Disclosure
+          title="图谱"
+          open={graphOpen}
+          onToggle={() => setGraphOpen(!graphOpen)}
+          actions={
+            <>
+              {/* VS Code's history-view header: ref filter + Go-to-current + the
+                  provider's fetch/pull/push/sync. */}
+              <span
+                title="分支筛选"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  padding: `0 ${space[1]}px`,
+                  color: color.textTertiary,
+                  fontSize: font.size.micro,
+                }}
+              >
+                <BranchMiniGlyph />
+                Auto
+              </span>
+              <IconBtn title="定位到当前提交" onClick={revealHead} disabled={busy} glyph="◎" />
+              <IconBtn
+                title="获取（Fetch）"
+                onClick={() => runAction('git.fetch')}
+                disabled={busy}
+                glyph="↧"
+              />
+              <IconBtn
+                title="拉取（Pull）"
+                onClick={() => runAction('git.pull')}
+                disabled={busy}
+                glyph="↓"
+              />
+              <IconBtn
+                title="推送（Push）"
+                onClick={() => runAction('git.push')}
+                disabled={busy}
+                glyph="↑"
+              />
+              <IconBtn title="同步（Sync）" onClick={onSync} disabled={busy} glyph="↻" />
+            </>
+          }
+        >
           {graphOpen && <GitGraph />}
         </Disclosure>
       </div>
@@ -344,32 +402,66 @@ const ChangesView = ({
   <>
     {/* Commit message + button. */}
     <div style={{ padding: `${space[2]}px ${space[3]}px`, flexShrink: 0 }}>
-      <textarea
-        value={message}
-        aria-label="Commit message"
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            commit();
-          }
-        }}
-        placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
-        rows={2}
-        style={{
-          width: '100%',
-          resize: 'vertical',
-          boxSizing: 'border-box',
-          background: color.bg,
-          border: `1px solid ${color.border}`,
-          borderRadius: radius.md,
-          color: color.textPrimary,
-          fontFamily: font.sans,
-          fontSize: font.size.caption,
-          padding: `${space[2]}px ${space[3]}px`,
-          outline: 'none',
-        }}
-      />
+      {/* The input + its action bar (VS Code's .scm-editor-toolbar, top-right). */}
+      <div style={{ position: 'relative' }}>
+        <textarea
+          value={message}
+          aria-label="Commit message"
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          placeholder={hasStaged ? `Message (${COMMIT_KEY} to commit)` : 'Stage changes to commit'}
+          rows={2}
+          style={{
+            width: '100%',
+            resize: 'vertical',
+            boxSizing: 'border-box',
+            background: color.bg,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.md,
+            color: color.textPrimary,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            padding: `${space[2]}px ${space[3]}px`,
+            paddingRight: 28,
+            outline: 'none',
+          }}
+        />
+        <button
+          type="button"
+          title="生成提交信息（AI）"
+          aria-label="生成提交信息"
+          onClick={() => toast.info('AI 生成提交信息尚未接入。')}
+          style={{
+            position: 'absolute',
+            top: space[1],
+            right: space[1],
+            width: 22,
+            height: 22,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'none',
+            border: 'none',
+            borderRadius: radius.sm,
+            color: color.textTertiary,
+            cursor: 'pointer',
+            fontSize: font.size.body,
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = color.accent;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = color.textTertiary;
+          }}
+        >
+          ✦
+        </button>
+      </div>
       <div style={{ display: 'flex', marginTop: space[2] }}>
         <button
           type="button"
@@ -588,7 +680,7 @@ const Group = ({
         }}
       >
         <span>{title}</span>
-        <span style={{ color: color.textGhost }}>{rows.length}</span>
+        <CountBadge count={rows.length} />
         {groupAction && (
           <span style={{ marginLeft: 'auto' }}>
             <IconBtn
@@ -686,9 +778,33 @@ const Row = ({
             size={14}
           />
         </span>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <span
+          style={{
+            flexShrink: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {name}
         </span>
+        {/* VS Code's resource `.description`: the dimmed parent directory, after
+            the name, so two files with the same basename are distinguishable. */}
+        {dir !== '' && (
+          <span
+            style={{
+              marginLeft: space[2],
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              color: color.textGhost,
+              fontSize: font.size.micro,
+            }}
+          >
+            {dir}
+          </span>
+        )}
       </button>
       {/* Inline actions stay in the DOM (so they're keyboard-reachable); only their
           visibility + tab-stops toggle with hover/focus. */}
@@ -781,6 +897,24 @@ const IconBtn = ({
   >
     {glyph}
   </button>
+);
+
+const BranchMiniGlyph = (): JSX.Element => (
+  <svg
+    width={11}
+    height={11}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.4}
+    aria-hidden
+    style={{ flexShrink: 0 }}
+  >
+    <circle cx={4} cy={3.5} r={1.8} />
+    <circle cx={4} cy={12.5} r={1.8} />
+    <circle cx={12} cy={3.5} r={1.8} />
+    <path d="M4 5.3v5.4M12 5.3c0 3-2.5 3.2-5 3.7" strokeLinecap="round" />
+  </svg>
 );
 
 const Centered = ({ children }: { children: ReactNode }): JSX.Element => (
