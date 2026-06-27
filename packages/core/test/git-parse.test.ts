@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isConflict,
+  parseBlame,
   parseBranchHeader,
   parseLog,
   parseNameStatus,
@@ -215,6 +216,66 @@ describe('parseNameStatus (diff-tree --name-status -r -z)', () => {
 
   it('empty → no files', () => {
     expect(parseNameStatus('')).toEqual([]);
+  });
+});
+
+describe('parseBlame (--line-porcelain)', () => {
+  // Two lines from one commit, then an uncommitted line (all-zero sha).
+  const SHA = '1111111111111111111111111111111111111111';
+  const ZERO = '0000000000000000000000000000000000000000';
+  const block = (
+    sha: string,
+    finalLine: number,
+    author: string,
+    time: number,
+    summary: string,
+    text: string,
+  ) =>
+    [
+      `${sha} ${finalLine} ${finalLine} 1`,
+      `author ${author}`,
+      'author-mail <a@x.dev>',
+      `author-time ${time}`,
+      'author-tz +0000',
+      `committer ${author}`,
+      'committer-mail <a@x.dev>',
+      `committer-time ${time}`,
+      'committer-tz +0000',
+      `summary ${summary}`,
+      'filename code.txt',
+      `\t${text}`,
+    ].join('\n');
+
+  it('parses sha, author, author-time, summary, and 1-based line per line', () => {
+    const raw = `${block(SHA, 1, 'Ada', 1700000000, 'first work', 'alpha')}\n${block(
+      SHA,
+      2,
+      'Ada',
+      1700000000,
+      'first work',
+      'beta',
+    )}\n`;
+    expect(parseBlame(raw)).toEqual([
+      { line: 1, sha: SHA, author: 'Ada', authorTime: 1700000000, summary: 'first work' },
+      { line: 2, sha: SHA, author: 'Ada', authorTime: 1700000000, summary: 'first work' },
+    ]);
+  });
+
+  it('keeps an uncommitted line (all-zero sha, "Not Committed Yet")', () => {
+    const raw = `${block(ZERO, 3, 'Not Committed Yet', 1700000100, 'Version of code.txt', 'gamma')}\n`;
+    expect(parseBlame(raw)).toEqual([
+      {
+        line: 3,
+        sha: ZERO,
+        author: 'Not Committed Yet',
+        authorTime: 1700000100,
+        summary: 'Version of code.txt',
+      },
+    ]);
+  });
+
+  it('empty output → no lines', () => {
+    expect(parseBlame('')).toEqual([]);
   });
 });
 

@@ -191,6 +191,47 @@ describe('git commands (injected fake runner)', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('git.blame runs --line-porcelain and parses lines; rejects an unsafe ref', async () => {
+    const SHA = '2222222222222222222222222222222222222222';
+    const porcelain = [
+      `${SHA} 1 1 1`,
+      'author Bo',
+      'author-time 1700001234',
+      'summary tweak',
+      'filename f.txt',
+      '\thello',
+      '',
+    ].join('\n');
+    const { git, calls } = makeFakeGit(() => ({ stdout: porcelain }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.blame', { path: 'f.txt' }, ROOT)) as {
+      lines: Array<{
+        line: number;
+        sha: string;
+        author: string;
+        authorTime: number;
+        summary: string;
+      }>;
+    };
+    expect(calls[0]?.args).toEqual(['blame', '--line-porcelain', '--', 'f.txt']);
+    expect(r.lines).toEqual([
+      { line: 1, sha: SHA, author: 'Bo', authorTime: 1700001234, summary: 'tweak' },
+    ]);
+    // A ref is passed through; an unsafe ref is rejected before spawning git.
+    await core.run('git.blame', { path: 'f.txt', ref: 'HEAD~2' }, ROOT);
+    expect(calls[1]?.args).toEqual(['blame', '--line-porcelain', 'HEAD~2', '--', 'f.txt']);
+    await expect(core.run('git.blame', { path: 'f.txt', ref: '--output=x' }, ROOT)).rejects.toThrow(
+      /unsafe ref/,
+    );
+  });
+
+  it('git.blame returns no lines on exit 128 (untracked / no history)', async () => {
+    const { git } = makeFakeGit(() => ({ exitCode: 128, stderr: 'no such path' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.blame', { path: 'new.txt' }, ROOT)) as { lines: unknown[] };
+    expect(r.lines).toEqual([]);
+  });
+
   it('git.stashList parses ref + hash + base parent + date + author + subject', async () => {
     const { git } = makeFakeGit(() => ({
       stdout:

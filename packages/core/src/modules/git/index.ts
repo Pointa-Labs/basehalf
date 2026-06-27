@@ -38,6 +38,7 @@ export function registerGitModule(core: Core): void {
   core.register('git.cherryPick', git.cherryPick);
   core.register('git.reset', git.reset);
   core.register('git.diff', git.diff);
+  core.register('git.blame', git.blame);
   core.register('git.diffRef', git.diffRef);
   core.register('git.commitFiles', git.commitFiles);
   core.register('git.show', git.show);

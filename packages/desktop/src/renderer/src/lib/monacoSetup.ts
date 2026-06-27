@@ -85,6 +85,19 @@ export function ensureGitGutterStyles(): void {
   gutterStylesInjected = true;
 }
 
+let blameStylesInjected = false;
+/** Inject (once) the CSS for the inline blame annotation — a dimmed, italic note
+ *  appended to the current line (VS Code core's "Git Blame" decoration). */
+export function ensureBlameStyles(): void {
+  if (blameStylesInjected) return;
+  const style = document.createElement('style');
+  style.textContent = `
+.bh-blame-inline { color: ${color.textGhost}; font-style: italic; opacity: 0.85; }
+`;
+  document.head.appendChild(style);
+  blameStylesInjected = true;
+}
+
 /** Monaco language id for a path, from Monaco's own extension / filename registry
  *  (so `Dockerfile`, `.ts`, `.tf`… resolve the way VS Code resolves them).
  *  Unknown → 'plaintext'. */

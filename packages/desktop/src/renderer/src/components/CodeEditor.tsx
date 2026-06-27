@@ -1,4 +1,4 @@
-import type { GitShowResult, WorkspaceReadFileResult } from '@basehalf/core';
+import type { GitBlameResult, GitShowResult, WorkspaceReadFileResult } from '@basehalf/core';
 import * as monaco from 'monaco-editor';
 import { type JSX, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, radius, shadow, space } from '../design.js';
@@ -11,7 +11,13 @@ import {
   findConflicts,
   resolveConflict,
 } from '../lib/mergeConflict.js';
-import { ensureBhTheme, ensureGitGutterStyles, languageOf } from '../lib/monacoSetup.js';
+import {
+  ensureBhTheme,
+  ensureBlameStyles,
+  ensureGitGutterStyles,
+  languageOf,
+} from '../lib/monacoSetup.js';
+import { relativeTime } from '../lib/relativeTime.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { Button } from './primitives/Button.js';
 
@@ -57,6 +63,10 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
   const [binary, setBinary] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<Prompt | null>(null);
+  // Inline git-blame on the current line (VS Code core's "Git Blame"). Off by
+  // default; `editorReady` gates the blame effect on the async editor creation.
+  const [blameOn, setBlameOn] = useState(false);
+  const [editorReady, setEditorReady] = useState(false);
   // Resolver for the flush() promise the store awaits before switching/closing —
   // parked while the unsaved prompt is up, settled when the user picks.
   const flushResolveRef = useRef<((proceed: boolean) => void) | null>(null);
@@ -218,6 +228,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       });
       editorRef.current = editor;
       setLoading(false);
+      setEditorReady(true);
 
       // ── git gutter change-bars (the buffer vs the HEAD baseline) ───────────
       ensureGitGutterStyles();
@@ -383,10 +394,74 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       unsubGit();
       editorRef.current?.dispose();
       editorRef.current = null;
+      setEditorReady(false);
     };
     // Run once per mount: `file` is fixed for this mount (keyed remount), and the
     // callbacks read refs so the captured versions stay correct.
   }, [file, doSave, pushViewport]);
+
+  // ── inline git-blame on the current line ───────────────────────────────────
+  // When on, fetch this file's blame once and append a dimmed "author, when ·
+  // summary" note to whichever line the cursor is on (re-drawn on cursor move).
+  // Re-runs on save (status sig change) so working-tree edits re-blame.
+  const fileSig = useGitStatusStore((s) => {
+    const f = s.byPath.get(file);
+    return f ? `${f.x}${f.y}` : '';
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fileSig re-triggers a re-blame after this file's status changes (save/stage); it's a trigger, not read in the body.
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed || !blameOn || !editorReady) return;
+    ensureBlameStyles();
+    let disposed = false;
+    let decoIds: string[] = [];
+    let lines: GitBlameResult['lines'] = [];
+    const clear = (): void => {
+      decoIds = ed.deltaDecorations(decoIds, []);
+    };
+    const draw = (): void => {
+      const model = ed.getModel();
+      const pos = ed.getPosition();
+      if (!model || !pos) {
+        clear();
+        return;
+      }
+      const bl = lines[pos.lineNumber - 1];
+      if (!bl) {
+        clear();
+        return;
+      }
+      const note = bl.sha.startsWith('00000000')
+        ? 'You · Uncommitted'
+        : `${bl.author}, ${relativeTime(bl.authorTime, Date.now())} · ${bl.summary}`;
+      const col = model.getLineMaxColumn(pos.lineNumber);
+      decoIds = ed.deltaDecorations(decoIds, [
+        {
+          range: new monaco.Range(pos.lineNumber, col, pos.lineNumber, col),
+          options: {
+            after: { content: `    ${note}`, inlineClassName: 'bh-blame-inline' },
+            showIfCollapsed: true,
+          },
+        },
+      ]);
+    };
+    const sub = ed.onDidChangeCursorPosition(() => draw());
+    void (async () => {
+      try {
+        const r = (await window.bh.run('git.blame', { path: file })) as GitBlameResult;
+        if (disposed) return;
+        lines = r.lines;
+        draw();
+      } catch {
+        /* not a repo / untracked → no blame */
+      }
+    })();
+    return () => {
+      disposed = true;
+      sub.dispose();
+      clear();
+    };
+  }, [blameOn, file, editorReady, fileSig]);
 
   // ── unsaved-prompt button actions ──────────────────────────────────────────
   // Settle the parked flush() promise the store is awaiting (null when ⌘S, not a
@@ -414,7 +489,12 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
 
   return (
     <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <StatusBar dirty={dirty} language={languageOf(file)} />
+      <StatusBar
+        dirty={dirty}
+        language={languageOf(file)}
+        blameOn={blameOn}
+        onToggleBlame={() => setBlameOn((v) => !v)}
+      />
       {error !== null && (
         <div
           style={{
@@ -457,7 +537,17 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
 /** Slim top bar: the unsaved dot + a ⌘S hint, plus the language on the right
  *  (the status-bar cue VS Code shows). Always rendered so toggling dirty doesn't
  *  shift the editor. */
-const StatusBar = ({ dirty, language }: { dirty: boolean; language: string }): JSX.Element => (
+const StatusBar = ({
+  dirty,
+  language,
+  blameOn,
+  onToggleBlame,
+}: {
+  dirty: boolean;
+  language: string;
+  blameOn: boolean;
+  onToggleBlame: () => void;
+}): JSX.Element => (
   <div
     style={{
       display: 'flex',
@@ -482,9 +572,27 @@ const StatusBar = ({ dirty, language }: { dirty: boolean; language: string }): J
       }}
     />
     {dirty ? 'Unsaved · ⌘S to save' : 'Saved'}
-    <span style={{ marginLeft: 'auto', fontFamily: font.mono, color: color.textGhost }}>
-      {language}
-    </span>
+    <button
+      type="button"
+      title={blameOn ? '关闭行内 Blame' : '显示行内 Blame（当前行的最后改动）'}
+      aria-pressed={blameOn}
+      onClick={onToggleBlame}
+      style={{
+        marginLeft: 'auto',
+        padding: `0 ${space[2]}px`,
+        height: 18,
+        border: `1px solid ${blameOn ? color.accent : color.border}`,
+        borderRadius: radius.sm,
+        background: blameOn ? `${color.accent}1f` : 'transparent',
+        color: blameOn ? color.accent : color.textTertiary,
+        fontFamily: font.sans,
+        fontSize: font.size.micro,
+        cursor: 'pointer',
+      }}
+    >
+      Blame
+    </button>
+    <span style={{ fontFamily: font.mono, color: color.textGhost }}>{language}</span>
   </div>
 );
 

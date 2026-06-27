@@ -5,9 +5,11 @@ import {
   assertWorkspaceRelative,
   requireWorkspaceRoot,
 } from '../../kernel/index.js';
-import { parseLog, parseNameStatus, parseStashList, parseStatus } from './parse.js';
+import { parseBlame, parseLog, parseNameStatus, parseStashList, parseStatus } from './parse.js';
 import type {
   GitApplyArgs,
+  GitBlameArgs,
+  GitBlameResult,
   GitBranchInfo,
   GitBranchesArgs,
   GitBranchesResult,
@@ -394,6 +396,19 @@ export const diff: Handler<GitDiffArgs, GitDiffResult> = async (args, ctx) => {
   const cmd =
     args.staged === true ? ['diff', '--cached', '--', args.path] : ['diff', '--', args.path];
   return { diff: (await git(ctx, cmd)).stdout };
+};
+
+export const blame: Handler<GitBlameArgs, GitBlameResult> = async (args, ctx) => {
+  assertWorkspaceRelative(args.path);
+  const atRef = args.ref !== undefined && args.ref !== '';
+  if (atRef) assertSafeRef(args.ref as string, 'git.blame');
+  // --line-porcelain → a full header per line (simplest to parse). Exit 128 =
+  // untracked / no history yet → no blame.
+  const cmd = ['blame', '--line-porcelain'];
+  if (atRef) cmd.push(args.ref as string);
+  cmd.push('--', args.path);
+  const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
+  return { lines: res.exitCode === 128 ? [] : parseBlame(res.stdout) };
 };
 
 export const show: Handler<GitShowArgs, GitShowResult> = async (args, ctx) => {

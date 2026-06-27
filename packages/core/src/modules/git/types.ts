@@ -180,6 +180,28 @@ export interface GitDiffArgs {
   readonly staged?: boolean;
 }
 
+export interface GitBlameArgs {
+  readonly path: string;
+  /** Blame at a ref (default: working tree). Empty/omitted = working tree. */
+  readonly ref?: string;
+}
+
+/** One line's last-touching commit (from `git blame --line-porcelain`). An
+ *  uncommitted line has an all-zero `sha` and author "Not Committed Yet". */
+export interface GitBlameLine {
+  /** 1-based final line number in the blamed file. */
+  readonly line: number;
+  readonly sha: string;
+  readonly author: string;
+  /** Author time in epoch SECONDS (UI formats it). */
+  readonly authorTime: number;
+  readonly summary: string;
+}
+
+export interface GitBlameResult {
+  readonly lines: readonly GitBlameLine[];
+}
+
 export interface GitDiffResult {
   readonly diff: string;
 }

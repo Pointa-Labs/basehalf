@@ -2,7 +2,13 @@
 // they're unit-testable without a real git (the trickiest, most regression-prone
 // part of the module). Grounded in the actual bytes of
 // `git status --porcelain=v1 -z --branch` (see git-parse.test.ts).
-import type { GitCommit, GitCommitFile, GitFileStatus, GitStashEntry } from './types.js';
+import type {
+  GitBlameLine,
+  GitCommit,
+  GitCommitFile,
+  GitFileStatus,
+  GitStashEntry,
+} from './types.js';
 
 export interface ParsedBranchHeader {
   readonly branch: string | null;
@@ -135,6 +141,48 @@ export function parseStashList(raw: string): GitStashEntry[] {
     });
   }
   return entries;
+}
+
+/**
+ * Parse `git blame --line-porcelain` into one entry per line. Each line emits a
+ * full header block (`<sha> <origLine> <finalLine> [<n>]`, then `author …`,
+ * `author-time …`, `summary …`, …) terminated by the content line (`\t<text>`).
+ * --line-porcelain repeats the header for every line, so we never need to carry a
+ * commit cache across lines.
+ */
+export function parseBlame(raw: string): GitBlameLine[] {
+  const out: GitBlameLine[] = [];
+  let cur: {
+    sha: string;
+    line: number;
+    author: string;
+    authorTime: number;
+    summary: string;
+  } | null = null;
+  for (const ln of raw.split('\n')) {
+    const header = /^([0-9a-f]{40}) \d+ (\d+)(?: \d+)?$/.exec(ln);
+    if (header) {
+      cur = {
+        sha: header[1] ?? '',
+        line: Number(header[2] ?? '0'),
+        author: '',
+        authorTime: 0,
+        summary: '',
+      };
+      continue;
+    }
+    if (cur === null) continue;
+    if (ln.startsWith('author ')) cur.author = ln.slice('author '.length);
+    else if (ln.startsWith('author-time '))
+      cur.authorTime = Number(ln.slice('author-time '.length));
+    else if (ln.startsWith('summary ')) cur.summary = ln.slice('summary '.length);
+    else if (ln.startsWith('\t')) {
+      // The content line closes the block.
+      out.push({ ...cur });
+      cur = null;
+    }
+  }
+  return out;
 }
 
 /** True for a porcelain XY pair that marks an unmerged (conflict) entry. */
