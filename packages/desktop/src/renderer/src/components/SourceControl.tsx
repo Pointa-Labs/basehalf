@@ -97,9 +97,7 @@ export const SourceControl = (): JSX.Element => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const changesOpen = useScmViewStore((s) => s.changesOpen);
   const graphOpen = useScmViewStore((s) => s.graphOpen);
-  const setChangesOpen = useScmViewStore((s) => s.setChangesOpen);
   const setGraphOpen = useScmViewStore((s) => s.setGraphOpen);
   const [stashes, setStashes] = useState<readonly GitStashEntry[]>([]);
   const [stashesOpen, setStashesOpen] = useState(true);
@@ -350,31 +348,27 @@ export const SourceControl = (): JSX.Element => {
       />
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} onKeyDown={handleTreeKeyDown}>
-        <Disclosure
-          title="更改"
+        {/* Commit box (always visible, VS Code-style) + the resource groups — the
+            groups carry the "更改/暂存的更改/合并的更改" headers, so there's no
+            extra wrapping "更改" disclosure on top of them. */}
+        <ChangesView
+          message={message}
+          setMessage={setMessage}
+          canCommit={canCommit}
+          hasStaged={hasStaged}
+          commitBranch={status.detached ? 'detached' : (status.branch ?? '')}
+          stagedCount={groups.staged.length}
+          amend={amend}
+          onToggleAmend={toggleAmend}
+          commit={commit}
           count={count}
-          open={changesOpen}
-          onToggle={() => setChangesOpen(!changesOpen)}
-        >
-          <ChangesView
-            message={message}
-            setMessage={setMessage}
-            canCommit={canCommit}
-            hasStaged={hasStaged}
-            commitBranch={status.detached ? 'detached' : (status.branch ?? '')}
-            stagedCount={groups.staged.length}
-            amend={amend}
-            onToggleAmend={toggleAmend}
-            commit={commit}
-            count={count}
-            groups={groups}
-            busy={busy}
-            openRow={openRow}
-            stage={stage}
-            unstage={unstage}
-            discard={discard}
-          />
-        </Disclosure>
+          groups={groups}
+          busy={busy}
+          openRow={openRow}
+          stage={stage}
+          unstage={unstage}
+          discard={discard}
+        />
 
         {stashes.length > 0 && (
           <Disclosure
@@ -513,8 +507,8 @@ const ChangesView = ({
           }}
           placeholder={
             commitBranch !== ''
-              ? `Message (${COMMIT_KEY} to commit on “${commitBranch}”)`
-              : `Message (${COMMIT_KEY} to commit)`
+              ? `提交信息（${COMMIT_KEY} 提交到 “${commitBranch}”）`
+              : `提交信息（${COMMIT_KEY} 提交）`
           }
           rows={2}
           style={{
@@ -582,7 +576,7 @@ const ChangesView = ({
             cursor: canCommit ? 'pointer' : 'default',
           }}
         >
-          {amend ? '✎ 修订上次提交' : `✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
+          {amend ? '✎ 修订上次提交' : `✓ 提交${hasStaged ? `（${stagedCount}）` : ''}`}
         </button>
         <div
           style={{
@@ -598,8 +592,8 @@ const ChangesView = ({
             disabled={!canCommit}
             label={<span style={{ color: canCommit ? color.onAccent : color.textGhost }}>▾</span>}
             actions={[
-              { label: 'Commit & Push（提交并推送）', onClick: () => commit('push') },
-              { label: 'Commit & Sync（提交并同步）', onClick: () => commit('sync') },
+              { label: '提交并推送', onClick: () => commit('push') },
+              { label: '提交并同步', onClick: () => commit('sync') },
             ]}
           />
         </div>
@@ -621,7 +615,7 @@ const ChangesView = ({
           textAlign: 'center',
         }}
       >
-        {amend ? '☑' : '☐'} 修订上次提交（amend）
+        {amend ? '☑' : '☐'} 修订上次提交
       </button>
     </div>
 
@@ -629,47 +623,47 @@ const ChangesView = ({
     <div>
       {count === 0 ? (
         <div style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}>
-          No changes — working tree clean.
+          没有更改 —— 工作区是干净的。
         </div>
       ) : (
         <>
           <Group
-            title="Merge Changes"
+            title="合并的更改"
             rows={groups.merge}
             show={groups.merge.length > 0}
             busy={busy}
             onRow={openRow}
-            actions={(r) => [{ label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) }]}
+            actions={(r) => [{ label: '暂存', glyph: '+', onClick: () => void stage([r.path]) }]}
           />
           <Group
-            title="Staged Changes"
+            title="暂存的更改"
             rows={groups.staged}
             show={hasStaged}
             busy={busy}
             groupAction={{
-              label: 'Unstage all',
+              label: '全部取消暂存',
               glyph: '−',
               onClick: () => void unstage(groups.staged.map((r) => r.path)),
             }}
             onRow={openRow}
             actions={(r) => [
-              { label: 'Unstage', glyph: '−', onClick: () => void unstage([r.path]) },
+              { label: '取消暂存', glyph: '−', onClick: () => void unstage([r.path]) },
             ]}
           />
           <Group
-            title="Changes"
+            title="更改"
             rows={groups.changes}
             show={groups.changes.length > 0}
             busy={busy}
             groupAction={{
-              label: 'Stage all',
+              label: '全部暂存',
               glyph: '+',
               onClick: () => void stage(groups.changes.map((r) => r.path)),
             }}
             onRow={openRow}
             actions={(r) => [
-              { label: 'Discard', glyph: '↩', onClick: () => discard(r), danger: true },
-              { label: 'Stage', glyph: '+', onClick: () => void stage([r.path]) },
+              { label: '放弃', glyph: '↩', onClick: () => discard(r), danger: true },
+              { label: '暂存', glyph: '+', onClick: () => void stage([r.path]) },
             ]}
           />
         </>
@@ -774,8 +768,6 @@ const Group = ({
           padding: `${space[1]}px ${space[3]}px`,
           fontSize: font.size.micro,
           fontWeight: font.weight.semibold,
-          letterSpacing: font.trackedCaps,
-          textTransform: 'uppercase',
           color: color.textTertiary,
           userSelect: 'none',
         }}
