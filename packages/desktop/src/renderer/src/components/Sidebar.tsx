@@ -4,6 +4,7 @@ import { useGitStatusStore } from '../store/gitStatus.js';
 import { SIDEBAR_SNAP_WIDTH, type SidebarView, useLayoutStore } from '../store/layout.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { NavTree } from './NavTree.js';
+import { SearchPanel } from './SearchPanel.js';
 import { SourceControl } from './SourceControl.js';
 
 export const Sidebar = (): JSX.Element | null => {
@@ -49,6 +50,10 @@ export const Sidebar = (): JSX.Element | null => {
       {sidebarView === 'scm' && currentWs ? (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <SourceControl key={currentWs.path} />
+        </div>
+      ) : sidebarView === 'search' && currentWs ? (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <SearchPanel key={currentWs.path} />
         </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -105,6 +110,9 @@ const ActivityBar = ({
     >
       <ActivityIcon active={view === 'files'} title="Files" onClick={() => onSelect('files')}>
         <FilesGlyph />
+      </ActivityIcon>
+      <ActivityIcon active={view === 'search'} title="Search" onClick={() => onSelect('search')}>
+        <SearchGlyph />
       </ActivityIcon>
       <ActivityIcon
         active={view === 'scm'}
@@ -196,6 +204,21 @@ const FilesGlyph = (): JSX.Element => (
       d="M2.5 3a1 1 0 0 1 1-1H7l1.5 1.6H12.5a1 1 0 0 1 1 1V13a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V3z"
       strokeLinejoin="round"
     />
+  </svg>
+);
+
+const SearchGlyph = (): JSX.Element => (
+  <svg
+    width={16}
+    height={16}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.3}
+    aria-hidden
+  >
+    <circle cx={7} cy={7} r={4.2} />
+    <path d="M10.2 10.2L14 14" strokeLinecap="round" />
   </svg>
 );
 

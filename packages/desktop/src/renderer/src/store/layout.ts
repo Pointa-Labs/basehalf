@@ -6,9 +6,9 @@ import { create } from 'zustand';
 const OPEN_KEY = 'bh:sidebar-open';
 const WIDTH_KEY = 'bh:sidebar-width';
 const VIEW_KEY = 'bh:sidebar-view';
-/** Which view the left sidebar shows — the file tree or Source Control (git),
- *  switched from the activity-bar icon strip at the sidebar's top. */
-export type SidebarView = 'files' | 'scm';
+/** Which view the left sidebar shows — the file tree, Source Control (git), or
+ *  full-text Search — switched from the activity-bar icon strip at the top. */
+export type SidebarView = 'files' | 'scm' | 'search';
 export const SIDEBAR_DEFAULT_WIDTH = 260;
 export const SIDEBAR_MIN_WIDTH = 170; // resize floor
 export const SIDEBAR_MAX_WIDTH = 640;
