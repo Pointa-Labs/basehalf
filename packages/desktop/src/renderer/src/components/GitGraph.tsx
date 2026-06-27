@@ -40,6 +40,9 @@ export const GitGraph = (): JSX.Element => {
   const focusCommit = useScmViewStore((s) => s.focusCommit);
   const consumeFocus = useScmViewStore((s) => s.consumeFocus);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Local-branch names, so a slash-named local branch (feature/x) is styled as a
+  // branch, not mistaken for a remote-tracking ref by a naive "/" test.
+  const [localBranches, setLocalBranches] = useState<ReadonlySet<string>>(new Set());
 
   const loadPage = useCallback(async (skip: number): Promise<void> => {
     setLoading(true);
@@ -62,6 +65,19 @@ export const GitGraph = (): JSX.Element => {
   useEffect(() => {
     void loadPage(0);
   }, [loadPage]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const b = (await window.bh.run('git.branches', {})) as {
+          branches: { name: string; remote?: boolean }[];
+        };
+        setLocalBranches(new Set(b.branches.filter((x) => !x.remote).map((x) => x.name)));
+      } catch {
+        /* ignore — pill tone falls back to remote */
+      }
+    })();
+  }, []);
 
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const gutterW = PAD * 2 + Math.max(1, width) * COL;
@@ -92,6 +108,7 @@ export const GitGraph = (): JSX.Element => {
           gutterW={gutterW}
           expanded={selected === row.commit.hash}
           onToggle={() => setSelected((s) => (s === row.commit.hash ? null : row.commit.hash))}
+          localBranches={localBranches}
         />
       ))}
       {!done && (
@@ -123,11 +140,13 @@ const CommitItem = ({
   gutterW,
   expanded,
   onToggle,
+  localBranches,
 }: {
   row: GraphRow;
   gutterW: number;
   expanded: boolean;
   onToggle: () => void;
+  localBranches: ReadonlySet<string>;
 }): JSX.Element => {
   const { commit } = row;
   const [hover, setHover] = useState(false);
@@ -175,7 +194,7 @@ const CommitItem = ({
           >
             {commit.head && <RefPill text="HEAD" tone="head" />}
             {commit.refs.map((r) => (
-              <RefPill key={r} text={r} tone={r.includes('/') ? 'remote' : 'branch'} />
+              <RefPill key={r} text={r} tone={localBranches.has(r) ? 'branch' : 'remote'} />
             ))}
             {commit.tags.map((t) => (
               <RefPill key={`tag:${t}`} text={`🏷 ${t}`} tone="remote" />
