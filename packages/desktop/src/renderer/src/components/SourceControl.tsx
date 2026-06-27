@@ -1,4 +1,4 @@
-import type { GitStatusResult } from '@basehalf/core';
+import type { GitStashEntry, GitStatusResult } from '@basehalf/core';
 import {
   type JSX,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -98,6 +98,16 @@ export const SourceControl = (): JSX.Element => {
   const graphOpen = useScmViewStore((s) => s.graphOpen);
   const setChangesOpen = useScmViewStore((s) => s.setChangesOpen);
   const setGraphOpen = useScmViewStore((s) => s.setGraphOpen);
+  const [stashes, setStashes] = useState<readonly GitStashEntry[]>([]);
+  const [stashesOpen, setStashesOpen] = useState(true);
+  const loadStashes = useCallback(async (): Promise<void> => {
+    try {
+      const r = (await window.bh.run('git.stashList', {})) as { entries: GitStashEntry[] };
+      setStashes(r.entries);
+    } catch {
+      setStashes([]);
+    }
+  }, []);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
   // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
@@ -111,7 +121,8 @@ export const SourceControl = (): JSX.Element => {
   // this guarantees a fresh read the moment the panel opens).
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadStashes();
+  }, [refresh, loadStashes]);
 
   // Run a git action, surface failures as a transient toast (VS Code-style), then
   // re-read status from disk truth. `setError` is kept only for the init/no-repo
@@ -122,6 +133,7 @@ export const SourceControl = (): JSX.Element => {
       try {
         await fn();
         await refresh();
+        await loadStashes();
       } catch (err) {
         const m = msg(err);
         setError(m);
@@ -130,7 +142,7 @@ export const SourceControl = (): JSX.Element => {
         setBusy(false);
       }
     },
-    [refresh],
+    [refresh, loadStashes],
   );
 
   const groups = useMemo<GitGroups>(
@@ -313,6 +325,29 @@ export const SourceControl = (): JSX.Element => {
             discard={discard}
           />
         </Disclosure>
+
+        {stashes.length > 0 && (
+          <Disclosure
+            title="贮藏"
+            count={stashes.length}
+            open={stashesOpen}
+            onToggle={() => setStashesOpen(!stashesOpen)}
+          >
+            {stashes.map((s) => (
+              <StashRow
+                key={s.ref}
+                entry={s}
+                busy={busy}
+                onApply={() => void act(() => window.bh.run('git.stashApply', { ref: s.ref }))}
+                onPop={() => void act(() => window.bh.run('git.stashPop', { ref: s.ref }))}
+                onDrop={() => {
+                  if (window.confirm(`删除贮藏 ${s.ref}？此操作不可撤销。`))
+                    void act(() => window.bh.run('git.stashDrop', { ref: s.ref }));
+                }}
+              />
+            ))}
+          </Disclosure>
+        )}
 
         <Disclosure
           title="图谱"
@@ -846,6 +881,84 @@ const Row = ({
         }}
       >
         {row.status}
+      </span>
+    </div>
+  );
+};
+
+// ── A stash entry row (apply / pop / drop on hover) ──────────────────────────
+const StashRow = ({
+  entry,
+  busy,
+  onApply,
+  onPop,
+  onDrop,
+}: {
+  entry: GitStashEntry;
+  busy: boolean;
+  onApply: () => void;
+  onPop: () => void;
+  onDrop: () => void;
+}): JSX.Element => {
+  const [active, setActive] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setActive(true)}
+      onMouseLeave={() => setActive(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: space[2],
+        height: 24,
+        padding: `0 ${space[3]}px`,
+        background: active ? color.divider : 'transparent',
+        fontFamily: font.sans,
+        fontSize: font.size.caption,
+      }}
+    >
+      <span
+        title={`${entry.ref} — ${entry.message}`}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: color.textSecondary,
+        }}
+      >
+        {entry.message}
+      </span>
+      <span
+        style={{
+          display: 'flex',
+          gap: space[1],
+          opacity: active ? 1 : 0,
+          transition: transition(['opacity']),
+        }}
+      >
+        <IconBtn
+          title="应用（保留贮藏）"
+          glyph="↧"
+          onClick={onApply}
+          disabled={busy}
+          tabIndex={active ? 0 : -1}
+        />
+        <IconBtn
+          title="弹出（应用并删除）"
+          glyph="↥"
+          onClick={onPop}
+          disabled={busy}
+          tabIndex={active ? 0 : -1}
+        />
+        <IconBtn
+          title="删除贮藏"
+          glyph="🗑"
+          onClick={onDrop}
+          disabled={busy}
+          danger
+          tabIndex={active ? 0 : -1}
+        />
       </span>
     </div>
   );

@@ -35,6 +35,7 @@ import type {
   GitShowResult,
   GitStashArgs,
   GitStashListResult,
+  GitStashRefArgs,
   GitStashResult,
   GitStatusResult,
 } from './types.js';
@@ -301,10 +302,34 @@ export const stash: Handler<GitStashArgs, GitStashResult> = async (args, ctx) =>
   return { stashed: !/no local changes to save/i.test(res.stdout) };
 };
 
-export const stashPop: Handler<unknown, GitOkResult> = async (_args, ctx) => {
+// A stash ref interpolated into an arg must be exactly `stash@{N}` — reject
+// anything else so it can't smuggle a flag or another revision.
+const STASH_REF = /^stash@\{\d+\}$/;
+function assertStashRef(ref: string): void {
+  if (!STASH_REF.test(ref)) throw new Error(`git stash: unsafe ref ${JSON.stringify(ref)}`);
+}
+
+export const stashPop: Handler<GitStashRefArgs, GitOkResult> = async (args, ctx) => {
+  if (args?.ref !== undefined) assertStashRef(args.ref);
   // A pop can conflict (exit 1) — that's a normal outcome the panel surfaces via
-  // the refreshed status, not an error.
-  await git(ctx, ['stash', 'pop'], { acceptExitCodes: [0, 1] });
+  // the refreshed status, not an error. Omit ref → the latest stash.
+  const cmd = args?.ref !== undefined ? ['stash', 'pop', args.ref] : ['stash', 'pop'];
+  await git(ctx, cmd, { acceptExitCodes: [0, 1] });
+  return { ok: true };
+};
+
+export const stashApply: Handler<GitStashRefArgs, GitOkResult> = async (args, ctx) => {
+  if (args?.ref !== undefined) assertStashRef(args.ref);
+  // Apply KEEPS the stash (vs pop, which drops it); a conflict exits 1.
+  const cmd = args?.ref !== undefined ? ['stash', 'apply', args.ref] : ['stash', 'apply'];
+  await git(ctx, cmd, { acceptExitCodes: [0, 1] });
+  return { ok: true };
+};
+
+export const stashDrop: Handler<GitStashRefArgs, GitOkResult> = async (args, ctx) => {
+  if (args?.ref !== undefined) assertStashRef(args.ref);
+  const cmd = args?.ref !== undefined ? ['stash', 'drop', args.ref] : ['stash', 'drop'];
+  await git(ctx, cmd);
   return { ok: true };
 };
 

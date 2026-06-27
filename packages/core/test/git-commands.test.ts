@@ -170,6 +170,27 @@ describe('git commands (injected fake runner)', () => {
     expect(r.stashed).toBe(false);
   });
 
+  it('git.stashApply / stashDrop / stashPop target a specific stash ref', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.stashApply', { ref: 'stash@{1}' }, ROOT);
+    await core.run('git.stashDrop', { ref: 'stash@{2}' }, ROOT);
+    await core.run('git.stashPop', { ref: 'stash@{0}' }, ROOT);
+    await core.run('git.stashApply', {}, ROOT); // no ref → latest
+    expect(calls[0].args).toEqual(['stash', 'apply', 'stash@{1}']);
+    expect(calls[1].args).toEqual(['stash', 'drop', 'stash@{2}']);
+    expect(calls[2].args).toEqual(['stash', 'pop', 'stash@{0}']);
+    expect(calls[3].args).toEqual(['stash', 'apply']);
+  });
+
+  it('git stash ref args reject anything but stash@{N}', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.stashDrop', { ref: '--all' }, ROOT)).rejects.toThrow(/unsafe ref/);
+    await expect(core.run('git.stashApply', { ref: 'HEAD' }, ROOT)).rejects.toThrow(/unsafe ref/);
+    expect(calls).toHaveLength(0);
+  });
+
   it('git.stashList parses the ref + subject', async () => {
     const { git } = makeFakeGit(() => ({
       stdout: 'stash@{0}\x1fWIP on main: abc\nstash@{1}\x1fkeep\n',

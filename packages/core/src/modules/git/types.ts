@@ -70,6 +70,11 @@ export interface GitStashResult {
   readonly stashed: boolean;
 }
 
+/** Target a specific stash entry (e.g. "stash@{1}"); omit for the latest. */
+export interface GitStashRefArgs {
+  readonly ref?: string;
+}
+
 export interface GitStashEntry {
   /** The stash ref, e.g. "stash@{0}". */
   readonly ref: string;
