@@ -186,6 +186,16 @@ export interface GitBlameArgs {
   readonly ref?: string;
 }
 
+/** Pickaxe search over history: find commits that added/removed an occurrence of
+ *  `query` (git's `-S`). The "when did I write X" retrieval leg over git history. */
+export interface GitSearchHistoryArgs {
+  readonly query: string;
+  readonly maxCount?: number;
+  /** Scope to one file's history (optional). */
+  readonly path?: string;
+  readonly ignoreCase?: boolean;
+}
+
 /** One line's last-touching commit (from `git blame --line-porcelain`). An
  *  uncommitted line has an all-zero `sha` and author "Not Committed Yet". */
 export interface GitBlameLine {

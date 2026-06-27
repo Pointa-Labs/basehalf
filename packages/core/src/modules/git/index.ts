@@ -43,6 +43,7 @@ export function registerGitModule(core: Core): void {
   core.register('git.commitFiles', git.commitFiles);
   core.register('git.show', git.show);
   core.register('git.log', git.log);
+  core.register('git.searchHistory', git.searchHistory);
 }
 
 export type * from './types.js';

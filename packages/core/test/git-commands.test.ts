@@ -191,6 +191,53 @@ describe('git commands (injected fake runner)', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('git.searchHistory pickaxes -S<query> and parses matching commits', async () => {
+    const rec = (fields: string[]) => `${fields.join('\x1f')}\x1e\n`;
+    const one = rec([
+      'h1',
+      'h1',
+      '',
+      'Ada',
+      'a@x.dev',
+      '2026-06-27T10:00:00+00:00',
+      'Ada',
+      'a@x.dev',
+      '2026-06-27T10:00:00+00:00',
+      '',
+      'add the thing',
+      '',
+    ]);
+    const { git, calls } = makeFakeGit(() => ({ stdout: one }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.searchHistory', { query: 'theThing', maxCount: 50 }, ROOT)) as {
+      commits: Array<{ subject: string }>;
+    };
+    expect(calls[0]?.args).toEqual([
+      'log',
+      expect.stringContaining('%H'),
+      '--max-count=50',
+      '-StheThing',
+    ]);
+    expect(r.commits.map((c) => c.subject)).toEqual(['add the thing']);
+  });
+
+  it('git.searchHistory short-circuits an empty query and adds ignoreCase + path', async () => {
+    const { git, calls } = makeFakeGit(() => ({ stdout: '' }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const empty = (await core.run('git.searchHistory', { query: '' }, ROOT)) as { commits: [] };
+    expect(empty.commits).toEqual([]);
+    expect(calls).toHaveLength(0); // never spawned git
+    await core.run('git.searchHistory', { query: 'X', ignoreCase: true, path: 'a.ts' }, ROOT);
+    expect(calls[0]?.args).toEqual([
+      'log',
+      expect.stringContaining('%H'),
+      '--regexp-ignore-case',
+      '-SX',
+      '--',
+      'a.ts',
+    ]);
+  });
+
   it('git.blame runs --line-porcelain and parses lines; rejects an unsafe ref', async () => {
     const SHA = '2222222222222222222222222222222222222222';
     const porcelain = [

@@ -1,6 +1,8 @@
-import type { SearchQueryResult } from '@basehalf/core';
+import type { GitLogResult, SearchQueryResult } from '@basehalf/core';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { useLayoutStore } from '../store/layout.js';
+import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { CountBadge } from './primitives/CountBadge.js';
@@ -58,7 +60,11 @@ export const SearchPanel = (): JSX.Element => {
   const current = useWorkspaceStore((s) => s.current);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const [query, setQuery] = useState('');
+  // 'content' = full-text over current files; 'history' = git pickaxe over commit
+  // history ("when did I write X"), BaseHalf's retrieval-over-time leg.
+  const [mode, setMode] = useState<'content' | 'history'>('content');
   const [result, setResult] = useState<SearchQueryResult | null>(null);
+  const [history, setHistory] = useState<GitLogResult['commits'] | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -71,10 +77,41 @@ export const SearchPanel = (): JSX.Element => {
     inputRef.current?.focus();
   }, []);
 
+  // History mode: debounced git pickaxe (`git.searchHistory`) → matching commits.
+  useEffect(() => {
+    const q = query.trim();
+    if (mode !== 'history' || current === null || q.length < 2) {
+      setHistory(null);
+      return;
+    }
+    setLoading(true);
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const r = (await window.bh.run('git.searchHistory', {
+            query: q,
+            maxCount: 100,
+            ignoreCase: !caseSensitive,
+          })) as GitLogResult;
+          if (!cancelled) setHistory(r.commits);
+        } catch {
+          if (!cancelled) setHistory([]);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [query, mode, current, caseSensitive]);
+
   // Debounced query (≥2 chars), workspace-guarded — same pattern as the palette.
   useEffect(() => {
     const q = query.trim();
-    if (current === null || q.length < 2) {
+    if (mode !== 'content' || current === null || q.length < 2) {
       setResult(null);
       setLoading(false);
       return;
@@ -107,7 +144,7 @@ export const SearchPanel = (): JSX.Element => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, current, caseSensitive, wholeWord, regex]);
+  }, [query, mode, current, caseSensitive, wholeWord, regex]);
 
   const toggle = (file: string): void =>
     setCollapsed((prev) => {
@@ -176,6 +213,11 @@ export const SearchPanel = (): JSX.Element => {
             />
           </div>
         </div>
+        {/* Content (current files) ↔ History (git pickaxe over commits). */}
+        <div style={{ display: 'flex', gap: space[1], marginTop: space[2] }}>
+          <SegBtn label="内容" active={mode === 'content'} onClick={() => setMode('content')} />
+          <SegBtn label="Git 历史" active={mode === 'history'} onClick={() => setMode('history')} />
+        </div>
         {query.trim().length >= 2 && !loading && (
           <div
             style={{
@@ -185,18 +227,79 @@ export const SearchPanel = (): JSX.Element => {
               fontSize: font.size.micro,
             }}
           >
-            {hits.length === 0
-              ? '无结果'
-              : `${totalMatches} 处结果，${hits.length} 个文件${result?.truncated ? '（已截断）' : ''}`}
+            {mode === 'history'
+              ? (history?.length ?? 0) === 0
+                ? '历史中无匹配'
+                : `${history?.length ?? 0} 个提交触及「${query.trim()}」`
+              : hits.length === 0
+                ? '无结果'
+                : `${totalMatches} 处结果，${hits.length} 个文件${result?.truncated ? '（已截断）' : ''}`}
           </div>
         )}
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {query.trim().length < 2 ? (
-          <Hint>输入至少 2 个字符以搜索文件内容。</Hint>
+          <Hint>
+            {mode === 'history'
+              ? '输入至少 2 个字符，查找历史上写过 / 删过这段文字的提交。'
+              : '输入至少 2 个字符以搜索文件内容。'}
+          </Hint>
         ) : loading ? (
           <Hint>搜索中…</Hint>
+        ) : mode === 'history' ? (
+          (history ?? []).map((c) => (
+            <button
+              key={c.hash}
+              type="button"
+              title={`${c.shortHash} · 在提交图中查看`}
+              onClick={() => {
+                useLayoutStore.getState().setSidebarView('scm');
+                useScmViewStore.getState().revealCommit(c.hash);
+              }}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                width: '100%',
+                padding: `${space[1]}px ${space[3]}px`,
+                background: 'none',
+                border: 'none',
+                borderBottom: `1px solid ${color.divider}`,
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = color.divider;
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'none';
+              }}
+            >
+              <span
+                style={{
+                  color: color.textPrimary,
+                  fontFamily: font.sans,
+                  fontSize: font.size.caption,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  width: '100%',
+                }}
+              >
+                {c.subject}
+              </span>
+              <span
+                style={{
+                  color: color.textTertiary,
+                  fontFamily: font.mono,
+                  fontSize: font.size.micro,
+                }}
+              >
+                {c.shortHash} · {c.author.name} · {c.author.date.slice(0, 10)}
+              </span>
+            </button>
+          ))
         ) : (
           hits.map((hit) => {
             const slash = hit.file.lastIndexOf('/');
@@ -368,6 +471,35 @@ const OptBtn = ({
       fontFamily: font.mono,
       fontSize: 10,
       lineHeight: 1,
+    }}
+  >
+    {label}
+  </button>
+);
+
+const SegBtn = ({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element => (
+  <button
+    type="button"
+    aria-pressed={active}
+    onClick={onClick}
+    style={{
+      flex: 1,
+      height: 22,
+      background: active ? color.accentSofter : 'none',
+      border: `1px solid ${active ? color.accent : color.border}`,
+      borderRadius: radius.sm,
+      cursor: 'pointer',
+      color: active ? color.accent : color.textTertiary,
+      fontFamily: font.sans,
+      fontSize: font.size.micro,
     }}
   >
     {label}

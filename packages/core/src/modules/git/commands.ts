@@ -36,6 +36,7 @@ import type {
   GitResetArgs,
   GitRevertArgs,
   GitRevertResult,
+  GitSearchHistoryArgs,
   GitShowArgs,
   GitShowResult,
   GitStashArgs,
@@ -396,6 +397,23 @@ export const diff: Handler<GitDiffArgs, GitDiffResult> = async (args, ctx) => {
   const cmd =
     args.staged === true ? ['diff', '--cached', '--', args.path] : ['diff', '--', args.path];
   return { diff: (await git(ctx, cmd)).stdout };
+};
+
+export const searchHistory: Handler<GitSearchHistoryArgs, GitLogResult> = async (args, ctx) => {
+  if (args.query === '') return { commits: [] };
+  assertCount(args.maxCount, 'git.searchHistory maxCount');
+  if (args.path !== undefined) assertWorkspaceRelative(args.path);
+  // Pickaxe `-S<string>` = commits that changed the NUMBER of occurrences of the
+  // string (the classic "when did this text appear/disappear"). The query is glued
+  // to `-S` as ONE argv token, so it can never be re-read as a flag, and there's no
+  // shell (the runner passes argv directly) — so no injection surface.
+  const cmd = ['log', `--format=${LOG_FORMAT}`];
+  if (args.maxCount !== undefined) cmd.push(`--max-count=${args.maxCount}`);
+  if (args.ignoreCase === true) cmd.push('--regexp-ignore-case');
+  cmd.push(`-S${args.query}`);
+  if (args.path !== undefined) cmd.push('--', args.path);
+  const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
+  return { commits: res.exitCode === 0 ? parseLog(res.stdout) : [] };
 };
 
 export const blame: Handler<GitBlameArgs, GitBlameResult> = async (args, ctx) => {
