@@ -213,8 +213,12 @@ export const UnifiedDiffView = ({
         ) : diff.rows.length === 0 ? (
           <Centered color={color.textTertiary}>No changes.</Centered>
         ) : view === 'split' ? (
-          // Side-by-side is read-only; per-hunk Stage/Revert lives in the inline view.
-          <SplitDiff rows={diff.rows} oldHtml={diff.oldHtml} newHtml={diff.newHtml} />
+          <SplitDiff
+            rows={diff.rows}
+            oldHtml={diff.oldHtml}
+            newHtml={diff.newHtml}
+            renderHunkAction={renderHunkAction}
+          />
         ) : (
           <UnifiedDiff
             rows={diff.rows}

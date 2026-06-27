@@ -24,10 +24,14 @@ export const SplitDiff = ({
   rows,
   oldHtml,
   newHtml,
+  renderHunkAction,
 }: {
   rows: readonly DiffRow[];
   oldHtml?: readonly string[] | undefined;
   newHtml?: readonly string[] | undefined;
+  /** Same per-hunk action (Stage/Revert) the unified view renders, placed on the
+   *  first changed row of each hunk. `hunkIndex` = gaps before the row. */
+  renderHunkAction?: (hunkIndex: number) => JSX.Element | null;
 }): JSX.Element => {
   const split = computeSplitRows(rows);
   // Which gaps the user expanded (keyed by position — gaps never reorder within a
@@ -78,10 +82,12 @@ export const SplitDiff = ({
           hunkIndex++;
           return bar;
         }
-        // First changed row of a hunk → a nav anchor (prev/next jumps to these).
+        // First changed row of a hunk → a nav anchor (prev/next jumps to these) +
+        // the optional Stage/Revert control (same hunkIndex the diff view keys on).
         const isChanged = row.left?.changed === true || row.right?.changed === true;
         const isHunkStart = isChanged && anchoredHunk !== hunkIndex;
         if (isHunkStart) anchoredHunk = hunkIndex;
+        const action = isHunkStart ? (renderHunkAction?.(hunkIndex) ?? null) : null;
         return (
           <PairRow
             // biome-ignore lint/suspicious/noArrayIndexKey: split rows are positional; a fresh fetch rebuilds the array wholesale.
@@ -90,6 +96,7 @@ export const SplitDiff = ({
             oldHtml={oldHtml}
             newHtml={newHtml}
             anchor={isHunkStart ? hunkIndex : undefined}
+            action={action}
           />
         );
       })}
@@ -102,19 +109,24 @@ const PairRow = ({
   oldHtml,
   newHtml,
   anchor,
+  action,
 }: {
   row: Extract<SplitRow, { kind: 'pair' }>;
   oldHtml?: readonly string[] | undefined;
   newHtml?: readonly string[] | undefined;
   anchor?: number;
+  action?: JSX.Element | null;
 }): JSX.Element => (
   <div
-    style={{ display: 'flex' }}
+    style={{ display: 'flex', position: 'relative' }}
     {...(anchor !== undefined ? { 'data-hunk-anchor': anchor } : {})}
   >
     <Side cell={row.left} side="left" html={oldHtml} />
     <div style={{ width: 1, flexShrink: 0, background: color.divider }} />
     <Side cell={row.right} side="right" html={newHtml} />
+    {action != null && (
+      <div style={{ position: 'absolute', top: 0, right: space[2], display: 'flex' }}>{action}</div>
+    )}
   </div>
 );
 
