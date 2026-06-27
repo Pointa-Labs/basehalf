@@ -6,6 +6,7 @@ import type {
 } from '@basehalf/core';
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
+import { prompt } from './Dialog.js';
 import { PopoverSurface, usePopover } from './primitives/Popover.js';
 
 /**
@@ -138,6 +139,15 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
     if (name === '') return;
     void run(() => window.bh.run('git.createBranch', { name }));
   };
+
+  const renameCurrent = (): void =>
+    void (async () => {
+      // Electron has no window.prompt — use the app's custom prompt dialog.
+      const to = (
+        await prompt({ title: '重命名当前分支', label: '新名称', defaultValue: label })
+      )?.trim();
+      if (to && to !== label) void run(() => window.bh.run('git.renameBranch', { to }));
+    })();
 
   const filtered = (branches ?? []).filter((b) =>
     b.name.toLowerCase().includes(filter.trim().toLowerCase()),
@@ -306,6 +316,11 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                 >
                   ⤵ 合并到当前
                 </FooterBtn>
+                {!status.detached && status.branch !== null && (
+                  <FooterBtn onClick={renameCurrent} disabled={working}>
+                    ✎ 重命名
+                  </FooterBtn>
+                )}
               </div>
             )}
 
