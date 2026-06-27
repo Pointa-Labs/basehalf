@@ -376,6 +376,12 @@ export const SourceControl = (): JSX.Element => {
                 <BranchMiniGlyph />
                 Auto
               </span>
+              <IconBtn
+                title="打开 Git Graph（全页）"
+                onClick={() => useWorkspaceStore.getState().openGitGraph()}
+                disabled={busy}
+                glyph="⛶"
+              />
               <IconBtn title="定位到当前提交" onClick={revealHead} disabled={busy} glyph="◎" />
               <IconBtn
                 title="获取（Fetch）"

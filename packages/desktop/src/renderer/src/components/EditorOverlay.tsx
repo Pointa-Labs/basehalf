@@ -6,6 +6,7 @@ import { useTerminalStore } from '../store/terminal.js';
 import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../store/workspace.js';
 import { Breadcrumb } from './Breadcrumb.js';
 import { FilePreview } from './FilePreview.js';
+import { GitGraphView } from './GitGraphView.js';
 import { UnifiedDiffView } from './UnifiedDiffView.js';
 
 /**
@@ -30,6 +31,8 @@ export const EditorOverlay = (): JSX.Element | null => {
   const openFile = useWorkspaceStore((s) => s.openFile);
   const gitDiff = useWorkspaceStore((s) => s.gitDiff);
   const closeGitDiff = useWorkspaceStore((s) => s.closeGitDiff);
+  const gitGraphOpen = useWorkspaceStore((s) => s.gitGraphOpen);
+  const closeGitGraph = useWorkspaceStore((s) => s.closeGitGraph);
   // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
   // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
   // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
@@ -45,6 +48,10 @@ export const EditorOverlay = (): JSX.Element | null => {
   // their own field, not to close the document under the user.
   const close = useCallback((): void => {
     const st = useWorkspaceStore.getState();
+    if (st.gitGraphOpen) {
+      st.closeGitGraph();
+      return;
+    }
     if (st.gitDiff !== null) {
       st.closeGitDiff();
       return;
@@ -57,7 +64,7 @@ export const EditorOverlay = (): JSX.Element | null => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       const st = useWorkspaceStore.getState();
-      if (st.openFile === null && st.gitDiff === null) return;
+      if (st.openFile === null && st.gitDiff === null && !st.gitGraphOpen) return;
       if (isImeComposing(e)) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -87,7 +94,7 @@ export const EditorOverlay = (): JSX.Element | null => {
     [close],
   );
 
-  if (openFile === null && gitDiff === null) return null;
+  if (openFile === null && gitDiff === null && !gitGraphOpen) return null;
 
   return (
     <div
@@ -110,7 +117,9 @@ export const EditorOverlay = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      {gitDiff !== null ? (
+      {gitGraphOpen ? (
+        <GitGraphView onClose={closeGitGraph} />
+      ) : gitDiff !== null ? (
         <UnifiedDiffView
           key={`${gitDiff.path}:${gitDiff.staged}:${gitDiff.rightRef ?? ''}`}
           path={gitDiff.path}

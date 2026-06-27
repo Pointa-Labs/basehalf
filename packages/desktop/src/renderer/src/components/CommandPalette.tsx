@@ -480,6 +480,9 @@ export const CommandPalette = (): JSX.Element | null => {
           }),
           G('git:commit', 'Git: Commit…', () => showSourceControl('changes')),
           G('git:graph', 'Git: Show Commit Graph', () => showSourceControl('graph')),
+          G('git:graph-full', 'Git: Open Git Graph (full view)', () =>
+            useWorkspaceStore.getState().openGitGraph(),
+          ),
           G('git:stage-all', 'Git: Stage All Changes', () => void runGit('git.stageAll')),
           G('git:unstage-all', 'Git: Unstage All Changes', () => void runGit('git.unstageAll')),
           G('git:stash', 'Git: Stash Changes', () => void runGit('git.stash')),

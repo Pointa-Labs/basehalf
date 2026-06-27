@@ -74,6 +74,10 @@ interface WorkspaceState {
    *  overlay. `parentRef` defaults to `${ref}^`; a root commit shows a full add. */
   openCommitDiff: (path: string, ref: string, parentRef?: string, title?: string) => void;
   closeGitDiff: () => void;
+  /** The full-page Git Graph view open over the canvas (a 1:1 Git Graph surface). */
+  gitGraphOpen: boolean;
+  openGitGraph: () => void;
+  closeGitGraph: () => void;
   /** Rebind the open file's path (the watcher saw it renamed on disk). No flush —
    *  the old path is gone; the editor remounts on the new bytes. No-op when the
    *  renamed file isn't the open one. */
@@ -607,6 +611,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
     },
     closeGitDiff: () => set({ gitDiff: null }),
+    gitGraphOpen: false,
+    openGitGraph: () => {
+      void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
+        if (ok) set({ openFile: null, gitDiff: null, gitGraphOpen: true });
+      });
+    },
+    closeGitGraph: () => set({ gitGraphOpen: false }),
 
     consumeTitleFocus: () => set({ titleFocusPath: null }),
 

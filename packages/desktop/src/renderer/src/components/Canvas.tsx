@@ -227,7 +227,8 @@ export const Canvas = (): JSX.Element => {
   // so the canvas chrome below must hide for it as well — else the floating
   // "New note" + breadcrumb (z-index 8) bleed OVER the diff overlay (z-index 5).
   const gitDiff = useWorkspaceStore((s) => s.gitDiff);
-  const overlayOpen = openFile !== null || gitDiff !== null;
+  const gitGraphOpen = useWorkspaceStore((s) => s.gitGraphOpen);
+  const overlayOpen = openFile !== null || gitDiff !== null || gitGraphOpen;
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   // While a card is being inline-edited, suspend viewport virtualization so a
