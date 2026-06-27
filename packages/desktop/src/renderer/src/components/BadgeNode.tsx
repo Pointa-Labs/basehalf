@@ -194,13 +194,15 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
   // and folders have nothing to preview.
   const previewable = type === 'image' || type === 'text' || type === 'code';
   const showPreview = previewable && !orphan && !isFolder;
-  // A changed text/code file shows its DIFF (red/green/±) in place of the plain
+  // A changed CODE file shows its DIFF (red/green/±) in place of the plain
   // content — the canvas becomes a spatial "what changed" board (the multi-file
-  // overview). Skip images (a diff is meaningless) and conflicts (a U on either
-  // side); those keep their normal preview.
+  // overview). Documents (Markdown / plain text) are read as RENDERED content, not
+  // source lines, so a raw line-diff there is noise — they keep their normal
+  // preview (the card's git tint still marks them changed). Images (a diff is
+  // meaningless) and conflicts (a U on either side) also keep their normal preview.
   const showFileDiff =
     showPreview &&
-    type !== 'image' &&
+    type === 'code' &&
     gitDirect != null &&
     gitDirect.x !== 'U' &&
     gitDirect.y !== 'U';
