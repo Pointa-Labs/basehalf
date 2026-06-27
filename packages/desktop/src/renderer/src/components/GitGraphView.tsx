@@ -70,6 +70,8 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const [find, setFind] = useState('');
   const [branches, setBranches] = useState<GitBranchesResult['branches']>([]);
   const [uncommitted, setUncommitted] = useState(0);
+  // Date column format — Git Graph's "Date Format" setting (absolute ↔ relative).
+  const [dateMode, setDateMode] = useState<'absolute' | 'relative'>('absolute');
 
   const loadPage = useCallback(
     async (skip: number): Promise<void> => {
@@ -437,7 +439,21 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
           >
             <span>Graph</span>
             <span>Description</span>
-            <span>Date</span>
+            <button
+              type="button"
+              onClick={() => setDateMode((m) => (m === 'absolute' ? 'relative' : 'absolute'))}
+              title={dateMode === 'absolute' ? '切换为相对时间' : '切换为绝对日期'}
+              style={{
+                all: 'unset',
+                cursor: 'pointer',
+                color: 'inherit',
+                font: 'inherit',
+                letterSpacing: 'inherit',
+                textTransform: 'inherit',
+              }}
+            >
+              Date{dateMode === 'relative' ? ' ▾' : ''}
+            </button>
             <span>Author</span>
             <span>Commit</span>
           </div>
@@ -541,6 +557,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   commit={row.commit}
                   gridCols={gridCols}
                   localBranches={localBranches}
+                  dateMode={dateMode}
                   selected={selected === row.commit.hash}
                   highlighted={matches(row.commit)}
                   onSelect={() => setSelected(row.commit.hash)}
@@ -723,6 +740,7 @@ const CommitRow = ({
   commit,
   gridCols,
   localBranches,
+  dateMode,
   selected,
   highlighted,
   onSelect,
@@ -732,6 +750,7 @@ const CommitRow = ({
   commit: GitCommit;
   gridCols: string;
   localBranches: ReadonlySet<string>;
+  dateMode: 'absolute' | 'relative';
   selected: boolean;
   highlighted: boolean;
   onSelect: () => void;
@@ -806,8 +825,11 @@ const CommitRow = ({
           {commit.subject}
         </span>
       </span>
-      <span style={{ color: color.textTertiary, fontSize: font.size.micro }}>
-        {fmtDate(commit.author.date)}
+      <span
+        style={{ color: color.textTertiary, fontSize: font.size.micro }}
+        title={dateMode === 'relative' ? fmtDate(commit.author.date) : undefined}
+      >
+        {fmtWhen(commit.author.date, dateMode)}
       </span>
       <span
         style={{
@@ -1059,4 +1081,36 @@ function fmtDate(iso: string): string {
   ];
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(d.getDate())} ${mon} ${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Relative time ("3 hours ago") — Git Graph's "Relative" date format option.
+function fmtRelative(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const secs = Math.max(0, Math.round((Date.now() - t) / 1000));
+  const units: [number, string][] = [
+    [60, 'second'],
+    [60, 'minute'],
+    [24, 'hour'],
+    [7, 'day'],
+    [4.34524, 'week'],
+    [12, 'month'],
+    [Number.POSITIVE_INFINITY, 'year'],
+  ];
+  let n = secs;
+  let unit = 'second';
+  for (const [span, name] of units) {
+    if (n < span) {
+      unit = name;
+      break;
+    }
+    n = Math.floor(n / span);
+    unit = name;
+  }
+  if (unit === 'second' && n < 10) return 'just now';
+  return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+}
+
+function fmtWhen(iso: string, mode: 'absolute' | 'relative'): string {
+  return mode === 'relative' ? fmtRelative(iso) : fmtDate(iso);
 }
