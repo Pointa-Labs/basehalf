@@ -78,6 +78,7 @@ const SettingsCard = (): JSX.Element => {
   const [autoDownloadUpdate, setAutoDownloadUpdate] = useState(false);
   const [version, setVersion] = useState('');
   const [zoomFactor, setZoomFactor] = useState(() => window.bh.getZoomFactor());
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     void window.bh.getPrefs().then((p) => {
@@ -104,6 +105,93 @@ const SettingsCard = (): JSX.Element => {
       .catch(() => setAutoDownloadUpdate(!next));
   };
 
+  // The hand-laid app-shell rows as data, so the search box can filter them the
+  // same way it filters the registry rows. Controls reference the live state /
+  // handlers above (unchanged — only the layout/filtering is new).
+  interface AppRow {
+    group: 'General' | 'About';
+    label: string;
+    description: string;
+    control: JSX.Element;
+  }
+  const appRows: AppRow[] = [
+    {
+      group: 'General',
+      label: 'Check for updates automatically',
+      description:
+        'Looks for new versions in the background. Nothing downloads or installs without asking.',
+      control: (
+        <Toggle
+          checked={autoUpdateCheck}
+          onChange={toggleAutoUpdate}
+          label="Check for updates automatically"
+        />
+      ),
+    },
+    {
+      group: 'General',
+      label: 'Download updates automatically',
+      description:
+        'When a new version is found, download it in the background and show “Restart to update” — instead of waiting for you to start it. Installing still asks first.',
+      control: (
+        <Toggle
+          checked={autoDownloadUpdate}
+          onChange={toggleAutoDownload}
+          label="Download updates automatically"
+        />
+      ),
+    },
+    {
+      group: 'General',
+      label: 'Window zoom',
+      description: 'Also on ⌘+ / ⌘− anywhere; ⌘0 resets.',
+      control: (
+        <>
+          <Button size="sm" aria-label="Zoom out" onClick={() => void window.bh.zoomWindow('out')}>
+            −
+          </Button>
+          <span
+            style={{
+              fontSize: font.size.ui,
+              fontFamily: font.mono,
+              color: color.textSecondary,
+              minWidth: 44,
+              textAlign: 'center',
+            }}
+          >
+            {Math.round(zoomFactor * 100)}%
+          </span>
+          <Button size="sm" aria-label="Zoom in" onClick={() => void window.bh.zoomWindow('in')}>
+            +
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={Math.round(zoomFactor * 100) === 100}
+            onClick={() => void window.bh.zoomWindow('reset')}
+          >
+            Reset
+          </Button>
+        </>
+      ),
+    },
+    {
+      group: 'About',
+      label: 'BaseHalf',
+      description: version !== '' ? `Version ${version}` : '',
+      control: (
+        <Button size="sm" onClick={() => void window.bh.openExternal(RELEASES_URL)}>
+          Releases ↗
+        </Button>
+      ),
+    },
+  ];
+  const q = filter.trim().toLowerCase();
+  const showRow = (r: AppRow): boolean =>
+    q === '' || r.label.toLowerCase().includes(q) || r.description.toLowerCase().includes(q);
+  const generalRows = appRows.filter((r) => r.group === 'General' && showRow(r));
+  const aboutRows = appRows.filter((r) => r.group === 'About' && showRow(r));
+
   return (
     <div style={cardStyle}>
       <div
@@ -128,83 +216,44 @@ const SettingsCard = (): JSX.Element => {
         </Button>
       </div>
 
+      {/* VS Code's Settings search — filters the rows below by title / description. */}
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="搜索设置"
+        aria-label="搜索设置"
+        data-testid="settings-search"
+        style={{
+          width: '100%',
+          boxSizing: 'border-box',
+          height: 30,
+          margin: `${space[3]}px 0 ${space[1]}px`,
+          background: color.bg,
+          border: `1px solid ${color.border}`,
+          borderRadius: radius.md,
+          color: color.textPrimary,
+          fontFamily: font.sans,
+          fontSize: font.size.ui,
+          padding: `0 ${space[3]}px`,
+          outline: 'none',
+        }}
+      />
+
       {/* App-shell prefs — main-process owned, not registry settings. The update
           POLICY (auto-check) is a value and lives here; the update STATE/verbs do
           not (they're in the title-bar chip + the "Check for Updates…" menu). */}
-      <div style={sectionLabelStyle}>General</div>
-      <SettingRow
-        label="Check for updates automatically"
-        description="Looks for new versions in the background. Nothing downloads or installs without asking."
-        control={
-          <Toggle
-            checked={autoUpdateCheck}
-            onChange={toggleAutoUpdate}
-            label="Check for updates automatically"
-          />
-        }
-      />
-      <SettingRow
-        label="Download updates automatically"
-        description="When a new version is found, download it in the background and show “Restart to update” — instead of waiting for you to start it. Installing still asks first."
-        control={
-          <Toggle
-            checked={autoDownloadUpdate}
-            onChange={toggleAutoDownload}
-            label="Download updates automatically"
-          />
-        }
-      />
-      <SettingRow
-        label="Window zoom"
-        description="Also on ⌘+ / ⌘− anywhere; ⌘0 resets."
-        control={
-          <>
-            <Button
-              size="sm"
-              aria-label="Zoom out"
-              onClick={() => void window.bh.zoomWindow('out')}
-            >
-              −
-            </Button>
-            <span
-              style={{
-                fontSize: font.size.ui,
-                fontFamily: font.mono,
-                color: color.textSecondary,
-                minWidth: 44,
-                textAlign: 'center',
-              }}
-            >
-              {Math.round(zoomFactor * 100)}%
-            </span>
-            <Button size="sm" aria-label="Zoom in" onClick={() => void window.bh.zoomWindow('in')}>
-              +
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={Math.round(zoomFactor * 100) === 100}
-              onClick={() => void window.bh.zoomWindow('reset')}
-            >
-              Reset
-            </Button>
-          </>
-        }
-      />
+      {generalRows.length > 0 && <div style={sectionLabelStyle}>General</div>}
+      {generalRows.map((r) => (
+        <SettingRow key={r.label} label={r.label} description={r.description} control={r.control} />
+      ))}
 
       {/* Registry settings — data-driven from settings.describe(). */}
-      <RegistrySettings />
+      <RegistrySettings filter={filter} />
 
-      <div style={sectionLabelStyle}>About</div>
-      <SettingRow
-        label="BaseHalf"
-        {...(version !== '' && { description: `Version ${version}` })}
-        control={
-          <Button size="sm" onClick={() => void window.bh.openExternal(RELEASES_URL)}>
-            Releases ↗
-          </Button>
-        }
-      />
+      {aboutRows.length > 0 && <div style={sectionLabelStyle}>About</div>}
+      {aboutRows.map((r) => (
+        <SettingRow key={r.label} label={r.label} description={r.description} control={r.control} />
+      ))}
     </div>
   );
 };

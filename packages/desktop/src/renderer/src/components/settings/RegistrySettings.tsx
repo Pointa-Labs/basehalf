@@ -152,8 +152,9 @@ const SettingDescriptorRow = ({
   }
 };
 
-/** All registry settings, grouped by key namespace into labeled sections. */
-export const RegistrySettings = (): JSX.Element | null => {
+/** All registry settings, grouped by key namespace into labeled sections.
+ *  `filter` (the Settings search query) hides non-matching rows + empty groups. */
+export const RegistrySettings = ({ filter = '' }: { filter?: string }): JSX.Element | null => {
   const [descriptors, setDescriptors] = useState<readonly SettingDescriptor[] | null>(null);
 
   useEffect(() => {
@@ -165,14 +166,23 @@ export const RegistrySettings = (): JSX.Element | null => {
 
   if (!descriptors || descriptors.length === 0) return null;
 
+  const q = filter.trim().toLowerCase();
+  const matches = (d: SettingDescriptor): boolean =>
+    q === '' ||
+    d.label.toLowerCase().includes(q) ||
+    d.description.toLowerCase().includes(q) ||
+    d.key.toLowerCase().includes(q);
+
   // Group by namespace prefix, preserving the registry's order within a group.
   const groups: Array<[string, SettingDescriptor[]]> = [];
   for (const d of descriptors) {
+    if (!matches(d)) continue;
     const label = sectionLabelFor(d.key);
     const group = groups.find(([l]) => l === label);
     if (group) group[1].push(d);
     else groups.push([label, [d]]);
   }
+  if (groups.length === 0) return null;
 
   return (
     <>
