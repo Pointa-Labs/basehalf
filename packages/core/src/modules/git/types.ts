@@ -144,6 +144,16 @@ export interface GitPullArgs {
   readonly rebase?: boolean;
 }
 
+export interface GitRemoteUrlArgs {
+  /** Remote name; defaults to "origin". */
+  readonly remote?: string;
+}
+
+export interface GitRemoteUrlResult {
+  /** The remote's fetch URL, or null when the remote doesn't exist. */
+  readonly url: string | null;
+}
+
 export interface GitConflictStagesArgs {
   readonly path: string;
 }

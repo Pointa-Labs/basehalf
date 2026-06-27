@@ -133,6 +133,22 @@ describe('git commands (injected fake runner)', () => {
     expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '--force-with-lease']);
   });
 
+  it('git.remoteUrl returns the origin URL, null when absent, rejects a bad name', async () => {
+    const ok = makeFakeGit(() => ({ stdout: 'git@github.com:o/r.git\n' }));
+    const core1 = createCore({ git: ok.git, configDir: '/cfg' });
+    const r1 = (await core1.run('git.remoteUrl', {}, ROOT)) as { url: string | null };
+    expect(ok.calls[0]?.args).toEqual(['remote', 'get-url', 'origin']);
+    expect(r1.url).toBe('git@github.com:o/r.git');
+
+    const none = makeFakeGit(() => ({ exitCode: 2, stderr: 'No such remote' }));
+    const core2 = createCore({ git: none.git, configDir: '/cfg' });
+    expect(((await core2.run('git.remoteUrl', {}, ROOT)) as { url: string | null }).url).toBeNull();
+
+    await expect(core1.run('git.remoteUrl', { remote: '--upload-pack=x' }, ROOT)).rejects.toThrow(
+      /invalid remote/,
+    );
+  });
+
   it('git.pull rebase passes --rebase', async () => {
     const { git, calls } = makeFakeGit(() => ({}));
     const core = createCore({ git, configDir: '/cfg' });

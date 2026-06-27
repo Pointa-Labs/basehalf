@@ -36,6 +36,8 @@ import type {
   GitPullArgs,
   GitPushArgs,
   GitRemoteResult,
+  GitRemoteUrlArgs,
+  GitRemoteUrlResult,
   GitRenameBranchArgs,
   GitResetArgs,
   GitRevertArgs,
@@ -206,6 +208,18 @@ export const pull: Handler<GitPullArgs, GitRemoteResult> = async (args, ctx) => 
 export const fetch: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
   const res = await git(ctx, ['fetch'], { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
+};
+
+export const remoteUrl: Handler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (args, ctx) => {
+  const remote = args?.remote ?? 'origin';
+  // A remote name interpolated into the arg — constrain it (no leading '-' → flag).
+  if (!/^[\w][\w.-]*$/.test(remote)) {
+    throw new Error(`git.remoteUrl: invalid remote ${JSON.stringify(remote)}`);
+  }
+  // Exit 2 = no such remote (older git), 128 = other "not found"; both → null.
+  const res = await git(ctx, ['remote', 'get-url', remote], { acceptExitCodes: [0, 2, 128] });
+  const url = res.exitCode === 0 ? res.stdout.trim() : '';
+  return { url: url === '' ? null : url };
 };
 
 export const branches: Handler<GitBranchesArgs, GitBranchesResult> = async (args, ctx) => {

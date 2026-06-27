@@ -16,6 +16,7 @@ import {
   statusColor,
   totalChangeCount,
 } from '../lib/gitStatus.js';
+import { createPrUrl } from '../lib/prUrl.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
 import { toast } from '../store/toast.js';
@@ -235,6 +236,33 @@ export const SourceControl = (): JSX.Element => {
       )?.trim();
       if (name) void act(() => window.bh.run('git.createBranch', { name }));
     })();
+  // Open the hosting platform's "create PR" page for the current branch in the
+  // browser — no auth/API, just a URL derived from the remote (the decision-free
+  // slice of remote integration).
+  const createPullRequest = (): void =>
+    void (async () => {
+      const branch = status?.branch;
+      if (!branch) {
+        toast.error('需要当前分支才能创建 PR。');
+        return;
+      }
+      try {
+        const { url } = (await window.bh.run('git.remoteUrl', {})) as { url: string | null };
+        if (url === null) {
+          toast.error('没有配置远程仓库（origin）。');
+          return;
+        }
+        const pr = createPrUrl(url, branch);
+        if (pr === null) {
+          toast.error('无法从远程地址推断 PR 链接。');
+          return;
+        }
+        const res = await window.bh.openExternal(pr);
+        if (!res.ok) toast.error(res.error ?? '打开浏览器失败。');
+      } catch (e) {
+        toast.error(msg(e));
+      }
+    })();
   // GRAPH header "Go to Current History Item" (VS Code) — reveal HEAD in the graph.
   const revealHead = (): void =>
     void (async () => {
@@ -307,6 +335,7 @@ export const SourceControl = (): JSX.Element => {
             onClick: () => void act(() => window.bh.run('git.push', { force: true })),
           },
           { label: '获取（Fetch）', onClick: () => runAction('git.fetch') },
+          { label: '在浏览器中创建 PR…', onClick: createPullRequest },
           {
             label: '撤销上次提交（Undo Last Commit）',
             onClick: () =>
