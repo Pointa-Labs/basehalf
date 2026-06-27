@@ -112,14 +112,14 @@ describe('fileDecoration (single-file letter + color for tree / canvas)', () => 
 
 describe('statusTooltip (human label)', () => {
   it('names each state in plain words', () => {
-    expect(statusTooltip(f('a', ' ', 'M'))).toBe('已修改');
-    expect(statusTooltip(f('a', '?', '?'))).toBe('未跟踪');
-    expect(statusTooltip(f('a', ' ', 'D'))).toBe('已删除');
-    expect(statusTooltip(f('a', 'U', 'U'))).toBe('合并冲突');
+    expect(statusTooltip(f('a', ' ', 'M'))).toBe('Modified');
+    expect(statusTooltip(f('a', '?', '?'))).toBe('Untracked');
+    expect(statusTooltip(f('a', ' ', 'D'))).toBe('Deleted');
+    expect(statusTooltip(f('a', 'U', 'U'))).toBe('Conflict');
   });
   it('distinguishes a staged-only change', () => {
-    expect(statusTooltip(f('a', 'A', ' '))).toBe('已暂存:已新增');
-    expect(statusTooltip(f('a', 'M', ' '))).toBe('已暂存:已修改');
+    expect(statusTooltip(f('a', 'A', ' '))).toBe('Staged: Added');
+    expect(statusTooltip(f('a', 'M', ' '))).toBe('Staged: Modified');
   });
 });
 
@@ -135,7 +135,7 @@ describe('buildFolderStatus (propagate child status up the tree)', () => {
   });
   it('a conflict outranks a plain edit for the folder mark', () => {
     const m = buildFolderStatus([f('src/a.ts', ' ', 'M'), f('src/b.ts', 'U', 'U')]);
-    expect(statusTooltip(m.get('src') as GitFileStatus)).toBe('合并冲突');
+    expect(statusTooltip(m.get('src') as GitFileStatus)).toBe('Conflict');
   });
   it('handles an untracked dir reported as "dir/"', () => {
     const m = buildFolderStatus([f('src/new/', '?', '?')]);

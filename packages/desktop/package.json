@@ -17,7 +17,8 @@
     "dist:mac": "electron-vite build && electron-builder --mac"
   },
   "dependencies": {
-    "@lydell/node-pty": "1.2.0-beta.12"
+    "@lydell/node-pty": "1.2.0-beta.12",
+    "@vscode/codicons": "^0.0.45"
   },
   "devDependencies": {
     "@basehalf/core": "workspace:*",

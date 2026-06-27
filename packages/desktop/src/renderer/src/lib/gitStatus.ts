@@ -109,25 +109,25 @@ export function fileDecoration(
 
 /** A human-readable status label (for a tree/card tooltip) instead of a bare
  *  letter — the way a mature SCM names each state. Distinguishes a staged-only
- *  change ("已暂存的…") from a work-tree one. */
+ *  change (the X column) from a work-tree one. */
 export function statusTooltip(f: GitFileStatus): string {
-  if (isConflict(f.x, f.y)) return '合并冲突';
-  if (f.x === '?') return '未跟踪';
+  if (isConflict(f.x, f.y)) return 'Conflict';
+  if (f.x === '?') return 'Untracked';
   const staged = f.y === ' ' && f.x !== ' ';
   const code = f.y !== ' ' ? f.y : f.x;
   const base =
     code === 'A'
-      ? '已新增'
+      ? 'Added'
       : code === 'D'
-        ? '已删除'
+        ? 'Deleted'
         : code === 'R'
-          ? '已重命名'
+          ? 'Renamed'
           : code === 'C'
-            ? '已复制'
+            ? 'Copied'
             : code === 'T'
-              ? '类型已变更'
-              : '已修改';
-  return staged ? `已暂存:${base}` : base;
+              ? 'Type Changed'
+              : 'Modified';
+  return staged ? `Staged: ${base}` : base;
 }
 
 /**

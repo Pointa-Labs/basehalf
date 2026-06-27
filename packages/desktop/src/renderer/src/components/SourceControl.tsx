@@ -22,6 +22,7 @@ import { useScmViewStore } from '../store/scmView.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BranchSelector } from './BranchSelector.js';
+import { Codicon } from './Codicon.js';
 import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { GitGraph } from './GitGraph.js';
@@ -58,21 +59,21 @@ const msg = (err: unknown): string => (err instanceof Error ? err.message : Stri
 const COMMIT_KEY = window.bh.platform === 'darwin' ? '⌘Enter' : 'Ctrl+Enter';
 
 /** A human status label for a row's aria-label (so a screen reader announces
- *  "name, 已修改, dir" instead of stopping at the filename). */
+ *  "name, Modified, dir" instead of stopping at the filename). */
 const rowStatusText = (row: GitRow): string => {
-  if (row.conflict) return '合并冲突';
-  if (row.untracked) return '未跟踪';
+  if (row.conflict) return 'Conflict';
+  if (row.untracked) return 'Untracked';
   const base =
     row.status === 'A'
-      ? '已新增'
+      ? 'Added'
       : row.status === 'D'
-        ? '已删除'
+        ? 'Deleted'
         : row.status === 'R'
-          ? '已重命名'
+          ? 'Renamed'
           : row.status === 'C'
-            ? '已复制'
-            : '已修改';
-  return row.staged ? `已暂存:${base}` : base;
+            ? 'Copied'
+            : 'Modified';
+  return row.staged ? `Staged: ${base}` : base;
 };
 
 /** Arrow-key navigation across the whole change list (one keyboard tree). */
@@ -231,7 +232,7 @@ export const SourceControl = (): JSX.Element => {
     void (async () => {
       // Electron has no window.prompt — use the app's custom prompt dialog.
       const name = (
-        await prompt({ title: '新建分支', label: '分支名', placeholder: 'feature/x' })
+        await prompt({ title: 'Create Branch', label: 'Branch name', placeholder: 'feature/x' })
       )?.trim();
       if (name) void act(() => window.bh.run('git.createBranch', { name }));
     })();
@@ -242,22 +243,22 @@ export const SourceControl = (): JSX.Element => {
     void (async () => {
       const branch = status?.branch;
       if (!branch) {
-        toast.error('需要当前分支才能创建 PR。');
+        toast.error('A current branch is required to create a pull request.');
         return;
       }
       try {
         const { url } = (await window.bh.run('git.remoteUrl', {})) as { url: string | null };
         if (url === null) {
-          toast.error('没有配置远程仓库（origin）。');
+          toast.error('No remote (origin) is configured.');
           return;
         }
         const pr = createPrUrl(url, branch);
         if (pr === null) {
-          toast.error('无法从远程地址推断 PR 链接。');
+          toast.error('Could not derive a pull request URL from the remote.');
           return;
         }
         const res = await window.bh.openExternal(pr);
-        if (!res.ok) toast.error(res.error ?? '打开浏览器失败。');
+        if (!res.ok) toast.error(res.error ?? 'Failed to open the browser.');
       } catch (e) {
         toast.error(msg(e));
       }
@@ -282,7 +283,12 @@ export const SourceControl = (): JSX.Element => {
     });
   const discardAll = (): void => {
     if (groups.changes.length === 0) return;
-    if (!window.confirm(`放弃全部 ${groups.changes.length} 处未暂存改动？此操作不可撤销。`)) return;
+    if (
+      !window.confirm(
+        `Discard all ${groups.changes.length} unstaged change(s)? This is IRREVERSIBLE.`,
+      )
+    )
+      return;
     const tracked = groups.changes.filter((r) => !r.untracked).map((r) => r.path);
     void act(() =>
       tracked.length > 0 ? window.bh.run('git.discard', { paths: tracked }) : Promise.resolve(),
@@ -322,35 +328,35 @@ export const SourceControl = (): JSX.Element => {
         onSync={onSync}
         onAfterBranch={refresh}
         menuActions={[
-          { label: '新建分支…', onClick: createBranchPrompt },
-          { label: '拉取（Pull）', onClick: () => runAction('git.pull') },
+          { label: 'Create Branch…', onClick: createBranchPrompt },
+          { label: 'Pull', onClick: () => runAction('git.pull') },
           {
-            label: '拉取（变基 Rebase）',
+            label: 'Pull (Rebase)',
             onClick: () => void act(() => window.bh.run('git.pull', { rebase: true })),
           },
-          { label: '推送（Push）', onClick: () => runAction('git.push') },
+          { label: 'Push', onClick: () => runAction('git.push') },
           {
-            label: '推送（强制 Force）',
+            label: 'Push (Force)',
             onClick: () => void act(() => window.bh.run('git.push', { force: true })),
           },
-          { label: '获取（Fetch）', onClick: () => runAction('git.fetch') },
-          { label: '在浏览器中创建 PR…', onClick: createPullRequest },
+          { label: 'Fetch', onClick: () => runAction('git.fetch') },
+          { label: 'Create Pull Request…', onClick: createPullRequest },
           {
-            label: '撤销上次提交（Undo Last Commit）',
+            label: 'Undo Last Commit',
             onClick: () =>
               void act(() => window.bh.run('git.reset', { ref: 'HEAD~1', mode: 'soft' })),
           },
-          { label: '贮藏（Stash）', onClick: () => runAction('git.stash') },
-          { label: '弹出贮藏（Pop Stash）', onClick: () => runAction('git.stashPop') },
-          { label: '放弃全部改动', onClick: discardAll, danger: true },
-          { label: '刷新', onClick: () => void refresh() },
+          { label: 'Stash', onClick: () => runAction('git.stash') },
+          { label: 'Pop Stash', onClick: () => runAction('git.stashPop') },
+          { label: 'Discard All Changes', onClick: discardAll, danger: true },
+          { label: 'Refresh', onClick: () => void refresh() },
         ]}
       />
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} onKeyDown={handleTreeKeyDown}>
         {/* Commit box (always visible, VS Code-style) + the resource groups — the
-            groups carry the "更改/暂存的更改/合并的更改" headers, so there's no
-            extra wrapping "更改" disclosure on top of them. */}
+            groups carry the Changes / Staged Changes / Merge Changes headers, so there is no
+            extra wrapping Changes disclosure on top of them. */}
         <ChangesView
           message={message}
           setMessage={setMessage}
@@ -372,7 +378,7 @@ export const SourceControl = (): JSX.Element => {
 
         {stashes.length > 0 && (
           <Disclosure
-            title="贮藏"
+            title="Stashes"
             count={stashes.length}
             open={stashesOpen}
             onToggle={() => setStashesOpen(!stashesOpen)}
@@ -385,7 +391,7 @@ export const SourceControl = (): JSX.Element => {
                 onApply={() => void act(() => window.bh.run('git.stashApply', { ref: s.ref }))}
                 onPop={() => void act(() => window.bh.run('git.stashPop', { ref: s.ref }))}
                 onDrop={() => {
-                  if (window.confirm(`删除贮藏 ${s.ref}？此操作不可撤销。`))
+                  if (window.confirm(`Delete stash ${s.ref}? This is IRREVERSIBLE.`))
                     void act(() => window.bh.run('git.stashDrop', { ref: s.ref }));
                 }}
               />
@@ -394,7 +400,7 @@ export const SourceControl = (): JSX.Element => {
         )}
 
         <Disclosure
-          title="图谱"
+          title="Graph"
           open={graphOpen}
           onToggle={() => setGraphOpen(!graphOpen)}
           actions={
@@ -402,7 +408,7 @@ export const SourceControl = (): JSX.Element => {
               {/* VS Code's history-view header: ref filter + Go-to-current + the
                   provider's fetch/pull/push/sync. */}
               <span
-                title="分支筛选"
+                title="Branch Filter"
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
@@ -416,31 +422,36 @@ export const SourceControl = (): JSX.Element => {
                 Auto
               </span>
               <IconBtn
-                title="打开 Git Graph（全页）"
+                title="Open Git Graph"
                 onClick={() => useWorkspaceStore.getState().openGitGraph()}
                 disabled={busy}
-                glyph="⛶"
+                glyph="screen-full"
               />
-              <IconBtn title="定位到当前提交" onClick={revealHead} disabled={busy} glyph="◎" />
               <IconBtn
-                title="获取（Fetch）"
+                title="Go to Current History Item"
+                onClick={revealHead}
+                disabled={busy}
+                glyph="target"
+              />
+              <IconBtn
+                title="Fetch"
                 onClick={() => runAction('git.fetch')}
                 disabled={busy}
-                glyph="↧"
+                glyph="cloud-download"
               />
               <IconBtn
-                title="拉取（Pull）"
+                title="Pull"
                 onClick={() => runAction('git.pull')}
                 disabled={busy}
-                glyph="↓"
+                glyph="arrow-down"
               />
               <IconBtn
-                title="推送（Push）"
+                title="Push"
                 onClick={() => runAction('git.push')}
                 disabled={busy}
-                glyph="↑"
+                glyph="arrow-up"
               />
-              <IconBtn title="同步（Sync）" onClick={onSync} disabled={busy} glyph="↻" />
+              <IconBtn title="Sync Changes" onClick={onSync} disabled={busy} glyph="sync" />
             </>
           }
         >
@@ -507,8 +518,8 @@ const ChangesView = ({
           }}
           placeholder={
             commitBranch !== ''
-              ? `提交信息（${COMMIT_KEY} 提交到 “${commitBranch}”）`
-              : `提交信息（${COMMIT_KEY} 提交）`
+              ? `Message (${COMMIT_KEY} to commit on “${commitBranch}”)`
+              : `Message (${COMMIT_KEY} to commit)`
           }
           rows={2}
           style={{
@@ -528,9 +539,9 @@ const ChangesView = ({
         />
         <button
           type="button"
-          title="生成提交信息（AI）"
-          aria-label="生成提交信息"
-          onClick={() => toast.info('AI 生成提交信息尚未接入。')}
+          title="Generate Commit Message (AI)"
+          aria-label="Generate commit message"
+          onClick={() => toast.info('AI commit messages are not wired up yet.')}
           style={{
             position: 'absolute',
             top: space[1],
@@ -554,7 +565,7 @@ const ChangesView = ({
             e.currentTarget.style.color = color.textTertiary;
           }}
         >
-          ✦
+          <Codicon name="sparkle" size={14} />
         </button>
       </div>
       <div style={{ display: 'flex', marginTop: space[2] }}>
@@ -576,7 +587,8 @@ const ChangesView = ({
             cursor: canCommit ? 'pointer' : 'default',
           }}
         >
-          {amend ? '✎ 修订上次提交' : `✓ 提交${hasStaged ? `（${stagedCount}）` : ''}`}
+          <Codicon name={amend ? 'edit' : 'check'} size={14} style={{ marginRight: 6 }} />
+          {amend ? 'Amend' : `Commit${hasStaged ? ` (${stagedCount})` : ''}`}
         </button>
         <div
           style={{
@@ -590,10 +602,16 @@ const ChangesView = ({
           <Menu
             align="right"
             disabled={!canCommit}
-            label={<span style={{ color: canCommit ? color.onAccent : color.textGhost }}>▾</span>}
+            label={
+              <Codicon
+                name="chevron-down"
+                size={14}
+                color={canCommit ? color.onAccent : color.textGhost}
+              />
+            }
             actions={[
-              { label: '提交并推送', onClick: () => commit('push') },
-              { label: '提交并同步', onClick: () => commit('sync') },
+              { label: 'Commit & Push', onClick: () => commit('push') },
+              { label: 'Commit & Sync', onClick: () => commit('sync') },
             ]}
           />
         </div>
@@ -615,7 +633,12 @@ const ChangesView = ({
           textAlign: 'center',
         }}
       >
-        {amend ? '☑' : '☐'} 修订上次提交
+        <Codicon
+          name={amend ? 'check' : 'circle-large-outline'}
+          size={12}
+          style={{ marginRight: 4 }}
+        />
+        Amend Last Commit
       </button>
     </div>
 
@@ -623,47 +646,54 @@ const ChangesView = ({
     <div>
       {count === 0 ? (
         <div style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}>
-          没有更改 —— 工作区是干净的。
+          There are no changes.
         </div>
       ) : (
         <>
           <Group
-            title="合并的更改"
+            title="Merge Changes"
             rows={groups.merge}
             show={groups.merge.length > 0}
             busy={busy}
             onRow={openRow}
-            actions={(r) => [{ label: '暂存', glyph: '+', onClick: () => void stage([r.path]) }]}
+            actions={(r) => [
+              { label: 'Stage Changes', glyph: 'add', onClick: () => void stage([r.path]) },
+            ]}
           />
           <Group
-            title="暂存的更改"
+            title="Staged Changes"
             rows={groups.staged}
             show={hasStaged}
             busy={busy}
             groupAction={{
-              label: '全部取消暂存',
-              glyph: '−',
+              label: 'Unstage All Changes',
+              glyph: 'remove',
               onClick: () => void unstage(groups.staged.map((r) => r.path)),
             }}
             onRow={openRow}
             actions={(r) => [
-              { label: '取消暂存', glyph: '−', onClick: () => void unstage([r.path]) },
+              { label: 'Unstage Changes', glyph: 'remove', onClick: () => void unstage([r.path]) },
             ]}
           />
           <Group
-            title="更改"
+            title="Changes"
             rows={groups.changes}
             show={groups.changes.length > 0}
             busy={busy}
             groupAction={{
-              label: '全部暂存',
-              glyph: '+',
+              label: 'Stage All Changes',
+              glyph: 'add',
               onClick: () => void stage(groups.changes.map((r) => r.path)),
             }}
             onRow={openRow}
             actions={(r) => [
-              { label: '放弃', glyph: '↩', onClick: () => discard(r), danger: true },
-              { label: '暂存', glyph: '+', onClick: () => void stage([r.path]) },
+              {
+                label: 'Discard Changes',
+                glyph: 'discard',
+                onClick: () => discard(r),
+                danger: true,
+              },
+              { label: 'Stage Changes', glyph: 'add', onClick: () => void stage([r.path]) },
             ]}
           />
         </>
@@ -710,10 +740,10 @@ const RepoHeader = ({
       <BranchSelector status={status} disabled={busy} onAfter={onAfterBranch} />
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
         <IconBtn
-          title={counts !== '' ? `同步（${counts}）` : '同步（拉取并推送）'}
+          title={counts !== '' ? `Sync Changes ${counts}` : 'Sync Changes (Pull, Push)'}
           onClick={onSync}
           disabled={busy}
-          glyph="↻"
+          glyph="sync"
         />
         {counts !== '' && (
           <span
@@ -727,7 +757,7 @@ const RepoHeader = ({
             {counts}
           </span>
         )}
-        <Menu actions={menuActions} title="更多 Git 操作" align="right" disabled={busy} />
+        <Menu actions={menuActions} title="More Actions…" align="right" disabled={busy} />
       </span>
     </div>
   );
@@ -997,22 +1027,22 @@ const StashRow = ({
         }}
       >
         <IconBtn
-          title="应用（保留贮藏）"
-          glyph="↧"
+          title="Apply Stash"
+          glyph="cloud-download"
           onClick={onApply}
           disabled={busy}
           tabIndex={active ? 0 : -1}
         />
         <IconBtn
-          title="弹出（应用并删除）"
-          glyph="↥"
+          title="Pop Stash"
+          glyph="cloud-upload"
           onClick={onPop}
           disabled={busy}
           tabIndex={active ? 0 : -1}
         />
         <IconBtn
-          title="删除贮藏"
-          glyph="🗑"
+          title="Drop Stash"
+          glyph="trash"
           onClick={onDrop}
           disabled={busy}
           danger
@@ -1060,9 +1090,6 @@ const IconBtn = ({
       cursor: disabled ? 'default' : 'pointer',
       opacity: disabled ? 0.4 : 1,
       color: danger ? color.danger : color.textTertiary,
-      fontFamily: font.mono,
-      fontSize: font.size.body,
-      lineHeight: 1,
       transition: transition(['background', 'color']),
     }}
     onMouseEnter={(e) => {
@@ -1074,7 +1101,7 @@ const IconBtn = ({
       e.currentTarget.style.color = danger ? color.danger : color.textTertiary;
     }}
   >
-    {glyph}
+    <Codicon name={glyph} size={16} />
   </button>
 );
 
@@ -1140,8 +1167,8 @@ const ErrorLine = ({
     {onDismiss !== undefined && (
       <button
         type="button"
-        title="关闭"
-        aria-label="关闭错误提示"
+        title="Dismiss"
+        aria-label="Dismiss error"
         onClick={onDismiss}
         style={{
           flexShrink: 0,
