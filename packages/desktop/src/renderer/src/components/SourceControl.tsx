@@ -295,8 +295,21 @@ export const SourceControl = (): JSX.Element => {
         menuActions={[
           { label: '新建分支…', onClick: createBranchPrompt },
           { label: '拉取（Pull）', onClick: () => runAction('git.pull') },
+          {
+            label: '拉取（变基 Rebase）',
+            onClick: () => void act(() => window.bh.run('git.pull', { rebase: true })),
+          },
           { label: '推送（Push）', onClick: () => runAction('git.push') },
+          {
+            label: '推送（强制 Force）',
+            onClick: () => void act(() => window.bh.run('git.push', { force: true })),
+          },
           { label: '获取（Fetch）', onClick: () => runAction('git.fetch') },
+          {
+            label: '撤销上次提交（Undo Last Commit）',
+            onClick: () =>
+              void act(() => window.bh.run('git.reset', { ref: 'HEAD~1', mode: 'soft' })),
+          },
           { label: '贮藏（Stash）', onClick: () => runAction('git.stash') },
           { label: '弹出贮藏（Pop Stash）', onClick: () => runAction('git.stashPop') },
           { label: '放弃全部改动', onClick: discardAll, danger: true },

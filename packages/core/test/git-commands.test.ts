@@ -124,6 +124,24 @@ describe('git commands (injected fake runner)', () => {
     expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push']);
   });
 
+  it('git.push force uses --force-with-lease (never bare --force)', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[0] === 'status' ? { stdout: '## main...origin/main\0' } : {},
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.push', { force: true }, ROOT);
+    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '--force-with-lease']);
+  });
+
+  it('git.pull rebase passes --rebase', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.pull', {}, ROOT);
+    expect(calls[0]?.args).toEqual(['pull']);
+    await core.run('git.pull', { rebase: true }, ROOT);
+    expect(calls[1]?.args).toEqual(['pull', '--rebase']);
+  });
+
   it('git.branches marks the current branch', async () => {
     const { git } = makeFakeGit((args) =>
       args[0] === 'status'

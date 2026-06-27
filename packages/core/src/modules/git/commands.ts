@@ -31,6 +31,8 @@ import type {
   GitMergeResult,
   GitOkResult,
   GitPathsArgs,
+  GitPullArgs,
+  GitPushArgs,
   GitRemoteResult,
   GitRenameBranchArgs,
   GitResetArgs,
@@ -180,17 +182,22 @@ export const commit: Handler<GitCommitArgs, GitCommitResult> = async (args, ctx)
   return { committed: true };
 };
 
-export const push: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
+export const push: Handler<GitPushArgs, GitRemoteResult> = async (args, ctx) => {
   // No upstream yet → set it (`push -u origin <branch>`); else a plain push.
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   const cmd =
     st.upstream !== null || st.branch === null ? ['push'] : ['push', '-u', 'origin', st.branch];
+  // Force = --force-with-lease (never the unconditional --force): refuses to
+  // overwrite upstream commits we haven't seen, so a force-push can't silently
+  // clobber a teammate's work.
+  if (args?.force === true) cmd.push('--force-with-lease');
   const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const pull: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
-  const res = await git(ctx, ['pull'], { timeoutMs: REMOTE_TIMEOUT_MS });
+export const pull: Handler<GitPullArgs, GitRemoteResult> = async (args, ctx) => {
+  const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
+  const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
 };
 

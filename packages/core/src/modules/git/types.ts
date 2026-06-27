@@ -133,6 +133,17 @@ export interface GitRevertResult {
   readonly conflicts: boolean;
 }
 
+export interface GitPushArgs {
+  /** Force-push with `--force-with-lease` (VS Code's "Push (Force)" — the safe
+   *  variant that refuses to clobber unseen upstream commits). */
+  readonly force?: boolean;
+}
+
+export interface GitPullArgs {
+  /** `pull --rebase` instead of a merge pull (VS Code's "Pull (Rebase)"). */
+  readonly rebase?: boolean;
+}
+
 export interface GitCheckoutArgs {
   readonly branch: string;
   /** Create the branch (git checkout -b) before switching to it. */
