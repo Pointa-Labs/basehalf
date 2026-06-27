@@ -15,6 +15,7 @@ import { buildFileMenu, createAndRename } from '../lib/menus/fileMenu.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { Codicon } from './Codicon.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { InlineEditInput } from './primitives/InlineEditInput.js';
 
@@ -692,10 +693,10 @@ const ExplorerHeader = ({
           transition: transition(['opacity']),
         }}
       >
-        <HdrBtn title="New File" onClick={onNewFile} glyph="🗋" />
-        <HdrBtn title="New Folder" onClick={onNewFolder} glyph="🗀" />
-        <HdrBtn title="Refresh" onClick={onRefresh} glyph="↻" />
-        <HdrBtn title="Collapse All" onClick={onCollapseAll} glyph="⌄" />
+        <HdrBtn title="New File" onClick={onNewFile} glyph="new-file" />
+        <HdrBtn title="New Folder" onClick={onNewFolder} glyph="new-folder" />
+        <HdrBtn title="Refresh" onClick={onRefresh} glyph="refresh" />
+        <HdrBtn title="Collapse All" onClick={onCollapseAll} glyph="collapse-all" />
       </span>
     </div>
   );
@@ -739,6 +740,6 @@ const HdrBtn = ({
       e.currentTarget.style.color = color.textTertiary;
     }}
   >
-    {glyph}
+    <Codicon name={glyph} size={16} />
   </button>
 );

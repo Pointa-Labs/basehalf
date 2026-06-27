@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from 'react';
 import { color, font, space, transition } from '../../design.js';
+import { Codicon } from '../Codicon.js';
 import { CountBadge } from './CountBadge.js';
 
 /**
@@ -62,13 +63,14 @@ export const Disclosure = ({
           aria-hidden
           style={{
             width: 12,
-            display: 'inline-block',
+            display: 'inline-flex',
+            justifyContent: 'center',
             transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
             transition: transition(['transform']),
             color: color.textTertiary,
           }}
         >
-          ▸
+          <Codicon name="chevron-right" size={14} />
         </span>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {title}

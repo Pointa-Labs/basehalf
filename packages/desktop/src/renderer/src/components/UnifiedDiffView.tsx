@@ -1,9 +1,10 @@
-import { type JSX, useCallback, useMemo, useRef, useState } from 'react';
+import { type JSX, type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { extractHunkPatch } from '../lib/hunkPatch.js';
 import { type DiffRow, diffStat } from '../lib/unifiedDiff.js';
 import { useFileDiff } from '../lib/useFileDiff.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
+import { Codicon } from './Codicon.js';
 import { SplitDiff } from './SplitDiff.js';
 import { UnifiedDiff } from './UnifiedDiff.js';
 
@@ -168,27 +169,27 @@ export const UnifiedDiffView = ({
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: space[1] }}>
           <IconBtn title="Previous Change" onClick={() => navigate(-1)}>
-            ↑
+            <Codicon name="arrow-up" size={14} />
           </IconBtn>
           <IconBtn title="Next Change" onClick={() => navigate(1)}>
-            ↓
+            <Codicon name="arrow-down" size={14} />
           </IconBtn>
           <IconBtn
             title={ignoreWs ? 'Show whitespace' : 'Ignore whitespace'}
             active={ignoreWs}
             onClick={() => setIgnoreWs((v) => !v)}
           >
-            ⊘
+            <Codicon name="whitespace" size={14} />
           </IconBtn>
           <IconBtn
             title={view === 'split' ? 'Switch to inline view' : 'Switch to side-by-side view'}
             active={view === 'split'}
             onClick={() => setView((v) => (v === 'split' ? 'inline' : 'split'))}
           >
-            ⇆
+            <Codicon name="split-horizontal" size={14} />
           </IconBtn>
           <IconBtn title="Close Diff" onClick={onClose}>
-            ✕
+            <Codicon name="close" size={14} />
           </IconBtn>
         </span>
       </div>
@@ -270,7 +271,7 @@ const IconBtn = ({
   title: string;
   onClick: () => void;
   active?: boolean;
-  children: string;
+  children: ReactNode;
 }): JSX.Element => (
   <button
     type="button"

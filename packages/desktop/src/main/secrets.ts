@@ -27,7 +27,7 @@ export function createSafeStorageSecrets(configDir: string): SecretStore {
     },
     async set(key, value) {
       if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('系统加密不可用，无法安全保存凭证。');
+        throw new Error('OS encryption is unavailable; cannot store the credential securely.');
       }
       const enc = safeStorage.encryptString(value);
       const file = fileFor(key);
