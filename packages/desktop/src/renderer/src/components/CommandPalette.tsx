@@ -68,11 +68,12 @@ export function closeCommandPalette(): void {
 }
 
 // ── Git-mode helpers: drive the SCM view from a palette action ────────────────
-/** Open the sidebar's Source Control view on a given tab. */
-function showSourceControl(tab: 'changes' | 'graph'): void {
+/** Open the sidebar's Source Control view and expand the given section. */
+function showSourceControl(section: 'changes' | 'graph'): void {
   useLayoutStore.getState().setSidebarOpen(true);
   useLayoutStore.getState().setSidebarView('scm');
-  useScmViewStore.getState().setTab(tab);
+  if (section === 'graph') useScmViewStore.getState().setGraphOpen(true);
+  else useScmViewStore.getState().setChangesOpen(true);
 }
 /** Open SCM ▸ Graph and reveal a specific commit (⌘K "jump to commit"). */
 function revealCommitInGraph(hash: string): void {

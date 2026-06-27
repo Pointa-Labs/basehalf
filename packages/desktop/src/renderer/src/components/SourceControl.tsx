@@ -20,8 +20,11 @@ import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BranchSelector } from './BranchSelector.js';
+import { FileGlyph, badgeType } from './FileGlyph.js';
 import { GitGraph } from './GitGraph.js';
 import { Button } from './primitives/Button.js';
+import { Disclosure } from './primitives/Disclosure.js';
+import { Menu, type MenuAction } from './primitives/Menu.js';
 
 /**
  * The Source Control panel — the git SCM view that replaces the file tree in the
@@ -89,8 +92,10 @@ export const SourceControl = (): JSX.Element => {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const tab = useScmViewStore((s) => s.tab);
-  const setTab = useScmViewStore((s) => s.setTab);
+  const changesOpen = useScmViewStore((s) => s.changesOpen);
+  const graphOpen = useScmViewStore((s) => s.graphOpen);
+  const setChangesOpen = useScmViewStore((s) => s.setChangesOpen);
+  const setGraphOpen = useScmViewStore((s) => s.setGraphOpen);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
   // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
@@ -183,13 +188,37 @@ export const SourceControl = (): JSX.Element => {
     });
   };
 
-  const commit = (): void => {
+  // Commit, optionally followed by push or sync (pull then push) — the VS Code
+  // "Commit & Push" / "Commit & Sync" split-button actions.
+  const commit = (after?: 'push' | 'sync'): void => {
     if (!canCommit) return;
     void act(async () => {
       await window.bh.run('git.commit', { message: message.trim(), amend });
       setMessage('');
       setAmend(false);
+      if (after === 'push') await window.bh.run('git.push', {});
+      else if (after === 'sync') {
+        await window.bh.run('git.pull', {});
+        await window.bh.run('git.push', {});
+      }
     });
+  };
+
+  // Header git actions (push/pull/fetch/sync/stash) — each runs then re-reads
+  // status from disk. Sync = pull then push (the everyday "stay in lockstep").
+  const runAction = (name: string): void => void act(() => window.bh.run(name, {}));
+  const onSync = (): void =>
+    void act(async () => {
+      await window.bh.run('git.pull', {});
+      await window.bh.run('git.push', {});
+    });
+  const discardAll = (): void => {
+    if (groups.changes.length === 0) return;
+    if (!window.confirm(`放弃全部 ${groups.changes.length} 处未暂存改动？此操作不可撤销。`)) return;
+    const tracked = groups.changes.filter((r) => !r.untracked).map((r) => r.path);
+    void act(() =>
+      tracked.length > 0 ? window.bh.run('git.discard', { paths: tracked }) : Promise.resolve(),
+    );
   };
 
   if (status === null) {
@@ -219,103 +248,57 @@ export const SourceControl = (): JSX.Element => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <Header
+      <RepoHeader
         status={status}
         busy={busy}
-        onRefresh={() => void refresh()}
-        onPush={() => void act(() => window.bh.run('git.push', {}))}
-        onPull={() => void act(() => window.bh.run('git.pull', {}))}
+        onSync={onSync}
         onAfterBranch={refresh}
+        menuActions={[
+          { label: '拉取（Pull）', onClick: () => runAction('git.pull') },
+          { label: '推送（Push）', onClick: () => runAction('git.push') },
+          { label: '获取（Fetch）', onClick: () => runAction('git.fetch') },
+          { label: '贮藏（Stash）', onClick: () => runAction('git.stash') },
+          { label: '弹出贮藏（Pop Stash）', onClick: () => runAction('git.stashPop') },
+          { label: '放弃全部改动', onClick: discardAll, danger: true },
+          { label: '刷新', onClick: () => void refresh() },
+        ]}
       />
 
-      <Tabs tab={tab} onChange={setTab} changeCount={count} />
+      {error !== null && <ErrorLine onDismiss={() => setError(null)}>{error}</ErrorLine>}
 
-      {tab === 'graph' ? (
-        <GitGraph />
-      ) : (
-        <ChangesView
-          message={message}
-          setMessage={setMessage}
-          canCommit={canCommit}
-          hasStaged={hasStaged}
-          stagedCount={groups.staged.length}
-          amend={amend}
-          onToggleAmend={toggleAmend}
-          commit={commit}
-          error={error}
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} onKeyDown={handleTreeKeyDown}>
+        <Disclosure
+          title="更改"
           count={count}
-          groups={groups}
-          busy={busy}
-          openRow={openRow}
-          stage={stage}
-          unstage={unstage}
-          discard={discard}
-        />
-      )}
+          open={changesOpen}
+          onToggle={() => setChangesOpen(!changesOpen)}
+        >
+          <ChangesView
+            message={message}
+            setMessage={setMessage}
+            canCommit={canCommit}
+            hasStaged={hasStaged}
+            stagedCount={groups.staged.length}
+            amend={amend}
+            onToggleAmend={toggleAmend}
+            commit={commit}
+            count={count}
+            groups={groups}
+            busy={busy}
+            openRow={openRow}
+            stage={stage}
+            unstage={unstage}
+            discard={discard}
+          />
+        </Disclosure>
+
+        <Disclosure title="图谱" open={graphOpen} onToggle={() => setGraphOpen(!graphOpen)}>
+          {graphOpen && <GitGraph />}
+        </Disclosure>
+      </div>
     </div>
   );
 };
-
-// ── Changes / Graph segmented toggle ─────────────────────────────────────────
-const Tabs = ({
-  tab,
-  onChange,
-  changeCount,
-}: {
-  tab: 'changes' | 'graph';
-  onChange: (t: 'changes' | 'graph') => void;
-  changeCount: number;
-}): JSX.Element => (
-  <div
-    role="tablist"
-    aria-label="源代码管理视图"
-    style={{
-      display: 'flex',
-      gap: space[1],
-      padding: `${space[1]}px ${space[3]}px`,
-      borderBottom: `1px solid ${color.divider}`,
-      flexShrink: 0,
-    }}
-  >
-    <TabBtn active={tab === 'changes'} onClick={() => onChange('changes')}>
-      {`更改${changeCount > 0 ? ` (${changeCount})` : ''}`}
-    </TabBtn>
-    <TabBtn active={tab === 'graph'} onClick={() => onChange('graph')}>
-      图谱
-    </TabBtn>
-  </div>
-);
-
-const TabBtn = ({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}): JSX.Element => (
-  <button
-    type="button"
-    role="tab"
-    aria-selected={active}
-    onClick={onClick}
-    style={{
-      padding: `${space[1]}px ${space[2]}px`,
-      background: active ? color.surfaceMuted : 'none',
-      border: 'none',
-      borderRadius: radius.sm,
-      color: active ? color.textPrimary : color.textTertiary,
-      fontFamily: font.sans,
-      fontSize: font.size.caption,
-      fontWeight: active ? font.weight.medium : font.weight.regular,
-      cursor: 'pointer',
-      transition: transition(['background', 'color']),
-    }}
-  >
-    {children}
-  </button>
-);
 
 // ── The Changes view (commit box + the three resource groups) ────────────────
 const ChangesView = ({
@@ -327,7 +310,6 @@ const ChangesView = ({
   amend,
   onToggleAmend,
   commit,
-  error,
   count,
   groups,
   busy,
@@ -343,8 +325,7 @@ const ChangesView = ({
   stagedCount: number;
   amend: boolean;
   onToggleAmend: () => void;
-  commit: () => void;
-  error: string | null;
+  commit: (after?: 'push' | 'sync') => void;
   count: number;
   groups: GitGroups;
   busy: boolean;
@@ -382,26 +363,47 @@ const ChangesView = ({
           outline: 'none',
         }}
       />
-      <button
-        type="button"
-        disabled={!canCommit}
-        onClick={commit}
-        style={{
-          width: '100%',
-          marginTop: space[2],
-          padding: `${space[2]}px`,
-          background: canCommit ? color.accent : color.surfaceMuted,
-          color: canCommit ? color.onAccent : color.textGhost,
-          border: 'none',
-          borderRadius: radius.md,
-          fontFamily: font.sans,
-          fontSize: font.size.caption,
-          fontWeight: font.weight.medium,
-          cursor: canCommit ? 'pointer' : 'default',
-        }}
-      >
-        {amend ? '✎ 修订上次提交' : `✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
-      </button>
+      <div style={{ display: 'flex', marginTop: space[2] }}>
+        <button
+          type="button"
+          disabled={!canCommit}
+          onClick={() => commit()}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: `${space[2]}px`,
+            background: canCommit ? color.accent : color.surfaceMuted,
+            color: canCommit ? color.onAccent : color.textGhost,
+            border: 'none',
+            borderRadius: `${radius.md}px 0 0 ${radius.md}px`,
+            fontFamily: font.sans,
+            fontSize: font.size.caption,
+            fontWeight: font.weight.medium,
+            cursor: canCommit ? 'pointer' : 'default',
+          }}
+        >
+          {amend ? '✎ 修订上次提交' : `✓ Commit${hasStaged ? ` (${stagedCount})` : ''}`}
+        </button>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'stretch',
+            background: canCommit ? color.accent : color.surfaceMuted,
+            borderRadius: `0 ${radius.md}px ${radius.md}px 0`,
+            borderLeft: `1px solid ${color.bg}`,
+          }}
+        >
+          <Menu
+            align="right"
+            disabled={!canCommit}
+            label={<span style={{ color: canCommit ? color.onAccent : color.textGhost }}>▾</span>}
+            actions={[
+              { label: 'Commit & Push（提交并推送）', onClick: () => commit('push') },
+              { label: 'Commit & Sync（提交并同步）', onClick: () => commit('sync') },
+            ]}
+          />
+        </div>
+      </div>
       <button
         type="button"
         onClick={onToggleAmend}
@@ -423,10 +425,8 @@ const ChangesView = ({
       </button>
     </div>
 
-    {error !== null && <ErrorLine>{error}</ErrorLine>}
-
-    {/* Arrow-key host: ↑/↓ move between the row buttons (a keyboard tree). */}
-    <div onKeyDown={handleTreeKeyDown} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+    {/* The three resource groups (the outer panel owns the scroll + arrow-key host). */}
+    <div>
       {count === 0 ? (
         <div style={{ padding: space[4], color: color.textTertiary, fontSize: font.size.caption }}>
           No changes — working tree clean.
@@ -478,33 +478,33 @@ const ChangesView = ({
   </>
 );
 
-// ── Header: branch + ahead/behind + refresh/push/pull ────────────────────────
-const Header = ({
+// ── Repo header: branch selector + Sync + overflow menu (VS Code repo row) ────
+const RepoHeader = ({
   status,
   busy,
-  onRefresh,
-  onPush,
-  onPull,
+  onSync,
   onAfterBranch,
+  menuActions,
 }: {
   status: GitStatusResult;
   busy: boolean;
-  onRefresh: () => void;
-  onPush: () => void;
-  onPull: () => void;
+  onSync: () => void;
   onAfterBranch: () => void | Promise<void>;
+  menuActions: MenuAction[];
 }): JSX.Element => {
-  const sync =
+  // The Sync glyph carries the ahead/behind counts the way VS Code's status-bar
+  // sync does: ↑ahead ↓behind, or a plain ↻ when in sync.
+  const counts =
     status.ahead > 0 || status.behind > 0
-      ? `${status.behind > 0 ? `↓${status.behind}` : ''}${status.ahead > 0 ? `↑${status.ahead}` : ''}`
+      ? `${status.ahead > 0 ? `↑${status.ahead}` : ''}${status.behind > 0 ? `↓${status.behind}` : ''}`
       : '';
   return (
     <div
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: space[2],
-        padding: `${space[2]}px ${space[3]}px`,
+        gap: space[1],
+        padding: `${space[2]}px ${space[2]}px ${space[2]}px ${space[3]}px`,
         borderBottom: `1px solid ${color.divider}`,
         flexShrink: 0,
         fontFamily: font.sans,
@@ -514,15 +514,26 @@ const Header = ({
       }}
     >
       <BranchSelector status={status} disabled={busy} onAfter={onAfterBranch} />
-      {sync !== '' && (
-        <span style={{ color: color.textTertiary, fontFamily: font.mono, flexShrink: 0 }}>
-          {sync}
-        </span>
-      )}
-      <span style={{ marginLeft: 'auto', display: 'flex', gap: space[1], flexShrink: 0 }}>
-        <IconBtn title="Pull" onClick={onPull} disabled={busy} glyph="↓" />
-        <IconBtn title="Push" onClick={onPush} disabled={busy} glyph="↑" />
-        <IconBtn title="Refresh" onClick={onRefresh} disabled={busy} glyph="↻" />
+      <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+        <IconBtn
+          title={counts !== '' ? `同步（${counts}）` : '同步（拉取并推送）'}
+          onClick={onSync}
+          disabled={busy}
+          glyph="↻"
+        />
+        {counts !== '' && (
+          <span
+            style={{
+              color: color.textTertiary,
+              fontFamily: font.mono,
+              fontSize: font.size.micro,
+              marginRight: space[1],
+            }}
+          >
+            {counts}
+          </span>
+        )}
+        <Menu actions={menuActions} title="更多 Git 操作" align="right" disabled={busy} />
       </span>
     </div>
   );
@@ -661,6 +672,13 @@ const Row = ({
           ...(row.status === 'D' && { textDecoration: 'line-through' }),
         }}
       >
+        <span style={{ flexShrink: 0, display: 'inline-flex', marginRight: space[2] }}>
+          <FileGlyph
+            type={badgeType(clean, isDir)}
+            tone={row.untracked ? color.textTertiary : statusColor(row, STATUS_PALETTE)}
+            size={14}
+          />
+        </span>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {name}
         </span>
@@ -777,10 +795,20 @@ const Centered = ({ children }: { children: ReactNode }): JSX.Element => (
   </div>
 );
 
-const ErrorLine = ({ children }: { children: ReactNode }): JSX.Element => (
+const ErrorLine = ({
+  children,
+  onDismiss,
+}: {
+  children: ReactNode;
+  onDismiss?: () => void;
+}): JSX.Element => (
   <div
     style={{
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: space[2],
       padding: `${space[2]}px ${space[3]}px`,
+      background: `${color.danger}14`,
       color: color.danger,
       fontFamily: font.sans,
       fontSize: font.size.caption,
@@ -788,6 +816,25 @@ const ErrorLine = ({ children }: { children: ReactNode }): JSX.Element => (
       wordBreak: 'break-word',
     }}
   >
-    {children}
+    <span style={{ flex: 1, minWidth: 0 }}>{children}</span>
+    {onDismiss !== undefined && (
+      <button
+        type="button"
+        title="关闭"
+        aria-label="关闭错误提示"
+        onClick={onDismiss}
+        style={{
+          flexShrink: 0,
+          background: 'none',
+          border: 'none',
+          color: color.danger,
+          cursor: 'pointer',
+          padding: 0,
+          lineHeight: 1,
+        }}
+      >
+        ✕
+      </button>
+    )}
   </div>
 );
