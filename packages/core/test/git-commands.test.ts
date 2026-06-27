@@ -191,17 +191,43 @@ describe('git commands (injected fake runner)', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('git.stashList parses the ref + subject', async () => {
+  it('git.stashList parses ref + hash + base parent + date + author + subject', async () => {
     const { git } = makeFakeGit(() => ({
-      stdout: 'stash@{0}\x1fWIP on main: abc\nstash@{1}\x1fkeep\n',
+      stdout:
+        'stash@{0}\x1faaa111\x1fbbb222 ccc333\x1f2026-06-27T10:00:00+00:00\x1fAda\x1fada@x.dev\x1fWIP on main: abc\n' +
+        'stash@{1}\x1fddd444\x1feee555\x1f2026-06-26T09:00:00+00:00\x1fBob\x1fbob@x.dev\x1fkeep\n',
     }));
     const core = createCore({ git, configDir: '/cfg' });
     const r = (await core.run('git.stashList', {}, ROOT)) as {
-      entries: Array<{ ref: string; message: string }>;
+      entries: Array<{
+        ref: string;
+        message: string;
+        hash: string;
+        parents: string[];
+        date: string;
+        authorName: string;
+        authorEmail: string;
+      }>;
     };
     expect(r.entries).toEqual([
-      { ref: 'stash@{0}', message: 'WIP on main: abc' },
-      { ref: 'stash@{1}', message: 'keep' },
+      {
+        ref: 'stash@{0}',
+        hash: 'aaa111',
+        parents: ['bbb222', 'ccc333'],
+        date: '2026-06-27T10:00:00+00:00',
+        authorName: 'Ada',
+        authorEmail: 'ada@x.dev',
+        message: 'WIP on main: abc',
+      },
+      {
+        ref: 'stash@{1}',
+        hash: 'ddd444',
+        parents: ['eee555'],
+        date: '2026-06-26T09:00:00+00:00',
+        authorName: 'Bob',
+        authorEmail: 'bob@x.dev',
+        message: 'keep',
+      },
     ]);
   });
 

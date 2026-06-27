@@ -79,6 +79,14 @@ export interface GitStashEntry {
   /** The stash ref, e.g. "stash@{0}". */
   readonly ref: string;
   readonly message: string;
+  /** The stash commit's own SHA. */
+  readonly hash: string;
+  /** Parent SHAs; the first is the base commit the stash was taken from. */
+  readonly parents: readonly string[];
+  /** Committer date (ISO 8601). */
+  readonly date: string;
+  readonly authorName: string;
+  readonly authorEmail: string;
 }
 
 export interface GitStashListResult {

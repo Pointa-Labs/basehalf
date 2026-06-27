@@ -3,6 +3,7 @@ import type {
   GitCommit,
   GitCommitFilesResult,
   GitLogResult,
+  GitStashListResult,
   GitStatusResult,
 } from '@basehalf/core';
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
@@ -70,6 +71,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const [find, setFind] = useState('');
   const [branches, setBranches] = useState<GitBranchesResult['branches']>([]);
   const [uncommitted, setUncommitted] = useState(0);
+  const [stashes, setStashes] = useState<GitStashListResult['entries']>([]);
   // Date column format — Git Graph's "Date Format" setting (absolute ↔ relative).
   const [dateMode, setDateMode] = useState<'absolute' | 'relative'>('absolute');
 
@@ -100,40 +102,51 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
     void loadPage(0);
   }, [loadPage]);
 
-  // Branch list (for the filter dropdown) + the uncommitted-changes count.
-  useEffect(() => {
-    void (async () => {
-      try {
-        const b = (await window.bh.run('git.branches', {
-          includeRemote: showRemote,
-        })) as GitBranchesResult;
-        setBranches(b.branches);
-      } catch {
-        /* ignore */
-      }
-      try {
-        const s = (await window.bh.run('git.status', {})) as GitStatusResult;
-        setUncommitted(s.isRepo ? s.files.length : 0);
-      } catch {
-        /* ignore */
-      }
-    })();
+  // Side data the graph overlays onto the commits: branch list (filter dropdown),
+  // uncommitted-changes count, and the stash list (drawn as nodes). Refreshed on
+  // mount and after every graph mutation (see runGit) so stash nodes stay current.
+  const loadAux = useCallback(async (): Promise<void> => {
+    try {
+      const b = (await window.bh.run('git.branches', {
+        includeRemote: showRemote,
+      })) as GitBranchesResult;
+      setBranches(b.branches);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const s = (await window.bh.run('git.status', {})) as GitStatusResult;
+      setUncommitted(s.isRepo ? s.files.length : 0);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const st = (await window.bh.run('git.stashList', {})) as GitStashListResult;
+      setStashes(st.entries);
+    } catch {
+      /* ignore */
+    }
   }, [showRemote]);
 
-  // Run a graph mutation, then reload the graph (HEAD/refs moved) + SCM status.
+  useEffect(() => {
+    void loadAux();
+  }, [loadAux]);
+
+  // Run a graph mutation, then reload the graph (HEAD/refs moved) + side data + SCM.
   const runGit = useCallback(
     (fn: () => Promise<unknown>): void => {
       void (async () => {
         try {
           await fn();
           await loadPage(0);
+          await loadAux();
           await useGitStatusStore.getState().refresh();
         } catch (e) {
           toast.error(e instanceof Error ? e.message : String(e));
         }
       })();
     },
-    [loadPage],
+    [loadPage, loadAux],
   );
 
   // The Git Graph commit context menu (right-click a row).
@@ -352,7 +365,82 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
     [branches],
   );
 
-  const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
+  // Stash nodes — Git Graph draws each stash as a node hanging off its base commit.
+  // Inject a synthetic commit (parent = the stash's base) right before that base in
+  // the list, so the lane layout connects it and topo order stays valid. Keep a
+  // hash→ref map so the row can show a stash pill + a stash-specific menu.
+  const { graphCommits, stashByHash } = useMemo(() => {
+    const byHash = new Map<string, (typeof stashes)[number]>();
+    const stashCommitsByBase = new Map<string, GitCommit[]>();
+    for (const s of stashes) {
+      if (s.hash === '') continue;
+      byHash.set(s.hash, s);
+      const base = s.parents[0] ?? '';
+      const synthetic: GitCommit = {
+        hash: s.hash,
+        shortHash: s.hash.slice(0, 7),
+        parents: base === '' ? [] : [base],
+        author: { name: s.authorName, email: s.authorEmail, date: s.date },
+        committer: { name: s.authorName, email: s.authorEmail, date: s.date },
+        subject: s.message,
+        body: '',
+        refs: [],
+        tags: [],
+        head: false,
+      };
+      const list = stashCommitsByBase.get(base);
+      if (list) list.push(synthetic);
+      else stashCommitsByBase.set(base, [synthetic]);
+    }
+    if (byHash.size === 0) return { graphCommits: commits, stashByHash: byHash };
+    const merged: GitCommit[] = [];
+    const placed = new Set<string>();
+    for (const c of commits) {
+      const attached = stashCommitsByBase.get(c.hash);
+      if (attached) {
+        merged.push(...attached);
+        placed.add(c.hash);
+      }
+      merged.push(c);
+    }
+    // Stashes whose base isn't in the loaded page → surface them at the top so they
+    // aren't silently dropped (they'll have a dangling base edge, as Git Graph's do).
+    for (const [base, list] of stashCommitsByBase) {
+      if (!placed.has(base)) merged.unshift(...list);
+    }
+    return { graphCommits: merged, stashByHash: byHash };
+  }, [commits, stashes]);
+
+  const stashMenu = useCallback(
+    (ref: string): ContextMenuItem[] => [
+      {
+        id: 'apply',
+        label: '应用此贮藏（Apply）',
+        // Apply/pop can conflict; that surfaces in the refreshed SCM status, not here.
+        run: () => runGit(() => window.bh.run('git.stashApply', { ref })),
+      },
+      {
+        id: 'pop',
+        label: '弹出此贮藏（Pop）',
+        run: () => runGit(() => window.bh.run('git.stashPop', { ref })),
+      },
+      { separator: true },
+      {
+        id: 'drop',
+        label: '删除此贮藏（Drop）',
+        danger: true,
+        run: () =>
+          void confirm({ title: `删除 ${ref}？`, confirmText: '删除', destructive: true }).then(
+            (ok) => {
+              if (ok) runGit(() => window.bh.run('git.stashDrop', { ref }));
+            },
+          ),
+      },
+    ],
+    [runGit],
+  );
+
+  const { rows, width } = useMemo(() => layoutGraph(graphCommits), [graphCommits]);
   const graphW = OFF_X * 2 + Math.max(1, width) * GX;
   const gridCols = `${graphW}px minmax(120px, 1fr) 150px 130px 70px`;
   // A leading "Uncommitted Changes" row (Git Graph's signature) shifts the commit
@@ -497,6 +585,24 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   const cy = (i + vOff) * ROW + ROW / 2;
                   const cx = laneX(row.lane);
                   const c = laneColor(row.lane);
+                  // A stash node is drawn as a diamond in a neutral stash hue, so it
+                  // reads differently from a real commit (Git Graph does the same).
+                  if (stashByHash.has(row.commit.hash)) {
+                    const s = 4;
+                    return (
+                      <rect
+                        key={row.commit.hash}
+                        x={cx - s}
+                        y={cy - s}
+                        width={s * 2}
+                        height={s * 2}
+                        transform={`rotate(45 ${cx} ${cy})`}
+                        fill={color.bg}
+                        stroke={color.warning}
+                        strokeWidth={2}
+                      />
+                    );
+                  }
                   return (
                     <circle
                       key={row.commit.hash}
@@ -551,27 +657,35 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   </span>
                 </button>
               )}
-              {rows.map((row) => (
-                <CommitRow
-                  key={row.commit.hash}
-                  commit={row.commit}
-                  gridCols={gridCols}
-                  localBranches={localBranches}
-                  dateMode={dateMode}
-                  selected={selected === row.commit.hash}
-                  highlighted={matches(row.commit)}
-                  onSelect={() => setSelected(row.commit.hash)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    openContextMenu(e.clientX, e.clientY, commitMenu(row.commit));
-                  }}
-                  onRefMenu={(e, name, kind) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openContextMenu(e.clientX, e.clientY, refMenu(name, kind));
-                  }}
-                />
-              ))}
+              {rows.map((row) => {
+                const stashRef = stashByHash.get(row.commit.hash)?.ref;
+                return (
+                  <CommitRow
+                    key={row.commit.hash}
+                    commit={row.commit}
+                    gridCols={gridCols}
+                    localBranches={localBranches}
+                    dateMode={dateMode}
+                    stashRef={stashRef}
+                    selected={selected === row.commit.hash}
+                    highlighted={matches(row.commit)}
+                    onSelect={() => setSelected(row.commit.hash)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openContextMenu(
+                        e.clientX,
+                        e.clientY,
+                        stashRef !== undefined ? stashMenu(stashRef) : commitMenu(row.commit),
+                      );
+                    }}
+                    onRefMenu={(e, name, kind) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openContextMenu(e.clientX, e.clientY, refMenu(name, kind));
+                    }}
+                  />
+                );
+              })}
             </div>
           )}
 
@@ -741,6 +855,7 @@ const CommitRow = ({
   gridCols,
   localBranches,
   dateMode,
+  stashRef,
   selected,
   highlighted,
   onSelect,
@@ -751,6 +866,7 @@ const CommitRow = ({
   gridCols: string;
   localBranches: ReadonlySet<string>;
   dateMode: 'absolute' | 'relative';
+  stashRef: string | undefined;
   selected: boolean;
   highlighted: boolean;
   onSelect: () => void;
@@ -802,6 +918,7 @@ const CommitRow = ({
         }}
       >
         {commit.head && <Pill text="HEAD" kind="head" />}
+        {stashRef !== undefined && <Pill text={stashRef} kind="stash" />}
         {commit.refs.map((r) => {
           const kind = localBranches.has(r) ? 'branch' : 'remote';
           return <Pill key={r} text={r} kind={kind} onContextMenu={(e) => onRefMenu(e, r, kind)} />;
@@ -1017,7 +1134,7 @@ const Pill = ({
   onContextMenu,
 }: {
   text: string;
-  kind: 'head' | 'branch' | 'remote' | 'tag';
+  kind: 'head' | 'branch' | 'remote' | 'tag' | 'stash';
   onContextMenu?: (e: React.MouseEvent) => void;
 }): JSX.Element => {
   const label = kind === 'tag' ? text.replace(/^tag:\s*/, '') : text;
@@ -1026,17 +1143,21 @@ const Pill = ({
       ? color.accent
       : kind === 'tag'
         ? `${color.warning}33`
-        : kind === 'remote'
-          ? color.surface
-          : color.accentSofter;
+        : kind === 'stash'
+          ? color.surfaceMuted
+          : kind === 'remote'
+            ? color.surface
+            : color.accentSofter;
   const fg =
     kind === 'head'
       ? color.onAccent
       : kind === 'tag'
         ? color.warning
-        : kind === 'remote'
-          ? color.textTertiary
-          : color.accent;
+        : kind === 'stash'
+          ? color.textSecondary
+          : kind === 'remote'
+            ? color.textTertiary
+            : color.accent;
   return (
     <span
       onContextMenu={onContextMenu}
@@ -1045,7 +1166,7 @@ const Pill = ({
         padding: `0 ${space[1]}px`,
         background: bg,
         color: fg,
-        border: kind === 'remote' ? `1px solid ${color.border}` : 'none',
+        border: kind === 'remote' || kind === 'stash' ? `1px solid ${color.border}` : 'none',
         borderRadius: radius.sm,
         fontFamily: font.mono,
         fontSize: font.size.micro,
@@ -1057,7 +1178,7 @@ const Pill = ({
         cursor: onContextMenu && kind !== 'head' ? 'context-menu' : undefined,
       }}
     >
-      {kind === 'tag' ? `🏷 ${label}` : label}
+      {kind === 'tag' ? `🏷 ${label}` : kind === 'stash' ? `📦 ${label}` : label}
     </span>
   );
 };

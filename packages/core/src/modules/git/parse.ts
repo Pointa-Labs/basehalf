@@ -98,16 +98,41 @@ export function parseStatus(raw: string): ParsedStatus {
  * Parse `git stash list --format=%gd%x1f%s` — one entry per line, the stash ref
  * (`stash@{0}`) and its subject separated by US (\x1f).
  */
+const EMPTY_STASH_META = {
+  hash: '',
+  parents: [] as string[],
+  date: '',
+  authorName: '',
+  authorEmail: '',
+};
+
 export function parseStashList(raw: string): GitStashEntry[] {
   const entries: GitStashEntry[] = [];
   for (const line of raw.split('\n')) {
     if (line === '') continue;
-    const sep = line.indexOf('\x1f');
-    if (sep === -1) {
-      entries.push({ ref: line, message: '' });
-    } else {
-      entries.push({ ref: line.slice(0, sep), message: line.slice(sep + 1) });
+    // Format: %gd US %H US %P US %cI US %an US %ae US %s. The message (%s, last)
+    // can itself contain a US byte, so everything past the 6th separator is it.
+    const parts = line.split('\x1f');
+    if (parts.length < 7) {
+      // Legacy / short line (e.g. just the ref) — degrade gracefully.
+      const sep = line.indexOf('\x1f');
+      entries.push(
+        sep === -1
+          ? { ref: line, message: '', ...EMPTY_STASH_META }
+          : { ref: line.slice(0, sep), message: line.slice(sep + 1), ...EMPTY_STASH_META },
+      );
+      continue;
     }
+    const [ref, hash, parentsRaw, date, authorName, authorEmail, ...rest] = parts;
+    entries.push({
+      ref: ref ?? '',
+      hash: hash ?? '',
+      parents: (parentsRaw ?? '').split(' ').filter((p) => p !== ''),
+      date: date ?? '',
+      authorName: authorName ?? '',
+      authorEmail: authorEmail ?? '',
+      message: rest.join('\x1f'),
+    });
   }
   return entries;
 }

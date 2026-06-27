@@ -339,7 +339,11 @@ export const stashDrop: Handler<GitStashRefArgs, GitOkResult> = async (args, ctx
 };
 
 export const stashList: Handler<unknown, GitStashListResult> = async (_args, ctx) => {
-  const res = await git(ctx, ['stash', 'list', '--format=%gd%x1f%s']);
+  const res = await git(ctx, [
+    'stash',
+    'list',
+    '--format=%gd%x1f%H%x1f%P%x1f%cI%x1f%an%x1f%ae%x1f%s',
+  ]);
   return { entries: parseStashList(res.stdout) };
 };
 
