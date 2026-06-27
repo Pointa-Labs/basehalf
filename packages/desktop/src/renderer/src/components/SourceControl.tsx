@@ -8,7 +8,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { color, font, radius, space, transition } from '../design.js';
+import { color, font, space, transition } from '../design.js';
 import {
   type GitGroups,
   type GitRow,
@@ -44,14 +44,28 @@ import { Menu, type MenuAction } from './primitives/Menu.js';
  */
 
 const STATUS_PALETTE = {
-  added: color.success,
-  modified: color.warning,
-  deleted: color.danger,
-  conflict: color.danger,
-  renamed: color.accent,
+  // VS Code gitDecoration.* defaults from the Git extension.
+  added: '#73c991',
+  modified: '#e2c08d',
+  deleted: '#c74e39',
+  conflict: '#e4676b',
+  renamed: '#73c991',
 };
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const scm = {
+  panelBg: '#181818',
+  inputBg: '#313131',
+  inputBorder: '#3c3c3c',
+  inputPlaceholder: '#989898',
+  hoverBg: '#2a2d2e',
+  buttonHoverBg: '#2b2b2b',
+  disabledFg: '#858585',
+  editorRadius: 4,
+  rowHeight: 22,
+  iconButtonSize: 22,
+} as const;
 
 // Platform-correct commit shortcut for the placeholder (the handler accepts
 // both ⌘/Ctrl, so the hint should name the right one rather than always "⌘").
@@ -413,12 +427,13 @@ export const SourceControl = (): JSX.Element => {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 2,
+                  height: scm.rowHeight,
                   padding: `0 ${space[1]}px`,
                   color: color.textTertiary,
-                  fontSize: font.size.micro,
+                  fontSize: font.size.ui,
                 }}
               >
-                <BranchMiniGlyph />
+                <Codicon name="git-branch" size={16} />
                 Auto
               </span>
               <IconBtn
@@ -507,6 +522,7 @@ const ChangesView = ({
       {/* The input + its action bar (VS Code's .scm-editor-toolbar, top-right). */}
       <div style={{ position: 'relative' }}>
         <textarea
+          className="bh-scm-commit-input"
           value={message}
           aria-label="Commit message"
           onChange={(e) => setMessage(e.target.value)}
@@ -524,14 +540,16 @@ const ChangesView = ({
           rows={2}
           style={{
             width: '100%',
+            minHeight: 72,
             resize: 'vertical',
             boxSizing: 'border-box',
-            background: color.bg,
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.md,
+            background: scm.inputBg,
+            border: `1px solid ${scm.inputBorder}`,
+            borderRadius: scm.editorRadius,
             color: color.textPrimary,
             fontFamily: font.sans,
-            fontSize: font.size.caption,
+            fontSize: font.size.ui,
+            lineHeight: '20px',
             padding: `${space[2]}px ${space[3]}px`,
             paddingRight: 28,
             outline: 'none',
@@ -544,31 +562,33 @@ const ChangesView = ({
           onClick={() => toast.info('AI commit messages are not wired up yet.')}
           style={{
             position: 'absolute',
-            top: space[1],
-            right: space[1],
-            width: 22,
-            height: 22,
+            top: 4,
+            right: 4,
+            width: scm.iconButtonSize,
+            height: scm.iconButtonSize,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             background: 'none',
             border: 'none',
-            borderRadius: radius.sm,
-            color: color.textTertiary,
+            borderRadius: 3,
+            color: scm.inputPlaceholder,
             cursor: 'pointer',
             fontSize: font.size.body,
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.color = color.accent;
+            e.currentTarget.style.background = scm.buttonHoverBg;
+            e.currentTarget.style.color = color.textPrimary;
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = color.textTertiary;
+            e.currentTarget.style.background = 'none';
+            e.currentTarget.style.color = scm.inputPlaceholder;
           }}
         >
-          <Codicon name="sparkle" size={14} />
+          <Codicon name="sparkle" size={16} />
         </button>
       </div>
-      <div style={{ display: 'flex', marginTop: space[2] }}>
+      <div style={{ display: 'flex', marginTop: space[2], height: 32 }}>
         <button
           type="button"
           disabled={!canCommit}
@@ -576,15 +596,17 @@ const ChangesView = ({
           style={{
             flex: 1,
             minWidth: 0,
-            padding: `${space[2]}px`,
-            background: canCommit ? color.accent : color.surfaceMuted,
-            color: canCommit ? color.onAccent : color.textGhost,
-            border: 'none',
-            borderRadius: `${radius.md}px 0 0 ${radius.md}px`,
+            padding: `0 ${space[2]}px`,
+            background: canCommit ? color.accent : 'transparent',
+            color: canCommit ? color.onAccent : scm.disabledFg,
+            border: `1px solid ${canCommit ? '#ffffff1a' : 'transparent'}`,
+            borderRight: 'none',
+            borderRadius: `${scm.editorRadius}px 0 0 ${scm.editorRadius}px`,
             fontFamily: font.sans,
-            fontSize: font.size.caption,
+            fontSize: font.size.ui,
             fontWeight: font.weight.medium,
             cursor: canCommit ? 'pointer' : 'default',
+            lineHeight: '30px',
           }}
         >
           <Codicon name={amend ? 'edit' : 'check'} size={14} style={{ marginRight: 6 }} />
@@ -594,9 +616,10 @@ const ChangesView = ({
           style={{
             display: 'flex',
             alignItems: 'stretch',
-            background: canCommit ? color.accent : color.surfaceMuted,
-            borderRadius: `0 ${radius.md}px ${radius.md}px 0`,
-            borderLeft: `1px solid ${color.bg}`,
+            background: canCommit ? color.accent : 'transparent',
+            border: `1px solid ${canCommit ? '#ffffff1a' : 'transparent'}`,
+            borderRadius: `0 ${scm.editorRadius}px ${scm.editorRadius}px 0`,
+            borderLeft: `1px solid ${canCommit ? '#ffffff33' : color.divider}`,
           }}
         >
           <Menu
@@ -621,22 +644,23 @@ const ChangesView = ({
         onClick={onToggleAmend}
         aria-pressed={amend}
         style={{
-          marginTop: space[1],
+          marginTop: space[1.5],
           width: '100%',
-          padding: `${space[1]}px`,
+          height: 24,
+          padding: 0,
           background: 'none',
           border: 'none',
           color: amend ? color.accent : color.textTertiary,
           fontFamily: font.sans,
-          fontSize: font.size.micro,
+          fontSize: font.size.ui,
           cursor: 'pointer',
           textAlign: 'center',
         }}
       >
         <Codicon
           name={amend ? 'check' : 'circle-large-outline'}
-          size={12}
-          style={{ marginRight: 4 }}
+          size={16}
+          style={{ marginRight: 4, verticalAlign: -2 }}
         />
         Amend Last Commit
       </button>
@@ -728,11 +752,13 @@ const RepoHeader = ({
         display: 'flex',
         alignItems: 'center',
         gap: space[1],
-        padding: `${space[2]}px ${space[2]}px ${space[2]}px ${space[3]}px`,
+        height: 35,
+        padding: `0 ${space[2]}px 0 ${space[3]}px`,
+        background: scm.panelBg,
         borderBottom: `1px solid ${color.divider}`,
         flexShrink: 0,
         fontFamily: font.sans,
-        fontSize: font.size.caption,
+        fontSize: font.size.ui,
         color: color.textSecondary,
         minWidth: 0,
       }}
@@ -796,9 +822,9 @@ const Group = ({
           // (margin-left 6px), actions pushed right. Not uppercase.
           display: 'flex',
           alignItems: 'center',
-          height: 22,
-          padding: `0 ${space[3]}px`,
-          fontSize: font.size.caption,
+          height: scm.rowHeight,
+          padding: `0 ${space[2]}px`,
+          fontSize: font.size.ui,
           fontWeight: font.weight.semibold,
           color: color.textSecondary,
           userSelect: 'none',
@@ -865,12 +891,12 @@ const Row = ({
         // VS Code SCM list rows are line-height: 22px (scm.css .monaco-list-row).
         display: 'flex',
         alignItems: 'center',
-        gap: space[2],
-        height: 22,
-        padding: `0 ${space[3]}px`,
-        background: active ? color.divider : 'transparent',
+        gap: 0,
+        height: scm.rowHeight,
+        padding: `0 ${space[2]}px 0 ${space[3]}px`,
+        background: active ? scm.hoverBg : 'transparent',
         fontFamily: font.sans,
-        fontSize: font.size.caption,
+        fontSize: font.size.ui,
       }}
     >
       {/* The name is a real button: focusable + Enter-activatable natively, and it
@@ -893,18 +919,24 @@ const Row = ({
           cursor: 'pointer',
           textAlign: 'left',
           color: color.textPrimary,
+          fontFamily: font.sans,
+          fontSize: font.size.ui,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
           ...(row.status === 'D' && { textDecoration: 'line-through' }),
         }}
       >
-        <span style={{ flexShrink: 0, display: 'inline-flex', marginRight: space[2] }}>
-          <FileGlyph
-            type={badgeType(clean, isDir)}
-            tone={row.untracked ? color.textTertiary : statusColor(row, STATUS_PALETTE)}
-            size={14}
-          />
+        <span
+          style={{
+            flexShrink: 0,
+            display: 'inline-flex',
+            width: 22,
+            justifyContent: 'center',
+            marginRight: 4,
+          }}
+        >
+          <FileGlyph type={badgeType(clean, isDir)} tone={color.textSecondary} size={16} />
         </span>
         <span
           style={{
@@ -927,7 +959,7 @@ const Row = ({
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
               color: color.textGhost,
-              fontSize: font.size.micro,
+              fontSize: font.size.caption,
             }}
           >
             {dir}
@@ -963,7 +995,8 @@ const Row = ({
           width: 16,
           marginLeft: 5,
           textAlign: 'center',
-          fontFamily: font.mono,
+          fontFamily: font.sans,
+          fontSize: font.size.ui,
           fontWeight: font.weight.semibold,
           color: statusColor(row, STATUS_PALETTE),
         }}
@@ -998,11 +1031,11 @@ const StashRow = ({
         display: 'flex',
         alignItems: 'center',
         gap: space[2],
-        height: 22,
-        padding: `0 ${space[3]}px`,
-        background: active ? color.divider : 'transparent',
+        height: scm.rowHeight,
+        padding: `0 ${space[2]}px 0 ${space[3]}px`,
+        background: active ? scm.hoverBg : 'transparent',
         fontFamily: font.sans,
-        fontSize: font.size.caption,
+        fontSize: font.size.ui,
       }}
     >
       <span
@@ -1079,21 +1112,21 @@ const IconBtn = ({
       onClick();
     }}
     style={{
-      width: 20,
-      height: 20,
+      width: scm.iconButtonSize,
+      height: scm.iconButtonSize,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
       background: 'none',
       border: 'none',
-      borderRadius: radius.sm,
+      borderRadius: 3,
       cursor: disabled ? 'default' : 'pointer',
       opacity: disabled ? 0.4 : 1,
       color: danger ? color.danger : color.textTertiary,
       transition: transition(['background', 'color']),
     }}
     onMouseEnter={(e) => {
-      e.currentTarget.style.background = color.divider;
+      e.currentTarget.style.background = scm.buttonHoverBg;
       e.currentTarget.style.color = danger ? color.danger : color.textPrimary;
     }}
     onMouseLeave={(e) => {
@@ -1103,24 +1136,6 @@ const IconBtn = ({
   >
     <Codicon name={glyph} size={16} />
   </button>
-);
-
-const BranchMiniGlyph = (): JSX.Element => (
-  <svg
-    width={11}
-    height={11}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.4}
-    aria-hidden
-    style={{ flexShrink: 0 }}
-  >
-    <circle cx={4} cy={3.5} r={1.8} />
-    <circle cx={4} cy={12.5} r={1.8} />
-    <circle cx={12} cy={3.5} r={1.8} />
-    <path d="M4 5.3v5.4M12 5.3c0 3-2.5 3.2-5 3.7" strokeLinecap="round" />
-  </svg>
 );
 
 const Centered = ({ children }: { children: ReactNode }): JSX.Element => (

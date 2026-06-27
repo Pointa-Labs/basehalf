@@ -42,7 +42,7 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
     const parts: string[] = [];
     const p = fb.prompt.trim();
     if (p) parts.push(p.length > 26 ? `${p.slice(0, 26)}…` : p);
-    if (fb.refs.length > 0) parts.push(`${fb.refs.length} 引用`);
+    if (fb.refs.length > 0) parts.push(`${fb.refs.length} refs`);
     return parts.join(' · ');
   }, [fb.prompt, fb.refs.length]);
 
@@ -112,7 +112,7 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
             value={fb.prompt}
             onChange={fb.onPromptChange}
             onFlush={() => void fb.flushPrompt()}
-            placeholder="写给 agent 的话:这是什么、要先读什么"
+            placeholder="A note to agents: what this is, what to read first"
             testId="note-badge-prompt"
           />
 
@@ -130,7 +130,7 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
               </List>
             )}
             <AddRefButton
-              label="+ 加引用"
+              label="+ Add reference"
               onClick={() => void fb.addReference()}
               spaced={fb.refs.length > 0}
             />
@@ -141,7 +141,7 @@ export const NoteBadge = ({ file, paneId }: { file: string; paneId: string }): J
               {fb.inbound.length > 0 && (
                 <span style={{ marginLeft: 'auto' }}>
                   <InboundToggle
-                    label={`← ${fb.inbound.length} 个文件引用它`}
+                    label={`← ${fb.inbound.length} file(s) reference this`}
                     expanded={inboundOpen}
                     onToggle={() => setInboundOpen((v) => !v)}
                   />

@@ -72,7 +72,7 @@ export const PullRequests = (): JSX.Element | null => {
 
   return (
     <Disclosure
-      title="拉取请求"
+      title="Pull Requests"
       count={prs?.length ?? 0}
       open={open}
       onToggle={() => setOpen(!open)}
@@ -80,17 +80,17 @@ export const PullRequests = (): JSX.Element | null => {
       <div data-testid="pull-requests">
         {login === null ? (
           <Hint>
-            登录 GitHub 后可在此查看拉取请求。{' '}
+            Sign in to GitHub to see pull requests here.{' '}
             <button type="button" onClick={() => openSettings()} style={linkStyle}>
-              前往设置
+              Open Settings
             </button>
           </Hint>
         ) : prs === null ? (
-          <Hint>载入拉取请求…</Hint>
+          <Hint>Loading pull requests…</Hint>
         ) : error !== null ? (
           <Hint>{error}</Hint>
         ) : prs.length === 0 ? (
-          <Hint>没有开放的拉取请求。</Hint>
+          <Hint>No open pull requests.</Hint>
         ) : (
           prs.map((pr) => (
             <button
@@ -131,7 +131,7 @@ export const PullRequests = (): JSX.Element | null => {
                   width: '100%',
                 }}
               >
-                {pr.draft ? '草稿 · ' : ''}
+                {pr.draft ? 'Draft · ' : ''}
                 {pr.title}
               </span>
               <span style={{ color: color.textGhost, fontSize: font.size.micro }}>

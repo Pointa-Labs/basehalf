@@ -217,7 +217,7 @@ const HunkBar = ({
   <button
     type="button"
     onClick={onToggle}
-    title={open ? '收起未改动的行' : '展开未改动的行'}
+    title={open ? 'Collapse unchanged lines' : 'Expand unchanged lines'}
     style={{
       display: 'flex',
       width: '100%',

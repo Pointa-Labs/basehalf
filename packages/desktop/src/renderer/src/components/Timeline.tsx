@@ -96,7 +96,7 @@ export const Timeline = (): JSX.Element | null => {
         >
           ▸
         </span>
-        时间线
+        Timeline
         <span style={{ marginLeft: 'auto', textTransform: 'none', color: color.textGhost }}>
           {openFile.slice(openFile.lastIndexOf('/') + 1)}
         </span>
@@ -104,9 +104,9 @@ export const Timeline = (): JSX.Element | null => {
       {open && (
         <div style={{ overflowY: 'auto', minHeight: 0 }}>
           {commits === null ? (
-            <Row muted>载入历史…</Row>
+            <Row muted>Loading history…</Row>
           ) : commits.length === 0 ? (
-            <Row muted>该文件暂无提交历史。</Row>
+            <Row muted>No commit history for this file yet.</Row>
           ) : (
             commits.map((c) => (
               <button

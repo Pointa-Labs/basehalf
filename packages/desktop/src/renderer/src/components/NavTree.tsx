@@ -271,7 +271,7 @@ const Row = ({
       {deco && git && (
         <span
           aria-hidden
-          title={propagated ? '此文件夹包含改动' : statusTooltip(git)}
+          title={propagated ? 'This folder contains changes' : statusTooltip(git)}
           style={{
             marginLeft: 'auto',
             flexShrink: 0,
@@ -692,10 +692,10 @@ const ExplorerHeader = ({
           transition: transition(['opacity']),
         }}
       >
-        <HdrBtn title="新建文件" onClick={onNewFile} glyph="🗋" />
-        <HdrBtn title="新建文件夹" onClick={onNewFolder} glyph="🗀" />
-        <HdrBtn title="刷新" onClick={onRefresh} glyph="↻" />
-        <HdrBtn title="全部折叠" onClick={onCollapseAll} glyph="⌄" />
+        <HdrBtn title="New File" onClick={onNewFile} glyph="🗋" />
+        <HdrBtn title="New Folder" onClick={onNewFolder} glyph="🗀" />
+        <HdrBtn title="Refresh" onClick={onRefresh} glyph="↻" />
+        <HdrBtn title="Collapse All" onClick={onCollapseAll} glyph="⌄" />
       </span>
     </div>
   );

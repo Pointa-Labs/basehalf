@@ -33,7 +33,7 @@ export const StatusBar = (): JSX.Element => {
       try {
         await window.bh.run('git.pull', {});
         await window.bh.run('git.push', {});
-        toast.success('已同步');
+        toast.success('Synced');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
       } finally {
@@ -67,18 +67,14 @@ export const StatusBar = (): JSX.Element => {
     >
       {isRepo && branch !== '' && (
         <>
-          <Segment title="切换到源代码管理" onClick={openScm}>
+          <Segment title="Switch to Source Control" onClick={openScm}>
             <BranchGlyph />
             <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {branch}
             </span>
           </Segment>
           <Segment
-            title={
-              status?.upstream === null
-                ? '发布分支（推送并设置上游）'
-                : `同步（↑${ahead} ↓${behind}）`
-            }
+            title={status?.upstream === null ? 'Publish Branch' : `Sync ↑${ahead} ↓${behind}`}
             onClick={sync}
           >
             <span

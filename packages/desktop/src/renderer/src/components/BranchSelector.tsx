@@ -111,21 +111,23 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
         const r = (await window.bh.run('git.merge', { branch: name })) as GitMergeResult;
         if (r.conflicts) {
           // Don't close — tell the user to resolve in the Merge Changes group.
-          throw new Error(`合并 “${name}” 产生冲突，请在「合并更改」中解决后提交。`);
+          throw new Error(
+            `Merging “${name}” hit conflicts — resolve them in Merge Changes, then commit.`,
+          );
         }
       },
       { closeAfter: true },
     );
 
   const deleteBranch = (name: string): void => {
-    if (!window.confirm(`删除分支 “${name}”？`)) return;
+    if (!window.confirm(`Delete branch “${name}”?`)) return;
     void run(
       async () => {
         try {
           await window.bh.run('git.deleteBranch', { name });
         } catch {
           // Not fully merged → git refuses -d. Offer the force path.
-          if (!window.confirm(`分支 “${name}” 尚未合并。强制删除？`)) return;
+          if (!window.confirm(`Branch “${name}” is not fully merged. Force delete?`)) return;
           await window.bh.run('git.deleteBranch', { name, force: true });
         }
         await loadBranches();
@@ -144,7 +146,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
     void (async () => {
       // Electron has no window.prompt — use the app's custom prompt dialog.
       const to = (
-        await prompt({ title: '重命名当前分支', label: '新名称', defaultValue: label })
+        await prompt({ title: 'Rename current branch', label: 'New name', defaultValue: label })
       )?.trim();
       if (to && to !== label) void run(() => window.bh.run('git.renameBranch', { to }));
     })();
@@ -160,7 +162,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
         type="button"
         onClick={pop.toggle}
         disabled={disabled}
-        title={status.upstream ?? '切换分支'}
+        title={status.upstream ?? 'Switch Branch'}
         aria-haspopup="listbox"
         aria-expanded={open}
         style={{
@@ -215,14 +217,14 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                     paddingLeft: space[1],
                   }}
                 >
-                  选择要合并到 “{label}” 的分支
+                  Select a branch to merge into “{label}”
                 </div>
               )}
               <input
                 ref={filterRef}
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder={mode === 'merge' ? '合并分支…' : '切换 / 筛选分支…'}
+                placeholder={mode === 'merge' ? 'Merge Branch…' : 'Switch / filter branches…'}
                 style={{
                   width: '100%',
                   boxSizing: 'border-box',
@@ -240,9 +242,9 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
 
             <div style={{ overflowY: 'auto', padding: space[1] }}>
               {branches === null ? (
-                <Hint>载入分支…</Hint>
+                <Hint>Loading branches…</Hint>
               ) : filtered.length === 0 ? (
-                <Hint>无匹配分支</Hint>
+                <Hint>No matching branches</Hint>
               ) : (
                 filtered.map((b) => (
                   <BranchRow
@@ -267,7 +269,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                 }}
               >
                 <input
-                  // biome-ignore lint/a11y/noAutofocus: focusing the new field is the intent of clicking "新建分支".
+                  // biome-ignore lint/a11y/noAutofocus: focusing the new field is the intent of clicking "Create Branch".
                   autoFocus
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
@@ -278,7 +280,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                       setCreating(false);
                     }
                   }}
-                  placeholder="新分支名"
+                  placeholder="New branch name"
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -294,7 +296,7 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                   }}
                 />
                 <FooterBtn onClick={createBranch} disabled={working || newName.trim() === ''}>
-                  创建
+                  Create
                 </FooterBtn>
               </div>
             ) : (
@@ -307,18 +309,18 @@ export const BranchSelector = ({ status, disabled, onAfter }: BranchSelectorProp
                 }}
               >
                 <FooterBtn onClick={() => setCreating(true)} disabled={working}>
-                  + 新建分支
+                  + Create Branch
                 </FooterBtn>
                 <FooterBtn
                   onClick={() => setMode((m) => (m === 'merge' ? 'switch' : 'merge'))}
                   disabled={working}
                   active={mode === 'merge'}
                 >
-                  ⤵ 合并到当前
+                  Merge into Current
                 </FooterBtn>
                 {!status.detached && status.branch !== null && (
                   <FooterBtn onClick={renameCurrent} disabled={working}>
-                    ✎ 重命名
+                    Rename
                   </FooterBtn>
                 )}
               </div>
@@ -405,15 +407,15 @@ const BranchRow = ({
         </span>
         {branch.remote === true && (
           <span style={{ marginLeft: 'auto', color: color.textGhost, fontSize: font.size.micro }}>
-            远程
+            Remote
           </span>
         )}
       </button>
       {deletable && hover && (
         <button
           type="button"
-          title={`删除 ${branch.name}`}
-          aria-label={`删除分支 ${branch.name}`}
+          title={`Delete ${branch.name}`}
+          aria-label={`Delete branch ${branch.name}`}
           disabled={disabled}
           onClick={onDelete}
           style={{

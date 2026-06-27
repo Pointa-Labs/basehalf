@@ -107,7 +107,7 @@ export const UnifiedDiffView = ({
         const raw = ((await window.bh.run('git.diff', { path, staged })) as { diff: string }).diff;
         const patch = extractHunkPatch(raw, range.oldFrom, range.oldTo);
         if (patch === null) {
-          setErr('找不到对应的改动块。');
+          setErr('Could not find the matching hunk.');
           return;
         }
         const cached = mode !== 'revert';
@@ -128,11 +128,11 @@ export const UnifiedDiffView = ({
     ? undefined
     : (hunkIndex: number): JSX.Element | null =>
         staged ? (
-          <HunkBtn label="取消暂存" onClick={() => void applyHunk(hunkIndex, 'unstage')} />
+          <HunkBtn label="Unstage Changes" onClick={() => void applyHunk(hunkIndex, 'unstage')} />
         ) : (
           <>
-            <HunkBtn label="暂存" onClick={() => void applyHunk(hunkIndex, 'stage')} />
-            <HunkBtn label="放弃" danger onClick={() => void applyHunk(hunkIndex, 'revert')} />
+            <HunkBtn label="Stage Changes" onClick={() => void applyHunk(hunkIndex, 'stage')} />
+            <HunkBtn label="Discard" danger onClick={() => void applyHunk(hunkIndex, 'revert')} />
           </>
         );
 
@@ -167,27 +167,27 @@ export const UnifiedDiffView = ({
           </span>
         )}
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: space[1] }}>
-          <IconBtn title="上一处改动" onClick={() => navigate(-1)}>
+          <IconBtn title="Previous Change" onClick={() => navigate(-1)}>
             ↑
           </IconBtn>
-          <IconBtn title="下一处改动" onClick={() => navigate(1)}>
+          <IconBtn title="Next Change" onClick={() => navigate(1)}>
             ↓
           </IconBtn>
           <IconBtn
-            title={ignoreWs ? '显示空白差异' : '忽略空白差异'}
+            title={ignoreWs ? 'Show whitespace' : 'Ignore whitespace'}
             active={ignoreWs}
             onClick={() => setIgnoreWs((v) => !v)}
           >
             ⊘
           </IconBtn>
           <IconBtn
-            title={view === 'split' ? '切换为内联视图' : '切换为并排视图'}
+            title={view === 'split' ? 'Switch to inline view' : 'Switch to side-by-side view'}
             active={view === 'split'}
             onClick={() => setView((v) => (v === 'split' ? 'inline' : 'split'))}
           >
             ⇆
           </IconBtn>
-          <IconBtn title="关闭差异" onClick={onClose}>
+          <IconBtn title="Close Diff" onClick={onClose}>
             ✕
           </IconBtn>
         </span>

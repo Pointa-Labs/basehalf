@@ -337,7 +337,7 @@ describe('git commands (injected fake runner)', () => {
     const core1 = createCore({ git: dirty.git, configDir: '/cfg' });
     await expect(
       core1.run('git.rebaseInteractive', { base: 'BASE', items: [] }, ROOT),
-    ).rejects.toThrow(/提交或贮藏/);
+    ).rejects.toThrow(/Commit or stash/);
 
     // Untracked files (?? — e.g. a workspace's own .bh/) must NOT block the rebase.
     const untracked = makeFakeGit((args) => {

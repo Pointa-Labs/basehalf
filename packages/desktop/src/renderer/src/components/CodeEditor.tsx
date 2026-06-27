@@ -574,7 +574,9 @@ const StatusBar = ({
     {dirty ? 'Unsaved · ⌘S to save' : 'Saved'}
     <button
       type="button"
-      title={blameOn ? '关闭行内 Blame' : '显示行内 Blame（当前行的最后改动）'}
+      title={
+        blameOn ? 'Turn off inline blame' : 'Show inline blame (last change on the current line)'
+      }
       aria-pressed={blameOn}
       onClick={onToggleBlame}
       style={{

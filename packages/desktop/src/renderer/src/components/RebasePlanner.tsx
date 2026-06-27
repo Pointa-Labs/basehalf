@@ -8,7 +8,7 @@ import { Button } from './primitives/Button.js';
 /**
  * RebasePlanner — VS Code / Git Graph-style interactive rebase. Lists the commits
  * base..HEAD (oldest→newest, the replay order), each with an action (keep / drop /
- * fixup-into-previous / reword) and up/down reordering. "应用" runs the all-or-
+ * fixup-into-previous / reword) and up/down reordering. "Apply" runs the all-or-
  * nothing git.rebaseInteractive: it replays the plan onto base, and on any conflict
  * aborts and leaves the branch untouched (the original stays in the reflog).
  */
@@ -22,10 +22,10 @@ interface Row {
 }
 
 const ACTION_LABEL: Record<Action, string> = {
-  pick: '保留',
-  drop: '丢弃',
-  fixup: '合并入上一个',
-  reword: '改写信息',
+  pick: 'Pick',
+  drop: 'Discard',
+  fixup: 'Fixup',
+  reword: 'Reword',
 };
 
 export const RebasePlanner = ({
@@ -73,8 +73,8 @@ export const RebasePlanner = ({
       if (!row) return;
       const m = (
         await prompt({
-          title: '改写提交信息',
-          label: '新信息',
+          title: 'Reword commit message',
+          label: 'New message',
           defaultValue: row.commit.subject,
         })
       )?.trim();
@@ -115,11 +115,11 @@ export const RebasePlanner = ({
           items,
         })) as GitRebaseResult;
         if (res.ok) {
-          toast.success('变基完成。');
+          toast.success('Rebase complete.');
           onApplied();
           onClose();
         } else {
-          toast.error('变基遇到冲突，已自动撤销（分支未改动）。');
+          toast.error('The rebase hit conflicts and was aborted (the branch is unchanged).');
         }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
@@ -164,19 +164,17 @@ export const RebasePlanner = ({
             borderBottom: `1px solid ${color.divider}`,
           }}
         >
-          <div style={{ fontSize: font.size.body, color: color.textPrimary }}>
-            整理提交历史（变基）
-          </div>
+          <div style={{ fontSize: font.size.body, color: color.textPrimary }}>Rebase Commits</div>
           <div style={{ fontSize: font.size.micro, color: color.textTertiary, marginTop: 2 }}>
-            将以下提交重放到 <code>{base.slice(0, 7)}</code>{' '}
-            之上。遇到冲突会自动撤销，分支不受影响。
+            Replays the commits below onto <code>{base.slice(0, 7)}</code> . Conflicts auto-abort
+            and the branch is left untouched.
           </div>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: space[2] }}>
           {rows === null ? (
-            <Muted>载入提交…</Muted>
+            <Muted>Loading commits…</Muted>
           ) : rows.length === 0 ? (
-            <Muted>所选基点之后没有提交。</Muted>
+            <Muted>No commits after the selected base.</Muted>
           ) : (
             rows.map((row, i) => (
               <div
@@ -254,7 +252,7 @@ export const RebasePlanner = ({
           }}
         >
           <Button variant="ghost" size="sm" onClick={onClose}>
-            取消
+            Cancel
           </Button>
           <Button
             variant="primary"
@@ -262,7 +260,7 @@ export const RebasePlanner = ({
             disabled={busy || rows === null || kept === 0}
             onClick={apply}
           >
-            应用（{kept} 个提交）
+            Apply ({kept} commits)
           </Button>
         </div>
       </div>

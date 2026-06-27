@@ -221,8 +221,8 @@ const SettingsCard = (): JSX.Element => {
       <input
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        placeholder="搜索设置"
-        aria-label="搜索设置"
+        placeholder="Search settings"
+        aria-label="Search settings"
         data-testid="settings-search"
         style={{
           width: '100%',
@@ -252,7 +252,7 @@ const SettingsCard = (): JSX.Element => {
       <RegistrySettings filter={filter} />
 
       {/* GitHub account — sign in to view Pull Requests in-app. Respects the search. */}
-      {(q === '' || 'github pull request 账户 登录 token'.includes(q)) && <GithubAccount />}
+      {(q === '' || 'github pull request account sign in token'.includes(q)) && <GithubAccount />}
 
       {aboutRows.length > 0 && <div style={sectionLabelStyle}>About</div>}
       {aboutRows.map((r) => (

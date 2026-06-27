@@ -85,7 +85,7 @@ describe('github.listPullRequests', () => {
     const core = createCore({ http, secrets: await secretsWithToken('x'), configDir: '/cfg' });
     await expect(
       core.run('github.listPullRequests', { remoteUrl: 'https://github.com/o/r' }, ROOT),
-    ).rejects.toThrow(/凭证无效/);
+    ).rejects.toThrow(/invalid or expired/);
   });
 
   it('refuses a non-github remote (after the token check, before any request)', async () => {
@@ -93,7 +93,7 @@ describe('github.listPullRequests', () => {
     const core = createCore({ http, secrets: await secretsWithToken('x'), configDir: '/cfg' });
     await expect(
       core.run('github.listPullRequests', { remoteUrl: 'https://gitlab.com/o/r' }, ROOT),
-    ).rejects.toThrow(/不是 github\.com/);
+    ).rejects.toThrow(/not github\.com/);
     expect(calls).toHaveLength(0);
   });
 
@@ -102,7 +102,7 @@ describe('github.listPullRequests', () => {
     const core = createCore({ http, configDir: '/cfg' }); // in-memory secrets, empty
     await expect(
       core.run('github.listPullRequests', { remoteUrl: 'https://github.com/o/r' }, ROOT),
-    ).rejects.toThrow(/尚未登录/);
+    ).rejects.toThrow(/Not signed in/);
     expect(calls).toHaveLength(0);
   });
 });
@@ -137,7 +137,7 @@ describe('github.pullRequestFiles', () => {
     const core = createCore({ http, configDir: '/cfg' });
     await expect(
       core.run('github.pullRequestFiles', { remoteUrl: 'https://github.com/o/r', number: 0 }, ROOT),
-    ).rejects.toThrow(/无效的 PR 编号/);
+    ).rejects.toThrow(/Invalid pull request number/);
   });
 });
 
@@ -172,7 +172,7 @@ describe('github.reviewPullRequest', () => {
         { remoteUrl: 'https://github.com/o/r', number: 7, event: 'REQUEST_CHANGES', body: '  ' },
         ROOT,
       ),
-    ).rejects.toThrow(/需要填写说明/);
+    ).rejects.toThrow(/require a message/);
     expect(calls).toHaveLength(1); // the rejected one never hit the network
   });
 });
@@ -199,7 +199,9 @@ describe('github.signIn / signOut / viewer (secrets-backed)', () => {
     const { http } = makeFakeHttp(() => ({ status: 401, body: '{"message":"Bad credentials"}' }));
     const secrets = createInMemorySecrets();
     const core = createCore({ http, secrets, configDir: '/cfg' });
-    await expect(core.run('github.signIn', { token: 'bad' }, ROOT)).rejects.toThrow(/token 无效/);
+    await expect(core.run('github.signIn', { token: 'bad' }, ROOT)).rejects.toThrow(
+      /invalid or missing scope/,
+    );
     expect(await secrets.get('github.token')).toBeNull();
   });
 

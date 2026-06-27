@@ -48,10 +48,10 @@ export const PullRequestView = ({
         setReviewBody('');
         toast.success(
           event === 'APPROVE'
-            ? '已批准。'
+            ? 'Approved.'
             : event === 'REQUEST_CHANGES'
-              ? '已请求修改。'
-              : '已评论。',
+              ? 'Changes requested.'
+              : 'Comment submitted.',
         );
       } catch (e) {
         toast.error(msg(e));
@@ -113,16 +113,16 @@ export const PullRequestView = ({
           {title}
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: space[2] }}>
-          <HeaderBtn onClick={() => void window.bh.openExternal(url)}>在浏览器打开</HeaderBtn>
-          <HeaderBtn onClick={onClose}>关闭</HeaderBtn>
+          <HeaderBtn onClick={() => void window.bh.openExternal(url)}>Open in Browser</HeaderBtn>
+          <HeaderBtn onClick={onClose}>Close</HeaderBtn>
         </span>
       </div>
       {error !== null ? (
         <Centered tone={color.danger}>{error}</Centered>
       ) : files === null ? (
-        <Centered tone={color.textTertiary}>载入改动…</Centered>
+        <Centered tone={color.textTertiary}>Loading changes…</Centered>
       ) : files.length === 0 ? (
-        <Centered tone={color.textTertiary}>此 PR 没有文件改动。</Centered>
+        <Centered tone={color.textTertiary}>This pull request has no file changes.</Centered>
       ) : (
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           {/* File list */}
@@ -180,12 +180,12 @@ export const PullRequestView = ({
           {/* Selected file diff */}
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
             {active === null ? (
-              <Centered tone={color.textTertiary}>选择一个文件。</Centered>
+              <Centered tone={color.textTertiary}>Select a file.</Centered>
             ) : active.patch === undefined ? (
               <Centered tone={color.textTertiary}>
                 {active.status === 'renamed'
-                  ? '仅重命名，无内容改动。'
-                  : '此文件无法显示差异（可能为二进制）。'}
+                  ? 'Renamed only, no content changes.'
+                  : 'This file has no displayable diff (it may be binary).'}
               </Centered>
             ) : (
               <UnifiedDiff rows={rows} />
@@ -209,7 +209,7 @@ export const PullRequestView = ({
           <textarea
             value={reviewBody}
             onChange={(e) => setReviewBody(e.target.value)}
-            placeholder="留下评审意见（批准可不填）…"
+            placeholder="Leave a review comment (optional for approve)…"
             data-testid="pr-review-body"
             rows={2}
             style={{
@@ -233,7 +233,7 @@ export const PullRequestView = ({
               disabled={submitting}
               onClick={() => submitReview('APPROVE')}
             >
-              批准
+              Approve
             </Button>
             <div style={{ display: 'flex', gap: space[1] }}>
               <Button
@@ -242,7 +242,7 @@ export const PullRequestView = ({
                 disabled={submitting}
                 onClick={() => submitReview('REQUEST_CHANGES')}
               >
-                请求修改
+                Request Changes
               </Button>
               <Button
                 variant="ghost"
@@ -250,7 +250,7 @@ export const PullRequestView = ({
                 disabled={submitting}
                 onClick={() => submitReview('COMMENT')}
               >
-                评论
+                Comment
               </Button>
             </div>
           </div>

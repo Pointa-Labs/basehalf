@@ -166,8 +166,8 @@ export const SearchPanel = (): JSX.Element => {
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索"
-            aria-label="搜索工作区"
+            placeholder="Search"
+            aria-label="Search workspace"
             data-testid="search-panel-input"
             style={{
               width: '100%',
@@ -195,19 +195,19 @@ export const SearchPanel = (): JSX.Element => {
           >
             <OptBtn
               label="Aa"
-              title="区分大小写"
+              title="Match Case"
               active={caseSensitive}
               onClick={() => setCaseSensitive((v) => !v)}
             />
             <OptBtn
               label="ab|"
-              title="全字匹配"
+              title="Match Whole Word"
               active={wholeWord}
               onClick={() => setWholeWord((v) => !v)}
             />
             <OptBtn
               label=".*"
-              title="使用正则表达式"
+              title="Use Regular Expression"
               active={regex}
               onClick={() => setRegex((v) => !v)}
             />
@@ -215,8 +215,12 @@ export const SearchPanel = (): JSX.Element => {
         </div>
         {/* Content (current files) ↔ History (git pickaxe over commits). */}
         <div style={{ display: 'flex', gap: space[1], marginTop: space[2] }}>
-          <SegBtn label="内容" active={mode === 'content'} onClick={() => setMode('content')} />
-          <SegBtn label="Git 历史" active={mode === 'history'} onClick={() => setMode('history')} />
+          <SegBtn label="Content" active={mode === 'content'} onClick={() => setMode('content')} />
+          <SegBtn
+            label="Git History"
+            active={mode === 'history'}
+            onClick={() => setMode('history')}
+          />
         </div>
         {query.trim().length >= 2 && !loading && (
           <div
@@ -229,11 +233,11 @@ export const SearchPanel = (): JSX.Element => {
           >
             {mode === 'history'
               ? (history?.length ?? 0) === 0
-                ? '历史中无匹配'
-                : `${history?.length ?? 0} 个提交触及「${query.trim()}」`
+                ? 'No matches in history'
+                : `${history?.length ?? 0} commit(s) touched “${query.trim()}”`
               : hits.length === 0
-                ? '无结果'
-                : `${totalMatches} 处结果，${hits.length} 个文件${result?.truncated ? '（已截断）' : ''}`}
+                ? 'No results'
+                : `${totalMatches} result(s) in ${hits.length} file(s)${result?.truncated ? ' (truncated)' : ''}`}
           </div>
         )}
       </div>
@@ -242,17 +246,17 @@ export const SearchPanel = (): JSX.Element => {
         {query.trim().length < 2 ? (
           <Hint>
             {mode === 'history'
-              ? '输入至少 2 个字符，查找历史上写过 / 删过这段文字的提交。'
-              : '输入至少 2 个字符以搜索文件内容。'}
+              ? 'Type at least 2 characters to find commits that added or removed this text.'
+              : 'Type at least 2 characters to search file contents.'}
           </Hint>
         ) : loading ? (
-          <Hint>搜索中…</Hint>
+          <Hint>Searching…</Hint>
         ) : mode === 'history' ? (
           (history ?? []).map((c) => (
             <button
               key={c.hash}
               type="button"
-              title={`${c.shortHash} · 在提交图中查看`}
+              title={`${c.shortHash} · View in Graph`}
               onClick={() => {
                 useLayoutStore.getState().setSidebarView('scm');
                 useScmViewStore.getState().revealCommit(c.hash);

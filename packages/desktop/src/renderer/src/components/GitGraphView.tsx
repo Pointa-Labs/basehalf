@@ -160,23 +160,23 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
       return [
         {
           id: 'checkout',
-          label: '签出此提交…',
+          label: 'Checkout Commit…',
           run: () =>
             void confirm({
-              title: `签出 ${short}？`,
-              body: '将进入“分离 HEAD”状态。',
-              confirmText: '签出',
+              title: `Checkout ${short}?`,
+              body: 'This enters a detached HEAD state.',
+              confirmText: 'Checkout',
             }).then((ok) => {
               if (ok) runGit(() => window.bh.run('git.checkout', { branch: sha }));
             }),
         },
         {
           id: 'branch',
-          label: '从此创建分支…',
+          label: 'Create Branch from Commit…',
           run: () =>
             void prompt({
-              title: `从 ${short} 创建分支`,
-              label: '分支名',
+              title: `Create branch from ${short}`,
+              label: 'Branch name',
               placeholder: 'feature/x',
             }).then((n) => {
               const name = n?.trim();
@@ -185,11 +185,11 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         },
         {
           id: 'tag',
-          label: '在此创建标签…',
+          label: 'Create Tag at Commit…',
           run: () =>
             void prompt({
-              title: `在 ${short} 创建标签`,
-              label: '标签名',
+              title: `Create tag at ${short}`,
+              label: 'Tag name',
               placeholder: 'v1.0',
             }).then((n) => {
               const name = n?.trim();
@@ -199,50 +199,53 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         { separator: true },
         {
           id: 'cherrypick',
-          label: '拣选到当前分支（Cherry-pick）',
+          label: 'Cherry-Pick onto Current Branch',
           run: () =>
             runGit(async () => {
               const r = (await window.bh.run('git.cherryPick', { ref: sha })) as {
                 conflicts: boolean;
               };
-              if (r.conflicts) toast.error('拣选产生冲突，请在「合并更改」中解决。');
+              if (r.conflicts)
+                toast.error('The cherry-pick hit conflicts — resolve them in Merge Changes.');
             }),
         },
         {
           id: 'revert',
-          label: '撤销此提交（Revert）',
+          label: 'Revert Commit',
           run: () =>
             runGit(async () => {
               const r = (await window.bh.run('git.revert', { ref: sha })) as { conflicts: boolean };
-              if (r.conflicts) toast.error('撤销产生冲突，请在「合并更改」中解决。');
+              if (r.conflicts)
+                toast.error('The revert hit conflicts — resolve them in Merge Changes.');
             }),
         },
         {
           id: 'merge',
-          label: '合并到当前分支（Merge）',
+          label: 'Merge into Current Branch',
           run: () =>
             runGit(async () => {
               const r = (await window.bh.run('git.merge', { branch: sha })) as {
                 conflicts: boolean;
               };
-              if (r.conflicts) toast.error('合并产生冲突，请在「合并更改」中解决。');
+              if (r.conflicts)
+                toast.error('The merge hit conflicts — resolve them in Merge Changes.');
             }),
         },
         { separator: true },
         {
           id: 'reset-mixed',
-          label: '重置当前分支到此（保留改动）',
+          label: 'Reset Current Branch to Here (Keep Changes)',
           run: () => runGit(() => window.bh.run('git.reset', { ref: sha, mode: 'mixed' })),
         },
         {
           id: 'reset-hard',
-          label: '重置当前分支到此（丢弃改动）',
+          label: 'Reset Current Branch to Here (Discard Changes)',
           danger: true,
           run: () =>
             void confirm({
-              title: `硬重置到 ${short}？`,
-              body: '当前分支之后的所有改动将被永久丢弃，不可撤销。',
-              confirmText: '硬重置',
+              title: `Hard-reset to ${short}?`,
+              body: 'All changes after this commit on the current branch are permanently discarded. This is IRREVERSIBLE.',
+              confirmText: 'Hard Reset',
               destructive: true,
             }).then((ok) => {
               if (ok) runGit(() => window.bh.run('git.reset', { ref: sha, mode: 'hard' }));
@@ -251,21 +254,21 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         { separator: true },
         {
           id: 'rebase',
-          label: '整理此提交之后的历史…（Rebase）',
+          label: 'Rebase Commits After This…',
           run: () => setRebaseBase(sha),
         },
         { separator: true },
         {
           id: 'copy-sha',
-          label: '复制提交哈希',
+          label: 'Copy Commit Hash',
           run: () =>
-            void navigator.clipboard.writeText(sha).then(() => toast.success(`已复制 ${short}`)),
+            void navigator.clipboard.writeText(sha).then(() => toast.success(`Copied ${short}`)),
         },
         {
           id: 'copy-subject',
-          label: '复制提交信息',
+          label: 'Copy Commit Message',
           run: () =>
-            void navigator.clipboard.writeText(c.subject).then(() => toast.success('已复制')),
+            void navigator.clipboard.writeText(c.subject).then(() => toast.success('Copied')),
         },
       ];
     },
@@ -279,17 +282,17 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         return [
           {
             id: 'checkout',
-            label: `签出标签 ${name}`,
+            label: `Checkout tag ${name}`,
             run: () => runGit(() => window.bh.run('git.checkout', { branch: name })),
           },
           {
             id: 'delete',
-            label: '删除标签',
+            label: 'Delete Tag',
             danger: true,
             run: () =>
               void confirm({
-                title: `删除标签 ${name}？`,
-                confirmText: '删除',
+                title: `Delete tag ${name}?`,
+                confirmText: 'Delete',
                 destructive: true,
               }).then((ok) => {
                 if (ok) runGit(() => window.bh.run('git.tagDelete', { name }));
@@ -302,18 +305,19 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
       const items: ContextMenuItem[] = [
         {
           id: 'checkout',
-          label: `签出 ${checkoutTarget}`,
+          label: `Checkout ${checkoutTarget}`,
           run: () => runGit(() => window.bh.run('git.checkout', { branch: checkoutTarget })),
         },
         {
           id: 'merge',
-          label: '合并到当前分支',
+          label: 'Merge into Current Branch',
           run: () =>
             runGit(async () => {
               const r = (await window.bh.run('git.merge', { branch: name })) as {
                 conflicts: boolean;
               };
-              if (r.conflicts) toast.error('合并产生冲突，请在「合并更改」中解决。');
+              if (r.conflicts)
+                toast.error('The merge hit conflicts — resolve them in Merge Changes.');
             }),
         },
       ];
@@ -321,9 +325,9 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         items.push(
           {
             id: 'rename',
-            label: '重命名分支…',
+            label: 'Rename Branch…',
             run: () =>
-              void prompt({ title: `重命名 ${name}`, label: '新名称', defaultValue: name }).then(
+              void prompt({ title: `Rename ${name}`, label: 'New name', defaultValue: name }).then(
                 (n) => {
                   const to = n?.trim();
                   if (to && to !== name)
@@ -334,12 +338,12 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
           { separator: true },
           {
             id: 'delete',
-            label: '删除分支',
+            label: 'Delete Branch',
             danger: true,
             run: () =>
               void confirm({
-                title: `删除分支 ${name}？`,
-                confirmText: '删除',
+                title: `Delete branch ${name}?`,
+                confirmText: 'Delete',
                 destructive: true,
               }).then((ok) => {
                 if (!ok) return;
@@ -349,8 +353,8 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   } catch {
                     if (
                       await confirm({
-                        title: `分支 ${name} 尚未合并，强制删除？`,
-                        confirmText: '强制删除',
+                        title: `Branch ${name} is not fully merged. Force delete?`,
+                        confirmText: 'Force Delete',
                         destructive: true,
                       })
                     )
@@ -424,22 +428,22 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
     (ref: string): ContextMenuItem[] => [
       {
         id: 'apply',
-        label: '应用此贮藏（Apply）',
+        label: 'Apply Stash',
         // Apply/pop can conflict; that surfaces in the refreshed SCM status, not here.
         run: () => runGit(() => window.bh.run('git.stashApply', { ref })),
       },
       {
         id: 'pop',
-        label: '弹出此贮藏（Pop）',
+        label: 'Pop Stash',
         run: () => runGit(() => window.bh.run('git.stashPop', { ref })),
       },
       { separator: true },
       {
         id: 'drop',
-        label: '删除此贮藏（Drop）',
+        label: 'Drop Stash',
         danger: true,
         run: () =>
-          void confirm({ title: `删除 ${ref}？`, confirmText: '删除', destructive: true }).then(
+          void confirm({ title: `Delete ${ref}?`, confirmText: 'Delete', destructive: true }).then(
             (ok) => {
               if (ok) runGit(() => window.bh.run('git.stashDrop', { ref }));
             },
@@ -539,7 +543,9 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
             <button
               type="button"
               onClick={() => setDateMode((m) => (m === 'absolute' ? 'relative' : 'absolute'))}
-              title={dateMode === 'absolute' ? '切换为相对时间' : '切换为绝对日期'}
+              title={
+                dateMode === 'absolute' ? 'Switch to relative time' : 'Switch to absolute date'
+              }
               style={{
                 all: 'unset',
                 cursor: 'pointer',
@@ -559,7 +565,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
             <div style={{ padding: space[4], color: color.danger }}>{error}</div>
           ) : commits.length === 0 ? (
             <div style={{ padding: space[4], color: color.textTertiary }}>
-              {loading ? '载入提交历史…' : '暂无提交。'}
+              {loading ? 'Loading commit history…' : 'No commits yet.'}
             </div>
           ) : (
             <div style={{ position: 'relative' }}>
@@ -651,7 +657,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                 >
                   <span />
                   <span style={{ color: color.warning, fontStyle: 'italic' }}>
-                    ● 未提交的更改（{uncommitted}）
+                    ● Uncommitted Changes ({uncommitted}）
                   </span>
                   <span />
                   <span />
@@ -715,7 +721,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                 cursor: loading ? 'default' : 'pointer',
               }}
             >
-              {loading ? '载入中…' : '载入更多'}
+              {loading ? 'Loading…' : 'Load More'}
             </button>
           )}
         </div>
@@ -784,7 +790,7 @@ const Header = ({
   >
     <span style={{ fontWeight: font.weight.semibold, color: color.textPrimary }}>Git Graph</span>
     <span style={{ color: color.textTertiary, fontSize: font.size.micro }}>
-      {loading ? '载入中…' : `${count} 个提交`}
+      {loading ? 'Loading…' : `${count} commits`}
     </span>
 
     {/* Branch filter (Git Graph's "branches" dropdown). */}
@@ -792,11 +798,11 @@ const Header = ({
       align="left"
       label={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: space[1] }}>
-          ⎇ {branchFilter ?? '全部分支'} ▾
+          ⎇ {branchFilter ?? 'All Branches'} ▾
         </span>
       }
       actions={[
-        { label: '全部分支', onClick: () => onBranchFilter(null) },
+        { label: 'All Branches', onClick: () => onBranchFilter(null) },
         ...branches.map((b) => ({
           label: b.name,
           onClick: () => onBranchFilter(b.name),
@@ -815,15 +821,15 @@ const Header = ({
       }}
     >
       <input type="checkbox" checked={showRemote} onChange={onToggleRemote} />
-      远程分支
+      Remote branches
     </label>
 
     <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: space[1] }}>
       <input
         value={find}
         onChange={(e) => onFind(e.target.value)}
-        placeholder="查找提交…"
-        aria-label="查找提交"
+        placeholder="Find commit…"
+        aria-label="Find Commit"
         data-testid="graph-find"
         style={{
           width: 150,
@@ -841,13 +847,13 @@ const Header = ({
       />
       {matchCount !== null && (
         <span style={{ color: color.textTertiary, fontSize: font.size.micro, minWidth: 36 }}>
-          {matchCount} 处
+          {matchCount} matches
         </span>
       )}
       <button
         type="button"
-        title="关闭（Esc）"
-        aria-label="关闭 Git Graph"
+        title="Close (Esc)"
+        aria-label="Close Git Graph"
         onClick={onClose}
         style={{
           width: 24,
@@ -1059,7 +1065,7 @@ const CommitDetails = ({
         </span>
         <button
           type="button"
-          aria-label="关闭详情"
+          aria-label="Close Details"
           onClick={onClose}
           style={{
             background: 'none',
@@ -1094,7 +1100,7 @@ const CommitDetails = ({
               fontSize: font.size.micro,
             }}
           >
-            载入改动…
+            Loading changes…
           </div>
         ) : (
           files.map((f) => (

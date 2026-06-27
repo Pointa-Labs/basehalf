@@ -328,7 +328,7 @@ export const BadgeNode = ({ id, data, selected }: NodeProps<BadgeFlowNode>): JSX
       {gitDeco && gitFile && (
         <span
           aria-hidden
-          title={gitPropagated ? '此文件夹包含改动' : statusTooltip(gitFile)}
+          title={gitPropagated ? 'This folder contains changes' : statusTooltip(gitFile)}
           style={{
             position: 'absolute',
             top: 6,

@@ -59,14 +59,16 @@ export function parseGithubRepo(remoteUrl: string): GithubRepo | null {
 
 function repoOf(remoteUrl: string): GithubRepo {
   const r = parseGithubRepo(remoteUrl);
-  if (r === null) throw new Error('当前仓库的远程地址不是 github.com，暂不支持。');
+  if (r === null)
+    throw new Error("This repository's remote is not github.com (not supported yet).");
   return r;
 }
 
 /** The stored token, or throw "not signed in". Never returned to the renderer. */
 async function requireToken(ctx: Context): Promise<string> {
   const t = await ctx.secrets.get(GH_TOKEN_KEY);
-  if (t === null || t.trim() === '') throw new Error('尚未登录 GitHub，请在设置中登录。');
+  if (t === null || t.trim() === '')
+    throw new Error('Not signed in to GitHub. Sign in from Settings.');
   return t;
 }
 
@@ -91,14 +93,18 @@ async function gh(
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   if (res.status >= 200 && res.status < 300) return res;
-  if (res.status === 401) throw new Error('GitHub 凭证无效或已过期，请重新登录。');
+  if (res.status === 401)
+    throw new Error('Your GitHub credentials are invalid or expired. Sign in again.');
   if (res.status === 403) {
     const rl = res.headers['x-ratelimit-remaining'];
     throw new Error(
-      rl === '0' ? 'GitHub API 速率受限，请稍后再试。' : 'GitHub 拒绝访问（权限不足）。',
+      rl === '0'
+        ? 'GitHub API rate limit reached. Try again later.'
+        : 'GitHub denied access (insufficient permissions).',
     );
   }
-  if (res.status === 404) throw new Error('找不到该资源（仓库不存在或 token 无访问权限）。');
+  if (res.status === 404)
+    throw new Error('Not found (the repository does not exist or the token cannot access it).');
   // Surface GitHub's own message when present.
   let detail = `HTTP ${res.status}`;
   try {
@@ -107,7 +113,7 @@ async function gh(
   } catch {
     /* non-JSON body */
   }
-  throw new Error(`GitHub 请求失败：${detail}`);
+  throw new Error(`GitHub request failed: ${detail}`);
 }
 
 export const listPullRequests: Handler<
@@ -153,7 +159,7 @@ export const pullRequestFiles: Handler<
   GithubPullRequestFilesResult
 > = async (args, ctx) => {
   if (!Number.isInteger(args.number) || args.number <= 0) {
-    throw new Error('无效的 PR 编号。');
+    throw new Error('Invalid pull request number.');
   }
   const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
@@ -186,14 +192,15 @@ export const reviewPullRequest: Handler<GithubReviewArgs, GithubReviewResult> = 
   args,
   ctx,
 ) => {
-  if (!Number.isInteger(args.number) || args.number <= 0) throw new Error('无效的 PR 编号。');
+  if (!Number.isInteger(args.number) || args.number <= 0)
+    throw new Error('Invalid pull request number.');
   if (args.event !== 'APPROVE' && args.event !== 'REQUEST_CHANGES' && args.event !== 'COMMENT') {
-    throw new Error('无效的评审类型。');
+    throw new Error('Invalid review event.');
   }
   const body = (args.body ?? '').trim();
   // GitHub requires a body for REQUEST_CHANGES and COMMENT; APPROVE may omit it.
   if (args.event !== 'APPROVE' && body === '') {
-    throw new Error('「请求修改」或「评论」需要填写说明。');
+    throw new Error('Request Changes and Comment require a message.');
   }
   const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
@@ -222,7 +229,7 @@ async function loginFor(ctx: Context, token: string): Promise<string | null> {
 export const signIn: Handler<GithubSignInArgs, GithubSignInResult> = async (args, ctx) => {
   const login = await loginFor(ctx, args.token);
   if (login === null) {
-    throw new Error('GitHub token 无效或缺少权限（需要 repo 读取权限）。');
+    throw new Error('The GitHub token is invalid or missing scope (needs repo read access).');
   }
   await ctx.secrets.set(GH_TOKEN_KEY, args.token);
   return { login };

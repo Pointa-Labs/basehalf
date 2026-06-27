@@ -471,12 +471,14 @@ export const CommandPalette = (): JSX.Element | null => {
         out.push(
           G('git:create-branch', 'Git: Create Branch…', () => {
             // Electron has no window.prompt — use the app's custom prompt dialog.
-            void prompt({ title: '新建分支', label: '分支名', placeholder: 'feature/x' }).then(
-              (n) => {
-                const name = n?.trim();
-                if (name) void runGit('git.createBranch', { name });
-              },
-            );
+            void prompt({
+              title: 'Create Branch',
+              label: 'Branch name',
+              placeholder: 'feature/x',
+            }).then((n) => {
+              const name = n?.trim();
+              if (name) void runGit('git.createBranch', { name });
+            });
           }),
           G('git:commit', 'Git: Commit…', () => showSourceControl('changes')),
           G('git:graph', 'Git: Show Commit Graph', () => showSourceControl('graph')),
@@ -619,8 +621,8 @@ export const CommandPalette = (): JSX.Element | null => {
         id: `git:branch:${b.name}`,
         label: b.name,
         category: 'Git',
-        hint: b.current ? '当前分支' : '切换到此分支',
-        searchAlso: 'branch 分支',
+        hint: b.current ? 'current branch' : 'Switch to this branch',
+        searchAlso: 'branch',
         run: () => {
           if (!b.current) void runGit('git.checkout', { branch: b.name });
         },

@@ -155,6 +155,17 @@ textarea:focus-visible {
   outline: none;
 }
 
+textarea.bh-scm-commit-input::placeholder {
+  color: #989898;
+  opacity: 1;
+}
+
+textarea.bh-scm-commit-input:focus,
+textarea.bh-scm-commit-input:focus-visible {
+  outline: 1px solid #0078d4;
+  outline-offset: -1px;
+}
+
 /* Selected file row in NavTree gets a left accent bar — implemented via
  * an inset box-shadow so width stays stable across selected/unselected. */
 .bh-nav-row[data-selected="true"] {

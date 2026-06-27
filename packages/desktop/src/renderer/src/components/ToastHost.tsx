@@ -57,8 +57,8 @@ export const ToastHost = (): JSX.Element | null => {
           <span style={{ flex: 1, minWidth: 0, wordBreak: 'break-word' }}>{t.message}</span>
           <button
             type="button"
-            title="关闭"
-            aria-label="关闭通知"
+            title="Close"
+            aria-label="Dismiss"
             onClick={() => dismiss(t.id)}
             style={{
               flexShrink: 0,

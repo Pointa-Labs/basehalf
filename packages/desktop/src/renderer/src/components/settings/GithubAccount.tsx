@@ -35,7 +35,7 @@ export const GithubAccount = (): JSX.Element => {
       const r = (await window.bh.run('github.signIn', { token: t })) as { login: string | null };
       setLogin(r.login);
       setToken('');
-      toast.success(`已登录 GitHub：${r.login}`);
+      toast.success(`Signed in to GitHub: ${r.login}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -48,7 +48,7 @@ export const GithubAccount = (): JSX.Element => {
     try {
       await window.bh.run('github.signOut', {});
       setLogin(null);
-      toast.info('已登出 GitHub。');
+      toast.info('Signed out of GitHub.');
     } finally {
       setBusy(false);
     }
@@ -67,15 +67,15 @@ export const GithubAccount = (): JSX.Element => {
       >
         {login === undefined ? (
           <span style={{ color: color.textTertiary, fontSize: font.size.caption }}>
-            检查登录状态…
+            Checking sign-in…
           </span>
         ) : login !== null ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: space[3] }}>
             <span style={{ color: color.textSecondary, fontSize: font.size.caption }}>
-              已登录为 <strong style={{ color: color.textPrimary }}>{login}</strong>
+              Signed in as <strong style={{ color: color.textPrimary }}>{login}</strong>
             </span>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => void signOut()}>
-              登出
+              Sign Out
             </Button>
           </div>
         ) : (
@@ -83,8 +83,8 @@ export const GithubAccount = (): JSX.Element => {
             <span
               style={{ color: color.textTertiary, fontSize: font.size.caption, lineHeight: 1.5 }}
             >
-              粘贴一个有 <code>repo</code> 读取权限的 Personal Access Token，以在应用内查看 Pull
-              Request。Token 经系统加密保存在本机，不会离开你的设备。
+              Paste a Personal Access Token with <code>repo</code> read scope to view pull requests
+              in-app. The token is encrypted on this device and never leaves it.
             </span>
             <div style={{ display: 'flex', gap: space[2] }}>
               <input
@@ -94,7 +94,7 @@ export const GithubAccount = (): JSX.Element => {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void signIn();
                 }}
-                placeholder="ghp_… 或 github_pat_…"
+                placeholder="ghp_… or github_pat_…"
                 aria-label="GitHub Personal Access Token"
                 data-testid="github-token-input"
                 style={{
@@ -117,7 +117,7 @@ export const GithubAccount = (): JSX.Element => {
                 disabled={busy || token.trim() === ''}
                 onClick={() => void signIn()}
               >
-                登录
+                Sign In
               </Button>
             </div>
           </>

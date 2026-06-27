@@ -453,14 +453,15 @@ export const rebaseInteractive: Handler<GitRebaseInteractiveArgs, GitRebaseResul
   // would block every rebase.
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   const trackedDirty = st.files.some((f) => !(f.x === '?' && f.y === '?'));
-  if (trackedDirty) throw new Error('请先提交或贮藏工作区改动后再变基。');
-  if (st.branch === null) throw new Error('当前为分离 HEAD，无法变基。');
+  if (trackedDirty) throw new Error('Commit or stash your working-tree changes before rebasing.');
+  if (st.branch === null) throw new Error('Cannot rebase in a detached HEAD state.');
   const branch = st.branch;
   // base must be an ancestor of HEAD (exit 0 = yes, 1 = no).
   const anc = await git(ctx, ['merge-base', '--is-ancestor', args.base, 'HEAD'], {
     acceptExitCodes: [0, 1],
   });
-  if (anc.exitCode !== 0) throw new Error('所选基点不是当前分支的祖先提交。');
+  if (anc.exitCode !== 0)
+    throw new Error('The selected base is not an ancestor of the current branch.');
   const originalHead = (await git(ctx, ['rev-parse', 'HEAD'])).stdout.trim();
   const plan = args.items.filter((i) => i.action !== 'drop');
 

@@ -6,6 +6,7 @@ import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { Codicon } from './Codicon.js';
 import { confirm, prompt } from './Dialog.js';
 
 /**
@@ -96,7 +97,11 @@ export const GitGraph = (): JSX.Element => {
     return <Hint color={color.danger}>{error}</Hint>;
   }
   if (commits.length === 0) {
-    return <Hint color={color.textTertiary}>{loading ? '载入提交历史…' : '暂无提交。'}</Hint>;
+    return (
+      <Hint color={color.textTertiary}>
+        {loading ? 'Loading commit history…' : 'No commits yet.'}
+      </Hint>
+    );
   }
 
   return (
@@ -128,7 +133,7 @@ export const GitGraph = (): JSX.Element => {
             cursor: loading ? 'default' : 'pointer',
           }}
         >
-          {loading ? '载入中…' : '载入更多'}
+          {loading ? 'Loading…' : 'Load More'}
         </button>
       )}
     </div>
@@ -256,9 +261,9 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
     void (async () => {
       if (
         !(await confirm({
-          title: `撤销提交 “${commit.subject}”？`,
-          body: '会生成一个反向提交。',
-          confirmText: '撤销',
+          title: `Revert commit “${commit.subject}”?`,
+          body: 'This creates a revert commit.',
+          confirmText: 'Revert',
           destructive: true,
         }))
       )
@@ -267,15 +272,16 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
         const r = (await window.bh.run('git.revert', { ref: commit.hash })) as {
           conflicts: boolean;
         };
-        if (r.conflicts) setError('撤销产生冲突，请在「合并更改」中解决后提交。');
+        if (r.conflicts)
+          setError('The revert hit conflicts — resolve them in Merge Changes, then commit.');
       });
     })();
 
   const copySha = (): void => {
     void navigator.clipboard
       .writeText(commit.hash)
-      .then(() => toast.success(`已复制 ${commit.shortHash}`))
-      .catch(() => toast.error('复制失败'));
+      .then(() => toast.success(`Copied ${commit.shortHash}`))
+      .catch(() => toast.error('Copy failed'));
   };
 
   const createBranch = (): void =>
@@ -283,8 +289,8 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
       // Electron has no window.prompt — use the app's custom prompt dialog.
       const name = (
         await prompt({
-          title: `从 ${commit.shortHash} 创建分支`,
-          label: '分支名',
+          title: `Create branch from ${commit.shortHash}`,
+          label: 'Branch name',
           placeholder: 'feature/x',
         })
       )?.trim();
@@ -295,9 +301,9 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
     void (async () => {
       if (
         !(await confirm({
-          title: `签出提交 ${commit.shortHash}？`,
-          body: '将进入“分离 HEAD”状态。',
-          confirmText: '签出',
+          title: `Checkout commit ${commit.shortHash}?`,
+          body: 'This enters a detached HEAD state.',
+          confirmText: 'Checkout',
         }))
       )
         return;
@@ -339,17 +345,21 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
           marginBottom: space[1],
         }}
       >
-        <DetailBtn title="复制完整 SHA" onClick={copySha}>
-          ⧉ 复制 SHA
+        <DetailBtn title="Copy Full SHA" onClick={copySha}>
+          <Codicon name="copy" size={12} style={{ marginRight: 4 }} />
+          Copy SHA
         </DetailBtn>
-        <DetailBtn title="从此提交创建分支" onClick={createBranch}>
-          ⎇ 新建分支
+        <DetailBtn title="Create Branch from Commit" onClick={createBranch}>
+          <Codicon name="git-branch" size={12} style={{ marginRight: 4 }} />
+          Create Branch
         </DetailBtn>
-        <DetailBtn title="签出此提交（分离 HEAD）" onClick={checkout}>
-          ⮌ 签出
+        <DetailBtn title="Checkout Commit (Detached HEAD)" onClick={checkout}>
+          <Codicon name="git-commit" size={12} style={{ marginRight: 4 }} />
+          Checkout
         </DetailBtn>
-        <DetailBtn title="生成一个反向提交以撤销此提交" onClick={revert}>
-          ↩ 撤销
+        <DetailBtn title="Revert this commit" onClick={revert}>
+          <Codicon name="discard" size={12} style={{ marginRight: 4 }} />
+          Revert
         </DetailBtn>
       </div>
       {commit.body.trim() !== '' && (
@@ -371,9 +381,9 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
       {error !== null ? (
         <div style={{ color: color.danger, fontSize: font.size.micro }}>{error}</div>
       ) : files === null ? (
-        <div style={{ color: color.textTertiary, fontSize: font.size.micro }}>载入改动…</div>
+        <div style={{ color: color.textTertiary, fontSize: font.size.micro }}>Loading changes…</div>
       ) : files.length === 0 ? (
-        <div style={{ color: color.textTertiary, fontSize: font.size.micro }}>无文件改动。</div>
+        <div style={{ color: color.textTertiary, fontSize: font.size.micro }}>No file changes.</div>
       ) : (
         files.map((f) => (
           <button
@@ -566,19 +576,19 @@ const statusTone = (status: string): string =>
         ? color.accent
         : color.warning;
 
-/** Compact relative time (zh) from an ISO date — "3分钟前" / "2天前" / a date. */
+/** Compact relative time from an ISO date — "3 minutes ago" / "2 days ago". */
 function timeAgo(iso: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return '';
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return '刚刚';
+  if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}分钟前`;
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}小时前`;
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}天前`;
+  if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
   const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo}个月前`;
-  return `${Math.floor(mo / 12)}年前`;
+  if (mo < 12) return `${mo} month${mo === 1 ? '' : 's'} ago`;
+  return `${Math.floor(mo / 12)} year${Math.floor(mo / 12) === 1 ? '' : 's'} ago`;
 }

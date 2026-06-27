@@ -15,7 +15,7 @@ import { Button } from './primitives/Button.js';
  * Current (ours) ↔ Incoming (theirs) read-only panes on top, and an editable
  * Result below. Each remaining conflict offers Accept Current / Incoming / Both,
  * which rewrites that block in the working-tree file (resolveConflict) and saves.
- * When no markers remain, "标记为已解决" stages the file.
+ * When no markers remain, "Complete Merge" stages the file.
  *
  * Sides come from git index stages 2/3 (git.conflictStages); the result is the
  * working-tree file. Read-modify-write goes through workspace.writeFile — the disk
@@ -104,16 +104,16 @@ export const MergeEditor = ({
         }}
       >
         <span style={{ fontWeight: font.weight.medium, color: color.textPrimary }}>{name}</span>
-        <span style={{ color: color.textTertiary }}>合并编辑器</span>
+        <span style={{ color: color.textTertiary }}>Merge Editor</span>
         <span style={{ color: blocks.length > 0 ? color.warning : color.success }}>
-          {blocks.length > 0 ? `${blocks.length} 处冲突待解决` : '无冲突标记'}
+          {blocks.length > 0 ? `${blocks.length} conflict(s) to resolve` : 'No conflict markers'}
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: space[2] }}>
           <Button variant="primary" size="sm" disabled={blocks.length > 0} onClick={markResolved}>
-            标记为已解决
+            Complete Merge
           </Button>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            关闭
+            Close
           </Button>
         </span>
       </div>
@@ -139,12 +139,12 @@ export const MergeEditor = ({
           borderBottom: `1px solid ${color.divider}`,
         }}
       >
-        <SidePane title="当前更改（Current / Ours）" tone={color.success} text={ours} />
+        <SidePane title="Current (Ours)" tone={color.success} text={ours} />
         <div style={{ width: 1, background: color.divider }} />
-        <SidePane title="传入更改（Incoming / Theirs）" tone={color.accent} text={theirs} />
+        <SidePane title="Incoming (Theirs)" tone={color.accent} text={theirs} />
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <PaneTitle>结果（Result）</PaneTitle>
+        <PaneTitle>Result</PaneTitle>
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <ResultView text={result} blocks={blocks} onAccept={accept} />
         </div>
@@ -200,7 +200,7 @@ const SidePane = ({
         whiteSpace: 'pre',
       }}
     >
-      {text ?? '（缺失）'}
+      {text ?? '(missing)'}
     </pre>
   </div>
 );
@@ -215,7 +215,7 @@ const ResultView = ({
   blocks: ConflictBlock[];
   onAccept: (b: ConflictBlock, c: ConflictChoice) => void;
 }): JSX.Element => {
-  if (text === null) return <Note>载入中…</Note>;
+  if (text === null) return <Note>Loading…</Note>;
   const lines = text.split('\n');
   const startAt = new Map(blocks.map((b) => [b.startLine, b]));
   const inBlock = (n: number): ConflictBlock | undefined =>
@@ -252,9 +252,9 @@ const ResultView = ({
                   background: color.surfaceMuted,
                 }}
               >
-                <AcceptBtn label="采用当前" onClick={() => onAccept(block, 'current')} />
-                <AcceptBtn label="采用传入" onClick={() => onAccept(block, 'incoming')} />
-                <AcceptBtn label="两者都要" onClick={() => onAccept(block, 'both')} />
+                <AcceptBtn label="Accept Current" onClick={() => onAccept(block, 'current')} />
+                <AcceptBtn label="Accept Incoming" onClick={() => onAccept(block, 'incoming')} />
+                <AcceptBtn label="Accept Both" onClick={() => onAccept(block, 'both')} />
               </div>
             )}
             <div
