@@ -12,6 +12,7 @@ import { ErrorBanner } from './components/ErrorBanner.js';
 import { FdaTip } from './components/FdaTip.js';
 import { SettingsHost, openSettings } from './components/Settings.js';
 import { Sidebar } from './components/Sidebar.js';
+import { StatusBar } from './components/StatusBar.js';
 import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
 import { WhatsNewHost } from './components/WhatsNew.js';
@@ -329,6 +330,7 @@ export const App = (): JSX.Element => {
           <TerminalDock />
         </div>
       )}
+      {region === 'canvas' && <StatusBar />}
       {error && <ErrorBanner message={error} onDismiss={clearError} />}
       {!error && notice && <ErrorBanner message={notice} onDismiss={clearNotice} tone="info" />}
       {/* Before DialogHost/CommandPalette: same z-index, so DOM order keeps

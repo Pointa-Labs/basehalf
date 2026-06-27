@@ -129,6 +129,13 @@ body,
   }
 }
 
+/* Continuous rotation — the status-bar sync glyph while a pull/push is in flight. */
+@keyframes bh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* The update chip's indeterminate download fill — used only when the total size
    is unknown (no percentage to show), so a sliver sweeps across to signal motion
    instead of a frozen-looking bar. */

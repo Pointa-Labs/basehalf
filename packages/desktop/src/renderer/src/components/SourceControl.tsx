@@ -207,6 +207,10 @@ export const SourceControl = (): JSX.Element => {
   // Header git actions (push/pull/fetch/sync/stash) — each runs then re-reads
   // status from disk. Sync = pull then push (the everyday "stay in lockstep").
   const runAction = (name: string): void => void act(() => window.bh.run(name, {}));
+  const createBranchPrompt = (): void => {
+    const name = window.prompt('新分支名')?.trim();
+    if (name) void act(() => window.bh.run('git.createBranch', { name }));
+  };
   const onSync = (): void =>
     void act(async () => {
       await window.bh.run('git.pull', {});
@@ -254,6 +258,7 @@ export const SourceControl = (): JSX.Element => {
         onSync={onSync}
         onAfterBranch={refresh}
         menuActions={[
+          { label: '新建分支…', onClick: createBranchPrompt },
           { label: '拉取（Pull）', onClick: () => runAction('git.pull') },
           { label: '推送（Push）', onClick: () => runAction('git.push') },
           { label: '获取（Fetch）', onClick: () => runAction('git.fetch') },
