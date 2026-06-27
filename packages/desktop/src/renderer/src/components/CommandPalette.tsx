@@ -26,8 +26,9 @@
 const EMPTY_RECENT_CAP = 8;
 
 import type {
-  GitBranchesResult,
   GitLogResult,
+  GitRefInfo,
+  GitRefsResult,
   GitStatusResult,
   SearchQueryResult,
 } from '@basehalf/core';
@@ -45,6 +46,7 @@ import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { prompt } from './Dialog.js';
 import { openSettings } from './Settings.js';
+import { checkoutTargetForRef } from './source-control/branchQuickPickModel.js';
 
 interface CommandPaletteStore {
   open: boolean;
@@ -304,7 +306,7 @@ export const CommandPalette = (): JSX.Element | null => {
   // fetched once when the palette opens (and re-fetched on a workspace switch).
   // `gitWorkspace` guards rows from a previous workspace, like `filesWorkspace`.
   const [gitRepo, setGitRepo] = useState(false);
-  const [gitBranches, setGitBranches] = useState<GitBranchesResult['branches']>([]);
+  const [gitBranches, setGitBranches] = useState<GitRefInfo[]>([]);
   const [gitCommits, setGitCommits] = useState<GitLogResult['commits']>([]);
   const [gitWorkspace, setGitWorkspace] = useState<string | null>(null);
   useEffect(() => {
@@ -325,11 +327,13 @@ export const CommandPalette = (): JSX.Element | null => {
           return;
         }
         const [branches, log] = (await Promise.all([
-          window.bh.run('git.branches', {}),
+          window.bh.run('git.refs', { includeRemote: true }),
           window.bh.run('git.log', { maxCount: 60 }),
-        ])) as [GitBranchesResult, GitLogResult];
+        ])) as [GitRefsResult, GitLogResult];
         if (cancelled) return;
-        setGitBranches(branches.branches);
+        setGitBranches(
+          branches.refs.filter((ref) => ref.type === 'head' || ref.type === 'remoteHead'),
+        );
         setGitCommits(log.commits);
         setGitWorkspace(current);
       } catch {
@@ -621,10 +625,15 @@ export const CommandPalette = (): JSX.Element | null => {
         id: `git:branch:${b.name}`,
         label: b.name,
         category: 'Git',
-        hint: b.current ? 'current branch' : 'Switch to this branch',
+        hint: b.current ? 'current branch' : b.type === 'remoteHead' ? 'remote' : 'Switch branch',
         searchAlso: 'branch',
         run: () => {
-          if (!b.current) void runGit('git.checkout', { branch: b.name });
+          if (b.current && b.type === 'head') return;
+          const target = checkoutTargetForRef(b, gitBranches);
+          void runGit('git.checkout', {
+            branch: target.branch,
+            ...(target.track === true && { track: true }),
+          });
         },
       });
       if (out.length >= 6) break;

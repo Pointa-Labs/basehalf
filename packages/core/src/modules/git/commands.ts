@@ -33,13 +33,19 @@ import type {
   GitMergeResult,
   GitOkResult,
   GitPathsArgs,
+  GitPublishArgs,
   GitPullArgs,
   GitPushArgs,
   GitRebaseInteractiveArgs,
   GitRebaseResult,
+  GitRefInfo,
+  GitRefsArgs,
+  GitRefsResult,
+  GitRemoteInfo,
   GitRemoteResult,
   GitRemoteUrlArgs,
   GitRemoteUrlResult,
+  GitRemotesResult,
   GitRenameBranchArgs,
   GitResetArgs,
   GitRevertArgs,
@@ -52,6 +58,7 @@ import type {
   GitStashRefArgs,
   GitStashResult,
   GitStatusResult,
+  GitSyncArgs,
   GitTagArgs,
   GitTagDeleteArgs,
 } from './types.js';
@@ -89,6 +96,73 @@ function assertPaths(paths: readonly string[]): void {
 
 function assertSafeRef(ref: string, label: string): void {
   if (!SAFE_REF.test(ref)) throw new Error(`${label}: unsafe ref ${JSON.stringify(ref)}`);
+}
+
+function assertSafeRemote(remote: string): void {
+  if (!/^[\w][\w.-]*$/.test(remote)) {
+    throw new Error(`git remote: invalid remote ${JSON.stringify(remote)}`);
+  }
+}
+
+async function gitRemotes(ctx: Context): Promise<string[]> {
+  const res = await git(ctx, ['remote']);
+  return res.stdout
+    .split(/\r?\n/)
+    .map((remote) => remote.trim())
+    .filter((remote) => remote !== '');
+}
+
+async function publishRemote(ctx: Context, requested?: string): Promise<string> {
+  if (requested !== undefined) {
+    assertSafeRemote(requested);
+    return requested;
+  }
+
+  const remotes = await gitRemotes(ctx);
+  if (remotes.length === 0) {
+    throw new Error('Your repository has no remotes configured to publish to.');
+  }
+
+  return remotes.includes('origin') ? 'origin' : (remotes[0] as string);
+}
+
+function parseRemoteVerbose(stdout: string): GitRemoteInfo[] {
+  const byName = new Map<string, { name: string; fetchUrl?: string; pushUrl?: string }>();
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    const match = /^(\S+)\s+(.+?)\s+\((fetch|push)\)$/i.exec(trimmed);
+    if (match === null) continue;
+    const [, name, url, type] = match;
+    if (name === undefined || url === undefined || type === undefined) continue;
+    let remote = byName.get(name);
+    if (remote === undefined) {
+      remote = { name };
+      byName.set(name, remote);
+    }
+    if (/fetch/i.test(type)) remote.fetchUrl = url;
+    else remote.pushUrl = url;
+  }
+  return [...byName.values()].map((remote) => ({
+    ...remote,
+    isReadOnly: remote.pushUrl === undefined || remote.pushUrl === 'no_push',
+  }));
+}
+
+async function gitRemoteInfos(ctx: Context): Promise<GitRemoteInfo[]> {
+  return parseRemoteVerbose((await git(ctx, ['remote', '--verbose'])).stdout);
+}
+
+function upstreamRemoteName(upstream: string | null): string | null {
+  if (upstream === null) return null;
+  const slash = upstream.indexOf('/');
+  return slash > 0 ? upstream.slice(0, slash) : null;
+}
+
+function isUnbornHeadError(stderr: string): boolean {
+  return /ambiguous argument 'HEAD'|bad revision 'HEAD'|unknown revision.*HEAD|Needed a single revision|Failed to resolve 'HEAD'/i.test(
+    stderr,
+  );
 }
 
 /**
@@ -151,7 +225,15 @@ export const unstage: Handler<GitPathsArgs, GitOkResult> = async (args, ctx) => 
   // `reset` can exit 1 in benign cases (e.g. unmerged entries remain) — the
   // post-refresh status is the source of truth, so don't treat that as failure.
   if (args.paths.length > 0) {
-    await git(ctx, ['reset', '-q', 'HEAD', '--', ...args.paths], { acceptExitCodes: [0, 1] });
+    const res = await git(ctx, ['reset', '-q', 'HEAD', '--', ...args.paths], {
+      acceptExitCodes: [0, 1, 128],
+    });
+    if (res.exitCode === 128) {
+      if (!isUnbornHeadError(res.stderr)) {
+        throw new Error(`git unstage failed: ${res.stderr.trim() || 'exit 128'}`);
+      }
+      await git(ctx, ['rm', '--cached', '-r', '--', ...args.paths], { acceptExitCodes: [0, 1] });
+    }
   }
   return { ok: true };
 };
@@ -162,7 +244,13 @@ export const stageAll: Handler<unknown, GitOkResult> = async (_args, ctx) => {
 };
 
 export const unstageAll: Handler<unknown, GitOkResult> = async (_args, ctx) => {
-  await git(ctx, ['reset', '-q', 'HEAD'], { acceptExitCodes: [0, 1] });
+  const res = await git(ctx, ['reset', '-q', 'HEAD'], { acceptExitCodes: [0, 1, 128] });
+  if (res.exitCode === 128) {
+    if (!isUnbornHeadError(res.stderr)) {
+      throw new Error(`git unstage failed: ${res.stderr.trim() || 'exit 128'}`);
+    }
+    await git(ctx, ['rm', '--cached', '-r', '.'], { acceptExitCodes: [0, 1] });
+  }
   return { ok: true };
 };
 
@@ -189,10 +277,16 @@ export const commit: Handler<GitCommitArgs, GitCommitResult> = async (args, ctx)
 };
 
 export const push: Handler<GitPushArgs, GitRemoteResult> = async (args, ctx) => {
-  // No upstream yet → set it (`push -u origin <branch>`); else a plain push.
+  // No upstream yet → publish to VS Code's default remote choice (origin when
+  // available, otherwise the first configured remote); else a plain push.
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
-  const cmd =
-    st.upstream !== null || st.branch === null ? ['push'] : ['push', '-u', 'origin', st.branch];
+  let cmd: string[];
+  if (st.upstream !== null || st.branch === null) {
+    cmd = ['push'];
+  } else {
+    assertBranchName(st.branch, 'git.push branch');
+    cmd = ['push', '-u', await publishRemote(ctx), st.branch];
+  }
   // Force = --force-with-lease (never the unconditional --force): refuses to
   // overwrite upstream commits we haven't seen, so a force-push can't silently
   // clobber a teammate's work.
@@ -201,10 +295,46 @@ export const push: Handler<GitPushArgs, GitRemoteResult> = async (args, ctx) => 
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
+export const publish: Handler<GitPublishArgs, GitRemoteResult> = async (args, ctx) => {
+  const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
+  if (st.branch === null) {
+    throw new Error('Please check out a branch to push to a remote.');
+  }
+  assertBranchName(st.branch, 'git.publish branch');
+  const remote = await publishRemote(ctx, args?.remote);
+  const res = await git(ctx, ['push', '-u', remote, st.branch], { timeoutMs: REMOTE_TIMEOUT_MS });
+  return { stdout: res.stdout, stderr: res.stderr };
+};
+
 export const pull: Handler<GitPullArgs, GitRemoteResult> = async (args, ctx) => {
   const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
   const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
+};
+
+export const sync: Handler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => {
+  const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
+  if (st.branch === null) return { stdout: '', stderr: '' };
+  if (st.upstream === null) return publish({}, ctx);
+
+  const pulled = await pull(args?.rebase === true ? { rebase: true } : {}, ctx);
+  const remoteName = upstreamRemoteName(st.upstream);
+  const remote =
+    remoteName !== null
+      ? (await gitRemoteInfos(ctx)).find((item) => item.name === remoteName)
+      : undefined;
+  if (remote?.isReadOnly === true) {
+    return pulled;
+  }
+
+  const afterPull = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
+  if (afterPull.ahead <= 0) return pulled;
+
+  const pushed = await push({}, ctx);
+  return {
+    stdout: [pulled.stdout, pushed.stdout].filter(Boolean).join('\n'),
+    stderr: [pulled.stderr, pushed.stderr].filter(Boolean).join('\n'),
+  };
 };
 
 export const fetch: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
@@ -215,13 +345,15 @@ export const fetch: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
 export const remoteUrl: Handler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (args, ctx) => {
   const remote = args?.remote ?? 'origin';
   // A remote name interpolated into the arg — constrain it (no leading '-' → flag).
-  if (!/^[\w][\w.-]*$/.test(remote)) {
-    throw new Error(`git.remoteUrl: invalid remote ${JSON.stringify(remote)}`);
-  }
+  assertSafeRemote(remote);
   // Exit 2 = no such remote (older git), 128 = other "not found"; both → null.
   const res = await git(ctx, ['remote', 'get-url', remote], { acceptExitCodes: [0, 2, 128] });
   const url = res.exitCode === 0 ? res.stdout.trim() : '';
   return { url: url === '' ? null : url };
+};
+
+export const remotes: Handler<unknown, GitRemotesResult> = async (_args, ctx) => {
+  return { remotes: await gitRemoteInfos(ctx) };
 };
 
 export const branches: Handler<GitBranchesArgs, GitBranchesResult> = async (args, ctx) => {
@@ -249,11 +381,67 @@ export const branches: Handler<GitBranchesArgs, GitBranchesResult> = async (args
   return { branches: list, current };
 };
 
+export const refs: Handler<GitRefsArgs, GitRefsResult> = async (args, ctx) => {
+  const current = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout).branch;
+  const patterns = ['refs/heads'];
+  if (args?.includeRemote === true) patterns.push('refs/remotes');
+  if (args?.includeTags === true) patterns.push('refs/tags');
+  const out = await git(ctx, [
+    'for-each-ref',
+    '--sort=-committerdate',
+    '--format=%(refname)%00%(objectname)',
+    ...patterns,
+  ]);
+  const list: GitRefInfo[] = [];
+  for (const line of out.stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') continue;
+    const [ref, commit] = trimmed.split('\0');
+    if (ref === undefined) continue;
+    if (ref.startsWith('refs/heads/')) {
+      const name = ref.slice('refs/heads/'.length);
+      list.push({
+        id: ref,
+        name,
+        type: 'head',
+        current: name === current,
+        ...(commit !== undefined && commit !== '' && { commit }),
+      });
+    } else if (ref.startsWith('refs/remotes/')) {
+      const name = ref.slice('refs/remotes/'.length);
+      if (name.endsWith('/HEAD')) continue;
+      const slash = name.indexOf('/');
+      list.push({
+        id: ref,
+        name,
+        type: 'remoteHead',
+        current: false,
+        ...(slash > 0 && { remote: name.slice(0, slash) }),
+        ...(commit !== undefined && commit !== '' && { commit }),
+      });
+    } else if (ref.startsWith('refs/tags/')) {
+      const name = ref.slice('refs/tags/'.length);
+      list.push({
+        id: ref,
+        name,
+        type: 'tag',
+        current: false,
+        ...(commit !== undefined && commit !== '' && { commit }),
+      });
+    }
+  }
+  return { refs: list, current };
+};
+
 export const checkout: Handler<GitCheckoutArgs, GitOkResult> = async (args, ctx) => {
-  await git(
-    ctx,
-    args.create === true ? ['checkout', '-b', args.branch] : ['checkout', args.branch],
-  );
+  if (args.create === true) assertBranchName(args.branch, 'git.checkout branch');
+  else assertSafeRef(args.branch, 'git.checkout ref');
+  const force = args.force === true ? ['--force'] : [];
+  const cmd =
+    args.create === true
+      ? ['checkout', ...force, '-b', args.branch]
+      : ['checkout', ...force, ...(args.track === true ? ['--track'] : []), args.branch];
+  await git(ctx, cmd);
   return { ok: true };
 };
 
@@ -265,14 +453,14 @@ export const createBranch: Handler<GitCreateBranchArgs, GitOkResult> = async (ar
   // creates it (`git branch <name> [start]`) without leaving the current branch.
   const cmd =
     args.checkout === false
-      ? ['branch', args.name, ...start]
-      : ['checkout', '-b', args.name, ...start];
+      ? ['branch', '--no-track', args.name, ...start]
+      : ['checkout', '-b', args.name, '--no-track', ...start];
   await git(ctx, cmd);
   return { ok: true };
 };
 
 export const deleteBranch: Handler<GitDeleteBranchArgs, GitOkResult> = async (args, ctx) => {
-  assertSafeRef(args.name, 'git.deleteBranch');
+  assertBranchName(args.name, 'git.deleteBranch');
   await git(ctx, ['branch', args.force === true ? '-D' : '-d', args.name]);
   return { ok: true };
 };
@@ -326,10 +514,11 @@ export const apply: Handler<GitApplyArgs, GitOkResult> = async (args, ctx) => {
 export const stash: Handler<GitStashArgs, GitStashResult> = async (args, ctx) => {
   // Message via stdin-free args is fine — git stash takes -m <msg> as one arg, so
   // no shell escaping concern (ctx.git spawns argv, not a shell).
-  const cmd =
-    typeof args.message === 'string' && args.message.trim() !== ''
-      ? ['stash', 'push', '-m', args.message]
-      : ['stash', 'push'];
+  const cmd = ['stash', 'push'];
+  if (args.includeUntracked === true) cmd.push('-u');
+  if (typeof args.message === 'string' && args.message.trim() !== '') {
+    cmd.push('-m', args.message);
+  }
   const res = await git(ctx, cmd);
   // git prints "No local changes to save" and exits 0 when there's nothing to stash.
   return { stashed: !/no local changes to save/i.test(res.stdout) };
@@ -583,7 +772,9 @@ export const log: Handler<GitLogArgs, GitLogResult> = async (args, ctx) => {
   // exits 128, but the safe-ref guard above already rejected those before we got here.
   const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
   if (res.exitCode !== 0) {
-    if (/does not have any commits yet|bad default revision/i.test(res.stderr)) {
+    if (
+      /does not have any commits yet|bad default revision|bad revision 'HEAD'/i.test(res.stderr)
+    ) {
       return { commits: [] };
     }
     throw new Error(`git log failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);

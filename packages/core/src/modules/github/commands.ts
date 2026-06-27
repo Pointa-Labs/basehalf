@@ -2,11 +2,15 @@ import type { Context, Handler, HttpResponse } from '../../kernel/index.js';
 import type {
   GhPrFile,
   GhPullRequest,
+  GithubCreatePullRequestUrlArgs,
+  GithubCreatePullRequestUrlResult,
   GithubListPullRequestsArgs,
   GithubListPullRequestsResult,
   GithubPullRequestFilesArgs,
   GithubPullRequestFilesResult,
+  GithubRemoteRepository,
   GithubRepo,
+  GithubRepositoryResult,
   GithubReviewArgs,
   GithubReviewResult,
   GithubSignInArgs,
@@ -26,6 +30,18 @@ export const GH_TOKEN_KEY = 'github.token';
 
 const API_BASE = 'https://api.github.com';
 const API_VERSION = '2022-11-28';
+const GITHUB_PAGE_SIZE = 100;
+
+interface GitRemoteInfoLike {
+  readonly name: string;
+  readonly fetchUrl?: string;
+  readonly pushUrl?: string;
+  readonly isReadOnly: boolean;
+}
+
+interface GitRemotesResultLike {
+  readonly remotes: readonly GitRemoteInfoLike[];
+}
 
 /** Parse `{ owner, repo }` from a github.com git remote URL (https / scp-ssh /
  *  ssh://). Returns null for a non-github.com host or an unparseable URL. */
@@ -55,6 +71,53 @@ export function parseGithubRepo(remoteUrl: string): GithubRepo | null {
   const repo = parts[1] ?? '';
   if (owner === '' || repo === '') return null;
   return { owner, repo };
+}
+
+const githubWebUrl = ({ owner, repo }: GithubRepo): string => `https://github.com/${owner}/${repo}`;
+
+const createGithubPullRequestUrl = (remoteUrl: string, branch: string): string | null => {
+  const repo = parseGithubRepo(remoteUrl);
+  const trimmedBranch = branch.trim();
+  if (repo === null || trimmedBranch === '') return null;
+  return `${githubWebUrl(repo)}/compare/${encodeURIComponent(trimmedBranch)}?expand=1`;
+};
+
+const remoteUrlCandidates = (remote: GitRemoteInfoLike): string[] =>
+  [remote.pushUrl, remote.fetchUrl].filter(
+    (url): url is string => typeof url === 'string' && url.trim() !== '',
+  );
+
+function githubRepositoryFromRemote(remote: GitRemoteInfoLike): GithubRemoteRepository | null {
+  for (const remoteUrl of remoteUrlCandidates(remote)) {
+    const repo = parseGithubRepo(remoteUrl);
+    if (repo !== null) {
+      return {
+        remoteName: remote.name,
+        remoteUrl,
+        owner: repo.owner,
+        repo: repo.repo,
+        webUrl: githubWebUrl(repo),
+        isReadOnly: remote.isReadOnly,
+      };
+    }
+  }
+  return null;
+}
+
+const remotePriority = (remoteName: string): number =>
+  remoteName === 'origin' ? 0 : remoteName === 'upstream' ? 1 : 2;
+
+async function selectedGithubRepository(ctx: Context): Promise<GithubRemoteRepository | null> {
+  const result = await ctx.run<unknown, GitRemotesResultLike>('git.remotes', {});
+  const repositories = result.remotes
+    .map(githubRepositoryFromRemote)
+    .filter((repo): repo is GithubRemoteRepository => repo !== null)
+    .sort(
+      (a, b) =>
+        remotePriority(a.remoteName) - remotePriority(b.remoteName) ||
+        a.remoteName.localeCompare(b.remoteName),
+    );
+  return repositories[0] ?? null;
 }
 
 function repoOf(remoteUrl: string): GithubRepo {
@@ -116,6 +179,55 @@ async function gh(
   throw new Error(`GitHub request failed: ${detail}`);
 }
 
+function appendPage(path: string, page: number): string {
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}per_page=${GITHUB_PAGE_SIZE}&page=${page}`;
+}
+
+async function ghArrayPages<T>(ctx: Context, token: string, path: string): Promise<readonly T[]> {
+  const all: T[] = [];
+  for (let page = 1; ; page += 1) {
+    const res = await gh(ctx, token, 'GET', appendPage(path, page));
+    const raw = JSON.parse(res.body) as unknown;
+    if (!Array.isArray(raw)) throw new Error('GitHub returned an unexpected response.');
+    const items = raw as T[];
+    all.push(...items);
+    if (items.length < GITHUB_PAGE_SIZE) return all;
+  }
+}
+
+export const repository: Handler<unknown, GithubRepositoryResult> = async (_args, ctx) => ({
+  repository: await selectedGithubRepository(ctx),
+});
+
+export const createPullRequestUrl: Handler<
+  GithubCreatePullRequestUrlArgs,
+  GithubCreatePullRequestUrlResult
+> = async (args, ctx) => {
+  const branch = args.branch.trim();
+  if (branch === '') return { url: null };
+  if (args.remoteUrl !== undefined) {
+    const url = createGithubPullRequestUrl(args.remoteUrl, branch);
+    const repo = parseGithubRepo(args.remoteUrl);
+    return {
+      url,
+      ...(repo !== null && {
+        repository: {
+          remoteName: '',
+          remoteUrl: args.remoteUrl,
+          owner: repo.owner,
+          repo: repo.repo,
+          webUrl: githubWebUrl(repo),
+          isReadOnly: false,
+        },
+      }),
+    };
+  }
+  const repo = await selectedGithubRepository(ctx);
+  if (repo === null) return { url: null };
+  return { url: createGithubPullRequestUrl(repo.remoteUrl, branch), repository: repo };
+};
+
 export const listPullRequests: Handler<
   GithubListPullRequestsArgs,
   GithubListPullRequestsResult
@@ -123,13 +235,7 @@ export const listPullRequests: Handler<
   const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
   const state = args.state ?? 'open';
-  const res = await gh(
-    ctx,
-    token,
-    'GET',
-    `/repos/${owner}/${repo}/pulls?state=${state}&per_page=50&sort=updated&direction=desc`,
-  );
-  const raw = JSON.parse(res.body) as Array<{
+  const raw = await ghArrayPages<{
     number: number;
     title: string;
     state: string;
@@ -139,7 +245,7 @@ export const listPullRequests: Handler<
     user?: { login?: string };
     head?: { ref?: string };
     base?: { ref?: string };
-  }>;
+  }>(ctx, token, `/repos/${owner}/${repo}/pulls?state=${state}&sort=updated&direction=desc`);
   const pullRequests: GhPullRequest[] = raw.map((p) => ({
     number: p.number,
     title: p.title,
@@ -163,20 +269,14 @@ export const pullRequestFiles: Handler<
   }
   const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
-  const res = await gh(
-    ctx,
-    token,
-    'GET',
-    `/repos/${owner}/${repo}/pulls/${args.number}/files?per_page=100`,
-  );
-  const raw = JSON.parse(res.body) as Array<{
+  const raw = await ghArrayPages<{
     filename: string;
     status: string;
     additions: number;
     deletions: number;
     patch?: string;
     previous_filename?: string;
-  }>;
+  }>(ctx, token, `/repos/${owner}/${repo}/pulls/${args.number}/files`);
   const files: GhPrFile[] = raw.map((f) => ({
     filename: f.filename,
     status: f.status,

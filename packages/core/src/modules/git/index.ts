@@ -17,10 +17,14 @@ export function registerGitModule(core: Core): void {
   core.register('git.discard', git.discard);
   core.register('git.commit', git.commit);
   core.register('git.push', git.push);
+  core.register('git.publish', git.publish);
   core.register('git.pull', git.pull);
+  core.register('git.sync', git.sync);
   core.register('git.fetch', git.fetch);
   core.register('git.remoteUrl', git.remoteUrl);
+  core.register('git.remotes', git.remotes);
   core.register('git.branches', git.branches);
+  core.register('git.refs', git.refs);
   core.register('git.checkout', git.checkout);
   core.register('git.createBranch', git.createBranch);
   core.register('git.deleteBranch', git.deleteBranch);

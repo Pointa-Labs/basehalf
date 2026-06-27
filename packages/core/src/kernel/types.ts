@@ -182,6 +182,8 @@ export type Run = <TArgs = unknown, TResult = unknown>(
 export interface GitRunOptions {
   /** The repo working directory git runs in (normally the bound workspace root). */
   readonly cwd: string;
+  /** Extra environment for this invocation (askpass/credentials, tracing, etc.). */
+  readonly env?: Readonly<Record<string, string>>;
   /** Fed to git's stdin (e.g. a commit message via `commit -F -`). */
   readonly stdin?: string;
   /** Kill + reject after this many ms (default 30s; long ops like push/pull pass more). */

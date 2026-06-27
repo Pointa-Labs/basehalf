@@ -1,15 +1,16 @@
 import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
-import { useLayoutStore } from '../store/layout.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { Codicon } from './Codicon.js';
+import { BranchQuickPick } from './source-control/BranchQuickPick.js';
 
 /**
  * StatusBar — the always-visible bottom chrome bar, modeled on VS Code's. Its left
  * segment shows the current git branch + sync state (ahead/behind) the way VS
- * Code's bottom-left does: click the branch to jump to Source Control, click the
- * sync segment to pull-then-push. The right shows the active workspace. Only
+ * Code's bottom-left does: click the branch to pick a branch, click the remote
+ * segment to publish or sync. The right shows the active workspace. Only
  * mounted in the canvas region (a reachable workspace).
  */
 
@@ -21,19 +22,15 @@ export const StatusBar = (): JSX.Element => {
   const workspace = useWorkspaceStore((s) => s.current);
   const [syncing, setSyncing] = useState(false);
 
-  const openScm = (): void => {
-    useLayoutStore.getState().setSidebarView('scm');
-    useLayoutStore.getState().setSidebarOpen(true);
-  };
-
   const sync = (): void => {
     if (syncing) return;
     setSyncing(true);
     void (async () => {
+      const publishing =
+        status?.detached !== true && status?.branch !== null && status?.upstream === null;
       try {
-        await window.bh.run('git.pull', {});
-        await window.bh.run('git.push', {});
-        toast.success('Synced');
+        await window.bh.run('git.sync', {});
+        toast.success(publishing ? 'Published Branch' : 'Synced');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));
       } finally {
@@ -47,6 +44,8 @@ export const StatusBar = (): JSX.Element => {
   const branch = status?.detached ? 'detached' : (status?.branch ?? '');
   const ahead = status?.ahead ?? 0;
   const behind = status?.behind ?? 0;
+  const canPublish =
+    isRepo && status?.detached !== true && status?.branch !== null && status?.upstream === null;
 
   return (
     <div
@@ -67,24 +66,24 @@ export const StatusBar = (): JSX.Element => {
     >
       {isRepo && branch !== '' && (
         <>
-          <Segment title="Switch to Source Control" onClick={openScm}>
-            <BranchGlyph />
-            <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {branch}
-            </span>
-          </Segment>
+          <BranchQuickPick
+            status={status}
+            disabled={syncing}
+            onAfter={refresh}
+            variant="statusBar"
+          />
           <Segment
-            title={status?.upstream === null ? 'Publish Branch' : `Sync ↑${ahead} ↓${behind}`}
+            title={canPublish ? 'Publish Branch' : `Sync ↑${ahead} ↓${behind}`}
             onClick={sync}
           >
-            <span
+            <Codicon
+              name={canPublish ? 'cloud-upload' : 'sync'}
+              size={14}
               style={{
                 display: 'inline-block',
-                animation: syncing ? 'bh-spin 0.8s linear infinite' : undefined,
+                animation: syncing && !canPublish ? 'bh-spin 0.8s linear infinite' : undefined,
               }}
-            >
-              ↻
-            </span>
+            />
             {(ahead > 0 || behind > 0) && (
               <span style={{ fontFamily: font.mono }}>
                 {ahead > 0 ? `↑${ahead}` : ''}
@@ -138,22 +137,4 @@ const Segment = ({
   >
     {children}
   </button>
-);
-
-const BranchGlyph = (): JSX.Element => (
-  <svg
-    width={11}
-    height={11}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.4}
-    aria-hidden
-    style={{ flexShrink: 0 }}
-  >
-    <circle cx={4} cy={3.5} r={1.8} />
-    <circle cx={4} cy={12.5} r={1.8} />
-    <circle cx={12} cy={3.5} r={1.8} />
-    <path d="M4 5.3v5.4M12 5.3c0 3-2.5 3.2-5 3.7" strokeLinecap="round" />
-  </svg>
 );

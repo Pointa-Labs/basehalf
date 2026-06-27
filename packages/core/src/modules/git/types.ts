@@ -60,9 +60,50 @@ export interface GitBranchesResult {
   readonly current: string | null;
 }
 
+export type GitRefType = 'head' | 'remoteHead' | 'tag';
+
+export interface GitRefInfo {
+  /** VS Code-style full ref id, e.g. refs/heads/main, refs/remotes/origin/main. */
+  readonly id: string;
+  /** Display/checkout name, e.g. main, origin/main, v1.0. */
+  readonly name: string;
+  readonly type: GitRefType;
+  readonly current: boolean;
+  /** Remote name for remote-tracking refs, e.g. origin. */
+  readonly remote?: string;
+  /** Best-effort object id for metadata/diagnostics. */
+  readonly commit?: string;
+}
+
+export interface GitRefsArgs {
+  /** Include refs/remotes, minus each remote's HEAD symbolic ref. */
+  readonly includeRemote?: boolean;
+  /** Include refs/tags. */
+  readonly includeTags?: boolean;
+}
+
+export interface GitRefsResult {
+  readonly refs: readonly GitRefInfo[];
+  readonly current: string | null;
+}
+
+export interface GitRemoteInfo {
+  readonly name: string;
+  readonly fetchUrl?: string;
+  readonly pushUrl?: string;
+  /** VS Code marks remotes with no push URL, or pushUrl=no_push, as read-only. */
+  readonly isReadOnly: boolean;
+}
+
+export interface GitRemotesResult {
+  readonly remotes: readonly GitRemoteInfo[];
+}
+
 export interface GitStashArgs {
   /** Optional stash message (`git stash push -m`). */
   readonly message?: string;
+  /** Include untracked files (`git stash push -u`), matching VS Code checkout recovery. */
+  readonly includeUntracked?: boolean;
 }
 
 export interface GitStashResult {
@@ -144,6 +185,16 @@ export interface GitPullArgs {
   readonly rebase?: boolean;
 }
 
+export interface GitPublishArgs {
+  /** Remote to publish to; defaults to origin when present, otherwise the first remote. */
+  readonly remote?: string;
+}
+
+export interface GitSyncArgs {
+  /** Pull with rebase before pushing, matching VS Code's sync-rebase variant. */
+  readonly rebase?: boolean;
+}
+
 export interface GitRemoteUrlArgs {
   /** Remote name; defaults to "origin". */
   readonly remote?: string;
@@ -194,6 +245,10 @@ export interface GitCheckoutArgs {
   readonly branch: string;
   /** Create the branch (git checkout -b) before switching to it. */
   readonly create?: boolean;
+  /** Force the checkout even when local changes would be overwritten. */
+  readonly force?: boolean;
+  /** Track a remote branch (`git checkout --track <remote/name>`). */
+  readonly track?: boolean;
 }
 
 export interface GitCreateBranchArgs {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { HttpRequest, HttpResponse, SecretStore } from '../src/index.js';
+import type { GitRunner, HttpRequest, HttpResponse, SecretStore } from '../src/index.js';
 import { createCore, createInMemorySecrets } from '../src/index.js';
 import { parseGithubRepo } from '../src/modules/github/commands.js';
 
@@ -19,6 +19,16 @@ function makeFakeHttp(reply: (req: HttpRequest) => Partial<HttpResponse>): {
   return { http, calls };
 }
 
+function makeFakeGit(remoteVerbose: string): GitRunner {
+  return async (args, opts) => {
+    expect(opts.cwd).toBe(ROOT.workspaceRoot);
+    if (args[0] === 'remote' && args[1] === '--verbose') {
+      return { stdout: remoteVerbose, stderr: '', exitCode: 0 };
+    }
+    throw new Error(`unexpected git call: ${args.join(' ')}`);
+  };
+}
+
 /** An in-memory secret store pre-seeded with a github token. */
 async function secretsWithToken(token: string): Promise<SecretStore> {
   const s = createInMemorySecrets();
@@ -34,6 +44,71 @@ describe('parseGithubRepo', () => {
   it('rejects non-github hosts and junk', () => {
     expect(parseGithubRepo('https://gitlab.com/o/r.git')).toBeNull();
     expect(parseGithubRepo('nonsense')).toBeNull();
+  });
+});
+
+describe('github.repository / createPullRequestUrl', () => {
+  it('selects the preferred GitHub remote using the provider boundary', async () => {
+    const git = makeFakeGit(
+      'upstream\thttps://github.com/upstream/repo.git (fetch)\nupstream\tno_push (push)\norigin\tgit@github.com:owner/repo.git (fetch)\norigin\tgit@github.com:owner/repo.git (push)\n',
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    expect(await core.run('github.repository', {}, ROOT)).toEqual({
+      repository: {
+        remoteName: 'origin',
+        remoteUrl: 'git@github.com:owner/repo.git',
+        owner: 'owner',
+        repo: 'repo',
+        webUrl: 'https://github.com/owner/repo',
+        isReadOnly: false,
+      },
+    });
+  });
+
+  it('falls back to upstream when origin is not a GitHub remote', async () => {
+    const git = makeFakeGit(
+      'origin\thttps://gitlab.com/o/r.git (fetch)\norigin\thttps://gitlab.com/o/r.git (push)\nupstream\thttps://github.com/upstream/repo.git (fetch)\nupstream\tno_push (push)\n',
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    expect(await core.run('github.repository', {}, ROOT)).toEqual({
+      repository: {
+        remoteName: 'upstream',
+        remoteUrl: 'https://github.com/upstream/repo.git',
+        owner: 'upstream',
+        repo: 'repo',
+        webUrl: 'https://github.com/upstream/repo',
+        isReadOnly: true,
+      },
+    });
+  });
+
+  it('creates the GitHub pull request action URL from the selected remote', async () => {
+    const git = makeFakeGit(
+      'origin\thttps://github.com/owner/repo.git (fetch)\norigin\thttps://github.com/owner/repo.git (push)\n',
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    expect(await core.run('github.createPullRequestUrl', { branch: 'feature/x' }, ROOT)).toEqual({
+      url: 'https://github.com/owner/repo/compare/feature%2Fx?expand=1',
+      repository: {
+        remoteName: 'origin',
+        remoteUrl: 'https://github.com/owner/repo.git',
+        owner: 'owner',
+        repo: 'repo',
+        webUrl: 'https://github.com/owner/repo',
+        isReadOnly: false,
+      },
+    });
+  });
+
+  it('returns null when no GitHub remote is configured', async () => {
+    const git = makeFakeGit(
+      'origin\thttps://gitlab.com/owner/repo.git (fetch)\norigin\thttps://gitlab.com/owner/repo.git (push)\n',
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    expect(await core.run('github.repository', {}, ROOT)).toEqual({ repository: null });
+    expect(await core.run('github.createPullRequestUrl', { branch: 'feature/x' }, ROOT)).toEqual({
+      url: null,
+    });
   });
 });
 
@@ -61,7 +136,7 @@ describe('github.listPullRequests', () => {
       ROOT,
     )) as { pullRequests: Array<{ number: number; author: string; headRef: string }> };
     expect(calls[0]?.url).toBe(
-      'https://api.github.com/repos/o/r/pulls?state=open&per_page=50&sort=updated&direction=desc',
+      'https://api.github.com/repos/o/r/pulls?state=open&sort=updated&direction=desc&per_page=100&page=1',
     );
     expect(calls[0]?.headers?.Authorization).toBe('Bearer tok'); // from the STORED token
     expect(calls[0]?.headers?.['X-GitHub-Api-Version']).toBe('2022-11-28');
@@ -78,6 +153,34 @@ describe('github.listPullRequests', () => {
         updatedAt: '2026-06-27T10:00:00Z',
       },
     ]);
+  });
+
+  it('paginates pull request results instead of truncating at the first page', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      const page = new URL(req.url).searchParams.get('page');
+      const count = page === '1' ? 100 : 1;
+      return {
+        body: JSON.stringify(
+          Array.from({ length: count }, (_, i) => ({
+            number: page === '1' ? i + 1 : 101,
+            title: `PR ${page}-${i}`,
+            state: 'open',
+            html_url: 'https://github.com/o/r/pull/x',
+            updated_at: '2026-06-27T10:00:00Z',
+          })),
+        ),
+      };
+    });
+    const core = createCore({ http, secrets: await secretsWithToken('tok'), configDir: '/cfg' });
+    const r = (await core.run(
+      'github.listPullRequests',
+      { remoteUrl: 'https://github.com/o/r.git' },
+      ROOT,
+    )) as { pullRequests: Array<{ number: number }> };
+
+    expect(calls.map((c) => new URL(c.url).searchParams.get('page'))).toEqual(['1', '2']);
+    expect(r.pullRequests).toHaveLength(101);
+    expect(r.pullRequests.at(-1)?.number).toBe(101);
   });
 
   it('maps 401 to a clear credential error', async () => {
@@ -127,9 +230,38 @@ describe('github.pullRequestFiles', () => {
       { remoteUrl: 'https://github.com/o/r.git', number: 7 },
       ROOT,
     )) as { files: Array<{ filename: string; patch?: string; previousFilename?: string }> };
-    expect(calls[0]?.url).toBe('https://api.github.com/repos/o/r/pulls/7/files?per_page=100');
+    expect(calls[0]?.url).toBe(
+      'https://api.github.com/repos/o/r/pulls/7/files?per_page=100&page=1',
+    );
     expect(r.files[0]).toMatchObject({ filename: 'a.ts', additions: 3, patch: '@@ -1 +1 @@' });
     expect(r.files[1]).toMatchObject({ filename: 'b.ts', previousFilename: 'old.ts' });
+  });
+
+  it('paginates pull request files', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      const page = new URL(req.url).searchParams.get('page');
+      const count = page === '1' ? 100 : 1;
+      return {
+        body: JSON.stringify(
+          Array.from({ length: count }, (_, i) => ({
+            filename: `file-${page}-${i}.ts`,
+            status: 'modified',
+            additions: 1,
+            deletions: 0,
+          })),
+        ),
+      };
+    });
+    const core = createCore({ http, secrets: await secretsWithToken('t'), configDir: '/cfg' });
+    const r = (await core.run(
+      'github.pullRequestFiles',
+      { remoteUrl: 'https://github.com/o/r.git', number: 7 },
+      ROOT,
+    )) as { files: Array<{ filename: string }> };
+
+    expect(calls.map((c) => new URL(c.url).searchParams.get('page'))).toEqual(['1', '2']);
+    expect(r.files).toHaveLength(101);
+    expect(r.files.at(-1)?.filename).toBe('file-2-0.ts');
   });
 
   it('rejects a bad PR number (before the token check)', async () => {

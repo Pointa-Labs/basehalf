@@ -3,6 +3,7 @@ import {
   type GitBranchesResult,
   type GitDiffResult,
   type GitLogResult,
+  type GitRefsResult,
   type GitRunner,
   type GitShowResult,
   type GitStatusResult,
@@ -106,13 +107,61 @@ describe('git commands (injected fake runner)', () => {
     expect(calls[0].args).toEqual(['checkout', '--', 'a.ts']);
   });
 
+  it('git.unstage falls back to rm --cached on an unborn branch', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'reset') {
+        return { exitCode: 128, stderr: "fatal: ambiguous argument 'HEAD'" };
+      }
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.unstage', { paths: ['a.ts'] }, ROOT);
+    expect(calls.map((c) => c.args)).toEqual([
+      ['reset', '-q', 'HEAD', '--', 'a.ts'],
+      ['rm', '--cached', '-r', '--', 'a.ts'],
+    ]);
+  });
+
+  it('git.unstageAll falls back to rm --cached on an unborn branch', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'reset') {
+        return { exitCode: 128, stderr: "fatal: bad revision 'HEAD'" };
+      }
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.unstageAll', {}, ROOT);
+    expect(calls.map((c) => c.args)).toEqual([
+      ['reset', '-q', 'HEAD'],
+      ['rm', '--cached', '-r', '.'],
+    ]);
+  });
+
   it('git.push sets upstream when the branch has none', async () => {
-    const { git, calls } = makeFakeGit((args) =>
-      args[0] === 'status' ? { stdout: '## feat\0' } : {},
-    );
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## feat\0' };
+      if (args[0] === 'remote') return { stdout: 'origin\n' };
+      return {};
+    });
     const core = createCore({ git, configDir: '/cfg' });
     await core.run('git.push', {}, ROOT);
     expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat']);
+  });
+
+  it('git.push publishes to the first remote when origin is absent', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## feat\0' };
+      if (args[0] === 'remote') return { stdout: 'upstream\n' };
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.push', {}, ROOT);
+    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual([
+      'push',
+      '-u',
+      'upstream',
+      'feat',
+    ]);
   });
 
   it('git.push is a plain push when an upstream exists', async () => {
@@ -133,6 +182,98 @@ describe('git commands (injected fake runner)', () => {
     expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '--force-with-lease']);
   });
 
+  it('git.publish sets upstream on origin when available', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## feat\0' };
+      if (args[0] === 'remote') return { stdout: 'upstream\norigin\n' };
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.publish', {}, ROOT);
+    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat']);
+  });
+
+  it('git.publish fails before pushing when there are no remotes', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## feat\0' };
+      if (args[0] === 'remote') return { stdout: '' };
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.publish', {}, ROOT)).rejects.toThrow(/no remotes/i);
+    expect(calls.some((c) => c.args[0] === 'push')).toBe(false);
+  });
+
+  it('git.sync publishes instead of pulling when the branch has no upstream', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## feat\0' };
+      if (args[0] === 'remote') return { stdout: 'origin\n' };
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.sync', {}, ROOT);
+    expect(calls.some((c) => c.args[0] === 'pull')).toBe(false);
+    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push', '-u', 'origin', 'feat']);
+  });
+
+  it('git.sync pulls then pushes when an upstream exists', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[0] === 'status' ? { stdout: '## main...origin/main [ahead 1, behind 1]\0' } : {},
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.sync', { rebase: true }, ROOT);
+    expect(calls.map((c) => c.args[0])).toEqual([
+      'status',
+      'pull',
+      'remote',
+      'status',
+      'status',
+      'push',
+    ]);
+    expect(calls.find((c) => c.args[0] === 'pull')?.args).toEqual(['pull', '--rebase']);
+    expect(calls.find((c) => c.args[0] === 'push')?.args).toEqual(['push']);
+  });
+
+  it('git.sync skips push for a read-only upstream remote, like VS Code', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') return { stdout: '## main...origin/main [ahead 1, behind 1]\0' };
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return {
+          stdout: 'origin\thttps://github.com/o/r.git (fetch)\norigin\tno_push (push)\n',
+        };
+      }
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.sync', {}, ROOT);
+    expect(calls.some((c) => c.args[0] === 'pull')).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'push')).toBe(false);
+  });
+
+  it('git.sync skips push when pull leaves the branch with nothing ahead', async () => {
+    let statusCalls = 0;
+    const { git, calls } = makeFakeGit((args) => {
+      if (args[0] === 'status') {
+        statusCalls += 1;
+        return {
+          stdout:
+            statusCalls === 1 ? '## main...origin/main [behind 1]\0' : '## main...origin/main\0',
+        };
+      }
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return {
+          stdout:
+            'origin\thttps://github.com/o/r.git (fetch)\norigin\thttps://github.com/o/r.git (push)\n',
+        };
+      }
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.sync', {}, ROOT);
+    expect(calls.some((c) => c.args[0] === 'pull')).toBe(true);
+    expect(calls.some((c) => c.args[0] === 'push')).toBe(false);
+  });
+
   it('git.remoteUrl returns the origin URL, null when absent, rejects a bad name', async () => {
     const ok = makeFakeGit(() => ({ stdout: 'git@github.com:o/r.git\n' }));
     const core1 = createCore({ git: ok.git, configDir: '/cfg' });
@@ -147,6 +288,30 @@ describe('git commands (injected fake runner)', () => {
     await expect(core1.run('git.remoteUrl', { remote: '--upload-pack=x' }, ROOT)).rejects.toThrow(
       /invalid remote/,
     );
+  });
+
+  it('git.remotes parses remote --verbose into VS Code-style remotes', async () => {
+    const { git } = makeFakeGit(() => ({
+      stdout:
+        'origin\thttps://github.com/o/r.git (fetch)\norigin\tgit@github.com:o/r.git (push)\nupstream\thttps://github.com/u/r.git (fetch)\nupstream\tno_push (push)\n',
+    }));
+    const core = createCore({ git, configDir: '/cfg' });
+    expect(await core.run('git.remotes', {}, ROOT)).toEqual({
+      remotes: [
+        {
+          name: 'origin',
+          fetchUrl: 'https://github.com/o/r.git',
+          pushUrl: 'git@github.com:o/r.git',
+          isReadOnly: false,
+        },
+        {
+          name: 'upstream',
+          fetchUrl: 'https://github.com/u/r.git',
+          pushUrl: 'no_push',
+          isReadOnly: true,
+        },
+      ],
+    });
   });
 
   it('git.pull rebase passes --rebase', async () => {
@@ -193,6 +358,57 @@ describe('git commands (injected fake runner)', () => {
     ]);
   });
 
+  it('git.refs lists local, remote, and tag refs with VS Code-style ids', async () => {
+    const { git, calls } = makeFakeGit((args) =>
+      args[0] === 'status'
+        ? { stdout: '## main\0' }
+        : {
+            stdout:
+              'refs/heads/main\u0000h1\nrefs/remotes/origin/HEAD\u0000h0\nrefs/remotes/origin/main\u0000h2\nrefs/tags/v1.0\u0000t1\n',
+          },
+    );
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run(
+      'git.refs',
+      {
+        includeRemote: true,
+        includeTags: true,
+      },
+      ROOT,
+    )) as GitRefsResult;
+    expect(calls.find((c) => c.args[0] === 'for-each-ref')?.args).toEqual([
+      'for-each-ref',
+      '--sort=-committerdate',
+      '--format=%(refname)%00%(objectname)',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+    ]);
+    expect(r.refs).toEqual([
+      { id: 'refs/heads/main', name: 'main', type: 'head', current: true, commit: 'h1' },
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        remote: 'origin',
+        commit: 'h2',
+      },
+      { id: 'refs/tags/v1.0', name: 'v1.0', type: 'tag', current: false, commit: 't1' },
+    ]);
+  });
+
+  it('git.checkout supports tracking a remote ref and rejects unsafe refs', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.checkout', { branch: 'refs/remotes/origin/topic', track: true }, ROOT);
+    expect(calls[0].args).toEqual(['checkout', '--track', 'refs/remotes/origin/topic']);
+    await expect(core.run('git.checkout', { branch: '--work-tree=/tmp' }, ROOT)).rejects.toThrow(
+      /unsafe ref/,
+    );
+    expect(calls).toHaveLength(1);
+  });
+
   it('git.stash pushes, and reports nothing-to-stash', async () => {
     const { git, calls } = makeFakeGit((args) =>
       args[1] === 'push' && args.length === 2 ? { stdout: 'No local changes to save' } : {},
@@ -202,6 +418,13 @@ describe('git commands (injected fake runner)', () => {
     expect(calls[0].args).toEqual(['stash', 'push', '-m', 'wip']);
     const r = (await core.run('git.stash', {}, ROOT)) as { stashed: boolean };
     expect(r.stashed).toBe(false);
+  });
+
+  it('git.stash can include untracked files', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.stash', { message: 'before checkout', includeUntracked: true }, ROOT);
+    expect(calls[0].args).toEqual(['stash', 'push', '-u', '-m', 'before checkout']);
   });
 
   it('git.stashApply / stashDrop / stashPop target a specific stash ref', async () => {
@@ -468,14 +691,14 @@ describe('git commands (injected fake runner)', () => {
     const { git, calls } = makeFakeGit(() => ({}));
     const core = createCore({ git, configDir: '/cfg' });
     await core.run('git.createBranch', { name: 'feat/x' }, ROOT);
-    expect(calls[0].args).toEqual(['checkout', '-b', 'feat/x']);
+    expect(calls[0].args).toEqual(['checkout', '-b', 'feat/x', '--no-track']);
   });
 
   it('git.createBranch with checkout:false and a start ref just creates it', async () => {
     const { git, calls } = makeFakeGit(() => ({}));
     const core = createCore({ git, configDir: '/cfg' });
     await core.run('git.createBranch', { name: 'feat/x', ref: 'main', checkout: false }, ROOT);
-    expect(calls[0].args).toEqual(['branch', 'feat/x', 'main']);
+    expect(calls[0].args).toEqual(['branch', '--no-track', 'feat/x', 'main']);
   });
 
   it('git.createBranch rejects an injection-shaped name before git', async () => {
@@ -494,6 +717,15 @@ describe('git commands (injected fake runner)', () => {
     await core.run('git.deleteBranch', { name: 'old', force: true }, ROOT);
     expect(calls[0].args).toEqual(['branch', '-d', 'old']);
     expect(calls[1].args).toEqual(['branch', '-D', 'old']);
+  });
+
+  it('git.deleteBranch rejects an injection-shaped branch name before git', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await expect(core.run('git.deleteBranch', { name: '-D main' }, ROOT)).rejects.toThrow(
+      /invalid branch name/,
+    );
+    expect(calls).toHaveLength(0);
   });
 
   it('git.merge → merged on a clean merge', async () => {
@@ -652,6 +884,16 @@ describe('git commands (injected fake runner)', () => {
     }));
     const core = createCore({ git, configDir: '/cfg' });
     const r = (await core.run('git.log', {}, ROOT)) as GitLogResult;
+    expect(r.commits).toEqual([]);
+  });
+
+  it('git.log → empty history when unborn HEAD reports bad revision', async () => {
+    const { git } = makeFakeGit(() => ({
+      exitCode: 128,
+      stderr: "fatal: bad revision 'HEAD'",
+    }));
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.log', { ref: 'HEAD' }, ROOT)) as GitLogResult;
     expect(r.commits).toEqual([]);
   });
 

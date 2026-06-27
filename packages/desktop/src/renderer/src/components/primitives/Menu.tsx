@@ -1,18 +1,27 @@
 /**
  * Menu — a small popover of actions, modeled on Select.
  *
- * A trigger button (default: a "⋯" overflow icon) opens an absolutely-
+ * A trigger button (default: the VS Code ellipsis codicon) opens an absolutely-
  * positioned list of action items. Click-outside / Esc close. This exists
  * to fold low-frequency chrome actions (rename / remove / delete) out of
  * the always-visible toolbar so it reads as a calm tool, not a cockpit of
  * a dozen text buttons.
  *
- * Deliberately small: no arrow-key roving (these lists are 2–3 items). It
- * mirrors Select's positioning + dismissal so the two feel like one family.
+ * Mirrors Select's positioning + dismissal, with VS Code-style arrow-key
+ * navigation for the action list.
  */
 
-import { type CSSProperties, type JSX, type ReactNode, useState } from 'react';
+import {
+  type CSSProperties,
+  type JSX,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { color, font, radius, space, transition } from '../../design.js';
+import { Codicon } from '../Codicon.js';
 import { PopoverSurface, usePopover } from './Popover.js';
 
 export interface MenuAction {
@@ -28,20 +37,14 @@ interface MenuProps {
   readonly title?: string;
   /** Test hook for the Playwright driver — becomes `data-testid` on the trigger. */
   readonly testId?: string;
-  /** Trigger content; defaults to the ⋯ overflow glyph. */
+  /** Trigger content; defaults to the VS Code ellipsis codicon. */
   readonly label?: ReactNode;
   /** Anchor edge. `right` keeps the menu on-screen near a toolbar's right edge. */
   readonly align?: 'left' | 'right';
   readonly disabled?: boolean;
 }
 
-const overflowGlyph = (
-  <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden style={{ flexShrink: 0 }}>
-    <circle cx="3.5" cy="8" r="1.3" fill="currentColor" />
-    <circle cx="8" cy="8" r="1.3" fill="currentColor" />
-    <circle cx="12.5" cy="8" r="1.3" fill="currentColor" />
-  </svg>
-);
+const overflowGlyph = <Codicon name="ellipsis" size={16} style={{ flexShrink: 0 }} />;
 
 export const Menu = ({
   actions,
@@ -56,6 +59,36 @@ export const Menu = ({
   // only the trigger's hover tone and the action list.
   const { open, toggle, close, triggerRef, floatingRef, coords } = usePopover({ align, disabled });
   const [hover, setHover] = useState(false);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const enabledIndexes = useMemo(
+    () =>
+      actions.map((action, index) => (action.disabled ? -1 : index)).filter((index) => index >= 0),
+    [actions],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      const first = enabledIndexes[0];
+      if (first !== undefined) itemRefs.current[first]?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [enabledIndexes, open]);
+
+  const focusMenuItem = (direction: 1 | -1 | 'first' | 'last'): void => {
+    if (enabledIndexes.length === 0) return;
+    const active = document.activeElement;
+    const current = itemRefs.current.findIndex((node) => node === active);
+    let next: number | undefined;
+    if (direction === 'first') next = enabledIndexes[0];
+    else if (direction === 'last') next = enabledIndexes[enabledIndexes.length - 1];
+    else {
+      const enabledPos = Math.max(0, enabledIndexes.indexOf(current));
+      const wrapped = (enabledPos + direction + enabledIndexes.length) % enabledIndexes.length;
+      next = enabledIndexes[wrapped];
+    }
+    if (next !== undefined) itemRefs.current[next]?.focus();
+  };
 
   const triggerStyle: CSSProperties = {
     display: 'inline-flex',
@@ -100,12 +133,30 @@ export const Menu = ({
           role="menu"
           style={{ minWidth: 168 }}
         >
-          {actions.map((action) => (
+          {actions.map((action, index) => (
             <button
               key={action.label}
+              ref={(node) => {
+                itemRefs.current[index] = node;
+              }}
               type="button"
               role="menuitem"
               disabled={action.disabled}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  focusMenuItem(1);
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  focusMenuItem(-1);
+                } else if (e.key === 'Home') {
+                  e.preventDefault();
+                  focusMenuItem('first');
+                } else if (e.key === 'End') {
+                  e.preventDefault();
+                  focusMenuItem('last');
+                }
+              }}
               onClick={() => {
                 close();
                 action.onClick();

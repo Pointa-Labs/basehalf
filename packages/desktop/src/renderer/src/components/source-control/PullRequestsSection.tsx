@@ -1,9 +1,9 @@
-import type { GhPullRequest } from '@basehalf/core';
+import type { GhPullRequest, GithubRemoteRepository } from '@basehalf/core';
 import { type JSX, type ReactNode, useEffect, useState } from 'react';
-import { color, font, space } from '../design.js';
-import { useWorkspaceStore } from '../store/workspace.js';
-import { openSettings } from './Settings.js';
-import { Disclosure } from './primitives/Disclosure.js';
+import { color, font, space } from '../../design.js';
+import { useWorkspaceStore } from '../../store/workspace.js';
+import { openSettings } from '../Settings.js';
+import { Disclosure } from '../primitives/Disclosure.js';
 
 /**
  * The Pull Requests section in Source Control — VS Code's GitHub Pull Requests
@@ -11,16 +11,18 @@ import { Disclosure } from './primitives/Disclosure.js';
  * github.com. Signed out → a one-click jump to Settings to sign in; signed in →
  * the open PRs (title · #number · author → branch), each opening the PR.
  *
- * Reads git.remoteUrl + github.viewer to decide visibility, then github.list-
- * PullRequests (token-gated in core; the renderer never sees the token).
+ * Reads github.repository + github.viewer to decide visibility, then github.
+ * listPullRequests (token-gated in core; the renderer never sees the token).
  */
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-export const PullRequests = (): JSX.Element | null => {
+export const PullRequestsSection = (): JSX.Element | null => {
   const [open, setOpen] = useState(true);
   const [login, setLogin] = useState<string | null | undefined>(undefined);
-  const [remoteUrl, setRemoteUrl] = useState<string | null | undefined>(undefined);
+  const [repository, setRepository] = useState<GithubRemoteRepository | null | undefined>(
+    undefined,
+  );
   const [prs, setPrs] = useState<GhPullRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const openPr = useWorkspaceStore((s) => s.openPr);
@@ -28,10 +30,12 @@ export const PullRequests = (): JSX.Element | null => {
   useEffect(() => {
     void (async () => {
       try {
-        const r = (await window.bh.run('git.remoteUrl', {})) as { url: string | null };
-        setRemoteUrl(r.url);
+        const r = (await window.bh.run('github.repository', {})) as {
+          repository: GithubRemoteRepository | null;
+        };
+        setRepository(r.repository);
       } catch {
-        setRemoteUrl(null);
+        setRepository(null);
       }
       try {
         const v = (await window.bh.run('github.viewer', {})) as { login: string | null };
@@ -42,15 +46,23 @@ export const PullRequests = (): JSX.Element | null => {
     })();
   }, []);
 
-  const isGithub = typeof remoteUrl === 'string' && /(^|@|\/\/)github\.com[:/]/i.test(remoteUrl);
-
   useEffect(() => {
-    if (!isGithub || login === null || login === undefined || !open) return;
+    if (
+      repository === null ||
+      repository === undefined ||
+      login === null ||
+      login === undefined ||
+      !open
+    ) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
       setError(null);
       try {
-        const r = (await window.bh.run('github.listPullRequests', { remoteUrl })) as {
+        const r = (await window.bh.run('github.listPullRequests', {
+          remoteUrl: repository.remoteUrl,
+        })) as {
           pullRequests: GhPullRequest[];
         };
         if (!cancelled) setPrs(r.pullRequests);
@@ -64,11 +76,11 @@ export const PullRequests = (): JSX.Element | null => {
     return () => {
       cancelled = true;
     };
-  }, [isGithub, login, remoteUrl, open]);
+  }, [repository, login, open]);
 
   // Still resolving, or not a github repo → render nothing.
-  if (remoteUrl === undefined || login === undefined) return null;
-  if (!isGithub) return null;
+  if (repository === undefined || login === undefined) return null;
+  if (repository === null) return null;
 
   return (
     <Disclosure
@@ -99,8 +111,12 @@ export const PullRequests = (): JSX.Element | null => {
               data-testid="pr-row"
               title={`#${pr.number} · ${pr.headRef} → ${pr.baseRef}`}
               onClick={() =>
-                typeof remoteUrl === 'string' &&
-                openPr({ number: pr.number, title: pr.title, remoteUrl, url: pr.url })
+                openPr({
+                  number: pr.number,
+                  title: pr.title,
+                  remoteUrl: repository.remoteUrl,
+                  url: pr.url,
+                })
               }
               style={{
                 display: 'flex',

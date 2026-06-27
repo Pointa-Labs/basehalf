@@ -1,8 +1,9 @@
 import type {
-  GitBranchesResult,
   GitCommit,
   GitCommitFilesResult,
   GitLogResult,
+  GitRefInfo,
+  GitRefsResult,
   GitStashListResult,
   GitStatusResult,
 } from '@basehalf/core';
@@ -70,7 +71,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const [branchFilter, setBranchFilter] = useState<string | null>(null);
   const [showRemote, setShowRemote] = useState(false);
   const [find, setFind] = useState('');
-  const [branches, setBranches] = useState<GitBranchesResult['branches']>([]);
+  const [branches, setBranches] = useState<GitRefInfo[]>([]);
   const [uncommitted, setUncommitted] = useState(0);
   // The interactive-rebase planner, opened (base = a commit) from the commit menu.
   const [rebaseBase, setRebaseBase] = useState<string | null>(null);
@@ -110,10 +111,10 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   // mount and after every graph mutation (see runGit) so stash nodes stay current.
   const loadAux = useCallback(async (): Promise<void> => {
     try {
-      const b = (await window.bh.run('git.branches', {
+      const b = (await window.bh.run('git.refs', {
         includeRemote: showRemote,
-      })) as GitBranchesResult;
-      setBranches(b.branches);
+      })) as GitRefsResult;
+      setBranches(b.refs.filter((ref) => ref.type === 'head' || ref.type === 'remoteHead'));
     } catch {
       /* ignore */
     }
@@ -283,7 +284,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
           {
             id: 'checkout',
             label: `Checkout tag ${name}`,
-            run: () => runGit(() => window.bh.run('git.checkout', { branch: name })),
+            run: () => runGit(() => window.bh.run('git.checkout', { branch: `refs/tags/${name}` })),
           },
           {
             id: 'delete',
@@ -300,13 +301,17 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
           },
         ];
       }
-      // A remote-tracking ref → checkout its short name (DWIM tracking branch).
-      const checkoutTarget = kind === 'remote' ? name.slice(name.indexOf('/') + 1) : name;
       const items: ContextMenuItem[] = [
         {
           id: 'checkout',
-          label: `Checkout ${checkoutTarget}`,
-          run: () => runGit(() => window.bh.run('git.checkout', { branch: checkoutTarget })),
+          label: `Checkout ${name}`,
+          run: () =>
+            runGit(() =>
+              window.bh.run(
+                'git.checkout',
+                kind === 'remote' ? { branch: name, track: true } : { branch: name },
+              ),
+            ),
         },
         {
           id: 'merge',
@@ -374,7 +379,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   // when it contains a "/" like feature/x) from a remote-tracking ref. A plain
   // `name.includes('/')` test is wrong: local branches can carry slashes.
   const localBranches = useMemo(
-    () => new Set(branches.filter((b) => !b.remote).map((b) => b.name)),
+    () => new Set(branches.filter((b) => b.type === 'head').map((b) => b.name)),
     [branches],
   );
 
@@ -766,7 +771,7 @@ const Header = ({
   onClose: () => void;
   count: number;
   loading: boolean;
-  branches: GitBranchesResult['branches'];
+  branches: readonly GitRefInfo[];
   branchFilter: string | null;
   onBranchFilter: (b: string | null) => void;
   showRemote: boolean;
@@ -798,14 +803,14 @@ const Header = ({
       align="left"
       label={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: space[1] }}>
-          ⎇ {branchFilter ?? 'All Branches'} ▾
+          ⎇ {branchLabel(branchFilter, branches)} ▾
         </span>
       }
       actions={[
         { label: 'All Branches', onClick: () => onBranchFilter(null) },
         ...branches.map((b) => ({
           label: b.name,
-          onClick: () => onBranchFilter(b.name),
+          onClick: () => onBranchFilter(b.id),
         })),
       ]}
     />
@@ -874,6 +879,18 @@ const Header = ({
     </span>
   </div>
 );
+
+function branchLabel(branchFilter: string | null, branches: readonly GitRefInfo[]): string {
+  if (branchFilter === null) return 'All Branches';
+  return branches.find((branch) => branch.id === branchFilter)?.name ?? displayRef(branchFilter);
+}
+
+function displayRef(ref: string): string {
+  if (ref.startsWith('refs/heads/')) return ref.slice('refs/heads/'.length);
+  if (ref.startsWith('refs/remotes/')) return ref.slice('refs/remotes/'.length);
+  if (ref.startsWith('refs/tags/')) return ref.slice('refs/tags/'.length);
+  return ref;
+}
 
 const CommitRow = ({
   commit,

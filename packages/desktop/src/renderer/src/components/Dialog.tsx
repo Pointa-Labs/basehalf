@@ -161,6 +161,13 @@ const backdropStyle: CSSProperties = {
   // backdrop-filter would be nicer but Electron renderer support is patchy.
 };
 
+const quickPickBackdropStyle: CSSProperties = {
+  ...backdropStyle,
+  alignItems: 'flex-start',
+  paddingTop: 54,
+  background: 'rgba(0, 0, 0, 0.18)',
+};
+
 const dialogStyle: CSSProperties = {
   background: color.surface,
   borderRadius: radius.xl,
@@ -171,6 +178,13 @@ const dialogStyle: CSSProperties = {
   fontFamily: font.sans,
   color: color.textPrimary,
   animation: `bh-dialog-in ${motion.normal}`,
+};
+
+const quickPickStyle: CSSProperties = {
+  ...dialogStyle,
+  minWidth: 560,
+  maxWidth: 660,
+  borderRadius: radius.md,
 };
 
 const titleStyle: CSSProperties = {
@@ -245,7 +259,7 @@ export const DialogHost = (): JSX.Element | null => {
   return (
     <div
       ref={containerRef}
-      style={backdropStyle}
+      style={current.type === 'pick' ? quickPickBackdropStyle : backdropStyle}
       onMouseDown={(e) => {
         // Click outside dismisses (treats as Cancel).
         if (e.target === e.currentTarget) {
@@ -446,9 +460,7 @@ const PickBody = ({
   return (
     <div
       style={{
-        ...dialogStyle,
-        minWidth: 460,
-        maxWidth: 560,
+        ...quickPickStyle,
         padding: 0,
         overflow: 'hidden',
         display: 'flex',

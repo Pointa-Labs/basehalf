@@ -11,6 +11,30 @@ export interface GithubRepo {
   readonly repo: string;
 }
 
+export interface GithubRemoteRepository {
+  readonly remoteName: string;
+  readonly remoteUrl: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly webUrl: string;
+  readonly isReadOnly: boolean;
+}
+
+export interface GithubRepositoryResult {
+  readonly repository: GithubRemoteRepository | null;
+}
+
+export interface GithubCreatePullRequestUrlArgs {
+  readonly branch: string;
+  /** Optional explicit remote URL. Omit to use the selected GitHub remote. */
+  readonly remoteUrl?: string;
+}
+
+export interface GithubCreatePullRequestUrlResult {
+  readonly url: string | null;
+  readonly repository?: GithubRemoteRepository;
+}
+
 /** A pull request (subset of GitHub's /pulls item we surface). */
 export interface GhPullRequest {
   readonly number: number;

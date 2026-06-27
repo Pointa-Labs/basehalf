@@ -327,6 +327,7 @@ export function defaultGit(): GitRunner {
         // VS Code's git extension (extensions/git/src/git.ts spawn env).
         env: {
           ...process.env,
+          ...(opts.env ?? {}),
           GIT_OPTIONAL_LOCKS: '0',
           LC_ALL: 'en_US.UTF-8',
           LANG: 'en_US.UTF-8',

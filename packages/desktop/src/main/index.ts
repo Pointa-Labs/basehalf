@@ -8,6 +8,7 @@ import {
   watcherEvents,
 } from '@basehalf/core';
 import { BrowserWindow, Menu, app, ipcMain, screen, shell } from 'electron';
+import { createGithubGitRunner } from './github-git-credentials.js';
 import {
   registerBhRunHandler,
   registerPathKindHandler,
@@ -58,6 +59,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 
 const configDir = defaultConfigDir();
+const secrets = createSafeStorageSecrets(configDir);
 // Compose the default node-fs with Electron's `shell.trashItem` so
 // `workspace.deleteEntry` sends user files to the OS trash (recoverable) rather
 // than permanently removing them. Core stays Electron-free — the CLI (no trash)
@@ -65,9 +67,10 @@ const configDir = defaultConfigDir();
 // the deleteEntry handler already resolves + contains.
 const core = createCore({
   fs: { ...defaultFs(), trash: (path: string) => shell.trashItem(path) },
+  git: createGithubGitRunner(configDir, secrets),
   // Credentials (GitHub token …) encrypted at rest in the main process; never
   // handed back to the renderer after sign-in.
-  secrets: createSafeStorageSecrets(configDir),
+  secrets,
 });
 const prefs = new PrefsStore(configDir);
 

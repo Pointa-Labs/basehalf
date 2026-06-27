@@ -68,6 +68,29 @@ export const ContextMenuHost = (): JSX.Element | null => {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [open, close]);
 
+  useEffect(() => {
+    if (!open) return;
+    const id = window.setTimeout(() => {
+      menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [open]);
+
+  const focusMenuItem = (direction: 1 | -1 | 'first' | 'last'): void => {
+    const buttons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [],
+    );
+    if (buttons.length === 0) return;
+    const current = buttons.findIndex((button) => button === document.activeElement);
+    const next =
+      direction === 'first'
+        ? 0
+        : direction === 'last'
+          ? buttons.length - 1
+          : (Math.max(0, current) + direction + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  };
+
   if (!open) return null;
 
   return createPortal(
@@ -85,6 +108,21 @@ export const ContextMenuHost = (): JSX.Element | null => {
         ref={menuRef}
         role="menu"
         data-testid="context-menu"
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusMenuItem(1);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            focusMenuItem(-1);
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            focusMenuItem('first');
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            focusMenuItem('last');
+          }
+        }}
         style={{
           position: 'fixed',
           left: pos.left,
