@@ -4,6 +4,7 @@ import { extractHunkPatch } from '../lib/hunkPatch.js';
 import { type DiffRow, diffStat } from '../lib/unifiedDiff.js';
 import { useFileDiff } from '../lib/useFileDiff.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
+import { SplitDiff } from './SplitDiff.js';
 import { UnifiedDiff } from './UnifiedDiff.js';
 
 /**
@@ -60,6 +61,8 @@ export const UnifiedDiffView = ({
 }): JSX.Element => {
   const isCommitDiff = rightRef !== undefined;
   const [ignoreWs, setIgnoreWs] = useState(false);
+  // VS Code's diff editor offers inline (unified) and side-by-side (split) views.
+  const [view, setView] = useState<'inline' | 'split'>('inline');
   const [rev, setRev] = useState(0); // bump → refetch after a hunk apply
   const [err, setErr] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -177,6 +180,13 @@ export const UnifiedDiffView = ({
           >
             ⊘
           </IconBtn>
+          <IconBtn
+            title={view === 'split' ? '切换为内联视图' : '切换为并排视图'}
+            active={view === 'split'}
+            onClick={() => setView((v) => (v === 'split' ? 'inline' : 'split'))}
+          >
+            ⇆
+          </IconBtn>
           <IconBtn title="关闭差异" onClick={onClose}>
             ✕
           </IconBtn>
@@ -202,6 +212,9 @@ export const UnifiedDiffView = ({
           <Centered color={color.textTertiary}>…</Centered>
         ) : diff.rows.length === 0 ? (
           <Centered color={color.textTertiary}>No changes.</Centered>
+        ) : view === 'split' ? (
+          // Side-by-side is read-only; per-hunk Stage/Revert lives in the inline view.
+          <SplitDiff rows={diff.rows} oldHtml={diff.oldHtml} newHtml={diff.newHtml} />
         ) : (
           <UnifiedDiff
             rows={diff.rows}

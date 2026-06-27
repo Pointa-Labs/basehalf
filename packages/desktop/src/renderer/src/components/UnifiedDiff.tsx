@@ -1,6 +1,7 @@
 import { Fragment, type JSX, useEffect, useState } from 'react';
 import { color, font, space } from '../design.js';
-import type { DiffRow, DiffSeg } from '../lib/unifiedDiff.js';
+import { wordRanges } from '../lib/diffHighlight.js';
+import type { DiffRow } from '../lib/unifiedDiff.js';
 
 /**
  * Renders GitHub-style UNIFIED diff rows (from lib/unifiedDiff) as lightweight
@@ -201,46 +202,6 @@ const Gutter = ({ n }: { n: number | null }): JSX.Element => (
     {n ?? ''}
   </span>
 );
-
-// The colorize tabSize (must match useFileDiff). Tabs render as this many columns.
-const TAB_SIZE = 2;
-
-/** Roughly East-Asian Wide/Fullwidth — the CJK ranges monaco renders at DOUBLE
- *  width. Not exhaustive, but covers the dominant cases (Chinese / Japanese /
- *  Korean + fullwidth forms) so the overlay lines up in this Chinese-heavy app. */
-const isFullWidth = (code: number): boolean =>
-  (code >= 0x1100 && code <= 0x115f) ||
-  (code >= 0x2e80 && code <= 0xa4cf) ||
-  (code >= 0xac00 && code <= 0xd7a3) ||
-  (code >= 0xf900 && code <= 0xfaff) ||
-  (code >= 0xfe30 && code <= 0xfe4f) ||
-  (code >= 0xff00 && code <= 0xff60) ||
-  (code >= 0xffe0 && code <= 0xffe6) ||
-  (code >= 0x20000 && code <= 0x3fffd);
-
-/** Visible-column width of a string starting at `startVis`, accounting for tab
- *  expansion + full-width chars — so the `ch`-positioned overlay matches what
- *  monaco renders (a tab → TAB_SIZE cols, a CJK char → 2 cols). */
-const visibleWidth = (text: string, startVis: number): number => {
-  let w = 0;
-  for (const ch of text) {
-    if (ch === '\t') w += TAB_SIZE - ((startVis + w) % TAB_SIZE);
-    else w += isFullWidth(ch.codePointAt(0) ?? 0) ? 2 : 1;
-  }
-  return w;
-};
-
-/** Word-level highlight ranges in 0-based VISIBLE columns (not source columns). */
-const wordRanges = (segs: readonly DiffSeg[]): Array<{ start: number; len: number }> => {
-  const out: Array<{ start: number; len: number }> = [];
-  let vis = 0;
-  for (const s of segs) {
-    const w = visibleWidth(s.text, vis);
-    if (s.hi) out.push({ start: vis, len: w });
-    vis += w;
-  }
-  return out;
-};
 
 const Row = ({ row, html }: { row: LineRow; html: string | undefined }): JSX.Element => {
   const isAdd = row.kind === 'add';
