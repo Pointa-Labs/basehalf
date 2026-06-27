@@ -11,7 +11,7 @@ import {
 import { color, font, radius, space, transition } from '../design.js';
 import { subscribeEntryRemoved, subscribeEntryRenamed } from '../lib/fileEvents.js';
 import { type GitDecoPalette, fileDecoration, statusTooltip } from '../lib/gitStatus.js';
-import { buildFileMenu } from '../lib/menus/fileMenu.js';
+import { buildFileMenu, createAndRename } from '../lib/menus/fileMenu.js';
 import { openContextMenu } from '../store/contextMenu.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useWorkspaceStore } from '../store/workspace.js';
@@ -237,6 +237,23 @@ const Row = ({
       className="bh-nav-row"
       style={style}
     >
+      {/* Indent guides: a 1px vertical per ancestor depth (VS Code's tree guides),
+          aligned under each ancestor's twisty. */}
+      {Array.from({ length: depth }, (_, i) => space[2] + i * 14 + 7).map((x) => (
+        <span
+          key={x}
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: x,
+            width: 1,
+            background: color.border,
+            pointerEvents: 'none',
+          }}
+        />
+      ))}
       {/* File-type glyph so the tree shares the canvas's visual language and is
           scannable at a glance (matches BadgeNode's identity pass). */}
       {glyph}
@@ -315,6 +332,7 @@ const ChevronIcon = ({ open }: { open: boolean }): JSX.Element => (
 
 export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
+  const workspaceName = useWorkspaceStore((s) => s.current);
   const currentFile = useWorkspaceStore((s) => s.currentFile);
   const renamingPath = useWorkspaceStore((s) => s.renamingPath);
   const endRename = useWorkspaceStore((s) => s.endRename);
@@ -473,6 +491,14 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     });
   };
 
+  // Explorer-header actions (VS Code's title toolbar): refresh re-lists every
+  // already-loaded directory; collapse-all clears the expanded set.
+  const refreshTree = (): void => {
+    for (const dir of childrenByPath.keys()) void loadChildren(dir);
+    if (!childrenByPath.has(rootPath)) void loadChildren(rootPath);
+  };
+  const collapseAll = (): void => setExpanded(new Set());
+
   // When an entry enters inline-rename (a context-menu Rename, or a freshly
   // created file/folder being named), make sure its row is visible: expand +
   // load every ancestor folder so the row renders and shows the input. (A new
@@ -574,22 +600,145 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   // above whatever did load; when the root itself failed, the tree is empty so
   // the message stands alone. (Cleared on the next successful load above.)
   return (
-    <div
-      style={{ padding: `${space[2]}px 0`, borderRadius: radius.sm, minHeight: '100%' }}
-      onContextMenu={onBackgroundContextMenu}
-    >
-      {error && (
-        <div
-          style={{
-            color: color.danger,
-            padding: `${space[1.5]}px ${space[3]}px`,
-            fontSize: font.size.caption,
-          }}
-        >
-          {error}
-        </div>
-      )}
-      {renderEntries(rootPath, 0)}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <ExplorerHeader
+        name={workspaceName ?? ''}
+        title={rootPath}
+        onNewFile={() => void createAndRename('file', null)}
+        onNewFolder={() => void createAndRename('folder', null)}
+        onRefresh={refreshTree}
+        onCollapseAll={collapseAll}
+      />
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'auto',
+          padding: `${space[1]}px 0`,
+        }}
+        onContextMenu={onBackgroundContextMenu}
+      >
+        {error && (
+          <div
+            style={{
+              color: color.danger,
+              padding: `${space[1.5]}px ${space[3]}px`,
+              fontSize: font.size.caption,
+            }}
+          >
+            {error}
+          </div>
+        )}
+        {renderEntries(rootPath, 0)}
+      </div>
     </div>
   );
 };
+
+// ── Explorer header (VS Code's view-title toolbar): folder name + hover actions ─
+const ExplorerHeader = ({
+  name,
+  title,
+  onNewFile,
+  onNewFolder,
+  onRefresh,
+  onCollapseAll,
+}: {
+  name: string;
+  title: string;
+  onNewFile: () => void;
+  onNewFolder: () => void;
+  onRefresh: () => void;
+  onCollapseAll: () => void;
+}): JSX.Element => {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        height: 22,
+        padding: `0 ${space[2]}px 0 ${space[4]}px`,
+        userSelect: 'none',
+      }}
+    >
+      <span
+        title={title}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontFamily: font.sans,
+          fontSize: font.size.micro,
+          fontWeight: font.weight.semibold,
+          letterSpacing: font.trackedCaps,
+          textTransform: 'uppercase',
+          color: color.textSecondary,
+        }}
+      >
+        {name}
+      </span>
+      {/* VS Code reveals these on header hover/focus. */}
+      <span
+        style={{
+          display: 'flex',
+          gap: space[1],
+          opacity: hover ? 1 : 0,
+          transition: transition(['opacity']),
+        }}
+      >
+        <HdrBtn title="新建文件" onClick={onNewFile} glyph="🗋" />
+        <HdrBtn title="新建文件夹" onClick={onNewFolder} glyph="🗀" />
+        <HdrBtn title="刷新" onClick={onRefresh} glyph="↻" />
+        <HdrBtn title="全部折叠" onClick={onCollapseAll} glyph="⌄" />
+      </span>
+    </div>
+  );
+};
+
+const HdrBtn = ({
+  glyph,
+  title,
+  onClick,
+}: {
+  glyph: string;
+  title: string;
+  onClick: () => void;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onClick={onClick}
+    style={{
+      width: 20,
+      height: 20,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'none',
+      border: 'none',
+      borderRadius: radius.sm,
+      cursor: 'pointer',
+      color: color.textTertiary,
+      fontSize: font.size.caption,
+      lineHeight: 1,
+      transition: transition(['background', 'color']),
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.divider;
+      e.currentTarget.style.color = color.textPrimary;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'none';
+      e.currentTarget.style.color = color.textTertiary;
+    }}
+  >
+    {glyph}
+  </button>
+);

@@ -50,62 +50,27 @@ export const Sidebar = (): JSX.Element | null => {
           <SourceControl key={currentWs.path} />
         </div>
       ) : (
-        <>
-          {/* WHERE you are: the active workspace name, the way a file explorer's
-              header shows the open folder. Switch with ⌘K or File ▸ Open Folder. */}
-          {current && (
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          {currentWs ? (
+            // NavTree owns its own VS Code-style Explorer header (folder name + New
+            // File/Folder/Refresh/Collapse actions) + scroll. No unreachable branch:
+            // App's selectRegion routes folder-missing to a full-region
+            // <WorkspaceMissing/>, so the Sidebar always shows a reachable workspace.
+            <NavTree rootPath={currentWs.path} />
+          ) : (
             <div
-              title={currentWs?.path}
               style={{
-                flexShrink: 0,
-                display: 'flex',
-                alignItems: 'center',
-                height: 22,
-                padding: `0 ${space[4]}px`,
-                fontFamily: font.sans,
-                fontSize: font.size.micro,
-                fontWeight: font.weight.semibold,
-                letterSpacing: font.trackedCaps,
-                textTransform: 'uppercase',
-                color: color.textSecondary,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
+                padding: `${space[5]}px ${space[4]}px`,
+                color: color.textTertiary,
+                fontSize: font.size.caption,
+                lineHeight: 1.5,
               }}
             >
-              {current}
+              Open a folder to get started — press <code>⌘O</code>, or <code>⌘K</code> for
+              everything.
             </div>
           )}
-          <div
-            style={{
-              flex: 1,
-              minHeight: 0,
-              overflow: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-            }}
-          >
-            {currentWs ? (
-              // No unreachable branch: App's selectRegion routes the folder-missing
-              // case to a full-region <WorkspaceMissing/>, so the Sidebar (which mounts
-              // only in the 'canvas' region) is always showing a reachable workspace.
-              <NavTree rootPath={currentWs.path} />
-            ) : (
-              <div
-                style={{
-                  padding: `${space[5]}px ${space[4]}px`,
-                  color: color.textTertiary,
-                  fontSize: font.size.caption,
-                  lineHeight: 1.5,
-                }}
-              >
-                Open a folder to get started — press <code>⌘O</code>, or <code>⌘K</code> for
-                everything.
-              </div>
-            )}
-          </div>
-        </>
+        </div>
       )}
       <SidebarSash />
     </aside>

@@ -48,7 +48,9 @@ const basenameOf = (rel: string): string => {
 const DEFAULT_FILE = 'untitled.md';
 const DEFAULT_FOLDER = 'untitled folder';
 
-async function createAndRename(kind: 'file' | 'folder', dir: string | null): Promise<void> {
+/** Create a new file/folder under `dir` (null = root) and drop into inline-rename.
+ *  Shared by the context menus and the Explorer header's New File/Folder buttons. */
+export async function createAndRename(kind: 'file' | 'folder', dir: string | null): Promise<void> {
   const base = kind === 'file' ? DEFAULT_FILE : DEFAULT_FOLDER;
   const rel = dir === null || dir === '' ? base : `${dir}/${base}`;
   const store = useWorkspaceStore.getState();
