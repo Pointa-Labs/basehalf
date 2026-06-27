@@ -18,6 +18,7 @@ import {
 } from '../lib/gitStatus.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
+import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BranchSelector } from './BranchSelector.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
@@ -111,16 +112,19 @@ export const SourceControl = (): JSX.Element => {
     void refresh();
   }, [refresh]);
 
-  // Run a git action, surface failures, then re-read status from disk truth.
+  // Run a git action, surface failures as a transient toast (VS Code-style), then
+  // re-read status from disk truth. `setError` is kept only for the init/no-repo
+  // screen below; everyday action errors are toasts, not permanent panel chrome.
   const act = useCallback(
     async (fn: () => Promise<unknown>): Promise<void> => {
       setBusy(true);
-      setError(null);
       try {
         await fn();
         await refresh();
       } catch (err) {
-        setError(msg(err));
+        const m = msg(err);
+        setError(m);
+        toast.error(m);
       } finally {
         setBusy(false);
       }
@@ -268,8 +272,6 @@ export const SourceControl = (): JSX.Element => {
           { label: '刷新', onClick: () => void refresh() },
         ]}
       />
-
-      {error !== null && <ErrorLine onDismiss={() => setError(null)}>{error}</ErrorLine>}
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} onKeyDown={handleTreeKeyDown}>
         <Disclosure

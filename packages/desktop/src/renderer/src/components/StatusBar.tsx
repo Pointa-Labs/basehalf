@@ -2,6 +2,7 @@ import { type JSX, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useLayoutStore } from '../store/layout.js';
+import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 
 /**
@@ -32,8 +33,9 @@ export const StatusBar = (): JSX.Element => {
       try {
         await window.bh.run('git.pull', {});
         await window.bh.run('git.push', {});
-      } catch {
-        // Surfaced in the SCM panel on next open; the status bar stays quiet.
+        toast.success('已同步');
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : String(err));
       } finally {
         await refresh();
         setSyncing(false);

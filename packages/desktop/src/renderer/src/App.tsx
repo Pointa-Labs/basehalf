@@ -15,6 +15,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { StatusBar } from './components/StatusBar.js';
 import { TerminalDock } from './components/TerminalDock.js';
 import { TitleBar } from './components/TitleBar.js';
+import { ToastHost } from './components/ToastHost.js';
 import { WhatsNewHost } from './components/WhatsNew.js';
 import { WorkspaceMissing } from './components/WorkspaceMissing.js';
 import { Welcome } from './components/welcome/Welcome.js';
@@ -339,6 +340,7 @@ export const App = (): JSX.Element => {
       <WhatsNewHost />
       <DialogHost />
       <ContextMenuHost />
+      <ToastHost />
       <CommandPalette />
       {dragDepth > 0 && (
         <div
