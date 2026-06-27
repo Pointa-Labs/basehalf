@@ -8,6 +8,7 @@ import { Breadcrumb } from './Breadcrumb.js';
 import { FilePreview } from './FilePreview.js';
 import { GitGraphView } from './GitGraphView.js';
 import { MergeEditor } from './MergeEditor.js';
+import { PullRequestView } from './PullRequestView.js';
 import { UnifiedDiffView } from './UnifiedDiffView.js';
 
 /**
@@ -36,6 +37,8 @@ export const EditorOverlay = (): JSX.Element | null => {
   const closeGitGraph = useWorkspaceStore((s) => s.closeGitGraph);
   const mergeFile = useWorkspaceStore((s) => s.mergeFile);
   const closeMerge = useWorkspaceStore((s) => s.closeMerge);
+  const prView = useWorkspaceStore((s) => s.prView);
+  const closePr = useWorkspaceStore((s) => s.closePr);
   // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
   // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
   // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
@@ -51,6 +54,10 @@ export const EditorOverlay = (): JSX.Element | null => {
   // their own field, not to close the document under the user.
   const close = useCallback((): void => {
     const st = useWorkspaceStore.getState();
+    if (st.prView !== null) {
+      st.closePr();
+      return;
+    }
     if (st.mergeFile !== null) {
       st.closeMerge();
       return;
@@ -71,7 +78,13 @@ export const EditorOverlay = (): JSX.Element | null => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       const st = useWorkspaceStore.getState();
-      if (st.openFile === null && st.gitDiff === null && !st.gitGraphOpen && st.mergeFile === null)
+      if (
+        st.openFile === null &&
+        st.gitDiff === null &&
+        !st.gitGraphOpen &&
+        st.mergeFile === null &&
+        st.prView === null
+      )
         return;
       if (isImeComposing(e)) return;
       const target = e.target as HTMLElement | null;
@@ -102,7 +115,14 @@ export const EditorOverlay = (): JSX.Element | null => {
     [close],
   );
 
-  if (openFile === null && gitDiff === null && !gitGraphOpen && mergeFile === null) return null;
+  if (
+    openFile === null &&
+    gitDiff === null &&
+    !gitGraphOpen &&
+    mergeFile === null &&
+    prView === null
+  )
+    return null;
 
   return (
     <div
@@ -125,7 +145,16 @@ export const EditorOverlay = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      {mergeFile !== null ? (
+      {prView !== null ? (
+        <PullRequestView
+          key={`${prView.remoteUrl}#${prView.number}`}
+          number={prView.number}
+          title={prView.title}
+          remoteUrl={prView.remoteUrl}
+          url={prView.url}
+          onClose={closePr}
+        />
+      ) : mergeFile !== null ? (
         <MergeEditor key={mergeFile} path={mergeFile} onClose={closeMerge} />
       ) : gitGraphOpen ? (
         <GitGraphView onClose={closeGitGraph} />

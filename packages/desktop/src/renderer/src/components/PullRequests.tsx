@@ -1,6 +1,7 @@
 import type { GhPullRequest } from '@basehalf/core';
 import { type JSX, type ReactNode, useEffect, useState } from 'react';
 import { color, font, space } from '../design.js';
+import { useWorkspaceStore } from '../store/workspace.js';
 import { openSettings } from './Settings.js';
 import { Disclosure } from './primitives/Disclosure.js';
 
@@ -22,6 +23,7 @@ export const PullRequests = (): JSX.Element | null => {
   const [remoteUrl, setRemoteUrl] = useState<string | null | undefined>(undefined);
   const [prs, setPrs] = useState<GhPullRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const openPr = useWorkspaceStore((s) => s.openPr);
 
   useEffect(() => {
     void (async () => {
@@ -96,7 +98,10 @@ export const PullRequests = (): JSX.Element | null => {
               type="button"
               data-testid="pr-row"
               title={`#${pr.number} · ${pr.headRef} → ${pr.baseRef}`}
-              onClick={() => void window.bh.openExternal(pr.url)}
+              onClick={() =>
+                typeof remoteUrl === 'string' &&
+                openPr({ number: pr.number, title: pr.title, remoteUrl, url: pr.url })
+              }
               style={{
                 display: 'flex',
                 flexDirection: 'column',

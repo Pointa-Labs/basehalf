@@ -82,6 +82,10 @@ interface WorkspaceState {
   mergeFile: string | null;
   openMerge: (path: string) => void;
   closeMerge: () => void;
+  /** The in-app GitHub PR viewer open over the canvas. */
+  prView: { number: number; title: string; remoteUrl: string; url: string } | null;
+  openPr: (pr: { number: number; title: string; remoteUrl: string; url: string }) => void;
+  closePr: () => void;
   /** Rebind the open file's path (the watcher saw it renamed on disk). No flush —
    *  the old path is gone; the editor remounts on the new bytes. No-op when the
    *  renamed file isn't the open one. */
@@ -328,6 +332,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             currentReachable: null,
             openFile: null,
             mergeFile: null,
+            prView: null,
             currentFile: null,
             canvasSelection: null,
             openMatchQuery: null,
@@ -630,6 +635,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
     },
     closeMerge: () => set({ mergeFile: null }),
+    prView: null,
+    openPr: (pr) => {
+      void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
+        if (ok)
+          set({ openFile: null, gitDiff: null, gitGraphOpen: false, mergeFile: null, prView: pr });
+      });
+    },
+    closePr: () => set({ prView: null }),
 
     consumeTitleFocus: () => set({ titleFocusPath: null }),
 
