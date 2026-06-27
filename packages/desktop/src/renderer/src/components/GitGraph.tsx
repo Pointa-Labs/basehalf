@@ -4,7 +4,9 @@ import { color, font, radius, space, transition } from '../design.js';
 import { type GraphRow, laneColor, layoutGraph } from '../lib/gitGraph.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
 import { useScmViewStore } from '../store/scmView.js';
+import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { confirm, prompt } from './Dialog.js';
 
 /**
  * GitGraph — the commit-graph (DAG) view inside the Source Control container,
@@ -217,20 +219,68 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
   const [files, setFiles] = useState<GitCommitFilesResult['files'] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const revert = (): void => {
-    if (!window.confirm(`撤销提交 “${commit.subject}”？\n\n会生成一个反向提交。`)) return;
+  const run = (fn: () => Promise<unknown>): void => {
     void (async () => {
       try {
-        const r = (await window.bh.run('git.revert', { ref: commit.hash })) as {
-          conflicts: boolean;
-        };
+        await fn();
         await useGitStatusStore.getState().refresh();
-        if (r.conflicts) setError('撤销产生冲突，请在「合并更改」中解决后提交。');
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
   };
+
+  const revert = (): void =>
+    void (async () => {
+      if (
+        !(await confirm({
+          title: `撤销提交 “${commit.subject}”？`,
+          body: '会生成一个反向提交。',
+          confirmText: '撤销',
+          destructive: true,
+        }))
+      )
+        return;
+      run(async () => {
+        const r = (await window.bh.run('git.revert', { ref: commit.hash })) as {
+          conflicts: boolean;
+        };
+        if (r.conflicts) setError('撤销产生冲突，请在「合并更改」中解决后提交。');
+      });
+    })();
+
+  const copySha = (): void => {
+    void navigator.clipboard
+      .writeText(commit.hash)
+      .then(() => toast.success(`已复制 ${commit.shortHash}`))
+      .catch(() => toast.error('复制失败'));
+  };
+
+  const createBranch = (): void =>
+    void (async () => {
+      // Electron has no window.prompt — use the app's custom prompt dialog.
+      const name = (
+        await prompt({
+          title: `从 ${commit.shortHash} 创建分支`,
+          label: '分支名',
+          placeholder: 'feature/x',
+        })
+      )?.trim();
+      if (name) run(() => window.bh.run('git.createBranch', { name, ref: commit.hash }));
+    })();
+
+  const checkout = (): void =>
+    void (async () => {
+      if (
+        !(await confirm({
+          title: `签出提交 ${commit.shortHash}？`,
+          body: '将进入“分离 HEAD”状态。',
+          confirmText: '签出',
+        }))
+      )
+        return;
+      run(() => window.bh.run('git.checkout', { branch: commit.hash }));
+    })();
 
   useEffect(() => {
     let cancelled = false;
@@ -258,24 +308,27 @@ const CommitDetail = ({ commit }: { commit: GitCommit }): JSX.Element => {
         borderBottom: `1px solid ${color.divider}`,
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: space[1] }}>
-        <button
-          type="button"
-          onClick={revert}
-          title="生成一个反向提交以撤销此提交"
-          style={{
-            padding: `1px ${space[2]}px`,
-            background: 'none',
-            border: `1px solid ${color.border}`,
-            borderRadius: radius.sm,
-            color: color.textSecondary,
-            fontFamily: font.sans,
-            fontSize: font.size.micro,
-            cursor: 'pointer',
-          }}
-        >
-          ↩ 撤销此提交
-        </button>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end',
+          gap: space[1],
+          marginBottom: space[1],
+        }}
+      >
+        <DetailBtn title="复制完整 SHA" onClick={copySha}>
+          ⧉ 复制 SHA
+        </DetailBtn>
+        <DetailBtn title="从此提交创建分支" onClick={createBranch}>
+          ⎇ 新建分支
+        </DetailBtn>
+        <DetailBtn title="签出此提交（分离 HEAD）" onClick={checkout}>
+          ⮌ 签出
+        </DetailBtn>
+        <DetailBtn title="生成一个反向提交以撤销此提交" onClick={revert}>
+          ↩ 撤销
+        </DetailBtn>
       </div>
       {commit.body.trim() !== '' && (
         <div
@@ -404,6 +457,44 @@ const Gutter = ({ row, width }: { row: GraphRow; width: number }): JSX.Element =
     </svg>
   );
 };
+
+const DetailBtn = ({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}): JSX.Element => (
+  <button
+    type="button"
+    title={title}
+    onClick={onClick}
+    style={{
+      padding: `1px ${space[2]}px`,
+      background: 'none',
+      border: `1px solid ${color.border}`,
+      borderRadius: radius.sm,
+      color: color.textSecondary,
+      fontFamily: font.sans,
+      fontSize: font.size.micro,
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+      transition: transition(['background', 'color']),
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.divider;
+      e.currentTarget.style.color = color.textPrimary;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'none';
+      e.currentTarget.style.color = color.textSecondary;
+    }}
+  >
+    {children}
+  </button>
+);
 
 const RefPill = ({
   text,

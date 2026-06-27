@@ -43,6 +43,7 @@ import { useGitStatusStore } from '../store/gitStatus.js';
 import { useLayoutStore } from '../store/layout.js';
 import { useScmViewStore } from '../store/scmView.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { prompt } from './Dialog.js';
 import { openSettings } from './Settings.js';
 
 interface CommandPaletteStore {
@@ -469,8 +470,13 @@ export const CommandPalette = (): JSX.Element | null => {
         });
         out.push(
           G('git:create-branch', 'Git: Create Branch…', () => {
-            const name = window.prompt('新分支名')?.trim();
-            if (name) void runGit('git.createBranch', { name });
+            // Electron has no window.prompt — use the app's custom prompt dialog.
+            void prompt({ title: '新建分支', label: '分支名', placeholder: 'feature/x' }).then(
+              (n) => {
+                const name = n?.trim();
+                if (name) void runGit('git.createBranch', { name });
+              },
+            );
           }),
           G('git:commit', 'Git: Commit…', () => showSourceControl('changes')),
           G('git:graph', 'Git: Show Commit Graph', () => showSourceControl('graph')),

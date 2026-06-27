@@ -21,6 +21,7 @@ import { useScmViewStore } from '../store/scmView.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { BranchSelector } from './BranchSelector.js';
+import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { GitGraph } from './GitGraph.js';
 import { Button } from './primitives/Button.js';
@@ -224,10 +225,14 @@ export const SourceControl = (): JSX.Element => {
   // Header git actions (push/pull/fetch/sync/stash) — each runs then re-reads
   // status from disk. Sync = pull then push (the everyday "stay in lockstep").
   const runAction = (name: string): void => void act(() => window.bh.run(name, {}));
-  const createBranchPrompt = (): void => {
-    const name = window.prompt('新分支名')?.trim();
-    if (name) void act(() => window.bh.run('git.createBranch', { name }));
-  };
+  const createBranchPrompt = (): void =>
+    void (async () => {
+      // Electron has no window.prompt — use the app's custom prompt dialog.
+      const name = (
+        await prompt({ title: '新建分支', label: '分支名', placeholder: 'feature/x' })
+      )?.trim();
+      if (name) void act(() => window.bh.run('git.createBranch', { name }));
+    })();
   // GRAPH header "Go to Current History Item" (VS Code) — reveal HEAD in the graph.
   const revealHead = (): void =>
     void (async () => {
