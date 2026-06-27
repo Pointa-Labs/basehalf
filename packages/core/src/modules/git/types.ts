@@ -144,6 +144,19 @@ export interface GitPullArgs {
   readonly rebase?: boolean;
 }
 
+export interface GitConflictStagesArgs {
+  readonly path: string;
+}
+
+/** The three merge stages of a conflicted file (git index stages 1/2/3). Any can
+ *  be null — an add/add conflict has no base; a delete/modify lacks a side. The
+ *  3-way merge editor shows ours ↔ theirs with base as the common ancestor. */
+export interface GitConflictStagesResult {
+  readonly base: string | null;
+  readonly ours: string | null;
+  readonly theirs: string | null;
+}
+
 export interface GitCheckoutArgs {
   readonly branch: string;
   /** Create the branch (git checkout -b) before switching to it. */

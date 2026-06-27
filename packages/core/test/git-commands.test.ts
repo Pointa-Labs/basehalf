@@ -256,6 +256,24 @@ describe('git commands (injected fake runner)', () => {
     ]);
   });
 
+  it('git.conflictStages reads index stages 1/2/3 (base/ours/theirs); missing → null', async () => {
+    const { git, calls } = makeFakeGit((args) => {
+      const spec = args[1]; // `show :N:./f.txt`
+      if (spec === ':1:./f.txt') return { stdout: 'base\n' };
+      if (spec === ':2:./f.txt') return { stdout: 'ours\n' };
+      if (spec === ':3:./f.txt') return { exitCode: 128 }; // theirs absent (e.g. delete/modify)
+      return {};
+    });
+    const core = createCore({ git, configDir: '/cfg' });
+    const r = (await core.run('git.conflictStages', { path: 'f.txt' }, ROOT)) as {
+      base: string | null;
+      ours: string | null;
+      theirs: string | null;
+    };
+    expect(calls.map((c) => c.args[1])).toEqual([':1:./f.txt', ':2:./f.txt', ':3:./f.txt']);
+    expect(r).toEqual({ base: 'base\n', ours: 'ours\n', theirs: null });
+  });
+
   it('git.blame runs --line-porcelain and parses lines; rejects an unsafe ref', async () => {
     const SHA = '2222222222222222222222222222222222222222';
     const porcelain = [

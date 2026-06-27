@@ -78,6 +78,10 @@ interface WorkspaceState {
   gitGraphOpen: boolean;
   openGitGraph: () => void;
   closeGitGraph: () => void;
+  /** The 3-way merge editor open over the canvas for a conflicted file (its path). */
+  mergeFile: string | null;
+  openMerge: (path: string) => void;
+  closeMerge: () => void;
   /** Rebind the open file's path (the watcher saw it renamed on disk). No flush —
    *  the old path is gone; the editor remounts on the new bytes. No-op when the
    *  renamed file isn't the open one. */
@@ -323,6 +327,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
             current: result.current,
             currentReachable: null,
             openFile: null,
+            mergeFile: null,
             currentFile: null,
             canvasSelection: null,
             openMatchQuery: null,
@@ -618,6 +623,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => {
       });
     },
     closeGitGraph: () => set({ gitGraphOpen: false }),
+    mergeFile: null,
+    openMerge: (path) => {
+      void flushPane(EDITOR_OVERLAY_PANE_ID).then((ok) => {
+        if (ok) set({ openFile: null, gitDiff: null, gitGraphOpen: false, mergeFile: path });
+      });
+    },
+    closeMerge: () => set({ mergeFile: null }),
 
     consumeTitleFocus: () => set({ titleFocusPath: null }),
 

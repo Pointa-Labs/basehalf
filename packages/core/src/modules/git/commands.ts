@@ -20,6 +20,8 @@ import type {
   GitCommitFilesArgs,
   GitCommitFilesResult,
   GitCommitResult,
+  GitConflictStagesArgs,
+  GitConflictStagesResult,
   GitCreateBranchArgs,
   GitDeleteBranchArgs,
   GitDiffArgs,
@@ -421,6 +423,22 @@ export const searchHistory: Handler<GitSearchHistoryArgs, GitLogResult> = async 
   if (args.path !== undefined) cmd.push('--', args.path);
   const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
   return { commits: res.exitCode === 0 ? parseLog(res.stdout) : [] };
+};
+
+export const conflictStages: Handler<GitConflictStagesArgs, GitConflictStagesResult> = async (
+  args,
+  ctx,
+) => {
+  assertWorkspaceRelative(args.path);
+  // The conflicted file's three index stages: 1 = base (common ancestor), 2 =
+  // ours (current), 3 = theirs (incoming). `:N:./path` is the stage N blob at a
+  // cwd-relative path. The stage digit is hard-coded (no injection) and the path
+  // is workspace-validated; a missing stage exits 128 → null.
+  const stage = async (n: 1 | 2 | 3): Promise<string | null> => {
+    const res = await git(ctx, ['show', `:${n}:./${args.path}`], { acceptExitCodes: [0, 128] });
+    return res.exitCode === 0 ? res.stdout : null;
+  };
+  return { base: await stage(1), ours: await stage(2), theirs: await stage(3) };
 };
 
 export const blame: Handler<GitBlameArgs, GitBlameResult> = async (args, ctx) => {

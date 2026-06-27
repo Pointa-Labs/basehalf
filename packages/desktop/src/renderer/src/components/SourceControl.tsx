@@ -111,10 +111,12 @@ export const SourceControl = (): JSX.Element => {
   }, []);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
-  // Clicking a row opens its diff; an untracked file (no baseline) or a conflict
-  // (resolution is its own surface) opens the file directly instead.
+  const openMerge = useWorkspaceStore((s) => s.openMerge);
+  // Clicking a row: a conflict opens the 3-way merge editor (VS Code), an untracked
+  // file (no baseline) opens directly, everything else opens its diff.
   const openRow = (r: GitRow): void => {
-    if (r.untracked || r.conflict) openInPanel(r.path);
+    if (r.conflict) openMerge(r.path);
+    else if (r.untracked) openInPanel(r.path);
     else openGitDiff(r.path, r.staged);
   };
 
