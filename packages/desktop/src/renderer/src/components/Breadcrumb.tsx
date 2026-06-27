@@ -1,6 +1,7 @@
 import { Fragment, type JSX, type ReactNode, useState } from 'react';
 import { color, font, layout, radius, space, transition } from '../design.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { FileGlyph, badgeType } from './FileGlyph.js';
 import { PopoverSurface, usePopover } from './primitives/Popover.js';
 
 /** Small house glyph for the workspace-root crumb (the trail's anchor). */
@@ -213,14 +214,36 @@ const SwitcherItem = ({
   </SwitcherRow>
 );
 
+// VS Code's breadcrumb separator is a chevron (codicon chevron-right), not a slash.
 const Separator = (): JSX.Element => (
-  <span aria-hidden style={{ color: color.textGhost, flexShrink: 0, fontSize: font.size.ui }}>
-    /
+  <svg
+    width={11}
+    height={11}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke={color.textGhost}
+    strokeWidth={1.5}
+    aria-hidden
+    style={{ flexShrink: 0 }}
+  >
+    <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** Per-segment icon — a folder glyph for ancestors, the file-type glyph for the
+ *  leaf (VS Code shows an icon on every breadcrumb segment). */
+const CrumbIcon = ({ name, kind }: { name: string; kind: 'folder' | 'file' }): JSX.Element => (
+  <span style={{ flexShrink: 0, display: 'inline-flex' }}>
+    <FileGlyph
+      type={kind === 'folder' ? 'folder' : badgeType(name, false)}
+      tone={color.textTertiary}
+      size={13}
+    />
   </span>
 );
 
 /** The trailing crumb — where you already are. Plain, non-clickable text. */
-const CurrentCrumb = ({ label }: { label: string }): JSX.Element => (
+const CurrentCrumb = ({ label, kind }: { label: string; kind: 'folder' | 'file' }): JSX.Element => (
   <span
     data-testid="breadcrumb-current"
     style={{
@@ -240,6 +263,7 @@ const CurrentCrumb = ({ label }: { label: string }): JSX.Element => (
       minWidth: 0,
     }}
   >
+    <CrumbIcon name={label} kind={kind} />
     {label}
   </span>
 );
@@ -273,6 +297,7 @@ const LinkCrumb = ({ label, onClick }: { label: string; onClick: () => void }): 
         transition: transition(['color', 'background']),
       }}
     >
+      <CrumbIcon name={label} kind="folder" />
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {label}
       </span>
@@ -346,7 +371,7 @@ export const Breadcrumb = ({ actions }: { actions?: ReactNode }): JSX.Element =>
           <Fragment key={`${crumb.scope}`}>
             <Separator />
             {isLast ? (
-              <CurrentCrumb label={crumb.label} />
+              <CurrentCrumb label={crumb.label} kind="folder" />
             ) : (
               <LinkCrumb label={crumb.label} onClick={() => void navigateToFolder(crumb.scope)} />
             )}
@@ -356,7 +381,7 @@ export const Breadcrumb = ({ actions }: { actions?: ReactNode }): JSX.Element =>
       {leaf !== null && (
         <>
           <Separator />
-          <CurrentCrumb label={leaf} />
+          <CurrentCrumb label={leaf} kind="file" />
         </>
       )}
       {actions !== undefined && (
