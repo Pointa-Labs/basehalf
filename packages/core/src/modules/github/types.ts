@@ -41,7 +41,6 @@ export interface GhPrFile {
 }
 
 export interface GithubListPullRequestsArgs {
-  readonly token: string;
   /** The repo's git remote URL (https or scp-ssh). */
   readonly remoteUrl: string;
   /** open (default) / closed / all. */
@@ -53,7 +52,6 @@ export interface GithubListPullRequestsResult {
 }
 
 export interface GithubPullRequestFilesArgs {
-  readonly token: string;
   readonly remoteUrl: string;
   readonly number: number;
 }
@@ -62,12 +60,18 @@ export interface GithubPullRequestFilesResult {
   readonly files: readonly GhPrFile[];
 }
 
-/** Verify a token + return the authenticated login (GET /user). */
-export interface GithubViewerArgs {
+/** Verify + persist a token (GET /user). The token is stored via ctx.secrets and
+ *  never returned to the renderer thereafter. */
+export interface GithubSignInArgs {
   readonly token: string;
 }
 
+export interface GithubSignInResult {
+  /** The authenticated login on success; null when the token is invalid. */
+  readonly login: string | null;
+}
+
+/** The current sign-in state — reads the stored token, returns its login (no token). */
 export interface GithubViewerResult {
-  /** The authenticated user's login, or null when the token is invalid. */
   readonly login: string | null;
 }

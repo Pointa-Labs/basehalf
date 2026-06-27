@@ -225,6 +225,19 @@ export interface HttpResponse {
  */
 export type HttpRunner = (req: HttpRequest) => Promise<HttpResponse>;
 
+/**
+ * Secret storage — credentials (a GitHub token …) kept OUT of the sandboxed
+ * renderer. The host wires this to OS-encrypted storage (Electron safeStorage);
+ * core reads via `ctx.secrets` so a token never transits the renderer (mirrors
+ * VS Code keeping secrets in the extension host, not the webview). Tests inject
+ * an in-memory fake.
+ */
+export interface SecretStore {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
@@ -234,6 +247,8 @@ export interface Context {
   readonly git: GitRunner;
   /** HTTP client — used by remote-provider modules (github …). */
   readonly http: HttpRunner;
+  /** OS-encrypted secret storage — credentials never touch the renderer. */
+  readonly secrets: SecretStore;
 }
 
 /**
@@ -256,6 +271,9 @@ export interface CoreOptions {
   readonly git?: GitRunner;
   /** Inject a different HTTP runner (fake for tests). Defaults to global fetch. */
   readonly http?: HttpRunner;
+  /** Inject a secret store (fake for tests / safeStorage for the desktop host).
+   *  Defaults to an in-memory store (non-persistent). */
+  readonly secrets?: SecretStore;
 }
 
 /**

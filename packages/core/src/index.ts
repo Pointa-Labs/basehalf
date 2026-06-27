@@ -48,6 +48,7 @@ export function createCore(opts: CoreOptions = {}): Core {
       run: (n, a, o) => run(n, a, o ?? { workspaceRoot }),
       git: baseCtx.git,
       http: baseCtx.http,
+      secrets: baseCtx.secrets,
     };
     return (await handler(args, callCtx)) as never;
   };
@@ -58,6 +59,7 @@ export function createCore(opts: CoreOptions = {}): Core {
     ...(opts.configDir !== undefined && { configDir: opts.configDir }),
     ...(opts.git !== undefined && { git: opts.git }),
     ...(opts.http !== undefined && { http: opts.http }),
+    ...(opts.secrets !== undefined && { secrets: opts.secrets }),
   });
 
   const core: Core = Object.freeze({
@@ -93,6 +95,10 @@ export type {
   GitRunner,
   GitRunOptions,
   GitRunResult,
+  HttpRunner,
+  HttpRequest,
+  HttpResponse,
+  SecretStore,
   Handler,
   CoreOptions,
   Core,
@@ -105,6 +111,8 @@ export {
   defaultConfigDir,
   defaultFs,
   defaultGit,
+  defaultHttp,
+  createInMemorySecrets,
   requireWorkspaceRoot,
 } from './kernel/index.js';
 

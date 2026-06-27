@@ -24,6 +24,7 @@ import {
   installContextMenu,
 } from './menu.js';
 import { PrefsStore } from './prefs.js';
+import { createSafeStorageSecrets } from './secrets.js';
 import { disposeAllTerminals, disposeTerminalsForWindow, registerTerminalIpc } from './terminal.js';
 import {
   Updater,
@@ -64,6 +65,9 @@ const configDir = defaultConfigDir();
 // the deleteEntry handler already resolves + contains.
 const core = createCore({
   fs: { ...defaultFs(), trash: (path: string) => shell.trashItem(path) },
+  // Credentials (GitHub token …) encrypted at rest in the main process; never
+  // handed back to the renderer after sign-in.
+  secrets: createSafeStorageSecrets(configDir),
 });
 const prefs = new PrefsStore(configDir);
 

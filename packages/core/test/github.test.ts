@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { HttpRequest, HttpResponse } from '../src/index.js';
-import { createCore } from '../src/index.js';
+import type { HttpRequest, HttpResponse, SecretStore } from '../src/index.js';
+import { createCore, createInMemorySecrets } from '../src/index.js';
 import { parseGithubRepo } from '../src/modules/github/commands.js';
 
 const ROOT = { workspaceRoot: '/repo' };
@@ -17,6 +17,13 @@ function makeFakeHttp(reply: (req: HttpRequest) => Partial<HttpResponse>): {
     return { status: r.status ?? 200, headers: r.headers ?? {}, body: r.body ?? '' };
   };
   return { http, calls };
+}
+
+/** An in-memory secret store pre-seeded with a github token. */
+async function secretsWithToken(token: string): Promise<SecretStore> {
+  const s = createInMemorySecrets();
+  await s.set('github.token', token);
+  return s;
 }
 
 describe('parseGithubRepo', () => {
@@ -47,16 +54,16 @@ describe('github.listPullRequests', () => {
         },
       ]),
     }));
-    const core = createCore({ http, configDir: '/cfg' });
+    const core = createCore({ http, secrets: await secretsWithToken('tok'), configDir: '/cfg' });
     const r = (await core.run(
       'github.listPullRequests',
-      { token: 'tok', remoteUrl: 'git@github.com:o/r.git' },
+      { remoteUrl: 'git@github.com:o/r.git' },
       ROOT,
     )) as { pullRequests: Array<{ number: number; author: string; headRef: string }> };
     expect(calls[0]?.url).toBe(
       'https://api.github.com/repos/o/r/pulls?state=open&per_page=50&sort=updated&direction=desc',
     );
-    expect(calls[0]?.headers?.Authorization).toBe('Bearer tok');
+    expect(calls[0]?.headers?.Authorization).toBe('Bearer tok'); // from the STORED token
     expect(calls[0]?.headers?.['X-GitHub-Api-Version']).toBe('2022-11-28');
     expect(r.pullRequests).toEqual([
       {
@@ -75,26 +82,27 @@ describe('github.listPullRequests', () => {
 
   it('maps 401 to a clear credential error', async () => {
     const { http } = makeFakeHttp(() => ({ status: 401, body: '{"message":"Bad credentials"}' }));
-    const core = createCore({ http, configDir: '/cfg' });
+    const core = createCore({ http, secrets: await secretsWithToken('x'), configDir: '/cfg' });
     await expect(
-      core.run(
-        'github.listPullRequests',
-        { token: 'x', remoteUrl: 'https://github.com/o/r' },
-        ROOT,
-      ),
+      core.run('github.listPullRequests', { remoteUrl: 'https://github.com/o/r' }, ROOT),
     ).rejects.toThrow(/凭证无效/);
   });
 
-  it('refuses a non-github remote before any request', async () => {
+  it('refuses a non-github remote (after the token check, before any request)', async () => {
     const { http, calls } = makeFakeHttp(() => ({}));
-    const core = createCore({ http, configDir: '/cfg' });
+    const core = createCore({ http, secrets: await secretsWithToken('x'), configDir: '/cfg' });
     await expect(
-      core.run(
-        'github.listPullRequests',
-        { token: 'x', remoteUrl: 'https://gitlab.com/o/r' },
-        ROOT,
-      ),
+      core.run('github.listPullRequests', { remoteUrl: 'https://gitlab.com/o/r' }, ROOT),
     ).rejects.toThrow(/不是 github\.com/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('requires sign-in (no stored token → clear error, no request)', async () => {
+    const { http, calls } = makeFakeHttp(() => ({}));
+    const core = createCore({ http, configDir: '/cfg' }); // in-memory secrets, empty
+    await expect(
+      core.run('github.listPullRequests', { remoteUrl: 'https://github.com/o/r' }, ROOT),
+    ).rejects.toThrow(/尚未登录/);
     expect(calls).toHaveLength(0);
   });
 });
@@ -113,10 +121,10 @@ describe('github.pullRequestFiles', () => {
         },
       ]),
     }));
-    const core = createCore({ http, configDir: '/cfg' });
+    const core = createCore({ http, secrets: await secretsWithToken('t'), configDir: '/cfg' });
     const r = (await core.run(
       'github.pullRequestFiles',
-      { token: 't', remoteUrl: 'https://github.com/o/r.git', number: 7 },
+      { remoteUrl: 'https://github.com/o/r.git', number: 7 },
       ROOT,
     )) as { files: Array<{ filename: string; patch?: string; previousFilename?: string }> };
     expect(calls[0]?.url).toBe('https://api.github.com/repos/o/r/pulls/7/files?per_page=100');
@@ -124,35 +132,45 @@ describe('github.pullRequestFiles', () => {
     expect(r.files[1]).toMatchObject({ filename: 'b.ts', previousFilename: 'old.ts' });
   });
 
-  it('rejects a bad PR number', async () => {
+  it('rejects a bad PR number (before the token check)', async () => {
     const { http } = makeFakeHttp(() => ({}));
     const core = createCore({ http, configDir: '/cfg' });
     await expect(
-      core.run(
-        'github.pullRequestFiles',
-        { token: 't', remoteUrl: 'https://github.com/o/r', number: 0 },
-        ROOT,
-      ),
+      core.run('github.pullRequestFiles', { remoteUrl: 'https://github.com/o/r', number: 0 }, ROOT),
     ).rejects.toThrow(/无效的 PR 编号/);
   });
 });
 
-describe('github.viewer', () => {
-  it('returns the login for a valid token, null for invalid', async () => {
-    const okHttp = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));
-    const core1 = createCore({ http: okHttp.http, configDir: '/cfg' });
-    expect(
-      ((await core1.run('github.viewer', { token: 't' }, ROOT)) as { login: string }).login,
-    ).toBe('ada');
+describe('github.signIn / signOut / viewer (secrets-backed)', () => {
+  it('signIn verifies + stores the token; viewer then reports the login; signOut clears', async () => {
+    const { http } = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));
+    const secrets = createInMemorySecrets();
+    const core = createCore({ http, secrets, configDir: '/cfg' });
 
-    const badHttp = makeFakeHttp(() => ({ status: 401, body: '{"message":"Bad credentials"}' }));
-    const core2 = createCore({ http: badHttp.http, configDir: '/cfg' });
-    expect(
-      ((await core2.run('github.viewer', { token: 'x' }, ROOT)) as { login: null }).login,
-    ).toBeNull();
-    // An empty token short-circuits without a request.
-    expect(
-      ((await core2.run('github.viewer', { token: '  ' }, ROOT)) as { login: null }).login,
-    ).toBeNull();
+    const si = (await core.run('github.signIn', { token: 'tok' }, ROOT)) as { login: string };
+    expect(si.login).toBe('ada');
+    expect(await secrets.get('github.token')).toBe('tok'); // persisted
+
+    const v = (await core.run('github.viewer', {}, ROOT)) as { login: string | null };
+    expect(v.login).toBe('ada');
+
+    await core.run('github.signOut', {}, ROOT);
+    expect(await secrets.get('github.token')).toBeNull();
+    expect(((await core.run('github.viewer', {}, ROOT)) as { login: null }).login).toBeNull();
+  });
+
+  it('signIn rejects an invalid token and does NOT store it', async () => {
+    const { http } = makeFakeHttp(() => ({ status: 401, body: '{"message":"Bad credentials"}' }));
+    const secrets = createInMemorySecrets();
+    const core = createCore({ http, secrets, configDir: '/cfg' });
+    await expect(core.run('github.signIn', { token: 'bad' }, ROOT)).rejects.toThrow(/token 无效/);
+    expect(await secrets.get('github.token')).toBeNull();
+  });
+
+  it('viewer is null when nothing is stored (no request)', async () => {
+    const { http, calls } = makeFakeHttp(() => ({}));
+    const core = createCore({ http, configDir: '/cfg' });
+    expect(((await core.run('github.viewer', {}, ROOT)) as { login: null }).login).toBeNull();
+    expect(calls).toHaveLength(0);
   });
 });

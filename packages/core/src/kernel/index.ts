@@ -6,6 +6,7 @@ export {
   defaultFs,
   defaultGit,
   defaultHttp,
+  createInMemorySecrets,
   requireWorkspaceRoot,
 } from './context.js';
 export { assertWorkspaceRelative } from './paths.js';
@@ -46,6 +47,7 @@ export type {
   HttpRunner,
   HttpRequest,
   HttpResponse,
+  SecretStore,
   Handler,
   CoreOptions,
   Core,

@@ -8,6 +8,8 @@ import * as github from './commands.js';
  * for now: `viewer` (token check), `listPullRequests`, `pullRequestFiles`.
  */
 export function registerGithubModule(core: Core): void {
+  core.register('github.signIn', github.signIn);
+  core.register('github.signOut', github.signOut);
   core.register('github.viewer', github.viewer);
   core.register('github.listPullRequests', github.listPullRequests);
   core.register('github.pullRequestFiles', github.pullRequestFiles);

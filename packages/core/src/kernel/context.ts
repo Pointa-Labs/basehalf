@@ -20,7 +20,15 @@ import {
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { PathEscape } from './contain.js';
-import type { Context, FsLike, GitRunResult, GitRunner, HttpRunner, Run } from './types.js';
+import type {
+  Context,
+  FsLike,
+  GitRunResult,
+  GitRunner,
+  HttpRunner,
+  Run,
+  SecretStore,
+} from './types.js';
 
 /**
  * Build the Context handed to every command handler.
@@ -41,6 +49,7 @@ export function createContext(opts: {
   workspaceRoot?: string | null;
   git?: GitRunner;
   http?: HttpRunner;
+  secrets?: SecretStore;
 }): Context {
   return Object.freeze({
     fs: opts.fs ?? defaultFs(),
@@ -49,7 +58,25 @@ export function createContext(opts: {
     run: opts.run,
     git: opts.git ?? defaultGit(),
     http: opts.http ?? defaultHttp(),
+    secrets: opts.secrets ?? createInMemorySecrets(),
   });
+}
+
+/** The default secret store — in-memory, non-persistent. The desktop host
+ *  overrides this with an OS-encrypted (safeStorage) store; tests inject a fake. */
+export function createInMemorySecrets(): SecretStore {
+  const map = new Map<string, string>();
+  return {
+    async get(key) {
+      return map.get(key) ?? null;
+    },
+    async set(key, value) {
+      map.set(key, value);
+    },
+    async delete(key) {
+      map.delete(key);
+    },
+  };
 }
 
 /**

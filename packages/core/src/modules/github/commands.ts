@@ -7,9 +7,13 @@ import type {
   GithubPullRequestFilesArgs,
   GithubPullRequestFilesResult,
   GithubRepo,
-  GithubViewerArgs,
+  GithubSignInArgs,
+  GithubSignInResult,
   GithubViewerResult,
 } from './types.js';
+
+/** The secrets key under which the GitHub token is stored (OS-encrypted by the host). */
+export const GH_TOKEN_KEY = 'github.token';
 
 /**
  * The `github` remote provider — GitHub REST API over the injected `ctx.http`.
@@ -57,6 +61,13 @@ function repoOf(remoteUrl: string): GithubRepo {
   return r;
 }
 
+/** The stored token, or throw "not signed in". Never returned to the renderer. */
+async function requireToken(ctx: Context): Promise<string> {
+  const t = await ctx.secrets.get(GH_TOKEN_KEY);
+  if (t === null || t.trim() === '') throw new Error('尚未登录 GitHub，请在设置中登录。');
+  return t;
+}
+
 /** One authenticated GitHub API call. Throws a clear, localized error on failure. */
 async function gh(
   ctx: Context,
@@ -101,11 +112,12 @@ export const listPullRequests: Handler<
   GithubListPullRequestsArgs,
   GithubListPullRequestsResult
 > = async (args, ctx) => {
+  const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
   const state = args.state ?? 'open';
   const res = await gh(
     ctx,
-    args.token,
+    token,
     'GET',
     `/repos/${owner}/${repo}/pulls?state=${state}&per_page=50&sort=updated&direction=desc`,
   );
@@ -141,10 +153,11 @@ export const pullRequestFiles: Handler<
   if (!Number.isInteger(args.number) || args.number <= 0) {
     throw new Error('无效的 PR 编号。');
   }
+  const token = await requireToken(ctx);
   const { owner, repo } = repoOf(args.remoteUrl);
   const res = await gh(
     ctx,
-    args.token,
+    token,
     'GET',
     `/repos/${owner}/${repo}/pulls/${args.number}/files?per_page=100`,
   );
@@ -167,14 +180,37 @@ export const pullRequestFiles: Handler<
   return { files };
 };
 
-export const viewer: Handler<GithubViewerArgs, GithubViewerResult> = async (args, ctx) => {
-  if (args.token.trim() === '') return { login: null };
+/** Look up the login for a token (GET /user); null on any failure. */
+async function loginFor(ctx: Context, token: string): Promise<string | null> {
+  if (token.trim() === '') return null;
   try {
-    const res = await gh(ctx, args.token, 'GET', '/user');
+    const res = await gh(ctx, token, 'GET', '/user');
     const j = JSON.parse(res.body) as { login?: string };
-    return { login: typeof j.login === 'string' ? j.login : null };
+    return typeof j.login === 'string' ? j.login : null;
   } catch {
-    // An invalid token (401) or any failure → not authenticated.
-    return { login: null };
+    return null;
   }
+}
+
+/** Verify a token and, on success, persist it via ctx.secrets (OS-encrypted by
+ *  the host). The token never goes back to the renderer — only the login does. */
+export const signIn: Handler<GithubSignInArgs, GithubSignInResult> = async (args, ctx) => {
+  const login = await loginFor(ctx, args.token);
+  if (login === null) {
+    throw new Error('GitHub token 无效或缺少权限（需要 repo 读取权限）。');
+  }
+  await ctx.secrets.set(GH_TOKEN_KEY, args.token);
+  return { login };
+};
+
+export const signOut: Handler<unknown, { ok: true }> = async (_args, ctx) => {
+  await ctx.secrets.delete(GH_TOKEN_KEY);
+  return { ok: true };
+};
+
+/** Current sign-in state from the STORED token (no token in/out). */
+export const viewer: Handler<unknown, GithubViewerResult> = async (_args, ctx) => {
+  const token = await ctx.secrets.get(GH_TOKEN_KEY);
+  if (token === null) return { login: null };
+  return { login: await loginFor(ctx, token) };
 };
