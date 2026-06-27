@@ -90,6 +90,31 @@ export interface GitRevertArgs {
   readonly ref: string;
 }
 
+export interface GitTagArgs {
+  /** New tag name. */
+  readonly name: string;
+  /** Commit to tag (a SHA / ref); defaults to HEAD. */
+  readonly ref?: string;
+}
+
+export interface GitCherryPickArgs {
+  /** The commit to cherry-pick onto the current branch. */
+  readonly ref: string;
+}
+
+export interface GitCherryPickResult {
+  readonly applied: boolean;
+  /** True when it stopped on conflicts to resolve. */
+  readonly conflicts: boolean;
+}
+
+export interface GitResetArgs {
+  /** The commit to reset HEAD to (a SHA / ref). */
+  readonly ref: string;
+  /** `--soft` (keep index + tree), `--mixed` (default, keep tree), `--hard` (discard). */
+  readonly mode?: 'soft' | 'mixed' | 'hard';
+}
+
 export interface GitRevertResult {
   readonly reverted: boolean;
   /** True when the revert stopped on conflicts to resolve. */

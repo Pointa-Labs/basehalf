@@ -285,6 +285,38 @@ describe('git commands (injected fake runner)', () => {
     expect(calls[1].args).toEqual(['branch', '-m', 'old', 'new']);
   });
 
+  it('git.tag creates a tag at HEAD or a ref (rejects an unsafe name)', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.tag', { name: 'v1.0' }, ROOT);
+    await core.run('git.tag', { name: 'v2', ref: 'abc' }, ROOT);
+    expect(calls[0].args).toEqual(['tag', 'v1.0']);
+    expect(calls[1].args).toEqual(['tag', 'v2', 'abc']);
+    await expect(core.run('git.tag', { name: '-x' }, ROOT)).rejects.toThrow(/invalid branch name/);
+  });
+
+  it('git.cherryPick → applied, and conflicts:true on a conflict (exit 1)', async () => {
+    const ok = makeFakeGit(() => ({}));
+    const c1 = createCore({ git: ok.git, configDir: '/cfg' });
+    const r1 = (await c1.run('git.cherryPick', { ref: 'abc' }, ROOT)) as { applied: boolean };
+    expect(ok.calls[0].args).toEqual(['cherry-pick', 'abc']);
+    expect(r1.applied).toBe(true);
+    const conf = makeFakeGit(() => ({ exitCode: 1, stdout: 'CONFLICT (content)' }));
+    const c2 = createCore({ git: conf.git, configDir: '/cfg' });
+    const r2 = (await c2.run('git.cherryPick', { ref: 'abc' }, ROOT)) as { conflicts: boolean };
+    expect(r2.conflicts).toBe(true);
+  });
+
+  it('git.reset uses the mode flag (default mixed); rejects an unsafe ref', async () => {
+    const { git, calls } = makeFakeGit(() => ({}));
+    const core = createCore({ git, configDir: '/cfg' });
+    await core.run('git.reset', { ref: 'abc' }, ROOT);
+    await core.run('git.reset', { ref: 'abc', mode: 'hard' }, ROOT);
+    expect(calls[0].args).toEqual(['reset', '--mixed', 'abc']);
+    expect(calls[1].args).toEqual(['reset', '--hard', 'abc']);
+    await expect(core.run('git.reset', { ref: '-x' }, ROOT)).rejects.toThrow(/unsafe ref/);
+  });
+
   it('git.show → null when the path is absent at the ref (exit 128)', async () => {
     const { git } = makeFakeGit(() => ({ exitCode: 128 }));
     const core = createCore({ git, configDir: '/cfg' });

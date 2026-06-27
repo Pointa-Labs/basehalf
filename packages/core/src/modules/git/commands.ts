@@ -12,6 +12,8 @@ import type {
   GitBranchesArgs,
   GitBranchesResult,
   GitCheckoutArgs,
+  GitCherryPickArgs,
+  GitCherryPickResult,
   GitCommitArgs,
   GitCommitFilesArgs,
   GitCommitFilesResult,
@@ -29,6 +31,7 @@ import type {
   GitPathsArgs,
   GitRemoteResult,
   GitRenameBranchArgs,
+  GitResetArgs,
   GitRevertArgs,
   GitRevertResult,
   GitShowArgs,
@@ -38,6 +41,7 @@ import type {
   GitStashRefArgs,
   GitStashResult,
   GitStatusResult,
+  GitTagArgs,
 } from './types.js';
 
 /**
@@ -336,6 +340,31 @@ export const stashDrop: Handler<GitStashRefArgs, GitOkResult> = async (args, ctx
 export const stashList: Handler<unknown, GitStashListResult> = async (_args, ctx) => {
   const res = await git(ctx, ['stash', 'list', '--format=%gd%x1f%s']);
   return { entries: parseStashList(res.stdout) };
+};
+
+export const tag: Handler<GitTagArgs, GitOkResult> = async (args, ctx) => {
+  assertBranchName(args.name, 'git.tag'); // tag names share git's refname rules
+  if (args.ref !== undefined) assertSafeRef(args.ref, 'git.tag ref');
+  await git(ctx, args.ref !== undefined ? ['tag', args.name, args.ref] : ['tag', args.name]);
+  return { ok: true };
+};
+
+export const cherryPick: Handler<GitCherryPickArgs, GitCherryPickResult> = async (args, ctx) => {
+  assertSafeRef(args.ref, 'git.cherryPick');
+  // A conflict exits 1 and leaves markers — a normal outcome routed to the
+  // conflict UI, not an error. Other non-zero exits throw.
+  const res = await git(ctx, ['cherry-pick', args.ref], { acceptExitCodes: [0, 1] });
+  if (res.exitCode === 0) return { applied: true, conflicts: false };
+  const conflicts = /conflict/i.test(res.stdout) || /conflict/i.test(res.stderr);
+  if (conflicts) return { applied: false, conflicts: true };
+  throw new Error(`git cherry-pick failed: ${res.stderr.trim() || res.stdout.trim() || 'exit 1'}`);
+};
+
+export const reset: Handler<GitResetArgs, GitOkResult> = async (args, ctx) => {
+  assertSafeRef(args.ref, 'git.reset');
+  const mode = args.mode ?? 'mixed';
+  await git(ctx, ['reset', `--${mode}`, args.ref]);
+  return { ok: true };
 };
 
 export const revert: Handler<GitRevertArgs, GitRevertResult> = async (args, ctx) => {

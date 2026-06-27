@@ -2,7 +2,11 @@ import type { GitCommit, GitCommitFilesResult, GitLogResult } from '@basehalf/co
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { layoutGraph } from '../lib/gitGraph.js';
+import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
+import { useGitStatusStore } from '../store/gitStatus.js';
+import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
+import { confirm, prompt } from './Dialog.js';
 
 /**
  * GitGraphView — a full-page commit graph modeled 1:1 on the Git Graph VS Code
@@ -73,6 +77,136 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   useEffect(() => {
     void loadPage(0);
   }, [loadPage]);
+
+  // Run a graph mutation, then reload the graph (HEAD/refs moved) + SCM status.
+  const runGit = useCallback(
+    (fn: () => Promise<unknown>): void => {
+      void (async () => {
+        try {
+          await fn();
+          await loadPage(0);
+          await useGitStatusStore.getState().refresh();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : String(e));
+        }
+      })();
+    },
+    [loadPage],
+  );
+
+  // The Git Graph commit context menu (right-click a row).
+  const commitMenu = useCallback(
+    (c: GitCommit): ContextMenuItem[] => {
+      const sha = c.hash;
+      const short = c.shortHash;
+      return [
+        {
+          id: 'checkout',
+          label: '签出此提交…',
+          run: () =>
+            void confirm({
+              title: `签出 ${short}？`,
+              body: '将进入“分离 HEAD”状态。',
+              confirmText: '签出',
+            }).then((ok) => {
+              if (ok) runGit(() => window.bh.run('git.checkout', { branch: sha }));
+            }),
+        },
+        {
+          id: 'branch',
+          label: '从此创建分支…',
+          run: () =>
+            void prompt({
+              title: `从 ${short} 创建分支`,
+              label: '分支名',
+              placeholder: 'feature/x',
+            }).then((n) => {
+              const name = n?.trim();
+              if (name) runGit(() => window.bh.run('git.createBranch', { name, ref: sha }));
+            }),
+        },
+        {
+          id: 'tag',
+          label: '在此创建标签…',
+          run: () =>
+            void prompt({
+              title: `在 ${short} 创建标签`,
+              label: '标签名',
+              placeholder: 'v1.0',
+            }).then((n) => {
+              const name = n?.trim();
+              if (name) runGit(() => window.bh.run('git.tag', { name, ref: sha }));
+            }),
+        },
+        { separator: true },
+        {
+          id: 'cherrypick',
+          label: '拣选到当前分支（Cherry-pick）',
+          run: () =>
+            runGit(async () => {
+              const r = (await window.bh.run('git.cherryPick', { ref: sha })) as {
+                conflicts: boolean;
+              };
+              if (r.conflicts) toast.error('拣选产生冲突，请在「合并更改」中解决。');
+            }),
+        },
+        {
+          id: 'revert',
+          label: '撤销此提交（Revert）',
+          run: () =>
+            runGit(async () => {
+              const r = (await window.bh.run('git.revert', { ref: sha })) as { conflicts: boolean };
+              if (r.conflicts) toast.error('撤销产生冲突，请在「合并更改」中解决。');
+            }),
+        },
+        {
+          id: 'merge',
+          label: '合并到当前分支（Merge）',
+          run: () =>
+            runGit(async () => {
+              const r = (await window.bh.run('git.merge', { branch: sha })) as {
+                conflicts: boolean;
+              };
+              if (r.conflicts) toast.error('合并产生冲突，请在「合并更改」中解决。');
+            }),
+        },
+        { separator: true },
+        {
+          id: 'reset-mixed',
+          label: '重置当前分支到此（保留改动）',
+          run: () => runGit(() => window.bh.run('git.reset', { ref: sha, mode: 'mixed' })),
+        },
+        {
+          id: 'reset-hard',
+          label: '重置当前分支到此（丢弃改动）',
+          danger: true,
+          run: () =>
+            void confirm({
+              title: `硬重置到 ${short}？`,
+              body: '当前分支之后的所有改动将被永久丢弃，不可撤销。',
+              confirmText: '硬重置',
+              destructive: true,
+            }).then((ok) => {
+              if (ok) runGit(() => window.bh.run('git.reset', { ref: sha, mode: 'hard' }));
+            }),
+        },
+        { separator: true },
+        {
+          id: 'copy-sha',
+          label: '复制提交哈希',
+          run: () =>
+            void navigator.clipboard.writeText(sha).then(() => toast.success(`已复制 ${short}`)),
+        },
+        {
+          id: 'copy-subject',
+          label: '复制提交信息',
+          run: () =>
+            void navigator.clipboard.writeText(c.subject).then(() => toast.success('已复制')),
+        },
+      ];
+    },
+    [runGit],
+  );
 
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const graphW = OFF_X * 2 + Math.max(1, width) * GX;
@@ -179,6 +313,10 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                   gridCols={gridCols}
                   selected={selected === row.commit.hash}
                   onSelect={() => setSelected(row.commit.hash)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openContextMenu(e.clientX, e.clientY, commitMenu(row.commit));
+                  }}
                 />
               ))}
             </div>
@@ -276,16 +414,19 @@ const CommitRow = ({
   gridCols,
   selected,
   onSelect,
+  onContextMenu,
 }: {
   commit: GitCommit;
   gridCols: string;
   selected: boolean;
   onSelect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
   return (
     <div
       onClick={onSelect}
+      onContextMenu={onContextMenu}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();

@@ -33,6 +33,9 @@ export function registerGitModule(core: Core): void {
   core.register('git.stashDrop', git.stashDrop);
   core.register('git.stashList', git.stashList);
   core.register('git.revert', git.revert);
+  core.register('git.tag', git.tag);
+  core.register('git.cherryPick', git.cherryPick);
+  core.register('git.reset', git.reset);
   core.register('git.diff', git.diff);
   core.register('git.diffRef', git.diffRef);
   core.register('git.commitFiles', git.commitFiles);
