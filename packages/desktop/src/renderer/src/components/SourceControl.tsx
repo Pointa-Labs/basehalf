@@ -25,6 +25,7 @@ import { BranchSelector } from './BranchSelector.js';
 import { prompt } from './Dialog.js';
 import { FileGlyph, badgeType } from './FileGlyph.js';
 import { GitGraph } from './GitGraph.js';
+import { PullRequests } from './PullRequests.js';
 import { Button } from './primitives/Button.js';
 import { CountBadge } from './primitives/CountBadge.js';
 import { Disclosure } from './primitives/Disclosure.js';
@@ -451,6 +452,9 @@ export const SourceControl = (): JSX.Element => {
         >
           {graphOpen && <GitGraph />}
         </Disclosure>
+
+        {/* GitHub Pull Requests — renders only for a github.com repo. */}
+        <PullRequests />
       </div>
     </div>
   );
