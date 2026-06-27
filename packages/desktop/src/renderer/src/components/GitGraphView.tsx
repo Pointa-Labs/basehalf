@@ -1,12 +1,20 @@
-import type { GitCommit, GitCommitFilesResult, GitLogResult } from '@basehalf/core';
+import type {
+  GitBranchesResult,
+  GitCommit,
+  GitCommitFilesResult,
+  GitLogResult,
+  GitStatusResult,
+} from '@basehalf/core';
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
 import { color, font, radius, space, transition } from '../design.js';
 import { layoutGraph } from '../lib/gitGraph.js';
 import { type ContextMenuItem, openContextMenu } from '../store/contextMenu.js';
 import { useGitStatusStore } from '../store/gitStatus.js';
+import { useLayoutStore } from '../store/layout.js';
 import { toast } from '../store/toast.js';
 import { useWorkspaceStore } from '../store/workspace.js';
 import { confirm, prompt } from './Dialog.js';
+import { Menu } from './primitives/Menu.js';
 
 /**
  * GitGraphView — a full-page commit graph modeled 1:1 on the Git Graph VS Code
@@ -55,28 +63,60 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // Controls: a branch filter (null = all branches), a remote-branch toggle, and
+  // a find query — the Git Graph extension's top toolbar.
+  const [branchFilter, setBranchFilter] = useState<string | null>(null);
+  const [showRemote, setShowRemote] = useState(false);
+  const [find, setFind] = useState('');
+  const [branches, setBranches] = useState<GitBranchesResult['branches']>([]);
+  const [uncommitted, setUncommitted] = useState(0);
 
-  const loadPage = useCallback(async (skip: number): Promise<void> => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = (await window.bh.run('git.log', {
-        all: true,
-        maxCount: PAGE,
-        skip,
-      })) as GitLogResult;
-      setCommits((prev) => (skip === 0 ? [...r.commits] : [...prev, ...r.commits]));
-      if (r.commits.length < PAGE) setDone(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadPage = useCallback(
+    async (skip: number): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        // All branches by default; a filter scopes to one ref's history.
+        const logArgs =
+          branchFilter !== null
+            ? { ref: branchFilter, maxCount: PAGE, skip }
+            : { all: true, maxCount: PAGE, skip };
+        const r = (await window.bh.run('git.log', logArgs)) as GitLogResult;
+        setCommits((prev) => (skip === 0 ? [...r.commits] : [...prev, ...r.commits]));
+        if (r.commits.length < PAGE) setDone(true);
+        else setDone(false);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [branchFilter],
+  );
 
   useEffect(() => {
     void loadPage(0);
   }, [loadPage]);
+
+  // Branch list (for the filter dropdown) + the uncommitted-changes count.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const b = (await window.bh.run('git.branches', {
+          includeRemote: showRemote,
+        })) as GitBranchesResult;
+        setBranches(b.branches);
+      } catch {
+        /* ignore */
+      }
+      try {
+        const s = (await window.bh.run('git.status', {})) as GitStatusResult;
+        setUncommitted(s.isRepo ? s.files.length : 0);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [showRemote]);
 
   // Run a graph mutation, then reload the graph (HEAD/refs moved) + SCM status.
   const runGit = useCallback(
@@ -211,12 +251,20 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
   const { rows, width } = useMemo(() => layoutGraph(commits), [commits]);
   const graphW = OFF_X * 2 + Math.max(1, width) * GX;
   const gridCols = `${graphW}px minmax(120px, 1fr) 150px 130px 70px`;
+  // A leading "Uncommitted Changes" row (Git Graph's signature) shifts the commit
+  // rows down one when the working tree is dirty.
+  const hasUncommitted = uncommitted > 0 && branchFilter === null;
+  const vOff = hasUncommitted ? 1 : 0;
+  const findLower = find.trim().toLowerCase();
+  const matches = (c: GitCommit): boolean =>
+    findLower !== '' &&
+    (c.subject.toLowerCase().includes(findLower) || c.shortHash.toLowerCase().includes(findLower));
 
   // The whole DAG as one SVG over the graph column.
   const paths = useMemo(() => {
     const out: Array<{ d: string; c: string }> = [];
     rows.forEach((row, i) => {
-      const cy = i * ROW + ROW / 2;
+      const cy = (i + vOff) * ROW + ROW / 2;
       const node = row.lane;
       row.lanesBefore.forEach((h, k) => {
         if (h == null) return;
@@ -232,12 +280,35 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
         out.push({ d: segPath(laneX(node), cy, laneX(k), cy + ROW / 2), c: laneColor(k) });
       }
     });
+    // Connector from the uncommitted node (top) down to the HEAD commit.
+    if (hasUncommitted) {
+      const headRow = rows.findIndex((r) => r.commit.head);
+      if (headRow !== -1) {
+        const lane = rows[headRow]?.lane ?? 0;
+        out.push({
+          d: segPath(laneX(lane), ROW / 2, laneX(lane), (headRow + vOff) * ROW + ROW / 2),
+          c: '#808080',
+        });
+      }
+    }
     return out;
-  }, [rows]);
+  }, [rows, vOff, hasUncommitted]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <Header onClose={onClose} count={commits.length} loading={loading} />
+      <Header
+        onClose={onClose}
+        count={commits.length}
+        loading={loading}
+        branches={branches}
+        branchFilter={branchFilter}
+        onBranchFilter={setBranchFilter}
+        showRemote={showRemote}
+        onToggleRemote={() => setShowRemote((v) => !v)}
+        find={find}
+        onFind={setFind}
+        matchCount={findLower === '' ? null : commits.filter(matches).length}
+      />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {/* Column header (sticky). */}
@@ -280,7 +351,7 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
               {/* The DAG, drawn once over the graph column. */}
               <svg
                 width={graphW}
-                height={rows.length * ROW}
+                height={(rows.length + vOff) * ROW}
                 style={{ position: 'absolute', top: 0, left: space[2], pointerEvents: 'none' }}
                 aria-hidden
               >
@@ -288,8 +359,24 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                 {paths.map((p) => (
                   <path key={p.d} d={p.d} fill="none" stroke={p.c} strokeWidth={2} />
                 ))}
+                {hasUncommitted &&
+                  (() => {
+                    const headRow = rows.findIndex((r) => r.commit.head);
+                    const lane = headRow !== -1 ? (rows[headRow]?.lane ?? 0) : 0;
+                    return (
+                      <circle
+                        cx={laneX(lane)}
+                        cy={ROW / 2}
+                        r={4}
+                        fill={color.bg}
+                        stroke="#808080"
+                        strokeWidth={2}
+                        strokeDasharray="2 1.5"
+                      />
+                    );
+                  })()}
                 {rows.map((row, i) => {
-                  const cy = i * ROW + ROW / 2;
+                  const cy = (i + vOff) * ROW + ROW / 2;
                   const cx = laneX(row.lane);
                   const c = laneColor(row.lane);
                   return (
@@ -306,12 +393,53 @@ export const GitGraphView = ({ onClose }: { onClose: () => void }): JSX.Element 
                 })}
               </svg>
 
+              {hasUncommitted && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    useLayoutStore.getState().setSidebarView('scm');
+                    useLayoutStore.getState().setSidebarOpen(true);
+                    onClose();
+                  }}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: gridCols,
+                    alignItems: 'center',
+                    width: '100%',
+                    height: ROW,
+                    padding: `0 ${space[2]}px`,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    fontFamily: font.sans,
+                    fontSize: font.size.caption,
+                  }}
+                >
+                  <span />
+                  <span style={{ color: color.warning, fontStyle: 'italic' }}>
+                    ● 未提交的更改（{uncommitted}）
+                  </span>
+                  <span />
+                  <span />
+                  <span
+                    style={{
+                      color: color.textGhost,
+                      fontFamily: font.mono,
+                      fontSize: font.size.micro,
+                    }}
+                  >
+                    *
+                  </span>
+                </button>
+              )}
               {rows.map((row) => (
                 <CommitRow
                   key={row.commit.hash}
                   commit={row.commit}
                   gridCols={gridCols}
                   selected={selected === row.commit.hash}
+                  highlighted={matches(row.commit)}
                   onSelect={() => setSelected(row.commit.hash)}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -362,10 +490,26 @@ const Header = ({
   onClose,
   count,
   loading,
+  branches,
+  branchFilter,
+  onBranchFilter,
+  showRemote,
+  onToggleRemote,
+  find,
+  onFind,
+  matchCount,
 }: {
   onClose: () => void;
   count: number;
   loading: boolean;
+  branches: GitBranchesResult['branches'];
+  branchFilter: string | null;
+  onBranchFilter: (b: string | null) => void;
+  showRemote: boolean;
+  onToggleRemote: () => void;
+  find: string;
+  onFind: (s: string) => void;
+  matchCount: number | null;
 }): JSX.Element => (
   <div
     style={{
@@ -384,28 +528,86 @@ const Header = ({
     <span style={{ color: color.textTertiary, fontSize: font.size.micro }}>
       {loading ? '载入中…' : `${count} 个提交`}
     </span>
-    <button
-      type="button"
-      title="关闭（Esc）"
-      aria-label="关闭 Git Graph"
-      onClick={onClose}
+
+    {/* Branch filter (Git Graph's "branches" dropdown). */}
+    <Menu
+      align="left"
+      label={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: space[1] }}>
+          ⎇ {branchFilter ?? '全部分支'} ▾
+        </span>
+      }
+      actions={[
+        { label: '全部分支', onClick: () => onBranchFilter(null) },
+        ...branches.map((b) => ({
+          label: b.name,
+          onClick: () => onBranchFilter(b.name),
+        })),
+      ]}
+    />
+    <label
       style={{
-        marginLeft: 'auto',
-        width: 24,
-        height: 24,
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        background: 'none',
-        border: 'none',
-        borderRadius: radius.sm,
-        cursor: 'pointer',
+        gap: space[1],
         color: color.textTertiary,
-        fontSize: font.size.body,
+        fontSize: font.size.micro,
+        cursor: 'pointer',
+        userSelect: 'none',
       }}
     >
-      ✕
-    </button>
+      <input type="checkbox" checked={showRemote} onChange={onToggleRemote} />
+      远程分支
+    </label>
+
+    <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: space[1] }}>
+      <input
+        value={find}
+        onChange={(e) => onFind(e.target.value)}
+        placeholder="查找提交…"
+        aria-label="查找提交"
+        data-testid="graph-find"
+        style={{
+          width: 150,
+          height: 24,
+          boxSizing: 'border-box',
+          background: color.bg,
+          border: `1px solid ${color.border}`,
+          borderRadius: radius.sm,
+          color: color.textPrimary,
+          fontFamily: font.sans,
+          fontSize: font.size.micro,
+          padding: `0 ${space[2]}px`,
+          outline: 'none',
+        }}
+      />
+      {matchCount !== null && (
+        <span style={{ color: color.textTertiary, fontSize: font.size.micro, minWidth: 36 }}>
+          {matchCount} 处
+        </span>
+      )}
+      <button
+        type="button"
+        title="关闭（Esc）"
+        aria-label="关闭 Git Graph"
+        onClick={onClose}
+        style={{
+          width: 24,
+          height: 24,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'none',
+          border: 'none',
+          borderRadius: radius.sm,
+          cursor: 'pointer',
+          color: color.textTertiary,
+          fontSize: font.size.body,
+        }}
+      >
+        ✕
+      </button>
+    </span>
   </div>
 );
 
@@ -413,12 +615,14 @@ const CommitRow = ({
   commit,
   gridCols,
   selected,
+  highlighted,
   onSelect,
   onContextMenu,
 }: {
   commit: GitCommit;
   gridCols: string;
   selected: boolean;
+  highlighted: boolean;
   onSelect: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }): JSX.Element => {
@@ -443,7 +647,13 @@ const CommitRow = ({
         alignItems: 'center',
         height: ROW,
         padding: `0 ${space[2]}px`,
-        background: selected ? color.accentSofter : hover ? color.divider : 'transparent',
+        background: selected
+          ? color.accentSofter
+          : highlighted
+            ? `${color.warning}26`
+            : hover
+              ? color.divider
+              : 'transparent',
         cursor: 'pointer',
         fontFamily: font.sans,
         fontSize: font.size.caption,
