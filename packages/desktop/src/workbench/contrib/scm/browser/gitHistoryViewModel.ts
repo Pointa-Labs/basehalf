@@ -1,8 +1,7 @@
 import type { GitCommit, GitLogArgs, GitRefInfo } from '../common/git.js';
 import type { ScmCurrentHistoryItemRefs, ScmHistoryItemRef } from '../common/history.js';
 import type { GitHistoryOptions, GitHistoryRawSource } from './gitHistoryProvider.js';
-import { gitLogArgsForHistoryOptions } from './gitHistoryProvider.js';
-import { historyRefExists } from './historyGraphModel.js';
+import { gitLogArgsForHistoryOptions, normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 
 const GIT_OBJECT_ID = /^[0-9a-f]{7,64}$/i;
@@ -35,11 +34,15 @@ export function gitHistoryOptionsForAvailableFilter({
   readonly pageSize: number;
   readonly skip: number;
 }): GitHistoryOptions {
-  return gitHistoryOptionsForFilter(
-    historyRefExists(filter, refs) ? filter : { kind: 'auto' },
-    pageSize,
-    skip,
-  );
+  const page = { limit: pageSize, skip };
+  if (filter.kind === 'all') return { ...page, all: true };
+  if (filter.kind === 'ref') {
+    const normalized = normalizeGitHistoryItemRefs([filter.ref], refs)[0];
+    if (normalized !== undefined && gitHistoryRefExists(normalized, refs)) {
+      return { ...page, historyItemRefs: [normalized] };
+    }
+  }
+  return { ...page, historyItemRefs: ['HEAD'] };
 }
 
 export async function gitHistoryOptionsForSourceFilter({
@@ -56,8 +59,15 @@ export async function gitHistoryOptionsForSourceFilter({
   readonly skip: number;
 }): Promise<GitHistoryOptions> {
   if (filter.kind === 'all') return gitHistoryOptionsForFilter(filter, pageSize, skip);
-  if (filter.kind === 'ref' && historyRefExists(filter, refs)) {
-    return gitHistoryOptionsForFilter(filter, pageSize, skip);
+  if (filter.kind === 'ref') {
+    const normalized = normalizeGitHistoryItemRefs([filter.ref], refs)[0];
+    if (normalized !== undefined && gitHistoryRefExists(normalized, refs)) {
+      return {
+        historyItemRefs: [normalized],
+        limit: pageSize,
+        skip,
+      };
+    }
   }
   const currentRefs = currentHistoryItemRefsToArray(await source.provideCurrentHistoryItemRefs());
   return {
@@ -65,6 +75,10 @@ export async function gitHistoryOptionsForSourceFilter({
     limit: pageSize,
     skip,
   };
+}
+
+function gitHistoryRefExists(ref: string, refs: readonly GitRefInfo[]): boolean {
+  return refs.some((candidate) => candidate.id === ref || candidate.commit === ref);
 }
 
 export function gitHistoryItemRefToProviderRef(ref: ScmHistoryItemRef): string {

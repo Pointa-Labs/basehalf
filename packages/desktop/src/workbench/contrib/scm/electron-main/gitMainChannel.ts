@@ -1,5 +1,5 @@
 import { type WebContents, ipcMain } from 'electron';
-import { GIT_IPC_CHANNELS } from '../common/git.js';
+import { GIT_IPC_CHANNELS, gitIpcFailure, gitIpcSuccess } from '../common/git.js';
 import type {
   GitApplyArgs,
   GitBlameArgs,
@@ -36,42 +36,42 @@ export class GitMainChannel {
   ) {}
 
   register(): void {
-    this.ipc.handle(GIT_IPC_CHANNELS.init, (event) => this.git.init(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.stage, (event, paths) =>
+    this.handle(GIT_IPC_CHANNELS.init, (event) => this.git.init(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.stage, (event, paths) =>
       this.git.stage(this.root(event), asPaths(paths)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.stageAll, (event) => this.git.stageAll(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.unstage, (event, paths) =>
+    this.handle(GIT_IPC_CHANNELS.stageAll, (event) => this.git.stageAll(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.unstage, (event, paths) =>
       this.git.unstage(this.root(event), asPaths(paths)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.unstageAll, (event) => this.git.unstageAll(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.discard, (event, paths) =>
+    this.handle(GIT_IPC_CHANNELS.unstageAll, (event) => this.git.unstageAll(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.discard, (event, paths) =>
       this.git.discard(this.root(event), asPaths(paths)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.deleteWorkspaceEntry, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.deleteWorkspaceEntry, (event, payload) => {
       const p = asDeleteWorkspaceEntryPayload(payload);
       return this.git.deleteWorkspaceEntry(this.root(event), p.path, p.kind);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.commit, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.commit, (event, payload) => {
       const p = asCommitPayload(payload);
       return this.git.commit(this.root(event), p.message, p.amend === true ? { amend: true } : {});
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.push, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.push, (event, payload) =>
       this.git.push(this.root(event), asPushPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.publish, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.publish, (event, payload) =>
       this.git.publish(this.root(event), asPublishPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.pull, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.pull, (event, payload) =>
       this.git.pull(this.root(event), asPullPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.fetch, (event) => this.git.fetch(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.sync, (event) => this.git.sync(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.remotes, (event) => this.git.remotes(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.reset, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.fetch, (event) => this.git.fetch(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.sync, (event) => this.git.sync(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.remotes, (event) => this.git.remotes(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.reset, (event, payload) =>
       this.git.reset(this.root(event), asResetPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.checkout, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.checkout, (event, payload) => {
       const p = asCheckoutPayload(payload);
       const options: { force?: boolean; track?: boolean } = {};
       if (p.force !== undefined) {
@@ -82,19 +82,19 @@ export class GitMainChannel {
       }
       return this.git.checkout(this.root(event), p.branch, options);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.createBranch, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.createBranch, (event, payload) => {
       const { name, ...options } = asCreateBranchPayload(payload);
       return this.git.createBranch(this.root(event), name, options);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.renameBranch, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.renameBranch, (event, payload) => {
       const p = asRenameBranchPayload(payload);
       return this.git.renameBranch(this.root(event), p.from, p.to);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.renameCurrentBranch, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.renameCurrentBranch, (event, payload) => {
       const p = asRenameCurrentBranchPayload(payload);
       return this.git.renameCurrentBranch(this.root(event), p.to);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.deleteBranch, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.deleteBranch, (event, payload) => {
       const p = asDeleteBranchPayload(payload);
       return this.git.deleteBranch(
         this.root(event),
@@ -102,80 +102,90 @@ export class GitMainChannel {
         p.force !== undefined ? { force: p.force } : {},
       );
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.merge, (event, branch) =>
+    this.handle(GIT_IPC_CHANNELS.merge, (event, branch) =>
       this.git.merge(this.root(event), asNonEmptyString(branch, 'Invalid merge branch.')),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.cherryPick, (event, ref) =>
+    this.handle(GIT_IPC_CHANNELS.cherryPick, (event, ref) =>
       this.git.cherryPick(this.root(event), asNonEmptyString(ref, 'Invalid cherry-pick ref.')),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.revert, (event, ref) =>
+    this.handle(GIT_IPC_CHANNELS.revert, (event, ref) =>
       this.git.revert(this.root(event), asNonEmptyString(ref, 'Invalid revert ref.')),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.rebaseInteractive, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.rebaseInteractive, (event, payload) =>
       this.git.rebaseInteractive(this.root(event), asRebaseInteractivePayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.tag, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.tag, (event, payload) => {
       const p = asTagPayload(payload);
       return this.git.tag(this.root(event), p.name, p.ref);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.tagDelete, (event, name) =>
+    this.handle(GIT_IPC_CHANNELS.tagDelete, (event, name) =>
       this.git.tagDelete(this.root(event), asNonEmptyString(name, 'Invalid tag name.')),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.status, (event) => this.git.status(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.show, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.status, (event) => this.git.status(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.show, (event, payload) => {
       const p = asShowPayload(payload);
       return this.git.show(this.root(event), p.ref, p.path);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.diff, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.diff, (event, payload) => {
       const p = asDiffPayload(payload);
       return this.git.diff(this.root(event), p.path, p);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.apply, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.apply, (event, payload) =>
       this.git.apply(this.root(event), asApplyPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.blame, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.blame, (event, payload) => {
       const p = asBlamePayload(payload);
       return this.git.blame(this.root(event), p.path, p);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.conflictStages, (event, path) =>
+    this.handle(GIT_IPC_CHANNELS.conflictStages, (event, path) =>
       this.git.conflictStages(
         this.root(event),
         asNonEmptyString(path, 'Invalid conflict stages path.'),
       ),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.refs, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.refs, (event, payload) =>
       this.git.refs(this.root(event), asRefsPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.log, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.log, (event, payload) =>
       this.git.log(this.root(event), asLogPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.mergeBase, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.mergeBase, (event, payload) =>
       this.git.mergeBase(this.root(event), asMergeBasePayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.searchHistory, (event, payload) =>
+    this.handle(GIT_IPC_CHANNELS.searchHistory, (event, payload) =>
       this.git.searchHistory(this.root(event), asSearchHistoryPayload(payload)),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.commitFiles, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.commitFiles, (event, payload) => {
       const p = asCommitFilesPayload(payload);
       return this.git.commitFiles(this.root(event), p.ref, p.parent);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.stash, (event, payload) => {
+    this.handle(GIT_IPC_CHANNELS.stash, (event, payload) => {
       const p = asStashPayload(payload);
       return this.git.stash(this.root(event), p.message, p);
     });
-    this.ipc.handle(GIT_IPC_CHANNELS.stashList, (event) => this.git.stashList(this.root(event)));
-    this.ipc.handle(GIT_IPC_CHANNELS.stashApply, (event, ref) =>
+    this.handle(GIT_IPC_CHANNELS.stashList, (event) => this.git.stashList(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.stashApply, (event, ref) =>
       this.git.stashApply(this.root(event), asNonEmptyString(ref, 'Invalid stash ref.')),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.stashPop, (event, ref) =>
+    this.handle(GIT_IPC_CHANNELS.stashPop, (event, ref) =>
       this.git.stashPop(
         this.root(event),
         ref === undefined ? undefined : asNonEmptyString(ref, 'Invalid stash ref.'),
       ),
     );
-    this.ipc.handle(GIT_IPC_CHANNELS.stashDrop, (event, ref) =>
+    this.handle(GIT_IPC_CHANNELS.stashDrop, (event, ref) =>
       this.git.stashDrop(this.root(event), asNonEmptyString(ref, 'Invalid stash ref.')),
     );
+  }
+
+  private handle(channel: string, listener: GitIpcHandler): void {
+    this.ipc.handle(channel, async (event, payload) => {
+      try {
+        return gitIpcSuccess(await listener(event, payload));
+      } catch (err) {
+        return gitIpcFailure(err);
+      }
+    });
   }
 
   private root(event: GitIpcEvent): string | null {
@@ -370,6 +380,7 @@ function asLogPayload(payload: unknown): GitLogArgs {
     ref?: string;
     refNames?: readonly string[];
     maxCount?: number;
+    maxParents?: number;
     skip?: number;
     path?: string;
     all?: boolean;
@@ -377,12 +388,14 @@ function asLogPayload(payload: unknown): GitLogArgs {
   const ref = asOptionalNonEmptyString(p.ref, 'Invalid log ref.');
   const refNames = asOptionalStringArray(p.refNames, 'Invalid log refs.');
   const maxCount = asOptionalCount(p.maxCount, 'Invalid log maxCount.');
+  const maxParents = asOptionalCount(p.maxParents, 'Invalid log maxParents.');
   const skip = asOptionalCount(p.skip, 'Invalid log skip.');
   const path = asOptionalNonEmptyString(p.path, 'Invalid log path.');
   const all = asOptionalBoolean(p.all, 'Invalid log all option.');
   if (ref !== undefined) out.ref = ref;
   if (refNames !== undefined) out.refNames = refNames;
   if (maxCount !== undefined) out.maxCount = maxCount;
+  if (maxParents !== undefined) out.maxParents = maxParents;
   if (skip !== undefined) out.skip = skip;
   if (path !== undefined) out.path = path;
   if (all !== undefined) out.all = all;

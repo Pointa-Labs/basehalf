@@ -124,4 +124,23 @@ describe('scmHistoryViewModel', () => {
       resolveScmHistoryItemRefs(provider, { kind: 'ref', ref: 'refs/remotes/origin/main' }),
     ).resolves.toEqual([ref('refs/heads/main', 'main')]);
   });
+
+  it('keeps numeric branch-name filters as resolved history item refs', async () => {
+    const provider = {
+      provideCurrentHistoryItemRefs: async () => ({
+        historyItemRef: ref('refs/heads/main', 'main'),
+      }),
+      provideHistoryItemRefs: async (ids?: readonly string[]) =>
+        ids?.[0] === '798' ? [ref('refs/heads/798', '798')] : [],
+    };
+
+    const refs = await resolveScmHistoryItemRefs(provider, { kind: 'ref', ref: '798' });
+
+    expect(refs).toEqual([ref('refs/heads/798', '798')]);
+    expect(scmHistoryOptionsForRefs(refs, 50, 0)).toEqual({
+      historyItemRefs: ['refs/heads/798'],
+      limit: 50,
+      skip: 0,
+    });
+  });
 });

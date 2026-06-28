@@ -1,4 +1,4 @@
-import type { GitStashEntry } from '../common/git.js';
+import { GitError, type GitStashEntry, gitErrorMessage } from '../common/git.js';
 import { type GitScmService, entryKindForGitPath } from './gitScmService.js';
 import type { GitRow } from './gitStatusModel.js';
 import type { CommitActionOptions } from './types.js';
@@ -26,7 +26,7 @@ export interface CommitPlan {
 }
 
 export const scmErrorMessage = (err: unknown): string =>
-  err instanceof Error ? err.message : String(err);
+  err instanceof GitError ? gitErrorMessage(err) : err instanceof Error ? err.message : String(err);
 
 export async function runScmAction(
   action: () => Promise<unknown>,

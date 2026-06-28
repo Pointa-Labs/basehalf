@@ -61,6 +61,18 @@ export function fullGraphLocalBranches(branches: readonly GitRefInfo[]): Readonl
   return new Set(branches.filter((branch) => branch.type === 'head').map((branch) => branch.name));
 }
 
+export function fullGraphTrackingLocalBranches(
+  branches: readonly GitRefInfo[],
+): ReadonlyMap<string, string> {
+  const tracking = new Map<string, string>();
+  for (const branch of branches) {
+    if (branch.type === 'head' && branch.upstream !== undefined) {
+      tracking.set(branch.upstream, branch.name);
+    }
+  }
+  return tracking;
+}
+
 export function fullGraphRefKind(
   ref: string,
   localBranches: ReadonlySet<string>,

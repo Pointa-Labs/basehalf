@@ -1,13 +1,17 @@
-import type {
-  GitPublishArgs,
-  GitPullArgs,
-  GitPushArgs,
-  GitRemoteInfo,
-  GitRemoteResult,
-  GitRemoteUrlArgs,
-  GitRemoteUrlResult,
-  GitRemotesResult,
-  GitSyncArgs,
+import {
+  GitError,
+  GitErrorCodes,
+  type GitPublishArgs,
+  type GitPullArgs,
+  type GitPushArgs,
+  type GitRemoteInfo,
+  type GitRemoteResult,
+  type GitRemoteUrlArgs,
+  type GitRemoteUrlResult,
+  type GitRemotesResult,
+  type GitSyncArgs,
+  assignGitErrorCode,
+  ensureGitError,
 } from '../common/git.js';
 import {
   type GitCommandContext,
@@ -105,7 +109,7 @@ export const push: GitCommandHandler<GitPushArgs, GitRemoteResult> = async (args
     throw new Error('Please check out a branch to push to a remote.');
   } else {
     assertBranchName(st.branch, 'git.push branch');
-    cmd = ['push', '-u', await publishRemote(ctx), st.branch];
+    throw noUpstreamBranchError(st.branch);
   }
   // Force = --force-with-lease (never the unconditional --force): refuses to
   // overwrite upstream commits we haven't seen, so a force-push can't silently
@@ -131,9 +135,6 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
   if (st.branch === null) {
     throw new Error('Please check out a branch before pulling.');
   }
-  if (st.upstream === null) {
-    throw new Error('The current branch has no upstream branch. Use Publish Branch first.');
-  }
   const upstream = parseUpstream(st.upstream);
   const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
   if (upstream !== null) {
@@ -141,8 +142,12 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
     assertBranchName(upstream.branch, 'git.pull upstream branch');
     cmd.push(upstream.remote, upstream.branch);
   }
-  const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
-  return { stdout: res.stdout, stderr: res.stderr };
+  try {
+    const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
+    return { stdout: res.stdout, stderr: res.stderr };
+  } catch (err) {
+    throw normalizePullError(err);
+  }
 };
 
 export const sync: GitCommandHandler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => {
@@ -171,8 +176,12 @@ export const sync: GitCommandHandler<GitSyncArgs, GitRemoteResult> = async (args
 };
 
 export const fetch: GitCommandHandler<unknown, GitRemoteResult> = async (_args, ctx) => {
-  const res = await git(ctx, ['fetch'], { timeoutMs: REMOTE_TIMEOUT_MS });
-  return { stdout: res.stdout, stderr: res.stderr };
+  try {
+    const res = await git(ctx, ['fetch'], { timeoutMs: REMOTE_TIMEOUT_MS });
+    return { stdout: res.stdout, stderr: res.stderr };
+  } catch (err) {
+    throw normalizeFetchError(err);
+  }
 };
 
 export const remoteUrl: GitCommandHandler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (
@@ -191,3 +200,64 @@ export const remoteUrl: GitCommandHandler<GitRemoteUrlArgs, GitRemoteUrlResult> 
 export const remotes: GitCommandHandler<unknown, GitRemotesResult> = async (_args, ctx) => {
   return { remotes: await gitRemoteInfos(ctx) };
 };
+
+function normalizeFetchError(err: unknown): Error {
+  const gitError = ensureGitError(err);
+  if (/No remote repository specified\./.test(gitError.stderr ?? '')) {
+    return assignGitErrorCode(gitError, GitErrorCodes.NoRemoteRepositorySpecified);
+  }
+  if (/Could not read from remote repository/.test(gitError.stderr ?? '')) {
+    return assignGitErrorCode(gitError, GitErrorCodes.RemoteConnectionError);
+  }
+  if (/! \[rejected\].*\(non-fast-forward\)/m.test(gitError.stderr ?? '')) {
+    return assignGitErrorCode(gitError, GitErrorCodes.BranchFastForwardRejected);
+  }
+  return gitError;
+}
+
+function noUpstreamBranchError(branch: string): GitError {
+  return new GitError({
+    stderr: `The branch "${branch}" has no remote branch. Publish this branch first.\n`,
+    gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+    gitCommand: 'push',
+    gitArgs: ['push'],
+  });
+}
+
+function normalizePullError(err: unknown): Error {
+  const gitError = ensureGitError(err);
+  const stderr = gitError.stderr ?? '';
+  const stdout = gitError.stdout ?? '';
+  if (/^CONFLICT \([^)]+\): \b/m.test(stdout)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.Conflict);
+  }
+  if (/Could not read from remote repository/.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.RemoteConnectionError);
+  }
+  if (
+    /Pull(?:ing)? is not possible because you have unmerged files|Cannot pull with rebase: You have unstaged changes|Your local changes to the following files would be overwritten|Please, commit your changes before you can merge/i.test(
+      stderr,
+    )
+  ) {
+    gitError.stderr = stderr.replace(
+      /Cannot pull with rebase: You have unstaged changes/i,
+      'Cannot pull with rebase, you have unstaged changes',
+    );
+    return assignGitErrorCode(gitError, GitErrorCodes.DirtyWorkTree);
+  }
+  if (/cannot lock ref|unable to update local ref/i.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.CantLockRef);
+  }
+  if (/cannot rebase onto multiple branches/i.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.CantRebaseMultipleBranches);
+  }
+  if (/! \[rejected\].*\(would clobber existing tag\)/m.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.TagConflict);
+  }
+  if (
+    /There is no tracking information for the current branch|no tracking information/i.test(stderr)
+  ) {
+    return assignGitErrorCode(gitError, GitErrorCodes.NoUpstreamBranch);
+  }
+  return gitError;
+}

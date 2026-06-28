@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { GitRunOptions, GitRunResult } from '../src/workbench/contrib/scm/common/git.js';
+import {
+  GitError,
+  GitErrorCodes,
+  type GitRunOptions,
+  type GitRunResult,
+} from '../src/workbench/contrib/scm/common/git.js';
 import type { GitCommandContext } from '../src/workbench/contrib/scm/electron-main/gitCommandRunner.js';
 import {
   assertBranchName,
@@ -7,8 +12,10 @@ import {
   assertSafeRemote,
 } from '../src/workbench/contrib/scm/electron-main/gitRefGuards.js';
 import {
+  fetch,
   parseRemoteVerbose,
   publish,
+  pull,
   push,
   remoteUrl,
   sync,
@@ -72,7 +79,7 @@ describe('git remote commands', () => {
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
 
-    await push({}, ctx);
+    await publish({}, ctx);
 
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
@@ -82,7 +89,22 @@ describe('git remote commands', () => {
     expect(calls[2]?.opts).toMatchObject({ cwd: '/repo', timeoutMs: 120_000 });
   });
 
-  it('does not silently choose a remote when multiple writable remotes exist', async () => {
+  it('reports push without upstream instead of silently publishing', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+      stderr: expect.stringContaining('has no remote branch'),
+    });
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+    ]);
+  });
+
+  it('does not silently choose a publish remote when multiple writable remotes exist', async () => {
     const { ctx } = gitContext((args) => {
       if (args[0] === 'status') return ok('## feature\0');
       if (args[0] === 'remote' && args[1] === '--verbose') {
@@ -93,7 +115,7 @@ describe('git remote commands', () => {
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
 
-    await expect(push({}, ctx)).rejects.toThrow(/Multiple writable remotes/);
+    await expect(publish({}, ctx)).rejects.toThrow(/Multiple writable remotes/);
   });
 
   it('uses --force-with-lease for force pushes', async () => {
@@ -166,6 +188,50 @@ describe('git remote commands', () => {
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
     ]);
+  });
+
+  it('classifies pull without tracking information as a non-upstream Git error', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'pull') {
+        throw new GitError({
+          stderr: 'There is no tracking information for the current branch.\n',
+          exitCode: 1,
+          gitCommand: 'pull',
+          gitArgs: args,
+        });
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(pull({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+      stderr: expect.stringContaining('There is no tracking information'),
+    });
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['pull'],
+    ]);
+  });
+
+  it('classifies fetch remote failures while preserving git stderr', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'fetch') {
+        throw new GitError({
+          stderr: 'fatal: Could not read from remote repository.\n',
+          exitCode: 128,
+          gitCommand: 'fetch',
+          gitArgs: args,
+        });
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(fetch({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.RemoteConnectionError,
+      stderr: expect.stringContaining('Could not read from remote repository'),
+    });
+    expect(calls.map((call) => call.args)).toEqual([['fetch']]);
   });
 
   it('validates explicitly requested publish remotes before pushing', async () => {

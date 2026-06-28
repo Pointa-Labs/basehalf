@@ -17,6 +17,7 @@ import { type GitScmService, gitScmService } from './gitScmService.js';
 
 export interface GitHistoryOptions extends ScmHistoryOptions {
   readonly all?: boolean;
+  readonly maxParents?: number;
 }
 
 export interface GitHistoryRawSource {
@@ -84,7 +85,10 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
     historyItemRefs?: readonly string[],
   ): Promise<readonly ScmHistoryItemRef[]> {
     const refs = await this.provideGitRefs({ includeRemote: true, includeTags: true });
-    const wanted = historyItemRefs === undefined ? null : new Set(historyItemRefs);
+    const wanted =
+      historyItemRefs === undefined
+        ? null
+        : new Set(normalizeGitHistoryItemRefs(historyItemRefs, refs));
     return refs
       .filter((ref) => wanted === null || gitRefMatchesWanted(ref, wanted))
       .map(gitRefToHistoryItemRef);
@@ -130,6 +134,9 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
           const base = await this.git.mergeBase([normalized[0] ?? '', baseRef.id]);
           if (base !== null) return base;
         }
+
+        const firstCommit = await this.firstHistoryItemRefCommit(normalized[0] ?? 'HEAD');
+        if (firstCommit !== undefined) return firstCommit;
       }
     }
 
@@ -153,7 +160,12 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
     const values = historyItemRefs.filter((ref) => ref !== '');
     if (values.length === 0) return values;
     const refs = await this.provideGitRefs({ includeRemote: true, includeTags: true });
-    return normalizeHistoryItemRefs(values, refs);
+    return normalizeGitHistoryItemRefs(values, refs);
+  }
+
+  private async firstHistoryItemRefCommit(ref: string): Promise<string | undefined> {
+    const result = await this.git.log({ ref, maxCount: 1, maxParents: 0 });
+    return result.commits[0]?.hash;
   }
 }
 
@@ -182,6 +194,7 @@ export function gitLogArgsForHistoryOptions(options: GitHistoryOptions): GitLogA
   return {
     ref: refs?.[0] ?? 'HEAD',
     maxCount: options.limit,
+    ...(options.maxParents !== undefined && { maxParents: options.maxParents }),
     skip: options.skip,
   };
 }
@@ -307,11 +320,11 @@ function findBaseHistoryItemRef({
   return base;
 }
 
-function normalizeHistoryItemRefs(
+export function normalizeGitHistoryItemRefs(
   historyItemRefs: readonly string[],
   refs: readonly GitRefInfo[],
 ): readonly string[] {
-  const normalized = historyItemRefs.map((ref) => normalizeHistoryItemRef(ref, refs));
+  const normalized = historyItemRefs.map((ref) => normalizeGitHistoryItemRef(ref, refs));
   const seen = new Set<string>();
   return normalized.filter((ref) => {
     if (seen.has(ref)) return false;
@@ -320,8 +333,8 @@ function normalizeHistoryItemRefs(
   });
 }
 
-function normalizeHistoryItemRef(ref: string, refs: readonly GitRefInfo[]): string {
-  if (ref === 'HEAD' || ref.startsWith('refs/') || isGitObjectId(ref)) return ref;
+function normalizeGitHistoryItemRef(ref: string, refs: readonly GitRefInfo[]): string {
+  if (ref === 'HEAD' || ref.startsWith('refs/')) return ref;
   const exact = findGitRefById(refs, ref);
   if (exact !== undefined) return exact.id;
 
@@ -333,7 +346,10 @@ function normalizeHistoryItemRef(ref: string, refs: readonly GitRefInfo[]): stri
     byName.find((candidate) => candidate.type === (ref.includes('/') ? 'remoteHead' : 'head')) ??
     byName.find((candidate) => candidate.type === 'head') ??
     byName[0];
-  return preferred?.id ?? ref;
+  if (preferred !== undefined) return preferred.id;
+
+  if (isGitObjectId(ref)) return ref;
+  return ref;
 }
 
 function isGitObjectId(ref: string): boolean {
@@ -347,5 +363,5 @@ function historyItemRefMatches(ref: ScmHistoryItemRef, value: string): boolean {
 function gitRefMatchesWanted(ref: GitRefInfo, wanted: ReadonlySet<string>): boolean {
   if (wanted.has(ref.id)) return true;
   if (ref.commit !== undefined && wanted.has(ref.commit)) return true;
-  return ![...wanted].some((value) => value.startsWith('refs/')) && wanted.has(ref.name);
+  return false;
 }

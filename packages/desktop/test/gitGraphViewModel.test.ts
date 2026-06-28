@@ -13,6 +13,7 @@ import {
   fullGraphLocalBranches,
   fullGraphPaths,
   fullGraphRefKind,
+  fullGraphTrackingLocalBranches,
 } from '../src/workbench/contrib/scm/browser/gitGraphViewModel.js';
 import type {
   GitCommit,
@@ -65,6 +66,16 @@ describe('gitGraphViewModel', () => {
     expect(fullGraphRefKind('refs/heads/feature/auth', localBranches)).toBe('branch');
     expect(fullGraphRefKind('refs/remotes/origin/main', localBranches)).toBe('remote');
     expect(fullGraphRefKind('origin/main', localBranches)).toBe('remote');
+  });
+
+  it('maps remote-tracking refs to their local tracking branches', () => {
+    const tracking = fullGraphTrackingLocalBranches([
+      branch('main', { upstream: 'origin/main' }),
+      branch('feature/auth'),
+    ]);
+
+    expect(tracking.get('origin/main')).toBe('main');
+    expect(tracking.has('origin/feature/auth')).toBe(false);
   });
 
   it('formats branch labels and full refs without treating control words as refs', () => {

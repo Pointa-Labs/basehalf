@@ -86,6 +86,30 @@ describe('gitHistoryViewModel', () => {
     ).toEqual({ ref: 'refs/heads/main', maxCount: 20, skip: 5 });
   });
 
+  it('normalizes old bare branch-name filters against available refs', () => {
+    const refs = [
+      ref('refs/heads/798', '798', 'head'),
+      ref('refs/heads/deadbee', 'deadbee', 'head'),
+    ];
+
+    expect(
+      gitHistoryOptionsForAvailableFilter({
+        filter: { kind: 'ref', ref: '798' },
+        refs,
+        pageSize: 20,
+        skip: 0,
+      }),
+    ).toEqual({ historyItemRefs: ['refs/heads/798'], limit: 20, skip: 0 });
+    expect(
+      gitHistoryLogArgsForAvailableFilter({
+        filter: { kind: 'ref', ref: 'deadbee' },
+        refs,
+        pageSize: 20,
+        skip: 5,
+      }),
+    ).toEqual({ ref: 'refs/heads/deadbee', maxCount: 20, skip: 5 });
+  });
+
   it('loads Git graph pages and local branch names through the raw Git source', async () => {
     const refs = [
       ref('refs/heads/main', 'main', 'head'),

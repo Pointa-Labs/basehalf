@@ -26,6 +26,7 @@ export const FullGraphHistoryTable = ({
   paths,
   stashByHash,
   localBranches,
+  trackingLocalBranches,
   selected,
   isHighlighted,
   onOpenUncommitted,
@@ -48,6 +49,7 @@ export const FullGraphHistoryTable = ({
   paths: readonly FullGraphPath[];
   stashByHash: ReadonlyMap<string, GitStashEntry>;
   localBranches: ReadonlySet<string>;
+  trackingLocalBranches: ReadonlyMap<string, string>;
   selected: string | null;
   isHighlighted: (commit: GitCommit) => boolean;
   onOpenUncommitted: () => void;
@@ -58,6 +60,7 @@ export const FullGraphHistoryTable = ({
     name: string,
     kind: FullGraphRefKind,
     targetRef: string,
+    trackingLocal: string | undefined,
   ) => void;
   onLoadMore: () => void;
 }): JSX.Element => (
@@ -99,6 +102,7 @@ export const FullGraphHistoryTable = ({
               commit={row.commit}
               gridCols={gridColumns}
               localBranches={localBranches}
+              trackingLocalBranches={trackingLocalBranches}
               dateMode={dateMode}
               stashRef={stashRef}
               selected={selected === row.commit.hash}

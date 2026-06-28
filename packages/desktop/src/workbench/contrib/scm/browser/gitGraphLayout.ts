@@ -8,7 +8,7 @@ import type { GitCommit } from '../common/git.js';
  *
  * Kept a pure, side-effect-free function (no React, no DOM) so the trickiest part
  * — lane bookkeeping across branches and merges — is unit-testable in isolation,
- * the same discipline as lib/unifiedDiff and core's parseLog.
+ * the same discipline as lib/unifiedDiff and the git log parser.
  *
  * Model: walk commits newest-first (the order `git.log` returns). A `lanes` array
  * tracks, per column, the hash that column is currently "waiting for" (a commit's

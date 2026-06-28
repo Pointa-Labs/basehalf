@@ -33,7 +33,14 @@ describe('branchQuickPickModel', () => {
     expect(filterBranches(refs, 'auth').map((item) => item.name)).toEqual(['feature/Auth']);
   });
 
-  it('checks out remote-tracking refs as tracking targets without guessing local branch names', () => {
+  it('checks out the local branch that already tracks a selected remote ref', () => {
+    expect(
+      checkoutTargetForRef(remote('origin/feature-x'), [
+        branch('feature-x', { upstream: 'origin/feature-x' }),
+      ]),
+    ).toEqual({
+      branch: 'feature-x',
+    });
     expect(checkoutTargetForRef(remote('origin/feature-x'), [branch('feature-x')])).toEqual({
       branch: 'origin/feature-x',
       track: true,

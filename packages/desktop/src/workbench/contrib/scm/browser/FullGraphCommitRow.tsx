@@ -15,6 +15,7 @@ export const FullGraphCommitRow = ({
   commit,
   gridCols,
   localBranches,
+  trackingLocalBranches,
   dateMode,
   stashRef,
   selected,
@@ -26,6 +27,7 @@ export const FullGraphCommitRow = ({
   commit: GitCommit;
   gridCols: string;
   localBranches: ReadonlySet<string>;
+  trackingLocalBranches: ReadonlyMap<string, string>;
   dateMode: FullGraphDateMode;
   stashRef: string | undefined;
   selected: boolean;
@@ -37,6 +39,7 @@ export const FullGraphCommitRow = ({
     name: string,
     kind: FullGraphRefKind,
     targetRef: string,
+    trackingLocal: string | undefined,
   ) => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
@@ -86,12 +89,14 @@ export const FullGraphCommitRow = ({
         {stashRef !== undefined && <FullGraphPill text={stashRef} kind="stash" />}
         {commit.refs.map((ref) => {
           const kind = fullGraphRefKind(ref, localBranches);
+          const label = fullGraphDisplayRef(ref);
+          const trackingLocal = kind === 'remote' ? trackingLocalBranches.get(label) : undefined;
           return (
             <FullGraphPill
               key={ref}
-              text={fullGraphDisplayRef(ref)}
+              text={label}
               kind={kind}
-              onContextMenu={(event) => onRefMenu(event, fullGraphDisplayRef(ref), kind, ref)}
+              onContextMenu={(event) => onRefMenu(event, label, kind, ref, trackingLocal)}
             />
           );
         })}
@@ -100,7 +105,7 @@ export const FullGraphCommitRow = ({
             key={`tag:${tag}`}
             text={tag}
             kind="tag"
-            onContextMenu={(event) => onRefMenu(event, tag, 'tag', `refs/tags/${tag}`)}
+            onContextMenu={(event) => onRefMenu(event, tag, 'tag', `refs/tags/${tag}`, undefined)}
           />
         ))}
         <span

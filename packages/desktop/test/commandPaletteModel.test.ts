@@ -224,4 +224,32 @@ describe('commandPaletteModel', () => {
     expect(runGit).toHaveBeenCalledTimes(1);
     expect(checkout).toHaveBeenCalledWith('origin/feature-x', { track: true });
   });
+
+  it('delegates branch checkout to the shared branch quick-pick recovery flow when provided', () => {
+    const checkout = vi.fn(async () => undefined);
+    const checkoutBranch = vi.fn();
+    const gitService = fakeGitService({ checkout });
+    const runGit = vi.fn((fn: () => Promise<unknown>) => void fn());
+    const branches = [remote('origin/feature-x'), branch('main')];
+    const rows = buildGitEntityActions({
+      query: 'origin/feature-x',
+      current: 'main',
+      git: {
+        repo: true,
+        workspace: 'main',
+        branches,
+        commits: [],
+      },
+      gitService,
+      runGit,
+      checkoutBranch,
+      revealCommit: vi.fn(),
+    });
+
+    rows[0]?.run();
+
+    expect(checkoutBranch).toHaveBeenCalledWith(branches[0], branches);
+    expect(runGit).not.toHaveBeenCalled();
+    expect(checkout).not.toHaveBeenCalled();
+  });
 });

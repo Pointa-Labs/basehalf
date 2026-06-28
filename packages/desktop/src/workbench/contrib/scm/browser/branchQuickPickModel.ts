@@ -44,17 +44,25 @@ export const filterBranches = (
   return branches.filter((branch) => branch.name.toLowerCase().includes(needle));
 };
 
-// Picking a remote-tracking branch should not guess by short local branch name:
-// without upstream metadata, `origin/topic` and local `topic` may be unrelated.
-// Let git create/resolve the tracking checkout so we never silently switch to
-// the wrong local branch.
 export const checkoutTargetForRef = (
   ref: GitRefInfo,
-  _refs: readonly GitRefInfo[] = [],
+  refs: readonly GitRefInfo[] = [],
 ): CheckoutTarget => {
   if (ref.type !== 'remoteHead') return { branch: ref.name };
+  const tracking = trackingBranchForRemote(ref, refs);
+  if (tracking !== undefined) return { branch: tracking.name };
   return { branch: ref.name, track: true };
 };
+
+export function trackingBranchForRemote(
+  remoteRef: GitRefInfo,
+  refs: readonly GitRefInfo[],
+): GitRefInfo | undefined {
+  if (remoteRef.type !== 'remoteHead') return undefined;
+  return refs.find(
+    (candidate) => candidate.type === 'head' && candidate.upstream === remoteRef.name,
+  );
+}
 
 export const canDeleteBranch = (branch: GitRefInfo, mode: BranchQuickPickMode): boolean =>
   !branch.current && branch.type === 'head' && mode === 'switch';

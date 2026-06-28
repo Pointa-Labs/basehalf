@@ -54,7 +54,7 @@ describe('sourceControlViewModel', () => {
     });
   });
 
-  it('publishes only an attached branch without upstream', () => {
+  it('publishes an attached branch without upstream and disables pull-only UI actions', () => {
     expect(
       sourceControlViewModel(status({ upstream: null }), emptyGroups, '', false),
     ).toMatchObject({
@@ -70,6 +70,6 @@ describe('sourceControlViewModel', () => {
     ).toMatchObject({ canPublish: false, canPull: true, canSync: true });
     expect(
       sourceControlViewModel(status({ detached: true, branch: null }), emptyGroups, '', false),
-    ).toMatchObject({ canPublish: false, commitBranch: 'detached' });
+    ).toMatchObject({ canPublish: false, canPull: false, commitBranch: 'detached' });
   });
 });

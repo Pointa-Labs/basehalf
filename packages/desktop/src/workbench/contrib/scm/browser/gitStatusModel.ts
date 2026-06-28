@@ -25,7 +25,7 @@ export interface GitGroups {
   readonly changes: readonly GitRow[];
 }
 
-/** An unmerged (conflict) porcelain XY pair. Mirrors core's parse.isConflict. */
+/** An unmerged (conflict) porcelain XY pair, matching Git's porcelain parser. */
 function isConflict(x: string, y: string): boolean {
   const xy = x + y;
   return xy === 'DD' || xy === 'AA' || xy === 'UU' || x === 'U' || y === 'U';

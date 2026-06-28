@@ -44,4 +44,14 @@ describe('useFullGitGraphHistory provider helpers', () => {
       skip: 20,
     });
   });
+
+  it('resolves bare numeric branch filters before building full graph log args', () => {
+    const refs = [{ id: 'refs/heads/798', name: '798', type: 'head' as const, current: true }];
+
+    expect(fullGraphAvailableLogArgs({ kind: 'ref', ref: '798' }, refs, 0)).toEqual({
+      ref: 'refs/heads/798',
+      maxCount: FULL_GRAPH_PAGE_SIZE,
+      skip: 0,
+    });
+  });
 });

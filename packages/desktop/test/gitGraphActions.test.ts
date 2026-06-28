@@ -149,6 +149,21 @@ describe('gitGraphActions', () => {
     ).run();
     expect(remote.calls).toEqual(['runGit', 'checkout:refs/remotes/origin/main:track']);
 
+    const trackedRemote = createDeps();
+    action(
+      fullGraphRefMenu(
+        {
+          name: 'origin/main',
+          kind: 'remote',
+          targetRef: 'refs/remotes/origin/main',
+          trackingLocal: 'main',
+        },
+        trackedRemote.deps,
+      ),
+      'checkout',
+    ).run();
+    expect(trackedRemote.calls).toEqual(['runGit', 'checkout:main:plain']);
+
     const tag = createDeps();
     action(
       fullGraphRefMenu({ name: 'v1.0', kind: 'tag', targetRef: 'refs/tags/v1.0' }, tag.deps),

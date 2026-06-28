@@ -4,7 +4,7 @@ export const COMMIT_MESSAGE_HISTORY_LIMIT = 100;
 
 export function commitInputPlaceholder(branch: string, commitKey: string): string {
   return branch !== ''
-    ? `Message (${commitKey} to commit on “${branch}”)`
+    ? `Message (${commitKey} to commit on "${branch}")`
     : `Message (${commitKey} to commit)`;
 }
 

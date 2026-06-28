@@ -12,6 +12,7 @@ import {
   runScmAction,
   scmErrorMessage,
 } from '../src/workbench/contrib/scm/browser/scmCommandModel.js';
+import { GitError } from '../src/workbench/contrib/scm/common/git.js';
 
 const tracked = (path: string): GitRow => ({
   path,
@@ -118,6 +119,11 @@ describe('scmCommandModel', () => {
     expect(commitPlan('', {}, true)).toBeNull();
     expect(commitPlan('No staged changes', {}, false)).toBeNull();
     expect(scmErrorMessage(new Error('boom'))).toBe('boom');
+    const gitError = new GitError({
+      message: 'Cannot pull with rebase: You have unstaged changes',
+      stderr: 'Cannot pull with rebase, you have unstaged changes',
+    });
+    expect(scmErrorMessage(gitError)).toBe('Cannot pull with rebase, you have unstaged changes');
     expect(scmErrorMessage('fatal')).toBe('fatal');
   });
 });

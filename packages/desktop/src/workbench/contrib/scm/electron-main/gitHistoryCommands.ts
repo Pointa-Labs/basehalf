@@ -1,15 +1,23 @@
-import type {
-  GitCommitFilesArgs,
-  GitCommitFilesResult,
-  GitDiffRefArgs,
-  GitDiffResult,
-  GitLogArgs,
-  GitLogResult,
-  GitMergeBaseArgs,
-  GitMergeBaseResult,
-  GitSearchHistoryArgs,
+import {
+  type GitCommitFilesArgs,
+  type GitCommitFilesResult,
+  type GitDiffRefArgs,
+  type GitDiffResult,
+  GitErrorCodes,
+  type GitLogArgs,
+  type GitLogResult,
+  type GitMergeBaseArgs,
+  type GitMergeBaseResult,
+  type GitSearchHistoryArgs,
+  assignGitErrorCode,
+  createGitErrorFromResult,
+  ensureGitError,
 } from '../common/git.js';
-import { type GitCommandHandler, runGit as git } from './gitCommandRunner.js';
+import {
+  type GitCommandContext,
+  type GitCommandHandler,
+  runGit as git,
+} from './gitCommandRunner.js';
 import { parseLog, parseNameStatus } from './gitParsers.js';
 import { assertWorkspaceRelative } from './gitPathGuards.js';
 import { assertCount, assertSafeRef } from './gitRefGuards.js';
@@ -55,29 +63,34 @@ export const log: GitCommandHandler<GitLogArgs, GitLogResult> = async (args, ctx
   assertCount(args.skip, 'git.log skip');
   if (args.path !== undefined) assertWorkspaceRelative(args.path);
   const cmd = ['log', '--topo-order', '--decorate=full', `--format=${LOG_FORMAT}`];
+  let stdin: string | undefined;
   if (args.maxCount !== undefined) cmd.push(`--max-count=${args.maxCount}`);
+  if (args.maxParents !== undefined) {
+    assertCount(args.maxParents, 'git.log maxParents');
+    cmd.push(`--max-parents=${args.maxParents}`);
+  }
   if (args.skip !== undefined) cmd.push(`--skip=${args.skip}`);
   if (args.all === true) {
     cmd.push('--all');
   } else if (args.refNames !== undefined && args.refNames.length > 0) {
-    for (const ref of args.refNames) {
-      assertSafeRef(ref, 'git.log');
-      cmd.push(ref);
-    }
+    const refs = await normalizeLogRefs(args.refNames, ctx);
+    stdin = refs.join('\n');
+    cmd.push('--stdin');
   } else {
-    const ref = args.ref ?? 'HEAD';
+    const ref = await normalizeLogRef(args.ref ?? 'HEAD', ctx);
     assertSafeRef(ref, 'git.log');
     cmd.push(ref);
   }
   if (args.path !== undefined) cmd.push('--', args.path);
-  const res = await git(ctx, cmd, { acceptExitCodes: [0, 128] });
+  const res = await git(ctx, cmd, {
+    acceptExitCodes: [0, 128],
+    ...(stdin !== undefined && { stdin }),
+  });
   if (res.exitCode !== 0) {
-    if (
-      /does not have any commits yet|bad default revision|bad revision 'HEAD'/i.test(res.stderr)
-    ) {
+    if (isEmptyRepositoryLogFailure(res.stderr)) {
       return { commits: [] };
     }
-    throw new Error(`git log failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
+    throw normalizeLogError(createGitErrorFromResult(res, cmd));
   }
   return { commits: parseLog(res.stdout) };
 };
@@ -129,3 +142,69 @@ export const diffRef: GitCommandHandler<GitDiffRefArgs, GitDiffResult> = async (
   }
   throw new Error(`git diff failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
 };
+
+async function normalizeLogRefs(
+  refs: readonly string[],
+  ctx: GitCommandContext,
+): Promise<readonly string[]> {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const value = await normalizeLogRef(ref, ctx);
+    if (seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
+async function normalizeLogRef(ref: string, ctx: GitCommandContext): Promise<string> {
+  assertSafeRef(ref, 'git.log');
+  if (isRevisionExpression(ref)) return ref;
+
+  const headRef = `refs/heads/${ref}`;
+  const remoteRef = `refs/remotes/${ref}`;
+  const tagRef = `refs/tags/${ref}`;
+  const result = await git(ctx, [
+    'for-each-ref',
+    '--format=%(refname)',
+    headRef,
+    remoteRef,
+    tagRef,
+  ]);
+  const matches = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (matches.length === 0) return ref;
+  if (matches.length === 1) return matches[0] ?? ref;
+  return (
+    (ref.includes('/') ? matches.find((match) => match === remoteRef) : undefined) ??
+    matches.find((match) => match === headRef) ??
+    matches.find((match) => match === tagRef) ??
+    matches[0] ??
+    ref
+  );
+}
+
+function normalizeLogError(err: unknown): Error {
+  const gitError = ensureGitError(err);
+  if (
+    /fatal: ambiguous argument|fatal: bad revision|unknown revision|Needed a single revision/i.test(
+      gitError.stderr ?? '',
+    )
+  ) {
+    return assignGitErrorCode(gitError, GitErrorCodes.BadRevision);
+  }
+  return gitError;
+}
+
+function isEmptyRepositoryLogFailure(stderr: string): boolean {
+  return /does not have any commits yet|bad default revision|bad revision 'HEAD'|ambiguous argument 'HEAD'|unknown revision.*HEAD/i.test(
+    stderr,
+  );
+}
+
+function isRevisionExpression(ref: string): boolean {
+  return ref === 'HEAD' || ref.startsWith('refs/') || /(?:\.\.|\^|~|@\{)/.test(ref);
+}

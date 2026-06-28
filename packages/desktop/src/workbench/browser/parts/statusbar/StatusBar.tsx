@@ -2,6 +2,7 @@ import { type JSX, useState } from 'react';
 import { BranchQuickPick } from '../../../contrib/scm/browser/BranchQuickPick.js';
 import { gitScmService } from '../../../contrib/scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../../contrib/scm/browser/gitStatusStore.js';
+import { choosePublishRemote } from '../../../contrib/scm/browser/useScmRemoteCommands.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { color, font, radius, space, transition } from '../../style/design.js';
 import { Codicon } from '../../ui/Codicon.js';
@@ -30,7 +31,13 @@ export const StatusBar = (): JSX.Element => {
       const publishing =
         status?.detached !== true && status?.branch !== null && status?.upstream === null;
       try {
-        await gitScmService.sync();
+        if (publishing) {
+          const remote = await choosePublishRemote(gitScmService);
+          if (remote === null) return;
+          await gitScmService.publish({ remote });
+        } else {
+          await gitScmService.sync();
+        }
         toast.success(publishing ? 'Published Branch' : 'Synced');
       } catch (err) {
         toast.error(err instanceof Error ? err.message : String(err));

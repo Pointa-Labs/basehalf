@@ -32,13 +32,18 @@ import {
   useState,
 } from 'react';
 import { openSettings } from '../../contrib/preferences/browser/Settings.js';
+import { createBranchGitAdapter } from '../../contrib/scm/browser/branchGitAdapter.js';
+import { checkoutBranchWithRecovery } from '../../contrib/scm/browser/branchQuickPickCommands.js';
 import { gitScmService } from '../../contrib/scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../contrib/scm/browser/gitStatusStore.js';
+import { scmErrorMessage } from '../../contrib/scm/browser/scmCommandModel.js';
 import { useScmViewStore } from '../../contrib/scm/browser/scmViewStore.js';
+import type { GitRefInfo } from '../../contrib/scm/common/git.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/workbenchActions.js';
 import { useLayoutStore } from '../layout/layoutStore.js';
 import { prompt } from '../parts/dialogs/Dialog.js';
+import { toast } from '../parts/notifications/toastStore.js';
 import { color, font, motion, radius, shadow, space } from '../style/design.js';
 import { isImeComposing } from '../ui/imeGuard.js';
 import { CommandPaletteRow } from './CommandPaletteRow.js';
@@ -174,6 +179,14 @@ export const CommandPalette = (): JSX.Element | null => {
     open,
     current,
   );
+  const checkoutPaletteBranch = useCallback(
+    (branch: GitRefInfo, refs: readonly GitRefInfo[]): void => {
+      void checkoutBranchWithRecovery(createBranchGitAdapter(gitScmService), branch, refs, () =>
+        useGitStatusStore.getState().refresh(),
+      ).catch((err) => toast.error(scmErrorMessage(err)));
+    },
+    [],
+  );
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   // Whether the user is currently steering with the mouse. A good command
@@ -291,9 +304,10 @@ export const CommandPalette = (): JSX.Element | null => {
         },
         gitService: gitScmService,
         runGit: (fn) => void runGit(fn),
+        checkoutBranch: checkoutPaletteBranch,
         revealCommit: revealCommitInGraph,
       }),
-    [query, current, gitRepo, gitWorkspace, gitBranches, gitCommits],
+    [query, current, gitRepo, gitWorkspace, gitBranches, gitCommits, checkoutPaletteBranch],
   );
 
   // The full navigable list: instant matches first, then content + git matches.

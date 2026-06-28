@@ -25,6 +25,7 @@ import {
   fullGraphInjectStashes,
   fullGraphLocalBranches,
   fullGraphPaths,
+  fullGraphTrackingLocalBranches,
 } from './gitGraphViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { useGitStatusStore } from './gitStatusStore.js';
@@ -53,7 +54,7 @@ export const GitGraphView = ({
   const [selected, setSelected] = useState<string | null>(null);
   // Controls: a VS Code-style history ref filter, a remote-branch toggle, and a
   // find query.
-  const [historyFilter, setHistoryFilter] = useState<ScmHistoryFilter>({ kind: 'all' });
+  const [historyFilter, setHistoryFilter] = useState<ScmHistoryFilter>({ kind: 'auto' });
   const [showRemote, setShowRemote] = useState(false);
   const [find, setFind] = useState('');
   // The interactive-rebase planner, opened (base = a commit) from the commit menu.
@@ -98,6 +99,7 @@ export const GitGraphView = ({
   // when it contains a "/" like feature/x) from a remote-tracking ref. A plain
   // `name.includes('/')` test is wrong: local branches can carry slashes.
   const localBranches = useMemo(() => fullGraphLocalBranches(branches), [branches]);
+  const trackingLocalBranches = useMemo(() => fullGraphTrackingLocalBranches(branches), [branches]);
 
   // Stash nodes — Git Graph draws each stash as a node hanging off its base commit.
   // Inject a synthetic commit (parent = the stash's base) right before that base in
@@ -147,13 +149,19 @@ export const GitGraphView = ({
   );
 
   const openRefMenu = useCallback(
-    (event: MouseEvent, name: string, kind: FullGraphRefKind, targetRef: string): void => {
+    (
+      event: MouseEvent,
+      name: string,
+      kind: FullGraphRefKind,
+      targetRef: string,
+      trackingLocal: string | undefined,
+    ): void => {
       event.preventDefault();
       event.stopPropagation();
       openContextMenu(
         event.clientX,
         event.clientY,
-        fullGraphRefMenu({ name, kind, targetRef }, actionDeps),
+        fullGraphRefMenu({ name, kind, targetRef, trackingLocal }, actionDeps),
       );
     },
     [actionDeps],
@@ -190,6 +198,7 @@ export const GitGraphView = ({
           paths={paths}
           stashByHash={stashByHash}
           localBranches={localBranches}
+          trackingLocalBranches={trackingLocalBranches}
           selected={selected}
           isHighlighted={matches}
           onOpenUncommitted={openUncommittedChanges}

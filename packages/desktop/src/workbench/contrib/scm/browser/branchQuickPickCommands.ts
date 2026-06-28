@@ -46,7 +46,7 @@ export async function openBranchQuickPick({
       await createBranch(git, refs, onAfter);
     } else {
       const branch = refs.find((b) => b.id === choice);
-      if (branch !== undefined) await checkoutBranch(git, branch, refs, onAfter);
+      if (branch !== undefined) await checkoutBranchWithRecovery(git, branch, refs, onAfter);
     }
   } catch (err) {
     toast.error(msg(err));
@@ -69,7 +69,7 @@ function branchOption(branch: GitRefInfo): PickOption {
   };
 }
 
-async function checkoutBranch(
+export async function checkoutBranchWithRecovery(
   git: BranchGitAdapter,
   branch: GitRefInfo,
   refs: readonly GitRefInfo[],

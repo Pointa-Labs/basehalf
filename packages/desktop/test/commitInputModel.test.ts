@@ -10,7 +10,7 @@ import {
 describe('commitInputModel', () => {
   it('formats the VS Code-style commit placeholder', () => {
     expect(commitInputPlaceholder('main', 'Cmd+Enter')).toBe(
-      'Message (Cmd+Enter to commit on “main”)',
+      'Message (Cmd+Enter to commit on "main")',
     );
     expect(commitInputPlaceholder('', 'Ctrl+Enter')).toBe('Message (Ctrl+Enter to commit)');
   });

@@ -190,6 +190,68 @@ describe('gitHistoryProvider', () => {
     ]);
   });
 
+  it('normalizes display-name filters before treating hex-looking names as revisions', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/798',
+        name: '798',
+        type: 'head',
+        current: false,
+        commit: 'branch-798-tip',
+      },
+      {
+        id: 'refs/heads/deadbee',
+        name: 'deadbee',
+        type: 'head',
+        current: false,
+        commit: 'branch-deadbee-tip',
+      },
+      {
+        id: 'refs/tags/v-deadbee',
+        name: 'v-deadbee',
+        type: 'tag',
+        current: false,
+        commit: 'deadbee',
+      },
+    ];
+    const logArgs: GitLogArgs[] = [];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: '798',
+        detached: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async (args) => {
+        logArgs.push(args);
+        return { commits: [] };
+      },
+      commitFiles: async () => [],
+      mergeBase: async () => null,
+    });
+
+    await expect(provider.provideHistoryItemRefs(['deadbee'])).resolves.toEqual([
+      {
+        id: 'refs/heads/deadbee',
+        name: 'deadbee',
+        revision: 'branch-deadbee-tip',
+        category: 'branch',
+        description: undefined,
+      },
+    ]);
+    await provider.provideHistoryItems({ historyItemRefs: ['798'], limit: 10 });
+    await provider.provideHistoryItems({ historyItemRefs: ['deadbee'], limit: 10 });
+
+    expect(logArgs).toEqual([
+      { ref: 'refs/heads/798', maxCount: 10, skip: undefined },
+      { ref: 'refs/heads/deadbee', maxCount: 10, skip: undefined },
+    ]);
+  });
+
   it('adds an inferred base ref for Auto history and resolves the current common ancestor via remote', async () => {
     const refs: GitRefInfo[] = [
       {
@@ -243,5 +305,39 @@ describe('gitHistoryProvider', () => {
       'merge-base',
     );
     expect(calls).toEqual([['refs/heads/feature/scm', 'refs/remotes/origin/feature/scm']]);
+  });
+
+  it('falls back to the first current-branch commit when there is no remote or base ref', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/main',
+        name: 'main',
+        type: 'head',
+        current: true,
+        commit: 'tip',
+      },
+    ];
+    const logArgs: GitLogArgs[] = [];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'main',
+        detached: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async (args) => {
+        logArgs.push(args);
+        return { commits: [commit({ hash: 'root', shortHash: 'root' })] };
+      },
+      commitFiles: async () => [],
+      mergeBase: async () => null,
+    });
+
+    await expect(provider.resolveHistoryItemRefsCommonAncestor(['main'])).resolves.toBe('root');
+    expect(logArgs).toEqual([{ ref: 'refs/heads/main', maxCount: 1, maxParents: 0 }]);
   });
 });

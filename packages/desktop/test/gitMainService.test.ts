@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
 import type { GitBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackend.js';
 import { GitCliBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackendProvider.js';
 import { GitMainService } from '../src/workbench/contrib/scm/electron-main/gitMainService.js';
@@ -129,7 +130,7 @@ describe('GitMainService', () => {
     );
   });
 
-  it('reports a friendly pull error when the branch has no upstream', async () => {
+  it('classifies pull without upstream using VS Code-style GitError data', async () => {
     const calls: string[][] = [];
     const backend = new GitCliBackendProvider({
       git: async (args) => {
@@ -137,14 +138,23 @@ describe('GitMainService', () => {
         if (args[0] === 'status') {
           return { stdout: '## main\0', stderr: '', exitCode: 0 };
         }
+        if (args[0] === 'pull') {
+          throw new GitError({
+            stderr: 'There is no tracking information for the current branch.\n',
+            exitCode: 1,
+            gitCommand: 'pull',
+            gitArgs: args,
+          });
+        }
         return { stdout: '', stderr: '', exitCode: 0 };
       },
     });
 
-    await expect(backend.pull('/repo')).rejects.toThrow(
-      'The current branch has no upstream branch. Use Publish Branch first.',
-    );
-    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch']]);
+    await expect(backend.pull('/repo')).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+      stderr: expect.stringContaining('There is no tracking information'),
+    });
+    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch'], ['pull']]);
   });
 
   it('loads commit files relative to an explicit parent commit', async () => {
@@ -181,22 +191,188 @@ describe('GitMainService', () => {
     expect(calls).toEqual([['merge-base', 'main', 'origin/main']]);
   });
 
-  it('logs exact multiple refs without falling back to --all', async () => {
+  it('loads refs with local upstream metadata for VS Code-style tracking checkout', async () => {
     const calls: string[][] = [];
     const backend = new GitCliBackendProvider({
       git: async (args) => {
         calls.push([...args]);
+        if (args[0] === 'status') {
+          return { stdout: '## main...origin/main\0', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'for-each-ref') {
+          return {
+            stdout: [
+              'refs/heads/main\u0000abc\u0000origin/main',
+              'refs/remotes/origin/main\u0000abc\u0000',
+              'refs/tags/v1\u0000tag\u0000',
+            ].join('\n'),
+            stderr: '',
+            exitCode: 0,
+          };
+        }
         return { stdout: '', stderr: '', exitCode: 0 };
       },
     });
 
-    await backend.log('/repo', { refNames: ['main', 'origin/main'], maxCount: 5 });
+    await expect(
+      backend.refs('/repo', { includeRemote: true, includeTags: true }),
+    ).resolves.toEqual({
+      current: 'main',
+      refs: [
+        {
+          id: 'refs/heads/main',
+          name: 'main',
+          type: 'head',
+          current: true,
+          upstream: 'origin/main',
+          commit: 'abc',
+        },
+        {
+          id: 'refs/remotes/origin/main',
+          name: 'origin/main',
+          type: 'remoteHead',
+          current: false,
+          remote: 'origin',
+          commit: 'abc',
+        },
+        {
+          id: 'refs/tags/v1',
+          name: 'v1',
+          type: 'tag',
+          current: false,
+          commit: 'tag',
+        },
+      ],
+    });
+    expect(calls[1]).toEqual([
+      'for-each-ref',
+      '--sort=-committerdate',
+      '--format=%(refname)%00%(objectname)%00%(upstream:short)',
+      'refs/heads',
+      'refs/remotes',
+      'refs/tags',
+    ]);
+  });
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.slice(0, 3)).toEqual(['log', '--topo-order', '--decorate=full']);
-    expect(calls[0]).toContain('--max-count=5');
-    expect(calls[0]).toContain('main');
-    expect(calls[0]).toContain('origin/main');
-    expect(calls[0]).not.toContain('--all');
+  it('normalizes log refs to full ref names and passes multiple refs through stdin', async () => {
+    const calls: string[][] = [];
+    const backend = new GitCliBackendProvider({
+      git: async (args, opts) => {
+        calls.push([...args]);
+        if (args[0] === 'for-each-ref') {
+          const wanted = new Set(args.slice(2));
+          return {
+            stdout: [
+              wanted.has('refs/heads/798') ? 'refs/heads/798' : '',
+              wanted.has('refs/remotes/origin/main') ? 'refs/remotes/origin/main' : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            stderr: '',
+            exitCode: 0,
+          };
+        }
+        if (args[0] === 'log') {
+          expect(opts.stdin).toBe('refs/heads/798\nrefs/remotes/origin/main');
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+
+    await backend.log('/repo', { refNames: ['798', 'origin/main'], maxCount: 5 });
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual([
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/heads/798',
+      'refs/remotes/798',
+      'refs/tags/798',
+    ]);
+    expect(calls[1]).toEqual([
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/heads/origin/main',
+      'refs/remotes/origin/main',
+      'refs/tags/origin/main',
+    ]);
+    expect(calls[2]?.slice(0, 3)).toEqual(['log', '--topo-order', '--decorate=full']);
+    expect(calls[2]).toContain('--max-count=5');
+    expect(calls[2]).toContain('--stdin');
+    expect(calls[2]).not.toContain('798');
+    expect(calls[2]).not.toContain('origin/main');
+    expect(calls[2]).not.toContain('--all');
+  });
+
+  it('normalizes hex-looking single log refs before treating them as object ids', async () => {
+    const calls: string[][] = [];
+    const backend = new GitCliBackendProvider({
+      git: async (args) => {
+        calls.push([...args]);
+        if (args[0] === 'for-each-ref') {
+          return { stdout: 'refs/heads/deadbee\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+
+    await backend.log('/repo', { ref: 'deadbee', maxCount: 5 });
+
+    expect(calls[0]).toEqual([
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/heads/deadbee',
+      'refs/remotes/deadbee',
+      'refs/tags/deadbee',
+    ]);
+    expect(calls[1]).toContain('refs/heads/deadbee');
+    expect(calls[1]).not.toContain('deadbee');
+  });
+
+  it('passes max-parents through to git log for VS Code-style root commit fallback', async () => {
+    const calls: string[][] = [];
+    const backend = new GitCliBackendProvider({
+      git: async (args) => {
+        calls.push([...args]);
+        if (args[0] === 'for-each-ref') {
+          return { stdout: 'refs/heads/main\n', stderr: '', exitCode: 0 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+
+    await backend.log('/repo', { ref: 'main', maxCount: 1, maxParents: 0 });
+
+    expect(calls.at(-1)).toContain('--max-count=1');
+    expect(calls.at(-1)).toContain('--max-parents=0');
+    expect(calls.at(-1)).toContain('refs/heads/main');
+  });
+
+  it('classifies ambiguous log revisions without adding a git-log wrapper message', async () => {
+    const calls: string[][] = [];
+    const backend = new GitCliBackendProvider({
+      git: async (args) => {
+        calls.push([...args]);
+        if (args[0] === 'for-each-ref') {
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'log') {
+          return {
+            stdout: '',
+            stderr:
+              "fatal: ambiguous argument '798': unknown revision or path not in the working tree.\n",
+            exitCode: 128,
+          };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      },
+    });
+
+    await expect(backend.log('/repo', { ref: '798', maxCount: 5 })).rejects.toMatchObject({
+      message: "fatal: ambiguous argument '798': unknown revision or path not in the working tree.",
+      gitErrorCode: GitErrorCodes.BadRevision,
+      stderr: expect.stringContaining("ambiguous argument '798'"),
+    });
+    expect(calls.at(-1)).toContain('798');
   });
 });

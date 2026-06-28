@@ -20,6 +20,53 @@ export interface ScmRemoteCommands {
   readonly pushForce: () => void;
 }
 
+export type ScmRemoteCommandKind =
+  | 'publish'
+  | 'pull'
+  | 'pullRebase'
+  | 'push'
+  | 'fetch'
+  | 'sync'
+  | 'pushForce';
+
+export type ScmRemoteOperation =
+  | { readonly kind: 'publish' }
+  | { readonly kind: 'pull'; readonly rebase?: boolean }
+  | { readonly kind: 'push'; readonly force?: boolean }
+  | { readonly kind: 'fetch' }
+  | { readonly kind: 'sync' };
+
+export function isPublishBranchState(status: GitStatusResult | null): boolean {
+  return (
+    status !== null &&
+    status.detached !== true &&
+    status.branch !== null &&
+    status.upstream === null
+  );
+}
+
+export function scmRemoteOperation(
+  command: ScmRemoteCommandKind,
+  status: GitStatusResult | null,
+): ScmRemoteOperation {
+  switch (command) {
+    case 'publish':
+      return { kind: 'publish' };
+    case 'pull':
+      return { kind: 'pull' };
+    case 'pullRebase':
+      return { kind: 'pull', rebase: true };
+    case 'push':
+      return { kind: 'push' };
+    case 'fetch':
+      return { kind: 'fetch' };
+    case 'sync':
+      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'sync' };
+    case 'pushForce':
+      return { kind: 'push', force: true };
+  }
+}
+
 export function useScmRemoteCommands({
   act,
   git,
@@ -58,17 +105,6 @@ export function useScmRemoteCommands({
     [githubService, openExternal, status?.branch],
   );
 
-  const hasUpstream =
-    status !== null &&
-    status.detached !== true &&
-    status.branch !== null &&
-    status.upstream !== null;
-  const canPublish =
-    status !== null &&
-    status.detached !== true &&
-    status.branch !== null &&
-    status.upstream === null;
-
   const publish = useCallback(
     (): void =>
       void (async () => {
@@ -78,49 +114,53 @@ export function useScmRemoteCommands({
     [act, git],
   );
 
-  const pullUnavailableMessage =
-    'The current branch has no upstream branch. Use Publish Branch first.';
-
-  const pull = useCallback((): void => {
-    if (!hasUpstream) {
-      toast.info(pullUnavailableMessage);
-      return;
-    }
-    void act(() => git.pull());
-  }, [act, git, hasUpstream]);
+  const runRemoteOperation = useCallback(
+    (operation: ScmRemoteOperation): void => {
+      if (operation.kind === 'publish') {
+        publish();
+      } else if (operation.kind === 'pull') {
+        void act(() => git.pull(operation.rebase === true ? { rebase: true } : undefined));
+      } else if (operation.kind === 'push') {
+        void act(() => git.push(operation.force === true ? { force: true } : undefined));
+      } else if (operation.kind === 'fetch') {
+        void act(() => git.fetch());
+      } else {
+        void act(() => git.sync());
+      }
+    },
+    [act, git, publish],
+  );
 
   const push = useCallback((): void => {
-    if (canPublish) {
-      publish();
-      return;
-    }
-    void act(() => git.push());
-  }, [act, canPublish, git, publish]);
+    runRemoteOperation(scmRemoteOperation('push', status));
+  }, [runRemoteOperation, status]);
 
-  const fetch = useCallback((): void => void act(() => git.fetch()), [act, git]);
+  const pull = useCallback((): void => {
+    runRemoteOperation(scmRemoteOperation('pull', status));
+  }, [runRemoteOperation, status]);
+
+  const fetch = useCallback((): void => {
+    runRemoteOperation(scmRemoteOperation('fetch', status));
+  }, [runRemoteOperation, status]);
 
   const sync = useCallback((): void => {
-    if (canPublish) {
-      publish();
-      return;
-    }
-    void act(() => git.sync());
-  }, [act, canPublish, git, publish]);
+    runRemoteOperation(scmRemoteOperation('sync', status));
+  }, [runRemoteOperation, status]);
 
   const pullRebase = useCallback((): void => {
-    if (!hasUpstream) {
-      toast.info(pullUnavailableMessage);
-      return;
-    }
-    void act(() => git.pull({ rebase: true }));
-  }, [act, git, hasUpstream]);
+    runRemoteOperation(scmRemoteOperation('pullRebase', status));
+  }, [runRemoteOperation, status]);
 
-  const pushForce = useCallback((): void => void act(() => git.push({ force: true })), [act, git]);
+  const pushForce = useCallback((): void => {
+    runRemoteOperation(scmRemoteOperation('pushForce', status));
+  }, [runRemoteOperation, status]);
 
   return { createPullRequest, publish, pull, push, fetch, sync, pullRebase, pushForce };
 }
 
-async function choosePublishRemote(git: Pick<GitScmService, 'remotes'>): Promise<string | null> {
+export async function choosePublishRemote(
+  git: Pick<GitScmService, 'remotes'>,
+): Promise<string | null> {
   try {
     const result = await git.remotes();
     const writable = result.remotes.filter((remote) => !remote.isReadOnly);

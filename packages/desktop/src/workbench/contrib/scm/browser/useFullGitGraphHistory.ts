@@ -71,6 +71,10 @@ export function useFullGitGraphHistory({
       const seq = loadSeq.current;
       setLoading(true);
       setError(null);
+      if (skip === 0) {
+        setDone(false);
+        setCommits([]);
+      }
       try {
         const result = await loadGitHistoryPage({
           source: historyProvider,
@@ -83,6 +87,8 @@ export function useFullGitGraphHistory({
         setDone(result.done);
       } catch (err) {
         if (seq !== loadSeq.current) return;
+        if (skip === 0) setCommits([]);
+        setDone(true);
         setError(fullGraphErrorMessage(err));
       } finally {
         if (seq === loadSeq.current) setLoading(false);

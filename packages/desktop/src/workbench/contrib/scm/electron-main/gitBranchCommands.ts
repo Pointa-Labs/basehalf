@@ -55,14 +55,14 @@ export const refs: GitCommandHandler<GitRefsArgs, GitRefsResult> = async (args, 
   const out = await git(ctx, [
     'for-each-ref',
     '--sort=-committerdate',
-    '--format=%(refname)%00%(objectname)',
+    '--format=%(refname)%00%(objectname)%00%(upstream:short)',
     ...patterns,
   ]);
   const list: GitRefInfo[] = [];
   for (const line of out.stdout.split('\n')) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
-    const [ref, commit] = trimmed.split('\0');
+    const [ref, commit, upstream] = trimmed.split('\0');
     if (ref === undefined) continue;
     if (ref.startsWith('refs/heads/')) {
       const name = ref.slice('refs/heads/'.length);
@@ -71,6 +71,7 @@ export const refs: GitCommandHandler<GitRefsArgs, GitRefsResult> = async (args, 
         name,
         type: 'head',
         current: name === current,
+        ...(upstream !== undefined && upstream !== '' && { upstream }),
         ...(commit !== undefined && commit !== '' && { commit }),
       });
     } else if (ref.startsWith('refs/remotes/')) {

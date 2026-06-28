@@ -22,28 +22,27 @@ export const BranchQuickPick = ({
   variant = 'scm',
 }: BranchQuickPickProps): JSX.Element => {
   const git = adapter ?? defaultBranchGitAdapter;
-  const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
   const [hover, setHover] = useState(false);
   const label = status.detached ? 'detached' : (status.branch ?? '-');
 
   const runPicker = (): void => {
-    if (disabled || open) return;
-    setOpen(true);
-    void openBranchQuickPick({ status, git, onAfter }).finally(() => setOpen(false));
+    if (disabled || picking) return;
+    setPicking(true);
+    void openBranchQuickPick({ status, git, onAfter }).finally(() => setPicking(false));
   };
 
   return (
     <button
       type="button"
       onClick={runPicker}
-      disabled={disabled || open}
+      disabled={disabled || picking}
       title={status.upstream ?? 'Switch Branch'}
-      aria-haspopup="dialog"
-      aria-expanded={open}
+      aria-label="Switch Branch"
       data-testid={variant === 'statusBar' ? 'statusbar-branch' : 'scm-branch'}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={triggerStyle(variant, open || hover, disabled)}
+      style={triggerStyle(variant, picking || hover, disabled)}
     >
       <Codicon
         name="git-branch"

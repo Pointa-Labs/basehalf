@@ -3,7 +3,12 @@ import type { GitGraphActionDeps } from './gitGraphActionTypes.js';
 import type { FullGraphRefKind } from './gitGraphViewModel.js';
 
 export function fullGraphRefMenu(
-  ref: { readonly name: string; readonly kind: FullGraphRefKind; readonly targetRef?: string },
+  ref: {
+    readonly name: string;
+    readonly kind: FullGraphRefKind;
+    readonly targetRef?: string;
+    readonly trackingLocal?: string;
+  },
   deps: GitGraphActionDeps,
 ): ContextMenuItem[] {
   const { name, kind } = ref;
@@ -40,8 +45,8 @@ export function fullGraphRefMenu(
       run: () =>
         deps.runGit(() =>
           deps.git.checkout(
-            kind === 'remote' ? targetRef : name,
-            kind === 'remote' ? { track: true } : {},
+            kind === 'remote' ? (ref.trackingLocal ?? targetRef) : name,
+            kind === 'remote' && ref.trackingLocal === undefined ? { track: true } : {},
           ),
         ),
     },

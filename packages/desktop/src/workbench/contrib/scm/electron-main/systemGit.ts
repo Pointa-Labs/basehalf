@@ -1,18 +1,6 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
-import type { GitRunResult, GitRunner } from '../common/git.js';
-
-export class GitError extends Error {
-  override readonly name = 'GitError';
-
-  constructor(
-    readonly exitCode: number,
-    readonly stderr: string,
-    readonly args: readonly string[],
-  ) {
-    super(`git ${args.join(' ')} failed (exit ${exitCode}): ${stderr.trim().split('\n')[0] ?? ''}`);
-  }
-}
+import { GitError, type GitRunResult, type GitRunner, classifyGitError } from '../common/git.js';
 
 const GIT_DEFAULT_TIMEOUT_MS = 30_000;
 const GIT_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
@@ -81,7 +69,16 @@ export function systemGit(): GitRunner {
         finish(() =>
           accept.includes(exitCode)
             ? resolve({ stdout, stderr, exitCode })
-            : reject(new GitError(exitCode, stderr, args)),
+            : reject(
+                new GitError({
+                  stdout,
+                  stderr,
+                  exitCode,
+                  gitErrorCode: classifyGitError(stderr, stdout),
+                  gitCommand: args[0],
+                  gitArgs: args,
+                }),
+              ),
         );
       });
       child.stdin.end(opts.stdin ?? '');

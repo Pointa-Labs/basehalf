@@ -70,6 +70,7 @@ export interface GitRefInfo {
   readonly type: GitRefType;
   readonly current: boolean;
   readonly remote?: string;
+  readonly upstream?: string;
   readonly commit?: string;
 }
 
@@ -302,6 +303,7 @@ export interface GitLogArgs {
   readonly ref?: string;
   readonly refNames?: readonly string[];
   readonly maxCount?: number;
+  readonly maxParents?: number;
   readonly skip?: number;
   readonly path?: string;
   readonly all?: boolean;
