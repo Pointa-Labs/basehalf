@@ -1,7 +1,6 @@
 import { type WebContents, ipcMain } from 'electron';
-import { BADGE_IPC_CHANNELS } from '../common/badge.js';
-import type { BadgeMainService } from './badgeMainService.js';
 import {
+  BADGE_IPC_CHANNELS,
   asBadgeDeleteArgs,
   asBadgeGetArgs,
   asBadgeListArgs,
@@ -9,7 +8,8 @@ import {
   asBadgeRefArgs,
   asBadgeRenameArgs,
   asBadgeSetArgs,
-} from './ipcPayloadValidation.js';
+} from '../common/badge.js';
+import type { BadgeMainService } from './badgeMainService.js';
 
 type BadgeIpcHandler = (event: BadgeIpcEvent, payload?: unknown) => unknown;
 

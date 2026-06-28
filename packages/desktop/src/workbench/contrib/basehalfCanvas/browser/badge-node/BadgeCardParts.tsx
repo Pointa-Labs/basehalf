@@ -74,7 +74,7 @@ export const CardTitleChip = ({
 };
 
 // A folder card's body: a peek at its direct contents (glyph + name per child),
-// folders-first, capped by core — the rest collapse to "+N more".
+// folders-first, capped by the folder preview service — the rest collapse to "+N more".
 export const FolderContents = ({
   preview,
   prompt,

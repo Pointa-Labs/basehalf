@@ -1,3 +1,13 @@
+import {
+  objectPayload,
+  optionalBoolean,
+  optionalNodeKind,
+  optionalObjectField,
+  optionalObjectPayload,
+  optionalString,
+  pathField,
+} from './ipcPayloadValidation.js';
+
 export type BadgeKind = 'file' | 'folder';
 
 export interface BadgeFile {
@@ -109,4 +119,90 @@ export interface BadgeChannelBridge {
   pruneDangling(): Promise<BadgePruneDanglingResult>;
   revision(): Promise<BadgeRevisionResult>;
   rename(args: BadgeRenameArgs): Promise<BadgeRenameResult>;
+}
+
+export interface BadgeBridge {
+  readonly badge: BadgeChannelBridge;
+}
+
+export interface BadgeService {
+  get(file: string, kind?: BadgeKind): Promise<BadgeGetResult>;
+  set(file: string, patch?: BadgePatch): Promise<BadgeFile>;
+  list(args?: { readonly kind?: BadgeKind; readonly query?: string }): Promise<
+    readonly BadgeFile[]
+  >;
+  addReference(file: string, to: string, kind?: BadgeKind): Promise<BadgeFile>;
+  removeReference(file: string, to: string, kind?: BadgeKind): Promise<BadgeFile>;
+  pruneDangling(): Promise<BadgePruneDanglingResult>;
+  revision(): Promise<BadgeRevisionResult>;
+}
+
+export function asBadgeGetArgs(payload: unknown): BadgeGetArgs {
+  const p = objectPayload(payload, 'badge.get');
+  return {
+    file: pathField(p, 'file', 'badge.get', { allowEmpty: true }),
+    ...optionalNodeKind(p, 'kind', 'badge.get'),
+  };
+}
+
+export function asBadgeSetArgs(payload: unknown): BadgeSetArgs {
+  const p = objectPayload(payload, 'badge.set');
+  const patch = optionalObjectField(p, 'patch', 'badge.set');
+  if (patch === undefined) {
+    return { file: pathField(p, 'file', 'badge.set', { allowEmpty: true }) };
+  }
+  return {
+    file: pathField(p, 'file', 'badge.set', { allowEmpty: true }),
+    patch: {
+      ...optionalString(patch, 'description', 'badge.set.patch'),
+      ...optionalNodeKind(patch, 'kind', 'badge.set.patch'),
+      ...optionalBoolean(patch, 'orphan', 'badge.set.patch'),
+    },
+  };
+}
+
+export function asBadgeListArgs(payload: unknown): BadgeListArgs {
+  const p = optionalObjectPayload(payload, 'badge.list') ?? {};
+  return {
+    ...optionalNodeKind(p, 'kind', 'badge.list'),
+    ...optionalString(p, 'query', 'badge.list'),
+  };
+}
+
+export function asBadgeDeleteArgs(payload: unknown): BadgeDeleteArgs {
+  const p = objectPayload(payload, 'badge.delete');
+  return {
+    file: pathField(p, 'file', 'badge.delete', { allowEmpty: true }),
+    ...optionalNodeKind(p, 'kind', 'badge.delete'),
+  };
+}
+
+export function asBadgeRefArgs(
+  payload: unknown,
+  name: string,
+): BadgeAddRefArgs | BadgeRemoveRefArgs {
+  const p = objectPayload(payload, name);
+  return {
+    file: pathField(p, 'file', name, { allowEmpty: true }),
+    to: pathField(p, 'to', name, { allowEmpty: true }),
+    ...optionalNodeKind(p, 'kind', name),
+  };
+}
+
+export function asBadgeMarkOrphanArgs(payload: unknown): BadgeMarkOrphanArgs {
+  const p = objectPayload(payload, 'badge.markOrphan');
+  return {
+    file: pathField(p, 'file', 'badge.markOrphan', { allowEmpty: true }),
+    ...optionalNodeKind(p, 'kind', 'badge.markOrphan'),
+  };
+}
+
+export function asBadgeRenameArgs(payload: unknown): BadgeRenameArgs {
+  const p = objectPayload(payload, 'badge.rename');
+  return {
+    from: pathField(p, 'from', 'badge.rename', { allowEmpty: true }),
+    to: pathField(p, 'to', 'badge.rename', { allowEmpty: true }),
+    ...optionalNodeKind(p, 'kind', 'badge.rename'),
+    ...optionalBoolean(p, 'ifExists', 'badge.rename'),
+  };
 }

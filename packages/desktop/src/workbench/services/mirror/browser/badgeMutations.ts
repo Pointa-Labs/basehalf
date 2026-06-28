@@ -8,7 +8,7 @@
 // drag) are deliberately NOT routed through the bus — a position isn't shown in
 // another view, so it needs no cross-view notification.
 //
-// The reference graph now lives in TWO layers kept in lockstep by core: the
+// The reference graph lives in TWO mirror layers kept in lockstep by services: the
 // semantic `badge.references` (plain paths) and the visual `canvas` edge
 // (anchors + label). The canvas draws/edits via canvas.connect/disconnect/
 // reconnect, which write BOTH; the badge panel edits the semantic side via

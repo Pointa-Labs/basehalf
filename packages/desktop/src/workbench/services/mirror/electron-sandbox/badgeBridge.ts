@@ -1,9 +1,7 @@
 import type { IpcRendererLike } from '../../../../platform/ipc/electron-sandbox/ipcRenderer.js';
-import { BADGE_IPC_CHANNELS, type BadgeChannelBridge } from '../common/badge.js';
+import { BADGE_IPC_CHANNELS, type BadgeBridge, type BadgeChannelBridge } from '../common/badge.js';
 
-export interface BadgeBridge {
-  readonly badge: BadgeChannelBridge;
-}
+export type { BadgeBridge } from '../common/badge.js';
 
 export function createBadgeBridge(ipcRenderer: IpcRendererLike): BadgeBridge {
   return {

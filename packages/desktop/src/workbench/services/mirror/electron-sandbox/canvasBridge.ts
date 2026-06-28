@@ -1,9 +1,11 @@
 import type { IpcRendererLike } from '../../../../platform/ipc/electron-sandbox/ipcRenderer.js';
-import { CANVAS_IPC_CHANNELS, type CanvasChannelBridge } from '../common/canvas.js';
+import {
+  CANVAS_IPC_CHANNELS,
+  type CanvasBridge,
+  type CanvasChannelBridge,
+} from '../common/canvas.js';
 
-export interface CanvasBridge {
-  readonly canvas: CanvasChannelBridge;
-}
+export type { CanvasBridge } from '../common/canvas.js';
 
 export function createCanvasBridge(ipcRenderer: IpcRendererLike): CanvasBridge {
   return {

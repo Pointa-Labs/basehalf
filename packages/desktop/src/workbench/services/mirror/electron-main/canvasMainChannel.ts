@@ -1,7 +1,6 @@
 import { type WebContents, ipcMain } from 'electron';
-import { CANVAS_IPC_CHANNELS } from '../common/canvas.js';
-import type { CanvasMainService } from './canvasMainService.js';
 import {
+  CANVAS_IPC_CHANNELS,
   asCanvasConnectArgs,
   asCanvasDisconnectArgs,
   asCanvasGetArgs,
@@ -11,7 +10,8 @@ import {
   asCanvasRemoveCardArgs,
   asCanvasSetCardArgs,
   asCanvasSetSizeArgs,
-} from './ipcPayloadValidation.js';
+} from '../common/canvas.js';
+import type { CanvasMainService } from './canvasMainService.js';
 
 type CanvasIpcHandler = (event: CanvasIpcEvent, payload?: unknown) => unknown;
 

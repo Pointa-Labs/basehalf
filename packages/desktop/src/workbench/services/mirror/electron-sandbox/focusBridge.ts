@@ -1,9 +1,7 @@
 import type { IpcRendererLike } from '../../../../platform/ipc/electron-sandbox/ipcRenderer.js';
-import { FOCUS_IPC_CHANNELS, type FocusChannelBridge } from '../common/focus.js';
+import { FOCUS_IPC_CHANNELS, type FocusBridge, type FocusChannelBridge } from '../common/focus.js';
 
-export interface FocusBridge {
-  readonly focus: FocusChannelBridge;
-}
+export type { FocusBridge } from '../common/focus.js';
 
 export function createFocusBridge(ipcRenderer: IpcRendererLike): FocusBridge {
   return {

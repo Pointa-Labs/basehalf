@@ -1,46 +1,73 @@
-// Renderer-side signal for an IN-APP entry removal, for OPTIMISTIC UI updates.
+// Renderer-side file operation signal for optimistic workbench read-model updates.
 //
-// Deleting a file/folder is observer-architecture round-trip: core trashes it →
-// the filesystem watcher notices the unlink → the canvas/tree re-read the disk.
-// That round-trip (chokidar latency + the canvas's 1100ms unlink-settle debounce)
-// is a visible 200ms–1s lag before the thing the user just deleted disappears.
-//
-// So when the delete SUCCEEDS, `deleteEntry` emits here and the surfaces drop the
-// node/row immediately — the watcher's later event just confirms an already-gone
-// entry (a no-op). The watcher stays the source of truth; this only takes the
-// round-trip out of the FEEDBACK path. Mirrors badgeBus's tiny pub/sub shape.
+// This mirrors the VS Code split between FileService operation events and Explorer
+// read-model refreshes: the workspace service remains the disk writer, the watcher
+// remains source of truth, and this service-level event only removes UI latency for
+// successful in-app operations.
 
-export type RemovedKind = 'file' | 'folder';
+export type WorkspaceFileEntryKind = 'file' | 'folder';
+export type WorkspaceFileOperation = 'delete' | 'move';
+
+export type RemovedKind = WorkspaceFileEntryKind;
+
+export class WorkspaceFileOperationEvent {
+  constructor(resource: string, operation: 'delete', kind: WorkspaceFileEntryKind);
+  constructor(resource: string, operation: 'move', kind: WorkspaceFileEntryKind, target: string);
+  constructor(
+    readonly resource: string,
+    readonly operation: WorkspaceFileOperation,
+    readonly kind: WorkspaceFileEntryKind,
+    readonly target?: string,
+  ) {}
+
+  isOperation(operation: 'delete'): this is WorkspaceFileOperationEvent & {
+    readonly operation: 'delete';
+    readonly target: undefined;
+  };
+  isOperation(operation: 'move'): this is WorkspaceFileOperationEvent & {
+    readonly operation: 'move';
+    readonly target: string;
+  };
+  isOperation(operation: WorkspaceFileOperation): boolean {
+    return this.operation === operation;
+  }
+}
+
+type WorkspaceFileOperationListener = (event: WorkspaceFileOperationEvent) => void;
 type RemovedListener = (path: string, kind: RemovedKind) => void;
+type RenamedListener = (from: string, to: string, kind: RemovedKind) => void;
 
-const removedListeners = new Set<RemovedListener>();
+const operationListeners = new Set<WorkspaceFileOperationListener>();
+
+export function emitWorkspaceFileOperation(event: WorkspaceFileOperationEvent): void {
+  for (const listener of operationListeners) listener(event);
+}
+
+export function subscribeWorkspaceFileOperations(
+  listener: WorkspaceFileOperationListener,
+): () => void {
+  operationListeners.add(listener);
+  return () => {
+    operationListeners.delete(listener);
+  };
+}
 
 export function emitEntryRemoved(path: string, kind: RemovedKind): void {
-  for (const l of removedListeners) l(path, kind);
+  emitWorkspaceFileOperation(new WorkspaceFileOperationEvent(path, 'delete', kind));
 }
 
 export function subscribeEntryRemoved(listener: RemovedListener): () => void {
-  removedListeners.add(listener);
-  return () => {
-    removedListeners.delete(listener);
-  };
+  return subscribeWorkspaceFileOperations((event) => {
+    if (event.isOperation('delete')) listener(event.resource, event.kind);
+  });
 }
 
-// Same idea for RENAME: a rename is core renameEntry → watcher rename event →
-// reload, the same 200ms+ round-trip. On success `renameEntry` emits here with the
-// actual landing path, and the surfaces remap the node/row in place immediately;
-// the watcher's rename event then just confirms it.
-type RenamedListener = (from: string, to: string, kind: RemovedKind) => void;
-
-const renamedListeners = new Set<RenamedListener>();
-
 export function emitEntryRenamed(from: string, to: string, kind: RemovedKind): void {
-  for (const l of renamedListeners) l(from, to, kind);
+  emitWorkspaceFileOperation(new WorkspaceFileOperationEvent(from, 'move', kind, to));
 }
 
 export function subscribeEntryRenamed(listener: RenamedListener): () => void {
-  renamedListeners.add(listener);
-  return () => {
-    renamedListeners.delete(listener);
-  };
+  return subscribeWorkspaceFileOperations((event) => {
+    if (event.isOperation('move')) listener(event.resource, event.target, event.kind);
+  });
 }

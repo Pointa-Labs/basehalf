@@ -1,9 +1,7 @@
 import type { IpcRendererLike } from '../../../../platform/ipc/electron-sandbox/ipcRenderer.js';
-import { ADHD_IPC_CHANNELS, type AdhdChannelBridge } from '../common/adhd.js';
+import { ADHD_IPC_CHANNELS, type AdhdBridge, type AdhdChannelBridge } from '../common/adhd.js';
 
-export interface AdhdBridge {
-  readonly adhd: AdhdChannelBridge;
-}
+export type { AdhdBridge } from '../common/adhd.js';
 
 export function createAdhdBridge(ipcRenderer: IpcRendererLike): AdhdBridge {
   return {

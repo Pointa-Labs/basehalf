@@ -149,15 +149,15 @@ interface WorkspaceState {
    *  The badge / ref / focus cascade is the watcher's job, not this action's. */
   renameOpenFile: (title: string) => Promise<string | null>;
   /** Context-menu "New File": create an empty file at a workspace-relative path
-   *  (collision-suffixed by core, never clobbers) and open it. Returns the
+   *  (collision-suffixed by the workspace service, never clobbers) and open it. Returns the
    *  landing path, or null on failure / workspace switch. The watcher refreshes
    *  the tree + canvas. */
   createFile: (relPath: string) => Promise<string | null>;
   /** Context-menu "New Folder": create a folder (collision-suffixed). Returns
    *  the landing path. No editor impact; the watcher refreshes the tree + canvas. */
   createFolder: (relPath: string) => Promise<string | null>;
-  /** Context-menu "Rename": move a file/folder, cascading the badge overlay (core
-   *  renameEntry). Flush-gated; rebinds the open editor if it pointed at the moved
+  /** Context-menu "Rename": move a file/folder, cascading the badge overlay.
+   *  Flush-gated; rebinds the open editor if it pointed at the moved
    *  path (file) or lived under the moved folder. Returns the landing path. */
   renameEntry: (from: string, to: string, kind: 'file' | 'folder') => Promise<string | null>;
   /** Context-menu "Delete": send a file/folder to the OS trash (desktop host) or

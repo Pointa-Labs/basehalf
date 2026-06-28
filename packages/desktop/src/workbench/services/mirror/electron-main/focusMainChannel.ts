@@ -1,11 +1,11 @@
 import { type WebContents, ipcMain } from 'electron';
-import { FOCUS_IPC_CHANNELS } from '../common/focus.js';
-import type { FocusMainService } from './focusMainService.js';
 import {
+  FOCUS_IPC_CHANNELS,
   asFocusPurgeNodeArgs,
   asFocusRelocateArgs,
   asFocusSetArgs,
-} from './ipcPayloadValidation.js';
+} from '../common/focus.js';
+import type { FocusMainService } from './focusMainService.js';
 
 type FocusIpcHandler = (event: FocusIpcEvent, payload?: unknown) => unknown;
 

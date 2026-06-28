@@ -1,12 +1,9 @@
-import type { FocusNode, FocusPruneDanglingResult, FocusSetArgs } from '../common/focus.js';
+import type { FocusService as FocusServiceContract } from '../common/focus.js';
 import { type FocusChannel, focusChannel } from './focusChannel.js';
 
-export interface FocusService {
-  set(args: FocusSetArgs): Promise<FocusNode>;
-  pruneDangling(): Promise<FocusPruneDanglingResult>;
-}
+export type { FocusService } from '../common/focus.js';
 
-export function createFocusService(channel: FocusChannel): FocusService {
+export function createFocusService(channel: FocusChannel): FocusServiceContract {
   return {
     set: (args) => channel.set(args),
     pruneDangling: () => channel.pruneDangling(),

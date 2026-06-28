@@ -1,22 +1,9 @@
-import type { AdhdFile, LineRange } from '../common/adhd.js';
+import type { AdhdService as AdhdServiceContract } from '../common/adhd.js';
 import { type AdhdChannel, adhdChannel } from './adhdChannel.js';
 
-export interface AdhdService {
-  get(file: string): Promise<AdhdFile | null>;
-  addKeyword(file: string, keyword: string): Promise<AdhdFile>;
-  removeKeyword(file: string, keyword: string): Promise<AdhdFile | null>;
-  markRead(file: string, range: { start: number; end: number }): Promise<AdhdFile>;
-  markUnread(file: string, range: { start: number; end: number }): Promise<AdhdFile | null>;
-  set(
-    file: string,
-    state: {
-      highlight_keywords?: readonly string[];
-      read_paragraphs?: readonly LineRange[];
-    },
-  ): Promise<AdhdFile>;
-}
+export type { AdhdService } from '../common/adhd.js';
 
-export function createAdhdService(channel: AdhdChannel): AdhdService {
+export function createAdhdService(channel: AdhdChannel): AdhdServiceContract {
   return {
     get: (file) => channel.get(file),
     addKeyword: (file, keyword) => channel.addKeyword({ file, keyword }),

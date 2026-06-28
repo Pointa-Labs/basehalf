@@ -1,5 +1,5 @@
 import { useWorkspaceStore } from '../../workspace/browser/workspaceStore.js';
-import type { LinePrecision } from '../common/focus.js';
+import type { FocusNode, FocusSetArgs, LinePrecision } from '../common/focus.js';
 import { focusService } from './focusService.js';
 /**
  * The one place that owns the `focus.set`-for-a-file contract: a debounced writer
@@ -8,8 +8,8 @@ import { focusService } from './focusService.js';
  * visible line) — push through this, so the debounce / late-fire handling lives
  * once instead of being re-derived per surface.
  *
- * focus.set is a FIELD-SCOPED merge in core, so a cursor-only and a visible-only
- * write compose without clobbering each other. main injects this window's bound
+ * focus.set is a FIELD-SCOPED merge in the mirror service, so a cursor-only and a
+ * visible-only write compose without clobbering each other. main injects this window's bound
  * root, so the write is workspace-immutable; the one race is a switch (a window
  * reload), which sets `mirrorWritesSuspended()` — a debounced fire in the
  * reload-commit gap then skips instead of landing in the newly-bound workspace.
@@ -41,11 +41,48 @@ export interface FileFocusPusher {
 
 const FOCUS_DEBOUNCE = 400;
 
-export function makeFileFocusPusher(file: string, debounceMs = FOCUS_DEBOUNCE): FileFocusPusher {
+export interface FileFocusPushContext {
+  readonly currentWorkspace: string | null;
+  readonly openFile: string | null;
+  readonly mirrorWritesSuspended: boolean;
+}
+
+export interface FileFocusPusherOptions {
+  readonly debounceMs?: number;
+  readonly getContext?: () => FileFocusPushContext;
+  readonly setFocus?: (args: FocusSetArgs) => Promise<FocusNode>;
+}
+
+export function defaultFileFocusPushContext(): FileFocusPushContext {
+  const st = useWorkspaceStore.getState();
+  return {
+    currentWorkspace: st.current,
+    openFile: st.openFile,
+    mirrorWritesSuspended: mirrorWritesSuspended(),
+  };
+}
+
+export function canPushFileFocus(file: string, context: FileFocusPushContext): boolean {
+  return (
+    !context.mirrorWritesSuspended && context.currentWorkspace !== null && context.openFile === file
+  );
+}
+
+export function makeFileFocusPusher(
+  file: string,
+  optionsOrDebounceMs: number | FileFocusPusherOptions = FOCUS_DEBOUNCE,
+): FileFocusPusher {
+  const options =
+    typeof optionsOrDebounceMs === 'number'
+      ? { debounceMs: optionsOrDebounceMs }
+      : optionsOrDebounceMs;
+  const debounceMs = options.debounceMs ?? FOCUS_DEBOUNCE;
+  const getContext = options.getContext ?? defaultFileFocusPushContext;
+  const setFocus = options.setFocus ?? focusService.set;
   let timer: ReturnType<typeof setTimeout> | undefined;
   // The last fields actually written, so a viewport that hasn't moved since the
   // last flush (re-settled scroll, caret back on the same spot) skips a redundant
-  // focus.set IPC + its core-side mirror read-modify-write.
+  // focus.set IPC + its mirror read-modify-write.
   let lastSent: string | null = null;
   const push = ((compute: () => FocusFields | null): void => {
     if (timer) clearTimeout(timer);
@@ -53,15 +90,13 @@ export function makeFileFocusPusher(file: string, debounceMs = FOCUS_DEBOUNCE): 
       // Only mirror while THIS file is still the open one in a live workspace — a
       // debounced late fire must not write after the user navigated away — and not
       // during a workspace switch's reload-commit gap (would land in the new root).
-      if (mirrorWritesSuspended()) return;
-      const st = useWorkspaceStore.getState();
-      if (st.openFile !== file || !st.current) return;
+      if (!canPushFileFocus(file, getContext())) return;
       const fields = compute();
       if (!fields || (!fields.visible_lines && !fields.visible_blocks && !fields.cursor)) return;
       const key = JSON.stringify(fields);
       if (key === lastSent) return; // viewport unchanged since the last write
       lastSent = key;
-      void focusService.set({ path: file, kind: 'file', ...fields }).catch(() => undefined);
+      void setFocus({ path: file, kind: 'file', ...fields }).catch(() => undefined);
     }, debounceMs);
   }) as FileFocusPusher;
   push.cancel = (): void => {

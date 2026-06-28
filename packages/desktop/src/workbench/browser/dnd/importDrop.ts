@@ -2,7 +2,7 @@
  * Shared OS drag-drop routing — one behavior wherever a drop lands (canvas,
  * sidebar, editor area).
  *
- * The product rule (see workspace.importFile in core): a drop is always a
+ * The product rule (see workspace.importFile): a drop is always a
  * COPY into the open workspace's folder — the source file is never moved or
  * touched, and the copy is a real file the file manager / git / agents all
  * see. Folders keep their existing meaning: add/open as a workspace.

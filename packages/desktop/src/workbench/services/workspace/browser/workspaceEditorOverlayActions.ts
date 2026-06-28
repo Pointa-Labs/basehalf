@@ -1,5 +1,5 @@
 import { flushAll, flushPane } from '../../editor/browser/editorFlush.js';
-import { noteOpenedFile } from '../../history/browser/recentFiles.js';
+import { recentFilesService } from '../../history/browser/recentFiles.js';
 import {
   type GitDiffEditorInput,
   type PullRequestEditorInput,
@@ -76,7 +76,7 @@ export function createWorkspaceEditorOverlayActions(
       // relative path into the new workspace would show the wrong file.
       if (get().current !== current) return;
       set(openEditorOverlayPatch(file, opts));
-      if (current !== null) noteOpenedFile(current, file);
+      if (current !== null) recentFilesService.noteOpenedFile(current, file);
       // Focus is mirrored by Canvas's single openFile-aware effect (so closing a
       // file repoints focus back to the folder) — not written here, to avoid a
       // redundant double-write and keep one source of truth.

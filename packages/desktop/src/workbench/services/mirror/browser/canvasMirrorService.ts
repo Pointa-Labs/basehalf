@@ -1,20 +1,9 @@
-import type {
-  CanvasCard,
-  CanvasConnectArgs,
-  CanvasDisconnectArgs,
-  CanvasFile,
-  CanvasReconnectArgs,
-} from '../common/canvas.js';
+import type { CanvasMirrorService as CanvasMirrorServiceContract } from '../common/canvas.js';
 import { type CanvasChannel, canvasChannel } from './canvasChannel.js';
 
-export interface CanvasMirrorService {
-  setCard(folder: string | null, card: CanvasCard): Promise<CanvasFile>;
-  connect(args: CanvasConnectArgs): Promise<CanvasFile>;
-  disconnect(args: CanvasDisconnectArgs): Promise<CanvasFile>;
-  reconnect(args: CanvasReconnectArgs): Promise<CanvasFile>;
-}
+export type { CanvasMirrorService } from '../common/canvas.js';
 
-export function createCanvasMirrorService(channel: CanvasChannel): CanvasMirrorService {
+export function createCanvasMirrorService(channel: CanvasChannel): CanvasMirrorServiceContract {
   return {
     setCard: (folder, card) => channel.setCard({ folder, card }),
     connect: (args) => channel.connect(args),

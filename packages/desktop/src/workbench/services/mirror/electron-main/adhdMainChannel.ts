@@ -1,14 +1,14 @@
 import { type WebContents, ipcMain } from 'electron';
-import { ADHD_IPC_CHANNELS } from '../common/adhd.js';
-import type { AdhdMainService } from './adhdMainService.js';
 import {
+  ADHD_IPC_CHANNELS,
   asAdhdFile,
   asAdhdKeywordArgs,
   asAdhdPurgeNodeArgs,
   asAdhdRangeArgs,
   asAdhdRelocateArgs,
   asAdhdSetArgs,
-} from './ipcPayloadValidation.js';
+} from '../common/adhd.js';
+import type { AdhdMainService } from './adhdMainService.js';
 
 type AdhdIpcHandler = (event: AdhdIpcEvent, payload?: unknown) => unknown;
 

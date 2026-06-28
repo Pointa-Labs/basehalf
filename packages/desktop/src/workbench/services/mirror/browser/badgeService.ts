@@ -1,24 +1,9 @@
-import type {
-  BadgeFile,
-  BadgeGetResult,
-  BadgeKind,
-  BadgePatch,
-  BadgePruneDanglingResult,
-  BadgeRevisionResult,
-} from '../common/badge.js';
+import type { BadgeService as BadgeServiceContract } from '../common/badge.js';
 import { type BadgeChannel, badgeChannel } from './badgeChannel.js';
 
-export interface BadgeService {
-  get(file: string, kind?: BadgeKind): Promise<BadgeGetResult>;
-  set(file: string, patch?: BadgePatch): Promise<BadgeFile>;
-  list(args?: { kind?: BadgeKind; query?: string }): Promise<readonly BadgeFile[]>;
-  addReference(file: string, to: string, kind?: BadgeKind): Promise<BadgeFile>;
-  removeReference(file: string, to: string, kind?: BadgeKind): Promise<BadgeFile>;
-  pruneDangling(): Promise<BadgePruneDanglingResult>;
-  revision(): Promise<BadgeRevisionResult>;
-}
+export type { BadgeService } from '../common/badge.js';
 
-export function createBadgeService(channel: BadgeChannel): BadgeService {
+export function createBadgeService(channel: BadgeChannel): BadgeServiceContract {
   return {
     get: (file, kind) => channel.get(kind === undefined ? { file } : { file, kind }),
     set: (file, patch) => channel.set(patch === undefined ? { file } : { file, patch }),
