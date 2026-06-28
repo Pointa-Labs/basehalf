@@ -18,7 +18,14 @@ export const FullGraphCommitDetails = ({
   onOpenFile: (path: string, parent: string | undefined) => void;
 }): JSX.Element | null => {
   const historyProvider = useGitHistoryProvider(gitService);
-  const { files } = useHistoryItemChanges(historyProvider, commit, { swallowErrors: true });
+  const { files } = useHistoryItemChanges(
+    historyProvider,
+    commit?.hash ?? null,
+    commit?.parents[0],
+    {
+      swallowErrors: true,
+    },
+  );
   if (commit === null) return null;
   const parent = commit.parents[0];
   return (

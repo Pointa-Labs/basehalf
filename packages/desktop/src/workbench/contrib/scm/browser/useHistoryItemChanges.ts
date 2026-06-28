@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { GitCommit } from '../common/git.js';
 import type { ScmHistoryItemChange, ScmHistoryProvider } from '../common/history.js';
 import { GitHistoryProvider } from './gitHistoryProvider.js';
 import type { GitScmService } from './gitScmService.js';
@@ -16,20 +15,21 @@ export function useGitHistoryProvider(gitService: GitScmService): ScmHistoryProv
 
 export function useHistoryItemChanges(
   provider: ScmHistoryProvider,
-  commit: GitCommit | null,
+  historyItemId: string | null,
+  historyItemParentId: string | undefined,
   opts: { readonly swallowErrors?: boolean } = {},
 ): HistoryItemChangesState {
   const [files, setFiles] = useState<readonly ScmHistoryItemChange[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (commit === null) return;
+    if (historyItemId === null) return;
     let cancelled = false;
     setFiles(null);
     setError(null);
     void (async () => {
       try {
-        const files = await provider.provideHistoryItemChanges(commit.hash, commit.parents[0]);
+        const files = await provider.provideHistoryItemChanges(historyItemId, historyItemParentId);
         if (!cancelled) setFiles(files);
       } catch (err) {
         if (cancelled) return;
@@ -43,7 +43,7 @@ export function useHistoryItemChanges(
     return () => {
       cancelled = true;
     };
-  }, [commit, opts.swallowErrors, provider]);
+  }, [historyItemId, historyItemParentId, opts.swallowErrors, provider]);
 
   return { files, error, setError };
 }

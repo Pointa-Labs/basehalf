@@ -22,7 +22,11 @@ export const HistoryItemDetails = ({
 }): JSX.Element => {
   const openCommitDiff = useWorkspaceStore((s) => s.openCommitDiff);
   const historyProvider = useGitHistoryProvider(git);
-  const { files, error, setError } = useHistoryItemChanges(historyProvider, commit);
+  const { files, error, setError } = useHistoryItemChanges(
+    historyProvider,
+    commit.hash,
+    commit.parents[0],
+  );
 
   const run = (fn: () => Promise<unknown>): void => {
     void (async () => {
