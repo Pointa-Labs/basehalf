@@ -18,7 +18,10 @@ export const GraphSection = ({
   busy: boolean;
   canPublish: boolean;
   canPull: boolean;
-  commands: Pick<ScmCommands, 'openFullGraph' | 'revealHead' | 'fetch' | 'pull' | 'push' | 'sync'>;
+  commands: Pick<
+    ScmCommands,
+    'openFullGraph' | 'revealHead' | 'fetch' | 'pull' | 'push' | 'publish' | 'sync'
+  >;
 }): JSX.Element => (
   <Disclosure
     title="Graph"
@@ -49,7 +52,7 @@ export const GraphSection = ({
         <IconBtn title="Push" onClick={commands.push} disabled={busy} glyph="arrow-up" />
         <IconBtn
           title={canPublish ? 'Publish Branch' : 'Sync Changes'}
-          onClick={commands.sync}
+          onClick={canPublish ? commands.publish : commands.sync}
           disabled={busy}
           glyph={canPublish ? 'cloud-upload' : 'sync'}
         />

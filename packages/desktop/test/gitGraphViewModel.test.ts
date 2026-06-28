@@ -62,6 +62,8 @@ describe('gitGraphViewModel', () => {
     const localBranches = fullGraphLocalBranches([branch('feature/auth'), branch('main')]);
 
     expect(fullGraphRefKind('feature/auth', localBranches)).toBe('branch');
+    expect(fullGraphRefKind('refs/heads/feature/auth', localBranches)).toBe('branch');
+    expect(fullGraphRefKind('refs/remotes/origin/main', localBranches)).toBe('remote');
     expect(fullGraphRefKind('origin/main', localBranches)).toBe('remote');
   });
 

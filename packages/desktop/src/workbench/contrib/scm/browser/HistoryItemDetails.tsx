@@ -1,13 +1,15 @@
-import { type JSX, type ReactNode, useEffect, useState } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { confirm, prompt } from '../../../browser/parts/dialogs/Dialog.js';
 import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { color, font, radius, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
-import type { GitCommit, GitCommitFilesResult } from '../common/git.js';
+import type { GitCommit } from '../common/git.js';
+import { HistoryItemChangeList } from './HistoryItemChangeList.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { useGitStatusStore } from './gitStatusStore.js';
-import { historyStatusTone } from './historyGraphModel.js';
+import { commitDiffTitle } from './historyItemChangesModel.js';
+import { useGitHistoryProvider, useHistoryItemChanges } from './useHistoryItemChanges.js';
 
 export const HistoryItemDetails = ({
   commit,
@@ -19,8 +21,8 @@ export const HistoryItemDetails = ({
   gitService?: GitScmService;
 }): JSX.Element => {
   const openCommitDiff = useWorkspaceStore((s) => s.openCommitDiff);
-  const [files, setFiles] = useState<GitCommitFilesResult['files'] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const historyProvider = useGitHistoryProvider(git);
+  const { files, error, setError } = useHistoryItemChanges(historyProvider, commit);
 
   const run = (fn: () => Promise<unknown>): void => {
     void (async () => {
@@ -86,23 +88,6 @@ export const HistoryItemDetails = ({
       });
     })();
 
-  useEffect(() => {
-    let cancelled = false;
-    setFiles(null);
-    setError(null);
-    void (async () => {
-      try {
-        const files = await git.commitFiles(commit.hash);
-        if (!cancelled) setFiles(files);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [commit.hash, git]);
-
   const parent = commit.parents[0];
 
   return (
@@ -161,70 +146,17 @@ export const HistoryItemDetails = ({
         <div style={{ color: color.danger, fontFamily: font.sans, fontSize: font.size.micro }}>
           {error}
         </div>
-      ) : files === null ? (
-        <div
-          style={{ color: color.textTertiary, fontFamily: font.sans, fontSize: font.size.micro }}
-        >
-          Loading changes...
-        </div>
-      ) : files.length === 0 ? (
-        <div
-          style={{ color: color.textTertiary, fontFamily: font.sans, fontSize: font.size.micro }}
-        >
-          No file changes.
-        </div>
       ) : (
-        files.map((file) => {
-          const displayPath = file.orig ? `${file.orig} -> ${file.path}` : file.path;
-          return (
-            <button
-              key={`${file.status}:${displayPath}`}
-              type="button"
-              onClick={() =>
-                openCommitDiff(file.path, commit.hash, parent, `${commit.shortHash} -> parent`)
-              }
-              title={displayPath}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: space[2],
-                width: '100%',
-                height: 22,
-                padding: `0 ${space[1]}px`,
-                background: 'none',
-                border: 'none',
-                borderRadius: radius.sm,
-                cursor: 'pointer',
-                textAlign: 'left',
-                color: color.textSecondary,
-                fontFamily: font.sans,
-                fontSize: font.size.micro,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = color.divider;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'none';
-              }}
-            >
-              <span
-                style={{
-                  width: 12,
-                  flexShrink: 0,
-                  textAlign: 'center',
-                  fontFamily: font.mono,
-                  fontWeight: font.weight.semibold,
-                  color: historyStatusTone(file.status),
-                }}
-              >
-                {file.status}
-              </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {displayPath}
-              </span>
-            </button>
-          );
-        })
+        <HistoryItemChangeList
+          files={files}
+          paddingX={space[1]}
+          messagePaddingX={0}
+          loading="Loading changes..."
+          empty="No file changes."
+          onOpenFile={(file) =>
+            openCommitDiff(file.path, commit.hash, parent, commitDiffTitle(commit.shortHash))
+          }
+        />
       )}
     </div>
   );

@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitCommit, GitLogArgs, GitRefInfo, GitStashEntry } from '../common/git.js';
 import { FULL_GRAPH_PAGE_SIZE } from './gitGraphViewModel.js';
+import { GitHistoryProvider } from './gitHistoryProvider.js';
+import {
+  gitHistoryLogArgsForAvailableFilter,
+  gitHistoryLogArgsForFilter,
+  loadGitHistoryPage,
+} from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
-import { historyLogArgsForAvailableFilter } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 
 export interface FullGitGraphHistoryState {
@@ -19,10 +24,7 @@ export interface FullGitGraphHistoryState {
 }
 
 export function fullGraphLogArgs(filter: ScmHistoryFilter, skip: number): GitLogArgs {
-  const page = { maxCount: FULL_GRAPH_PAGE_SIZE, skip };
-  if (filter.kind === 'all') return { all: true, ...page };
-  if (filter.kind === 'ref') return { ref: filter.ref, ...page };
-  return { ref: 'HEAD', ...page };
+  return gitHistoryLogArgsForFilter(filter, FULL_GRAPH_PAGE_SIZE, skip);
 }
 
 export const fullGraphAvailableLogArgs = (
@@ -30,10 +32,9 @@ export const fullGraphAvailableLogArgs = (
   refs: readonly GitRefInfo[],
   skip: number,
 ): GitLogArgs =>
-  historyLogArgsForAvailableFilter({
+  gitHistoryLogArgsForAvailableFilter({
     filter,
     refs,
-    currentBranch: null,
     pageSize: FULL_GRAPH_PAGE_SIZE,
     skip,
   });
@@ -54,6 +55,7 @@ export function useFullGitGraphHistory({
   readonly refreshScmStatus: () => Promise<void> | void;
   readonly onError: (message: string) => void;
 }): FullGitGraphHistoryState {
+  const historyProvider = useMemo(() => new GitHistoryProvider(gitService), [gitService]);
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
@@ -70,16 +72,15 @@ export function useFullGitGraphHistory({
       setLoading(true);
       setError(null);
       try {
-        const refs = await gitService.refs({
-          includeRemote: true,
-          includeTags: true,
+        const result = await loadGitHistoryPage({
+          source: historyProvider,
+          filter: historyFilter,
+          pageSize: FULL_GRAPH_PAGE_SIZE,
+          skip,
         });
-        const result = await gitService.log(
-          fullGraphAvailableLogArgs(historyFilter, refs.refs, skip),
-        );
         if (seq !== loadSeq.current) return;
         setCommits((prev) => (skip === 0 ? [...result.commits] : [...prev, ...result.commits]));
-        setDone(result.commits.length < FULL_GRAPH_PAGE_SIZE);
+        setDone(result.done);
       } catch (err) {
         if (seq !== loadSeq.current) return;
         setError(fullGraphErrorMessage(err));
@@ -87,7 +88,7 @@ export function useFullGitGraphHistory({
         if (seq === loadSeq.current) setLoading(false);
       }
     },
-    [historyFilter, gitService],
+    [historyFilter, historyProvider],
   );
 
   useEffect(() => {
@@ -96,10 +97,10 @@ export function useFullGitGraphHistory({
 
   const loadAux = useCallback(async (): Promise<void> => {
     try {
-      const result = await gitService.refs({
+      const result = await historyProvider.provideGitRefs({
         includeRemote: showRemote,
       });
-      setBranches(result.refs.filter((ref) => ref.type === 'head' || ref.type === 'remoteHead'));
+      setBranches(result.filter((ref) => ref.type === 'head' || ref.type === 'remoteHead'));
     } catch {
       /* optional graph side data */
     }
@@ -114,7 +115,7 @@ export function useFullGitGraphHistory({
     } catch {
       /* optional graph side data */
     }
-  }, [gitService, showRemote]);
+  }, [gitService, historyProvider, showRemote]);
 
   useEffect(() => {
     void loadAux();

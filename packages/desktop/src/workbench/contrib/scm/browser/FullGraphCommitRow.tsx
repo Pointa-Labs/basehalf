@@ -5,6 +5,7 @@ import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphDateMode,
   type FullGraphRefKind,
+  fullGraphDisplayRef,
   fullGraphFormatDate,
   fullGraphFormatWhen,
   fullGraphRefKind,
@@ -31,7 +32,12 @@ export const FullGraphCommitRow = ({
   highlighted: boolean;
   onSelect: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
-  onRefMenu: (event: React.MouseEvent, name: string, kind: FullGraphRefKind) => void;
+  onRefMenu: (
+    event: React.MouseEvent,
+    name: string,
+    kind: FullGraphRefKind,
+    targetRef: string,
+  ) => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
   return (
@@ -83,9 +89,9 @@ export const FullGraphCommitRow = ({
           return (
             <FullGraphPill
               key={ref}
-              text={ref}
+              text={fullGraphDisplayRef(ref)}
               kind={kind}
-              onContextMenu={(event) => onRefMenu(event, ref, kind)}
+              onContextMenu={(event) => onRefMenu(event, fullGraphDisplayRef(ref), kind, ref)}
             />
           );
         })}
@@ -94,7 +100,7 @@ export const FullGraphCommitRow = ({
             key={`tag:${tag}`}
             text={tag}
             kind="tag"
-            onContextMenu={(event) => onRefMenu(event, tag, 'tag')}
+            onContextMenu={(event) => onRefMenu(event, tag, 'tag', `refs/tags/${tag}`)}
           />
         ))}
         <span

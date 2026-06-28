@@ -125,7 +125,10 @@ describe('gitGraphActions', () => {
 
   it('builds ref menus with local branch, remote tracking, and tag variants', async () => {
     const local = createDeps();
-    const branchMenu = fullGraphRefMenu('feature/scm', 'branch', local.deps);
+    const branchMenu = fullGraphRefMenu(
+      { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
+      local.deps,
+    );
     expect(ids(branchMenu)).toEqual(['checkout', 'merge', 'rename', '---', 'delete']);
 
     action(branchMenu, 'rename').run();
@@ -137,13 +140,35 @@ describe('gitGraphActions', () => {
     ]);
 
     const remote = createDeps();
-    action(fullGraphRefMenu('origin/main', 'remote', remote.deps), 'checkout').run();
-    expect(remote.calls).toEqual(['runGit', 'checkout:origin/main:track']);
+    action(
+      fullGraphRefMenu(
+        { name: 'origin/main', kind: 'remote', targetRef: 'refs/remotes/origin/main' },
+        remote.deps,
+      ),
+      'checkout',
+    ).run();
+    expect(remote.calls).toEqual(['runGit', 'checkout:refs/remotes/origin/main:track']);
 
     const tag = createDeps();
-    action(fullGraphRefMenu('v1.0', 'tag', tag.deps), 'delete').run();
+    action(
+      fullGraphRefMenu({ name: 'v1.0', kind: 'tag', targetRef: 'refs/tags/v1.0' }, tag.deps),
+      'delete',
+    ).run();
     await Promise.resolve();
     expect(tag.calls).toEqual(['confirm:Delete tag v1.0?', 'runGit', 'tag-delete:v1.0']);
+  });
+
+  it('uses full ref targets for merge actions to avoid ambiguous refs', () => {
+    const { deps, calls } = createDeps();
+    action(
+      fullGraphRefMenu(
+        { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
+        deps,
+      ),
+      'merge',
+    ).run();
+
+    expect(calls).toEqual(['runGit', 'merge:refs/heads/feature/scm']);
   });
 
   it('builds stash menu actions with confirmation for destructive drops', async () => {

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitCommit } from '../common/git.js';
+import { GitHistoryProvider } from './gitHistoryProvider.js';
+import { loadGitHistoryLocalBranches, loadGitHistoryPage } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
-import { historyLogArgsForAvailableFilter } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 
 export interface GitGraphHistoryState {
@@ -24,6 +25,7 @@ export function useGitGraphHistory(
   currentBranch: string | null,
   gitService: GitScmService = gitScmService,
 ): GitGraphHistoryState {
+  const historyProvider = useMemo(() => new GitHistoryProvider(gitService), [gitService]);
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,19 +44,15 @@ export function useGitGraphHistory(
         setCommits([]);
       }
       try {
-        const refs = await gitService.refs({ includeRemote: true, includeTags: true });
-        const result = await gitService.log(
-          historyLogArgsForAvailableFilter({
-            filter,
-            refs: refs.refs,
-            currentBranch,
-            pageSize,
-            skip,
-          }),
-        );
+        const result = await loadGitHistoryPage({
+          source: historyProvider,
+          filter,
+          pageSize,
+          skip,
+        });
         if (seq !== loadSeq.current) return;
         setCommits((prev) => (skip === 0 ? [...result.commits] : [...prev, ...result.commits]));
-        if (result.commits.length < pageSize) setDone(true);
+        if (result.done) setDone(true);
       } catch (err) {
         if (seq !== loadSeq.current) return;
         console.error('[GitGraphHistory] failed to load history items', err);
@@ -65,29 +63,25 @@ export function useGitGraphHistory(
         if (seq === loadSeq.current) setLoading(false);
       }
     },
-    [currentBranch, filter, gitService, pageSize],
+    [filter, historyProvider, pageSize],
   );
 
   const loadLocalBranches = useCallback(async (): Promise<void> => {
     try {
-      const result = await gitService.refs({
-        includeRemote: true,
-      });
-      setLocalBranches(
-        new Set(result.refs.filter((ref) => ref.type === 'head').map((ref) => ref.name)),
-      );
+      setLocalBranches(await loadGitHistoryLocalBranches(historyProvider));
     } catch {
       setLocalBranches(new Set());
     }
-  }, [gitService]);
+  }, [historyProvider]);
 
   const reload = useCallback(async (): Promise<void> => {
     await Promise.all([loadPage(0), loadLocalBranches()]);
   }, [loadPage, loadLocalBranches]);
 
   useEffect(() => {
+    void currentBranch;
     void reload();
-  }, [reload]);
+  }, [currentBranch, reload]);
 
   return {
     commits,

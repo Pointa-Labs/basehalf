@@ -65,6 +65,8 @@ export function fullGraphRefKind(
   ref: string,
   localBranches: ReadonlySet<string>,
 ): Exclude<FullGraphRefKind, 'tag'> {
+  if (ref.startsWith('refs/heads/')) return 'branch';
+  if (ref.startsWith('refs/remotes/')) return 'remote';
   return localBranches.has(ref) ? 'branch' : 'remote';
 }
 

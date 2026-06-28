@@ -1,0 +1,188 @@
+import { describe, expect, it } from 'vitest';
+import {
+  GitHistoryProvider,
+  gitCommitFileToHistoryItemChange,
+  gitCommitToHistoryItem,
+  gitRefToHistoryItemRef,
+} from '../src/workbench/contrib/scm/browser/gitHistoryProvider.js';
+import type { GitCommit, GitLogArgs, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
+
+const commit = (props: Partial<GitCommit> = {}): GitCommit => ({
+  hash: 'abcdef1234567890',
+  shortHash: 'abcdef1',
+  parents: ['parent'],
+  author: { name: 'Ada', email: 'ada@example.com', date: '2026-06-28T01:02:03Z' },
+  committer: { name: 'Ada', email: 'ada@example.com', date: '2026-06-28T01:02:03Z' },
+  subject: 'Ship history provider',
+  body: 'Longer body',
+  refs: ['main'],
+  tags: ['v1.0'],
+  head: true,
+  ...props,
+});
+
+describe('gitHistoryProvider', () => {
+  it('maps git refs, commits, and files into SCM history shapes', () => {
+    expect(
+      gitRefToHistoryItemRef({
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        commit: 'abc',
+      }),
+    ).toEqual({
+      id: 'refs/remotes/origin/main',
+      name: 'origin/main',
+      revision: 'abc',
+      category: 'remote',
+      description: undefined,
+    });
+
+    expect(gitCommitToHistoryItem(commit())).toMatchObject({
+      id: 'abcdef1234567890',
+      parentIds: ['parent'],
+      subject: 'Ship history provider',
+      displayId: 'abcdef1',
+      author: 'Ada',
+      authorEmail: 'ada@example.com',
+      references: [
+        { id: 'HEAD', name: 'HEAD', category: 'other' },
+        { id: 'refs/heads/main', name: 'main', category: 'branch' },
+        { id: 'refs/tags/v1.0', name: 'v1.0', category: 'tag' },
+      ],
+    });
+
+    expect(
+      gitCommitFileToHistoryItemChange({ path: 'new.ts', status: 'R', orig: 'old.ts' }),
+    ).toEqual({
+      path: 'new.ts',
+      status: 'R',
+      originalPath: 'old.ts',
+    });
+  });
+
+  it('delegates refs, history items, changes, and resolve through the git service', async () => {
+    const refs: GitRefInfo[] = [
+      { id: 'refs/heads/main', name: 'main', type: 'head', current: true, commit: 'abc' },
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        commit: 'def',
+      },
+    ];
+    const logArgs: GitLogArgs[] = [];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'main',
+        detached: false,
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async (args) => {
+        logArgs.push(args);
+        return { commits: [commit({ hash: args.ref ?? 'missing' })] };
+      },
+      commitFiles: async (ref, parent) => [{ path: `${parent ?? 'root'}-${ref}.ts`, status: 'M' }],
+      mergeBase: async (historyItemRefs) =>
+        historyItemRefs.length > 1 ? `${historyItemRefs.join('+')}-base` : null,
+    });
+
+    await expect(provider.provideHistoryItemRefs(['main'])).resolves.toEqual([
+      {
+        id: 'refs/heads/main',
+        name: 'main',
+        revision: 'abc',
+        category: 'branch',
+        description: 'current',
+      },
+    ]);
+    await expect(provider.provideCurrentHistoryItemRefs()).resolves.toMatchObject({
+      historyItemRef: { id: 'refs/heads/main', name: 'main', revision: 'abc' },
+      historyItemRemoteRef: {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        revision: 'def',
+      },
+    });
+    await expect(
+      provider.provideHistoryItems({ historyItemRefs: ['feature/x'], limit: 20, skip: 5 }),
+    ).resolves.toMatchObject([{ id: 'feature/x' }]);
+    await expect(
+      provider.provideHistoryItems({ historyItemRefs: ['main', 'origin/main'], limit: 30 }),
+    ).resolves.toHaveLength(1);
+    await expect(provider.provideHistoryItemChanges('abc', 'parent')).resolves.toEqual([
+      { path: 'parent-abc.ts', status: 'M', originalPath: undefined },
+    ]);
+    await expect(provider.resolveHistoryItem('abc')).resolves.toMatchObject({ id: 'abc' });
+    await expect(
+      provider.resolveHistoryItemRefsCommonAncestor(['main', 'origin/main']),
+    ).resolves.toBe('main+origin/main-base');
+    expect(logArgs).toEqual([
+      { ref: 'feature/x', maxCount: 20, skip: 5 },
+      { refNames: ['main', 'origin/main'], maxCount: 30, skip: undefined },
+      { ref: 'abc', maxCount: 1 },
+    ]);
+  });
+
+  it('prefers full ref ids for current remote refs and selected ref lookups', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/origin/main',
+        name: 'origin/main',
+        type: 'head',
+        current: false,
+        commit: 'local',
+      },
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        commit: 'remote',
+      },
+      {
+        id: 'refs/heads/main',
+        name: 'main',
+        type: 'head',
+        current: true,
+        commit: 'head',
+      },
+    ];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'main',
+        detached: false,
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async () => ({ commits: [] }),
+      commitFiles: async () => [],
+      mergeBase: async () => null,
+    });
+
+    await expect(provider.provideCurrentHistoryItemRefs()).resolves.toMatchObject({
+      historyItemRef: { id: 'refs/heads/main', revision: 'head' },
+      historyItemRemoteRef: { id: 'refs/remotes/origin/main', revision: 'remote' },
+    });
+    await expect(provider.provideHistoryItemRefs(['refs/remotes/origin/main'])).resolves.toEqual([
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        revision: 'remote',
+        category: 'remote',
+        description: undefined,
+      },
+    ]);
+  });
+});

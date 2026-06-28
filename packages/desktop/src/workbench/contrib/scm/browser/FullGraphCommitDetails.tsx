@@ -1,8 +1,10 @@
-import { type JSX, useEffect, useState } from 'react';
+import type { JSX } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
-import type { GitCommit, GitCommitFilesResult } from '../common/git.js';
+import type { GitCommit } from '../common/git.js';
+import { HistoryItemChangeList } from './HistoryItemChangeList.js';
 import { fullGraphFormatDate } from './gitGraphViewModel.js';
 import type { GitScmService } from './gitScmService.js';
+import { useGitHistoryProvider, useHistoryItemChanges } from './useHistoryItemChanges.js';
 
 export const FullGraphCommitDetails = ({
   commit,
@@ -15,23 +17,8 @@ export const FullGraphCommitDetails = ({
   onClose: () => void;
   onOpenFile: (path: string, parent: string | undefined) => void;
 }): JSX.Element | null => {
-  const [files, setFiles] = useState<GitCommitFilesResult['files'] | null>(null);
-  useEffect(() => {
-    if (commit === null) return;
-    let cancelled = false;
-    setFiles(null);
-    void (async () => {
-      try {
-        const files = await gitService.commitFiles(commit.hash);
-        if (!cancelled) setFiles(files);
-      } catch {
-        if (!cancelled) setFiles([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [commit, gitService]);
+  const historyProvider = useGitHistoryProvider(gitService);
+  const { files } = useHistoryItemChanges(historyProvider, commit, { swallowErrors: true });
   if (commit === null) return null;
   const parent = commit.parents[0];
   return (
@@ -105,72 +92,15 @@ export const FullGraphCommitDetails = ({
             {commit.body.trim()}
           </div>
         )}
-        {files === null ? (
-          <div
-            style={{
-              padding: `0 ${space[3]}px`,
-              color: color.textTertiary,
-              fontSize: font.size.micro,
-            }}
-          >
-            Loading changes…
-          </div>
-        ) : (
-          files.map((file) => (
-            <button
-              key={file.path}
-              type="button"
-              onClick={() => onOpenFile(file.path, parent)}
-              title={file.path}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: space[2],
-                width: '100%',
-                padding: `2px ${space[3]}px`,
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                textAlign: 'left',
-                color: color.textSecondary,
-                fontFamily: font.sans,
-                fontSize: font.size.micro,
-              }}
-              onMouseEnter={(event) => {
-                event.currentTarget.style.background = color.divider;
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.background = 'none';
-              }}
-            >
-              <span
-                style={{
-                  width: 12,
-                  flexShrink: 0,
-                  textAlign: 'center',
-                  fontFamily: font.mono,
-                  fontWeight: font.weight.semibold,
-                  color: statusTone(file.status),
-                }}
-              >
-                {file.status}
-              </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {file.path}
-              </span>
-            </button>
-          ))
-        )}
+        <HistoryItemChangeList
+          files={files}
+          paddingX={space[3]}
+          rowPaddingY={2}
+          loading="Loading changes…"
+          getLabel={(file) => file.path}
+          onOpenFile={(file) => onOpenFile(file.path, parent)}
+        />
       </div>
     </div>
   );
 };
-
-const statusTone = (status: string): string =>
-  status === 'A'
-    ? color.success
-    : status === 'D'
-      ? color.danger
-      : status === 'R' || status === 'C'
-        ? color.accent
-        : color.warning;
