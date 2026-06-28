@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID,
   closeEditorOverlayPatch,
   isOpenFileDeletedByEntry,
   isWorkspaceEditorOverlayOpen,
@@ -14,7 +19,10 @@ import {
   rebindOpenFileForEntryRename,
   rebindOpenFileForRename,
   toggleCanvasEditingCard,
+  workspaceEditorInputFromSnapshot,
   workspaceEditorOverlayKind,
+  workspaceEditorOverlayKindFromInput,
+  workspaceEditorOverlayPatchFromInput,
   workspaceRefreshPatch,
 } from '../src/workbench/services/workspace/browser/workspaceModel.js';
 
@@ -76,6 +84,88 @@ describe('workspaceModel', () => {
     });
   });
 
+  it('projects legacy overlay fields into VS Code-style editor inputs', () => {
+    expect(
+      workspaceEditorInputFromSnapshot({
+        openFile: 'a.md',
+        openMatchQuery: 'needle',
+        gitDiff: null,
+        gitGraphOpen: false,
+        mergeFile: null,
+        prView: null,
+      }),
+    ).toEqual({
+      typeId: WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID,
+      resource: 'a.md',
+      matchQuery: 'needle',
+    });
+
+    expect(
+      workspaceEditorInputFromSnapshot({
+        openFile: null,
+        gitDiff: {
+          path: 'src/app.ts',
+          staged: false,
+          leftRef: 'HEAD^',
+          rightRef: 'HEAD',
+          title: 'app.ts',
+        },
+        gitGraphOpen: false,
+        mergeFile: null,
+        prView: null,
+      }),
+    ).toEqual({
+      typeId: WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+      resource: 'src/app.ts',
+      path: 'src/app.ts',
+      staged: false,
+      leftRef: 'HEAD^',
+      rightRef: 'HEAD',
+      title: 'app.ts',
+    });
+  });
+
+  it('round-trips editor inputs through the compatibility overlay patch', () => {
+    expect(
+      workspaceEditorOverlayPatchFromInput({
+        typeId: WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
+        resource: undefined,
+      }),
+    ).toMatchObject({ gitGraphOpen: true, openFile: null, gitDiff: null });
+
+    expect(
+      workspaceEditorOverlayPatchFromInput({
+        typeId: WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
+        resource: 'conflicted.md',
+      }),
+    ).toMatchObject({ mergeFile: 'conflicted.md', openFile: null, gitGraphOpen: false });
+
+    expect(
+      workspaceEditorOverlayPatchFromInput({
+        typeId: WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID,
+        resource: 'https://github.com/acme/repo/pull/12',
+        number: 12,
+        title: 'Ship',
+        remoteUrl: 'https://github.com/acme/repo.git',
+        url: 'https://github.com/acme/repo/pull/12',
+      }),
+    ).toMatchObject({
+      prView: { number: 12 },
+      openFile: null,
+      gitGraphOpen: false,
+    });
+
+    expect(workspaceEditorOverlayPatchFromInput(null)).toEqual({
+      openFile: null,
+      currentFile: null,
+      openMatchQuery: null,
+      gitDiff: null,
+      gitGraphOpen: false,
+      mergeFile: null,
+      prView: null,
+    });
+  });
+
   it('detects overlay kinds with the same priority as the editor overlay renderer', () => {
     expect(
       workspaceEditorOverlayKind({
@@ -104,6 +194,14 @@ describe('workspaceModel', () => {
         prView: { number: 1, title: 'PR', remoteUrl: 'origin', url: 'https://example.com' },
       }),
     ).toBe('pullRequest');
+    expect(
+      workspaceEditorOverlayKindFromInput({
+        typeId: WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+        resource: 'a.md',
+        path: 'a.md',
+        staged: false,
+      }),
+    ).toBe('gitDiff');
   });
 
   it('preserves the live surface when a workspace rename keeps the same path', () => {

@@ -23,8 +23,50 @@ export interface PullRequestEditorInput {
   readonly url: string;
 }
 
+export const WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID =
+  'workbench.editors.resourceEditorInput' as const;
+export const WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID = 'workbench.editors.diffEditorInput' as const;
+export const WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID = 'basehalf.editors.gitGraphInput' as const;
+export const WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID = 'basehalf.editors.mergeEditorInput' as const;
+export const WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID =
+  'basehalf.editors.pullRequestEditorInput' as const;
+
+export interface WorkspaceResourceEditorInput {
+  readonly typeId: typeof WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID;
+  readonly resource: string;
+  readonly matchQuery: string | null;
+}
+
+export type WorkspaceDiffEditorInput = GitDiffEditorInput & {
+  readonly typeId: typeof WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID;
+  readonly resource: string;
+};
+
+export interface WorkspaceGitGraphEditorInput {
+  readonly typeId: typeof WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID;
+  readonly resource: undefined;
+}
+
+export interface WorkspaceMergeEditorInput {
+  readonly typeId: typeof WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID;
+  readonly resource: string;
+}
+
+export type WorkspacePullRequestEditorInput = PullRequestEditorInput & {
+  readonly typeId: typeof WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID;
+  readonly resource: string;
+};
+
+export type WorkspaceEditorInput =
+  | WorkspaceResourceEditorInput
+  | WorkspaceDiffEditorInput
+  | WorkspaceGitGraphEditorInput
+  | WorkspaceMergeEditorInput
+  | WorkspacePullRequestEditorInput;
+
 export interface WorkspaceEditorOverlaySnapshot {
   readonly openFile: string | null;
+  readonly openMatchQuery?: string | null;
   readonly gitDiff: GitDiffEditorInput | null;
   readonly gitGraphOpen: boolean;
   readonly mergeFile: string | null;
@@ -74,15 +116,12 @@ export interface WorkspaceSurfacePatch {
 export const openEditorOverlayPatch = (
   file: string,
   opts: { readonly matchQuery?: string | null } = {},
-): WorkspaceEditorOverlayPatch => ({
-  openFile: file,
-  currentFile: file,
-  openMatchQuery: opts.matchQuery ?? null,
-  gitDiff: null,
-  gitGraphOpen: false,
-  mergeFile: null,
-  prView: null,
-});
+): WorkspaceEditorOverlayPatch =>
+  workspaceEditorOverlayPatchFromInput({
+    typeId: WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID,
+    resource: file,
+    matchQuery: opts.matchQuery ?? null,
+  });
 
 export const closeEditorOverlayPatch = (): {
   openFile: null;
@@ -94,60 +133,147 @@ export const closeEditorOverlayPatch = (): {
   openMatchQuery: null,
 });
 
-export const openGitDiffOverlayPatch = (
-  gitDiff: GitDiffEditorInput,
-): WorkspaceEditorOverlayPatch => ({
-  openFile: null,
-  currentFile: null,
-  openMatchQuery: null,
-  gitDiff,
-  gitGraphOpen: false,
-  mergeFile: null,
-  prView: null,
-});
+export const openGitDiffOverlayPatch = (gitDiff: GitDiffEditorInput): WorkspaceEditorOverlayPatch =>
+  workspaceEditorOverlayPatchFromInput({
+    ...gitDiff,
+    typeId: WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+    resource: gitDiff.path,
+  });
 
-export const openGitGraphOverlayPatch = (): WorkspaceEditorOverlayPatch => ({
-  openFile: null,
-  currentFile: null,
-  openMatchQuery: null,
-  gitDiff: null,
-  gitGraphOpen: true,
-  mergeFile: null,
-  prView: null,
-});
+export const openGitGraphOverlayPatch = (): WorkspaceEditorOverlayPatch =>
+  workspaceEditorOverlayPatchFromInput({
+    typeId: WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
+    resource: undefined,
+  });
 
-export const openMergeOverlayPatch = (mergeFile: string): WorkspaceEditorOverlayPatch => ({
-  openFile: null,
-  currentFile: null,
-  openMatchQuery: null,
-  gitDiff: null,
-  gitGraphOpen: false,
-  mergeFile,
-  prView: null,
-});
+export const openMergeOverlayPatch = (mergeFile: string): WorkspaceEditorOverlayPatch =>
+  workspaceEditorOverlayPatchFromInput({
+    typeId: WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
+    resource: mergeFile,
+  });
 
 export const openPullRequestOverlayPatch = (
   prView: PullRequestEditorInput,
-): WorkspaceEditorOverlayPatch => ({
-  openFile: null,
-  currentFile: null,
-  openMatchQuery: null,
-  gitDiff: null,
-  gitGraphOpen: false,
-  mergeFile: null,
-  prView,
-});
+): WorkspaceEditorOverlayPatch =>
+  workspaceEditorOverlayPatchFromInput({
+    ...prView,
+    typeId: WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID,
+    resource: prView.url,
+  });
+
+export const workspaceEditorInputFromSnapshot = (
+  state: WorkspaceEditorOverlaySnapshot,
+): WorkspaceEditorInput | null => {
+  if (state.prView !== null) {
+    return {
+      ...state.prView,
+      typeId: WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID,
+      resource: state.prView.url,
+    };
+  }
+  if (state.mergeFile !== null) {
+    return {
+      typeId: WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
+      resource: state.mergeFile,
+    };
+  }
+  if (state.gitGraphOpen) {
+    return {
+      typeId: WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
+      resource: undefined,
+    };
+  }
+  if (state.gitDiff !== null) {
+    return {
+      ...state.gitDiff,
+      typeId: WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+      resource: state.gitDiff.path,
+    };
+  }
+  if (state.openFile !== null) {
+    return {
+      typeId: WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID,
+      resource: state.openFile,
+      matchQuery: state.openMatchQuery ?? null,
+    };
+  }
+  return null;
+};
+
+export const workspaceEditorOverlayKindFromInput = (
+  input: WorkspaceEditorInput | null,
+): WorkspaceEditorOverlayKind => {
+  switch (input?.typeId) {
+    case WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID:
+      return 'pullRequest';
+    case WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID:
+      return 'merge';
+    case WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID:
+      return 'gitGraph';
+    case WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID:
+      return 'gitDiff';
+    case WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID:
+      return 'file';
+    case undefined:
+      return null;
+  }
+};
+
+export const workspaceEditorOverlayPatchFromInput = (
+  input: WorkspaceEditorInput | null,
+): WorkspaceEditorOverlayPatch => {
+  const closed = {
+    openFile: null,
+    currentFile: null,
+    openMatchQuery: null,
+    gitDiff: null,
+    gitGraphOpen: false,
+    mergeFile: null,
+    prView: null,
+  } satisfies WorkspaceEditorOverlayPatch;
+
+  switch (input?.typeId) {
+    case WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID:
+      return {
+        ...closed,
+        openFile: input.resource,
+        currentFile: input.resource,
+        openMatchQuery: input.matchQuery,
+      };
+    case WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID:
+      return {
+        ...closed,
+        gitDiff: {
+          path: input.path,
+          staged: input.staged,
+          ...(input.leftRef !== undefined ? { leftRef: input.leftRef } : {}),
+          ...(input.rightRef !== undefined ? { rightRef: input.rightRef } : {}),
+          ...(input.title !== undefined ? { title: input.title } : {}),
+        },
+      };
+    case WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID:
+      return { ...closed, gitGraphOpen: true };
+    case WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID:
+      return { ...closed, mergeFile: input.resource };
+    case WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID:
+      return {
+        ...closed,
+        prView: {
+          number: input.number,
+          title: input.title,
+          remoteUrl: input.remoteUrl,
+          url: input.url,
+        },
+      };
+    case undefined:
+      return closed;
+  }
+};
 
 export const workspaceEditorOverlayKind = (
   state: WorkspaceEditorOverlaySnapshot,
-): WorkspaceEditorOverlayKind => {
-  if (state.prView !== null) return 'pullRequest';
-  if (state.mergeFile !== null) return 'merge';
-  if (state.gitGraphOpen) return 'gitGraph';
-  if (state.gitDiff !== null) return 'gitDiff';
-  if (state.openFile !== null) return 'file';
-  return null;
-};
+): WorkspaceEditorOverlayKind =>
+  workspaceEditorOverlayKindFromInput(workspaceEditorInputFromSnapshot(state));
 
 export const isWorkspaceEditorOverlayOpen = (state: WorkspaceEditorOverlaySnapshot): boolean =>
   workspaceEditorOverlayKind(state) !== null;

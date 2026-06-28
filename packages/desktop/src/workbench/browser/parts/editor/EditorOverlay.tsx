@@ -6,7 +6,13 @@ import { UnifiedDiffView } from '../../../contrib/multiDiffEditor/browser/Unifie
 import { GitGraphView } from '../../../contrib/scm/browser/GitGraphView.js';
 import { useTerminalStore } from '../../../contrib/terminal/browser/terminalStore.js';
 import {
+  WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID,
+  WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID,
   isWorkspaceEditorOverlayOpen,
+  workspaceEditorInputFromSnapshot,
   workspaceEditorOverlayKind,
 } from '../../../services/workspace/browser/workspaceModel.js';
 import {
@@ -33,21 +39,17 @@ import { FilePreview } from './FilePreview.js';
  * but BELOW the Sidebar (z-index 6) so the nav stays clickable — you can click
  * another file there to switch the open file without first closing.
  *
- * Renders `null` when no file is open. There is no ✕: you leave by clicking an
- * ancestor crumb, or with Esc / ⌘W (both guarded against IME composition + an
- * editable surface that needs Esc for its own dismiss).
+ * Renders `null` when no editor input is open. There is no ✕ for file inputs:
+ * you leave by clicking an ancestor crumb, or with Esc / ⌘W (both guarded
+ * against IME composition + an editable surface that needs Esc for its own
+ * dismiss).
  */
 export const EditorOverlay = (): JSX.Element | null => {
-  const openFile = useWorkspaceStore((s) => s.openFile);
-  const gitDiff = useWorkspaceStore((s) => s.gitDiff);
+  const activeEditor = useWorkspaceStore(workspaceEditorInputFromSnapshot);
   const closeGitDiff = useWorkspaceStore((s) => s.closeGitDiff);
-  const gitGraphOpen = useWorkspaceStore((s) => s.gitGraphOpen);
   const closeGitGraph = useWorkspaceStore((s) => s.closeGitGraph);
-  const mergeFile = useWorkspaceStore((s) => s.mergeFile);
   const closeMerge = useWorkspaceStore((s) => s.closeMerge);
-  const prView = useWorkspaceStore((s) => s.prView);
   const closePr = useWorkspaceStore((s) => s.closePr);
-  const overlayOpen = useWorkspaceStore(isWorkspaceEditorOverlayOpen);
   // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
   // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
   // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
@@ -118,7 +120,7 @@ export const EditorOverlay = (): JSX.Element | null => {
     [close],
   );
 
-  if (!overlayOpen) return null;
+  if (activeEditor === null) return null;
 
   return (
     <div
@@ -141,37 +143,41 @@ export const EditorOverlay = (): JSX.Element | null => {
         fontFamily: font.sans,
       }}
     >
-      {prView !== null ? (
+      {activeEditor.typeId === WORKSPACE_PULL_REQUEST_EDITOR_INPUT_TYPE_ID ? (
         <PullRequestView
-          key={`${prView.remoteUrl}#${prView.number}`}
-          number={prView.number}
-          title={prView.title}
-          remoteUrl={prView.remoteUrl}
-          url={prView.url}
+          key={`${activeEditor.remoteUrl}#${activeEditor.number}`}
+          number={activeEditor.number}
+          title={activeEditor.title}
+          remoteUrl={activeEditor.remoteUrl}
+          url={activeEditor.url}
           onClose={closePr}
         />
-      ) : mergeFile !== null ? (
-        <MergeEditor key={mergeFile} path={mergeFile} onClose={closeMerge} />
-      ) : gitGraphOpen ? (
+      ) : activeEditor.typeId === WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID ? (
+        <MergeEditor
+          key={activeEditor.resource}
+          path={activeEditor.resource}
+          onClose={closeMerge}
+        />
+      ) : activeEditor.typeId === WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID ? (
         <GitGraphView onClose={closeGitGraph} />
-      ) : gitDiff !== null ? (
+      ) : activeEditor.typeId === WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID ? (
         <UnifiedDiffView
-          key={`${gitDiff.path}:${gitDiff.staged}:${gitDiff.rightRef ?? ''}`}
-          path={gitDiff.path}
-          staged={gitDiff.staged}
-          leftRef={gitDiff.leftRef}
-          rightRef={gitDiff.rightRef}
-          title={gitDiff.title}
+          key={`${activeEditor.path}:${activeEditor.staged}:${activeEditor.rightRef ?? ''}`}
+          path={activeEditor.path}
+          staged={activeEditor.staged}
+          leftRef={activeEditor.leftRef}
+          rightRef={activeEditor.rightRef}
+          title={activeEditor.title}
           onClose={closeGitDiff}
         />
-      ) : openFile !== null ? (
+      ) : activeEditor.typeId === WORKSPACE_RESOURCE_EDITOR_INPUT_TYPE_ID ? (
         <>
           <Breadcrumb />
           <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
             {/* A stable synthetic paneId keys this file's flusher in the editorFlush
                 registry; FilePreview itself keys the editor by workspace-root + path,
                 so a switch remounts cleanly. */}
-            <FilePreview file={openFile} paneId={EDITOR_OVERLAY_PANE_ID} isActive />
+            <FilePreview file={activeEditor.resource} paneId={EDITOR_OVERLAY_PANE_ID} isActive />
           </div>
         </>
       ) : null}
