@@ -2,6 +2,10 @@ import type {
   QuickAccessProviderDescriptor,
   QuickAccessProviderHelp,
 } from '../../../platform/quickinput/common/quickAccess.js';
+import {
+  type CheckoutTarget,
+  checkoutTargetForRef,
+} from '../../contrib/scm/browser/branchCheckoutModel.js';
 import type {
   CommandPaletteAction,
   CommandPaletteFileEntry,
@@ -43,11 +47,6 @@ export interface CommandPaletteSearchHit {
   readonly matches: readonly {
     readonly text: string;
   }[];
-}
-
-export interface CommandPaletteCheckoutTarget {
-  readonly branch: string;
-  readonly track?: boolean;
 }
 
 export interface BuildCommandPaletteActionsBaseArgs {
@@ -327,7 +326,7 @@ export function buildGitEntityActions(args: {
   readonly resolveCheckoutTarget?: (
     branch: CommandPaletteGitRefInfo,
     refs: readonly CommandPaletteGitRefInfo[],
-  ) => CommandPaletteCheckoutTarget;
+  ) => CheckoutTarget;
   readonly revealCommit: (hash: string) => void;
 }): CommandPaletteAction[] {
   const q = args.query.trim().toLowerCase();
@@ -353,7 +352,7 @@ export function buildGitEntityActions(args: {
         }
         const target =
           args.resolveCheckoutTarget?.(branch, args.git.branches) ??
-          checkoutTargetForQuickAccessRef(branch, args.git.branches);
+          checkoutTargetForRef(branch, args.git.branches);
         args.runGit(() =>
           args.gitService.checkout(
             target.branch,
@@ -391,16 +390,4 @@ export function combineCommandPaletteRows(
   gitMatches: readonly CommandPaletteAction[],
 ): CommandPaletteAction[] {
   return [...filtered, ...contentActions, ...gitMatches];
-}
-
-export function checkoutTargetForQuickAccessRef(
-  ref: CommandPaletteGitRefInfo,
-  refs: readonly CommandPaletteGitRefInfo[] = [],
-): CommandPaletteCheckoutTarget {
-  if (ref.type !== 'remoteHead') return { branch: ref.name };
-  const tracking = refs.find(
-    (candidate) => candidate.type === 'head' && candidate.upstream === ref.name,
-  );
-  if (tracking !== undefined) return { branch: tracking.name };
-  return { branch: ref.name, track: true };
 }

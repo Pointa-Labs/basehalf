@@ -1,14 +1,15 @@
 import type { QuickPickOption } from '../../../../platform/quickinput/common/quickInput.js';
 import type { GitRefInfo } from '../common/git.js';
+export {
+  type CheckoutTarget,
+  checkoutTargetForRef,
+  defaultBranchNameFromRef,
+  detachedCheckoutTargetForRef,
+  trackingBranchForRemote,
+} from './branchCheckoutModel.js';
 
 export type BranchQuickPickMode = 'switch' | 'merge';
 export type BranchQuickPickCommand = 'cmd:create' | 'cmd:createFrom' | 'cmd:checkoutDetached';
-
-export interface CheckoutTarget {
-  readonly branch: string;
-  readonly track?: boolean;
-  readonly detached?: boolean;
-}
 
 const CHECKOUT_BLOCKED_RE =
   /would be overwritten by checkout|local changes to the following files would be overwritten|untracked working tree files would be overwritten|please commit your changes or stash/i;
@@ -73,24 +74,6 @@ export const filterBranches = (
   return branches.filter((branch) => branch.name.toLowerCase().includes(needle));
 };
 
-export const checkoutTargetForRef = (
-  ref: GitRefInfo,
-  refs: readonly GitRefInfo[] = [],
-): CheckoutTarget => {
-  if (ref.type !== 'remoteHead') return { branch: ref.name };
-  const tracking = trackingBranchForRemote(ref, refs);
-  if (tracking !== undefined) return { branch: tracking.name };
-  return { branch: ref.name, track: true };
-};
-
-export const detachedCheckoutTargetForRef = (ref: {
-  readonly name: string;
-  readonly commit?: string;
-}): CheckoutTarget => ({
-  branch: ref.commit ?? ref.name,
-  detached: true,
-});
-
 export const branchOption = (branch: GitRefInfo): QuickPickOption => {
   const hint = branch.current
     ? 'current branch'
@@ -140,22 +123,6 @@ export const createBranchFromPickOptions = (
 export const createDetachedCheckoutPickOptions = (
   refs: readonly GitRefInfo[],
 ): readonly QuickPickOption[] => createRefPickOptions(refs.filter((ref) => ref.type !== 'tag'));
-
-export function defaultBranchNameFromRef(ref: GitRefInfo): string {
-  if (ref.type !== 'remoteHead' || ref.remote === undefined) return ref.name;
-  const prefix = `${ref.remote}/`;
-  return ref.name.startsWith(prefix) ? ref.name.slice(prefix.length) : ref.name;
-}
-
-export function trackingBranchForRemote(
-  remoteRef: GitRefInfo,
-  refs: readonly GitRefInfo[],
-): GitRefInfo | undefined {
-  if (remoteRef.type !== 'remoteHead') return undefined;
-  return refs.find(
-    (candidate) => candidate.type === 'head' && candidate.upstream === remoteRef.name,
-  );
-}
 
 export const canDeleteBranch = (branch: GitRefInfo, mode: BranchQuickPickMode): boolean =>
   !branch.current && branch.type === 'head' && mode === 'switch';

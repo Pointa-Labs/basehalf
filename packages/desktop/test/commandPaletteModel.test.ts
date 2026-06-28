@@ -13,9 +13,9 @@ import {
   buildCommandPaletteActions,
   buildContentSearchActions,
   buildGitEntityActions,
-  checkoutTargetForQuickAccessRef,
   commandPaletteProviderIncludesAdditionalPicks,
 } from '../src/workbench/browser/quickaccess/commandPaletteProviders.js';
+import { checkoutTargetForRef } from '../src/workbench/contrib/scm/browser/branchCheckoutModel.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
@@ -329,13 +329,13 @@ describe('commandPaletteModel', () => {
     expect(checkout).not.toHaveBeenCalled();
   });
 
-  it('resolves remote branch checkout targets without importing SCM browser internals', () => {
+  it('resolves remote branch checkout targets through the shared SCM model', () => {
     const tracked = branch('feature-x', { upstream: 'origin/feature-x' });
 
-    expect(checkoutTargetForQuickAccessRef(remote('origin/feature-x'), [tracked])).toEqual({
+    expect(checkoutTargetForRef(remote('origin/feature-x'), [tracked])).toEqual({
       branch: 'feature-x',
     });
-    expect(checkoutTargetForQuickAccessRef(remote('origin/new-branch'), [tracked])).toEqual({
+    expect(checkoutTargetForRef(remote('origin/new-branch'), [tracked])).toEqual({
       branch: 'origin/new-branch',
       track: true,
     });
