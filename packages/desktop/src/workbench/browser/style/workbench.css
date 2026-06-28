@@ -1,0 +1,645 @@
+/*
+ * BaseHalf renderer globals — base reset + animation keyframes.
+ *
+ * Inline styles do everything else; this file is only for things you
+ * can't express via React style props (pseudo-classes, keyframes,
+ * scrollbar styling, focus rings on inputs we render with native tags).
+ */
+
+/* Bundled monospace face for the embedded terminal — SIL Open Font License 1.1
+ * (license text + origin: style/assets/fonts/OFL.txt). Aliased to a neutral family so
+ * the terminal renders the same regardless of what's installed on the machine,
+ * and bundled so it ships in the packaged app. */
+@font-face {
+  font-family: "BH Mono";
+  src: url("./assets/fonts/bh-mono-regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --bh-accent: #0078d4;
+  --bh-text-ghost: #6e6e6e;
+  --bh-card-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --bh-card-mono-font: "SF Mono", ui-monospace, Menlo, monospace;
+  --bh-card-font-size: 11px;
+  --bh-card-line-height: 1.5;
+  --bh-card-text: #9d9d9d;
+  --bh-card-strong-text: #cccccc;
+  --bh-card-muted-text: #808080;
+  --bh-card-heading-weight: 600;
+  --bh-card-heading-line-height: 1.25;
+  --bh-card-h1-size: 15px;
+  --bh-card-h2-size: 13px;
+  --bh-card-h3-size: 12px;
+  --bh-card-h4-size: 11px;
+  /* Block rhythm shared by BOTH card render paths — the live BlockNote editor
+     (.bh-card-editor) AND the static resting preview (.bh-md-preview). They
+     are different DOM (ProseMirror blocks vs. lossy semantic HTML), so the
+     ONLY way they stay visually identical is to read every spacing value from
+     the same token. Block padding is symmetric (top+bottom), so the gap
+     between two adjacent blocks is 2× this. */
+  --bh-card-block-pad-y: 1.5px;
+  /* Extra breathing room ABOVE a heading, so a section break reads as one in
+     both the editor and the preview. */
+  --bh-card-heading-pad-top: 6px;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: #1e1e1e;
+  color: #cccccc;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars modelled on the editor's: a flat (un-rounded) grey slider over a
+ * transparent track, brightening on hover / drag. No always-on track. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.7);
+}
+::-webkit-scrollbar-thumb:active {
+  background: rgba(191, 191, 191, 0.4);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dialog + menu animations. CSS keyframes are reused everywhere
+ * a layer appears, so they live here rather than inlined per-component. */
+@keyframes bh-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes bh-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bh-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bh-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Continuous rotation — the status-bar sync glyph while a pull/push is in flight. */
+@keyframes bh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The update chip's indeterminate download fill — used only when the total size
+   is unknown (no percentage to show), so a sliver sweeps across to signal motion
+   instead of a frozen-looking bar. */
+@keyframes bh-chip-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* Native text inputs: subtle focus ring matching our accent.
+ * Specific selectors avoid clobbering BlockNote's own input styling. */
+input[type="text"]:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+textarea.bh-scm-commit-input::placeholder {
+  color: #989898;
+  opacity: 1;
+}
+
+textarea.bh-scm-commit-input:focus,
+textarea.bh-scm-commit-input:focus-visible {
+  outline: 1px solid #0078d4;
+  outline-offset: -1px;
+}
+
+/* Selected file row in NavTree gets a left accent bar — implemented via
+ * an inset box-shadow so width stays stable across selected/unselected. */
+.bh-nav-row[data-selected="true"] {
+  box-shadow: inset 3px 0 0 var(--bh-accent);
+}
+
+/* React-flow paints selected edges in its default red. Override to our
+ * accent so selection feels cohesive with the rest of the chrome. */
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: var(--bh-accent);
+  stroke-width: 2;
+}
+
+/* While an existing edge is being reconnected, the gesture owns the cursor.
+ * Without this global lock, hovering over card buttons / target hit zones /
+ * the pane swaps between pointer and grab several times per second. */
+body.bh-edge-reconnecting,
+body.bh-edge-reconnecting * {
+  cursor: grabbing !important;
+}
+
+/* Canvas connect handles stay quiet by default. A single dot appears only on
+ * the side the pointer is near; the card body stays clean. */
+.react-flow__node-badge .react-flow__handle.bh-connect-handle {
+  opacity: 0;
+  pointer-events: none;
+  transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms
+    cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms
+    cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* Topbar uses overflow-x: auto so contextual buttons (rename / edit
+ * prompt / delete view / folder scope / etc.) can stack up without
+ * clipping. Hide the scrollbar visually — wheel/trackpad still scrolls. */
+header::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
+/* The terminal dock's tab row scrolls horizontally when tabs overflow (VS-Code
+ * tab logic). Hide the scrollbar in the 32px strip — wheel/trackpad still
+ * scrolls — so it doesn't eat the tab height. */
+[data-term-tabs]::-webkit-scrollbar {
+  height: 0;
+  display: none;
+}
+
+.react-flow__node-badge .react-flow__handle.bh-connect-point-handle[data-active="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.react-flow__node-badge .react-flow__handle.bh-connect-target-handle {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.react-flow__node-badge .react-flow__resize-control {
+  z-index: 12;
+  pointer-events: all;
+}
+
+.react-flow__node-badge .bh-node-resize-line {
+  opacity: 0;
+}
+
+.react-flow__node-badge .bh-node-resize-line.left,
+.react-flow__node-badge .bh-node-resize-line.right {
+  width: 10px;
+  top: 0;
+  height: 100%;
+}
+
+.react-flow__node-badge .bh-node-resize-line.left {
+  transform: translate(-50%, 0);
+}
+
+.react-flow__node-badge .bh-node-resize-line.right {
+  transform: translate(-50%, 0);
+}
+
+.react-flow__node-badge .bh-node-resize-line.top,
+.react-flow__node-badge .bh-node-resize-line.bottom {
+  height: 10px;
+  left: 0;
+  width: 100%;
+}
+
+.react-flow__node-badge .bh-node-resize-line.top {
+  transform: translate(0, -50%);
+}
+
+.react-flow__node-badge .bh-node-resize-line.bottom {
+  transform: translate(0, -50%);
+}
+
+.react-flow__node-badge .bh-node-resize-handle {
+  translate: -50% -50%;
+  opacity: 0;
+  pointer-events: all;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* The MD editor (BlockNote / Mantine) inherits the pane surface instead of its
+   own darker background, so the editor area never reads as an inset "card" with
+   a frame. It already fills the pane width (FilePreview is a flex item that
+   grows); this just removes the bg seam around the gutter. */
+.bn-container,
+.bn-editor {
+  background-color: transparent !important;
+}
+
+/* The document title input (NoteTitle.tsx). Only the placeholder color
+   needs CSS — inline styles can't target ::placeholder. Matches color.textGhost. */
+.bh-note-title::placeholder {
+  color: #6e6e6e;
+}
+
+/* The document Badge zone's prompt textarea placeholder (NoteBadge.tsx). One
+   step brighter than the title placeholder (textTertiary, not ghost) so the
+   borderless field still meets the placeholder contrast floor. */
+.bh-badge-prompt::placeholder {
+  color: #808080;
+}
+
+/* Compact BlockNote surface used only inside canvas file cards. Preview and
+   edit mode share this card typography contract, so entering edit mode does
+   not swap fonts, color, or text rhythm under the user's cursor. */
+.bh-card-editor.bn-container {
+  font-family: var(--bh-card-font);
+  color: var(--bh-card-text);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  --mantine-font-family: var(--bh-card-font);
+  --mantine-font-family-headings: var(--bh-card-font);
+  --mantine-heading-font-weight: var(--bh-card-heading-weight);
+  --mantine-font-size-xs: 10px;
+  --mantine-font-size-sm: var(--bh-card-font-size);
+  --mantine-font-size-md: var(--bh-card-font-size);
+  --mantine-line-height: var(--bh-card-line-height);
+  --mantine-h1-font-size: var(--bh-card-h1-size);
+  --mantine-h2-font-size: var(--bh-card-h2-size);
+  --mantine-h3-font-size: var(--bh-card-h3-size);
+  --mantine-h4-font-size: var(--bh-card-h4-size);
+}
+
+.bh-card-editor .bn-editor {
+  min-height: 100%;
+  padding: 0 !important;
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+  caret-color: var(--bh-accent);
+}
+
+.bh-card-editor .bn-editor.bn-default-styles,
+.bh-card-editor .bn-default-styles {
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+}
+
+.bh-md-editor-card .bh-md-editor-scroll {
+  scrollbar-width: none;
+}
+
+.bh-md-editor-card .bh-md-editor-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ADHD reading aids on the rich Markdown editor (lib/adhdHighlight, painted as
+   ProseMirror decorations — never document content). Read vs unread is a two-tone
+   contrast: unread prose is brought to a crisp reading tone so it's the obvious focus,
+   while a read block recedes to a clearly muted one. The tones are EXPLICIT (not a
+   relative opacity fade) on purpose — the editor's base text is itself a muted gray, so
+   fading a read block by opacity alone left two low-energy grays whose gap was too weak
+   to see. A keyword hit keeps its soft amber in either state (the .bh-adhd-kw color is
+   set on the span itself, so it wins over the inherited block tone). */
+.bh-adhd-unread {
+  color: #dcdcdc;
+  transition: color var(--bh-transition, 120ms) ease;
+}
+
+.bh-adhd-read {
+  color: #5e5e5e;
+  transition: color var(--bh-transition, 120ms) ease;
+}
+
+.bh-adhd-kw {
+  background: #3a2f00;
+  color: #cca700;
+  border-radius: 2px;
+}
+
+/* Per-block read checkbox (lib/adhdHighlight widget), present only in reading
+   mode. The box sits in a reserved RIGHT gutter — the LEFT margin belongs to
+   BlockNote's side menu (the + / drag handle), so a left checkbox collided with
+   it; the right edge is free. Clicking it (delegated in AdhdControls) marks the
+   block read/unread. */
+.bh-adhd-blk {
+  position: relative;
+  padding-right: 1.8em;
+}
+
+.bh-adhd-check {
+  position: absolute;
+  right: 0;
+  top: 0.2em;
+  width: 15px;
+  height: 15px;
+  box-sizing: border-box;
+  /* A visible resting state — a filled box on the chrome, not a hover-only
+     outline — so the per-block read toggle is discoverable at a glance. */
+  border: 1.5px solid #454545;
+  border-radius: 3px;
+  background: #252526;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.bh-adhd-check:hover {
+  border-color: #0078d4;
+  background: #2a2d2e;
+}
+
+.bh-adhd-check--on {
+  background: #0078d4;
+  border-color: #0078d4;
+}
+
+.bh-adhd-check--on::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  color: #fff;
+}
+
+/* Read-only Markdown tile preview: the SAME typography contract as the card
+   editor (--bh-card-*), applied to the static, sanitized HTML from badge-node/mdRender,
+   so a resting .md card reads like the note (rendered — not raw source) and
+   entering edit mode does not swap fonts, sizes, or rhythm. No editor mounts
+   here; this is plain DOM behind a fade mask, so a taller card shows more. */
+.bh-md-preview {
+  font-family: var(--bh-card-font);
+  font-size: var(--bh-card-font-size);
+  line-height: var(--bh-card-line-height);
+  color: var(--bh-card-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Block rhythm MUST match the live editor's (.bh-card-editor .bn-block-content,
+   padding: var(--bh-card-block-pad-y) 0). The editor spaces blocks with
+   symmetric vertical PADDING, not bottom margin — so the preview does too, off
+   the same token. Using margin here (the old `margin-bottom: font-size`) made a
+   resting .md tile noticeably looser than the same note under the cursor. */
+.bh-md-preview p,
+.bh-md-preview ul,
+.bh-md-preview ol,
+.bh-md-preview pre,
+.bh-md-preview blockquote {
+  margin: 0;
+  padding: var(--bh-card-block-pad-y) 0;
+}
+/* First/last block sit flush to the card edge (mirrors the editor's
+   first-block padding-top:0 and keeps the fade mask doing the bottom). */
+.bh-md-preview > :first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+.bh-md-preview h1,
+.bh-md-preview h2,
+.bh-md-preview h3,
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  color: var(--bh-card-strong-text);
+  font-weight: var(--bh-card-heading-weight);
+  line-height: var(--bh-card-heading-line-height);
+  /* Same section-break rhythm as the editor's headings. */
+  margin: 0;
+  padding: var(--bh-card-heading-pad-top) 0 var(--bh-card-block-pad-y) 0;
+}
+.bh-md-preview h1 {
+  font-size: var(--bh-card-h1-size);
+}
+.bh-md-preview h2 {
+  font-size: var(--bh-card-h2-size);
+}
+.bh-md-preview h3 {
+  font-size: var(--bh-card-h3-size);
+}
+.bh-md-preview h4,
+.bh-md-preview h5,
+.bh-md-preview h6 {
+  font-size: var(--bh-card-h4-size);
+}
+.bh-md-preview strong {
+  color: var(--bh-card-strong-text);
+  font-weight: 600;
+}
+.bh-md-preview a {
+  color: var(--bh-accent);
+  text-decoration: none;
+}
+.bh-md-preview ul,
+.bh-md-preview ol {
+  /* The list ITEMS carry the block rhythm (below); the container itself adds
+     only the indent, so a list's top/bottom gap equals the inter-paragraph
+     gap — same as the editor, where list items are just more blocks. */
+  padding: 0 0 0 1.3em;
+}
+.bh-md-preview li {
+  /* List items carry the block rhythm too (editor: every .bn-block-content,
+     list items included, is padded by the same token). */
+  margin: 0;
+  padding: var(--bh-card-block-pad-y) 0;
+}
+.bh-md-preview li > p {
+  /* The <li> already owns the block padding; a nested <p> must not double it. */
+  margin: 0;
+  padding: 0;
+}
+.bh-md-preview code {
+  font-family: var(--bh-card-mono-font);
+  font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.5px 4px;
+  border-radius: 3px;
+}
+.bh-md-preview pre {
+  font-family: var(--bh-card-mono-font);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.bh-md-preview pre code {
+  background: none;
+  padding: 0;
+}
+.bh-md-preview blockquote {
+  margin-left: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--bh-card-muted-text);
+  color: var(--bh-card-muted-text);
+}
+.bh-md-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 3px;
+}
+.bh-md-preview hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 6px 0;
+}
+.bh-md-preview table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.bh-md-preview th,
+.bh-md-preview td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 5px;
+}
+
+.bh-card-editor .bn-block-outer {
+  line-height: var(--bh-card-line-height);
+  transition: none;
+}
+
+.bh-card-editor .bn-block-content {
+  padding: var(--bh-card-block-pad-y) 0;
+  color: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  transition: none;
+}
+
+.bh-card-editor .bn-block-group > .bn-block-outer:first-child > .bn-block > .bn-block-content {
+  padding-top: 0;
+}
+
+.bh-card-editor .bn-block-content::before {
+  transition: none;
+}
+
+.bh-card-editor [data-content-type="heading"] {
+  padding-top: var(--bh-card-heading-pad-top);
+  color: var(--bh-card-strong-text);
+  font-family: var(--bh-card-font);
+  line-height: var(--bh-card-heading-line-height);
+}
+
+.bh-card-editor
+  .bn-block-outer:not([data-prev-type])
+  > .bn-block
+  > .bn-block-content[data-content-type="heading"] {
+  font-size: var(--level);
+  font-weight: var(--bh-card-heading-weight);
+}
+
+.bh-card-editor [data-content-type="heading"] {
+  --level: var(--bh-card-h1-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="2"] {
+  --level: var(--bh-card-h2-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="3"] {
+  --level: var(--bh-card-h3-size);
+}
+
+.bh-card-editor [data-content-type="heading"][data-level="4"],
+.bh-card-editor [data-content-type="heading"][data-level="5"],
+.bh-card-editor [data-content-type="heading"][data-level="6"] {
+  --level: var(--bh-card-h4-size);
+}
+
+.bh-card-editor .bn-inline-content {
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.bh-card-editor [data-content-type="heading"] > .bn-inline-content {
+  font-weight: inherit;
+  letter-spacing: 0;
+}
+
+.bh-card-editor strong,
+.bh-card-editor b {
+  color: var(--bh-card-strong-text);
+  font-weight: var(--bh-card-heading-weight);
+}
+
+.bh-card-editor .bn-block-group .bn-block-group {
+  margin-left: 14px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="numberedListItem"]::before {
+  min-width: 18px;
+  padding-right: 3px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="bulletListItem"]::before {
+  min-width: 14px;
+  padding-right: 3px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="codeBlock"] {
+  border-radius: 4px;
+}
+
+.bh-card-editor .bn-block-content[data-content-type="codeBlock"] > pre {
+  padding: 8px;
+}
+
+.bh-card-editor .bn-trailing-block {
+  height: 16px;
+}
