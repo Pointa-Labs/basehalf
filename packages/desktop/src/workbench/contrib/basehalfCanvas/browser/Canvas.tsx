@@ -18,8 +18,8 @@ import { droppedPaths, handleExternalDrop } from '../../../browser/dnd/importDro
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
 import { color } from '../../../browser/style/design.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
-import { isWorkspaceEditorOverlayOpen } from '../../../services/workspace/browser/workspaceModel.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
+import { isWorkspaceEditorOverlayOpen } from '../../../services/workspace/common/workspaceModel.js';
 import { buildFileMenu } from '../../files/browser/fileMenu.js';
 import { BadgeNode } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';

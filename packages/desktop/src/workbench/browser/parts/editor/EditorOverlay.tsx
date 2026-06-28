@@ -6,6 +6,10 @@ import { UnifiedDiffView } from '../../../contrib/multiDiffEditor/browser/Unifie
 import { GitGraphView } from '../../../contrib/scm/browser/GitGraphView.js';
 import { useTerminalStore } from '../../../contrib/terminal/browser/terminalStore.js';
 import {
+  EDITOR_OVERLAY_PANE_ID,
+  useWorkspaceStore,
+} from '../../../services/workspace/browser/workspaceStore.js';
+import {
   WORKSPACE_DIFF_EDITOR_INPUT_TYPE_ID,
   WORKSPACE_GIT_GRAPH_EDITOR_INPUT_TYPE_ID,
   WORKSPACE_MERGE_EDITOR_INPUT_TYPE_ID,
@@ -14,11 +18,7 @@ import {
   isWorkspaceEditorOverlayOpen,
   workspaceEditorInputFromSnapshot,
   workspaceEditorOverlayKind,
-} from '../../../services/workspace/browser/workspaceModel.js';
-import {
-  EDITOR_OVERLAY_PANE_ID,
-  useWorkspaceStore,
-} from '../../../services/workspace/browser/workspaceStore.js';
+} from '../../../services/workspace/common/workspaceModel.js';
 import { useLayoutStore } from '../../layout/layoutStore.js';
 import { color, font, transition } from '../../style/design.js';
 import { isImeComposing } from '../../ui/imeGuard.js';

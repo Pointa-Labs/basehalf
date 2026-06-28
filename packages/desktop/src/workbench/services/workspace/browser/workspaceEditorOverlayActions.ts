@@ -9,7 +9,7 @@ import {
   openGitGraphOverlayPatch,
   openMergeOverlayPatch,
   openPullRequestOverlayPatch,
-} from './workspaceModel.js';
+} from '../common/workspaceModel.js';
 
 /** The single full-canvas editor overlay's synthetic pane id. The open editor
  *  registers its flusher under this key (editorFlush) so the navigation /

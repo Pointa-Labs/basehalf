@@ -1,15 +1,15 @@
 import { create } from 'zustand';
-import { createWorkspaceEditorOverlayActions } from './workspaceEditorOverlayActions.js';
-import { createWorkspaceFileActions } from './workspaceFileActions.js';
 import {
   rebindCanvasSelectionForRename,
   rebindOpenFileForRename,
   toggleCanvasEditingCard,
-} from './workspaceModel.js';
+} from '../common/workspaceModel.js';
+import { createWorkspaceEditorOverlayActions } from './workspaceEditorOverlayActions.js';
+import { createWorkspaceFileActions } from './workspaceFileActions.js';
 import { createWorkspaceRegistryActions } from './workspaceRegistryActions.js';
 import type { WorkspaceState } from './workspaceStoreTypes.js';
 
-export type { CanvasSelection } from './workspaceModel.js';
+export type { CanvasSelection } from '../common/workspaceModel.js';
 export { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => {

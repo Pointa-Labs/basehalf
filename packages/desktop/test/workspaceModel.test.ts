@@ -24,7 +24,7 @@ import {
   workspaceEditorOverlayKindFromInput,
   workspaceEditorOverlayPatchFromInput,
   workspaceRefreshPatch,
-} from '../src/workbench/services/workspace/browser/workspaceModel.js';
+} from '../src/workbench/services/workspace/common/workspaceModel.js';
 
 describe('workspaceModel', () => {
   it('builds editor overlay open and close patches', () => {

@@ -1,9 +1,6 @@
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { noteStemFromTitle } from '../../editor/browser/noteTitleModel.js';
 import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
-import { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
-import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
-import { emitEntryCreated, emitEntryRemoved, emitEntryRenamed } from './workspaceFileEvents.js';
 import {
   type WorkspaceEntryKind,
   closeEditorOverlayPatch,
@@ -11,7 +8,10 @@ import {
   parentFolderScopeAfterDelete,
   rebaseFolderScopeForRename,
   rebindOpenFileForEntryRename,
-} from './workspaceModel.js';
+} from '../common/workspaceModel.js';
+import { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
+import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
+import { emitEntryCreated, emitEntryRemoved, emitEntryRenamed } from './workspaceFileEvents.js';
 
 interface WorkspaceFileActionState {
   readonly current: string | null;
