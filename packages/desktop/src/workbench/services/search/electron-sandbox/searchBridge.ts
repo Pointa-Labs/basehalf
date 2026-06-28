@@ -1,9 +1,11 @@
 import type { IpcRendererLike } from '../../../../platform/ipc/electron-sandbox/ipcRenderer.js';
-import { SEARCH_IPC_CHANNELS, type SearchChannelBridge } from '../common/search.js';
+import {
+  SEARCH_IPC_CHANNELS,
+  type SearchBridge,
+  type SearchChannelBridge,
+} from '../common/search.js';
 
-export interface SearchBridge {
-  readonly search: SearchChannelBridge;
-}
+export type { SearchBridge } from '../common/search.js';
 
 export function createSearchBridge(ipcRenderer: IpcRendererLike): SearchBridge {
   return {

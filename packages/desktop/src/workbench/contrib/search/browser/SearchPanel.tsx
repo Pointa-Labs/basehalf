@@ -17,7 +17,7 @@ import type { GitLogResult } from '../../scm/common/git.js';
  * count badge and folds open to its matching lines, with the query substring
  * highlighted. Clicking a match opens the file and lands on the matched passage.
  *
- * Reuses the workspace's `search.query` core command (the same retrieval leg the
+ * Reuses the workbench search service (the same retrieval leg the
  * ⌘K palette uses); read-only — it never mutates files.
  */
 
@@ -25,7 +25,7 @@ const MAX_FILES = 40;
 const MAX_PER_FILE = 20;
 type SearchMode = 'content' | 'history';
 
-/** Build the highlight regex matching the core matcher (same case/word/regex
+/** Build the highlight regex matching the search backend matcher (same case/word/regex
  *  semantics), global so a snippet line can highlight EVERY match. null = the
  *  pattern is invalid / empty (renderer falls back to plain text). */
 function buildHighlightRe(

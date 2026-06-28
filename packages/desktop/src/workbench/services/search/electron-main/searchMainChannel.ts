@@ -1,6 +1,5 @@
 import { type WebContents, ipcMain } from 'electron';
-import { SEARCH_IPC_CHANNELS } from '../common/search.js';
-import type { SearchBriefArgs, SearchQueryArgs } from '../common/search.js';
+import { SEARCH_IPC_CHANNELS, asSearchBriefArgs, asSearchQueryArgs } from '../common/search.js';
 import type { SearchMainService } from './searchMainService.js';
 
 type SearchIpcHandler = (event: SearchIpcEvent, payload?: unknown) => unknown;
@@ -24,10 +23,10 @@ export class SearchMainChannel {
 
   register(): void {
     this.ipc.handle(SEARCH_IPC_CHANNELS.query, (event, args) =>
-      this.search.query(this.root(event), args as SearchQueryArgs),
+      this.search.query(this.root(event), asSearchQueryArgs(args)),
     );
     this.ipc.handle(SEARCH_IPC_CHANNELS.brief, (event, args) =>
-      this.search.brief(this.root(event), args as SearchBriefArgs),
+      this.search.brief(this.root(event), asSearchBriefArgs(args)),
     );
   }
 

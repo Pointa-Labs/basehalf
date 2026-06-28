@@ -1,11 +1,9 @@
-import type { SearchQueryArgs, SearchQueryResult } from '../common/search.js';
+import type { SearchService as SearchServiceContract } from '../common/search.js';
 import { type SearchChannel, searchChannel } from './searchChannel.js';
 
-export interface SearchService {
-  query(args: SearchQueryArgs): Promise<SearchQueryResult>;
-}
+export type { SearchService } from '../common/search.js';
 
-export function createSearchService(channel: SearchChannel): SearchService {
+export function createSearchService(channel: SearchChannel): SearchServiceContract {
   return {
     query: (args) => channel.query(args),
   };

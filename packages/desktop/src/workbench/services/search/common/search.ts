@@ -49,3 +49,38 @@ export interface SearchChannelBridge {
   query(args: SearchQueryArgs): Promise<SearchQueryResult>;
   brief(args: SearchBriefArgs): Promise<SearchBriefResult>;
 }
+
+export interface SearchService {
+  query(args: SearchQueryArgs): Promise<SearchQueryResult>;
+}
+
+export interface SearchBridge {
+  readonly search: SearchChannelBridge;
+}
+
+export function asSearchQueryArgs(raw: unknown): SearchQueryArgs {
+  if (typeof raw !== 'object' || raw === null) return { query: '' };
+  const value = raw as Record<string, unknown>;
+  return {
+    query: typeof value.query === 'string' ? value.query : '',
+    ...(typeof value.maxFiles === 'number' && { maxFiles: value.maxFiles }),
+    ...(typeof value.maxMatchesPerFile === 'number' && {
+      maxMatchesPerFile: value.maxMatchesPerFile,
+    }),
+    ...(typeof value.caseSensitive === 'boolean' && { caseSensitive: value.caseSensitive }),
+    ...(typeof value.wholeWord === 'boolean' && { wholeWord: value.wholeWord }),
+    ...(typeof value.regex === 'boolean' && { regex: value.regex }),
+  };
+}
+
+export function asSearchBriefArgs(raw: unknown): SearchBriefArgs {
+  if (typeof raw !== 'object' || raw === null) return { query: '' };
+  const value = raw as Record<string, unknown>;
+  return {
+    query: typeof value.query === 'string' ? value.query : '',
+    ...(typeof value.maxFiles === 'number' && { maxFiles: value.maxFiles }),
+    ...(typeof value.maxMatchesPerFile === 'number' && {
+      maxMatchesPerFile: value.maxMatchesPerFile,
+    }),
+  };
+}
