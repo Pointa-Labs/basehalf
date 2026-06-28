@@ -38,8 +38,7 @@ function fakeIpc(): { handle: ReturnType<typeof vi.fn>; handlers: Map<string, Ha
 describe('AuthenticationMainChannel', () => {
   it('registers session IPC handlers and forwards provider session changes', async () => {
     const ipc = fakeIpc();
-    let sessionListener: ((event: AuthenticationProviderSessionsChangeEvent) => void) | null =
-      null;
+    let sessionListener: ((event: AuthenticationProviderSessionsChangeEvent) => void) | null = null;
     const service = {
       getSessions: vi.fn(async () => []),
       createSession: vi.fn(async () => ({ id: 'github' })),

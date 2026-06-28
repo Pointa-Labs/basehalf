@@ -1,6 +1,6 @@
 import type {
-  AuthenticationSession,
   AuthenticationProviderSessionsChangeEvent,
+  AuthenticationSession,
   AuthenticationSessionsChangeEvent,
 } from '../common/authentication.js';
 
@@ -16,7 +16,7 @@ export interface AuthenticationProvider {
 
 interface RegisteredAuthenticationProvider {
   readonly provider: AuthenticationProvider;
-  readonly disposeSessionListener?: () => void;
+  readonly disposeSessionListener: (() => void) | undefined;
 }
 
 type AuthenticationListener = (event: AuthenticationProviderSessionsChangeEvent) => void;
@@ -69,7 +69,10 @@ export class AuthenticationMainService {
     const before = provider.onDidChangeSessions === undefined ? await provider.getSessions() : [];
     const session = await provider.createSession(secret);
     if (provider.onDidChangeSessions === undefined && session !== null) {
-      this.fireLegacyProviderChange(provider, sessionChangeEvent(before, upsertSession(before, session)));
+      this.fireLegacyProviderChange(
+        provider,
+        sessionChangeEvent(before, upsertSession(before, session)),
+      );
     }
     return session;
   }
@@ -86,7 +89,8 @@ export class AuthenticationMainService {
 
   private provider(providerId: string): AuthenticationProvider {
     const registered = this.providers.get(providerId);
-    if (registered === undefined) throw new Error(`Authentication provider not found: ${providerId}`);
+    if (registered === undefined)
+      throw new Error(`Authentication provider not found: ${providerId}`);
     return registered.provider;
   }
 
