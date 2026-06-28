@@ -25,9 +25,15 @@ const ref = (id: string, name: string, revision?: string): ScmHistoryItemRef => 
 });
 
 describe('scmHistoryViewModel', () => {
-  it('maps resolved history item refs to provider options', () => {
-    expect(scmHistoryOptionsForRefs([ref('refs/heads/main', 'main', 'abc')], 50, 10)).toEqual({
-      historyItemRefs: ['abc'],
+  it('maps resolved history item refs to provider options without treating display names as revisions', () => {
+    expect(
+      scmHistoryOptionsForRefs(
+        [ref('refs/heads/main', 'main', 'abc1234'), ref('refs/heads/798', '798', '798')],
+        50,
+        10,
+      ),
+    ).toEqual({
+      historyItemRefs: ['abc1234', 'refs/heads/798'],
       limit: 50,
       skip: 10,
     });

@@ -5,6 +5,8 @@ import { gitLogArgsForHistoryOptions } from './gitHistoryProvider.js';
 import { historyRefExists } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 
+const GIT_OBJECT_ID = /^[0-9a-f]{7,64}$/i;
+
 export interface GitHistoryPage {
   readonly commits: readonly GitCommit[];
   readonly refs: readonly GitRefInfo[];
@@ -59,10 +61,14 @@ export async function gitHistoryOptionsForSourceFilter({
   }
   const currentRefs = currentHistoryItemRefsToArray(await source.provideCurrentHistoryItemRefs());
   return {
-    historyItemRefs: currentRefs.map((ref) => ref.revision ?? ref.id),
+    historyItemRefs: currentRefs.map(gitHistoryItemRefToProviderRef),
     limit: pageSize,
     skip,
   };
+}
+
+export function gitHistoryItemRefToProviderRef(ref: ScmHistoryItemRef): string {
+  return ref.revision !== undefined && GIT_OBJECT_ID.test(ref.revision) ? ref.revision : ref.id;
 }
 
 export function gitHistoryLogArgsForFilter(
@@ -129,7 +135,7 @@ function currentHistoryItemRefsToArray(
 
   const seen = new Set<string>();
   return out.filter((ref) => {
-    const key = ref.revision ?? ref.id;
+    const key = gitHistoryItemRefToProviderRef(ref);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

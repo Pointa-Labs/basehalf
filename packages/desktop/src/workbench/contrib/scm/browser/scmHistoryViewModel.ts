@@ -8,6 +8,7 @@ import type {
 import type { ScmHistoryFilter } from './scmViewStore.js';
 
 const HEAD_HISTORY_ITEM_REF: ScmHistoryItemRef = { id: 'HEAD', name: 'HEAD' };
+const GIT_OBJECT_ID = /^[0-9a-f]{7,64}$/i;
 
 export interface ScmHistoryPage {
   readonly historyItems: readonly ScmHistoryItem[];
@@ -22,10 +23,14 @@ export function scmHistoryOptionsForRefs(
   skip: number,
 ): ScmHistoryOptions {
   return {
-    historyItemRefs: refs.map((ref) => ref.revision ?? ref.id),
+    historyItemRefs: refs.map(scmHistoryItemRefToProviderRef),
     limit: pageSize,
     skip,
   };
+}
+
+export function scmHistoryItemRefToProviderRef(ref: ScmHistoryItemRef): string {
+  return ref.revision !== undefined && GIT_OBJECT_ID.test(ref.revision) ? ref.revision : ref.id;
 }
 
 export async function resolveScmHistoryItemRefs(
@@ -103,7 +108,7 @@ function currentHistoryItemRefsToArray(
 
   const seen = new Set<string>();
   return out.filter((ref) => {
-    const key = ref.revision ?? ref.id;
+    const key = scmHistoryItemRefToProviderRef(ref);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
