@@ -75,14 +75,7 @@ export const TerminalView = ({
     let disposed = false;
     void terminalService
       .spawn({ cols: term.cols, rows: term.rows })
-      .then((res: { id: string; cwd: string } | string) => {
-        // Tolerate an older main that still returns a bare id string — e.g. during
-        // a dev reload where the renderer updated but the main process hasn't
-        // restarted to the new {id, cwd} contract yet. Without this, destructuring
-        // a string yields id=undefined and every pty read/write is silently
-        // dropped (a blinking cursor with no shell).
-        const id = typeof res === 'string' ? res : res.id;
-        const cwd = typeof res === 'string' ? undefined : res.cwd;
+      .then(({ id, cwd }) => {
         // Unmounted before the id arrived — kill the orphan immediately.
         if (disposed) {
           terminalService.kill(id);
