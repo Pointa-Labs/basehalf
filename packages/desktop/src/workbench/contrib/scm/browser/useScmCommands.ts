@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { prompt } from '../../../browser/parts/dialogs/Dialog.js';
+import { confirm, pick, prompt } from '../../../browser/parts/dialogs/Dialog.js';
 import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import {
@@ -11,9 +11,9 @@ import type { GitStashEntry, GitStatusResult } from '../common/git.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import type { GitGroups, GitRow } from './gitStatusModel.js';
 import {
+  type DiscardPlan,
   applyDiscardPlan,
   commitPlan,
-  discardAllPrompt,
   discardManyPrompt,
   discardPlan,
   discardRowPrompt,
@@ -78,24 +78,101 @@ export const useScmCommands = ({
   openExternal = (url) => nativeHostService.openExternal(url),
 }: UseScmCommandsArgs): ScmCommands => {
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const openGitDiff = useWorkspaceStore((s) => s.openGitDiff);
   const openMerge = useWorkspaceStore((s) => s.openMerge);
 
+  const setActionBusy = useCallback((next: boolean): void => {
+    busyRef.current = next;
+    setBusy(next);
+  }, []);
+
   // Run a git action, surface failures as a transient toast (VS Code-style), then
   // re-read status from disk truth. `error` is kept only for init/no-repo screens;
   // everyday action errors are toasts, not permanent panel chrome.
   const act = useCallback(
-    (fn: () => Promise<unknown>): Promise<void> =>
-      runScmAction(fn, {
-        setBusy,
+    (fn: () => Promise<unknown>): Promise<void> => {
+      if (busyRef.current) return Promise.resolve();
+      return runScmAction(fn, {
+        setBusy: setActionBusy,
         setError,
         refresh,
         loadStashes,
         toastError: toast.error,
-      }),
-    [refresh, loadStashes],
+      });
+    },
+    [refresh, loadStashes, setActionBusy],
+  );
+
+  const confirmDiscardPlan = useCallback(
+    async (rows: readonly GitRow[]): Promise<DiscardPlan | null> => {
+      const plan = discardPlan(rows);
+      const tracked = plan.trackedPaths.length;
+      const untracked = plan.untrackedEntries.length;
+
+      if (tracked > 0 && untracked > 0) {
+        const choice = await pick({
+          title: 'Discard Selected Changes',
+          placeholder: 'Choose what to discard',
+          options: [
+            {
+              value: 'tracked',
+              label: `Discard ${tracked} tracked change(s)`,
+              detail: 'Revert tracked files to the last commit. Untracked files stay on disk.',
+            },
+            {
+              value: 'all',
+              label: `Discard all ${rows.length} selected change(s)`,
+              detail: 'Revert tracked files and move untracked files or folders to the Trash.',
+            },
+          ],
+        });
+        if (choice === null) return null;
+        if (choice === 'tracked') {
+          const ok = await confirm({
+            title: 'Discard Tracked Changes',
+            body: discardManyPrompt({ trackedPaths: plan.trackedPaths, untrackedEntries: [] }),
+            confirmText: 'Discard Changes',
+            destructive: true,
+          });
+          return ok ? { trackedPaths: plan.trackedPaths, untrackedEntries: [] } : null;
+        }
+      }
+
+      const ok = await confirm({
+        title: tracked > 0 ? 'Discard Changes' : 'Move Files to Trash',
+        body: discardManyPrompt(plan),
+        confirmText:
+          tracked > 0 && untracked > 0
+            ? 'Discard All'
+            : tracked > 0
+              ? 'Discard Changes'
+              : 'Move to Trash',
+        destructive: true,
+      });
+      return ok ? plan : null;
+    },
+    [],
+  );
+
+  const actOnDiscardRows = useCallback(
+    (rows: readonly GitRow[]): void =>
+      void (async () => {
+        const plan = await confirmDiscardPlan(rows);
+        if (plan !== null) void act(() => applyDiscardPlan(plan, git));
+      })(),
+    [act, confirmDiscardPlan, git],
+  );
+
+  const actOnDiscardAll = useCallback(
+    (): void =>
+      void (async () => {
+        const plan = await confirmDiscardPlan(groups.changes);
+        if (plan !== null) void act(() => applyDiscardPlan(plan, git));
+      })(),
+    [act, confirmDiscardPlan, git, groups.changes],
   );
 
   const initRepository = useCallback((): void => void act(() => git.init()), [act, git]);
@@ -123,8 +200,15 @@ export const useScmCommands = ({
 
   const discard = useCallback(
     (row: GitRow): void => {
-      if (!window.confirm(discardRowPrompt(row))) return;
-      void act(() => applyDiscardPlan(discardPlan([row]), git));
+      void (async () => {
+        const ok = await confirm({
+          title: row.untracked ? 'Move File to Trash' : 'Discard Changes',
+          body: discardRowPrompt(row),
+          confirmText: row.untracked ? 'Move to Trash' : 'Discard Changes',
+          destructive: true,
+        });
+        if (ok) void act(() => applyDiscardPlan(discardPlan([row]), git));
+      })();
     },
     [act, git],
   );
@@ -136,17 +220,15 @@ export const useScmCommands = ({
         discard(rows[0] as GitRow);
         return;
       }
-      if (!window.confirm(discardManyPrompt(rows.length))) return;
-      void act(() => applyDiscardPlan(discardPlan(rows), git));
+      actOnDiscardRows(rows);
     },
-    [act, discard, git],
+    [actOnDiscardRows, discard],
   );
 
   const discardAll = useCallback((): void => {
     if (groups.changes.length === 0) return;
-    if (!window.confirm(discardAllPrompt(groups.changes.length))) return;
-    void act(() => applyDiscardPlan(discardPlan(groups.changes), git));
-  }, [act, git, groups.changes]);
+    actOnDiscardAll();
+  }, [actOnDiscardAll, groups.changes.length]);
 
   // Commit, optionally followed by push or sync — the VS Code
   // "Commit & Push" / "Commit & Sync" split-button actions.

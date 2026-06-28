@@ -53,8 +53,19 @@ export function discardRowPrompt(row: GitRow): string {
     : `Discard changes in “${row.path}”?\n\nThis reverts to the last commit and can’t be undone.`;
 }
 
-export function discardManyPrompt(count: number): string {
-  return `Discard ${count} selected unstaged change(s)?`;
+export function discardManyPrompt(plan: DiscardPlan): string {
+  const tracked = plan.trackedPaths.length;
+  const untracked = plan.untrackedEntries.length;
+  const parts: string[] = [];
+  if (tracked > 0) {
+    parts.push(
+      `This will permanently discard changes in ${tracked} tracked file(s). Tracked changes cannot be undone.`,
+    );
+  }
+  if (untracked > 0) {
+    parts.push(`This will move ${untracked} untracked file/folder(s) to the Trash.`);
+  }
+  return parts.join('\n\n');
 }
 
 export function discardAllPrompt(count: number): string {

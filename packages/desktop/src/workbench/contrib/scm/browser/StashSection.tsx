@@ -1,4 +1,13 @@
-import { type JSX, useState } from 'react';
+import {
+  type JSX,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  useState,
+} from 'react';
+import {
+  type ContextMenuItem,
+  openContextMenu,
+} from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Disclosure } from '../../../browser/ui/primitives/Disclosure.js';
 import type { GitStashEntry } from '../common/git.js';
@@ -49,11 +58,70 @@ const StashRow = ({
   onPop: () => void;
   onDrop: () => void;
 }): JSX.Element => {
-  const [active, setActive] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const active = hovered || focused;
+
+  const menuItems = (): ContextMenuItem[] => [
+    {
+      id: 'apply',
+      label: 'Apply Stash',
+      disabled: busy,
+      run: onApply,
+    },
+    {
+      id: 'pop',
+      label: 'Pop Stash',
+      disabled: busy,
+      run: onPop,
+    },
+    { separator: true },
+    {
+      id: 'drop',
+      label: 'Drop Stash',
+      disabled: busy,
+      danger: true,
+      run: onDrop,
+    },
+  ];
+
+  const showMenu = (x: number, y: number, returnFocusElement?: HTMLElement | null): void => {
+    openContextMenu(x, y, menuItems(), returnFocusElement);
+  };
+
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      showMenu(rect.left + 18, rect.top + 18, event.currentTarget);
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (!busy) onApply();
+    }
+  };
+
+  const onContextMenu = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    showMenu(event.clientX, event.clientY, event.currentTarget);
+  };
+
   return (
     <div
-      onMouseEnter={() => setActive(true)}
-      onMouseLeave={() => setActive(false)}
+      role="button"
+      tabIndex={0}
+      data-scm-row
+      aria-label={`${entry.message}, ${entry.ref}`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
+      onKeyDown={onKeyDown}
+      onContextMenu={onContextMenu}
       style={{
         // VS Code SCM list rows are line-height: 22px (scm.css .monaco-list-row).
         display: 'flex',

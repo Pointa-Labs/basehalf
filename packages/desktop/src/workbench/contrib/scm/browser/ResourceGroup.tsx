@@ -1,4 +1,5 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useState } from 'react';
+import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { CountBadge } from '../../../browser/ui/primitives/CountBadge.js';
@@ -44,6 +45,22 @@ export const ResourceGroup = ({
 }): JSX.Element | null => {
   const [active, setActive] = useState(false);
   if (!show) return null;
+  const showGroupMenu = (x: number, y: number, returnFocusElement?: HTMLElement | null): void => {
+    if (!groupAction) return;
+    openContextMenu(
+      x,
+      y,
+      [
+        {
+          id: `${groupId}:group-action`,
+          label: groupAction.label,
+          disabled: busy,
+          run: groupAction.onClick,
+        },
+      ],
+      returnFocusElement,
+    );
+  };
   return (
     <div role="group" aria-label={title}>
       <div
@@ -52,6 +69,12 @@ export const ResourceGroup = ({
         onFocus={() => setActive(true)}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setActive(false);
+        }}
+        onContextMenu={(e) => {
+          if (!groupAction) return;
+          e.preventDefault();
+          e.stopPropagation();
+          showGroupMenu(e.clientX, e.clientY, e.currentTarget);
         }}
         style={{
           // VS Code resource-group header: a 22px list row, label + count
@@ -77,6 +100,10 @@ export const ResourceGroup = ({
             } else if (e.key === 'ArrowRight' && !open) {
               e.preventDefault();
               onToggle();
+            } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              showGroupMenu(rect.left + 18, rect.top + 18, e.currentTarget);
             }
           }}
           aria-expanded={open}

@@ -74,7 +74,17 @@ describe('scmCommandModel', () => {
   it('builds discard prompts and plans without React state', async () => {
     expect(discardRowPrompt(tracked('a.md'))).toContain('Discard changes in “a.md”?');
     expect(discardRowPrompt(untracked('drafts/'))).toContain('Move “drafts/” to the Trash?');
-    expect(discardManyPrompt(2)).toBe('Discard 2 selected unstaged change(s)?');
+    expect(
+      discardManyPrompt({
+        trackedPaths: ['a.md'],
+        untrackedEntries: [{ path: 'drafts', kind: 'folder' }],
+      }),
+    ).toBe(
+      [
+        'This will permanently discard changes in 1 tracked file(s). Tracked changes cannot be undone.',
+        'This will move 1 untracked file/folder(s) to the Trash.',
+      ].join('\n\n'),
+    );
     expect(discardAllPrompt(3)).toBe('Discard all 3 unstaged change(s)? This is IRREVERSIBLE.');
     expect(dropStashPrompt('stash@{0}')).toBe('Delete stash stash@{0}? This is IRREVERSIBLE.');
 

@@ -136,6 +136,7 @@ export const ResourceGroups = ({
         items.push({
           id: 'stage',
           label: plural ? 'Stage Selected Changes' : 'Stage Changes',
+          disabled: busy,
           run: () => void stage(selectedRows.map((row) => row.path)),
         });
       }
@@ -144,6 +145,7 @@ export const ResourceGroups = ({
         items.push({
           id: 'unstage',
           label: plural ? 'Unstage Selected Changes' : 'Unstage Changes',
+          disabled: busy,
           run: () => void unstage(selectedRows.map((row) => row.path)),
         });
       }
@@ -152,13 +154,14 @@ export const ResourceGroups = ({
         items.push({
           id: 'discard',
           label: plural ? 'Discard Selected Changes' : 'Discard Changes',
+          disabled: busy,
           danger: true,
           run: () => discardMany(selectedRows),
         });
       }
       return items;
     },
-    [copyPaths, discardMany, openRow, selectionForAction, stage, unstage],
+    [busy, copyPaths, discardMany, openRow, selectionForAction, stage, unstage],
   );
 
   const onRowClick = useCallback(
