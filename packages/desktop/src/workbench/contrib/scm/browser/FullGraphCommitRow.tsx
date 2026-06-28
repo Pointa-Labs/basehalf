@@ -1,10 +1,10 @@
 import { type JSX, useState } from 'react';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import type { GitCommit } from '../common/git.js';
+import type { FullGraphRefModel } from './gitGraphRefIndex.js';
 import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphDateMode,
-  type FullGraphRefModel,
   fullGraphFormatDate,
   fullGraphFormatWhen,
 } from './gitGraphViewModel.js';

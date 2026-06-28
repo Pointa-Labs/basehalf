@@ -5,12 +5,14 @@ import { FullGraphCommitRow } from './FullGraphCommitRow.js';
 import { FullGraphGraphSvg } from './FullGraphGraphSvg.js';
 import type { GraphRow } from './gitGraphLayout.js';
 import {
-  FULL_GRAPH_ROW_HEIGHT,
-  type FullGraphDateMode,
-  type FullGraphPath,
   type FullGraphRefIndex,
   type FullGraphRefModel,
   fullGraphRefsForCommit,
+} from './gitGraphRefIndex.js';
+import {
+  FULL_GRAPH_ROW_HEIGHT,
+  type FullGraphDateMode,
+  type FullGraphPath,
 } from './gitGraphViewModel.js';
 
 export const FullGraphHistoryTable = ({

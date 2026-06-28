@@ -16,15 +16,14 @@ import {
   fullGraphStashMenu,
 } from './gitGraphActions.js';
 import { layoutGraph } from './gitGraphLayout.js';
+import { type FullGraphRefModel, fullGraphRefIndex } from './gitGraphRefIndex.js';
 import {
   FULL_GRAPH_LANE_GAP,
   FULL_GRAPH_LEFT_OFFSET,
   type FullGraphDateMode,
-  type FullGraphRefModel,
   fullGraphCommitMatches,
   fullGraphInjectStashes,
   fullGraphPaths,
-  fullGraphRefIndex,
 } from './gitGraphViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { useGitStatusStore } from './gitStatusStore.js';
