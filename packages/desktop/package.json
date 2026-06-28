@@ -3,7 +3,7 @@
   "version": "0.3.3",
   "private": true,
   "type": "module",
-  "description": "BaseHalf desktop app (Electron) — local-first compound thinking workspace UI. Thin shell over @basehalf/core via IPC.",
+  "description": "BaseHalf desktop app (Electron) — local-first compound thinking workbench with VS Code-aligned services and providers.",
   "license": "Apache-2.0",
   "main": "./out/main/index.cjs",
   "scripts": {
@@ -18,10 +18,11 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.12",
-    "@vscode/codicons": "^0.0.45"
+    "@vscode/codicons": "^0.0.45",
+    "chokidar": "^5.0.0",
+    "yaml": "^2.7.0"
   },
   "devDependencies": {
-    "@basehalf/core": "workspace:*",
     "@blocknote/core": "^0.51.3",
     "@blocknote/mantine": "^0.51.3",
     "@blocknote/react": "^0.51.3",

@@ -15,6 +15,15 @@
     "exactOptionalPropertyTypes": false
   },
   "include": [
+    "src/code/electron-sandbox/sandboxApi.ts",
+    "src/platform/**/common/**/*.ts",
+    "src/platform/**/browser/**/*.ts",
+    "src/platform/**/electron-sandbox/**/*.ts",
+    "src/workbench/**/common/**/*.ts",
+    "src/workbench/**/browser/**/*.ts",
+    "src/workbench/**/browser/**/*.tsx",
+    "src/workbench/**/electron-sandbox/**/*.ts",
+    "src/workbench/**/electron-sandbox/**/*.tsx",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/renderer/**/*.d.ts"

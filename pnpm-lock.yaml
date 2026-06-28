@@ -44,10 +44,13 @@ importers:
       '@vscode/codicons':
         specifier: ^0.0.45
         version: 0.0.45
+      chokidar:
+        specifier: ^5.0.0
+        version: 5.0.0
+      yaml:
+        specifier: ^2.7.0
+        version: 2.9.0
     devDependencies:
-      '@basehalf/core':
-        specifier: workspace:*
-        version: link:../core
       '@blocknote/core':
         specifier: ^0.51.3
         version: 0.51.3(@types/hast@3.0.4)

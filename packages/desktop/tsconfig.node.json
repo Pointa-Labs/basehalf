@@ -8,6 +8,16 @@
     "outDir": "dist/node",
     "tsBuildInfoFile": "dist/node/.tsbuildinfo"
   },
-  "include": ["src/main/**/*.ts", "src/preload/**/*.ts", "electron.vite.config.ts", "package.json"],
-  "references": [{ "path": "../core" }]
+  "include": [
+    "src/code/**/*.ts",
+    "src/platform/**/common/**/*.ts",
+    "src/platform/**/electron-main/**/*.ts",
+    "src/platform/**/electron-sandbox/**/*.ts",
+    "src/platform/**/node/**/*.ts",
+    "src/workbench/**/common/**/*.ts",
+    "src/workbench/**/electron-main/**/*.ts",
+    "src/workbench/**/electron-sandbox/**/*.ts",
+    "electron.vite.config.ts",
+    "package.json"
+  ]
 }

@@ -6,15 +6,14 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 // API. ESM `import 'electron'` bypasses the hook and gets the binary path (a
 // string), which destructures to undefined and crashes at first API call.
 // Renderer stays ESM (Vite handles it).
-//
-// `@basehalf/core` is excluded from externalize so rollup bundles its ESM into
-// the CJS main output — CJS can't `require()` an ESM-only package at runtime,
-// so we inline it at build time.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ['@basehalf/core'] })],
+    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        input: {
+          index: 'src/code/electron-main/main.ts',
+        },
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },
     },
@@ -23,6 +22,9 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        input: {
+          index: 'src/code/electron-sandbox/preload.ts',
+        },
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },
     },
