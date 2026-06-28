@@ -1,4 +1,8 @@
 import type {
+  QuickAccessProviderDescriptor,
+  QuickAccessProviderHelp,
+} from '../../../platform/quickinput/common/quickAccess.js';
+import type {
   CommandPaletteAction,
   CommandPaletteFileEntry,
   CommandPaletteGitRefInfo,
@@ -10,8 +14,15 @@ export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.any
 export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';
 export const COMMANDS_QUICK_ACCESS_PREFIX = '>';
 
-export function isCommandsQuickAccessProvider(providerId: string | undefined): boolean {
-  return providerId === COMMANDS_QUICK_ACCESS_ID;
+export type CommandPaletteProviderDescriptor = Pick<
+  QuickAccessProviderDescriptor,
+  'id' | 'prefix' | 'placeholder' | 'helpEntries'
+>;
+
+export interface CommandPaletteQuickAccessProvider {
+  readonly descriptor: CommandPaletteProviderDescriptor;
+  readonly includeAdditionalPicks: boolean;
+  readonly buildActions: (args: BuildCommandPaletteActionsBaseArgs) => CommandPaletteAction[];
 }
 
 export interface CommandPaletteGitService {
@@ -39,8 +50,7 @@ export interface CommandPaletteCheckoutTarget {
   readonly track?: boolean;
 }
 
-export interface BuildCommandPaletteActionsArgs {
-  readonly providerId?: string;
+export interface BuildCommandPaletteActionsBaseArgs {
   readonly workspaces: readonly CommandPaletteWorkspace[];
   readonly current: string | null;
   readonly files: readonly CommandPaletteFileEntry[];
@@ -66,21 +76,78 @@ export interface BuildCommandPaletteActionsArgs {
   readonly gitService: CommandPaletteGitService;
 }
 
-export function buildCommandPaletteActions(
-  args: BuildCommandPaletteActionsArgs,
-): CommandPaletteAction[] {
-  if (isCommandsQuickAccessProvider(args.providerId)) {
-    return [...chromeActionPicks(args), ...gitCommandPicks(args)];
-  }
-  return [
+export interface BuildCommandPaletteActionsArgs extends BuildCommandPaletteActionsBaseArgs {
+  readonly providerId?: string;
+}
+
+const commandPaletteQuickAccessHelpEntries: readonly QuickAccessProviderHelp[] = [
+  {
+    description: 'Switch workspace, open a file, or run an action',
+    commandId: 'workbench.action.quickOpen',
+  },
+];
+
+const commandsQuickAccessHelpEntries: readonly QuickAccessProviderHelp[] = [
+  {
+    prefix: COMMANDS_QUICK_ACCESS_PREFIX,
+    description: 'Show and run commands',
+    commandId: 'workbench.action.showCommands',
+  },
+];
+
+const defaultCommandPaletteQuickAccessProvider: CommandPaletteQuickAccessProvider = {
+  descriptor: {
+    id: DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+    prefix: '',
+    placeholder: 'Switch workspace, open a file, run an action...',
+    helpEntries: commandPaletteQuickAccessHelpEntries,
+  },
+  includeAdditionalPicks: true,
+  buildActions: (args) => [
     ...workspacePicks(args),
     ...filePicks(args),
     ...chromeActionPicks(args),
     ...gitCommandPicks(args),
-  ];
+  ],
+};
+
+const commandsQuickAccessProvider: CommandPaletteQuickAccessProvider = {
+  descriptor: {
+    id: COMMANDS_QUICK_ACCESS_ID,
+    prefix: COMMANDS_QUICK_ACCESS_PREFIX,
+    placeholder: 'Type the name of a command to run',
+    helpEntries: commandsQuickAccessHelpEntries,
+  },
+  includeAdditionalPicks: false,
+  buildActions: (args) => [...chromeActionPicks(args), ...gitCommandPicks(args)],
+};
+
+export const COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS: readonly CommandPaletteQuickAccessProvider[] =
+  [defaultCommandPaletteQuickAccessProvider, commandsQuickAccessProvider];
+
+export function commandPaletteQuickAccessProviderForId(
+  providerId: string | undefined,
+): CommandPaletteQuickAccessProvider {
+  return (
+    COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS.find(
+      (provider) => provider.descriptor.id === providerId,
+    ) ?? defaultCommandPaletteQuickAccessProvider
+  );
 }
 
-function workspacePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
+export function commandPaletteProviderIncludesAdditionalPicks(
+  providerId: string | undefined,
+): boolean {
+  return commandPaletteQuickAccessProviderForId(providerId).includeAdditionalPicks;
+}
+
+export function buildCommandPaletteActions(
+  args: BuildCommandPaletteActionsArgs,
+): CommandPaletteAction[] {
+  return commandPaletteQuickAccessProviderForId(args.providerId).buildActions(args);
+}
+
+function workspacePicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
   return args.workspaces
     .filter((workspace) => workspace.name !== args.current)
     .map((workspace) => ({
@@ -92,7 +159,7 @@ function workspacePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAct
     }));
 }
 
-function filePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
+function filePicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
   if (args.filesWorkspace !== args.current || args.current === null) return [];
   const recentRank = new Map<string, number>();
   args.recentFiles?.forEach((path, idx) => recentRank.set(path, idx));
@@ -120,7 +187,7 @@ function filePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[]
     });
 }
 
-function chromeActionPicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
+function chromeActionPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
   const out: CommandPaletteAction[] = [
     {
       id: 'action:add-folder',
@@ -165,7 +232,7 @@ function chromeActionPicks(args: BuildCommandPaletteActionsArgs): CommandPalette
   return out;
 }
 
-function gitCommandPicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
+function gitCommandPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
   if (args.git.workspace !== args.current || args.current === null) return [];
   if (!args.git.repo) {
     return [

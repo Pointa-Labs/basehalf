@@ -2,11 +2,7 @@ import {
   type QuickAccessRegistryLike,
   quickAccessRegistry,
 } from '../../../platform/quickinput/common/quickAccess.js';
-import {
-  COMMANDS_QUICK_ACCESS_ID,
-  COMMANDS_QUICK_ACCESS_PREFIX,
-  DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
-} from './commandPaletteProviders.js';
+import { COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS } from './commandPaletteProviders.js';
 
 const registeredRegistries = new WeakSet<QuickAccessRegistryLike>();
 
@@ -23,28 +19,7 @@ export function registerCommandPaletteQuickAccessProviders(
   if (registeredRegistries.has(registry)) return;
   registeredRegistries.add(registry);
 
-  registry.registerQuickAccessProvider({
-    id: DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
-    prefix: '',
-    placeholder: 'Switch workspace, open a file, run an action...',
-    helpEntries: [
-      {
-        description: 'Switch workspace, open a file, or run an action',
-        commandId: 'workbench.action.quickOpen',
-      },
-    ],
-  });
-
-  registry.registerQuickAccessProvider({
-    id: COMMANDS_QUICK_ACCESS_ID,
-    prefix: COMMANDS_QUICK_ACCESS_PREFIX,
-    placeholder: 'Type the name of a command to run',
-    helpEntries: [
-      {
-        prefix: COMMANDS_QUICK_ACCESS_PREFIX,
-        description: 'Show and run commands',
-        commandId: 'workbench.action.showCommands',
-      },
-    ],
-  });
+  for (const provider of COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS) {
+    registry.registerQuickAccessProvider(provider.descriptor);
+  }
 }

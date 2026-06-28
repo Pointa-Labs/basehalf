@@ -28,7 +28,7 @@ import {
   buildContentSearchActions,
   buildGitEntityActions,
   combineCommandPaletteRows,
-  isCommandsQuickAccessProvider,
+  commandPaletteProviderIncludesAdditionalPicks,
 } from './commandPaletteProviders.js';
 
 export interface CommandPaletteRowsResult {
@@ -53,11 +53,11 @@ export function useCommandPaletteRows(args: {
   const recentFiles = useWorkspaceStore((s) =>
     s.current === null ? [] : historyService.recentFilesFor(s.current),
   );
-  const commandsOnly = isCommandsQuickAccessProvider(args.providerId);
+  const includeAdditionalPicks = commandPaletteProviderIncludesAdditionalPicks(args.providerId);
 
   const { files, filesWorkspace } = useCommandPaletteFiles(args.open, current);
   const { contentHits, hitsQuery, hitsWorkspace } = useCommandPaletteContentSearch(
-    args.open && !commandsOnly,
+    args.open && includeAdditionalPicks,
     current,
     args.query,
   );
@@ -142,9 +142,8 @@ export function useCommandPaletteRows(args: {
 
   const contentActions = useMemo<Action[]>(
     () =>
-      commandsOnly
-        ? []
-        : buildContentSearchActions({
+      includeAdditionalPicks
+        ? buildContentSearchActions({
             contentHits,
             hitsQuery,
             hitsWorkspace,
@@ -152,9 +151,10 @@ export function useCommandPaletteRows(args: {
             query: args.query,
             filtered,
             openFile: openInPanel,
-          }),
+          })
+        : [],
     [
-      commandsOnly,
+      includeAdditionalPicks,
       contentHits,
       hitsQuery,
       hitsWorkspace,
@@ -167,9 +167,8 @@ export function useCommandPaletteRows(args: {
 
   const gitMatches = useMemo<Action[]>(
     () =>
-      commandsOnly
-        ? []
-        : buildGitEntityActions({
+      includeAdditionalPicks
+        ? buildGitEntityActions({
             query: args.query,
             current,
             git: {
@@ -182,9 +181,10 @@ export function useCommandPaletteRows(args: {
             runGit: (fn) => void runGit(fn),
             checkoutBranch: checkoutPaletteBranch,
             revealCommit: revealCommitInGraph,
-          }),
+          })
+        : [],
     [
-      commandsOnly,
+      includeAdditionalPicks,
       args.query,
       current,
       gitRepo,

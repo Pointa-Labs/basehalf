@@ -7,10 +7,14 @@ import {
 } from '../src/workbench/browser/quickaccess/commandPaletteModel.js';
 import {
   COMMANDS_QUICK_ACCESS_ID,
+  COMMANDS_QUICK_ACCESS_PREFIX,
+  COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS,
+  DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
   buildCommandPaletteActions,
   buildContentSearchActions,
   buildGitEntityActions,
   checkoutTargetForQuickAccessRef,
+  commandPaletteProviderIncludesAdditionalPicks,
 } from '../src/workbench/browser/quickaccess/commandPaletteProviders.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
@@ -161,6 +165,39 @@ describe('commandPaletteModel', () => {
     expect(actions.map((item) => item.id)).toEqual(
       expect.arrayContaining(['action:add-folder', 'action:new-note', 'git:init']),
     );
+  });
+
+  it('declares quick access providers as descriptors with provider-owned capabilities', () => {
+    expect(COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS.map((provider) => provider.descriptor)).toEqual([
+      {
+        id: DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+        prefix: '',
+        placeholder: 'Switch workspace, open a file, run an action...',
+        helpEntries: [
+          {
+            description: 'Switch workspace, open a file, or run an action',
+            commandId: 'workbench.action.quickOpen',
+          },
+        ],
+      },
+      {
+        id: COMMANDS_QUICK_ACCESS_ID,
+        prefix: COMMANDS_QUICK_ACCESS_PREFIX,
+        placeholder: 'Type the name of a command to run',
+        helpEntries: [
+          {
+            prefix: COMMANDS_QUICK_ACCESS_PREFIX,
+            description: 'Show and run commands',
+            commandId: 'workbench.action.showCommands',
+          },
+        ],
+      },
+    ]);
+    expect(commandPaletteProviderIncludesAdditionalPicks(undefined)).toBe(true);
+    expect(
+      commandPaletteProviderIncludesAdditionalPicks(DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID),
+    ).toBe(true);
+    expect(commandPaletteProviderIncludesAdditionalPicks(COMMANDS_QUICK_ACCESS_ID)).toBe(false);
   });
 
   it('empty query returns recent file picks before falling back to non-file actions', () => {
