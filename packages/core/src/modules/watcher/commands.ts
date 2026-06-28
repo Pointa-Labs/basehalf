@@ -331,7 +331,7 @@ export const start: Handler<WatcherStartArgs, WatcherStartResult> = async (_args
   if (watchers.has(root)) return { active: true, workspaceRoot: root };
   const state: WatcherState = {
     root,
-    // ctx already carries `root` (the bh:run injection / bound test core), so
+    // ctx already carries `root` (desktop service injection / bound test core), so
     // its composing ctx.run keeps every cascade in this workspace.
     ctx,
     watcher: null,

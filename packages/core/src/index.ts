@@ -1,13 +1,14 @@
 /**
- * @basehalf/core — the one door.
+ * @basehalf/core — legacy command registry backend.
  *
- * `createCore()` builds the kernel: a registry of commands + the context every
- * handler receives. First-party modules register themselves at construction;
- * everything else (CLI, MCP, desktop UI) talks to core exclusively via `run()`.
+ * `createCore()` builds the current command registry + the context every handler
+ * receives. Desktop code should depend on VS Code-style services/providers and
+ * treat this package as one backend implementation while the architecture is
+ * being split apart.
  *
  * The context's `run` is late-bound through a closure so modules can compose
  * (e.g. one module asking `workspace.current` for the active root) without
- * importing each other — preserves the "one door" + "deps point inward" rules.
+ * importing each other while this registry layer remains in place.
  */
 import { Registry, UnknownCommand, createContext } from './kernel/index.js';
 import type { Context, Core, CoreOptions, Handler, Run } from './kernel/index.js';
@@ -16,7 +17,6 @@ import { registerBadgesModule } from './modules/badges/index.js';
 import { registerCanvasModule } from './modules/canvas/index.js';
 import { registerFocusModule } from './modules/focus/index.js';
 import { registerGitModule } from './modules/git/index.js';
-import { registerGithubModule } from './modules/github/index.js';
 import { registerSearchModule } from './modules/search/index.js';
 import { registerSettingsModule } from './modules/settings/index.js';
 import { registerWatcherModule } from './modules/watcher/index.js';
@@ -47,8 +47,6 @@ export function createCore(opts: CoreOptions = {}): Core {
       workspaceRoot,
       run: (n, a, o) => run(n, a, o ?? { workspaceRoot }),
       git: baseCtx.git,
-      http: baseCtx.http,
-      secrets: baseCtx.secrets,
     };
     return (await handler(args, callCtx)) as never;
   };
@@ -58,8 +56,6 @@ export function createCore(opts: CoreOptions = {}): Core {
     ...(opts.fs !== undefined && { fs: opts.fs }),
     ...(opts.configDir !== undefined && { configDir: opts.configDir }),
     ...(opts.git !== undefined && { git: opts.git }),
-    ...(opts.http !== undefined && { http: opts.http }),
-    ...(opts.secrets !== undefined && { secrets: opts.secrets }),
   });
 
   const core: Core = Object.freeze({
@@ -83,7 +79,6 @@ export function createCore(opts: CoreOptions = {}): Core {
   registerSearchModule(core);
   registerSettingsModule(core);
   registerGitModule(core);
-  registerGithubModule(core);
 
   return core;
 }
@@ -95,10 +90,6 @@ export type {
   GitRunner,
   GitRunOptions,
   GitRunResult,
-  HttpRunner,
-  HttpRequest,
-  HttpResponse,
-  SecretStore,
   Handler,
   CoreOptions,
   Core,
@@ -111,12 +102,11 @@ export {
   defaultConfigDir,
   defaultFs,
   defaultGit,
-  defaultHttp,
-  createInMemorySecrets,
   requireWorkspaceRoot,
 } from './kernel/index.js';
 
-// Module result/args types — UI shells need these to narrow window.bh.run results.
+// Module result/args types — desktop service/channel adapters use these to keep
+// the legacy registry backend typed while it is being split apart.
 export type * from './modules/workspace/types.js';
 export type * from './modules/badges/types.js';
 export { BadgeCorrupt } from './modules/badges/types.js';
@@ -127,7 +117,6 @@ export { AdhdCorrupt } from './modules/adhd/types.js';
 export type * from './modules/focus/types.js';
 export { FocusCorrupt } from './modules/focus/types.js';
 export type * from './modules/git/types.js';
-export type * from './modules/github/types.js';
 export type * from './modules/watcher/types.js';
 export type * from './modules/search/types.js';
 export type * from './modules/settings/types.js';

@@ -1,5 +1,5 @@
-// Public arg/result types for the `git.*` commands. The desktop SCM panel
-// narrows window.bh.run results against these.
+// Public arg/result types for the `git.*` commands. Desktop service/channel
+// adapters expose these to the SCM panel.
 
 /**
  * One changed path from `git status`. `x` is the INDEX (staged) status char and

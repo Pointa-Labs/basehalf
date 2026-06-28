@@ -135,6 +135,16 @@ export interface CanvasReconnectArgs {
 }
 export type CanvasReconnectResult = CanvasFile;
 
+export interface CanvasRevisionArgs {
+  readonly _?: never;
+}
+export interface CanvasRevisionResult {
+  /** Number of canvas.yaml files. */
+  readonly count: number;
+  /** Newest canvas mtime (epoch ms); 0 when there are none. */
+  readonly maxMtimeMs: number;
+}
+
 /** Rename cascade: re-root the node's own canvas subtree + fix the parent card. */
 export interface CanvasRelocateArgs {
   readonly from: string;

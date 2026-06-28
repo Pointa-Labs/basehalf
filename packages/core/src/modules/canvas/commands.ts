@@ -28,6 +28,8 @@ import {
   type CanvasRelocateResult,
   type CanvasRemoveCardArgs,
   type CanvasRemoveCardResult,
+  type CanvasRevisionArgs,
+  type CanvasRevisionResult,
   type CanvasSetCardArgs,
   type CanvasSetCardResult,
   type CanvasSetSizeArgs,
@@ -294,10 +296,7 @@ export const reconnect: Handler<CanvasReconnectArgs, CanvasReconnectResult> = as
 };
 
 /** Cheap canvas-store signature (count + newest mtime) for an external-edit poll. */
-export const revision: Handler<{ _?: never }, { count: number; maxMtimeMs: number }> = async (
-  _args,
-  ctx,
-) => {
+export const revision: Handler<CanvasRevisionArgs, CanvasRevisionResult> = async (_args, ctx) => {
   const root = requireWorkspaceRoot(ctx);
   return canvasRevision(ctx.fs, root);
 };

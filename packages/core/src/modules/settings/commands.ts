@@ -7,7 +7,7 @@
  *
  * Read commands tolerate an unbound workspace (`ctx.workspaceRoot === null`):
  * the workspace layer is simply absent. Per-workspace WRITES require a bound
- * root (the sender window's workspace, injected by the desktop's `bh:run`).
+ * root (the sender window's workspace, injected by the desktop settings service).
  */
 
 import { type Handler, createKeyedMutex, requireWorkspaceRoot } from '../../kernel/index.js';

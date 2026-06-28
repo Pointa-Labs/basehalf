@@ -2,8 +2,9 @@ import type { Core } from '../../src/index.js';
 
 /**
  * Wrap a core so every `run()` defaults to a fixed `workspaceRoot` — the
- * test-side stand-in for the desktop's per-window `bh:run` injection (main
- * resolves the sender window's bound root and passes `{ workspaceRoot }`).
+ * test-side stand-in for the desktop's per-window service channels (main
+ * resolves the sender window's bound root and passes `{ workspaceRoot }` into
+ * the core adapter behind that channel).
  *
  * After the per-window refactor there is no global "current workspace": a
  * handler reads its root from `ctx.workspaceRoot`, so a test that operates on

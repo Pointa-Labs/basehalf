@@ -142,10 +142,10 @@ export interface FsLike {
 /**
  * Per-call options threaded through `run`. `workspaceRoot` binds THIS call (and,
  * by default, every nested `ctx.run` it makes) to one workspace folder — the
- * replacement for the old global "current workspace" pointer. The host (desktop
- * `bh:run`) injects the sender window's bound root; a nested `ctx.run` with no
- * opts inherits the caller's root, so a whole command tree stays in one
- * workspace with zero global state. `null` means "no workspace bound".
+ * replacement for the old global "current workspace" pointer. Desktop main
+ * services inject the sender window's bound root; a nested `ctx.run` with no opts
+ * inherits the caller's root, so a whole command tree stays in one workspace with
+ * zero global state. `null` means "no workspace bound".
  */
 export interface RunOptions {
   readonly workspaceRoot?: string | null;
@@ -154,7 +154,7 @@ export interface RunOptions {
 /**
  * The function modules use to call other commands. Same signature as
  * `Core.run` — modules compose through this rather than importing each
- * other's internals (preserves the "one door" + "deps point inward" rules).
+ * other's internals while the registry backend remains in place.
  */
 export type Run = <TArgs = unknown, TResult = unknown>(
   name: string,
@@ -205,41 +205,6 @@ export interface GitRunResult {
  */
 export type GitRunner = (args: readonly string[], opts: GitRunOptions) => Promise<GitRunResult>;
 
-export interface HttpRequest {
-  readonly method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
-  readonly url: string;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly body?: string;
-  /** Abort + reject after this many ms (default 20s). */
-  readonly timeoutMs?: number;
-}
-
-export interface HttpResponse {
-  readonly status: number;
-  readonly headers: Readonly<Record<string, string>>;
-  readonly body: string;
-}
-
-/**
- * An HTTP client, injected on Context the same way `git`/`fs` are — so the
- * remote-provider modules (github …) stay testable (tests pass a fake runner)
- * and core never hard-depends on global `fetch`. The host wires `defaultHttp()`.
- */
-export type HttpRunner = (req: HttpRequest) => Promise<HttpResponse>;
-
-/**
- * Secret storage — credentials (a GitHub token …) kept OUT of the sandboxed
- * renderer. The host wires this to OS-encrypted storage (Electron safeStorage);
- * core reads via `ctx.secrets` so a token never transits the renderer (mirrors
- * VS Code keeping secrets in the extension host, not the webview). Tests inject
- * an in-memory fake.
- */
-export interface SecretStore {
-  get(key: string): Promise<string | null>;
-  set(key: string, value: string): Promise<void>;
-  delete(key: string): Promise<void>;
-}
-
 export interface Context {
   readonly fs: FsLike;
   readonly configDir: string;
@@ -247,10 +212,6 @@ export interface Context {
   readonly run: Run;
   /** The system-git runner (see GitRunner) — used by the git module. */
   readonly git: GitRunner;
-  /** HTTP client — used by remote-provider modules (github …). */
-  readonly http: HttpRunner;
-  /** OS-encrypted secret storage — credentials never touch the renderer. */
-  readonly secrets: SecretStore;
 }
 
 /**
@@ -271,17 +232,12 @@ export interface CoreOptions {
   readonly configDir?: string;
   /** Inject a different git runner (fake for tests). Defaults to spawning system git. */
   readonly git?: GitRunner;
-  /** Inject a different HTTP runner (fake for tests). Defaults to global fetch. */
-  readonly http?: HttpRunner;
-  /** Inject a secret store (fake for tests / safeStorage for the desktop host).
-   *  Defaults to an in-memory store (non-persistent). */
-  readonly secrets?: SecretStore;
 }
 
 /**
  * The shape returned by `createCore()`. Frozen at construction.
  * - `register(name, handler)` — modules call this at startup to add commands.
- * - `run(name, args)` — the one door; throws `UnknownCommand` if unregistered.
+ * - `run(name, args)` — current registry dispatch; throws `UnknownCommand` if unregistered.
  * - `has(name)` — introspection.
  */
 export interface Core {

@@ -18,7 +18,7 @@
  *
  * Lives in the kernel (not a module) because it is cross-cutting infrastructure
  * — like `contain`, `paths`, `mutex`. The four content modules depend on it
- * without importing each other (preserves "one door" + "deps point inward").
+ * without importing each other while the registry backend remains in place.
  * It centralizes: path routing, YAML (de)serialization, the same realpath
  * containment + O_NOFOLLOW guards the badge store used, and a process-wide
  * keyed mutex so a field-scoped read-modify-write can't lose a concurrent

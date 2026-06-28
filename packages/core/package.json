@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "BaseHalf core: kernel (registry + context) and the modules that register commands. The one door.",
+  "description": "BaseHalf legacy core: command registry backend and transitional modules during the VS Code-aligned service split.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
