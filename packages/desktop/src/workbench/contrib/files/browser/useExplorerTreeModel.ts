@@ -7,20 +7,16 @@ import {
   subscribeEntryRenamed,
 } from '../../../services/workspace/browser/workspaceFileEvents.js';
 import {
+  type ExplorerTreeRow,
   type VisibleNavTreeItem,
-  isVisibleNavEntry,
+  buildVisibleNavRows,
   joinNavPath,
   parentAbsPath,
-  relativeToNavRoot,
-  sortNavEntries,
+  removeNavEntryOptimistically,
+  renameNavEntryOptimistically,
 } from './navTreeModel.js';
 
-export interface ExplorerTreeRow extends VisibleNavTreeItem {
-  readonly entry: WorkspaceListFilesEntry;
-  readonly absPath: string;
-  readonly parentRel: string;
-  readonly isSelected: boolean;
-}
+export type { ExplorerTreeRow } from './navTreeModel.js';
 
 export interface ExplorerTreeModel {
   readonly visibleRows: readonly ExplorerTreeRow[];
@@ -96,76 +92,51 @@ export function useExplorerTreeModel({
 
   useEffect(() => {
     return subscribeEntryRemoved((rel) => {
-      const slash = rel.lastIndexOf('/');
-      const name = slash === -1 ? rel : rel.slice(slash + 1);
-      const parentAbs = parentAbsPath(rootPath, rel);
-      const removedAbs = joinNavPath(rootPath, rel);
       setChildrenByPath((prev) => {
-        const entries = prev.get(parentAbs);
-        const next = new Map(prev);
-        if (entries) {
-          next.set(
-            parentAbs,
-            entries.filter((e) => e.name !== name),
-          );
-        }
-        for (const key of [...next.keys()]) {
-          if (key === removedAbs || key.startsWith(`${removedAbs}/`)) next.delete(key);
-        }
-        return next;
+        const next = removeNavEntryOptimistically({
+          childrenByPath: prev,
+          expanded,
+          rootPath,
+          rel,
+        });
+        return next.childrenByPath;
       });
       setExpanded((prev) => {
-        const next = new Set<string>();
-        for (const p of prev) {
-          if (p === removedAbs || p.startsWith(`${removedAbs}/`)) continue;
-          next.add(p);
-        }
-        return next.size === prev.size ? prev : next;
+        const next = removeNavEntryOptimistically({
+          childrenByPath: childrenByPathRef.current,
+          expanded: prev,
+          rootPath,
+          rel,
+        });
+        return next.expanded.size === prev.size ? prev : next.expanded;
       });
     });
-  }, [rootPath]);
+  }, [expanded, rootPath]);
 
   useEffect(() => {
     return subscribeEntryRenamed((from, to) => {
-      const fromSlash = from.lastIndexOf('/');
-      const oldName = fromSlash === -1 ? from : from.slice(fromSlash + 1);
-      const toSlash = to.lastIndexOf('/');
-      const newName = toSlash === -1 ? to : to.slice(toSlash + 1);
-      const parentAbs = parentAbsPath(rootPath, from);
-      const fromAbs = joinNavPath(rootPath, from);
-      const toAbs = joinNavPath(rootPath, to);
       setChildrenByPath((prev) => {
-        const next = new Map(prev);
-        const entries = next.get(parentAbs);
-        if (entries) {
-          next.set(
-            parentAbs,
-            sortNavEntries(entries.map((e) => (e.name === oldName ? { ...e, name: newName } : e))),
-          );
-        }
-        for (const [key, val] of [...next]) {
-          if (key === fromAbs || key.startsWith(`${fromAbs}/`)) {
-            next.delete(key);
-            next.set(`${toAbs}${key.slice(fromAbs.length)}`, val);
-          }
-        }
-        return next;
+        const next = renameNavEntryOptimistically({
+          childrenByPath: prev,
+          expanded,
+          rootPath,
+          from,
+          to,
+        });
+        return next.childrenByPath;
       });
       setExpanded((prev) => {
-        let changed = false;
-        const next = new Set<string>();
-        for (const p of prev) {
-          if (p === fromAbs || p.startsWith(`${fromAbs}/`)) {
-            next.add(`${toAbs}${p.slice(fromAbs.length)}`);
-            changed = true;
-          } else {
-            next.add(p);
-          }
-        }
-        return changed ? next : prev;
+        const next = renameNavEntryOptimistically({
+          childrenByPath: childrenByPathRef.current,
+          expanded: prev,
+          rootPath,
+          from,
+          to,
+        });
+        return next.expanded;
       });
     });
-  }, [rootPath]);
+  }, [expanded, rootPath]);
 
   const expandFolder = useCallback(
     (path: string): void => {
@@ -233,35 +204,10 @@ export function useExplorerTreeModel({
     });
   }, [renamingPath, rootPath, loadChildren]);
 
-  const collectEntries = useCallback(
-    (parentPath: string, depth: number): ExplorerTreeRow[] => {
-      const entries = childrenByPath.get(parentPath);
-      if (!entries) return [];
-      return entries.filter(isVisibleNavEntry).flatMap((entry): ExplorerTreeRow[] => {
-        const absPath = joinNavPath(parentPath, entry.name);
-        const isExpanded = expanded.has(absPath);
-        const isDir = entry.type === 'dir';
-        const rel = relativeToNavRoot(rootPath, absPath);
-        const isSelected = !isDir && currentPath === rel;
-        const parentRel = relativeToNavRoot(rootPath, parentPath);
-        const row: ExplorerTreeRow = {
-          entry,
-          absPath,
-          rel,
-          parentRel,
-          depth,
-          kind: isDir ? 'folder' : 'file',
-          isExpanded,
-          isSelected,
-        };
-        if (isDir && isExpanded) return [row, ...collectEntries(absPath, depth + 1)];
-        return [row];
-      });
-    },
+  const visibleRows = useMemo(
+    () => buildVisibleNavRows({ childrenByPath, expanded, rootPath, currentPath }),
     [childrenByPath, currentPath, expanded, rootPath],
   );
-
-  const visibleRows = useMemo(() => collectEntries(rootPath, 0), [collectEntries, rootPath]);
   const visibleItems = useMemo(
     () =>
       visibleRows.map(({ rel, kind, depth, isExpanded }) => ({
