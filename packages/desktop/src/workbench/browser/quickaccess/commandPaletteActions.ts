@@ -5,17 +5,17 @@ import {
   filterCommandPaletteActions,
 } from '../../common/quickaccess/commandPaletteModel.js';
 import {
-  useCommandPaletteContentSearch,
-  useCommandPaletteFiles,
-  useCommandPaletteGitState,
-} from './commandPaletteData.js';
-import {
   buildCommandPaletteActions,
   buildContentSearchActions,
   buildGitEntityActions,
   combineCommandPaletteRows,
   commandPaletteProviderIncludesAdditionalPicks,
-} from './commandPaletteProviders.js';
+} from '../../common/quickaccess/commandPaletteProviders.js';
+import {
+  useCommandPaletteContentSearch,
+  useCommandPaletteFiles,
+  useCommandPaletteGitState,
+} from './commandPaletteData.js';
 import { useCommandPaletteWorkbenchContext } from './commandPaletteWorkbenchContext.js';
 
 export interface CommandPaletteRowsResult {

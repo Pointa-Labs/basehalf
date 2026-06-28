@@ -2,6 +2,10 @@ import type {
   QuickAccessProviderDescriptor,
   QuickAccessProviderHelp,
 } from '../../../platform/quickinput/common/quickAccess.js';
+import {
+  type CheckoutTarget,
+  checkoutTargetForRef,
+} from '../../contrib/scm/common/branchCheckoutModel.js';
 import type {
   CommandPaletteAction,
   CommandPaletteFileEntry,
@@ -9,11 +13,7 @@ import type {
   CommandPaletteGitState,
   CommandPaletteSearchHit,
   CommandPaletteWorkspace,
-} from '../../common/quickaccess/commandPaletteModel.js';
-import {
-  type CheckoutTarget,
-  checkoutTargetForRef,
-} from '../../contrib/scm/common/branchCheckoutModel.js';
+} from './commandPaletteModel.js';
 
 export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.anything';
 export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';
@@ -172,8 +172,8 @@ function filePicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteActi
       return {
         id: `file:${file.file}`,
         label: basename,
-        hint: file.file.includes('/') ? file.file : undefined,
         category: 'File' as const,
+        ...(file.file.includes('/') && { hint: file.file }),
         ...(file.prompt !== undefined && file.prompt.length > 0 && { searchAlso: file.prompt }),
         run: () => args.openFile(file.file, { pinned: true }),
       };

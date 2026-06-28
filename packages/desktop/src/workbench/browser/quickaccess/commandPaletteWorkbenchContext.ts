@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { prompt } from '../../../platform/dialogs/browser/dialogService.js';
 import { toast } from '../../../platform/notification/browser/notificationService.js';
+import type {
+  BuildCommandPaletteActionsBaseArgs,
+  CommandPaletteGitService,
+} from '../../common/quickaccess/commandPaletteProviders.js';
 import { openSettings } from '../../contrib/preferences/browser/Settings.js';
 import { createBranchGitAdapter } from '../../contrib/scm/browser/branchGitAdapter.js';
 import { checkoutBranchWithRecovery } from '../../contrib/scm/browser/branchQuickPickCommands.js';
@@ -13,10 +17,6 @@ import { historyService } from '../../services/history/browser/historyService.js
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/workbenchActions.js';
 import { useLayoutStore } from '../layout/layoutStore.js';
-import type {
-  BuildCommandPaletteActionsBaseArgs,
-  CommandPaletteGitService,
-} from './commandPaletteProviders.js';
 
 export interface CommandPaletteWorkbenchContext
   extends Omit<BuildCommandPaletteActionsBaseArgs, 'files' | 'filesWorkspace' | 'git'> {

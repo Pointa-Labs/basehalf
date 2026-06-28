@@ -8,12 +8,12 @@ import {
   type IQuickAccessProvider,
   QuickAccessRegistry,
 } from '../src/platform/quickinput/common/quickAccess.js';
+import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
 import {
   COMMANDS_QUICK_ACCESS_ID,
   COMMANDS_QUICK_ACCESS_PREFIX,
   DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
-} from '../src/workbench/browser/quickaccess/commandPaletteProviders.js';
-import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
+} from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
 
 describe('QuickAccessController', () => {
   it('shows and hides quick access while notifying subscribers', () => {

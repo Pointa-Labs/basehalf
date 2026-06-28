@@ -2,7 +2,7 @@ import {
   type QuickAccessRegistryLike,
   quickAccessRegistry,
 } from '../../../platform/quickinput/common/quickAccess.js';
-import { COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS } from './commandPaletteProviders.js';
+import { COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS } from '../../common/quickaccess/commandPaletteProviders.js';
 
 const registeredRegistries = new WeakSet<QuickAccessRegistryLike>();
 
