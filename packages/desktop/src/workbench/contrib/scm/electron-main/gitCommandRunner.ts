@@ -5,6 +5,11 @@ export interface GitCommandContext {
   readonly git: GitRunner;
 }
 
+export type GitCommandHandler<TArgs = unknown, TResult = unknown> = (
+  args: TArgs,
+  ctx: GitCommandContext,
+) => Promise<TResult>;
+
 export function requireWorkspaceRoot(ctx: GitCommandContext): string {
   if (ctx.workspaceRoot === null) {
     throw new Error('No workspace bound to this Git operation.');

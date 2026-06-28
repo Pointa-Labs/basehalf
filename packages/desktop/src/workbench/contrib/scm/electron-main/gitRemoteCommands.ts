@@ -9,17 +9,16 @@ import type {
   GitRemotesResult,
   GitSyncArgs,
 } from '../common/git.js';
-import { type GitCommandContext, runGit as git } from './gitCommandRunner.js';
+import {
+  type GitCommandContext,
+  type GitCommandHandler,
+  runGit as git,
+} from './gitCommandRunner.js';
 import { parseStatus } from './gitParsers.js';
+import { STATUS_ARGS } from './gitPorcelain.js';
 import { assertBranchName, assertSafeRemote } from './gitRefGuards.js';
 
-type Handler<TArgs = unknown, TResult = unknown> = (
-  args: TArgs,
-  ctx: GitCommandContext,
-) => Promise<TResult>;
-
 const REMOTE_TIMEOUT_MS = 120_000;
-const STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--branch'] as const;
 
 async function gitRemotes(ctx: GitCommandContext): Promise<string[]> {
   const res = await git(ctx, ['remote']);
@@ -76,7 +75,7 @@ function upstreamRemoteName(upstream: string | null): string | null {
   return slash > 0 ? upstream.slice(0, slash) : null;
 }
 
-export const push: Handler<GitPushArgs, GitRemoteResult> = async (args, ctx) => {
+export const push: GitCommandHandler<GitPushArgs, GitRemoteResult> = async (args, ctx) => {
   // No upstream yet -> publish to VS Code's default remote choice (origin when
   // available, otherwise the first configured remote); else a plain push.
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
@@ -95,7 +94,7 @@ export const push: Handler<GitPushArgs, GitRemoteResult> = async (args, ctx) => 
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const publish: Handler<GitPublishArgs, GitRemoteResult> = async (args, ctx) => {
+export const publish: GitCommandHandler<GitPublishArgs, GitRemoteResult> = async (args, ctx) => {
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   if (st.branch === null) {
     throw new Error('Please check out a branch to push to a remote.');
@@ -106,7 +105,7 @@ export const publish: Handler<GitPublishArgs, GitRemoteResult> = async (args, ct
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const pull: Handler<GitPullArgs, GitRemoteResult> = async (args, ctx) => {
+export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args, ctx) => {
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   if (st.branch === null) {
     throw new Error('Please check out a branch before pulling.');
@@ -119,7 +118,7 @@ export const pull: Handler<GitPullArgs, GitRemoteResult> = async (args, ctx) => 
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const sync: Handler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => {
+export const sync: GitCommandHandler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => {
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   if (st.branch === null) return { stdout: '', stderr: '' };
   if (st.upstream === null) return publish({}, ctx);
@@ -144,12 +143,15 @@ export const sync: Handler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => 
   };
 };
 
-export const fetch: Handler<unknown, GitRemoteResult> = async (_args, ctx) => {
+export const fetch: GitCommandHandler<unknown, GitRemoteResult> = async (_args, ctx) => {
   const res = await git(ctx, ['fetch'], { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
 };
 
-export const remoteUrl: Handler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (args, ctx) => {
+export const remoteUrl: GitCommandHandler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (
+  args,
+  ctx,
+) => {
   const remote = args?.remote ?? 'origin';
   // A remote name interpolated into the arg - constrain it (no leading '-' -> flag).
   assertSafeRemote(remote);
@@ -159,6 +161,6 @@ export const remoteUrl: Handler<GitRemoteUrlArgs, GitRemoteUrlResult> = async (a
   return { url: url === '' ? null : url };
 };
 
-export const remotes: Handler<unknown, GitRemotesResult> = async (_args, ctx) => {
+export const remotes: GitCommandHandler<unknown, GitRemotesResult> = async (_args, ctx) => {
   return { remotes: await gitRemoteInfos(ctx) };
 };
