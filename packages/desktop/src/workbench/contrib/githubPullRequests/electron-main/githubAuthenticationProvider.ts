@@ -5,12 +5,17 @@ import {
   GITHUB_AUTH_PROVIDER_ID,
 } from '../../../services/authentication/common/authentication.js';
 import type { AuthenticationProvider } from '../../../services/authentication/electron-main/authenticationMainService.js';
-import { GithubApiClient, type GithubHttpRunner, defaultGithubHttp } from './githubApiClient.js';
+import {
+  type GithubAccountInfo,
+  GithubApiClient,
+  type GithubHttpRunner,
+  defaultGithubHttp,
+} from './githubApiClient.js';
 import { GITHUB_TOKEN_SECRET_KEY } from './githubGitCredentials.js';
-import type { GithubTokenProvider } from './githubMainService.js';
 
 const GITHUB_SESSION_ID = 'github';
 const GITHUB_SESSION_SCOPES = ['repo'] as const;
+const GITHUB_SESSIONS_SECRET_KEY = 'github.sessions';
 
 export type GithubSecretStore = SecretStore;
 
@@ -19,9 +24,10 @@ export interface GithubAuthenticationProviderOptions {
   readonly http?: GithubHttpRunner;
 }
 
-export class GithubAuthenticationProvider implements AuthenticationProvider, GithubTokenProvider {
+export class GithubAuthenticationProvider implements AuthenticationProvider {
   readonly id = GITHUB_AUTH_PROVIDER_ID;
   readonly label = 'GitHub';
+  readonly supportsMultipleAccounts = false;
   private readonly api: GithubApiClient;
   private readonly listeners = new Set<(event: AuthenticationSessionsChangeEvent) => void>();
   private currentSession: AuthenticationSession | null = null;
@@ -36,17 +42,21 @@ export class GithubAuthenticationProvider implements AuthenticationProvider, Git
     return () => this.listeners.delete(listener);
   }
 
-  async getSessions(): Promise<readonly AuthenticationSession[]> {
-    const login = await this.viewer();
-    this.currentSession = login === null ? null : githubSession(login);
-    return this.currentSession === null ? [] : [this.currentSession];
+  async getSessions(scopes?: readonly string[]): Promise<readonly AuthenticationSession[]> {
+    const session = await this.viewer();
+    this.currentSession = session;
+    return this.currentSession === null || !sessionScopesMatch(this.currentSession, scopes)
+      ? []
+      : [this.currentSession];
   }
 
-  async createSession(secret: string): Promise<AuthenticationSession | null> {
+  async createSession(
+    secret: string,
+    scopes: readonly string[] = GITHUB_SESSION_SCOPES,
+  ): Promise<AuthenticationSession | null> {
     const previous = this.currentSession;
-    const login = await this.signIn(secret);
-    if (login === null) return null;
-    const session = githubSession(login);
+    const session = await this.signIn(secret, scopes);
+    if (session === null) return null;
     this.currentSession = session;
     this.fire({
       added: [session],
@@ -59,8 +69,11 @@ export class GithubAuthenticationProvider implements AuthenticationProvider, Git
   async removeSession(sessionId: string): Promise<void> {
     if (sessionId !== GITHUB_SESSION_ID) throw new Error('GitHub session not found.');
     const token = await this.getToken();
-    const removed = this.currentSession ?? (token === null ? null : githubSession('github'));
-    await this.opts.secrets.delete(GITHUB_TOKEN_SECRET_KEY);
+    const removed =
+      this.currentSession ??
+      (await this.storedSession()) ??
+      (token === null ? null : githubSession('github', token));
+    await this.clearStoredCredentials();
     this.currentSession = null;
     if (removed !== null) {
       this.fire({ added: [], removed: [removed], changed: [] });
@@ -68,16 +81,17 @@ export class GithubAuthenticationProvider implements AuthenticationProvider, Git
   }
 
   async getToken(): Promise<string | null> {
-    const token = await this.storedToken();
-    if (token === null) return null;
-    if (token === this.verifiedToken) return token;
+    const session = await this.viewer();
+    if (session === null) return null;
+    const token = session.accessToken;
     try {
-      const login = await this.api.loginFor(token);
-      if (login === null) {
+      if (token === this.verifiedToken) return token;
+      const account = await this.api.accountFor(token);
+      if (account === null) {
         await this.clearStoredSession();
         return null;
       }
-      this.currentSession = githubSession(login);
+      this.currentSession = sessionForToken(this.currentSession, account, token, session.scopes);
       this.verifiedToken = token;
       return token;
     } catch {
@@ -87,38 +101,83 @@ export class GithubAuthenticationProvider implements AuthenticationProvider, Git
     }
   }
 
-  private async signIn(token: unknown): Promise<string | null> {
+  private async signIn(
+    token: unknown,
+    scopes: readonly string[],
+  ): Promise<AuthenticationSession | null> {
     if (typeof token !== 'string') throw new Error('The GitHub token is invalid.');
-    const login = await this.api.loginFor(token);
-    if (login === null) {
+    const trimmedToken = token.trim();
+    const account = await this.api.accountFor(trimmedToken);
+    if (account === null) {
       throw new Error(
         'The GitHub token is invalid or missing permissions (repo access is required for private repositories and pull request reviews).',
       );
     }
-    await this.opts.secrets.set(GITHUB_TOKEN_SECRET_KEY, token);
-    this.verifiedToken = token;
-    return login;
+    const session = githubSession(account, trimmedToken, scopes);
+    await this.storeSession(session);
+    this.verifiedToken = trimmedToken;
+    return session;
   }
 
-  private async viewer(): Promise<string | null> {
-    const token = await this.storedToken();
+  private async viewer(): Promise<AuthenticationSession | null> {
+    const storedSession = await this.storedSession();
+    const token = (await this.storedToken()) ?? storedSession?.accessToken ?? null;
     if (token === null) return null;
-    const login = await this.api.loginFor(token);
-    if (login === null) {
-      await this.clearStoredSession();
-      return null;
+    if (token === this.verifiedToken && this.currentSession !== null) return this.currentSession;
+    try {
+      const account = await this.api.accountFor(token);
+      if (account === null) {
+        await this.clearStoredSession();
+        return null;
+      }
+      this.verifiedToken = token;
+      const session = sessionForToken(
+        this.currentSession,
+        account,
+        token,
+        storedSession?.accessToken === token ? storedSession.scopes : GITHUB_SESSION_SCOPES,
+      );
+      await this.storeSession(session);
+      return session;
+    } catch {
+      return this.currentSession?.accessToken === token
+        ? this.currentSession
+        : storedSession?.accessToken === token
+          ? storedSession
+          : githubSession('github', token);
     }
-    this.verifiedToken = token;
-    return login;
   }
 
   private async storedToken(): Promise<string | null> {
     return this.opts.secrets.get(GITHUB_TOKEN_SECRET_KEY);
   }
 
+  private async storedSession(): Promise<AuthenticationSession | null> {
+    const raw = await this.opts.secrets.get(GITHUB_SESSIONS_SECRET_KEY);
+    if (raw === null) return null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return null;
+      for (const item of parsed) {
+        const session = toGithubSession(item);
+        if (session !== null) return session;
+      }
+    } catch {
+      await this.opts.secrets.delete(GITHUB_SESSIONS_SECRET_KEY);
+    }
+    return null;
+  }
+
+  private async storeSession(session: AuthenticationSession): Promise<void> {
+    await Promise.all([
+      this.opts.secrets.set(GITHUB_TOKEN_SECRET_KEY, session.accessToken),
+      this.opts.secrets.set(GITHUB_SESSIONS_SECRET_KEY, JSON.stringify([session])),
+    ]);
+  }
+
   private async clearStoredSession(): Promise<void> {
     const removed = this.currentSession;
-    await this.opts.secrets.delete(GITHUB_TOKEN_SECRET_KEY);
+    await this.clearStoredCredentials();
     this.currentSession = null;
     this.verifiedToken = null;
     if (removed !== null) {
@@ -126,16 +185,75 @@ export class GithubAuthenticationProvider implements AuthenticationProvider, Git
     }
   }
 
+  private async clearStoredCredentials(): Promise<void> {
+    await Promise.all([
+      this.opts.secrets.delete(GITHUB_TOKEN_SECRET_KEY),
+      this.opts.secrets.delete(GITHUB_SESSIONS_SECRET_KEY),
+    ]);
+  }
+
   private fire(event: AuthenticationSessionsChangeEvent): void {
     for (const listener of this.listeners) listener(event);
   }
 }
 
-function githubSession(login: string): AuthenticationSession {
+function githubSession(
+  account: GithubAccountInfo | string,
+  token: string,
+  scopes: readonly string[] = GITHUB_SESSION_SCOPES,
+): AuthenticationSession {
+  const accountInfo = typeof account === 'string' ? { id: account, login: account } : account;
   return {
     id: GITHUB_SESSION_ID,
+    accessToken: token,
     providerId: GITHUB_AUTH_PROVIDER_ID,
-    account: { id: login, label: login },
-    scopes: GITHUB_SESSION_SCOPES,
+    account: { id: accountInfo.id, label: accountInfo.login },
+    scopes: [...scopes],
   };
+}
+
+function sessionForToken(
+  currentSession: AuthenticationSession | null,
+  account: GithubAccountInfo,
+  token: string,
+  scopes: readonly string[] = GITHUB_SESSION_SCOPES,
+): AuthenticationSession {
+  return currentSession?.accessToken === token
+    ? currentSession
+    : githubSession(account, token, scopes);
+}
+
+function sessionScopesMatch(session: AuthenticationSession, scopes?: readonly string[]): boolean {
+  if (scopes === undefined || scopes.length === 0) return true;
+  const requested = [...scopes].sort();
+  const actual = [...session.scopes].sort();
+  return (
+    requested.length === actual.length && requested.every((scope, index) => actual[index] === scope)
+  );
+}
+
+function toGithubSession(value: unknown): AuthenticationSession | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const session = value as Record<string, unknown>;
+  const account = session.account as Record<string, unknown> | undefined;
+  if (
+    typeof session.id === 'string' &&
+    typeof session.accessToken === 'string' &&
+    typeof session.providerId === 'string' &&
+    typeof account === 'object' &&
+    account !== null &&
+    typeof account.id === 'string' &&
+    typeof account.label === 'string' &&
+    Array.isArray(session.scopes) &&
+    session.scopes.every((scope) => typeof scope === 'string')
+  ) {
+    return {
+      id: session.id,
+      accessToken: session.accessToken,
+      providerId: session.providerId,
+      account: { id: account.id, label: account.label },
+      scopes: [...session.scopes],
+    };
+  }
+  return null;
 }

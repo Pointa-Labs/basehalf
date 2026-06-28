@@ -5,6 +5,7 @@ export interface AuthenticationSessionAccount {
 
 export interface AuthenticationSession {
   readonly id: string;
+  readonly accessToken: string;
   readonly providerId: string;
   readonly account: AuthenticationSessionAccount;
   readonly scopes: readonly string[];
@@ -37,8 +38,15 @@ export type AuthenticationIpcChannel =
 export type AuthenticationDisposable = () => void;
 
 export interface AuthenticationChannelBridge {
-  getSessions(providerId: string): Promise<readonly AuthenticationSession[]>;
-  createSession(providerId: string, secret: string): Promise<AuthenticationSession | null>;
+  getSessions(
+    providerId: string,
+    scopes?: readonly string[],
+  ): Promise<readonly AuthenticationSession[]>;
+  createSession(
+    providerId: string,
+    secret: string,
+    scopes?: readonly string[],
+  ): Promise<AuthenticationSession | null>;
   removeSession(providerId: string, sessionId: string): Promise<void>;
   onDidChangeSessions(
     listener: (event: AuthenticationProviderSessionsChangeEvent) => void,
@@ -54,6 +62,12 @@ export interface AuthenticationBridge {
 export interface AuthenticationCreateSessionPayload {
   readonly providerId: string;
   readonly secret: string;
+  readonly scopes?: readonly string[];
+}
+
+export interface AuthenticationGetSessionsPayload {
+  readonly providerId: string;
+  readonly scopes?: readonly string[];
 }
 
 export interface AuthenticationRemoveSessionPayload {
@@ -77,7 +91,23 @@ export function asAuthenticationCreateSessionPayload(
   if (typeof value.secret !== 'string' || value.secret.trim() === '') {
     throw new Error('Invalid secret.');
   }
-  return { providerId, secret: value.secret };
+  const scopes = asOptionalScopes(value.scopes);
+  return scopes === undefined
+    ? { providerId, secret: value.secret }
+    : { providerId, secret: value.secret, scopes };
+}
+
+export function asAuthenticationGetSessionsPayload(
+  payload: unknown,
+): AuthenticationGetSessionsPayload {
+  if (typeof payload === 'string') return { providerId: asAuthenticationProviderId(payload) };
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('Invalid get sessions payload.');
+  }
+  const value = payload as Record<string, unknown>;
+  const providerId = asAuthenticationProviderId(value.providerId);
+  const scopes = asOptionalScopes(value.scopes);
+  return scopes === undefined ? { providerId } : { providerId, scopes };
 }
 
 export function asAuthenticationRemoveSessionPayload(
@@ -90,6 +120,14 @@ export function asAuthenticationRemoveSessionPayload(
     throw new Error('Invalid authentication session.');
   }
   return { providerId, sessionId: value.sessionId };
+}
+
+function asOptionalScopes(value: unknown): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.every((scope) => typeof scope === 'string')) {
+    throw new Error('Invalid scopes.');
+  }
+  return [...value];
 }
 
 export function asAuthenticationProviderSessionsChangeEvent(
@@ -105,35 +143,54 @@ export function asAuthenticationProviderSessionsChangeEvent(
     return { providerId: record.providerId, label: record.providerId, event: {} };
   }
 
-  return typeof record.label === 'string' && isAuthenticationSessionsChangeEvent(record.event)
-    ? { providerId: record.providerId, label: record.label, event: record.event }
+  const changeEvent = toAuthenticationSessionsChangeEvent(record.event);
+  return typeof record.label === 'string' && changeEvent !== null
+    ? { providerId: record.providerId, label: record.label, event: changeEvent }
     : null;
 }
 
-function isAuthenticationSessionsChangeEvent(
+function toAuthenticationSessionsChangeEvent(
   event: unknown,
-): event is AuthenticationSessionsChangeEvent {
-  if (typeof event !== 'object' || event === null) return false;
+): AuthenticationSessionsChangeEvent | null {
+  if (typeof event !== 'object' || event === null) return null;
   const record = event as Record<string, unknown>;
-  return (
-    isSessionListOrUndefined(record.added) &&
-    isSessionListOrUndefined(record.removed) &&
-    isSessionListOrUndefined(record.changed)
-  );
+  const added = toSessionListOrUndefined(record.added);
+  const removed = toSessionListOrUndefined(record.removed);
+  const changed = toSessionListOrUndefined(record.changed);
+  if (added === null || removed === null || changed === null) return null;
+
+  const out: {
+    added?: readonly AuthenticationSession[];
+    removed?: readonly AuthenticationSession[];
+    changed?: readonly AuthenticationSession[];
+  } = {};
+  if (added !== undefined) out.added = added;
+  if (removed !== undefined) out.removed = removed;
+  if (changed !== undefined) out.changed = changed;
+  return out;
 }
 
-function isSessionListOrUndefined(
+function toSessionListOrUndefined(
   value: unknown,
-): value is readonly AuthenticationSession[] | undefined {
-  return value === undefined || (Array.isArray(value) && value.every(isAuthenticationSession));
+): readonly AuthenticationSession[] | undefined | null {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return null;
+  const sessions: AuthenticationSession[] = [];
+  for (const item of value) {
+    const session = toAuthenticationSession(item);
+    if (session === null) return null;
+    sessions.push(session);
+  }
+  return sessions;
 }
 
-function isAuthenticationSession(value: unknown): value is AuthenticationSession {
-  if (typeof value !== 'object' || value === null) return false;
+function toAuthenticationSession(value: unknown): AuthenticationSession | null {
+  if (typeof value !== 'object' || value === null) return null;
   const session = value as Record<string, unknown>;
   const account = session.account as Record<string, unknown> | undefined;
-  return (
+  if (
     typeof session.id === 'string' &&
+    typeof session.accessToken === 'string' &&
     typeof session.providerId === 'string' &&
     typeof account === 'object' &&
     account !== null &&
@@ -141,5 +198,14 @@ function isAuthenticationSession(value: unknown): value is AuthenticationSession
     typeof account.label === 'string' &&
     Array.isArray(session.scopes) &&
     session.scopes.every((scope) => typeof scope === 'string')
-  );
+  ) {
+    return {
+      id: session.id,
+      accessToken: session.accessToken,
+      providerId: session.providerId,
+      account: { id: account.id, label: account.label },
+      scopes: [...session.scopes],
+    };
+  }
+  return null;
 }

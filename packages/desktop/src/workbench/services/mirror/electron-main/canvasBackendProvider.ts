@@ -1,3 +1,4 @@
+import { createKeyedMutex } from '../../../../platform/async/common/keyedMutex.js';
 import type {
   BadgeAddRefArgs,
   BadgeFile,
@@ -23,7 +24,7 @@ import type {
   CanvasSetCardArgs,
   CanvasSetSizeArgs,
 } from '../common/canvas.js';
-import { MirrorCorrupt, YamlMirrorStore, createKeyedMutex } from './yamlMirrorStore.js';
+import { MirrorCorrupt, YamlMirrorStore } from './yamlMirrorStore.js';
 
 export interface CanvasBackendProvider {
   get(workspaceRoot: string | null, args: CanvasGetArgs): Promise<CanvasGetResult>;

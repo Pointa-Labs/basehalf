@@ -1,3 +1,7 @@
+import {
+  type AuthenticationSession,
+  GITHUB_AUTH_PROVIDER_ID,
+} from '../../../services/authentication/common/authentication.js';
 import type {
   GhPrFile,
   GhPullRequest,
@@ -31,12 +35,17 @@ export interface GitRemoteProvider {
   getRemotes(workspaceRoot: string | null): Promise<readonly GitRemoteInfoLike[]>;
 }
 
-export interface GithubTokenProvider {
-  getToken(): Promise<string | null>;
+export const GITHUB_PULL_REQUEST_SCOPES = ['repo'] as const;
+
+export interface GithubAuthenticationSessionProvider {
+  getSessions(
+    providerId: string,
+    scopes?: readonly string[],
+  ): Promise<readonly AuthenticationSession[]>;
 }
 
 export interface GithubMainServiceOptions {
-  readonly tokenProvider: GithubTokenProvider;
+  readonly authentication: GithubAuthenticationSessionProvider;
   readonly remoteProvider: GitRemoteProvider;
   readonly http?: GithubHttpRunner;
 }
@@ -141,7 +150,11 @@ export class GithubMainService {
   }
 
   private async requireToken(): Promise<string> {
-    const token = await this.opts.tokenProvider.getToken();
+    const sessions = await this.opts.authentication.getSessions(
+      GITHUB_AUTH_PROVIDER_ID,
+      GITHUB_PULL_REQUEST_SCOPES,
+    );
+    const token = sessions[0]?.accessToken ?? null;
     if (token === null || token.trim() === '') {
       throw new Error('Not signed in to GitHub. Sign in from Settings.');
     }

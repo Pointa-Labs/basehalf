@@ -18,6 +18,11 @@ export interface GithubHttpResponse {
 
 export type GithubHttpRunner = (req: GithubHttpRequest) => Promise<GithubHttpResponse>;
 
+export interface GithubAccountInfo {
+  readonly id: string;
+  readonly login: string;
+}
+
 export async function defaultGithubHttp(req: GithubHttpRequest): Promise<GithubHttpResponse> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), req.timeoutMs ?? 20_000);
@@ -106,19 +111,27 @@ export class GithubApiClient {
     throw new Error(`GitHub request failed: ${detail}`);
   }
 
-  async loginFor(token: string): Promise<string | null> {
-    if (token.trim() === '') return null;
+  async accountFor(token: string): Promise<GithubAccountInfo | null> {
+    const trimmedToken = token.trim();
+    if (trimmedToken === '') return null;
     let res: GithubHttpResponse;
     try {
-      res = await this.request(token, 'GET', '/user');
+      res = await this.request(trimmedToken, 'GET', '/user');
     } catch (err) {
       if (err instanceof Error && /invalid or expired/i.test(err.message)) return null;
       throw err;
     }
-    const j = JSON.parse(res.body) as { login?: string };
+    const j = JSON.parse(res.body) as { id?: number | string; login?: string };
     if (typeof j.login !== 'string' || j.login === '') {
       throw new Error('GitHub returned an unexpected user response.');
     }
-    return j.login;
+    return {
+      id: typeof j.id === 'string' || typeof j.id === 'number' ? String(j.id) : j.login,
+      login: j.login,
+    };
+  }
+
+  async loginFor(token: string): Promise<string | null> {
+    return (await this.accountFor(token))?.login ?? null;
   }
 }

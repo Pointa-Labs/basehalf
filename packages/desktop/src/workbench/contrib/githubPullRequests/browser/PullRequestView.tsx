@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { UnifiedDiff } from '../../multiDiffEditor/browser/UnifiedDiff.js';

@@ -1,3 +1,4 @@
+import { createKeyedMutex } from '../../async/common/keyedMutex.js';
 import type {
   SettingDescriptor,
   SettingInspect,
@@ -173,21 +174,5 @@ function inspectOne(
     ...(globalValue !== undefined && { globalValue }),
     ...(workspaceValue !== undefined && { workspaceValue }),
     value,
-  };
-}
-
-function createKeyedMutex(): <T>(key: string, op: () => Promise<T>) => Promise<T> {
-  const chains = new Map<string, Promise<unknown>>();
-  return <T>(key: string, op: () => Promise<T>): Promise<T> => {
-    const previous = chains.get(key) ?? Promise.resolve();
-    const result = previous.then(op, op);
-    chains.set(
-      key,
-      result.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-    return result;
   };
 }

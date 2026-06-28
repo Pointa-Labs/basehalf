@@ -11,14 +11,16 @@ export type { AuthenticationBridge } from '../common/authentication.js';
 export function createAuthenticationBridge(ipcRenderer: IpcRendererLike): AuthenticationBridge {
   return {
     authentication: {
-      getSessions: (providerId) =>
-        ipcRenderer.invoke(AUTHENTICATION_IPC_CHANNELS.getSessions, providerId) as ReturnType<
-          AuthenticationChannelBridge['getSessions']
-        >,
-      createSession: (providerId, secret) =>
+      getSessions: (providerId, scopes) =>
+        ipcRenderer.invoke(
+          AUTHENTICATION_IPC_CHANNELS.getSessions,
+          scopes === undefined ? providerId : { providerId, scopes },
+        ) as ReturnType<AuthenticationChannelBridge['getSessions']>,
+      createSession: (providerId, secret, scopes) =>
         ipcRenderer.invoke(AUTHENTICATION_IPC_CHANNELS.createSession, {
           providerId,
           secret,
+          ...(scopes === undefined ? {} : { scopes: [...scopes] }),
         }) as ReturnType<AuthenticationChannelBridge['createSession']>,
       removeSession: (providerId, sessionId) =>
         ipcRenderer.invoke(AUTHENTICATION_IPC_CHANNELS.removeSession, {

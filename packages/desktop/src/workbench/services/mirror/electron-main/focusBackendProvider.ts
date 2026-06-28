@@ -1,5 +1,6 @@
 import { mkdir, readlink, stat, symlink, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
+import { createKeyedMutex } from '../../../../platform/async/common/keyedMutex.js';
 import type {
   FocusClearResult,
   FocusGetResult,
@@ -16,7 +17,6 @@ import {
   YamlMirrorStore,
   assertReadContained,
   assertWriteContained,
-  createKeyedMutex,
   isMirrorSubtree,
   remapSubtreeRel,
 } from './yamlMirrorStore.js';

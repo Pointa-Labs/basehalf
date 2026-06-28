@@ -23,39 +23,41 @@ function makeFakeHttp(reply: (req: GithubHttpRequest) => Partial<GithubHttpRespo
 }
 
 function secretsWithToken(token: string | null = null): GithubSecretStore {
-  let current = token;
+  const values = new Map<string, string>();
+  if (token !== null) values.set('github.token', token);
   return {
-    async get() {
-      return current;
+    async get(key) {
+      return values.get(key) ?? null;
     },
-    async set(_key, value) {
-      current = value;
+    async set(key, value) {
+      values.set(key, value);
     },
-    async delete() {
-      current = null;
+    async delete(key) {
+      values.delete(key);
     },
   };
 }
 
 describe('GithubAuthenticationProvider', () => {
   it('verifies + stores tokens, then exposes a GitHub authentication session', async () => {
-    const { http } = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));
+    const { http, calls } = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));
     const secrets = secretsWithToken();
     const provider = new GithubAuthenticationProvider({ http, secrets });
     const events: unknown[] = [];
     provider.onDidChangeSessions((event) => events.push(event));
 
     await expect(provider.getSessions()).resolves.toEqual([]);
-    const signedIn = await provider.createSession('tok');
+    const signedIn = await provider.createSession(' tok\n');
     await expect(secrets.get('github.token')).resolves.toBe('tok');
     await expect(provider.getToken()).resolves.toBe('tok');
+    expect(calls[0]?.headers?.Authorization).toBe('Bearer tok');
     expect(signedIn).toMatchObject({
       id: 'github',
+      accessToken: 'tok',
       providerId: GITHUB_AUTH_PROVIDER_ID,
       account: { label: 'ada' },
       scopes: ['repo'],
     });
-    expect(signedIn).not.toHaveProperty('accessToken');
     await expect(provider.getSessions()).resolves.toHaveLength(1);
     await provider.removeSession('github');
     await expect(secrets.get('github.token')).resolves.toBeNull();
@@ -105,6 +107,87 @@ describe('GithubAuthenticationProvider', () => {
 
     await expect(provider.createSession('tok')).rejects.toThrow(/rate limit/);
     await expect(secrets.get('github.token')).resolves.toBeNull();
+  });
+
+  it('keeps stored sessions readable during transient GitHub validation failures', async () => {
+    const { http } = makeFakeHttp(() => ({
+      status: 403,
+      headers: { 'x-ratelimit-remaining': '0' },
+      body: '{"message":"API rate limit exceeded"}',
+    }));
+    const provider = new GithubAuthenticationProvider({
+      http,
+      secrets: secretsWithToken('tok'),
+    });
+
+    await expect(provider.getSessions()).resolves.toEqual([
+      {
+        id: 'github',
+        accessToken: 'tok',
+        providerId: GITHUB_AUTH_PROVIDER_ID,
+        account: { id: 'github', label: 'github' },
+        scopes: ['repo'],
+      },
+    ]);
+  });
+
+  it('filters sessions by requested scopes', async () => {
+    const provider = new GithubAuthenticationProvider({
+      http: makeFakeHttp(() => ({ body: '{"login":"ada"}' })).http,
+      secrets: secretsWithToken(),
+    });
+
+    await expect(provider.createSession('tok', ['repo'])).resolves.toMatchObject({
+      scopes: ['repo'],
+    });
+    await expect(provider.getSessions(['repo'])).resolves.toHaveLength(1);
+    await expect(provider.getSessions(['workflow'])).resolves.toEqual([]);
+  });
+
+  it('persists VS Code-style session metadata for account display and scope matching', async () => {
+    const secrets = secretsWithToken();
+    const { http } = makeFakeHttp(() => ({ body: '{"id":42,"login":"ada"}' }));
+    const provider = new GithubAuthenticationProvider({ http, secrets });
+
+    const session = await provider.createSession('tok', ['workflow', 'repo']);
+    const restoredProvider = new GithubAuthenticationProvider({ http, secrets });
+
+    await expect(restoredProvider.getSessions(['repo', 'workflow'])).resolves.toEqual([
+      {
+        id: 'github',
+        accessToken: 'tok',
+        providerId: GITHUB_AUTH_PROVIDER_ID,
+        account: { id: '42', label: 'ada' },
+        scopes: ['workflow', 'repo'],
+      },
+    ]);
+    await expect(restoredProvider.getSessions(['repo'])).resolves.toEqual([]);
+    expect(session?.account).toEqual({ id: '42', label: 'ada' });
+    await expect(secrets.get('github.token')).resolves.toBe('tok');
+  });
+
+  it('refreshes the cached session when the stored token changes', async () => {
+    const { http } = makeFakeHttp((req) => ({
+      body: req.headers?.Authorization === 'Bearer tok2' ? '{"login":"grace"}' : '{"login":"ada"}',
+    }));
+    const secrets = secretsWithToken();
+    const provider = new GithubAuthenticationProvider({ http, secrets });
+
+    await expect(provider.createSession('tok1')).resolves.toMatchObject({
+      accessToken: 'tok1',
+      account: { label: 'ada' },
+    });
+    await secrets.set('github.token', 'tok2');
+
+    await expect(provider.getSessions()).resolves.toEqual([
+      {
+        id: 'github',
+        accessToken: 'tok2',
+        providerId: GITHUB_AUTH_PROVIDER_ID,
+        account: { id: 'grace', label: 'grace' },
+        scopes: ['repo'],
+      },
+    ]);
   });
 
   it('rejects unknown sign-out session ids without deleting the token', async () => {

@@ -2,6 +2,7 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open, readdir, realpath, stat, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { parse, stringify } from 'yaml';
+import { createKeyedMutex } from '../../../../platform/async/common/keyedMutex.js';
 
 export type MirrorKind = 'badge' | 'canvas' | 'focus' | 'adhd';
 
@@ -25,22 +26,6 @@ export class MirrorCorrupt extends Error {
   ) {
     super(`Corrupt ${kind}.yaml for "${rel || '<root>'}"`, opts);
   }
-}
-
-export function createKeyedMutex(): <T>(key: string, op: () => Promise<T>) => Promise<T> {
-  const chains = new Map<string, Promise<unknown>>();
-  return <T>(key: string, op: () => Promise<T>): Promise<T> => {
-    const previous = chains.get(key) ?? Promise.resolve();
-    const result = previous.then(op, op);
-    chains.set(
-      key,
-      result.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-    return result;
-  };
 }
 
 const withMirrorLock = createKeyedMutex();

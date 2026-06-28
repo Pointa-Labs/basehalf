@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { GithubReviewArgs } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
 import {
+  type GithubAuthenticationSessionProvider,
   type GithubHttpRequest,
   type GithubHttpResponse,
   GithubMainService,
-  type GithubTokenProvider,
   parseGithubRepo,
 } from '../src/workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 
@@ -23,11 +23,20 @@ function makeFakeHttp(reply: (req: GithubHttpRequest) => Partial<GithubHttpRespo
   return { http, calls };
 }
 
-function tokenProviderWithToken(token: string | null = null): GithubTokenProvider {
+function authenticationWithToken(token: string | null = null): GithubAuthenticationSessionProvider {
   const current = token;
   return {
-    async getToken() {
-      return current;
+    async getSessions(providerId, scopes) {
+      if (current === null) return [];
+      return [
+        {
+          id: 'github',
+          accessToken: current,
+          providerId,
+          account: { id: 'ada', label: 'ada' },
+          scopes: scopes === undefined ? ['repo'] : [...scopes],
+        },
+      ];
     },
   };
 }
@@ -44,7 +53,7 @@ const serviceWithRemotes = (
   options: { http?: (req: GithubHttpRequest) => Promise<GithubHttpResponse>; token?: string } = {},
 ): GithubMainService =>
   new GithubMainService({
-    tokenProvider: tokenProviderWithToken(options.token ?? null),
+    authentication: authenticationWithToken(options.token ?? null),
     http: options.http,
     remoteProvider: {
       getRemotes: async (workspaceRoot) => {
@@ -178,6 +187,7 @@ describe('GithubMainService pull request API', () => {
         updatedAt: '2026-06-27T10:00:00Z',
       },
     ]);
+    expect(JSON.stringify(pullRequests)).not.toContain('tok');
   });
 
   it('paginates pull request results instead of truncating at the first page', async () => {
@@ -265,7 +275,7 @@ describe('GithubMainService pull request API', () => {
 
     const noTokenNeeded = new GithubMainService({
       http,
-      tokenProvider: tokenProviderWithToken(),
+      authentication: authenticationWithToken(),
       remoteProvider: emptyRemoteProvider,
     });
     await expect(

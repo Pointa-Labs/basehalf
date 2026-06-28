@@ -47,6 +47,7 @@ describe('pullRequestsSectionModel', () => {
   it('maps authentication sessions into the section login state', () => {
     const session: AuthenticationSession = {
       id: 'github',
+      accessToken: 'tok',
       providerId: 'github',
       account: { id: 'ada', label: 'ada' },
       scopes: ['repo'],

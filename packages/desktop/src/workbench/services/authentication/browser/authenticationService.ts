@@ -11,8 +11,9 @@ export function createAuthenticationService(
   channel: AuthenticationChannelBridge,
 ): AuthenticationServiceContract {
   return {
-    getSessions: (providerId) => channel.getSessions(providerId),
-    createSession: (providerId, secret) => channel.createSession(providerId, secret),
+    getSessions: (providerId, scopes) => channel.getSessions(providerId, scopes),
+    createSession: (providerId, secret, scopes) =>
+      channel.createSession(providerId, secret, scopes),
     removeSession: (providerId, sessionId) => channel.removeSession(providerId, sessionId),
     onDidChangeSessions: (listener) => channel.onDidChangeSessions(listener),
   };

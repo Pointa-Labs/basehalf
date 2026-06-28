@@ -1,5 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createKeyedMutex } from '../../../../platform/async/common/keyedMutex.js';
 import type { AdhdRelocateArgs, AdhdRelocateResult } from '../common/adhd.js';
 import type {
   BadgeAddRefArgs,
@@ -22,12 +23,7 @@ import type {
 } from '../common/badge.js';
 import type { CanvasRelocateArgs, CanvasRelocateResult } from '../common/canvas.js';
 import type { FocusRelocateArgs, FocusRelocateResult } from '../common/focus.js';
-import {
-  MirrorCorrupt,
-  YamlMirrorStore,
-  assertReadContained,
-  createKeyedMutex,
-} from './yamlMirrorStore.js';
+import { MirrorCorrupt, YamlMirrorStore, assertReadContained } from './yamlMirrorStore.js';
 
 export interface BadgeBackendProvider {
   get(workspaceRoot: string | null, args: BadgeGetArgs): Promise<BadgeGetResult>;

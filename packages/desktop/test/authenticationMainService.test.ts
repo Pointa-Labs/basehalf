@@ -13,6 +13,7 @@ const session = (
   account: AuthenticationSession['account'] = { id: 'ada', label: 'ada' },
 ): AuthenticationSession => ({
   id: 'github',
+  accessToken: 'tok',
   providerId,
   account,
   scopes: ['repo'],
@@ -34,7 +35,7 @@ describe('AuthenticationMainService', () => {
     await expect(service.createSession('github', 'tok')).resolves.toEqual(session());
     await service.removeSession('github', 'github');
 
-    expect(provider.createSession).toHaveBeenCalledWith('tok');
+    expect(provider.createSession).toHaveBeenCalledWith('tok', undefined);
     expect(provider.removeSession).toHaveBeenCalledWith('github');
   });
 
@@ -64,6 +65,54 @@ describe('AuthenticationMainService', () => {
     providerListener?.({ added: [], removed: [session()], changed: [] });
 
     expect(events).toEqual([{ providerId: 'github', label: 'GitHub', event: change }]);
+  });
+
+  it('preserves VS Code AuthenticationSession access tokens when returning or broadcasting them', async () => {
+    const events: unknown[] = [];
+    const leakySession = {
+      ...session(),
+    } as unknown as AuthenticationSession;
+    let providerListener: ((event: AuthenticationSessionsChangeEvent) => void) | undefined;
+    const provider: AuthenticationProvider = {
+      id: 'github',
+      label: 'GitHub',
+      getSessions: vi.fn(async () => [leakySession]),
+      createSession: vi.fn(async () => leakySession),
+      removeSession: vi.fn(async () => undefined),
+      onDidChangeSessions: vi.fn((listener) => {
+        providerListener = listener;
+        return () => {
+          providerListener = undefined;
+        };
+      }),
+    };
+    const service = new AuthenticationMainService();
+    service.registerProvider(provider);
+    service.onDidChangeSessions((event) => events.push(event));
+
+    const sessions = await service.getSessions('github');
+    const created = await service.createSession('github', 'tok');
+    providerListener?.({
+      added: [leakySession],
+      removed: [],
+      changed: [],
+    });
+
+    expect(sessions).toEqual([session()]);
+    expect(sessions[0]?.accessToken).toBe('tok');
+    expect(created).toEqual(session());
+    expect(created?.accessToken).toBe('tok');
+    expect(events).toEqual([
+      {
+        providerId: 'github',
+        label: 'GitHub',
+        event: { added: [session()], removed: [], changed: [] },
+      },
+    ]);
+    expect(
+      (events[0] as { event: { added: readonly AuthenticationSession[] } }).event.added[0]
+        ?.accessToken,
+    ).toBe('tok');
   });
 
   it('creates precise session deltas for providers that have not exposed their own event yet', async () => {

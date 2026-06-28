@@ -9,8 +9,8 @@ export interface AuthenticationProvider {
   readonly label: string;
   readonly supportsMultipleAccounts?: boolean;
   onDidChangeSessions?(listener: (event: AuthenticationSessionsChangeEvent) => void): () => void;
-  getSessions(): Promise<readonly AuthenticationSession[]>;
-  createSession(secret: string): Promise<AuthenticationSession | null>;
+  getSessions(scopes?: readonly string[]): Promise<readonly AuthenticationSession[]>;
+  createSession(secret: string, scopes?: readonly string[]): Promise<AuthenticationSession | null>;
   removeSession(sessionId: string): Promise<void>;
 }
 
@@ -38,7 +38,7 @@ export class AuthenticationMainService {
         this.fire({
           providerId: provider.id,
           label: provider.label,
-          event,
+          event: sanitizeSessionsChangeEvent(event),
         });
       }),
     };
@@ -60,14 +60,25 @@ export class AuthenticationMainService {
     return [...this.providers.keys()];
   }
 
-  async getSessions(providerId: string): Promise<readonly AuthenticationSession[]> {
-    return this.provider(providerId).getSessions();
+  async getSessions(
+    providerId: string,
+    scopes?: readonly string[],
+  ): Promise<readonly AuthenticationSession[]> {
+    return sanitizeSessions(await this.provider(providerId).getSessions(scopes));
   }
 
-  async createSession(providerId: string, secret: string): Promise<AuthenticationSession | null> {
+  async createSession(
+    providerId: string,
+    secret: string,
+    scopes?: readonly string[],
+  ): Promise<AuthenticationSession | null> {
     const provider = this.provider(providerId);
-    const before = provider.onDidChangeSessions === undefined ? await provider.getSessions() : [];
-    const session = await provider.createSession(secret);
+    const before =
+      provider.onDidChangeSessions === undefined
+        ? sanitizeSessions(await provider.getSessions(scopes))
+        : [];
+    const rawSession = await provider.createSession(secret, scopes);
+    const session = rawSession === null ? null : sanitizeSession(rawSession);
     if (provider.onDidChangeSessions === undefined && session !== null) {
       this.fireLegacyProviderChange(
         provider,
@@ -79,7 +90,10 @@ export class AuthenticationMainService {
 
   async removeSession(providerId: string, sessionId: string): Promise<void> {
     const provider = this.provider(providerId);
-    const before = provider.onDidChangeSessions === undefined ? await provider.getSessions() : [];
+    const before =
+      provider.onDidChangeSessions === undefined
+        ? sanitizeSessions(await provider.getSessions())
+        : [];
     await provider.removeSession(sessionId);
     if (provider.onDidChangeSessions === undefined) {
       const after = before.filter((session) => session.id !== sessionId);
@@ -124,6 +138,39 @@ function upsertSession(
   return replaced ? updated : [...sessions, next];
 }
 
+function sanitizeSessions(
+  sessions: readonly AuthenticationSession[],
+): readonly AuthenticationSession[] {
+  return sessions.map(sanitizeSession);
+}
+
+function sanitizeSession(session: AuthenticationSession): AuthenticationSession {
+  return {
+    id: session.id,
+    accessToken: session.accessToken,
+    providerId: session.providerId,
+    account: {
+      id: session.account.id,
+      label: session.account.label,
+    },
+    scopes: [...session.scopes],
+  };
+}
+
+function sanitizeSessionsChangeEvent(
+  event: AuthenticationSessionsChangeEvent,
+): AuthenticationSessionsChangeEvent {
+  const sanitized: {
+    added?: readonly AuthenticationSession[];
+    removed?: readonly AuthenticationSession[];
+    changed?: readonly AuthenticationSession[];
+  } = {};
+  if (event.added !== undefined) sanitized.added = sanitizeSessions(event.added);
+  if (event.removed !== undefined) sanitized.removed = sanitizeSessions(event.removed);
+  if (event.changed !== undefined) sanitized.changed = sanitizeSessions(event.changed);
+  return sanitized;
+}
+
 function sessionChangeEvent(
   before: readonly AuthenticationSession[],
   after: readonly AuthenticationSession[],
@@ -143,6 +190,7 @@ function sessionChangeEvent(
 function sameSession(a: AuthenticationSession, b: AuthenticationSession): boolean {
   return (
     a.id === b.id &&
+    a.accessToken === b.accessToken &&
     a.providerId === b.providerId &&
     a.account.id === b.account.id &&
     a.account.label === b.account.label &&

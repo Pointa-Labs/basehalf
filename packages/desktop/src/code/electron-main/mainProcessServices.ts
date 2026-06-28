@@ -196,7 +196,7 @@ export function createBaseHalfMainServices(
     },
   };
   const githubService = new GithubMainService({
-    tokenProvider: githubAuthenticationProvider,
+    authentication: authenticationService,
     remoteProvider: gitRemoteProvider,
   });
 

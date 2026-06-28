@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
+import { createKeyedMutex } from '../../async/common/keyedMutex.js';
 import type { ViewportState, WorkspaceEntry } from '../common/workspaces.js';
 
 export interface WorkspacesFileEntry {
@@ -109,20 +110,4 @@ function isENOENT(err: unknown): boolean {
     'code' in err &&
     (err as { code: unknown }).code === 'ENOENT'
   );
-}
-
-function createKeyedMutex(): <T>(key: string, op: () => Promise<T>) => Promise<T> {
-  const chains = new Map<string, Promise<unknown>>();
-  return <T>(key: string, op: () => Promise<T>): Promise<T> => {
-    const previous = chains.get(key) ?? Promise.resolve();
-    const result = previous.then(op, op);
-    chains.set(
-      key,
-      result.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-    return result;
-  };
 }

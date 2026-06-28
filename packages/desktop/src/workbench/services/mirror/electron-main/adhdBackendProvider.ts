@@ -1,3 +1,4 @@
+import { createKeyedMutex } from '../../../../platform/async/common/keyedMutex.js';
 import type {
   AdhdAddKeywordArgs,
   AdhdFile,
@@ -13,7 +14,7 @@ import type {
   AdhdSetArgs,
   LineRange,
 } from '../common/adhd.js';
-import { MirrorCorrupt, YamlMirrorStore, createKeyedMutex } from './yamlMirrorStore.js';
+import { MirrorCorrupt, YamlMirrorStore } from './yamlMirrorStore.js';
 
 export interface AdhdBackendProvider {
   get(workspaceRoot: string | null, file: string): Promise<AdhdGetResult>;

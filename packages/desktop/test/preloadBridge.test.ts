@@ -150,16 +150,23 @@ describe('preload bridge modules', () => {
 
   it('maps authentication provider calls and session events to Electron IPC', async () => {
     const ipc = fakeIpc();
+    const session = {
+      id: 'github',
+      accessToken: 'tok',
+      providerId: 'github',
+      account: { id: 'ada', label: 'ada' },
+      scopes: ['repo'],
+    };
     ipc.invoke.mockImplementation(async (channel: string) => {
       if (channel === AUTHENTICATION_IPC_CHANNELS.getSessions) return [];
-      if (channel === AUTHENTICATION_IPC_CHANNELS.createSession) return { id: 'github' };
+      if (channel === AUTHENTICATION_IPC_CHANNELS.createSession) return session;
       return undefined;
     });
     const bridge = createAuthenticationBridge(ipc).authentication;
     const onChange = vi.fn();
 
     await expect(bridge.getSessions('github')).resolves.toEqual([]);
-    await expect(bridge.createSession('github', 'tok')).resolves.toEqual({ id: 'github' });
+    await expect(bridge.createSession('github', 'tok')).resolves.toEqual(session);
     await bridge.removeSession('github', 'github');
     const dispose = bridge.onDidChangeSessions(onChange);
     const changeEvent = {
