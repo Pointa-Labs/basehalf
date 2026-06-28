@@ -1,5 +1,6 @@
 import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
 import { historyService } from '../../history/browser/historyService.js';
+import type { WorkspaceEditorOverlayActions } from '../common/workspaceActions.js';
 import {
   type GitDiffEditorInput,
   type PullRequestEditorInput,
@@ -33,25 +34,6 @@ interface WorkspaceEditorOverlayActionState {
 
 type WorkspaceEditorOverlaySet = (patch: Partial<WorkspaceEditorOverlayActionState>) => void;
 type WorkspaceEditorOverlayGet = () => WorkspaceEditorOverlayActionState;
-
-export interface WorkspaceEditorOverlayActions {
-  readonly openInPanel: (
-    file: string,
-    opts?: { readonly pinned?: boolean; readonly matchQuery?: string | null },
-  ) => void;
-  readonly closeEditor: () => void;
-  readonly openGitDiff: (path: string, staged: boolean) => void;
-  readonly openCommitDiff: (path: string, ref: string, parentRef?: string, title?: string) => void;
-  readonly closeGitDiff: () => void;
-  readonly openGitGraph: () => void;
-  readonly closeGitGraph: () => void;
-  readonly openMerge: (path: string) => void;
-  readonly closeMerge: () => void;
-  readonly openPr: (pr: PullRequestEditorInput) => void;
-  readonly closePr: () => void;
-  readonly setFolderScope: (path: string | null) => Promise<void>;
-  readonly navigateToFolder: (path: string | null) => Promise<void>;
-}
 
 export function createWorkspaceEditorOverlayActions(
   set: WorkspaceEditorOverlaySet,

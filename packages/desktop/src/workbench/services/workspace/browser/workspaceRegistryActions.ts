@@ -5,6 +5,7 @@ import { flushAll } from '../../editor/common/editorFlush.js';
 import { badgeService } from '../../mirror/browser/badgeService.js';
 import { focusService } from '../../mirror/browser/focusService.js';
 import { suspendMirrorWrites } from '../../mirror/browser/mirrorWrites.js';
+import type { WorkspaceRegistryActions } from '../common/workspaceActions.js';
 import { workspaceRefreshPatch } from '../common/workspaceModel.js';
 import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
 
@@ -22,18 +23,6 @@ interface WorkspaceRegistryActionState {
 
 type WorkspaceRegistrySet = (patch: Partial<WorkspaceRegistryActionState>) => void;
 type WorkspaceRegistryGet = () => WorkspaceRegistryActionState;
-
-export interface WorkspaceRegistryActions {
-  readonly refresh: () => Promise<void>;
-  readonly refreshOpenRoots: () => Promise<void>;
-  readonly pickAndAdd: () => Promise<void>;
-  readonly createDemo: (path: string) => Promise<void>;
-  readonly addDroppedPaths: (paths: readonly string[]) => Promise<void>;
-  readonly use: (name: string) => Promise<void>;
-  readonly remove: (name: string) => Promise<void>;
-  readonly repath: (name: string) => Promise<void>;
-  readonly renameWorkspace: (from: string, to: string) => Promise<void>;
-}
 
 async function startWatcher(): Promise<void> {
   try {

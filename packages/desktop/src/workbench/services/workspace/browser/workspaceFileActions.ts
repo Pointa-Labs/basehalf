@@ -1,6 +1,7 @@
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { noteStemFromTitle } from '../../editor/browser/noteTitleModel.js';
 import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
+import type { WorkspaceFileActions } from '../common/workspaceActions.js';
 import {
   type WorkspaceEntryKind,
   closeEditorOverlayPatch,
@@ -30,20 +31,6 @@ interface WorkspaceFileActionState {
 
 type WorkspaceFileSet = (patch: Partial<WorkspaceFileActionState>) => void;
 type WorkspaceFileGet = () => WorkspaceFileActionState;
-
-export interface WorkspaceFileActions {
-  readonly createNote: (relPath: string) => Promise<void>;
-  readonly newNote: (opts?: { readonly folder?: string | null }) => Promise<void>;
-  readonly renameOpenFile: (title: string) => Promise<string | null>;
-  readonly createFile: (relPath: string) => Promise<string | null>;
-  readonly createFolder: (relPath: string) => Promise<string | null>;
-  readonly renameEntry: (
-    from: string,
-    to: string,
-    kind: WorkspaceEntryKind,
-  ) => Promise<string | null>;
-  readonly deleteEntry: (path: string, kind: WorkspaceEntryKind) => Promise<boolean>;
-}
 
 export function createWorkspaceFileActions(
   set: WorkspaceFileSet,

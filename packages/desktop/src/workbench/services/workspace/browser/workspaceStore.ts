@@ -4,10 +4,10 @@ import {
   rebindOpenFileForRename,
   toggleCanvasEditingCard,
 } from '../common/workspaceModel.js';
+import type { WorkspaceState } from '../common/workspaceStoreTypes.js';
 import { createWorkspaceEditorOverlayActions } from './workspaceEditorOverlayActions.js';
 import { createWorkspaceFileActions } from './workspaceFileActions.js';
 import { createWorkspaceRegistryActions } from './workspaceRegistryActions.js';
-import type { WorkspaceState } from './workspaceStoreTypes.js';
 
 export type { CanvasSelection } from '../common/workspaceModel.js';
 export { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
