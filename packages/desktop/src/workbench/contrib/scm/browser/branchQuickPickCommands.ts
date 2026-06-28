@@ -16,7 +16,6 @@ const msg = (err: unknown): string => (err instanceof Error ? err.message : Stri
 const CREATE_BRANCH_COMMAND = 'cmd:create';
 
 export async function openBranchQuickPick({
-  status,
   git,
   onAfter,
 }: {
@@ -24,7 +23,6 @@ export async function openBranchQuickPick({
   readonly git: BranchGitAdapter;
   readonly onAfter: () => void | Promise<void>;
 }): Promise<void> {
-  void status;
   try {
     const { refs } = await git.listRefs();
     const options: PickOption[] = [
@@ -148,12 +146,8 @@ async function createBranch(
   toast.info(`Created and checked out ${name}.`);
 }
 
-function createBranchNameValidator(
-  refs: readonly GitRefInfo[],
-): (value: string) => string | null {
-  const localBranches = new Set(
-    refs.filter((ref) => ref.type === 'head').map((ref) => ref.name),
-  );
+function createBranchNameValidator(refs: readonly GitRefInfo[]): (value: string) => string | null {
+  const localBranches = new Set(refs.filter((ref) => ref.type === 'head').map((ref) => ref.name));
   return (value: string): string | null => {
     const name = value.trim();
     if (name === '') return 'Branch name is required.';

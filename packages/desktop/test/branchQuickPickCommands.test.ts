@@ -36,10 +36,7 @@ const ref = (id: string, name: string, type: GitRefInfo['type'], current = false
   current,
 });
 
-function adapterFor(
-  refs: readonly GitRefInfo[],
-  calls: string[] = [],
-): BranchGitAdapter {
+function adapterFor(refs: readonly GitRefInfo[], calls: string[] = []): BranchGitAdapter {
   return {
     listRefs: async () => ({
       current: 'main',
