@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { authenticationService } from '../../../services/authentication/browser/authenticationService.js';
@@ -23,9 +23,9 @@ const githubAccountErrorMessage = (err: unknown): string => {
 
 /**
  * The GitHub account section in Settings — sign in with a Personal Access Token
- * (verified + stored OS-encrypted in the main process; it never returns to the
- * renderer after this), or sign out. The signed-in login powers the in-app Pull
- * Requests view. `undefined` = still resolving the stored session.
+ * (verified + stored OS-encrypted in the main process), or sign out. The signed-in
+ * login powers the in-app Pull Requests view. `undefined` = still resolving the
+ * stored session.
  */
 export const GithubAccount = (): JSX.Element => {
   const [session, setSession] = useState<AuthenticationSession | null | undefined>(undefined);
@@ -134,8 +134,9 @@ export const GithubAccount = (): JSX.Element => {
             >
               Paste a GitHub Personal Access Token to view and review pull requests in-app.
               Fine-grained tokens need repository metadata and pull request access for the
-              repositories you use; classic tokens need repository access. The token is stored
-              encrypted on this device and is sent only to GitHub API requests.
+              repositories you use; classic tokens need repository access. The token is verified and
+              stored by the main process, then used there for GitHub API and Git HTTPS credential
+              requests.
             </span>
             <div style={{ display: 'flex', gap: space[2] }}>
               <input

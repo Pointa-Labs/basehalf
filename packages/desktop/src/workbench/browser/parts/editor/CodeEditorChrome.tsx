@@ -1,8 +1,8 @@
 import { type JSX, type ReactNode, useCallback, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
+import { fileBaseName } from '../../../common/editor/codeEditorModel.js';
 import { color, font, radius, shadow, space } from '../../style/design.js';
 import { Button } from '../../ui/primitives/Button.js';
-import { fileBaseName } from './codeEditorModel.js';
 
 /** Slim top bar: the unsaved dot + a save hint, plus language and blame toggle
  *  on the right. Always rendered so toggling dirty doesn't shift the editor. */

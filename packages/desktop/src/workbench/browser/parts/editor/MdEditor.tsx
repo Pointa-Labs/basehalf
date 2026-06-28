@@ -4,15 +4,9 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
+import { AUTOSAVE_MS, debounceWithFlush } from '../../../common/editor/mdEditorModel.js';
 import { makeAdhdHighlightExtension } from '../../../services/editor/browser/adhdHighlight.js';
 import { bhSchema } from '../../../services/editor/browser/blocknoteSchema.js';
-import {
-  type FlushOptions,
-  registerDocFlusher,
-  registerFlusher,
-  unregisterDocFlusher,
-  unregisterFlusher,
-} from '../../../services/editor/browser/editorFlush.js';
 import { firstVisibleBlockId } from '../../../services/editor/browser/editorFocusModel.js';
 import {
   type LiveDocView,
@@ -25,6 +19,13 @@ import {
   releaseDoc,
 } from '../../../services/editor/browser/liveDoc.js';
 import { useReadingMode } from '../../../services/editor/browser/readingModeStore.js';
+import {
+  type FlushOptions,
+  registerDocFlusher,
+  registerFlusher,
+  unregisterDocFlusher,
+  unregisterFlusher,
+} from '../../../services/editor/common/editorFlush.js';
 import {
   type FocusBlock,
   type LinePrecision,
@@ -49,7 +50,6 @@ import { useWorkspaceStore } from '../../../services/workspace/browser/workspace
 import { color } from '../../style/design.js';
 import { MdEditorBanners } from './MdEditorBanners.js';
 import { MdEditorBody } from './MdEditorBody.js';
-import { AUTOSAVE_MS, debounceWithFlush } from './mdEditorModel.js';
 
 export const MdEditor = ({
   file,

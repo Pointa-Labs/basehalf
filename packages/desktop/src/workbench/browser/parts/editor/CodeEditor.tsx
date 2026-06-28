@@ -4,6 +4,15 @@ import { fileEventService } from '../../../../platform/files/browser/fileEventSe
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type { WorkspaceReadFileResult } from '../../../../platform/workspaces/common/workspaces.js';
 import {
+  type CodeEditorPrompt,
+  GUTTER_DIFF_MAX_CHARS,
+  blameAnnotation,
+  didDiskContentChange,
+  gitFileStatusSignature,
+  isCodeEditorDirty,
+  shouldRefreshGitBaseline,
+} from '../../../common/editor/codeEditorModel.js';
+import {
   type ConflictBlock,
   type ConflictChoice,
   findConflicts,
@@ -16,8 +25,8 @@ import {
   type FlushOptions,
   registerFlusher,
   unregisterFlusher,
-} from '../../../services/editor/browser/editorFlush.js';
-import { computeLineChanges } from '../../../services/editor/browser/lineDiff.js';
+} from '../../../services/editor/common/editorFlush.js';
+import { computeLineChanges } from '../../../services/editor/common/lineDiff.js';
 import { makeFileFocusPusher } from '../../../services/mirror/browser/focusPush.js';
 import { font, space } from '../../style/design.js';
 import {
@@ -27,15 +36,6 @@ import {
   CodeEditorStatusBar,
   UnsavedChangesPrompt,
 } from './CodeEditorChrome.js';
-import {
-  type CodeEditorPrompt,
-  GUTTER_DIFF_MAX_CHARS,
-  blameAnnotation,
-  didDiskContentChange,
-  gitFileStatusSignature,
-  isCodeEditorDirty,
-  shouldRefreshGitBaseline,
-} from './codeEditorModel.js';
 import {
   ensureBhTheme,
   ensureBlameStyles,

@@ -4,6 +4,7 @@ import {
   isAgentHintFile,
   isVisibleNavEntry,
   joinNavPath,
+  moveNavEntryOptimistically,
   navTreeKeyboardIntent,
   newItemDirForEntry,
   parentAbsPath,
@@ -13,7 +14,7 @@ import {
   renameNavEntryOptimistically,
   renameTargetForBasename,
   sortNavEntries,
-} from '../src/workbench/contrib/files/browser/navTreeModel.js';
+} from '../src/workbench/contrib/files/common/navTreeModel.js';
 
 describe('navTreeModel', () => {
   it('filters only the default hidden workspace entries', () => {
@@ -110,6 +111,15 @@ describe('navTreeModel', () => {
     expect(navTreeKeyboardIntent(items, 'README.md', { key: 'Enter', isMac: true })).toEqual({
       type: 'rename',
     });
+    expect(
+      navTreeKeyboardIntent(items, 'README.md', {
+        key: 'ArrowDown',
+        isMac: true,
+        metaKey: true,
+      }),
+    ).toEqual({
+      type: 'open',
+    });
     expect(navTreeKeyboardIntent(items, 'README.md', { key: ' ' })).toEqual({
       type: 'open',
     });
@@ -192,5 +202,33 @@ describe('navTreeModel', () => {
       { name: 'b.md', type: 'file' },
     ]);
     expect([...result.expanded]).toEqual(['/repo/notes', '/repo/notes/nested']);
+  });
+
+  it('optimistically moves rows across loaded parents', () => {
+    const result = moveNavEntryOptimistically({
+      rootPath: '/repo',
+      from: 'docs/a.md',
+      to: 'src/a.md',
+      kind: 'file',
+      childrenByPath: new Map([
+        [
+          '/repo',
+          [
+            { name: 'docs', type: 'dir' as const },
+            { name: 'src', type: 'dir' as const },
+          ],
+        ],
+        ['/repo/docs', [{ name: 'a.md', type: 'file' as const }]],
+        ['/repo/src', [{ name: 'z.md', type: 'file' as const }]],
+      ]),
+      expanded: new Set(['/repo/docs', '/repo/src']),
+    });
+
+    expect(result.childrenByPath.get('/repo/docs')).toEqual([]);
+    expect(result.childrenByPath.get('/repo/src')).toEqual([
+      { name: 'a.md', type: 'file' },
+      { name: 'z.md', type: 'file' },
+    ]);
+    expect([...result.expanded]).toEqual(['/repo/docs', '/repo/src']);
   });
 });

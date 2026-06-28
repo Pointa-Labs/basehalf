@@ -1,17 +1,17 @@
 import { type JSX, type KeyboardEvent, type MouseEvent, useRef } from 'react';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { color, font, space } from '../../../browser/style/design.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
-import { ExplorerHeader } from './ExplorerHeader.js';
-import { NavTreeRow } from './NavTreeRow.js';
-import { buildFileMenu, confirmAndDelete, createAndRename } from './fileMenu.js';
 import {
   ROW_HEIGHT,
   navTreeKeyboardIntent,
   newItemDirForEntry,
   renameTargetForBasename,
-} from './navTreeModel.js';
+} from '../common/navTreeModel.js';
+import { ExplorerHeader } from './ExplorerHeader.js';
+import { NavTreeRow } from './NavTreeRow.js';
+import { buildFileMenu, confirmAndDelete, createAndRename } from './fileMenu.js';
 import { type ExplorerTreeRow, useExplorerTreeModel } from './useExplorerTreeModel.js';
 
 interface NavTreeProps {

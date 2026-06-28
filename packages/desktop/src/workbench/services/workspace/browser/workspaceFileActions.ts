@@ -1,9 +1,9 @@
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import { flushAll, flushPane } from '../../editor/browser/editorFlush.js';
 import { noteStemFromTitle } from '../../editor/browser/noteTitleModel.js';
+import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
 import { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
 import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
-import { emitEntryRemoved, emitEntryRenamed } from './workspaceFileEvents.js';
+import { emitEntryCreated, emitEntryRemoved, emitEntryRenamed } from './workspaceFileEvents.js';
 import {
   type WorkspaceEntryKind,
   closeEditorOverlayPatch,
@@ -173,6 +173,7 @@ export function createWorkspaceFileActions(
       // doesn't open the big editor. The watcher surfaces the new row/card.
       try {
         const res = await workspaceService.createFile(relPath);
+        if (get().current === ws) emitEntryCreated(res.path, 'file');
         return get().current === ws ? res.path : null;
       } catch (err) {
         if (get().current === ws) set({ error: formatWorkspaceError(err) });
@@ -185,6 +186,7 @@ export function createWorkspaceFileActions(
       if (ws === null) return null;
       try {
         const res = await workspaceService.createFolder(relPath);
+        if (get().current === ws) emitEntryCreated(res.path, 'folder');
         return get().current === ws ? res.path : null;
       } catch (err) {
         if (get().current === ws) set({ error: formatWorkspaceError(err) });

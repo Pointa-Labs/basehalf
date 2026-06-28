@@ -3,7 +3,7 @@ import {
   flushDoc,
   registerDocFlusher,
   unregisterDocFlusher,
-} from '../src/workbench/services/editor/browser/editorFlush.js';
+} from '../src/workbench/services/editor/common/editorFlush.js';
 
 const registered: Array<[string, () => Promise<boolean>]> = [];
 

@@ -1,5 +1,5 @@
 import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { color, font, layout, radius, space, transition } from '../../../browser/style/design.js';
 import { buildTerminalTabMenu } from './terminalMenus.js';
 import { type TermTab, useTerminalStore } from './terminalStore.js';

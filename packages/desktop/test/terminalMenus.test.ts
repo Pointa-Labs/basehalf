@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type ContextMenuAction,
   type ContextMenuItem,
-  isSeparator,
-} from '../src/workbench/browser/parts/contextmenu/contextMenuStore.js';
+  isContextMenuSeparator as isSeparator,
+} from '../src/platform/contextview/common/contextMenu.js';
 import { termRegistry } from '../src/workbench/contrib/terminal/browser/termRegistry.js';
 import {
   type TerminalTabMenuActions,

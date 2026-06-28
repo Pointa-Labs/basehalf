@@ -6,7 +6,7 @@ import {
   gitFileStatusSignature,
   isCodeEditorDirty,
   shouldRefreshGitBaseline,
-} from '../src/workbench/browser/parts/editor/codeEditorModel.js';
+} from '../src/workbench/common/editor/codeEditorModel.js';
 
 describe('codeEditorModel', () => {
   it('detects dirty buffers and disk drift from the last saved snapshot', () => {

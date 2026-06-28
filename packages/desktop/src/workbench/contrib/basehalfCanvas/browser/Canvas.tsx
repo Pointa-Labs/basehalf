@@ -12,10 +12,10 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { type JSX, type MouseEvent as ReactMouseEvent, useCallback, useRef } from 'react';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
+import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
 import { droppedPaths, handleExternalDrop } from '../../../browser/dnd/importDrop.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
-import { prompt } from '../../../browser/parts/dialogs/Dialog.js';
 import { color } from '../../../browser/style/design.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
 import { isWorkspaceEditorOverlayOpen } from '../../../services/workspace/browser/workspaceModel.js';

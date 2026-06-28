@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { color } from '../../../browser/style/design.js';
 import { TerminalView } from './Terminal.js';
 import { TerminalCloseToasts } from './TerminalCloseToasts.js';

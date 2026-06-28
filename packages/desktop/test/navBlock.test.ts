@@ -3,7 +3,7 @@ import { workspaceService } from '../src/platform/workspaces/browser/workspaceSe
 import {
   registerFlusher,
   unregisterFlusher,
-} from '../src/workbench/services/editor/browser/editorFlush.js';
+} from '../src/workbench/services/editor/common/editorFlush.js';
 import {
   EDITOR_OVERLAY_PANE_ID,
   useWorkspaceStore,

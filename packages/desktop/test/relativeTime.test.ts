@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { relativeTime } from '../src/workbench/browser/parts/editor/relativeTime.js';
+import { relativeTime } from '../src/workbench/common/editor/relativeTime.js';
 
 const NOW = 1_700_000_000_000; // fixed "now" in ms
 

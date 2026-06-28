@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   WorkspaceFileOperationEvent,
+  emitEntryCreated,
   emitEntryRemoved,
   emitEntryRenamed,
   emitWorkspaceFileOperation,
@@ -10,19 +11,22 @@ import {
 } from '../src/workbench/services/workspace/browser/workspaceFileEvents.js';
 
 describe('workspace file operation events', () => {
-  it('emits one VS Code-style operation event for successful in-app delete and move', () => {
+  it('emits one VS Code-style operation event for successful in-app create, delete, and move', () => {
     const seen: WorkspaceFileOperationEvent[] = [];
     const unsub = subscribeWorkspaceFileOperations((event) => seen.push(event));
 
+    emitEntryCreated('new.md', 'file');
     emitEntryRemoved('old.md', 'file');
     emitEntryRenamed('docs', 'notes', 'folder');
     unsub();
 
-    expect(seen).toHaveLength(2);
-    expect(seen[0]?.isOperation('delete')).toBe(true);
-    expect(seen[0]).toMatchObject({ resource: 'old.md', operation: 'delete', kind: 'file' });
-    expect(seen[1]?.isOperation('move')).toBe(true);
-    expect(seen[1]).toMatchObject({
+    expect(seen).toHaveLength(3);
+    expect(seen[0]?.isOperation('create')).toBe(true);
+    expect(seen[0]).toMatchObject({ resource: 'new.md', operation: 'create', kind: 'file' });
+    expect(seen[1]?.isOperation('delete')).toBe(true);
+    expect(seen[1]).toMatchObject({ resource: 'old.md', operation: 'delete', kind: 'file' });
+    expect(seen[2]?.isOperation('move')).toBe(true);
+    expect(seen[2]).toMatchObject({
       resource: 'docs',
       operation: 'move',
       kind: 'folder',

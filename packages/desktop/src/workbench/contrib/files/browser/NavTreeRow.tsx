@@ -9,7 +9,7 @@ import {
   statusTooltip,
 } from '../../scm/browser/gitStatusModel.js';
 import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
-import { ROW_HEIGHT, isAgentHintFile } from './navTreeModel.js';
+import { ROW_HEIGHT, isAgentHintFile } from '../common/navTreeModel.js';
 
 // File-tree git-status colors (VS Code conventions): added / untracked green,
 // modified amber, deleted red, conflict red, renamed accent.

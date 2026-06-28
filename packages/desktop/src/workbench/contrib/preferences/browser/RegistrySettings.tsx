@@ -2,9 +2,10 @@
  * Registry-driven settings rows — the data-driven heart of the Settings surface.
  *
  * Instead of hand-coding a section per setting, this reads `settings.describe()`
- * (the core registry, introspectable) and renders every descriptor through a
- * renderer-per-type switch. Adding a setting is now ONE registry entry in core
- * with NO UI change — the promise the settings scaffold was built to keep.
+ * (the platform configuration registry, introspectable) and renders every
+ * descriptor through a renderer-per-type switch. Adding a setting is now ONE
+ * registry entry with NO UI change — the promise the settings scaffold was built
+ * to keep.
  *
  * Each descriptor carries its own two-layer controls: a GLOBAL DEFAULT plus,
  * for `scope: 'workspace'` settings when a folder is open, a per-workspace
@@ -23,14 +24,11 @@ import {
 } from '../../../services/editor/browser/readingModeStore.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import {
-  Segmented,
-  SettingRow,
-  Toggle,
-  matchesSettingQuery,
-  sectionLabelStyle,
-} from './primitives.js';
-
-type WsOverride = 'default' | 'on' | 'off';
+  type SettingOverrideMode,
+  booleanSettingViewModel,
+  groupSettingDescriptors,
+} from '../common/preferencesModel.js';
+import { Segmented, SettingRow, Toggle, sectionLabelStyle } from './primitives.js';
 
 /** Settings whose effective value is mirrored elsewhere in the renderer and so
  *  must be nudged when changed here (the editor reads reading mode live, off the
@@ -42,13 +40,6 @@ const ON_CHANGE: Record<string, (next: SettingInspect) => void> = {
     void useReadingMode.getState().refresh();
   },
 };
-
-/** Section label from a key's namespace prefix (`editor.readingMode` → "Editor").
- *  Forward-compatible with a future explicit `category` field on the descriptor. */
-function sectionLabelFor(key: string): string {
-  const ns = key.includes('.') ? key.slice(0, key.indexOf('.')) : key;
-  return ns.charAt(0).toUpperCase() + ns.slice(1);
-}
 
 /** A boolean setting: a global-default Toggle + (for workspace-scoped settings
  *  with a folder open) a per-workspace override tri-state. Generalized from the
@@ -114,7 +105,7 @@ const BooleanSettingRow = ({ descriptor }: { descriptor: SettingDescriptor }): J
   );
 
   const setOverride = useCallback(
-    (mode: WsOverride): void => {
+    (mode: SettingOverrideMode): void => {
       const seq = ++requestSeq.current;
       const call =
         mode === 'default'
@@ -131,40 +122,34 @@ const BooleanSettingRow = ({ descriptor }: { descriptor: SettingDescriptor }): J
     [applied, reload, descriptor.key, isCurrentRequest],
   );
 
-  const globalOn = view
-    ? (view.globalValue ?? view.defaultValue) === true
-    : descriptor.default === true;
-  const override: WsOverride =
-    view?.workspaceValue === undefined ? 'default' : view.workspaceValue ? 'on' : 'off';
-  const effective = view ? view.value === true : descriptor.default === true;
-  const overridable = descriptor.scope === 'workspace';
+  const model = booleanSettingViewModel(descriptor, view);
 
   return (
     <>
       <SettingRow
         label={descriptor.label}
         description={
-          overridable
+          model.canOverride
             ? `${descriptor.description} This is the default for every folder.`
             : descriptor.description
         }
         control={
           <Toggle
-            checked={globalOn}
+            checked={model.globalOn}
             onChange={setGlobal}
             label={`${descriptor.label} (global default)`}
           />
         }
       />
-      {overridable && current !== null && (
+      {model.canOverride && current !== null && (
         <SettingRow
           inset
           label="This folder"
-          description={`Override the default for the open folder. Currently ${effective ? 'on' : 'off'} here.`}
+          description={`Override the default for the open folder. Currently ${model.effective ? 'on' : 'off'} here.`}
           control={
             <Segmented
-              value={override}
-              onChange={(v) => setOverride(v as WsOverride)}
+              value={model.override}
+              onChange={(v) => setOverride(v as SettingOverrideMode)}
               label={`${descriptor.label} override for this folder`}
               options={[
                 { value: 'default', label: 'Default' },
@@ -216,24 +201,12 @@ export const RegistrySettings = ({ filter = '' }: { filter?: string }): JSX.Elem
 
   if (!descriptors || descriptors.length === 0) return null;
 
-  const q = filter.trim().toLowerCase();
-  const matches = (d: SettingDescriptor): boolean =>
-    matchesSettingQuery(q, [d.label, d.description, d.key]);
-
-  // Group by namespace prefix, preserving the registry's order within a group.
-  const groups: Array<[string, SettingDescriptor[]]> = [];
-  for (const d of descriptors) {
-    if (!matches(d)) continue;
-    const label = sectionLabelFor(d.key);
-    const group = groups.find(([l]) => l === label);
-    if (group) group[1].push(d);
-    else groups.push([label, [d]]);
-  }
+  const groups = groupSettingDescriptors(descriptors, filter);
   if (groups.length === 0) return null;
 
   return (
     <>
-      {groups.map(([label, ds]) => (
+      {groups.map(({ label, descriptors: ds }) => (
         <div key={label}>
           <div style={sectionLabelStyle}>{label}</div>
           {ds.map((d) => (

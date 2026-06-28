@@ -13,7 +13,7 @@
  *   add     — an added line   (new number, '+'), split into word-level segments
  *   gap     — a collapsed boundary, rendered as a git hunk header `@@ … @@`
  */
-import { diffComputer } from '../../../services/editor/browser/lineDiff.js';
+import { diffComputer } from '../../../services/editor/common/lineDiff.js';
 
 /** A run of characters within a changed line: word-level highlighted, or plain. */
 export interface DiffSeg {

@@ -7,12 +7,12 @@ import {
   setTitleState,
   splitPaneState,
   undoCloseState,
-} from '../src/workbench/contrib/terminal/browser/terminalGroupModel.js';
+} from '../src/workbench/contrib/terminal/common/terminalGroupModel.js';
 import {
   findLeaf,
   leaf,
   orderedLeafIds,
-} from '../src/workbench/contrib/terminal/browser/terminalTree.js';
+} from '../src/workbench/contrib/terminal/common/terminalTree.js';
 
 const initialState = (): TerminalModelState => ({
   tabs: [{ id: 'tab0', tree: leaf('p0'), activePaneId: 'p0', zoomedPaneId: null }],

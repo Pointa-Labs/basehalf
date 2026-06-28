@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  editorViewKeyFor,
   filePreviewInput,
   splitPath,
-} from '../src/workbench/browser/parts/editor/filePreviewModel.js';
+} from '../src/workbench/common/editor/filePreviewModel.js';
 
 describe('filePreviewModel', () => {
   it('splits relative paths into dirname and basename', () => {
@@ -14,6 +15,7 @@ describe('filePreviewModel', () => {
   });
 
   it('builds a stable editor input from workspace root and relative path', () => {
+    expect(editorViewKeyFor('/workspace', 'notes/today.md')).toBe('/workspace\0notes/today.md');
     expect(filePreviewInput('/workspace', 'notes/today.md')).toEqual({
       file: 'notes/today.md',
       mode: 'md',

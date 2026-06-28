@@ -1,22 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
-import {
-  subscribeEntryRemoved,
-  subscribeEntryRenamed,
-} from '../../../services/workspace/browser/workspaceFileEvents.js';
 import {
   type ExplorerTreeRow,
   type VisibleNavTreeItem,
   buildVisibleNavRows,
   joinNavPath,
-  parentAbsPath,
-  removeNavEntryOptimistically,
-  renameNavEntryOptimistically,
-} from './navTreeModel.js';
+} from '../common/navTreeModel.js';
+import { explorerService } from './explorerService.js';
 
-export type { ExplorerTreeRow } from './navTreeModel.js';
+export type { ExplorerTreeRow } from '../common/navTreeModel.js';
 
 export interface ExplorerTreeModel {
   readonly visibleRows: readonly ExplorerTreeRow[];
@@ -31,6 +23,16 @@ export interface ExplorerTreeModel {
   readonly collapseAll: () => void;
 }
 
+interface ExplorerTreeCache {
+  readonly childrenByPath: Map<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: Set<string>;
+}
+
+const emptyExplorerTreeCache = (): ExplorerTreeCache => ({
+  childrenByPath: new Map(),
+  expanded: new Set(),
+});
+
 export function useExplorerTreeModel({
   rootPath,
   currentPath,
@@ -40,150 +42,150 @@ export function useExplorerTreeModel({
   readonly currentPath: string | null;
   readonly renamingPath: string | null;
 }): ExplorerTreeModel {
-  const [childrenByPath, setChildrenByPath] = useState<
-    Map<string, readonly WorkspaceListFilesEntry[]>
-  >(new Map());
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [treeCache, setTreeCache] = useState<ExplorerTreeCache>(() => emptyExplorerTreeCache());
   const [focusedRel, setFocusedRel] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
-  const childrenByPathRef = useRef(childrenByPath);
-  const expandedRef = useRef(expanded);
+  const treeCacheRef = useRef(treeCache);
   const lastCurrentPathRef = useRef(currentPath);
-  childrenByPathRef.current = childrenByPath;
-  expandedRef.current = expanded;
+  treeCacheRef.current = treeCache;
 
-  const loadChildren = useCallback(async (path: string): Promise<void> => {
-    try {
-      const result = await workspaceService.listFiles(path);
-      setChildrenByPath((prev) => {
-        const next = new Map(prev);
-        next.set(path, result.entries);
-        return next;
-      });
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+  const commitTreeCache = useCallback((next: ExplorerTreeCache): void => {
+    treeCacheRef.current = next;
+    setTreeCache(next);
   }, []);
 
+  const updateTreeCache = useCallback(
+    (updater: (prev: ExplorerTreeCache) => ExplorerTreeCache): void => {
+      setTreeCache((prev) => {
+        const next = updater(prev);
+        treeCacheRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const loadChildren = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        const entries = await explorerService.resolveChildren(path);
+        updateTreeCache((prev) => {
+          const childrenByPath = new Map(prev.childrenByPath);
+          childrenByPath.set(path, entries);
+          return { childrenByPath, expanded: prev.expanded };
+        });
+        setError('');
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [updateTreeCache],
+  );
+
   useEffect(() => {
-    setChildrenByPath(new Map());
-    setExpanded(new Set());
+    commitTreeCache(emptyExplorerTreeCache());
     setFocusedRel(null);
     setError('');
     void loadChildren(rootPath);
-  }, [rootPath, loadChildren]);
+  }, [rootPath, loadChildren, commitTreeCache]);
 
   useEffect(() => {
-    const refreshParentOf = (rel: string): void => {
-      if (rel === '.bh' || rel.startsWith('.bh/')) return;
-      const parentAbs = parentAbsPath(rootPath, rel);
-      if (childrenByPathRef.current.has(parentAbs)) {
-        void loadChildren(parentAbs);
+    return explorerService.onDidChangeFiles((event) => {
+      const currentCache = treeCacheRef.current;
+      const mutation = explorerService.applyFileEvent(
+        {
+          childrenByPath: currentCache.childrenByPath,
+          expanded: currentCache.expanded,
+          rootPath,
+        },
+        event,
+      );
+      const nextCache = mutation ?? currentCache;
+      if (mutation !== null) {
+        commitTreeCache(mutation);
       }
-    };
-    return fileEventService.onDidChangeFiles((event) => {
-      if (event.type === 'rename') {
-        refreshParentOf(event.fromRelPath);
-        refreshParentOf(event.toRelPath);
-        return;
+      for (const dir of explorerService.affectedLoadedDirectories({
+        rootPath,
+        childrenByPath: nextCache.childrenByPath,
+        event,
+      })) {
+        void loadChildren(dir);
       }
-      refreshParentOf(event.relPath);
     });
-  }, [rootPath, loadChildren]);
+  }, [rootPath, loadChildren, commitTreeCache]);
 
   useEffect(() => {
-    return subscribeEntryRemoved((rel) => {
-      setChildrenByPath((prev) => {
-        const next = removeNavEntryOptimistically({
-          childrenByPath: prev,
-          expanded: expandedRef.current,
+    return explorerService.onDidRunOperation((operation) => {
+      const currentCache = treeCacheRef.current;
+      const next = explorerService.applyFileOperation(
+        {
+          childrenByPath: currentCache.childrenByPath,
+          expanded: currentCache.expanded,
           rootPath,
-          rel,
-        });
-        return next.childrenByPath;
-      });
-      setExpanded((prev) => {
-        const next = removeNavEntryOptimistically({
-          childrenByPath: childrenByPathRef.current,
-          expanded: prev,
-          rootPath,
-          rel,
-        });
-        return next.expanded.size === prev.size ? prev : next.expanded;
-      });
+        },
+        operation,
+      );
+      commitTreeCache(next);
     });
-  }, [rootPath]);
-
-  useEffect(() => {
-    return subscribeEntryRenamed((from, to) => {
-      setChildrenByPath((prev) => {
-        const next = renameNavEntryOptimistically({
-          childrenByPath: prev,
-          expanded: expandedRef.current,
-          rootPath,
-          from,
-          to,
-        });
-        return next.childrenByPath;
-      });
-      setExpanded((prev) => {
-        const next = renameNavEntryOptimistically({
-          childrenByPath: childrenByPathRef.current,
-          expanded: prev,
-          rootPath,
-          from,
-          to,
-        });
-        return next.expanded;
-      });
-    });
-  }, [rootPath]);
+  }, [rootPath, commitTreeCache]);
 
   const expandFolder = useCallback(
     (path: string): void => {
-      setExpanded((prev) => {
-        if (prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.add(path);
-        return next;
+      updateTreeCache((prev) => {
+        if (prev.expanded.has(path)) return prev;
+        const expanded = new Set(prev.expanded);
+        expanded.add(path);
+        return { childrenByPath: prev.childrenByPath, expanded };
       });
-      if (!childrenByPathRef.current.has(path)) void loadChildren(path);
+      if (!treeCacheRef.current.childrenByPath.has(path)) void loadChildren(path);
     },
-    [loadChildren],
+    [loadChildren, updateTreeCache],
   );
 
-  const collapseFolder = useCallback((path: string): void => {
-    setExpanded((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  }, []);
+  const collapseFolder = useCallback(
+    (path: string): void => {
+      updateTreeCache((prev) => {
+        if (!prev.expanded.has(path)) return prev;
+        const expanded = new Set(prev.expanded);
+        expanded.delete(path);
+        return { childrenByPath: prev.childrenByPath, expanded };
+      });
+    },
+    [updateTreeCache],
+  );
 
   const toggleExpand = useCallback(
     (path: string): void => {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) {
-          next.delete(path);
+      const shouldLoad =
+        !treeCacheRef.current.expanded.has(path) && !treeCacheRef.current.childrenByPath.has(path);
+      updateTreeCache((prev) => {
+        const expanded = new Set(prev.expanded);
+        if (expanded.has(path)) {
+          expanded.delete(path);
         } else {
-          next.add(path);
-          if (!childrenByPathRef.current.has(path)) void loadChildren(path);
+          expanded.add(path);
         }
-        return next;
+        return { childrenByPath: prev.childrenByPath, expanded };
       });
+      if (shouldLoad) void loadChildren(path);
     },
-    [loadChildren],
+    [loadChildren, updateTreeCache],
   );
 
   const refreshTree = useCallback((): void => {
-    for (const dir of childrenByPath.keys()) void loadChildren(dir);
-    if (!childrenByPath.has(rootPath)) void loadChildren(rootPath);
-  }, [childrenByPath, rootPath, loadChildren]);
+    for (const dir of treeCache.childrenByPath.keys()) void loadChildren(dir);
+    if (!treeCache.childrenByPath.has(rootPath)) void loadChildren(rootPath);
+  }, [treeCache, rootPath, loadChildren]);
 
-  const collapseAll = useCallback((): void => setExpanded(new Set()), []);
+  const collapseAll = useCallback(
+    (): void =>
+      updateTreeCache((prev) =>
+        prev.expanded.size === 0
+          ? prev
+          : { childrenByPath: prev.childrenByPath, expanded: new Set() },
+      ),
+    [updateTreeCache],
+  );
 
   useEffect(() => {
     if (renamingPath === null) return;
@@ -193,22 +195,32 @@ export function useExplorerTreeModel({
       void loadChildren(rootPath);
       return;
     }
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      let acc = '';
-      for (const part of parts) {
-        acc = acc === '' ? part : `${acc}/${part}`;
-        const abs = joinNavPath(rootPath, acc);
-        next.add(abs);
-        if (!childrenByPathRef.current.has(abs)) void loadChildren(abs);
-      }
-      return next;
+    const folderPaths: string[] = [];
+    let acc = '';
+    for (const part of parts) {
+      acc = acc === '' ? part : `${acc}/${part}`;
+      folderPaths.push(joinNavPath(rootPath, acc));
+    }
+    const missingFolders = folderPaths.filter(
+      (abs) => !treeCacheRef.current.childrenByPath.has(abs),
+    );
+    updateTreeCache((prev) => {
+      const expanded = new Set(prev.expanded);
+      for (const abs of folderPaths) expanded.add(abs);
+      return { childrenByPath: prev.childrenByPath, expanded };
     });
-  }, [renamingPath, rootPath, loadChildren]);
+    for (const abs of missingFolders) void loadChildren(abs);
+  }, [renamingPath, rootPath, loadChildren, updateTreeCache]);
 
   const visibleRows = useMemo(
-    () => buildVisibleNavRows({ childrenByPath, expanded, rootPath, currentPath }),
-    [childrenByPath, currentPath, expanded, rootPath],
+    () =>
+      buildVisibleNavRows({
+        childrenByPath: treeCache.childrenByPath,
+        expanded: treeCache.expanded,
+        rootPath,
+        currentPath,
+      }),
+    [treeCache, currentPath, rootPath],
   );
   const visibleItems = useMemo(
     () =>

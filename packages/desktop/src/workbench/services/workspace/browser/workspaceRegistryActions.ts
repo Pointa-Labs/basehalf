@@ -1,7 +1,7 @@
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type { WorkspaceEntry } from '../../../../platform/workspaces/common/workspaces.js';
-import { flushAll } from '../../editor/browser/editorFlush.js';
+import { flushAll } from '../../editor/common/editorFlush.js';
 import { badgeService } from '../../mirror/browser/badgeService.js';
 import { focusService } from '../../mirror/browser/focusService.js';
 import { suspendMirrorWrites } from '../../mirror/browser/mirrorWrites.js';

@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { type PickOption, pick } from '../../../../platform/dialogs/browser/dialogService.js';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import { type PickOption, pick } from '../../../browser/parts/dialogs/Dialog.js';
-import {
-  registerFlusher,
-  unregisterFlusher,
-} from '../../../services/editor/browser/editorFlush.js';
+import { registerFlusher, unregisterFlusher } from '../../../services/editor/common/editorFlush.js';
 import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
 import { badgeMutations } from '../../../services/mirror/browser/badgeMutations.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';

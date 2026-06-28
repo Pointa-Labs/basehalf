@@ -1,4 +1,6 @@
 import { type JSX, useEffect, useRef } from 'react';
+import { filePreviewInput } from '../../../common/editor/filePreviewModel.js';
+import { modeOf } from '../../../common/editor/viewerMode.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { color, font } from '../../style/design.js';
 import { CodeEditor } from './CodeEditor.js';
@@ -10,9 +12,7 @@ import {
   VideoEditorPane,
 } from './FilePreviewPanes.js';
 import { MdEditor } from './MdEditor.js';
-import { filePreviewInput } from './filePreviewModel.js';
 import { scrollToFirstMatch } from './scrollToMatch.js';
-import { modeOf } from './viewerMode.js';
 
 /** The editor body for the open file. The full-canvas editor overlay
  *  (EditorOverlay) supplies `file`, a stable synthetic `paneId` (for the flush

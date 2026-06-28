@@ -8,13 +8,6 @@
 import type { CSSProperties, JSX, ReactNode } from 'react';
 import { color, font, radius, space, transition } from '../../../browser/style/design.js';
 
-export function matchesSettingQuery(query: string, fields: readonly string[]): boolean {
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const haystack = fields.join(' ').toLowerCase();
-  return terms.every((term) => haystack.includes(term));
-}
-
 /** Uppercase tracked-caps label above a group of setting rows. */
 export const sectionLabelStyle: CSSProperties = {
   fontSize: font.size.micro,

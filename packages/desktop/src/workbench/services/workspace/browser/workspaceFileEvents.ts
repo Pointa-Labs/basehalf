@@ -6,11 +6,12 @@
 // successful in-app operations.
 
 export type WorkspaceFileEntryKind = 'file' | 'folder';
-export type WorkspaceFileOperation = 'delete' | 'move';
+export type WorkspaceFileOperation = 'create' | 'delete' | 'move';
 
 export type RemovedKind = WorkspaceFileEntryKind;
 
 export class WorkspaceFileOperationEvent {
+  constructor(resource: string, operation: 'create', kind: WorkspaceFileEntryKind);
   constructor(resource: string, operation: 'delete', kind: WorkspaceFileEntryKind);
   constructor(resource: string, operation: 'move', kind: WorkspaceFileEntryKind, target: string);
   constructor(
@@ -20,6 +21,10 @@ export class WorkspaceFileOperationEvent {
     readonly target?: string,
   ) {}
 
+  isOperation(operation: 'create'): this is WorkspaceFileOperationEvent & {
+    readonly operation: 'create';
+    readonly target: undefined;
+  };
   isOperation(operation: 'delete'): this is WorkspaceFileOperationEvent & {
     readonly operation: 'delete';
     readonly target: undefined;
@@ -50,6 +55,10 @@ export function subscribeWorkspaceFileOperations(
   return () => {
     operationListeners.delete(listener);
   };
+}
+
+export function emitEntryCreated(path: string, kind: WorkspaceFileEntryKind): void {
+  emitWorkspaceFileOperation(new WorkspaceFileOperationEvent(path, 'create', kind));
 }
 
 export function emitEntryRemoved(path: string, kind: RemovedKind): void {

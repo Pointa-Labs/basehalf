@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import { termRegistry } from './termRegistry.js';
 import { useTerminalStore } from './terminalStore.js';
 

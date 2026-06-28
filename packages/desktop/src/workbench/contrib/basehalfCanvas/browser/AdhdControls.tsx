@@ -1,9 +1,7 @@
 import { AllSelection } from '@tiptap/pm/state';
 import { type JSX, useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  type ContextMenuItem,
-  openContextMenu,
-} from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import {
   type AdhdEditorApi,
   pushAdhdDecorations,

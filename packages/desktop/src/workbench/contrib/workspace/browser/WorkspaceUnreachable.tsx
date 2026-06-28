@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { confirm } from '../../../browser/parts/dialogs/Dialog.js';
+import { confirm } from '../../../../platform/dialogs/browser/dialogService.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';

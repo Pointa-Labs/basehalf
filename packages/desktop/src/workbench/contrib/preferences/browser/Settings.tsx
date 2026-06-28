@@ -14,9 +14,9 @@
  *  - APP-SHELL prefs (hand-laid): auto-update policy + window zoom + About.
  *    Main-process owned (main polls before any window exists; zoom is the View
  *    menu's authoritative level), so they can't be descriptor-driven.
- *  - REGISTRY settings (data-driven): everything in the core settings registry,
- *    rendered by <RegistrySettings/> from settings.describe() — adding a setting
- *    is one registry entry in core, no UI change here.
+ *  - REGISTRY settings (data-driven): everything in the platform configuration
+ *    registry, rendered by <RegistrySettings/> from settings.describe() — adding
+ *    a setting is one registry entry, no UI change here.
  */
 
 import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
@@ -24,9 +24,14 @@ import { create } from 'zustand';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { color, font, motion, radius, shadow, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
+import {
+  GITHUB_ACCOUNT_SEARCH_FIELDS,
+  type SettingsAppSection,
+  matchesSettingQuery,
+} from '../common/preferencesModel.js';
 import { GithubAccount } from './GithubAccount.js';
 import { RegistrySettings } from './RegistrySettings.js';
-import { SettingRow, Toggle, matchesSettingQuery, sectionLabelStyle } from './primitives.js';
+import { SettingRow, Toggle, sectionLabelStyle } from './primitives.js';
 
 const RELEASES_URL = 'https://github.com/Pointa-Labs/basehalf/releases';
 
@@ -133,7 +138,7 @@ const SettingsCard = (): JSX.Element => {
   // same way it filters the registry rows. Controls reference the live state /
   // handlers above (unchanged — only the layout/filtering is new).
   interface AppRow {
-    group: 'General' | 'About';
+    group: SettingsAppSection;
     label: string;
     description: string;
     control: JSX.Element;
@@ -282,16 +287,7 @@ const SettingsCard = (): JSX.Element => {
       <RegistrySettings filter={filter} />
 
       {/* GitHub account — sign in to view Pull Requests in-app. Respects the search. */}
-      {matchesSettingQuery(q, [
-        'GitHub',
-        'pull requests',
-        'reviews',
-        'account',
-        'sign in',
-        'token',
-        'personal access token',
-        'PAT',
-      ]) && <GithubAccount />}
+      {matchesSettingQuery(q, GITHUB_ACCOUNT_SEARCH_FIELDS) && <GithubAccount />}
 
       {aboutRows.length > 0 && <div style={sectionLabelStyle}>About</div>}
       {aboutRows.map((r) => (

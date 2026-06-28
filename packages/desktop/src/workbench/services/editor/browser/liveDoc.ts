@@ -1,4 +1,5 @@
 import { type XmlFragment, Doc as YDoc } from 'yjs';
+import { editorViewKeyFor } from '../../../common/editor/filePreviewModel.js';
 import type { ReuseEntry } from '../common/mdSegment.js';
 
 /**
@@ -216,7 +217,7 @@ export function onReady(view: LiveDocView, cb: () => void): () => void {
  *  keying by name would reuse the OLD folder's doc. The NUL separator can't appear
  *  in a path, so keys never collide. */
 export function docKeyFor(workspaceRoot: string | null, file: string): string {
-  return `${workspaceRoot ?? ''}${String.fromCharCode(0)}${file}`;
+  return editorViewKeyFor(workspaceRoot, file);
 }
 
 /** Test-only: drop all docs + timers. */

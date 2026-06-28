@@ -14,8 +14,8 @@
  * new file and renaming an existing one share ONE affordance.
  */
 
-import type { ContextMenuItem } from '../../../browser/parts/contextmenu/contextMenuStore.js';
-import { confirm } from '../../../browser/parts/dialogs/Dialog.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
+import { confirm } from '../../../../platform/dialogs/browser/dialogService.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 
 export interface EntryTarget {

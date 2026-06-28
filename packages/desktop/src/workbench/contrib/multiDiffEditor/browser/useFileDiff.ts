@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { gitScmService } from '../../scm/browser/gitScmService.js';
-import { type DiffRow, computeUnifiedDiff } from './unifiedDiffModel.js';
+import {
+  type FileDiffOptions,
+  gitFileDiffSourceProvider,
+  resolveFileDiffSource,
+} from './fileDiffSourceResolver.js';
+import type { DiffRow } from './unifiedDiffModel.js';
+import { computeUnifiedDiff } from './unifiedDiffModel.js';
 
 /**
- * Fetch a file's two sides and compute its unified-diff rows — shared by the
+ * Resolve a file diff source and expose its unified-diff rows — shared by the
  * single-file diff view and the canvas-card diff preview.
  *   left  = `git.show <leftRef>:./path`  (ref '' = the index version)
  *   right = the working-tree file (rightWorktree) or the index version
@@ -12,8 +18,6 @@ import { type DiffRow, computeUnifiedDiff } from './unifiedDiffModel.js';
  * a generous char cap skip the diff. `revision` forces a refetch (pass the file's
  * git-status signature so the card refreshes when the file changes).
  */
-const MAX_DIFF_CHARS = 2 * 1024 * 1024;
-
 // monaco.colorize tokenizes on the MAIN thread, so a canvas full of changed cards
 // mounting together would fire dozens in one frame and freeze. Cap how many files
 // colorize at once; the rest queue (total work is unchanged — colorize can't run
@@ -49,16 +53,18 @@ export type FileDiffState =
 
 export function useFileDiff(
   path: string,
-  opts: {
-    leftRef: string;
-    rightWorktree: boolean;
-    rightRef?: string;
-    context?: number;
-    ignoreWhitespace?: boolean;
-  },
+  opts: FileDiffOptions,
   revision?: unknown,
 ): FileDiffState {
-  const { leftRef, rightWorktree, rightRef, context, ignoreWhitespace } = opts;
+  const {
+    leftRef,
+    rightWorktree,
+    rightRef,
+    originalPath,
+    modifiedPath,
+    context,
+    ignoreWhitespace,
+  } = opts;
   const [state, setState] = useState<FileDiffState>({ status: 'loading' });
   // biome-ignore lint/correctness/useExhaustiveDependencies: `revision` is an intentional refetch trigger (not read in the body).
   useEffect(() => {
@@ -66,31 +72,25 @@ export function useFileDiff(
     setState({ status: 'loading' });
     void (async () => {
       try {
-        const leftP = gitScmService.show(leftRef, path);
-        const rightP: Promise<string | null> = rightWorktree
-          ? workspaceService
-              .readFile(path)
-              .then((result) => result.content ?? '')
-              .catch((err: unknown): string => {
-                // A deleted working-tree file → the right side is simply empty.
-                if (err instanceof Error && err.message.startsWith('[PATH_NOT_FOUND]')) {
-                  return '';
-                }
-                throw err;
-              })
-          : // rightRef set → a historical commit's version (commit diff); else the
-            // index version (ref ''). Lets one hook serve worktree, staged, and
-            // commit-to-commit diffs.
-            gitScmService.show(rightRef ?? '', path);
-        const [left, right] = await Promise.all([leftP, rightP]);
+        const source = gitFileDiffSourceProvider.provideFileDiffSource(path, {
+          leftRef,
+          rightWorktree,
+          ...(rightRef !== undefined ? { rightRef } : {}),
+          ...(originalPath !== undefined ? { originalPath } : {}),
+          ...(modifiedPath !== undefined ? { modifiedPath } : {}),
+          ...(context !== undefined ? { context } : {}),
+          ...(ignoreWhitespace !== undefined ? { ignoreWhitespace } : {}),
+        });
+        const resolved = await resolveFileDiffSource(source, {
+          git: gitScmService,
+          workspace: workspaceService,
+        });
         if (cancelled) return;
-        const original = left ?? '';
-        const modified = right ?? '';
-        if (original.length > MAX_DIFF_CHARS || modified.length > MAX_DIFF_CHARS) {
-          setState({ status: 'error', message: 'File is too large to show a diff.' });
-          return;
-        }
-        const rows = computeUnifiedDiff(original, modified, { context, ignoreWhitespace });
+        const { original, modified } = resolved;
+        const rows = computeUnifiedDiff(original, modified, {
+          ...(context !== undefined ? { context } : {}),
+          ...(ignoreWhitespace !== undefined ? { ignoreWhitespace } : {}),
+        });
         // Syntax-highlight both sides (monaco colorize → one HTML string per side,
         // lines joined by <br/>). Best-effort: an unknown language / failure falls
         // back to plain text in the renderer.
@@ -126,6 +126,16 @@ export function useFileDiff(
     return () => {
       cancelled = true;
     };
-  }, [path, leftRef, rightWorktree, rightRef, context, ignoreWhitespace, revision]);
+  }, [
+    path,
+    leftRef,
+    rightWorktree,
+    rightRef,
+    originalPath,
+    modifiedPath,
+    context,
+    ignoreWhitespace,
+    revision,
+  ]);
   return state;
 }

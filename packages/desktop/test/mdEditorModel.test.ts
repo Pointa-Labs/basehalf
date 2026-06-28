@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { debounceWithFlush } from '../src/workbench/browser/parts/editor/mdEditorModel.js';
+import { debounceWithFlush } from '../src/workbench/common/editor/mdEditorModel.js';
 
 afterEach(() => {
   vi.useRealTimers();
