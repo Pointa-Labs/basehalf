@@ -46,6 +46,13 @@ export interface CommandPaletteGitCommit {
   };
 }
 
+export interface CommandPaletteSearchHit {
+  readonly file: string;
+  readonly matches: readonly {
+    readonly text: string;
+  }[];
+}
+
 export interface CommandPaletteGitState {
   readonly repo: boolean;
   readonly workspace: string | null;

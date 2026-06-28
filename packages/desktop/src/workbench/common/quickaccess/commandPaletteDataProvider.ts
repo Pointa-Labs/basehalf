@@ -2,8 +2,8 @@ import type {
   CommandPaletteFileEntry,
   CommandPaletteGitCommit,
   CommandPaletteGitRefInfo,
-} from '../../common/quickaccess/commandPaletteModel.js';
-import type { CommandPaletteSearchHit } from './commandPaletteProviders.js';
+  CommandPaletteSearchHit,
+} from './commandPaletteModel.js';
 
 export const COMMAND_PALETTE_CONTENT_QUERY_MIN_LENGTH = 3;
 export const COMMAND_PALETTE_CONTENT_SEARCH_MAX_FILES = 8;

@@ -7,6 +7,7 @@ import type {
   CommandPaletteFileEntry,
   CommandPaletteGitRefInfo,
   CommandPaletteGitState,
+  CommandPaletteSearchHit,
   CommandPaletteWorkspace,
 } from '../../common/quickaccess/commandPaletteModel.js';
 import {
@@ -40,13 +41,6 @@ export interface CommandPaletteGitService {
   readonly stash: () => Promise<unknown>;
   readonly stashPop: () => Promise<unknown>;
   readonly unstageAll: () => Promise<unknown>;
-}
-
-export interface CommandPaletteSearchHit {
-  readonly file: string;
-  readonly matches: readonly {
-    readonly text: string;
-  }[];
 }
 
 export interface BuildCommandPaletteActionsBaseArgs {

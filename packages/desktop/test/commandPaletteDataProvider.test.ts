@@ -7,7 +7,7 @@ import {
   provideCommandPaletteContentSearch,
   provideCommandPaletteFiles,
   provideCommandPaletteGitState,
-} from '../src/workbench/browser/quickaccess/commandPaletteDataProvider.js';
+} from '../src/workbench/common/quickaccess/commandPaletteDataProvider.js';
 import type {
   CommandPaletteGitCommit,
   CommandPaletteGitRefInfo,
