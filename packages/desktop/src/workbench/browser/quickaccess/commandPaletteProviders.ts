@@ -13,7 +13,7 @@ import type {
 import {
   type CheckoutTarget,
   checkoutTargetForRef,
-} from '../../contrib/scm/browser/branchCheckoutModel.js';
+} from '../../contrib/scm/common/branchCheckoutModel.js';
 
 export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.anything';
 export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';

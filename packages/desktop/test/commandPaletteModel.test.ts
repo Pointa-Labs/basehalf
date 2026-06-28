@@ -15,8 +15,8 @@ import {
   moveCommandPaletteSelection,
   reconcileCommandPaletteSelection,
 } from '../src/workbench/common/quickaccess/commandPaletteModel.js';
-import { checkoutTargetForRef } from '../src/workbench/contrib/scm/browser/branchCheckoutModel.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
+import { checkoutTargetForRef } from '../src/workbench/contrib/scm/common/branchCheckoutModel.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 const branch = (name: string, props: Partial<GitRefInfo> = {}): GitRefInfo => ({

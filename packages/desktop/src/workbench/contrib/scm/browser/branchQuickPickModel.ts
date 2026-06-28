@@ -6,7 +6,7 @@ export {
   defaultBranchNameFromRef,
   detachedCheckoutTargetForRef,
   trackingBranchForRemote,
-} from './branchCheckoutModel.js';
+} from '../common/branchCheckoutModel.js';
 
 export type BranchQuickPickMode = 'switch' | 'merge';
 export type BranchQuickPickCommand = 'cmd:create' | 'cmd:createFrom' | 'cmd:checkoutDetached';

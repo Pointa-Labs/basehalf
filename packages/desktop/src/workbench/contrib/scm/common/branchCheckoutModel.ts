@@ -1,4 +1,4 @@
-import type { GitRefInfo } from '../common/git.js';
+import type { GitRefInfo } from './git.js';
 
 export interface CheckoutTarget {
   readonly branch: string;
