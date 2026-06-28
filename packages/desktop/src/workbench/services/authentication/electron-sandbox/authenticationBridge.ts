@@ -30,7 +30,8 @@ export function createAuthenticationBridge(ipcRenderer: IpcRendererLike): Authen
         }) as ReturnType<AuthenticationChannelBridge['removeSession']>,
       onDidChangeSessions: (handler) => {
         const wrapped = (_event: unknown, event: unknown): void => {
-          if (isAuthenticationProviderSessionsChangeEvent(event)) handler(event);
+          const change = authenticationProviderSessionsChangeEvent(event);
+          if (change !== null) handler(change);
         };
         ipcRenderer.on(AUTHENTICATION_IPC_CHANNELS.sessionsChanged, wrapped);
         return () => ipcRenderer.off(AUTHENTICATION_IPC_CHANNELS.sessionsChanged, wrapped);
@@ -39,18 +40,22 @@ export function createAuthenticationBridge(ipcRenderer: IpcRendererLike): Authen
   };
 }
 
-function isAuthenticationProviderSessionsChangeEvent(
+function authenticationProviderSessionsChangeEvent(
   event: unknown,
-): event is AuthenticationProviderSessionsChangeEvent {
-  if (typeof event !== 'object' || event === null) return false;
+): AuthenticationProviderSessionsChangeEvent | null {
+  if (typeof event !== 'object' || event === null) return null;
   const record = event as Record<string, unknown>;
-  if (typeof record.providerId !== 'string') return false;
+  if (typeof record.providerId !== 'string') return null;
 
   // Older tests and preloaded windows may send the former providerId-only event
   // while the main-process session provider migration is in flight.
-  if (record.label === undefined && record.event === undefined) return true;
+  if (record.label === undefined && record.event === undefined) {
+    return { providerId: record.providerId, label: record.providerId, event: {} };
+  }
 
-  return typeof record.label === 'string' && isAuthenticationSessionsChangeEvent(record.event);
+  return typeof record.label === 'string' && isAuthenticationSessionsChangeEvent(record.event)
+    ? { providerId: record.providerId, label: record.label, event: record.event }
+    : null;
 }
 
 function isAuthenticationSessionsChangeEvent(

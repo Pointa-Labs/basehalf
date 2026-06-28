@@ -135,7 +135,12 @@ describe('preload bridge modules', () => {
     await expect(bridge.createSession('github', 'tok')).resolves.toEqual({ id: 'github' });
     await bridge.removeSession('github', 'github');
     const dispose = bridge.onDidChangeSessions(onChange);
-    ipc.listeners.get(AUTHENTICATION_IPC_CHANNELS.sessionsChanged)?.({}, { providerId: 'github' });
+    const changeEvent = {
+      providerId: 'github',
+      label: 'GitHub',
+      event: { added: [], removed: [], changed: [] },
+    };
+    ipc.listeners.get(AUTHENTICATION_IPC_CHANNELS.sessionsChanged)?.({}, changeEvent);
     dispose();
 
     expect(ipc.invoke).toHaveBeenCalledWith(AUTHENTICATION_IPC_CHANNELS.getSessions, 'github');
@@ -147,7 +152,7 @@ describe('preload bridge modules', () => {
       providerId: 'github',
       sessionId: 'github',
     });
-    expect(onChange).toHaveBeenCalledWith({ providerId: 'github' });
+    expect(onChange).toHaveBeenCalledWith(changeEvent);
     expect(ipc.off).toHaveBeenCalledWith(
       AUTHENTICATION_IPC_CHANNELS.sessionsChanged,
       expect.any(Function),
