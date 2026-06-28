@@ -2,10 +2,12 @@ import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
+import { authenticationService } from '../../../services/authentication/browser/authenticationService.js';
 import {
-  githubErrorMessage,
-  githubPullRequestService,
-} from '../../githubPullRequests/browser/githubPullRequestService.js';
+  type AuthenticationSession,
+  GITHUB_AUTH_PROVIDER_ID,
+} from '../../../services/authentication/common/authentication.js';
+import { githubErrorMessage } from '../../githubPullRequests/browser/githubPullRequestService.js';
 import { sectionLabelStyle } from './primitives.js';
 
 const githubAccountErrorMessage = (err: unknown): string => {
@@ -26,7 +28,7 @@ const githubAccountErrorMessage = (err: unknown): string => {
  * Requests view. `undefined` = still resolving the stored session.
  */
 export const GithubAccount = (): JSX.Element => {
-  const [login, setLogin] = useState<string | null | undefined>(undefined);
+  const [session, setSession] = useState<AuthenticationSession | null | undefined>(undefined);
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const requestSeq = useRef(0);
@@ -47,15 +49,22 @@ export const GithubAccount = (): JSX.Element => {
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
     try {
-      const nextLogin = await githubPullRequestService.viewer();
-      if (isCurrentRequest(seq)) setLogin(nextLogin);
+      const sessions = await authenticationService.getSessions(GITHUB_AUTH_PROVIDER_ID);
+      if (isCurrentRequest(seq)) setSession(sessions[0] ?? null);
     } catch {
-      if (isCurrentRequest(seq)) setLogin(null);
+      if (isCurrentRequest(seq)) setSession(null);
     }
   }, [isCurrentRequest]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(
+    () =>
+      authenticationService.onDidChangeSessions((event) => {
+        if (event.providerId === GITHUB_AUTH_PROVIDER_ID) void refresh();
+      }),
+    [refresh],
+  );
 
   const signIn = useCallback(async (): Promise<void> => {
     if (busy) return;
@@ -64,12 +73,12 @@ export const GithubAccount = (): JSX.Element => {
     const seq = ++requestSeq.current;
     setBusy(true);
     try {
-      const nextLogin = await githubPullRequestService.signIn(t);
-      if (nextLogin === null) throw new Error('GitHub did not return an account for this token.');
+      const nextSession = await authenticationService.createSession(GITHUB_AUTH_PROVIDER_ID, t);
+      if (nextSession === null) throw new Error('GitHub did not return an account for this token.');
       if (isCurrentRequest(seq)) {
-        setLogin(nextLogin);
+        setSession(nextSession);
         setToken('');
-        toast.success(`Signed in to GitHub: ${nextLogin}`);
+        toast.success(`Signed in to GitHub: ${nextSession.account.label}`);
       }
     } catch (e) {
       if (isCurrentRequest(seq)) toast.error(githubAccountErrorMessage(e));
@@ -83,15 +92,15 @@ export const GithubAccount = (): JSX.Element => {
     const seq = ++requestSeq.current;
     setBusy(true);
     try {
-      await githubPullRequestService.signOut();
+      await authenticationService.removeSession(GITHUB_AUTH_PROVIDER_ID, session?.id ?? 'github');
       if (isCurrentRequest(seq)) {
-        setLogin(null);
+        setSession(null);
         toast.info('Signed out of GitHub.');
       }
     } finally {
       if (isCurrentRequest(seq)) setBusy(false);
     }
-  }, [busy, isCurrentRequest]);
+  }, [busy, isCurrentRequest, session?.id]);
 
   return (
     <div data-testid="github-account">
@@ -104,14 +113,15 @@ export const GithubAccount = (): JSX.Element => {
           gap: space[2],
         }}
       >
-        {login === undefined ? (
+        {session === undefined ? (
           <span style={{ color: color.textTertiary, fontSize: font.size.caption }}>
             Checking sign-in…
           </span>
-        ) : login !== null ? (
+        ) : session !== null ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: space[3] }}>
             <span style={{ color: color.textSecondary, fontSize: font.size.caption }}>
-              Signed in as <strong style={{ color: color.textPrimary }}>{login}</strong>
+              Signed in as{' '}
+              <strong style={{ color: color.textPrimary }}>{session.account.label}</strong>
             </span>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => void signOut()}>
               Sign Out

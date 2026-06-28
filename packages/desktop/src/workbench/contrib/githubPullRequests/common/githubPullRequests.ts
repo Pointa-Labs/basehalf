@@ -42,24 +42,18 @@ export interface GithubReviewArgs {
 
 export const GITHUB_IPC_CHANNELS = {
   repository: 'github:repository',
-  viewer: 'github:viewer',
   createPullRequestUrl: 'github:create-pull-request-url',
   listPullRequests: 'github:list-pull-requests',
   pullRequestFiles: 'github:pull-request-files',
   reviewPullRequest: 'github:review-pull-request',
-  signIn: 'github:sign-in',
-  signOut: 'github:sign-out',
 } as const;
 
 export type GithubIpcChannel = (typeof GITHUB_IPC_CHANNELS)[keyof typeof GITHUB_IPC_CHANNELS];
 
 export interface GithubChannelBridge {
   repository(): Promise<GithubRemoteRepository | null>;
-  viewer(): Promise<string | null>;
   createPullRequestUrl(branch: string): Promise<string | null>;
   listPullRequests(remoteUrl: string): Promise<readonly GhPullRequest[]>;
   pullRequestFiles(remoteUrl: string, number: number): Promise<readonly GhPrFile[]>;
   reviewPullRequest(args: GithubReviewArgs): Promise<void>;
-  signIn(token: string): Promise<string | null>;
-  signOut(): Promise<void>;
 }

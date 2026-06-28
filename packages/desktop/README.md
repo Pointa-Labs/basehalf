@@ -33,7 +33,9 @@ helps. Browse `src/` for the current set.
 
 Git follows the VS Code split: `workbench/contrib/scm` owns native Git / SCM
 views, while `workbench/contrib/githubPullRequests` is a separate provider
-contribution consumed by SCM and Settings.
+contribution consumed by SCM. GitHub account state goes through
+`workbench/services/authentication`; the PR provider only exposes repository and
+pull request operations.
 
 ## Commands
 

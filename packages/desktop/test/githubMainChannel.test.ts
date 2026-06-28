@@ -28,9 +28,6 @@ describe('GithubMainChannel', () => {
       listPullRequests: vi.fn(async () => []),
       pullRequestFiles: vi.fn(async () => []),
       reviewPullRequest: vi.fn(async () => undefined),
-      signIn: vi.fn(async () => 'ada'),
-      signOut: vi.fn(async () => undefined),
-      viewer: vi.fn(async () => 'ada'),
     } as unknown as GithubMainService;
     const getWorkspaceRoot = vi.fn(() => '/repo');
     new GithubMainChannel(service, getWorkspaceRoot, ipc).register();
@@ -41,9 +38,6 @@ describe('GithubMainChannel', () => {
       GITHUB_IPC_CHANNELS.listPullRequests,
       GITHUB_IPC_CHANNELS.pullRequestFiles,
       GITHUB_IPC_CHANNELS.reviewPullRequest,
-      GITHUB_IPC_CHANNELS.signIn,
-      GITHUB_IPC_CHANNELS.signOut,
-      GITHUB_IPC_CHANNELS.viewer,
     ]);
 
     const event = { sender: { id: 7 } };
@@ -65,9 +59,6 @@ describe('GithubMainChannel', () => {
       number: 7,
       event: 'APPROVE',
     });
-    await expect(ipc.handlers.get(GITHUB_IPC_CHANNELS.signIn)?.(event, 'tok')).resolves.toBe('ada');
-    await ipc.handlers.get(GITHUB_IPC_CHANNELS.signOut)?.(event);
-    await expect(ipc.handlers.get(GITHUB_IPC_CHANNELS.viewer)?.(event)).resolves.toBe('ada');
 
     expect(service.repository).toHaveBeenCalledWith('/repo');
     expect(service.createPullRequestUrl).toHaveBeenCalledWith('/repo', 'topic');
@@ -81,7 +72,6 @@ describe('GithubMainChannel', () => {
       number: 7,
       event: 'APPROVE',
     });
-    expect(service.signIn).toHaveBeenCalledWith('tok');
     expect(getWorkspaceRoot).toHaveBeenCalledWith(event.sender);
   });
 });

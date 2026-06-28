@@ -1,6 +1,11 @@
 import { type JSX, type ReactNode, useEffect, useState } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import { Disclosure } from '../../../browser/ui/primitives/Disclosure.js';
+import {
+  type AuthenticationService,
+  authenticationService,
+} from '../../../services/authentication/browser/authenticationService.js';
+import { GITHUB_AUTH_PROVIDER_ID } from '../../../services/authentication/common/authentication.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { openSettings } from '../../preferences/browser/Settings.js';
 import type { GhPullRequest, GithubRemoteRepository } from '../common/githubPullRequests.js';
@@ -10,7 +15,8 @@ import {
 } from './githubPullRequestService.js';
 import {
   loadPullRequests,
-  resolvePullRequestContext,
+  loginFromAuthenticationSessions,
+  resolvePullRequestRepository,
   shouldLoadPullRequests,
 } from './pullRequestsSectionModel.js';
 
@@ -25,8 +31,10 @@ import {
  */
 
 export const PullRequestsSection = ({
+  authService = authenticationService,
   service = githubPullRequestService,
 }: {
+  authService?: AuthenticationService;
   service?: GithubPullRequestService;
 }): JSX.Element | null => {
   const [open, setOpen] = useState(true);
@@ -44,19 +52,24 @@ export const PullRequestsSection = ({
       setPrs(null);
       setError(null);
       void (async () => {
-        const context = await resolvePullRequestContext(service);
+        const [nextRepository, sessions] = await Promise.all([
+          resolvePullRequestRepository(service),
+          authService.getSessions(GITHUB_AUTH_PROVIDER_ID).catch(() => []),
+        ]);
         if (cancelled) return;
-        setRepository(context.repository);
-        setLogin(context.login);
+        setRepository(nextRepository);
+        setLogin(loginFromAuthenticationSessions(sessions));
       })();
     };
     refreshContext();
-    const unsubscribe = service.onDidChangeAuthentication?.(refreshContext);
+    const unsubscribe = authService.onDidChangeSessions((event) => {
+      if (event.providerId === GITHUB_AUTH_PROVIDER_ID) refreshContext();
+    });
     return () => {
       cancelled = true;
-      unsubscribe?.();
+      unsubscribe();
     };
-  }, [service]);
+  }, [authService, service]);
 
   useEffect(() => {
     if (!shouldLoadPullRequests(repository, login, open)) {

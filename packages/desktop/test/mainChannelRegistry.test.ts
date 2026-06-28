@@ -11,6 +11,7 @@ import { WINDOW_IPC_CHANNELS } from '../src/platform/windows/common/window.js';
 import { WORKSPACE_IPC_CHANNELS } from '../src/platform/workspaces/common/workspaces.js';
 import { GITHUB_IPC_CHANNELS } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
 import { GIT_IPC_CHANNELS } from '../src/workbench/contrib/scm/common/git.js';
+import { AUTHENTICATION_IPC_CHANNELS } from '../src/workbench/services/authentication/common/authentication.js';
 import { ADHD_IPC_CHANNELS } from '../src/workbench/services/mirror/common/adhd.js';
 import { BADGE_IPC_CHANNELS } from '../src/workbench/services/mirror/common/badge.js';
 import { CANVAS_IPC_CHANNELS } from '../src/workbench/services/mirror/common/canvas.js';
@@ -52,6 +53,9 @@ vi.mock('electron', () => ({
 function createServices(): MainChannelRegistryServices {
   return {
     adhd: {},
+    authentication: {
+      onDidChangeSessions: vi.fn(),
+    },
     badge: {},
     canvas: {},
     focus: {},
@@ -94,6 +98,7 @@ describe('MainChannelRegistry', () => {
     expect([...electronMock.handlers.keys()]).toEqual(
       expect.arrayContaining([
         ADHD_IPC_CHANNELS.get,
+        AUTHENTICATION_IPC_CHANNELS.getSessions,
         BADGE_IPC_CHANNELS.get,
         CANVAS_IPC_CHANNELS.get,
         FOCUS_IPC_CHANNELS.get,
@@ -118,6 +123,7 @@ describe('MainChannelRegistry', () => {
       ]),
     );
     expect(services.watcherEvents.on).toHaveBeenCalledWith('event', expect.any(Function));
+    expect(services.authentication.onDidChangeSessions).toHaveBeenCalledWith(expect.any(Function));
     expect(services.terminal.onDidWriteData).toHaveBeenCalledWith(expect.any(Function));
     expect(services.terminal.onDidExit).toHaveBeenCalledWith(expect.any(Function));
 

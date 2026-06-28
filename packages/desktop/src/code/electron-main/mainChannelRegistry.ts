@@ -22,6 +22,8 @@ import { GithubMainChannel } from '../../workbench/contrib/githubPullRequests/el
 import type { GithubMainService } from '../../workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 import { GitMainChannel } from '../../workbench/contrib/scm/electron-main/gitMainChannel.js';
 import type { GitMainService } from '../../workbench/contrib/scm/electron-main/gitMainService.js';
+import { AuthenticationMainChannel } from '../../workbench/services/authentication/electron-main/authenticationMainChannel.js';
+import type { AuthenticationMainService } from '../../workbench/services/authentication/electron-main/authenticationMainService.js';
 import { AdhdMainChannel } from '../../workbench/services/mirror/electron-main/adhdMainChannel.js';
 import type { AdhdMainService } from '../../workbench/services/mirror/electron-main/adhdMainService.js';
 import { BadgeMainChannel } from '../../workbench/services/mirror/electron-main/badgeMainChannel.js';
@@ -45,6 +47,7 @@ interface SyncIpcMainLike {
 
 export interface MainChannelRegistryServices {
   readonly adhd: AdhdMainService;
+  readonly authentication: AuthenticationMainService;
   readonly badge: BadgeMainService;
   readonly canvas: CanvasMainService;
   readonly focus: FocusMainService;
@@ -79,6 +82,7 @@ export class MainChannelRegistry {
     const { services, getWorkspaceRoot } = this.opts;
 
     new AdhdMainChannel(services.adhd, getWorkspaceRoot).register();
+    new AuthenticationMainChannel(services.authentication).register();
     new BadgeMainChannel(services.badge, getWorkspaceRoot).register();
     new CanvasMainChannel(services.canvas, getWorkspaceRoot).register();
     new FocusMainChannel(services.focus, getWorkspaceRoot).register();

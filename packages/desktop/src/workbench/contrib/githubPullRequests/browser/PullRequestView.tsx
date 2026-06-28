@@ -1,17 +1,19 @@
-import { type JSX, useEffect, useMemo, useState } from 'react';
+import type { JSX } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
 import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { UnifiedDiff } from '../../multiDiffEditor/browser/UnifiedDiff.js';
-import { parseUnifiedPatch } from '../../multiDiffEditor/browser/parseUnifiedPatch.js';
-import type { GhPrFile } from '../common/githubPullRequests.js';
 import {
   type GithubPullRequestService,
-  githubErrorMessage,
   githubPullRequestService,
 } from './githubPullRequestService.js';
+import {
+  type PullRequestReviewEvent,
+  isSafePullRequestExternalUrl,
+  usePullRequestViewModel,
+} from './pullRequestViewModel.js';
 
 /**
  * In-app PR viewer — opens a GitHub pull request's changed files and renders each
@@ -35,61 +37,23 @@ export const PullRequestView = ({
   onClose: () => void;
   service?: GithubPullRequestService;
 }): JSX.Element => {
-  const [files, setFiles] = useState<GhPrFile[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [reviewBody, setReviewBody] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const model = usePullRequestViewModel({ number, remoteUrl, service });
 
-  const submitReview = (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'): void =>
+  const submitReview = (event: PullRequestReviewEvent): void =>
+    void model.submitReview(event).then((result) => {
+      if (result.ok) toast.success(result.message);
+      else toast.error(result.message);
+    });
+
+  const openInBrowser = (): void =>
     void (async () => {
-      setSubmitting(true);
-      try {
-        await service.reviewPullRequest({
-          remoteUrl,
-          number,
-          event,
-          body: reviewBody,
-        });
-        setReviewBody('');
-        toast.success(
-          event === 'APPROVE'
-            ? 'Approved.'
-            : event === 'REQUEST_CHANGES'
-              ? 'Changes requested.'
-              : 'Comment submitted.',
-        );
-      } catch (e) {
-        toast.error(githubErrorMessage(e));
-      } finally {
-        setSubmitting(false);
+      if (!isSafePullRequestExternalUrl(url, number)) {
+        toast.error('This pull request URL is not allowed.');
+        return;
       }
+      const result = await nativeHostService.openExternal(url);
+      if (!result.ok) toast.error(result.error ?? 'Failed to open the browser.');
     })();
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      setError(null);
-      try {
-        const pullRequestFiles = await service.pullRequestFiles(remoteUrl, number);
-        if (cancelled) return;
-        const nextFiles = [...pullRequestFiles];
-        setFiles(nextFiles);
-        setSelected(nextFiles[0]?.filename ?? null);
-      } catch (e) {
-        if (!cancelled) setError(githubErrorMessage(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [remoteUrl, number, service]);
-
-  const active = files?.find((f) => f.filename === selected) ?? null;
-  const rows = useMemo(
-    () => (active?.patch !== undefined ? parseUnifiedPatch(active.patch) : []),
-    [active],
-  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -118,17 +82,15 @@ export const PullRequestView = ({
           {title}
         </span>
         <span style={{ marginLeft: 'auto', display: 'flex', gap: space[2] }}>
-          <HeaderBtn onClick={() => void nativeHostService.openExternal(url)}>
-            Open in Browser
-          </HeaderBtn>
+          <HeaderBtn onClick={openInBrowser}>Open in Browser</HeaderBtn>
           <HeaderBtn onClick={onClose}>Close</HeaderBtn>
         </span>
       </div>
-      {error !== null ? (
-        <Centered tone={color.danger}>{error}</Centered>
-      ) : files === null ? (
+      {model.error !== null ? (
+        <Centered tone={color.danger}>{model.error}</Centered>
+      ) : model.files === null ? (
         <Centered tone={color.textTertiary}>Loading changes…</Centered>
-      ) : files.length === 0 ? (
+      ) : model.files.length === 0 ? (
         <Centered tone={color.textTertiary}>This pull request has no file changes.</Centered>
       ) : (
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
@@ -141,21 +103,21 @@ export const PullRequestView = ({
               overflowY: 'auto',
             }}
           >
-            {files.map((f) => {
+            {model.files.map((f) => {
               const name = f.filename.slice(f.filename.lastIndexOf('/') + 1);
               return (
                 <button
                   key={f.filename}
                   type="button"
                   data-testid="pr-file"
-                  onClick={() => setSelected(f.filename)}
+                  onClick={() => model.setSelected(f.filename)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: space[1],
                     width: '100%',
                     padding: `${space[1]}px ${space[2]}px`,
-                    background: selected === f.filename ? color.accentSofter : 'none',
+                    background: model.selected === f.filename ? color.accentSofter : 'none',
                     border: 'none',
                     cursor: 'pointer',
                     textAlign: 'left',
@@ -186,22 +148,22 @@ export const PullRequestView = ({
           </div>
           {/* Selected file diff */}
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            {active === null ? (
+            {model.active === null ? (
               <Centered tone={color.textTertiary}>Select a file.</Centered>
-            ) : active.patch === undefined ? (
+            ) : model.active.patch === undefined ? (
               <Centered tone={color.textTertiary}>
-                {active.status === 'renamed'
+                {model.active.status === 'renamed'
                   ? 'Renamed only, no content changes.'
                   : 'This file has no displayable diff (it may be binary).'}
               </Centered>
             ) : (
-              <UnifiedDiff rows={rows} />
+              <UnifiedDiff rows={model.rows} />
             )}
           </div>
         </div>
       )}
       {/* Review footer — submit a review (needs a write-scoped token). */}
-      {error === null && (
+      {model.error === null && (
         <div
           data-testid="pr-review"
           style={{
@@ -214,8 +176,8 @@ export const PullRequestView = ({
           }}
         >
           <textarea
-            value={reviewBody}
-            onChange={(e) => setReviewBody(e.target.value)}
+            value={model.reviewBody}
+            onChange={(e) => model.setReviewBody(e.target.value)}
             placeholder="Leave a review comment (optional for approve)…"
             data-testid="pr-review-body"
             rows={2}
@@ -237,7 +199,7 @@ export const PullRequestView = ({
             <Button
               variant="primary"
               size="sm"
-              disabled={submitting}
+              disabled={model.submitting}
               onClick={() => submitReview('APPROVE')}
             >
               Approve
@@ -246,7 +208,7 @@ export const PullRequestView = ({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={submitting}
+                disabled={model.submitting}
                 onClick={() => submitReview('REQUEST_CHANGES')}
               >
                 Request Changes
@@ -254,7 +216,7 @@ export const PullRequestView = ({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={submitting}
+                disabled={model.submitting}
                 onClick={() => submitReview('COMMENT')}
               >
                 Comment

@@ -42,8 +42,5 @@ export class GithubMainChannel {
     this.ipc.handle(GITHUB_IPC_CHANNELS.reviewPullRequest, (event, payload) =>
       this.github.reviewPullRequest(this.getWorkspaceRoot(event.sender), payload),
     );
-    this.ipc.handle(GITHUB_IPC_CHANNELS.signIn, (_event, token) => this.github.signIn(token));
-    this.ipc.handle(GITHUB_IPC_CHANNELS.signOut, () => this.github.signOut());
-    this.ipc.handle(GITHUB_IPC_CHANNELS.viewer, () => this.github.viewer());
   }
 }

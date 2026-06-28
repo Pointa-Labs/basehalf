@@ -55,6 +55,60 @@ export function githubAskpassEnv(
   };
 }
 
+export function gitUrlHost(value: string): string | null {
+  try {
+    return new URL(value).hostname || null;
+  } catch {
+    const scpLike = /^[^@\s]+@([^:\s]+):[^:\s].*$/.exec(value);
+    return scpLike?.[1] ?? null;
+  }
+}
+
+export function isGithubHost(host: string | null): boolean {
+  const normalized = host?.toLowerCase() ?? null;
+  return normalized === 'github.com' || normalized === 'api.github.com';
+}
+
+export function isGithubUrl(value: string): boolean {
+  return isGithubHost(gitUrlHost(value));
+}
+
+export function remoteNameForGitCommand(args: readonly string[]): string | null {
+  const command = args[0];
+  const positional = gitCommandPositionals(args.slice(1));
+  if (command === 'fetch') {
+    if (args.includes('--all') || args.includes('--multiple')) return null;
+    return positional[0] ?? 'origin';
+  }
+  if (command === 'pull' || command === 'ls-remote') return positional[0] ?? null;
+  if (command === 'push') {
+    const repo = gitOptionValue(args.slice(1), '--repo');
+    if (repo !== null) return repo;
+    const first = positional[0];
+    if (first === undefined || first.includes(':')) return null;
+    return first;
+  }
+  return null;
+}
+
+async function shouldInjectGithubAskpass(
+  args: readonly string[],
+  opts: Parameters<GitRunner>[1],
+  base: GitRunner,
+): Promise<boolean> {
+  const directUrl = args.find((arg) => gitUrlHost(arg) !== null);
+  if (directUrl !== undefined) return isGithubUrl(directUrl);
+
+  const remote = remoteNameForGitCommand(args);
+  if (remote === null || gitUrlHost(remote) !== null) return remote !== null && isGithubUrl(remote);
+
+  const res = await base(['remote', 'get-url', remote], {
+    ...opts,
+    acceptExitCodes: [0, 2, 128],
+  });
+  return res.exitCode === 0 && isGithubUrl(res.stdout.trim());
+}
+
 export async function ensureGithubAskpassScript(configDir: string): Promise<string> {
   const scriptPath = join(configDir, 'git', 'github-askpass.sh');
   await mkdir(dirname(scriptPath), { recursive: true });
@@ -78,6 +132,7 @@ export function createGithubGitRunner(
 
     const token = await secrets.get(GITHUB_TOKEN_SECRET_KEY);
     if (token === null || token.trim() === '') return base(args, opts);
+    if (!(await shouldInjectGithubAskpass(args, opts, base))) return base(args, opts);
 
     const scriptPath = await ensureGithubAskpassScript(configDir);
     return base(args, {
@@ -88,4 +143,56 @@ export function createGithubGitRunner(
       },
     });
   };
+}
+
+const GIT_REMOTE_OPTIONS_WITH_VALUE = new Set([
+  '--config-env',
+  '--depth',
+  '--exec',
+  '--jobs',
+  '--negotiation-tip',
+  '--receive-pack',
+  '--refmap',
+  '--repo',
+  '--server-option',
+  '--shallow-exclude',
+  '--shallow-since',
+  '--strategy',
+  '--strategy-option',
+  '--upload-pack',
+  '-c',
+  '-j',
+  '-o',
+  '-s',
+  '-X',
+]);
+
+function gitCommandPositionals(args: readonly string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === '--') {
+      out.push(...args.slice(i + 1));
+      break;
+    }
+    if (GIT_REMOTE_OPTIONS_WITH_VALUE.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('-')) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+function gitOptionValue(args: readonly string[], option: string): string | null {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === option) return args[i + 1] ?? null;
+    const prefix = `${option}=`;
+    if (arg.startsWith(prefix)) return arg.slice(prefix.length);
+  }
+  return null;
 }

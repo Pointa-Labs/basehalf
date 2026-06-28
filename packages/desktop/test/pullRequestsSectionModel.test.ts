@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { GithubPullRequestService } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
 import {
   loadPullRequests,
-  resolvePullRequestContext,
+  loginFromAuthenticationSessions,
+  resolvePullRequestRepository,
   shouldLoadPullRequests,
 } from '../src/workbench/contrib/githubPullRequests/browser/pullRequestsSectionModel.js';
 import type { GithubRemoteRepository } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
+import type { AuthenticationSession } from '../src/workbench/services/authentication/common/authentication.js';
 
 const repo: GithubRemoteRepository = {
   remoteName: 'origin',
@@ -19,36 +21,39 @@ const repo: GithubRemoteRepository = {
 function service(overrides: Partial<GithubPullRequestService> = {}): GithubPullRequestService {
   return {
     repository: async () => repo,
-    viewer: async () => 'ada',
     createPullRequestUrl: async () => null,
     listPullRequests: async () => [],
     pullRequestFiles: async () => [],
     reviewPullRequest: async () => {},
-    signIn: async () => null,
-    signOut: async () => {},
     ...overrides,
   };
 }
 
 describe('pullRequestsSectionModel', () => {
-  it('resolves repository and viewer independently', async () => {
-    await expect(resolvePullRequestContext(service())).resolves.toEqual({
-      repository: repo,
-      login: 'ada',
-    });
+  it('resolves repository without owning authentication', async () => {
+    await expect(resolvePullRequestRepository(service())).resolves.toEqual(repo);
 
     await expect(
-      resolvePullRequestContext(
+      resolvePullRequestRepository(
         service({
           repository: async () => {
             throw new Error('not a github repo');
           },
-          viewer: async () => {
-            throw new Error('signed out');
-          },
         }),
       ),
-    ).resolves.toEqual({ repository: null, login: null });
+    ).resolves.toBeNull();
+  });
+
+  it('maps authentication sessions into the section login state', () => {
+    const session: AuthenticationSession = {
+      id: 'github',
+      providerId: 'github',
+      account: { id: 'ada', label: 'ada' },
+      scopes: ['repo'],
+    };
+
+    expect(loginFromAuthenticationSessions([session])).toBe('ada');
+    expect(loginFromAuthenticationSessions([])).toBeNull();
   });
 
   it('loads pull requests only for an open signed-in github repository section', () => {

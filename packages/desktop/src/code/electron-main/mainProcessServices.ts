@@ -36,6 +36,7 @@ import { WorkspaceRegistryMainService } from '../../platform/workspaces/electron
 import { WorkspaceSurfacesMainService } from '../../platform/workspaces/electron-main/workspaceSurfacesMainService.js';
 import { WorkspaceMainService } from '../../platform/workspaces/electron-main/workspacesMainService.js';
 import { CanvasListingMainService } from '../../workbench/contrib/basehalfCanvas/electron-main/canvasListingMainService.js';
+import { GithubAuthenticationProvider } from '../../workbench/contrib/githubPullRequests/electron-main/githubAuthenticationProvider.js';
 import { createGithubGitRunner } from '../../workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
 import {
   type GitRemoteInfoLike,
@@ -43,6 +44,7 @@ import {
 } from '../../workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 import { GitCliBackendProvider } from '../../workbench/contrib/scm/electron-main/gitBackendProvider.js';
 import { GitMainService } from '../../workbench/contrib/scm/electron-main/gitMainService.js';
+import { AuthenticationMainService } from '../../workbench/services/authentication/electron-main/authenticationMainService.js';
 import { AdhdYamlBackendProvider } from '../../workbench/services/mirror/electron-main/adhdBackendProvider.js';
 import { AdhdMainService } from '../../workbench/services/mirror/electron-main/adhdMainService.js';
 import { BadgeYamlBackendProvider } from '../../workbench/services/mirror/electron-main/badgeBackendProvider.js';
@@ -194,6 +196,8 @@ export function createBaseHalfMainServices(
     secrets,
     remoteProvider: gitRemoteProvider,
   });
+  const authenticationService = new AuthenticationMainService();
+  authenticationService.registerProvider(new GithubAuthenticationProvider(githubService));
 
   function persistWindowState(win: BrowserWindow): void {
     workspaceWindowFactory.persistWindowState(win);
@@ -293,6 +297,7 @@ export function createBaseHalfMainServices(
     channelRegistry: {
       services: {
         adhd: adhdService,
+        authentication: authenticationService,
         badge: badgeService,
         canvas: canvasService,
         focus: focusService,

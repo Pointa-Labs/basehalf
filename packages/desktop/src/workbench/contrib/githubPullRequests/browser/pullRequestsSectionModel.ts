@@ -1,32 +1,26 @@
+import type { AuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import type { GhPullRequest, GithubRemoteRepository } from '../common/githubPullRequests.js';
 import { type GithubPullRequestService, githubErrorMessage } from './githubPullRequestService.js';
-
-export interface PullRequestContext {
-  readonly repository: GithubRemoteRepository | null;
-  readonly login: string | null;
-}
 
 export interface PullRequestLoadResult {
   readonly pullRequests: GhPullRequest[];
   readonly error: string | null;
 }
 
-export async function resolvePullRequestContext(
+export async function resolvePullRequestRepository(
   service: GithubPullRequestService,
-): Promise<PullRequestContext> {
-  let repository: GithubRemoteRepository | null = null;
-  let login: string | null = null;
+): Promise<GithubRemoteRepository | null> {
   try {
-    repository = await service.repository();
+    return await service.repository();
   } catch {
-    repository = null;
+    return null;
   }
-  try {
-    login = await service.viewer();
-  } catch {
-    login = null;
-  }
-  return { repository, login };
+}
+
+export function loginFromAuthenticationSessions(
+  sessions: readonly AuthenticationSession[],
+): string | null {
+  return sessions[0]?.account.label ?? null;
 }
 
 export function shouldLoadPullRequests(

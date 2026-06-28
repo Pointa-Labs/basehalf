@@ -16,10 +16,6 @@ export function createGithubBridge(ipcRenderer: IpcRendererLike): GithubBridgeCo
         ipcRenderer.invoke(GITHUB_IPC_CHANNELS.repository) as Promise<
           Awaited<ReturnType<GithubChannelBridge['repository']>>
         >,
-      viewer: () =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.viewer) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['viewer']>>
-        >,
       createPullRequestUrl: (branch) =>
         ipcRenderer.invoke(GITHUB_IPC_CHANNELS.createPullRequestUrl, branch) as Promise<
           string | null
@@ -34,9 +30,6 @@ export function createGithubBridge(ipcRenderer: IpcRendererLike): GithubBridgeCo
         >,
       reviewPullRequest: (args: GithubReviewArgs) =>
         ipcRenderer.invoke(GITHUB_IPC_CHANNELS.reviewPullRequest, args) as Promise<void>,
-      signIn: (token) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.signIn, token) as Promise<string | null>,
-      signOut: () => ipcRenderer.invoke(GITHUB_IPC_CHANNELS.signOut) as Promise<void>,
     },
   };
 }

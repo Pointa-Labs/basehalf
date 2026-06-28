@@ -6,6 +6,7 @@ import type { UpdateBridge } from '../../platform/update/electron-sandbox/update
 import type { WorkspaceBridge } from '../../platform/workspaces/electron-sandbox/workspaceBridge.js';
 import type { GithubBridgeContainer } from '../../workbench/contrib/githubPullRequests/electron-sandbox/githubBridge.js';
 import type { GitBridgeContainer } from '../../workbench/contrib/scm/electron-sandbox/gitBridge.js';
+import type { AuthenticationBridge } from '../../workbench/services/authentication/electron-sandbox/authenticationBridge.js';
 import type { AdhdBridge } from '../../workbench/services/mirror/electron-sandbox/adhdBridge.js';
 import type { BadgeBridge } from '../../workbench/services/mirror/electron-sandbox/badgeBridge.js';
 import type { CanvasBridge } from '../../workbench/services/mirror/electron-sandbox/canvasBridge.js';
@@ -25,6 +26,7 @@ export interface BaseHalfSandboxApi
     NativeHostBridge,
     GitBridgeContainer,
     GithubBridgeContainer,
+    AuthenticationBridge,
     SearchBridge,
     SettingsBridge,
     WorkspaceBridge,

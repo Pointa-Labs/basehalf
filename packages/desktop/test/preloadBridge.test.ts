@@ -17,6 +17,8 @@ import { GITHUB_IPC_CHANNELS } from '../src/workbench/contrib/githubPullRequests
 import { createGithubBridge } from '../src/workbench/contrib/githubPullRequests/electron-sandbox/githubBridge.js';
 import { GIT_IPC_CHANNELS } from '../src/workbench/contrib/scm/common/git.js';
 import { createGitBridge } from '../src/workbench/contrib/scm/electron-sandbox/gitBridge.js';
+import { AUTHENTICATION_IPC_CHANNELS } from '../src/workbench/services/authentication/common/authentication.js';
+import { createAuthenticationBridge } from '../src/workbench/services/authentication/electron-sandbox/authenticationBridge.js';
 import { ADHD_IPC_CHANNELS } from '../src/workbench/services/mirror/common/adhd.js';
 import { BADGE_IPC_CHANNELS } from '../src/workbench/services/mirror/common/badge.js';
 import { CANVAS_IPC_CHANNELS } from '../src/workbench/services/mirror/common/canvas.js';
@@ -98,22 +100,58 @@ describe('preload bridge modules', () => {
   it('maps GitHub provider calls to explicit Electron IPC channels', async () => {
     const ipc = fakeIpc();
     ipc.invoke.mockImplementation(async (channel: string) => {
-      if (channel === GITHUB_IPC_CHANNELS.viewer) return 'ada';
       if (channel === GITHUB_IPC_CHANNELS.createPullRequestUrl)
         return 'https://github.com/o/r/compare/topic?expand=1';
+      if (channel === GITHUB_IPC_CHANNELS.listPullRequests) return [];
       return null;
     });
     const bridge = createGithubBridge(ipc).github;
 
-    await expect(bridge.viewer()).resolves.toBe('ada');
+    await expect(bridge.repository()).resolves.toBeNull();
     await expect(bridge.createPullRequestUrl('topic')).resolves.toBe(
       'https://github.com/o/r/compare/topic?expand=1',
     );
-    await bridge.signOut();
+    await expect(bridge.listPullRequests('https://github.com/o/r.git')).resolves.toEqual([]);
 
-    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.viewer);
+    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.repository);
     expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.createPullRequestUrl, 'topic');
-    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.signOut);
+    expect(ipc.invoke).toHaveBeenCalledWith(
+      GITHUB_IPC_CHANNELS.listPullRequests,
+      'https://github.com/o/r.git',
+    );
+  });
+
+  it('maps authentication provider calls and session events to Electron IPC', async () => {
+    const ipc = fakeIpc();
+    ipc.invoke.mockImplementation(async (channel: string) => {
+      if (channel === AUTHENTICATION_IPC_CHANNELS.getSessions) return [];
+      if (channel === AUTHENTICATION_IPC_CHANNELS.createSession) return { id: 'github' };
+      return undefined;
+    });
+    const bridge = createAuthenticationBridge(ipc).authentication;
+    const onChange = vi.fn();
+
+    await expect(bridge.getSessions('github')).resolves.toEqual([]);
+    await expect(bridge.createSession('github', 'tok')).resolves.toEqual({ id: 'github' });
+    await bridge.removeSession('github', 'github');
+    const dispose = bridge.onDidChangeSessions(onChange);
+    ipc.listeners.get(AUTHENTICATION_IPC_CHANNELS.sessionsChanged)?.({}, { providerId: 'github' });
+    dispose();
+
+    expect(ipc.invoke).toHaveBeenCalledWith(AUTHENTICATION_IPC_CHANNELS.getSessions, 'github');
+    expect(ipc.invoke).toHaveBeenCalledWith(AUTHENTICATION_IPC_CHANNELS.createSession, {
+      providerId: 'github',
+      secret: 'tok',
+    });
+    expect(ipc.invoke).toHaveBeenCalledWith(AUTHENTICATION_IPC_CHANNELS.removeSession, {
+      providerId: 'github',
+      sessionId: 'github',
+    });
+    expect(onChange).toHaveBeenCalledWith({ providerId: 'github' });
+    expect(ipc.off).toHaveBeenCalledWith(
+      AUTHENTICATION_IPC_CHANNELS.sessionsChanged,
+      expect.any(Function),
+    );
   });
 
   it('maps Git provider calls to explicit Electron IPC channels', async () => {
@@ -127,6 +165,10 @@ describe('preload bridge modules', () => {
 
     await bridge.stage(['a.ts']);
     await bridge.commit('msg', { amend: true });
+    await bridge.publish();
+    await bridge.remotes();
+    await bridge.commitFiles('abc', 'parent');
+    await bridge.mergeBase(['main', 'origin/main']);
     await expect(bridge.show('HEAD', 'a.ts')).resolves.toBe('content');
     await expect(bridge.status()).resolves.toEqual({ isRepo: true, files: [] });
 
@@ -135,6 +177,13 @@ describe('preload bridge modules', () => {
       message: 'msg',
       amend: true,
     });
+    expect(ipc.invoke).toHaveBeenCalledWith(GIT_IPC_CHANNELS.publish, {});
+    expect(ipc.invoke).toHaveBeenCalledWith(GIT_IPC_CHANNELS.remotes);
+    expect(ipc.invoke).toHaveBeenCalledWith(GIT_IPC_CHANNELS.commitFiles, {
+      ref: 'abc',
+      parent: 'parent',
+    });
+    expect(ipc.invoke).toHaveBeenCalledWith(GIT_IPC_CHANNELS.mergeBase, ['main', 'origin/main']);
     expect(ipc.invoke).toHaveBeenCalledWith(GIT_IPC_CHANNELS.show, {
       ref: 'HEAD',
       path: 'a.ts',

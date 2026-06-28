@@ -7,6 +7,7 @@ import { createUpdateBridge } from '../../platform/update/electron-sandbox/updat
 import { createWorkspaceBridge } from '../../platform/workspaces/electron-sandbox/workspaceBridge.js';
 import { createGithubBridge } from '../../workbench/contrib/githubPullRequests/electron-sandbox/githubBridge.js';
 import { createGitBridge } from '../../workbench/contrib/scm/electron-sandbox/gitBridge.js';
+import { createAuthenticationBridge } from '../../workbench/services/authentication/electron-sandbox/authenticationBridge.js';
 import { createAdhdBridge } from '../../workbench/services/mirror/electron-sandbox/adhdBridge.js';
 import { createBadgeBridge } from '../../workbench/services/mirror/electron-sandbox/badgeBridge.js';
 import { createCanvasBridge } from '../../workbench/services/mirror/electron-sandbox/canvasBridge.js';
@@ -27,6 +28,7 @@ const bh: BaseHalfSandboxApi = {
   }),
   ...createGitBridge(ipcRenderer),
   ...createGithubBridge(ipcRenderer),
+  ...createAuthenticationBridge(ipcRenderer),
   ...createSearchBridge(ipcRenderer),
   ...createSettingsBridge(ipcRenderer),
   ...createWorkspaceBridge(ipcRenderer),
