@@ -1,5 +1,3 @@
-import type { GitLogResult, GitRefInfo } from '../../contrib/scm/common/git.js';
-import { recentFilesService } from '../../services/history/browser/recentFiles.js';
 import { type IMatch, createMatches, fuzzyMatch } from './fuzzyScore.js';
 
 export type { IMatch };
@@ -29,11 +27,30 @@ export interface CommandPaletteWorkspace {
   readonly path: string;
 }
 
+export interface CommandPaletteGitRefInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly type: 'head' | 'remoteHead' | 'tag';
+  readonly current: boolean;
+  readonly remote?: string;
+  readonly upstream?: string;
+  readonly commit?: string;
+}
+
+export interface CommandPaletteGitCommit {
+  readonly hash: string;
+  readonly shortHash: string;
+  readonly subject: string;
+  readonly author: {
+    readonly name: string;
+  };
+}
+
 export interface CommandPaletteGitState {
   readonly repo: boolean;
   readonly workspace: string | null;
-  readonly branches: readonly GitRefInfo[];
-  readonly commits: readonly GitLogResult['commits'][number][];
+  readonly branches: readonly CommandPaletteGitRefInfo[];
+  readonly commits: readonly CommandPaletteGitCommit[];
 }
 
 export interface FilterCommandPaletteActionsResult {
@@ -76,6 +93,7 @@ export function filterCommandPaletteActions(args: {
   readonly actions: readonly CommandPaletteAction[];
   readonly query: string;
   readonly current: string | null;
+  readonly recentFiles?: readonly string[];
 }): FilterCommandPaletteActionsResult {
   const q = args.query.trim();
   const fileId = (a: CommandPaletteAction): string => a.id.slice('file:'.length);
@@ -84,9 +102,7 @@ export function filterCommandPaletteActions(args: {
     const fallback = (): CommandPaletteAction[] =>
       args.actions.filter((a) => a.category !== 'File');
     if (args.current === null) return { filtered: fallback(), matchMap: new Map() };
-    const rank = new Map(
-      recentFilesService.recentFilesFor(args.current).map((p, i) => [p, i] as const),
-    );
+    const rank = new Map((args.recentFiles ?? []).map((p, i) => [p, i] as const));
     const recents = args.actions
       .filter((a) => a.category === 'File' && rank.has(fileId(a)))
       .sort((a, b) => (rank.get(fileId(a)) ?? 0) - (rank.get(fileId(b)) ?? 0))
@@ -110,10 +126,7 @@ export function filterCommandPaletteActions(args: {
     scored.push({ action, score });
   }
 
-  const rank =
-    args.current !== null
-      ? new Map(recentFilesService.recentFilesFor(args.current).map((p, i) => [p, i] as const))
-      : new Map<string, number>();
+  const rank = new Map((args.recentFiles ?? []).map((p, i) => [p, i] as const));
   scored.sort((x, y) => {
     if (y.score !== x.score) return y.score - x.score;
     const rx = x.action.category === 'File' ? rank.get(fileId(x.action)) : undefined;

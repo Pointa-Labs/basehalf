@@ -6,9 +6,11 @@ import {
   reconcileCommandPaletteSelection,
 } from '../src/workbench/browser/quickaccess/commandPaletteModel.js';
 import {
+  COMMANDS_QUICK_ACCESS_ID,
   buildCommandPaletteActions,
   buildContentSearchActions,
   buildGitEntityActions,
+  checkoutTargetForQuickAccessRef,
 } from '../src/workbench/browser/quickaccess/commandPaletteProviders.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
@@ -127,6 +129,40 @@ describe('commandPaletteModel', () => {
     expect(actions.find((item) => item.id === 'action:new-note')?.shortcut).toBe('Ctrl+N');
   });
 
+  it('uses the commands quick access provider as a command-only boundary', () => {
+    const actions = buildCommandPaletteActions({
+      providerId: COMMANDS_QUICK_ACCESS_ID,
+      workspaces: [
+        { name: 'main', path: '/repo/main' },
+        { name: 'docs', path: '/repo/docs' },
+      ],
+      current: 'main',
+      files: [{ file: 'notes/today.md', prompt: 'daily planning' }],
+      filesWorkspace: 'main',
+      git: { repo: false, workspace: 'main', branches: [], commits: [] },
+      modifierLabel: 'Ctrl+',
+      tildifyPath: (path) => path.replace('/repo', '~'),
+      useWorkspace: vi.fn(),
+      openFile: vi.fn(),
+      pickAndAdd: vi.fn(),
+      createDemo: vi.fn(),
+      newNote: vi.fn(),
+      promptForNewNote: vi.fn(),
+      openSettings: vi.fn(),
+      showSourceControl: vi.fn(),
+      openGitGraph: vi.fn(),
+      promptCreateBranch: vi.fn(async () => null),
+      runGit: vi.fn(),
+      gitService: fakeGitService(),
+    });
+
+    expect(actions.map((item) => item.id)).not.toContain('ws:docs');
+    expect(actions.map((item) => item.id)).not.toContain('file:notes/today.md');
+    expect(actions.map((item) => item.id)).toEqual(
+      expect.arrayContaining(['action:add-folder', 'action:new-note', 'git:init']),
+    );
+  });
+
   it('empty query returns recent file picks before falling back to non-file actions', () => {
     localStorage.setItem('bh:recent-files', JSON.stringify({ main: { 'b.md': 3, 'a.md': 5 } }));
     const actions = [
@@ -137,9 +173,12 @@ describe('commandPaletteModel', () => {
     ];
 
     expect(
-      filterCommandPaletteActions({ actions, query: '', current: 'main' }).filtered.map(
-        (item) => item.id,
-      ),
+      filterCommandPaletteActions({
+        actions,
+        query: '',
+        current: 'main',
+        recentFiles: ['a.md', 'b.md'],
+      }).filtered.map((item) => item.id),
     ).toEqual(['file:a.md', 'file:b.md']);
   });
 
@@ -251,5 +290,17 @@ describe('commandPaletteModel', () => {
     expect(checkoutBranch).toHaveBeenCalledWith(branches[0], branches);
     expect(runGit).not.toHaveBeenCalled();
     expect(checkout).not.toHaveBeenCalled();
+  });
+
+  it('resolves remote branch checkout targets without importing SCM browser internals', () => {
+    const tracked = branch('feature-x', { upstream: 'origin/feature-x' });
+
+    expect(checkoutTargetForQuickAccessRef(remote('origin/feature-x'), [tracked])).toEqual({
+      branch: 'feature-x',
+    });
+    expect(checkoutTargetForQuickAccessRef(remote('origin/new-branch'), [tracked])).toEqual({
+      branch: 'origin/new-branch',
+      track: true,
+    });
   });
 });

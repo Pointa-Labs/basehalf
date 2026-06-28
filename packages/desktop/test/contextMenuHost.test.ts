@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampContextMenuPosition } from '../src/workbench/browser/parts/contextmenu/ContextMenu.js';
+import { clampContextMenuPosition } from '../src/platform/contextview/browser/contextMenuPosition.js';
 
 describe('context menu host', () => {
   it('clamps menus inside the visible viewport', () => {

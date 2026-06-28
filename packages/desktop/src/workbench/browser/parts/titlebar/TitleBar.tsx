@@ -1,11 +1,11 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
+import { quickInputService } from '../../../../platform/quickinput/browser/quickInputService.js';
+import { UpdateChip } from '../../../contrib/update/browser/UpdateChip.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { useLayoutStore } from '../../layout/layoutStore.js';
-import { openCommandPalette } from '../../quickaccess/CommandPalette.js';
 import { color, font, radius, space, transition } from '../../style/design.js';
 import { selectRegion } from '../../workbenchRegion.js';
-import { UpdateChip } from './UpdateChip.js';
 
 // macOS draws the traffic lights (close/min/zoom) natively in the top-left of
 // our custom title strip; reserve room for them (a constant gutter held across
@@ -192,7 +192,7 @@ export const TitleBar = (): JSX.Element | null => {
       <div style={centerZone}>
         <button
           type="button"
-          onClick={() => openCommandPalette()}
+          onClick={() => quickInputService.quickAccess.show()}
           onMouseEnter={() => setBoxHover(true)}
           onMouseLeave={() => setBoxHover(false)}
           aria-label="Search and commands"

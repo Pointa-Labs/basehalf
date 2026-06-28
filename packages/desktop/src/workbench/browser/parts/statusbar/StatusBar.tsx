@@ -1,4 +1,5 @@
 import { type JSX, useState } from 'react';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { BranchQuickPick } from '../../../contrib/scm/browser/BranchQuickPick.js';
 import { gitScmService } from '../../../contrib/scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../../contrib/scm/browser/gitStatusStore.js';
@@ -6,7 +7,6 @@ import { choosePublishRemote } from '../../../contrib/scm/browser/useScmRemoteCo
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { color, font, radius, space, transition } from '../../style/design.js';
 import { Codicon } from '../../ui/Codicon.js';
-import { toast } from '../notifications/toastStore.js';
 
 /**
  * StatusBar — the always-visible bottom chrome bar, modeled on VS Code's. Its left

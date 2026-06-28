@@ -1,156 +1,38 @@
 /**
- * Custom dialog system — replaces window.confirm / window.prompt.
+ * Custom dialog host — replaces window.confirm / window.prompt.
  *
- * Native browser dialogs look like the 90s and break the rest of the
- * polished chrome. This module exposes two Promise-returning helpers
- * (confirm / prompt) and a single `<DialogHost />` that Workbench mounts at
- * the root. State lives in a Zustand store so the helpers can be called
- * from anywhere without prop-drilling a context.
+ * Native browser dialogs look like the 90s and break the rest of the polished
+ * chrome. The promise-returning dialog service lives in platform/dialogs,
+ * while this workbench part renders the active dialog at the root.
  */
 
 import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
-import { create } from 'zustand';
+import type {
+  ConfirmDialog,
+  PickDialog,
+  PromptDialog,
+} from '../../../../platform/dialogs/browser/dialogService.js';
+import { useDialogStore } from '../../../../platform/dialogs/browser/dialogService.js';
+export {
+  confirm,
+  pick,
+  pickWithInputValue,
+  prompt,
+  type PickOption,
+  type PickSelectionChange,
+  type PickValueResult,
+} from '../../../../platform/dialogs/browser/dialogService.js';
+import {
+  filterQuickPickOptions,
+  moveQuickPickActiveIndex,
+  normalizeQuickPickSelectedValues,
+  quickPickActiveOptionId,
+  quickPickInitialActiveIndex,
+  toggleQuickPickSelectedValue,
+} from '../../../../platform/quickinput/common/quickPickModel.js';
 import { color, font, motion, radius, shadow, space, transition } from '../../style/design.js';
-import { activeHTMLElement, focusElementSafely } from '../../ui/focus.js';
 import { isImeComposing } from '../../ui/imeGuard.js';
 import { Button } from '../../ui/primitives/Button.js';
-
-interface BaseDialog {
-  readonly title: string;
-  readonly body?: string;
-}
-
-interface ConfirmDialog extends BaseDialog {
-  readonly type: 'confirm';
-  readonly confirmText: string;
-  readonly cancelText: string;
-  readonly destructive: boolean;
-  readonly resolve: (ok: boolean) => void;
-}
-
-interface PromptDialog extends BaseDialog {
-  readonly type: 'prompt';
-  readonly label: string;
-  readonly placeholder: string;
-  readonly defaultValue: string;
-  readonly confirmText: string;
-  readonly cancelText: string;
-  readonly validate?: (value: string) => string | null;
-  readonly resolve: (value: string | null) => void;
-}
-
-/** One row in a `pick` dialog. `value` is what resolves; the rest is display. */
-export interface PickOption {
-  readonly value: string;
-  readonly label: string;
-  readonly hint?: string;
-  readonly detail?: string;
-}
-
-interface PickDialog extends BaseDialog {
-  readonly type: 'pick';
-  readonly placeholder: string;
-  readonly emptyText: string;
-  readonly options: readonly PickOption[];
-  readonly resolve: (value: string | null) => void;
-}
-
-type DialogState = ConfirmDialog | PromptDialog | PickDialog | null;
-
-interface DialogStore {
-  current: DialogState;
-  returnFocusElement: HTMLElement | null;
-  show: (dialog: NonNullable<DialogState>) => void;
-  resolveAndClose: (result: unknown) => void;
-}
-
-const useDialogStore = create<DialogStore>((set, get) => ({
-  current: null,
-  returnFocusElement: null,
-  show: (dialog) => set({ current: dialog, returnFocusElement: activeHTMLElement() }),
-  resolveAndClose: (result) => {
-    const { current: cur, returnFocusElement } = get();
-    if (!cur) return;
-    set({ current: null, returnFocusElement: null });
-    cur.resolve(result as never);
-    queueMicrotask(() => {
-      if (get().current === null) focusElementSafely(returnFocusElement);
-    });
-  },
-}));
-
-interface ConfirmOptions {
-  readonly title: string;
-  readonly body?: string;
-  readonly confirmText?: string;
-  readonly cancelText?: string;
-  readonly destructive?: boolean;
-}
-
-export function confirm(opts: ConfirmOptions): Promise<boolean> {
-  return new Promise((resolve) => {
-    useDialogStore.getState().show({
-      type: 'confirm',
-      title: opts.title,
-      ...(opts.body !== undefined && { body: opts.body }),
-      confirmText: opts.confirmText ?? 'Continue',
-      cancelText: opts.cancelText ?? 'Cancel',
-      destructive: opts.destructive ?? false,
-      resolve,
-    });
-  });
-}
-
-interface PromptOptions {
-  readonly title: string;
-  readonly body?: string;
-  readonly label: string;
-  readonly placeholder?: string;
-  readonly defaultValue?: string;
-  readonly confirmText?: string;
-  readonly cancelText?: string;
-  readonly validate?: (value: string) => string | null;
-}
-
-export function prompt(opts: PromptOptions): Promise<string | null> {
-  return new Promise((resolve) => {
-    useDialogStore.getState().show({
-      type: 'prompt',
-      title: opts.title,
-      ...(opts.body !== undefined && { body: opts.body }),
-      label: opts.label,
-      placeholder: opts.placeholder ?? '',
-      defaultValue: opts.defaultValue ?? '',
-      confirmText: opts.confirmText ?? 'OK',
-      cancelText: opts.cancelText ?? 'Cancel',
-      ...(opts.validate !== undefined && { validate: opts.validate }),
-      resolve,
-    });
-  });
-}
-
-interface PickOptions {
-  readonly title: string;
-  readonly placeholder?: string;
-  readonly emptyText?: string;
-  readonly options: readonly PickOption[];
-}
-
-/** Search-and-pick from a list. Resolves the chosen option's `value`, or null
- *  if dismissed. Caller supplies the options (and their display fields) — the
- *  dialog stays generic, owning only the search/keyboard/selection mechanics. */
-export function pick(opts: PickOptions): Promise<string | null> {
-  return new Promise((resolve) => {
-    useDialogStore.getState().show({
-      type: 'pick',
-      title: opts.title,
-      placeholder: opts.placeholder ?? 'Search…',
-      emptyText: opts.emptyText ?? 'Nothing to choose from.',
-      options: opts.options,
-      resolve,
-    });
-  });
-}
 
 const backdropStyle: CSSProperties = {
   position: 'fixed',
@@ -428,7 +310,12 @@ const PickBody = ({
   onResolve: (result: unknown) => void;
 }): JSX.Element => {
   const [query, setQuery] = useState('');
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(
+    quickPickInitialActiveIndex(dialog.canSelectMany),
+  );
+  const [selectedValues, setSelectedValues] = useState(() =>
+    normalizeQuickPickSelectedValues(dialog.selectedValues, dialog.options),
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = 'bh-pick-list';
@@ -437,35 +324,47 @@ const PickBody = ({
     inputRef.current?.focus();
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q === '') return dialog.options;
-    return dialog.options.filter(
-      (o) =>
-        o.label.toLowerCase().includes(q) ||
-        (o.hint?.toLowerCase().includes(q) ?? false) ||
-        (o.detail?.toLowerCase().includes(q) ?? false),
-    );
-  }, [query, dialog.options]);
+  const filtered = useMemo(
+    () => filterQuickPickOptions(query, dialog.options, dialog.sortOptions),
+    [query, dialog.options, dialog.sortOptions],
+  );
 
   // Reset the cursor to the top whenever the filtered set changes under it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: filtered length is the trigger; resetting on every keystroke is intended
   useEffect(() => {
-    setSelectedIdx(0);
-  }, [filtered.length]);
+    setSelectedIdx(quickPickInitialActiveIndex(dialog.canSelectMany));
+  }, [filtered.length, dialog.canSelectMany]);
 
   // Keep the highlighted row in view as the cursor moves past the fold.
   useEffect(() => {
+    if (selectedIdx === null) return;
     const row = listRef.current?.children[selectedIdx] as HTMLElement | undefined;
     row?.scrollIntoView({ block: 'nearest' });
   }, [selectedIdx]);
 
+  const selectedValueSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+
+  const toggleValue = (value: string): void => {
+    setSelectedValues((previousValues) =>
+      toggleQuickPickSelectedValue(
+        value,
+        previousValues,
+        dialog.options,
+        dialog.normalizeSelectedValues,
+      ),
+    );
+  };
+
   const choose = (idx: number): void => {
     const opt = filtered[idx];
-    if (opt) onResolve(opt.value);
+    if (!opt) return;
+    if (dialog.canSelectMany) {
+      toggleValue(opt.value);
+      return;
+    }
+    onResolve(dialog.includeInputValue ? { value: opt.value, inputValue: query } : opt.value);
   };
-  const activeOptionId =
-    filtered[selectedIdx] !== undefined ? `bh-pick-option-${selectedIdx}` : undefined;
+  const activeOptionId = quickPickActiveOptionId(selectedIdx, filtered, 'bh-pick-option');
 
   return (
     <div
@@ -498,17 +397,24 @@ const PickBody = ({
           if (isImeComposing(e)) return; // Enter picks a candidate, not a row
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            if (filtered.length > 0) setSelectedIdx((i) => Math.min(i + 1, filtered.length - 1));
+            setSelectedIdx((i) => moveQuickPickActiveIndex(i, filtered.length, 'next'));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            if (filtered.length > 0) setSelectedIdx((i) => Math.max(i - 1, 0));
+            setSelectedIdx((i) => moveQuickPickActiveIndex(i, filtered.length, 'previous'));
           } else if (e.key === 'Home') {
             e.preventDefault();
-            if (filtered.length > 0) setSelectedIdx(0);
+            setSelectedIdx((i) => moveQuickPickActiveIndex(i, filtered.length, 'first'));
           } else if (e.key === 'End') {
             e.preventDefault();
-            if (filtered.length > 0) setSelectedIdx(filtered.length - 1);
+            setSelectedIdx((i) => moveQuickPickActiveIndex(i, filtered.length, 'last'));
           } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (dialog.canSelectMany) {
+              onResolve(selectedValues);
+            } else {
+              if (selectedIdx !== null) choose(selectedIdx);
+            }
+          } else if (e.key === ' ' && dialog.canSelectMany && selectedIdx !== null) {
             e.preventDefault();
             choose(selectedIdx);
           }
@@ -529,6 +435,7 @@ const PickBody = ({
         id={listId}
         ref={listRef}
         role="listbox"
+        aria-multiselectable={dialog.canSelectMany || undefined}
         style={{
           marginTop: space[2],
           maxHeight: 320,
@@ -547,70 +454,101 @@ const PickBody = ({
             {dialog.options.length === 0 ? dialog.emptyText : 'No matches.'}
           </div>
         ) : (
-          filtered.map((opt, idx) => (
-            <div
-              key={opt.value}
-              id={`bh-pick-option-${idx}`}
-              role="option"
-              aria-selected={idx === selectedIdx}
-              onMouseDown={(e) => {
-                e.preventDefault(); // keep focus on the input; don't blur-then-click
-                choose(idx);
-              }}
-              onMouseMove={() => setSelectedIdx(idx)}
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: space[2],
-                padding: `${space[1.5]}px ${space[2]}px`,
-                borderRadius: radius.md,
-                cursor: 'pointer',
-                background: idx === selectedIdx ? color.accentSofter : 'transparent',
-              }}
-            >
-              <span
+          filtered.map((opt, idx) => {
+            const checked = selectedValueSet.has(opt.value);
+            const active = idx === selectedIdx;
+            return (
+              <div
+                key={opt.value}
+                id={`bh-pick-option-${idx}`}
+                role={dialog.canSelectMany ? 'checkbox' : 'option'}
+                aria-checked={dialog.canSelectMany ? checked : undefined}
+                aria-selected={dialog.canSelectMany ? undefined : active}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep focus on the input; don't blur-then-click
+                  choose(idx);
+                }}
+                onMouseMove={() => setSelectedIdx(idx)}
                 style={{
-                  fontSize: font.size.body,
-                  color: color.textPrimary,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: space[2],
+                  padding: `${space[1.5]}px ${space[2]}px`,
+                  borderRadius: radius.md,
+                  cursor: 'pointer',
+                  background: active ? color.accentSofter : checked ? color.divider : 'transparent',
                 }}
               >
-                {opt.label}
-              </span>
-              {opt.hint && (
+                {dialog.canSelectMany && (
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    readOnly
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    style={{
+                      width: 13,
+                      height: 13,
+                      margin: 0,
+                      flexShrink: 0,
+                      accentColor: color.accent,
+                    }}
+                  />
+                )}
                 <span
                   style={{
-                    fontSize: font.size.caption,
-                    fontFamily: font.mono,
-                    color: color.textTertiary,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    fontSize: font.size.body,
+                    color: color.textPrimary,
                     whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
-                  {opt.hint}
+                  {opt.label}
                 </span>
-              )}
-              {opt.detail && (
-                <span
-                  style={{
-                    marginLeft: 'auto',
-                    fontSize: font.size.caption,
-                    color: color.textGhost,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    maxWidth: '45%',
-                  }}
-                >
-                  {opt.detail}
-                </span>
-              )}
-            </div>
-          ))
+                {opt.hint && (
+                  <span
+                    style={{
+                      fontSize: font.size.caption,
+                      fontFamily: font.mono,
+                      color: color.textTertiary,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {opt.hint}
+                  </span>
+                )}
+                {opt.detail && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      fontSize: font.size.caption,
+                      color: color.textGhost,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '45%',
+                    }}
+                  >
+                    {opt.detail}
+                  </span>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
+      {dialog.canSelectMany && (
+        <div style={{ ...actionsStyle, margin: 0, padding: `${space[3]}px ${space[5]}px` }}>
+          <Button variant="ghost" type="button" onClick={() => onResolve(null)}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="button" onClick={() => onResolve(selectedValues)}>
+            OK
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

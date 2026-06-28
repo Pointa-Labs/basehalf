@@ -7,9 +7,9 @@
  * — clicking the button and typing the shortcut produce the same UX.
  */
 
+import { confirm, prompt } from '../../../platform/dialogs/browser/dialogService.js';
 import { nativeHostService } from '../../../platform/native/browser/nativeHostService.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
-import { confirm, prompt } from '../parts/dialogs/Dialog.js';
 
 /** Default location for the demo workspace. Both the welcome page's "Open a
  *  demo" button and the palette "Try a demo workspace…" action use this

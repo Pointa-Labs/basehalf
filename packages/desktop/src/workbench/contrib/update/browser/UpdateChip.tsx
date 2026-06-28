@@ -19,14 +19,14 @@
 
 import { type JSX, useEffect, useState } from 'react';
 import { updateService } from '../../../../platform/update/browser/updateService.js';
-import { flushAll } from '../../../services/editor/browser/editorFlush.js';
-import { color, font, radius, space, transition } from '../../style/design.js';
-import { useUpdateStore } from '../notifications/updateStore.js';
-
-// Phases that are mere acknowledgement of an explicit check — they auto-hide.
-// Everything else (available / downloading / staged / error) is actionable or
-// in-flight and persists until resolved.
-const TRANSIENT = new Set(['checking', 'upToDate']);
+import { color, font, radius, space, transition } from '../../../browser/style/design.js';
+import { flushAll } from '../../../services/editor/common/editorFlush.js';
+import {
+  type UpdateChipAction,
+  isTransientUpdatePhase,
+  updateChipViewModel,
+} from './updateChipModel.js';
+import { useUpdateStore } from './updateStore.js';
 
 async function restart(): Promise<void> {
   // Flush first: a conflict / failed write returns false and KEEPS the editor
@@ -48,104 +48,87 @@ export const UpdateChip = (): JSX.Element | null => {
   useEffect(() => {
     setHidden(false);
     setStarting(false);
-    if (!TRANSIENT.has(state.phase)) return;
+    if (!isTransientUpdatePhase(state.phase)) return;
     const t = setTimeout(() => setHidden(true), 4000);
     return () => clearTimeout(t);
   }, [state]);
 
-  if (state.phase === 'idle' || hidden) return null;
+  const model = updateChipViewModel(state, { hidden, starting });
+  if (!model) return null;
 
   // The download chip is its own variant: a determinate progress fill behind the
   // text so a moving percentage actually moves (a bare number reads as frozen).
-  if (state.phase === 'downloading') {
-    const known = state.total > 0;
-    const pct = known ? Math.min(100, Math.floor((state.received / state.total) * 100)) : 0;
+  if (model.kind === 'progress') {
     return (
-      <div style={{ ...baseStyle, ...progressShellStyle }} title={`Downloading… ${pct}%`}>
+      <div style={{ ...baseStyle, ...progressShellStyle }} title={model.title}>
         <span
           aria-hidden
           style={{
             position: 'absolute',
             insetBlock: 0,
             insetInlineStart: 0,
-            width: known ? `${pct}%` : '40%',
+            width: model.progressKnown ? `${model.progressPercent}%` : '40%',
             background: color.accentSoft,
             transition: transition(['width'], 'normal'),
-            ...(known ? {} : { animation: 'bh-chip-indeterminate 1.1s ease-in-out infinite' }),
+            ...(model.progressKnown
+              ? {}
+              : { animation: 'bh-chip-indeterminate 1.1s ease-in-out infinite' }),
           }}
         />
-        <span style={{ position: 'relative' }}>
-          {known ? `Downloading… ${pct}%` : 'Downloading…'}
-        </span>
+        <span style={{ position: 'relative' }}>{model.text}</span>
       </div>
     );
   }
 
-  // Each remaining phase → { text, tone, onClick? }. A phase with onClick renders
-  // as a button (the verb); a passive phase renders as a static pill.
-  let text: string;
-  let tone: 'neutral' | 'accent' | 'success' | 'danger' = 'neutral';
-  let onClick: (() => void) | undefined;
-  switch (state.phase) {
-    case 'checking':
-      text = 'Checking for updates…';
-      break;
-    case 'available':
-      text = starting ? 'Starting…' : `Update ${state.version}`;
-      tone = 'accent';
-      onClick = starting
-        ? undefined
-        : () => {
-            setStarting(true);
-            void updateService.download();
-          };
-      break;
-    case 'staged':
-      text = 'Restart to update';
-      tone = 'accent';
-      onClick = () => void restart();
-      break;
-    case 'upToDate':
-      text = 'Up to date';
-      tone = 'success';
-      break;
-    case 'error':
-      text = 'Update failed — Retry';
-      tone = 'danger';
-      onClick = () => void updateService.check();
-      break;
-  }
+  const onClick = model.action ? updateChipAction(setStarting, model.action) : undefined;
 
   const palette = {
     neutral: { fg: color.textSecondary, bg: color.surface, border: color.border },
     accent: { fg: color.onAccent, bg: color.accent, border: color.accent },
     success: { fg: color.success, bg: color.successSoft, border: 'transparent' },
     danger: { fg: color.danger, bg: color.dangerSoft, border: 'transparent' },
-  }[tone];
+  }[model.tone];
 
   const style = {
     ...baseStyle,
     border: `1px solid ${palette.border}`,
     background: palette.bg,
     color: palette.fg,
-    fontWeight: tone === 'accent' ? font.weight.medium : font.weight.regular,
+    fontWeight: model.tone === 'accent' ? font.weight.medium : font.weight.regular,
     cursor: onClick ? 'pointer' : 'default',
     transition: transition(['background', 'border-color']),
   };
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} title={text} style={style}>
-        {text}
+      <button type="button" onClick={onClick} title={model.title} style={style}>
+        {model.text}
       </button>
     );
   }
   return (
-    <div style={style} title={text}>
-      {text}
+    <div style={style} title={model.title}>
+      {model.text}
     </div>
   );
 };
+
+function updateChipAction(
+  setStarting: (starting: boolean) => void,
+  action: UpdateChipAction,
+): () => void {
+  switch (action) {
+    case 'download':
+      return () => {
+        setStarting(true);
+        void updateService.download();
+      };
+    case 'install':
+      return () => void restart();
+    case 'check':
+      return () => void updateService.check();
+  }
+}
 
 // The shared chip shell — both the generic pill and the progress variant build
 // on it so they sit identically in the title bar.

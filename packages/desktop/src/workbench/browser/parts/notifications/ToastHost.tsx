@@ -1,6 +1,9 @@
 import type { JSX } from 'react';
+import {
+  type ToastTone,
+  useToastStore,
+} from '../../../../platform/notification/browser/notificationService.js';
 import { color, font, radius, shadow, space } from '../../style/design.js';
-import { type ToastTone, useToastStore } from './toastStore.js';
 
 /**
  * ToastHost — renders the global toast stack (see store/toast). A fixed column at

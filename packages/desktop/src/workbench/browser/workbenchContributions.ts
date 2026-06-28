@@ -1,18 +1,19 @@
 import { useEffect } from 'react';
 import { fileEventService } from '../../platform/files/browser/fileEventService.js';
 import { nativeHostService } from '../../platform/native/browser/nativeHostService.js';
+import { quickInputService } from '../../platform/quickinput/browser/quickInputService.js';
 import { openSettings } from '../contrib/preferences/browser/Settings.js';
 import {
   scheduleGitStatusRefresh,
   useGitStatusStore,
 } from '../contrib/scm/browser/gitStatusStore.js';
-import { flushAll } from '../services/editor/browser/editorFlush.js';
+import { wireUpdateBridge } from '../contrib/update/browser/updateStore.js';
 import { useReadingMode } from '../services/editor/browser/readingModeStore.js';
+import { flushAll } from '../services/editor/common/editorFlush.js';
 import { useWorkspaceStore } from '../services/workspace/browser/workspaceStore.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './actions/workbenchActions.js';
 import { useLayoutStore } from './layout/layoutStore.js';
-import { wireUpdateBridge } from './parts/notifications/updateStore.js';
-import { isCommandPaletteOpen, openCommandPalette } from './quickaccess/CommandPalette.js';
+import { registerCommandPaletteQuickAccessProviders } from './quickaccess/quickAccessContributions.js';
 import { selectRegion } from './workbenchRegion.js';
 
 export interface WorkbenchContributionsState {
@@ -28,6 +29,7 @@ export interface WorkbenchContributionsState {
  * workbench parts and hosts.
  */
 export function useWorkbenchContributions(state: WorkbenchContributionsState): void {
+  useQuickAccessContribution();
   useInitialWorkspaceRefresh(state.refreshWorkspace);
   useWorkspaceWindowRefreshContribution();
   useFileRenameContribution();
@@ -40,6 +42,12 @@ export function useWorkbenchContributions(state: WorkbenchContributionsState): v
   useReadingModeContribution(state.current);
   useTransientNoticeContribution(state.notice, state.clearNotice);
   useUpdateContribution();
+}
+
+function useQuickAccessContribution(): void {
+  useEffect(() => {
+    registerCommandPaletteQuickAccessProviders();
+  }, []);
 }
 
 function useInitialWorkspaceRefresh(refreshWorkspace: () => void | Promise<void>): void {
@@ -98,7 +106,7 @@ function useWorkbenchKeyboardContribution(): void {
         (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
       if (e.key === 'k') {
         e.preventDefault();
-        openCommandPalette();
+        quickInputService.quickAccess.show();
         return;
       }
       if (e.key === 'b' || e.key === 'B') {
@@ -110,7 +118,7 @@ function useWorkbenchKeyboardContribution(): void {
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
-        if (isCommandPaletteOpen()) return;
+        if (quickInputService.quickAccess.isVisible()) return;
         if (editable) return;
         e.preventDefault();
         const ws = useWorkspaceStore.getState();

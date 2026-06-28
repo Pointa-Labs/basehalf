@@ -1,21 +1,51 @@
-import { checkoutTargetForRef } from '../../contrib/scm/browser/branchQuickPickModel.js';
-import type { GitScmService } from '../../contrib/scm/browser/gitScmService.js';
-import type { GitRefInfo } from '../../contrib/scm/common/git.js';
-import { recentFilesService } from '../../services/history/browser/recentFiles.js';
-import type { SearchQueryResult } from '../../services/search/common/search.js';
-import {
-  type CommandPaletteAction,
-  type CommandPaletteFileEntry,
-  type CommandPaletteGitState,
-  type CommandPaletteWorkspace,
-  EMPTY_RECENT_CAP,
+import type {
+  CommandPaletteAction,
+  CommandPaletteFileEntry,
+  CommandPaletteGitRefInfo,
+  CommandPaletteGitState,
+  CommandPaletteWorkspace,
 } from './commandPaletteModel.js';
 
+export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.anything';
+export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';
+export const COMMANDS_QUICK_ACCESS_PREFIX = '>';
+
+export function isCommandsQuickAccessProvider(providerId: string | undefined): boolean {
+  return providerId === COMMANDS_QUICK_ACCESS_ID;
+}
+
+export interface CommandPaletteGitService {
+  readonly checkout: (branch: string, opts?: { readonly track?: boolean }) => Promise<unknown>;
+  readonly createBranch: (name: string) => Promise<unknown>;
+  readonly fetch: () => Promise<unknown>;
+  readonly init: () => Promise<unknown>;
+  readonly pull: () => Promise<unknown>;
+  readonly push: () => Promise<unknown>;
+  readonly stageAll: () => Promise<unknown>;
+  readonly stash: () => Promise<unknown>;
+  readonly stashPop: () => Promise<unknown>;
+  readonly unstageAll: () => Promise<unknown>;
+}
+
+export interface CommandPaletteSearchHit {
+  readonly file: string;
+  readonly matches: readonly {
+    readonly text: string;
+  }[];
+}
+
+export interface CommandPaletteCheckoutTarget {
+  readonly branch: string;
+  readonly track?: boolean;
+}
+
 export interface BuildCommandPaletteActionsArgs {
+  readonly providerId?: string;
   readonly workspaces: readonly CommandPaletteWorkspace[];
   readonly current: string | null;
   readonly files: readonly CommandPaletteFileEntry[];
   readonly filesWorkspace: string | null;
+  readonly recentFiles?: readonly string[];
   readonly git: CommandPaletteGitState;
   readonly modifierLabel: string;
   readonly tildifyPath: (path: string) => string;
@@ -33,12 +63,15 @@ export interface BuildCommandPaletteActionsArgs {
   readonly openGitGraph: () => void;
   readonly promptCreateBranch: () => Promise<string | null | undefined>;
   readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly gitService: GitScmService;
+  readonly gitService: CommandPaletteGitService;
 }
 
 export function buildCommandPaletteActions(
   args: BuildCommandPaletteActionsArgs,
 ): CommandPaletteAction[] {
+  if (isCommandsQuickAccessProvider(args.providerId)) {
+    return [...chromeActionPicks(args), ...gitCommandPicks(args)];
+  }
   return [
     ...workspacePicks(args),
     ...filePicks(args),
@@ -61,9 +94,8 @@ function workspacePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAct
 
 function filePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
   if (args.filesWorkspace !== args.current || args.current === null) return [];
-  const recent = recentFilesService.recentFilesFor(args.current);
   const recentRank = new Map<string, number>();
-  recent.forEach((path, idx) => recentRank.set(path, idx));
+  args.recentFiles?.forEach((path, idx) => recentRank.set(path, idx));
   return [...args.files]
     .sort((a, b) => {
       const ra = recentRank.get(a.file);
@@ -180,7 +212,7 @@ function gitCommandPicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAc
 }
 
 export function buildContentSearchActions(args: {
-  readonly contentHits: SearchQueryResult['hits'];
+  readonly contentHits: readonly CommandPaletteSearchHit[];
   readonly hitsQuery: string;
   readonly hitsWorkspace: string | null;
   readonly current: string | null;
@@ -219,9 +251,16 @@ export function buildGitEntityActions(args: {
   readonly query: string;
   readonly current: string | null;
   readonly git: CommandPaletteGitState;
-  readonly gitService: GitScmService;
+  readonly gitService: CommandPaletteGitService;
   readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly checkoutBranch?: (branch: GitRefInfo, refs: readonly GitRefInfo[]) => void;
+  readonly checkoutBranch?: (
+    branch: CommandPaletteGitRefInfo,
+    refs: readonly CommandPaletteGitRefInfo[],
+  ) => void;
+  readonly resolveCheckoutTarget?: (
+    branch: CommandPaletteGitRefInfo,
+    refs: readonly CommandPaletteGitRefInfo[],
+  ) => CommandPaletteCheckoutTarget;
   readonly revealCommit: (hash: string) => void;
 }): CommandPaletteAction[] {
   const q = args.query.trim().toLowerCase();
@@ -245,7 +284,9 @@ export function buildGitEntityActions(args: {
           args.checkoutBranch(branch, args.git.branches);
           return;
         }
-        const target = checkoutTargetForRef(branch, args.git.branches);
+        const target =
+          args.resolveCheckoutTarget?.(branch, args.git.branches) ??
+          checkoutTargetForQuickAccessRef(branch, args.git.branches);
         args.runGit(() =>
           args.gitService.checkout(
             target.branch,
@@ -283,4 +324,16 @@ export function combineCommandPaletteRows(
   gitMatches: readonly CommandPaletteAction[],
 ): CommandPaletteAction[] {
   return [...filtered, ...contentActions, ...gitMatches];
+}
+
+export function checkoutTargetForQuickAccessRef(
+  ref: CommandPaletteGitRefInfo,
+  refs: readonly CommandPaletteGitRefInfo[] = [],
+): CommandPaletteCheckoutTarget {
+  if (ref.type !== 'remoteHead') return { branch: ref.name };
+  const tracking = refs.find(
+    (candidate) => candidate.type === 'head' && candidate.upstream === ref.name,
+  );
+  if (tracking !== undefined) return { branch: tracking.name };
+  return { branch: ref.name, track: true };
 }

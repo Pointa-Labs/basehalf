@@ -1,23 +1,50 @@
-import { create } from 'zustand';
+import { useSyncExternalStore } from 'react';
+import { quickInputService } from '../../../platform/quickinput/browser/quickInputService.js';
 
 interface CommandPaletteStore {
   open: boolean;
+  value: string;
+  filterValue: string;
+  providerId?: string;
+  prefix: string;
+  placeholder?: string;
   setOpen: (open: boolean) => void;
 }
 
-export const useCommandPaletteStore = create<CommandPaletteStore>((set) => ({
-  open: false,
-  setOpen: (open) => set({ open }),
-}));
+function setCommandPaletteOpen(open: boolean): void {
+  if (open) quickInputService.quickAccess.show();
+  else quickInputService.quickAccess.hide();
+}
+
+function snapshot(): CommandPaletteStore {
+  const state = quickInputService.quickAccess.getState();
+  return {
+    open: state.visible,
+    value: state.value,
+    filterValue: state.filterValue,
+    providerId: state.providerId,
+    prefix: state.prefix,
+    placeholder: state.placeholder,
+    setOpen: setCommandPaletteOpen,
+  };
+}
+
+export function useCommandPaletteStore<T>(selector: (store: CommandPaletteStore) => T): T {
+  return useSyncExternalStore(
+    (listener) => quickInputService.quickAccess.subscribe(listener),
+    () => selector(snapshot()),
+    () => selector(snapshot()),
+  );
+}
 
 export function openCommandPalette(): void {
-  useCommandPaletteStore.getState().setOpen(true);
+  quickInputService.quickAccess.show();
 }
 
 export function isCommandPaletteOpen(): boolean {
-  return useCommandPaletteStore.getState().open;
+  return quickInputService.quickAccess.isVisible();
 }
 
 export function closeCommandPalette(): void {
-  useCommandPaletteStore.getState().setOpen(false);
+  quickInputService.quickAccess.hide();
 }

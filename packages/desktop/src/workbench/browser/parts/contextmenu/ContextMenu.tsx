@@ -14,6 +14,7 @@
 import {
   type CSSProperties,
   type JSX,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -21,36 +22,24 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { clampContextMenuPosition } from '../../../../platform/contextview/browser/contextMenuPosition.js';
+import {
+  contextMenuService,
+  useContextMenuStore,
+} from '../../../../platform/contextview/browser/contextMenuService.js';
+import {
+  type ContextMenuItem,
+  isContextMenuSeparator,
+} from '../../../../platform/contextview/common/contextMenu.js';
 import { color, font, radius, shadow, space, transition } from '../../style/design.js';
-import { focusElementSafely } from '../../ui/focus.js';
-import { type ContextMenuItem, isSeparator, useContextMenuStore } from './contextMenuStore.js';
 
 const MENU_MIN_WIDTH = 200;
-const VIEWPORT_MARGIN = 6;
-
-export function clampContextMenuPosition(
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  viewportWidth: number,
-  viewportHeight: number,
-): { left: number; top: number } {
-  const maxLeft = Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN);
-  const maxTop = Math.max(VIEWPORT_MARGIN, viewportHeight - height - VIEWPORT_MARGIN);
-  return {
-    left: Math.min(Math.max(VIEWPORT_MARGIN, x), maxLeft),
-    top: Math.min(Math.max(VIEWPORT_MARGIN, y), maxTop),
-  };
-}
 
 export const ContextMenuHost = (): JSX.Element | null => {
   const open = useContextMenuStore((s) => s.open);
   const x = useContextMenuStore((s) => s.x);
   const y = useContextMenuStore((s) => s.y);
   const items = useContextMenuStore((s) => s.items);
-  const returnFocusElement = useContextMenuStore((s) => s.returnFocusElement);
-  const close = useContextMenuStore((s) => s.close);
 
   const menuRef = useRef<HTMLDivElement>(null);
   // Start at the cursor; a layout effect nudges it inward if it would overflow.
@@ -83,12 +72,13 @@ export const ContextMenuHost = (): JSX.Element | null => {
   }, [open, x, y]);
 
   const closeMenu = useCallback(
-    (options?: { readonly restoreFocus?: boolean }): void => {
-      const focusTarget = returnFocusElement;
-      close();
-      if (options?.restoreFocus === true) focusElementSafely(focusTarget);
+    (options?: { readonly didCancel?: boolean; readonly restoreFocus?: boolean }): void => {
+      contextMenuService.closeContextMenu({
+        didCancel: options?.didCancel ?? true,
+        restoreFocus: options?.restoreFocus,
+      });
     },
-    [close, returnFocusElement],
+    [],
   );
 
   // Esc closes (capture phase + stopPropagation so it doesn't also close an
@@ -100,7 +90,7 @@ export const ContextMenuHost = (): JSX.Element | null => {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        closeMenu({ restoreFocus: true });
+        closeMenu({ didCancel: true, restoreFocus: true });
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -183,9 +173,9 @@ export const ContextMenuHost = (): JSX.Element | null => {
         {items.map((item, idx) => (
           <MenuRow
             // separators have no id; index is stable for the lifetime of one open menu
-            key={isSeparator(item) ? `sep-${idx}` : item.id}
+            key={isContextMenuSeparator(item) ? `sep-${idx}` : item.id}
             item={item}
-            onRun={() => closeMenu({ restoreFocus: true })}
+            onRun={() => closeMenu({ didCancel: false, restoreFocus: true })}
           />
         ))}
       </div>
@@ -201,7 +191,7 @@ const MenuRow = ({
   item: ContextMenuItem;
   onRun: () => void;
 }): JSX.Element => {
-  if (isSeparator(item)) {
+  if (isContextMenuSeparator(item)) {
     return (
       <div
         role="separator"
@@ -251,7 +241,7 @@ const MenuRow = ({
       style={rowStyle}
     >
       {item.icon !== undefined && (
-        <span style={{ display: 'inline-flex', flexShrink: 0 }}>{item.icon}</span>
+        <span style={{ display: 'inline-flex', flexShrink: 0 }}>{item.icon as ReactNode}</span>
       )}
       <span style={{ flex: 1 }}>{item.label}</span>
     </button>
