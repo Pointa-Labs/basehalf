@@ -1,6 +1,6 @@
-import type { WorkspaceEntry } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
-import { sortByRecency } from '../src/renderer/src/lib/recentWorkspaces.js';
+import type { WorkspaceEntry } from '../src/platform/workspaces/common/workspaces.js';
+import { sortByRecency } from '../src/workbench/contrib/welcome/browser/recentWorkspacesModel.js';
 
 const ws = (name: string, addedAt: string, lastOpenedAt?: string): WorkspaceEntry => ({
   name,

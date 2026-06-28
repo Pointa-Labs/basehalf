@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { subscribeBadgeChange } from '../src/renderer/src/lib/badgeBus.js';
-import { badgeMutations } from '../src/renderer/src/lib/badgeMutations.js';
+import { subscribeBadgeChange } from '../src/workbench/services/mirror/browser/badgeBus.js';
+import { badgeMutations } from '../src/workbench/services/mirror/browser/badgeMutations.js';
 
 // The whole point of routing badge writes through badgeMutations is that the
 // cross-view change signal fires automatically — so no call site can forget it
@@ -8,11 +8,37 @@ import { badgeMutations } from '../src/renderer/src/lib/badgeMutations.js';
 // invariant: emit on success, NOT on failure, tagged with the caller's origin.
 
 describe('badgeMutations', () => {
-  let runMock: ReturnType<typeof vi.fn>;
+  let badgeAddRefMock: ReturnType<typeof vi.fn>;
+  let badgeRemoveRefMock: ReturnType<typeof vi.fn>;
+  let badgeSetMock: ReturnType<typeof vi.fn>;
+  let canvasConnectMock: ReturnType<typeof vi.fn>;
+  let canvasDisconnectMock: ReturnType<typeof vi.fn>;
+  let canvasReconnectMock: ReturnType<typeof vi.fn>;
+  let canvasSetCardMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    runMock = vi.fn().mockResolvedValue({ ok: true });
-    (globalThis as unknown as { window: unknown }).window = { bh: { run: runMock } };
+    badgeAddRefMock = vi.fn().mockResolvedValue({ ok: true });
+    badgeRemoveRefMock = vi.fn().mockResolvedValue({ ok: true });
+    badgeSetMock = vi.fn().mockResolvedValue({ ok: true });
+    canvasConnectMock = vi.fn().mockResolvedValue({ ok: true });
+    canvasDisconnectMock = vi.fn().mockResolvedValue({ ok: true });
+    canvasReconnectMock = vi.fn().mockResolvedValue({ ok: true });
+    canvasSetCardMock = vi.fn().mockResolvedValue({ ok: true });
+    (globalThis as unknown as { window: unknown }).window = {
+      bh: {
+        badge: {
+          addRef: badgeAddRefMock,
+          removeRef: badgeRemoveRefMock,
+          set: badgeSetMock,
+        },
+        canvas: {
+          connect: canvasConnectMock,
+          disconnect: canvasDisconnectMock,
+          reconnect: canvasReconnectMock,
+          setCard: canvasSetCardMock,
+        },
+      },
+    };
   });
 
   afterEach(() => {
@@ -24,7 +50,7 @@ describe('badgeMutations', () => {
     const unsub = subscribeBadgeChange((origin) => seen.push(origin));
     await badgeMutations.addRef({ file: 'a.md', to: 'b.md', kind: 'file' }, 'canvas');
     unsub();
-    expect(runMock).toHaveBeenCalledWith('badge.addRef', {
+    expect(badgeAddRefMock).toHaveBeenCalledWith({
       file: 'a.md',
       to: 'b.md',
       kind: 'file',
@@ -33,7 +59,7 @@ describe('badgeMutations', () => {
   });
 
   it('does NOT emit when the underlying write throws', async () => {
-    runMock.mockRejectedValueOnce(new Error('nope'));
+    badgeRemoveRefMock.mockRejectedValueOnce(new Error('nope'));
     const seen: (string | undefined)[] = [];
     const unsub = subscribeBadgeChange((origin) => seen.push(origin));
     await expect(
@@ -60,7 +86,7 @@ describe('badgeMutations', () => {
     unsub();
     // kind lives INSIDE the patch (badge.set reads patch.kind) so the same path
     // serves both file and folder badges.
-    expect(runMock).toHaveBeenCalledWith('badge.set', {
+    expect(badgeSetMock).toHaveBeenCalledWith({
       file: 'a.md',
       patch: { kind: 'file', description: 'hello' },
     });
@@ -70,7 +96,7 @@ describe('badgeMutations', () => {
     const unsub = subscribeBadgeChange(() => {});
     await badgeMutations.setDescription('notes', 'hi', 'panel', 'folder');
     unsub();
-    expect(runMock).toHaveBeenCalledWith('badge.set', {
+    expect(badgeSetMock).toHaveBeenCalledWith({
       file: 'notes',
       patch: { kind: 'folder', description: 'hi' },
     });
@@ -84,7 +110,7 @@ describe('badgeMutations', () => {
       'canvas',
     );
     unsub();
-    expect(runMock).toHaveBeenCalledWith('canvas.connect', {
+    expect(canvasConnectMock).toHaveBeenCalledWith({
       folder: null,
       from: 'a.md',
       to: 'b.md',
@@ -99,7 +125,7 @@ describe('badgeMutations', () => {
     const unsub = subscribeBadgeChange((origin) => seen.push(origin));
     await badgeMutations.disconnect({ folder: 'docs', from: 'a.md', to: 'b.md' }, 'canvas');
     unsub();
-    expect(runMock).toHaveBeenCalledWith('canvas.disconnect', {
+    expect(canvasDisconnectMock).toHaveBeenCalledWith({
       folder: 'docs',
       from: 'a.md',
       to: 'b.md',
@@ -115,7 +141,7 @@ describe('badgeMutations', () => {
       card: { path: 'a.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 },
     });
     unsub();
-    expect(runMock).toHaveBeenCalledWith('canvas.setCard', {
+    expect(canvasSetCardMock).toHaveBeenCalledWith({
       folder: null,
       card: { path: 'a.md', kind: 'file', x: 1, y: 2, width: 300, height: 220 },
     });

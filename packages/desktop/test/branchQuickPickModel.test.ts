@@ -1,4 +1,3 @@
-import type { GitRefInfo } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
 import {
   canDeleteBranch,
@@ -6,7 +5,8 @@ import {
   filterBranches,
   isBranchPickDisabled,
   isCheckoutBlockedError,
-} from '../src/renderer/src/components/source-control/branchQuickPickModel.js';
+} from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
+import type { GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 const branch = (name: string, props: Partial<GitRefInfo> = {}): GitRefInfo => ({
   id: `refs/heads/${name}`,
@@ -33,9 +33,10 @@ describe('branchQuickPickModel', () => {
     expect(filterBranches(refs, 'auth').map((item) => item.name)).toEqual(['feature/Auth']);
   });
 
-  it('checks out remote-tracking refs by existing local branch or tracking target', () => {
+  it('checks out remote-tracking refs as tracking targets without guessing local branch names', () => {
     expect(checkoutTargetForRef(remote('origin/feature-x'), [branch('feature-x')])).toEqual({
-      branch: 'feature-x',
+      branch: 'origin/feature-x',
+      track: true,
     });
     expect(checkoutTargetForRef(remote('origin/new-x'), [])).toEqual({
       branch: 'origin/new-x',

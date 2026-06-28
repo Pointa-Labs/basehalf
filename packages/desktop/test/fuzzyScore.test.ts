@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMatches, fuzzyMatch } from '../src/renderer/src/lib/fuzzyScore.js';
+import { createMatches, fuzzyMatch } from '../src/workbench/browser/quickaccess/fuzzyScore.js';
 
 /** Helper: the numeric score, or null when there's no match. */
 function score(pattern: string, target: string): number | null {

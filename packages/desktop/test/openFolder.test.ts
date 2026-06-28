@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
+import { useWorkspaceStore } from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // Pin the multi-window "Open Folder" semantics (pickAndAdd / addDroppedPaths /
 // remove): opening a folder OPENS it (registers if needed, then open-or-focuses
@@ -12,8 +12,8 @@ import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
 //    welcome / new window); returns `{ reused }`. Recorded in `openCalls`.
 //  - `window.bh.reopenWindow(name|null)` = REOPEN THIS window (remove-current →
 //    welcome `null`; repath). Recorded in `reopenCalls`.
-// The core registry behavior itself (path identity, name suffixing) is
-// unit-tested in @basehalf/core; this mock mirrors its contract.
+// The desktop registry behavior itself (path identity, name suffixing) is
+// covered in main-service tests; this mock mirrors its contract.
 
 interface WsEntry {
   name: string;
@@ -49,38 +49,62 @@ const bh = {
   // notifyWorkspacesChanged after add/remove/rename/repath.
   notifyWorkspacesChanged: (): void => {},
   getOpenWorkspaces: async (): Promise<string[]> => [],
-  run: async (name: string, args?: unknown): Promise<unknown> => {
-    runCalls.push(name);
-    const a = (args ?? {}) as { path?: string; name?: string };
-    switch (name) {
-      case 'workspace.add': {
-        const path = a.path as string;
-        const existing = registry.find((w) => w.path.toLowerCase() === path.toLowerCase());
-        if (existing) {
-          return { workspace: existing, bhDirCreated: false, alreadyRegistered: true };
-        }
-        const base = path.split('/').filter(Boolean).pop() ?? 'ws';
-        let candidate = base;
-        for (let i = 2; registry.some((w) => w.name === candidate); i++) {
-          candidate = `${base}-${i}`;
-        }
-        const entry = { name: candidate, path, addedAt: 'now' };
-        registry.push(entry);
-        return { workspace: entry, bhDirCreated: true, alreadyRegistered: false };
-      }
-      case 'workspace.remove': {
-        registry = registry.filter((w) => w.name !== a.name);
-        return { removed: a.name };
-      }
-      case 'workspace.list':
-        return { current: currentName, workspaces: [...registry] };
-      case 'workspace.listFiles':
-        return { files: [] };
-      default:
-        return {}; // watcher.start, focus.pruneDangling, badge.pruneDangling, …
-    }
+  workspace: {
+    startWatcher: async (): Promise<void> => {
+      runCalls.push('watcher.start');
+    },
+    list: async (): Promise<unknown> => runWorkspace('workspace.list', {}),
+    listFiles: async (args: unknown): Promise<unknown> => runWorkspace('workspace.listFiles', args),
+    ensureSetup: async (): Promise<unknown> => runWorkspace('workspace.ensureSetup', {}),
+    add: async (args: unknown): Promise<unknown> => runWorkspace('workspace.add', args),
+    remove: async (args: unknown): Promise<unknown> => runWorkspace('workspace.remove', args),
   },
+  focus: {
+    pruneDangling: async (): Promise<unknown> => {
+      runCalls.push('focus.pruneDangling');
+      return {};
+    },
+  },
+  badge: {
+    pruneDangling: async (): Promise<unknown> => {
+      runCalls.push('badge.pruneDangling');
+      return {};
+    },
+  },
+  run: async (name: string, args?: unknown): Promise<unknown> => runWorkspace(name, args),
 };
+
+async function runWorkspace(name: string, args?: unknown): Promise<unknown> {
+  runCalls.push(name);
+  const a = (args ?? {}) as { path?: string; name?: string };
+  switch (name) {
+    case 'workspace.add': {
+      const path = a.path as string;
+      const existing = registry.find((w) => w.path.toLowerCase() === path.toLowerCase());
+      if (existing) {
+        return { workspace: existing, bhDirCreated: false, alreadyRegistered: true };
+      }
+      const base = path.split('/').filter(Boolean).pop() ?? 'ws';
+      let candidate = base;
+      for (let i = 2; registry.some((w) => w.name === candidate); i++) {
+        candidate = `${base}-${i}`;
+      }
+      const entry = { name: candidate, path, addedAt: 'now' };
+      registry.push(entry);
+      return { workspace: entry, bhDirCreated: true, alreadyRegistered: false };
+    }
+    case 'workspace.remove': {
+      registry = registry.filter((w) => w.name !== a.name);
+      return { removed: a.name };
+    }
+    case 'workspace.list':
+      return { current: currentName, workspaces: [...registry] };
+    case 'workspace.listFiles':
+      return { files: [] };
+    default:
+      return {}; // watcher.start, focus.pruneDangling, badge.pruneDangling, …
+  }
+}
 
 beforeEach(() => {
   registry = [];

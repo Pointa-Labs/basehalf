@@ -1,23 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  TerminalMainService,
+  type TerminalPtySpawner,
+} from '../src/platform/terminal/node/terminalMainService.js';
 
-// Per-window terminal isolation. Each pty is OWNED by the window that spawned
-// it: its output goes only to that window, and only that window may
-// write/resize/kill it — so one window can't reach into another's shell by
-// guessing the global, sequential session id. We mock node-pty (no native
-// binary) and electron (capture ipc handlers + per-window sends), then drive the
-// registered handlers directly.
+// Service-level terminal isolation. The pty service owns shell lifecycle and
+// guards sessions by owner webContents id; Electron IPC is covered separately by
+// terminal-main-channel.test.ts.
 
 interface FakePty {
   write: ReturnType<typeof vi.fn>;
   resize: ReturnType<typeof vi.fn>;
   kill: ReturnType<typeof vi.fn>;
-  onData: (cb: (d: string) => void) => void;
-  onExit: (cb: (e: { exitCode: number }) => void) => void;
+  onData: (cb: (d: string) => void) => { dispose: () => void };
+  onExit: (cb: (e: { exitCode: number }) => void) => { dispose: () => void };
   emitData: (d: string) => void;
   emitExit: (code: number) => void;
 }
 
 const ptys: FakePty[] = [];
+
 function makeFakePty(): FakePty {
   let dataCb: ((d: string) => void) | undefined;
   let exitCb: ((e: { exitCode: number }) => void) | undefined;
@@ -27,123 +29,110 @@ function makeFakePty(): FakePty {
     kill: vi.fn(),
     onData: (cb) => {
       dataCb = cb;
+      return { dispose: vi.fn() };
     },
     onExit: (cb) => {
       exitCb = cb;
+      return { dispose: vi.fn() };
     },
     emitData: (d) => dataCb?.(d),
     emitExit: (code) => exitCb?.({ exitCode: code }),
   };
 }
 
-// Captured ipc handlers/listeners and per-window sends.
-const handlers = new Map<string, (...a: unknown[]) => unknown>();
-const listeners = new Map<string, (...a: unknown[]) => unknown>();
-const sends: Array<{ wcId: number; channel: string; payload: unknown }> = [];
-
-vi.mock('@lydell/node-pty', () => ({
-  spawn: vi.fn(() => {
-    const p = makeFakePty();
-    ptys.push(p);
-    return p;
-  }),
-}));
-
-vi.mock('electron', () => ({
-  ipcMain: {
-    handle: (channel: string, fn: (...a: unknown[]) => unknown) => handlers.set(channel, fn),
-    on: (channel: string, fn: (...a: unknown[]) => unknown) => listeners.set(channel, fn),
-  },
-  webContents: {
-    fromId: (id: number) => ({
-      id,
-      isDestroyed: () => false,
-      send: (channel: string, payload: unknown) => sends.push({ wcId: id, channel, payload }),
-    }),
-  },
-}));
-
-const { registerTerminalIpc, disposeTerminalsForWindow } = await import('../src/main/terminal.js');
-
-// A fake ipc event whose sender carries the window's webContents id.
-const evt = (wcId: number) => ({ sender: { id: wcId } });
-
-async function spawnFor(wcId: number): Promise<string> {
-  const handler = handlers.get('terminal:spawn');
-  if (!handler) throw new Error('terminal:spawn not registered');
-  const { id } = (await handler(evt(wcId), {})) as { id: string };
-  return id;
+function createService(): TerminalMainService {
+  const spawnPty: TerminalPtySpawner = vi.fn(() => {
+    const pty = makeFakePty();
+    ptys.push(pty);
+    return pty;
+  });
+  return new TerminalMainService(spawnPty);
 }
 
-describe('per-window terminal isolation', () => {
+describe('TerminalMainService', () => {
   beforeEach(() => {
     ptys.length = 0;
-    sends.length = 0;
-    handlers.clear();
-    listeners.clear();
-    registerTerminalIpc();
-  });
-  afterEach(() => {
-    vi.clearAllMocks();
   });
 
-  it('routes a pty’s output ONLY to the window that spawned it', async () => {
-    await spawnFor(1); // ptys[0] owned by window 1
-    await spawnFor(2); // ptys[1] owned by window 2
-    ptys[0].emitData('from-A');
-    ptys[1].emitData('from-B');
-    const dataSends = sends.filter((s) => s.channel === 'terminal:data');
-    expect(dataSends).toContainEqual({
-      wcId: 1,
-      channel: 'terminal:data',
-      payload: { id: 't1', data: 'from-A' },
-    });
-    expect(dataSends).toContainEqual({
-      wcId: 2,
-      channel: 'terminal:data',
-      payload: { id: 't2', data: 'from-B' },
-    });
-    // Crucially, window 1 NEVER receives window 2's output and vice versa.
-    const dataOf = (p: unknown): string | undefined => (p as { data?: string }).data;
-    expect(dataSends.some((s) => s.wcId === 1 && dataOf(s.payload) === 'from-B')).toBe(false);
-    expect(dataSends.some((s) => s.wcId === 2 && dataOf(s.payload) === 'from-A')).toBe(false);
+  it('routes a pty’s output only to the window that spawned it', () => {
+    const service = createService();
+    const sends: unknown[] = [];
+    service.onDidWriteData((event) => sends.push(event));
+
+    service.spawnTerminal(1, '/workspace/a');
+    service.spawnTerminal(2, '/workspace/b');
+    ptys[0]?.emitData('from-A');
+    ptys[1]?.emitData('from-B');
+
+    expect(sends).toContainEqual({ ownerWcId: 1, id: 't1', data: 'from-A' });
+    expect(sends).toContainEqual({ ownerWcId: 2, id: 't2', data: 'from-B' });
+    expect(sends).not.toContainEqual({ ownerWcId: 1, id: 't2', data: 'from-B' });
+    expect(sends).not.toContainEqual({ ownerWcId: 2, id: 't1', data: 'from-A' });
   });
 
-  it('lets a window write to its OWN session', async () => {
-    const id = await spawnFor(1);
-    listeners.get('terminal:write')?.(evt(1), { id, data: 'ls\n' });
-    expect(ptys[0].write).toHaveBeenCalledWith('ls\n');
+  it('lets a window write to its own session', () => {
+    const service = createService();
+    const { id } = service.spawnTerminal(1, '/workspace/a');
+
+    service.writeTerminal(1, id, 'ls\n');
+
+    expect(ptys[0]?.write).toHaveBeenCalledWith('ls\n');
   });
 
-  it('refuses a write to ANOTHER window’s session (owner guard)', async () => {
-    const id = await spawnFor(1); // owned by window 1
-    listeners.get('terminal:write')?.(evt(2), { id, data: 'rm -rf /\n' });
-    expect(ptys[0].write).not.toHaveBeenCalled();
+  it('refuses a write to another window’s session', () => {
+    const service = createService();
+    const { id } = service.spawnTerminal(1, '/workspace/a');
+
+    service.writeTerminal(2, id, 'rm -rf /\n');
+
+    expect(ptys[0]?.write).not.toHaveBeenCalled();
   });
 
-  it('refuses a kill of another window’s session, but allows its own', async () => {
-    const id = await spawnFor(1);
-    listeners.get('terminal:kill')?.(evt(2), { id }); // not the owner → ignored
-    expect(ptys[0].kill).not.toHaveBeenCalled();
-    listeners.get('terminal:kill')?.(evt(1), { id }); // owner → killed
-    expect(ptys[0].kill).toHaveBeenCalledTimes(1);
+  it('refuses a kill of another window’s session, but allows its own', () => {
+    const service = createService();
+    const { id } = service.spawnTerminal(1, '/workspace/a');
+
+    service.killTerminal(2, id);
+    expect(ptys[0]?.kill).not.toHaveBeenCalled();
+    service.killTerminal(1, id);
+
+    expect(ptys[0]?.kill).toHaveBeenCalledTimes(1);
   });
 
-  it('disposeTerminalsForWindow kills only that window’s ptys', async () => {
-    await spawnFor(1); // ptys[0]
-    await spawnFor(1); // ptys[1]
-    await spawnFor(2); // ptys[2]
-    disposeTerminalsForWindow(1);
-    expect(ptys[0].kill).toHaveBeenCalledTimes(1);
-    expect(ptys[1].kill).toHaveBeenCalledTimes(1);
-    expect(ptys[2].kill).not.toHaveBeenCalled();
+  it('disposeTerminalsForWindow kills only that window’s ptys', () => {
+    const service = createService();
+    service.spawnTerminal(1, '/workspace/a');
+    service.spawnTerminal(1, '/workspace/a');
+    service.spawnTerminal(2, '/workspace/b');
+
+    service.disposeTerminalsForWindow(1);
+
+    expect(ptys[0]?.kill).toHaveBeenCalledTimes(1);
+    expect(ptys[1]?.kill).toHaveBeenCalledTimes(1);
+    expect(ptys[2]?.kill).not.toHaveBeenCalled();
   });
 
-  it('a resize from a non-owner is ignored', async () => {
-    const id = await spawnFor(1);
-    listeners.get('terminal:resize')?.(evt(2), { id, cols: 10, rows: 10 });
-    expect(ptys[0].resize).not.toHaveBeenCalled();
-    listeners.get('terminal:resize')?.(evt(1), { id, cols: 10, rows: 10 });
-    expect(ptys[0].resize).toHaveBeenCalledTimes(1);
+  it('ignores a resize from a non-owner and clamps an owner resize', () => {
+    const service = createService();
+    const { id } = service.spawnTerminal(1, '/workspace/a');
+
+    service.resizeTerminal(2, id, 10, 10);
+    expect(ptys[0]?.resize).not.toHaveBeenCalled();
+    service.resizeTerminal(1, id, 0, 20.8);
+
+    expect(ptys[0]?.resize).toHaveBeenCalledWith(1, 20);
+  });
+
+  it('emits exit and removes the session when the pty exits', () => {
+    const service = createService();
+    const exits: unknown[] = [];
+    service.onDidExit((event) => exits.push(event));
+    const { id } = service.spawnTerminal(1, '/workspace/a');
+
+    ptys[0]?.emitExit(127);
+    service.writeTerminal(1, id, 'after-exit');
+
+    expect(exits).toEqual([{ ownerWcId: 1, id, exitCode: 127 }]);
+    expect(ptys[0]?.write).not.toHaveBeenCalled();
   });
 });

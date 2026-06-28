@@ -11,7 +11,7 @@ import {
   onReady,
   refreshOwner,
   releaseDoc,
-} from '../src/renderer/src/lib/liveDoc.js';
+} from '../src/workbench/services/editor/browser/liveDoc.js';
 
 // A fake view recording owner-role changes. `key` is the (workspace-scoped) doc key.
 function fakeView(key: string, ownerPriority?: () => number) {

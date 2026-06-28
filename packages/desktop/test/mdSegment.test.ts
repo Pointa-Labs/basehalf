@@ -5,7 +5,7 @@ import {
   losesContent,
   segmentBody,
   spliceSave,
-} from '../src/renderer/src/lib/mdSegment.js';
+} from '../src/workbench/services/editor/browser/mdSegment.js';
 
 // segmentBody is pure (mdast only, no BlockNote), so it runs in the Node test env.
 // The load-time projection + splice-save (which need a real BlockNote/DOM) are

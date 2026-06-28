@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseUnifiedPatch } from '../src/renderer/src/lib/parseUnifiedPatch.js';
+import { parseUnifiedPatch } from '../src/workbench/contrib/multiDiffEditor/browser/parseUnifiedPatch.js';
 
 describe('parseUnifiedPatch', () => {
   it('parses a hunk into gap + context/del/add with correct line numbers', () => {

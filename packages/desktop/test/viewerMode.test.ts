@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extOf, modeOf } from '../src/renderer/src/lib/viewerMode.js';
+import { extOf, modeOf } from '../src/workbench/browser/parts/editor/viewerMode.js';
 
 describe('modeOf — deny-list routing: unknown / extension-less / code files open in the code editor', () => {
   // An allow-list left arbitrary extension-less names dead-ending at "No built-in

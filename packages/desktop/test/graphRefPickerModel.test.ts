@@ -1,11 +1,16 @@
-import type { GitRefInfo } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
 import {
   graphRefDisplayName,
   graphRefFilterFromPick,
+  graphRefFilterLabel,
   graphRefPickOptions,
-} from '../src/renderer/src/components/source-control/graphRefPickerModel.js';
-import { historyLogArgsForFilter } from '../src/renderer/src/components/source-control/historyGraphModel.js';
+} from '../src/workbench/contrib/scm/browser/graphRefPickerModel.js';
+import {
+  historyLogArgsForAvailableFilter,
+  historyLogArgsForFilter,
+  historyRefExists,
+} from '../src/workbench/contrib/scm/browser/historyGraphModel.js';
+import type { GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 const branch = (name: string, props: Partial<GitRefInfo> = {}): GitRefInfo => ({
   id: `refs/heads/${name}`,
@@ -42,8 +47,8 @@ describe('graphRefPickerModel', () => {
     ]);
 
     expect(options.map((option) => option.value)).toEqual([
-      'control:all',
       'control:auto',
+      'control:all',
       'ref:refs/heads/auto',
       'ref:refs/heads/all',
       'ref:refs/heads/798',
@@ -83,6 +88,9 @@ describe('graphRefPickerModel', () => {
     expect(graphRefDisplayName('refs/heads/798')).toBe('798');
     expect(graphRefDisplayName('refs/remotes/origin/main')).toBe('origin/main');
     expect(graphRefDisplayName('refs/tags/v1')).toBe('v1');
+    expect(graphRefFilterLabel({ kind: 'ref', ref: 'refs/heads/798' })).toBe('798');
+    expect(graphRefFilterLabel({ kind: 'all' })).toBe('All');
+    expect(graphRefFilterLabel({ kind: 'auto' })).toBe('Auto');
   });
 
   it('maps Auto to HEAD and All to the full graph', () => {
@@ -108,5 +116,30 @@ describe('graphRefPickerModel', () => {
       skip: 10,
       ref: 'refs/heads/feature/auth',
     });
+  });
+
+  it('falls back to HEAD when a picked full ref is no longer available', () => {
+    const refs = [branch('main'), remote('origin/main'), tag('v1.0')];
+
+    expect(historyRefExists({ kind: 'ref', ref: 'refs/remotes/origin/main' }, refs)).toBe(true);
+    expect(historyRefExists({ kind: 'ref', ref: 'refs/heads/deleted' }, refs)).toBe(false);
+    expect(
+      historyLogArgsForAvailableFilter({
+        filter: { kind: 'ref', ref: 'refs/heads/deleted' },
+        refs,
+        currentBranch: 'main',
+        pageSize: 50,
+        skip: 0,
+      }),
+    ).toEqual({ maxCount: 50, skip: 0, ref: 'HEAD' });
+    expect(
+      historyLogArgsForAvailableFilter({
+        filter: { kind: 'ref', ref: 'refs/tags/v1.0' },
+        refs,
+        currentBranch: 'main',
+        pageSize: 50,
+        skip: 0,
+      }),
+    ).toEqual({ maxCount: 50, skip: 0, ref: 'refs/tags/v1.0' });
   });
 });

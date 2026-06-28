@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { type SplitRow, computeSplitRows } from '../src/renderer/src/lib/splitDiff.js';
-import { computeUnifiedDiff } from '../src/renderer/src/lib/unifiedDiff.js';
+import {
+  type SplitRow,
+  computeSplitRows,
+} from '../src/workbench/contrib/multiDiffEditor/browser/splitDiffModel.js';
+import { computeUnifiedDiff } from '../src/workbench/contrib/multiDiffEditor/browser/unifiedDiffModel.js';
 
 const pairs = (rows: SplitRow[]) => rows.filter((r) => r.kind === 'pair');
 

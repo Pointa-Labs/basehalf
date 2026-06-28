@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { droppedPaths, handleExternalDrop } from '../src/renderer/src/lib/importDrop.js';
-import { useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
+import { droppedPaths, handleExternalDrop } from '../src/workbench/browser/dnd/importDrop.js';
+import { useWorkspaceStore } from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // Pin the OS drag-drop ROUTING contract (lib/importDrop): folders → add/open
 // as workspace; files → COPY into the open workspace (workspace.importFile);
 // files with no workspace open → an explanatory error, not a crash. The copy
 // semantics themselves (collision suffix, containment, byte fidelity) are
-// unit-tested in @basehalf/core — this mock mirrors that contract.
+// owned by the desktop workspace backend — this mock mirrors that contract.
 
 let kinds: Record<string, 'file' | 'dir' | null>;
 let importCalls: Array<{ from: string; to: string | null }>;
@@ -22,41 +22,53 @@ let importResult: (from: string) => {
 const baseName = (p: string): string => p.split('/').filter(Boolean).pop() ?? p;
 
 const bh = {
-  pathKind: async (p: string): Promise<'file' | 'dir' | null> => kinds[p] ?? null,
   // Preload bridge for File→path; the unit fixtures carry a legacy `.path`.
   pathForFile: (f: File & { path?: string }): string => f.path ?? '',
-  run: async (name: string, args?: unknown): Promise<unknown> => {
-    const a = (args ?? {}) as Record<string, unknown>;
-    switch (name) {
-      case 'workspace.importFile': {
-        importCalls.push({ from: a.from as string, to: (a.to as string | null) ?? null });
-        return importResult(a.from as string);
-      }
-      case 'canvas.setCard': {
-        // Card position now lands in the folder's canvas.yaml (canvas.setCard),
-        // not the badge — same drop-placement contract, new command.
-        const card = a.card as { path: string; x: number; y: number };
-        badgeSets.push({ file: card.path, x: card.x, y: card.y });
-        return {};
-      }
-      case 'workspace.add': {
-        addedDirs.push(a.path as string);
-        return {
-          workspace: { name: baseName(a.path as string), path: a.path, addedAt: 'now' },
-          setAsCurrent: false,
-          bhDirCreated: true,
-          alreadyRegistered: false,
-        };
-      }
-      case 'workspace.use':
-        return { current: { name: a.name } };
-      case 'workspace.list':
-        return { current: useWorkspaceStore.getState().current, workspaces: [] };
-      default:
-        return {};
-    }
+  pathKindForFile: async (f: File & { path?: string }): Promise<'file' | 'dir' | null> =>
+    f.path !== undefined ? (kinds[f.path] ?? null) : null,
+  workspace: {
+    importFile: async (args: unknown): Promise<unknown> =>
+      runWorkspace('workspace.importFile', args),
+    add: async (args: unknown): Promise<unknown> => runWorkspace('workspace.add', args),
+    list: async (): Promise<unknown> => runWorkspace('workspace.list', {}),
   },
+  canvas: {
+    setCard: async (args: unknown): Promise<unknown> => runWorkspace('canvas.setCard', args),
+  },
+  run: async (name: string, args?: unknown): Promise<unknown> => runWorkspace(name, args),
 };
+
+async function runWorkspace(name: string, args?: unknown): Promise<unknown> {
+  const a = (args ?? {}) as Record<string, unknown>;
+  switch (name) {
+    case 'workspace.importFile': {
+      importCalls.push({ from: a.from as string, to: (a.to as string | null) ?? null });
+      return importResult(a.from as string);
+    }
+    case 'canvas.setCard': {
+      // Card position now lands in the folder's canvas.yaml (canvas.setCard),
+      // not the badge — same drop-placement contract, new command.
+      const card = a.card as { path: string; x: number; y: number };
+      badgeSets.push({ file: card.path, x: card.x, y: card.y });
+      return {};
+    }
+    case 'workspace.add': {
+      addedDirs.push(a.path as string);
+      return {
+        workspace: { name: baseName(a.path as string), path: a.path, addedAt: 'now' },
+        setAsCurrent: false,
+        bhDirCreated: true,
+        alreadyRegistered: false,
+      };
+    }
+    case 'workspace.use':
+      return { current: { name: a.name } };
+    case 'workspace.list':
+      return { current: useWorkspaceStore.getState().current, workspaces: [] };
+    default:
+      return {};
+  }
+}
 
 beforeEach(() => {
   kinds = {};
@@ -80,8 +92,7 @@ beforeEach(() => {
 
 describe('handleExternalDrop routing', () => {
   it('copies dropped files into the open workspace and confirms', async () => {
-    kinds = { '/elsewhere/paper.pdf': 'file' };
-    await handleExternalDrop(['/elsewhere/paper.pdf']);
+    await handleExternalDrop([{ path: '/elsewhere/paper.pdf', kind: 'file' }]);
     expect(importCalls).toEqual([{ from: '/elsewhere/paper.pdf', to: null }]);
     expect(useWorkspaceStore.getState().notice).toContain('Copied paper.pdf');
     expect(useWorkspaceStore.getState().notice).toContain('original stays');
@@ -89,21 +100,24 @@ describe('handleExternalDrop routing', () => {
   });
 
   it('routes a dropped folder to add-as-workspace, not import', async () => {
-    kinds = { '/projects/thesis': 'dir' };
-    await handleExternalDrop(['/projects/thesis']);
+    await handleExternalDrop([{ path: '/projects/thesis', kind: 'dir' }]);
     expect(importCalls).toHaveLength(0);
     expect(addedDirs).toEqual(['/projects/thesis']);
   });
 
   it('imports into the scoped folder when the canvas is inside one', async () => {
-    kinds = { '/dl/img.png': 'file' };
-    await handleExternalDrop(['/dl/img.png'], { folderScope: 'inbox' });
+    await handleExternalDrop([{ path: '/dl/img.png', kind: 'file' }], { folderScope: 'inbox' });
     expect(importCalls).toEqual([{ from: '/dl/img.png', to: 'inbox' }]);
   });
 
   it('places supported NEW files at the canvas drop point, staggered', async () => {
-    kinds = { '/a/one.md': 'file', '/a/two.md': 'file' };
-    await handleExternalDrop(['/a/one.md', '/a/two.md'], { canvasPoint: { x: 100, y: 50 } });
+    await handleExternalDrop(
+      [
+        { path: '/a/one.md', kind: 'file' },
+        { path: '/a/two.md', kind: 'file' },
+      ],
+      { canvasPoint: { x: 100, y: 50 } },
+    );
     expect(badgeSets).toEqual([
       { file: 'one.md', x: 100, y: 50 },
       { file: 'two.md', x: 132, y: 82 },
@@ -111,49 +125,56 @@ describe('handleExternalDrop routing', () => {
   });
 
   it('does NOT reposition a file that was already in the workspace', async () => {
-    kinds = { '/ws/own.md': 'file' };
     importResult = () => ({ path: 'own.md', name: 'own.md', imported: false, supported: true });
-    await handleExternalDrop(['/ws/own.md'], { canvasPoint: { x: 10, y: 10 } });
+    await handleExternalDrop([{ path: '/ws/own.md', kind: 'file' }], {
+      canvasPoint: { x: 10, y: 10 },
+    });
     expect(badgeSets).toHaveLength(0);
     expect(useWorkspaceStore.getState().notice).toContain('already in this workspace');
   });
 
   it('skips canvas placement for unsupported types (no card to place)', async () => {
-    kinds = { '/a/tool.bin': 'file' };
     importResult = () => ({ path: 'tool.bin', name: 'tool.bin', imported: true, supported: false });
-    await handleExternalDrop(['/a/tool.bin'], { canvasPoint: { x: 0, y: 0 } });
+    await handleExternalDrop([{ path: '/a/tool.bin', kind: 'file' }], {
+      canvasPoint: { x: 0, y: 0 },
+    });
     expect(badgeSets).toHaveLength(0);
   });
 
   it('file dropped with NO workspace open → explanatory error, nothing imported', async () => {
     useWorkspaceStore.setState({ current: null });
-    kinds = { '/a/x.md': 'file' };
-    await handleExternalDrop(['/a/x.md']);
+    await handleExternalDrop([{ path: '/a/x.md', kind: 'file' }]);
     expect(importCalls).toHaveLength(0);
     expect(useWorkspaceStore.getState().error).toContain('Open a folder first');
   });
 
   it('a failed copy surfaces in error while the rest still land', async () => {
-    kinds = { '/a/ok.md': 'file', '/a/bad.md': 'file' };
     const okResult = importResult;
     importResult = (from) => {
       if (from === '/a/bad.md') throw new Error('disk full');
       return okResult(from);
     };
-    await handleExternalDrop(['/a/ok.md', '/a/bad.md']);
+    await handleExternalDrop([
+      { path: '/a/ok.md', kind: 'file' },
+      { path: '/a/bad.md', kind: 'file' },
+    ]);
     expect(useWorkspaceStore.getState().notice).toContain('Copied ok.md');
     expect(useWorkspaceStore.getState().error).toContain('disk full');
   });
 });
 
 describe('droppedPaths', () => {
-  it('extracts absolute paths from the drag payload, skipping path-less files', () => {
+  it('extracts absolute paths and kinds from the drag payload, skipping path-less files', async () => {
+    kinds = { '/a/x.md': 'file', '/b/y.pdf': 'file' };
     const mk = (path?: string): File => {
       const f = {} as File & { path?: string };
       if (path !== undefined) f.path = path;
       return f;
     };
     const dt = { files: [mk('/a/x.md'), mk(), mk('/b/y.pdf')] } as unknown as DataTransfer;
-    expect(droppedPaths(dt)).toEqual(['/a/x.md', '/b/y.pdf']);
+    await expect(droppedPaths(dt)).resolves.toEqual([
+      { path: '/a/x.md', kind: 'file' },
+      { path: '/b/y.pdf', kind: 'file' },
+    ]);
   });
 });

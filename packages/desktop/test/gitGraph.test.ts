@@ -1,6 +1,10 @@
-import type { GitCommit } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
-import { type GraphRow, laneColor, layoutGraph } from '../src/renderer/src/lib/gitGraph.js';
+import {
+  type GraphRow,
+  laneColor,
+  layoutGraph,
+} from '../src/workbench/contrib/scm/browser/gitGraphLayout.js';
+import type { GitCommit } from '../src/workbench/contrib/scm/common/git.js';
 
 // Minimal commit builder — only hash + parents matter to the layout.
 const c = (hash: string, parents: string[] = []): GitCommit => ({

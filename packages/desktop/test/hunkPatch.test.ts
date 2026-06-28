@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { extractHunkPatch, parseDiff } from '../src/renderer/src/lib/hunkPatch.js';
+import {
+  extractHunkPatch,
+  parseDiff,
+} from '../src/workbench/contrib/multiDiffEditor/browser/hunkPatch.js';
 
 // A real two-hunk `git diff` payload (header + two @@ blocks).
 const RAW = [
@@ -57,6 +60,11 @@ describe('extractHunkPatch', () => {
   it('a pure-add hunk (oldCount 0) still matches its anchor line', () => {
     const raw = '--- a/x\n+++ b/x\n@@ -4,0 +5,2 @@\n+new1\n+new2\n';
     expect(extractHunkPatch(raw, 4, 4)).toContain('@@ -4,0 +5,2 @@');
+  });
+
+  it('a new-file pure-add hunk can be matched at old line 0', () => {
+    const raw = '--- /dev/null\n+++ b/x\n@@ -0,0 +1,2 @@\n+new1\n+new2\n';
+    expect(extractHunkPatch(raw, 0, 0)).toContain('@@ -0,0 +1,2 @@');
   });
 
   it('returns null when no hunk covers the range or input is empty', () => {

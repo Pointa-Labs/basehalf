@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { highlightSegments } from '../src/renderer/src/lib/highlight.js';
+import { highlightSegments } from '../src/workbench/browser/quickaccess/highlightSegments.js';
 
 const joined = (segs: { text: string }[]) => segs.map((s) => s.text).join('');
 const matched = (segs: { text: string; match: boolean }[]) =>

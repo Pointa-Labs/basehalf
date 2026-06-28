@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { joinFrontmatter, splitFrontmatter } from '../src/renderer/src/lib/frontmatter.js';
+import {
+  joinFrontmatter,
+  splitFrontmatter,
+} from '../src/workbench/services/editor/browser/frontmatter.js';
 
 describe('splitFrontmatter — byte-exact, fail-safe YAML frontmatter detection', () => {
   const roundTrips = (s: string) => {

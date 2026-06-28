@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildFileMenu } from '../src/renderer/src/lib/menus/fileMenu.js';
-import { type ContextMenuItem, isSeparator } from '../src/renderer/src/store/contextMenu.js';
+import {
+  type ContextMenuItem,
+  isSeparator,
+} from '../src/workbench/browser/parts/contextmenu/contextMenuStore.js';
+import { buildFileMenu } from '../src/workbench/contrib/files/browser/fileMenu.js';
 
 const shape = (items: readonly ContextMenuItem[]): string[] =>
   items.map((i) => (isSeparator(i) ? '|' : i.id));

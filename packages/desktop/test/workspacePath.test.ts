@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveInsideWorkspace } from '../src/main/workspacePath.js';
+import { resolveInsideWorkspace } from '../src/platform/workspace/node/workspacePath.js';
 
 // Real filesystem fixture: a workspace with a normal file + a SYMLINK that
 // escapes the root, plus an outside directory the symlink points into.

@@ -8,7 +8,7 @@ import {
   MINI_LABEL_TARGET_SCREEN_PX,
   cardLodForHeight,
   miniLabelFlowFontPx,
-} from '../src/renderer/src/lib/cardLod.js';
+} from '../src/workbench/contrib/basehalfCanvas/browser/badge-node/cardLod.js';
 
 describe('cardLod — size-aware level-of-detail policy', () => {
   it('needs BOTH enough intrinsic height AND enough canvas zoom to be full', () => {

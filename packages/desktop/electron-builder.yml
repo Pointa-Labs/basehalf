@@ -1,8 +1,7 @@
-# Packaging config (electron-builder). The app is fully self-contained after
-# electron-vite build — main inlines @basehalf/core (+ its pure-JS chokidar),
-# preload needs only electron, renderer is a static web bundle — so we pack
-# `out/` alone: no node_modules collection, no pnpm-symlink headaches (all
-# runtime deps live in devDependencies on purpose; see package.json note).
+# Packaging config (electron-builder). The app bundle is mostly the electron-vite
+# `out/` tree, but electron-builder still adds package.json plus production
+# node_modules automatically. That matters because the main process externalizes
+# runtime dependencies like @lydell/node-pty, chokidar, and yaml.
 appId: com.pointalabs.basehalf
 productName: BaseHalf
 copyright: Copyright © 2026 Pointa Labs

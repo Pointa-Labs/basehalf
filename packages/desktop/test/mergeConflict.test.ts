@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { findConflicts, resolveConflict } from '../src/renderer/src/lib/mergeConflict.js';
+import {
+  findConflicts,
+  resolveConflict,
+} from '../src/workbench/contrib/multiDiffEditor/browser/mergeConflict.js';
 
 const TEXT = [
   'line 1',

@@ -2,45 +2,59 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(join(__dirname, '../src/renderer/src/globals.css'), 'utf-8');
+const css = readFileSync(join(__dirname, '../src/workbench/browser/style/workbench.css'), 'utf-8');
 const badgeNodeSource = readFileSync(
-  join(__dirname, '../src/renderer/src/components/BadgeNode.tsx'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/BadgeNode.tsx'),
+  'utf-8',
+);
+const badgePreviewSource = readFileSync(
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/badge-node/BadgePreviews.tsx'),
   'utf-8',
 );
 const canvasSource = readFileSync(
-  join(__dirname, '../src/renderer/src/components/Canvas.tsx'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/Canvas.tsx'),
   'utf-8',
 );
 const canvasSnapGuidesSource = readFileSync(
-  join(__dirname, '../src/renderer/src/components/CanvasSnapGuides.tsx'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/CanvasSnapGuides.tsx'),
+  'utf-8',
+);
+const canvasControlsSource = readFileSync(
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/CanvasControls.tsx'),
   'utf-8',
 );
 const canvasFlowSnapSource = readFileSync(
-  join(__dirname, '../src/renderer/src/lib/canvasFlowSnap.ts'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/canvasFlowSnap.ts'),
   'utf-8',
 );
 const connectionGeometrySource = readFileSync(
-  join(__dirname, '../src/renderer/src/canvasConnections/geometry.ts'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/geometry.ts'),
   'utf-8',
 );
 const connectionEdgesSource = readFileSync(
-  join(__dirname, '../src/renderer/src/canvasConnections/edges.ts'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/edges.ts'),
   'utf-8',
 );
 const connectionHandlesSource = readFileSync(
-  join(__dirname, '../src/renderer/src/canvasConnections/CanvasConnectionHandles.tsx'),
+  join(
+    __dirname,
+    '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/CanvasConnectionHandles.tsx',
+  ),
   'utf-8',
 );
 const referenceEdgeSource = readFileSync(
-  join(__dirname, '../src/renderer/src/canvasConnections/ReferenceEdge.tsx'),
+  join(
+    __dirname,
+    '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/ReferenceEdge.tsx',
+  ),
   'utf-8',
 );
-const filePreviewSource = readFileSync(
-  join(__dirname, '../src/renderer/src/components/FilePreview.tsx'),
+const mdEditorSource = readFileSync(
+  join(__dirname, '../src/workbench/browser/parts/editor/MdEditor.tsx'),
   'utf-8',
 );
 const mdRenderSource = readFileSync(
-  join(__dirname, '../src/renderer/src/lib/mdRender.ts'),
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/badge-node/mdRender.ts'),
   'utf-8',
 );
 
@@ -61,15 +75,16 @@ describe('canvas card editor CSS', () => {
 
   it('renders a resting Markdown tile as static, sanitized HTML (no editor mounted)', () => {
     // A .md card at rest shows its RENDERED note (formatted — not raw `#`/`**`
-    // source) via the ONE shared off-screen converter (lib/mdRender), emitted as
+    // source) via the ONE shared off-screen converter (badge-node/mdRender), emitted as
     // a static sanitized HTML string. This is NOT the live editor — that still
     // mounts only while editing (asserted in the next test). The earlier
     // "raw excerpt at rest" rule was reverted: raw markdown source on the canvas
     // defeats the point of a thinking/notes surface.
     expect(css).toContain('.bh-md-preview');
-    expect(badgeNodeSource).toContain('markdownToHtml');
-    expect(badgeNodeSource).toContain('<MarkdownPreview label={label} />');
-    expect(badgeNodeSource).toContain('className="bh-md-preview"');
+    expect(badgeNodeSource).toContain("from './badge-node/BadgePreviews.js'");
+    expect(badgePreviewSource).toContain('markdownToHtml');
+    expect(badgePreviewSource).toContain('<MarkdownPreview label={label} />');
+    expect(badgePreviewSource).toContain('className="bh-md-preview"');
     // The HTML is set via innerHTML, so it MUST be sanitized upstream.
     expect(mdRenderSource).toContain('function sanitizeHtml');
     expect(mdRenderSource).toContain('DANGEROUS_TAGS');
@@ -91,19 +106,20 @@ describe('canvas card editor CSS', () => {
       /\) : showPreview \? \(\s*showFileDiff \? \(\s*<BadgeDiffPreview/,
     );
     expect(badgeNodeSource).toMatch(/\) : \(\s*<BadgePreview/);
-    expect(badgeNodeSource).toContain('<UnifiedDiff rows={diff.rows}');
+    expect(badgePreviewSource).toContain('<UnifiedDiff rows={diff.rows}');
     expect(badgeNodeSource).not.toContain('createDiffEditor');
+    expect(badgePreviewSource).not.toContain('createDiffEditor');
     // Size-aware level-of-detail: the WHEN-to-show-what decision is delegated to
-    // the pure, unit-tested lib/cardLod policy; the component just feeds it the
+    // the pure, unit-tested badge-node/cardLod policy; the component just feeds it the
     // node's measured height and the canvas zoom. A card too small (shrunk) or the
     // canvas zoomed out past the shared threshold collapses to a centred title chip.
     expect(badgeNodeSource).toMatch(
-      /import\s*\{[\s\S]*?\bcardLodForHeight\b[\s\S]*?\}\s*from '\.\.\/lib\/cardLod\.js';/,
+      /import\s*\{[\s\S]*?\bcardLodForHeight\b[\s\S]*?\}\s*from '\.\/badge-node\/cardLod\.js';/,
     );
     expect(badgeNodeSource).toMatch(/return cardLodForHeight\(h, s\.transform\[2\]\);/);
     expect(badgeNodeSource).toMatch(/\{lod === 'mini' \? null :/);
     expect(badgeNodeSource).toMatch(/lod === 'mini' \? \(\s*\/\/[\s\S]*?<CardTitleChip/);
-    expect(filePreviewSource).toMatch(/ownerPriority:\s*\(\)\s*=>\s*ownerPriorityRef\.current/);
+    expect(mdEditorSource).toMatch(/ownerPriority:\s*\(\)\s*=>\s*ownerPriorityRef\.current/);
   });
 
   it('uses quiet dynamic side handles for canvas connections', () => {
@@ -145,7 +161,7 @@ describe('canvas card editor CSS', () => {
     expect(connectionHandlesSource).toContain('isConnectableEnd={targetInteractive}');
     expect(connectionHandlesSource).toContain('data-active={targetActive ?');
     expect(badgeNodeSource).toContain('<CanvasConnectionHandles');
-    expect(canvasSource).toContain("from '../canvasConnections/index.js'");
+    expect(canvasSource).toContain("from './canvasConnections/index.js'");
     expect(css).toContain('.react-flow__handle.bh-connect-point-handle[data-active="true"]');
     expect(css).toContain('.react-flow__handle.bh-connect-target-handle');
     expect(css).not.toContain('.react-flow__node-badge:hover .react-flow__handle');
@@ -159,6 +175,10 @@ describe('canvas card editor CSS', () => {
     expect(referenceEdgeSource).toContain('{editingNote ? (');
     expect(referenceEdgeSource).toContain('(active || hover) && (');
     expect(referenceEdgeSource).toContain("'Double-click to say why'");
+    expect(referenceEdgeSource).toContain('tabIndex={0}');
+    expect(referenceEdgeSource).toContain('role="button"');
+    expect(referenceEdgeSource).toContain('Press Enter to edit this note');
+    expect(referenceEdgeSource).toContain("event.key === 'Delete'");
   });
 
   it('locks the cursor while reconnecting an existing edge', () => {
@@ -185,6 +205,13 @@ describe('canvas card editor CSS', () => {
     expect(canvasSnapGuidesSource).toContain('data-testid="canvas-snap-guide"');
     expect(canvasSnapGuidesSource).toContain('repeating-linear-gradient');
     expect(canvasSnapGuidesSource).toContain('opacity: 0.48');
+  });
+
+  it('names icon-only canvas controls for assistive technology', () => {
+    expect(canvasControlsSource).toContain('aria-label={title}');
+    expect(canvasControlsSource).toContain('title="Zoom in"');
+    expect(canvasControlsSource).toContain('title="Zoom out"');
+    expect(canvasControlsSource).toContain('title="Fit to view"');
   });
 
   it('keeps resize controls centered on the card edge', () => {

@@ -21,8 +21,7 @@
 // Plus a lean DOM smoke inside a workspace window (canvas badge + editor overlay
 // + autosave), using the CURRENT selectors.
 //
-// Run from packages/desktop (after `pnpm --filter @basehalf/core build` and
-// `pnpm --filter @basehalf/desktop build`):
+// Run from packages/desktop after `pnpm --filter @basehalf/desktop build`:
 //   node test/verify-ui.mjs
 //
 // Outputs: /tmp/bh-verify-screens/*.png; exit 0 + summary on success, exit 1 on
@@ -101,15 +100,21 @@ function launch() {
   });
 }
 
-const run = (w, name, args = {}) =>
-  w.evaluate(({ name, args }) => window.bh.run(name, args), { name, args });
+const workspaceCall = (w, method, args) =>
+  w.evaluate(
+    ({ method, args }) => {
+      const fn = window.bh.workspace[method];
+      return args === undefined ? fn() : fn(args);
+    },
+    { method, args },
+  );
 
 // The workspace NAME this window is bound to (null = welcome), via workspace.list's
 // per-call `current` (derived from the window's injected root). Tolerant of a
 // window mid-reload.
 async function boundName(w) {
   try {
-    const r = await run(w, 'workspace.list', {});
+    const r = await workspaceCall(w, 'list');
     return r?.current ?? null;
   } catch {
     return null;
@@ -156,7 +161,7 @@ const card = (w, file) => w.locator(`[data-testid="canvas-card-${file}"]`);
 // rendered card is a soft, logged check rather than a gating assertion.
 async function canvasShows(w, file) {
   try {
-    const { children } = await run(w, 'workspace.listCanvas', { folder: null });
+    const { children } = await workspaceCall(w, 'listCanvas', { folder: null });
     return Array.isArray(children) && children.some((c) => c.path === file);
   } catch {
     return false;
@@ -225,7 +230,7 @@ let ws2Name;
 await step(
   '[2] Open a workspace from the welcome window → REUSES it (still 1 window)',
   async () => {
-    const added = await run(welcome, 'workspace.add', { path: WS1_DIR, setup: true });
+    const added = await workspaceCall(welcome, 'add', { path: WS1_DIR, setup: true });
     ws1Name = added?.workspace?.name;
     assert(typeof ws1Name === 'string', `workspace.add registered ws1 (${ws1Name})`);
     await openWorkspace(welcome, ws1Name); // welcome (bound null) → reuse-sender (rebind+reload)
@@ -252,7 +257,7 @@ let win2;
 await step(
   '[3] Open a 2nd workspace from a workspace window → a NEW window (2 windows)',
   async () => {
-    const added = await run(win1, 'workspace.add', { path: WS2_DIR, setup: false });
+    const added = await workspaceCall(win1, 'add', { path: WS2_DIR, setup: false });
     ws2Name = added?.workspace?.name;
     assert(typeof ws2Name === 'string', `workspace.add registered ws2 (${ws2Name})`);
     const win2Promise = app.waitForEvent('window', { timeout: 12000 });
@@ -392,7 +397,7 @@ await step('[9] Remove the open workspace → that window reloads to welcome', a
   assert(!!w, 'Found the ws2 window after relaunch');
   if (w) {
     await w.evaluate(async (name) => {
-      await window.bh.run('workspace.remove', { name });
+      await window.bh.workspace.remove({ name });
       await window.bh.reopenWindow(null);
     }, ws2Name);
     assert(await waitBound(w, null), 'The window reloaded to the welcome state');

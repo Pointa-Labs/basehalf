@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { registerFlusher, unregisterFlusher } from '../src/renderer/src/lib/editorFlush.js';
-import { EDITOR_OVERLAY_PANE_ID, useWorkspaceStore } from '../src/renderer/src/store/workspace.js';
+import {
+  registerFlusher,
+  unregisterFlusher,
+} from '../src/workbench/services/editor/browser/editorFlush.js';
+import {
+  EDITOR_OVERLAY_PANE_ID,
+  useWorkspaceStore,
+} from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // The editor's flush is the navigation gatekeeper: it resolves `false` while a
 // disk-conflict banner is unresolved. These tests pin the STORE half of that

@@ -9,12 +9,12 @@ import {
   samePath,
   setWorkspaceRoot,
   sortWorkspacesByRecency,
-} from '../src/main/windows.js';
+} from '../src/platform/windows/electron-main/windows.js';
 
 // The window↔workspace binding (main's per-window replacement for core's old
-// global current-workspace pointer). Keyed by webContents id; the bh:run handler
-// reads it to inject `{ workspaceRoot }` into core.run. We fake a WebContents as
-// `{ id }` — the module only ever reads `.id`.
+// global current-workspace pointer). Explicit IPC channels read it to inject
+// `{ workspaceRoot }` into their main services. We fake a WebContents as `{ id }`
+// — the module only ever reads `.id`.
 const wc = (id: number) => ({ id }) as never;
 
 describe('window↔workspace binding', () => {

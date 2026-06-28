@@ -17,7 +17,7 @@ import {
   splitBounds,
   splitDividers,
   splitLeaf,
-} from '../src/renderer/src/lib/terminalTree.js';
+} from '../src/workbench/contrib/terminal/browser/terminalTree.js';
 
 describe('terminalTree', () => {
   it('splits a leaf right into a row with the new pane on side b', () => {

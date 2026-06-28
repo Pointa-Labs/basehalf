@@ -1,4 +1,3 @@
-import type { CanvasEdge } from '@basehalf/core';
 import type { Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
 import {
@@ -7,13 +6,14 @@ import {
   inferConnectionSides,
   removeReferenceEdgeUpdate,
   sideFromHandle,
-} from '../src/renderer/src/canvasConnections/edges.js';
+} from '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/edges.js';
 import {
   connectionPointForBoxSide,
   connectionPointForRectSide,
   distanceToRect,
   targetAffordanceForPoint,
-} from '../src/renderer/src/canvasConnections/geometry.js';
+} from '../src/workbench/contrib/basehalfCanvas/browser/canvasConnections/geometry.js';
+import type { CanvasEdge } from '../src/workbench/services/mirror/common/canvas.js';
 
 const edgeOptions = { defaultWidth: 300, defaultHeight: 220 };
 

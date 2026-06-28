@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badgeType } from '../src/renderer/src/components/FileGlyph.js';
+import { badgeType } from '../src/workbench/browser/labels/FileGlyph.js';
 
 describe('badgeType — extension, dotfile, and extension-less name classification', () => {
   it('classifies common code extensions', () => {

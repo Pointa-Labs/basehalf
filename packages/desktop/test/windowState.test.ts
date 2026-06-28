@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   WELCOME_KEY,
+  clampToDisplays,
   geometryFor,
   readWindowStates,
   saveWindowState,
   saveWindowStateSync,
-} from '../src/main/window-state.js';
+} from '../src/platform/windows/electron-main/windowState.js';
 
 // The per-workspace window-state map — main's persistence of "which workspace's
 // window had what geometry, and which were open at quit". Phase 2 makes this a
@@ -101,6 +102,52 @@ describe('window-state per-workspace map', () => {
     );
     const file = await readWindowStates(configDir);
     expect(file.windows['/ws/a']).toBeUndefined();
+  });
+
+  it('drops non-positive sizes before BrowserWindow can see them', async () => {
+    await writeFile(
+      join(configDir, FILE),
+      JSON.stringify({ version: 1, windows: { '/ws/a': { width: -1, height: 700 } }, open: [] }),
+    );
+
+    const file = await readWindowStates(configDir);
+
+    expect(file.windows['/ws/a']).toBeUndefined();
+    expect(geometryFor(file, '/ws/a')).toEqual({ width: 800, height: 600 });
+  });
+
+  it('filters dangerous window-state keys and de-duplicates the open list', async () => {
+    await writeFile(
+      join(configDir, FILE),
+      JSON.stringify({
+        version: 1,
+        windows: {
+          ['__proto__']: { width: 900, height: 700 },
+          constructor: { width: 900, height: 700 },
+          '/ws/a': { width: 900, height: 700 },
+        },
+        open: ['__proto__', '/ws/a', '/ws/a', 'constructor'],
+      }),
+    );
+
+    const file = await readWindowStates(configDir);
+
+    expect(Object.prototype.hasOwnProperty.call(file.windows, '__proto__')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(file.windows, 'constructor')).toBe(false);
+    expect(file.windows['/ws/a']).toEqual({ width: 900, height: 700 });
+    expect(geometryFor(file, '__proto__')).toEqual({ width: 800, height: 600 });
+    expect(file.open).toEqual(['/ws/a']);
+  });
+
+  it('caps oversized persisted geometry and keeps positions on a display work area', () => {
+    const state = clampToDisplays({ width: 9000, height: 9000, x: -500, y: 5000 }, [
+      {
+        workArea: { x: 0, y: 0, width: 1440, height: 900 },
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+      } as never,
+    ]);
+
+    expect(state).toEqual({ width: 1440, height: 900, x: 0, y: 772 });
   });
 
   it('the welcome window stores under the empty-string sentinel key', async () => {

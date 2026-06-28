@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { findLeaf, leaf, orderedLeafIds } from '../src/renderer/src/lib/terminalTree.js';
-import { useTerminalStore } from '../src/renderer/src/store/terminal.js';
+import { useTerminalStore } from '../src/workbench/contrib/terminal/browser/terminalStore.js';
+import {
+  findLeaf,
+  leaf,
+  orderedLeafIds,
+} from '../src/workbench/contrib/terminal/browser/terminalTree.js';
 
 // Reset the singleton store to one tab ("tab0") holding one pane ("p0") before
 // each test. Actions mint fresh ids internally, so post-reset ids never collide.
@@ -15,6 +19,7 @@ const reset = (): void => {
     activity: {},
     closing: [],
     drag: null,
+    paneDrag: null,
   });
 };
 
@@ -96,6 +101,42 @@ describe('terminal store — Ghostty tabs + panes', () => {
     expect(ids).toContain('p0');
     expect(ids).toContain(pNew);
     expect(activeTab()?.activePaneId).toBe(pNew);
+  });
+
+  it('finalizeClose prunes stale title and dimension state for a closed pane', () => {
+    g().splitPane('right'); // [p0, pNew] active pNew
+    const pNew = activeTab()?.activePaneId as string;
+    g().setTitle('p0', 'left');
+    g().setTitle(pNew, 'right');
+    g().setDims('p0', 80, 24);
+    g().setDims(pNew, 100, 30);
+
+    g().closePane(pNew);
+    const key = g().closing[0]?.key as string;
+    expect(g().titles[pNew]).toBe('right'); // still available while Undo is offered
+
+    g().finalizeClose(key);
+
+    expect(g().titles).toEqual({ p0: 'left' });
+    expect(g().dims).toEqual({ p0: { cols: 80, rows: 24 } });
+  });
+
+  it('finalizeClose prunes every pane in a closed tab', () => {
+    g().splitPane('right'); // [p0, pNew] active pNew
+    const pNew = activeTab()?.activePaneId as string;
+    g().setTitle('p0', 'left');
+    g().setTitle(pNew, 'right');
+    g().setDims('p0', 80, 24);
+    g().setDims(pNew, 100, 30);
+
+    g().closeTab('tab0');
+    const key = g().closing[0]?.key as string;
+    g().finalizeClose(key);
+
+    expect(g().titles.p0).toBeUndefined();
+    expect(g().titles[pNew]).toBeUndefined();
+    expect(g().dims.p0).toBeUndefined();
+    expect(g().dims[pNew]).toBeUndefined();
   });
 
   it('closing the last pane closes the tab (soft, undoable)', () => {

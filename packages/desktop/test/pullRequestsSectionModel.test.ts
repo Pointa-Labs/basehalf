@@ -1,0 +1,94 @@
+import { describe, expect, it } from 'vitest';
+import type { GithubPullRequestService } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
+import {
+  loadPullRequests,
+  resolvePullRequestContext,
+  shouldLoadPullRequests,
+} from '../src/workbench/contrib/githubPullRequests/browser/pullRequestsSectionModel.js';
+import type { GithubRemoteRepository } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
+
+const repo: GithubRemoteRepository = {
+  remoteName: 'origin',
+  remoteUrl: 'https://github.com/o/r.git',
+  owner: 'o',
+  repo: 'r',
+  webUrl: 'https://github.com/o/r',
+  isReadOnly: false,
+};
+
+function service(overrides: Partial<GithubPullRequestService> = {}): GithubPullRequestService {
+  return {
+    repository: async () => repo,
+    viewer: async () => 'ada',
+    createPullRequestUrl: async () => null,
+    listPullRequests: async () => [],
+    pullRequestFiles: async () => [],
+    reviewPullRequest: async () => {},
+    signIn: async () => null,
+    signOut: async () => {},
+    ...overrides,
+  };
+}
+
+describe('pullRequestsSectionModel', () => {
+  it('resolves repository and viewer independently', async () => {
+    await expect(resolvePullRequestContext(service())).resolves.toEqual({
+      repository: repo,
+      login: 'ada',
+    });
+
+    await expect(
+      resolvePullRequestContext(
+        service({
+          repository: async () => {
+            throw new Error('not a github repo');
+          },
+          viewer: async () => {
+            throw new Error('signed out');
+          },
+        }),
+      ),
+    ).resolves.toEqual({ repository: null, login: null });
+  });
+
+  it('loads pull requests only for an open signed-in github repository section', () => {
+    expect(shouldLoadPullRequests(repo, 'ada', true)).toBe(true);
+    expect(shouldLoadPullRequests(repo, null, true)).toBe(false);
+    expect(shouldLoadPullRequests(null, 'ada', true)).toBe(false);
+    expect(shouldLoadPullRequests(repo, 'ada', false)).toBe(false);
+  });
+
+  it('maps provider success and failure into view state', async () => {
+    await expect(
+      loadPullRequests(
+        service({
+          listPullRequests: async () => [
+            {
+              number: 7,
+              title: 'Ship',
+              author: 'ada',
+              state: 'open',
+              draft: false,
+              headRef: 'topic',
+              baseRef: 'main',
+              url: 'https://github.com/o/r/pull/7',
+              updatedAt: '2026-06-28T00:00:00Z',
+            },
+          ],
+        }),
+        repo.remoteUrl,
+      ),
+    ).resolves.toMatchObject({ pullRequests: [{ number: 7 }], error: null });
+
+    await expect(
+      loadPullRequests(
+        service({
+          listPullRequests: async () => {
+            throw new Error('bad credentials');
+          },
+        }),
+        repo.remoteUrl,
+      ),
+    ).resolves.toEqual({ pullRequests: [], error: 'bad credentials' });
+  });
+});

@@ -1,14 +1,18 @@
+import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { GitRunOptions, GitRunner, SecretStore } from '@basehalf/core';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { SecretStore } from '../src/platform/secrets/common/secrets.js';
 import {
   GITHUB_ASKPASS_SCRIPT,
   createGithubGitRunner,
+  ensureGithubAskpassScript,
   githubAskpassEnv,
   isRemoteGitCommand,
-} from '../src/main/github-git-credentials.js';
+} from '../src/workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
+import type { GitRunOptions, GitRunner } from '../src/workbench/contrib/scm/common/git.js';
 
 const secretStore = (value: string | null): SecretStore => ({
   async get() {
@@ -21,6 +25,8 @@ const secretStore = (value: string | null): SecretStore => ({
     throw new Error('unexpected delete');
   },
 });
+
+const execFileAsync = promisify(execFile);
 
 describe('github git credentials provider', () => {
   let tempDir: string | null = null;
@@ -89,5 +95,28 @@ describe('github git credentials provider', () => {
       BH_GIT_ASKPASS_USERNAME: 'x-access-token',
       BH_GIT_ASKPASS_PASSWORD: 'tok',
     });
+  });
+
+  it('askpass only answers prompts whose parsed host is GitHub', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'bh-github-askpass-'));
+    const scriptPath = await ensureGithubAskpassScript(tempDir);
+    const env = {
+      BH_GIT_ASKPASS_USERNAME: 'x-access-token',
+      BH_GIT_ASKPASS_PASSWORD: 'secret-token',
+    };
+
+    await expect(
+      execFileAsync(scriptPath, ["Username for 'https://github.com':"], { env }),
+    ).resolves.toMatchObject({ stdout: 'x-access-token\n' });
+    await expect(
+      execFileAsync(scriptPath, ["Password for 'https://x-access-token@github.com/o/r.git':"], {
+        env,
+      }),
+    ).resolves.toMatchObject({ stdout: 'secret-token\n' });
+    await expect(
+      execFileAsync(scriptPath, ["Password for 'https://github.com@evil.example/o/r.git':"], {
+        env,
+      }),
+    ).resolves.toMatchObject({ stdout: '\n' });
   });
 });

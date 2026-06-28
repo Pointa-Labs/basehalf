@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isImeComposing } from '../src/renderer/src/lib/imeGuard.js';
+import { isImeComposing } from '../src/workbench/browser/ui/imeGuard.js';
 
 describe('isImeComposing', () => {
   it('is true while a React synthetic event reports composition', () => {

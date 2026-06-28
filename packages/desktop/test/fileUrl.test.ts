@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileUrl } from '../src/renderer/src/lib/fileUrl.js';
+import { fileUrl } from '../src/platform/files/browser/fileUrl.js';
 
 describe('fileUrl', () => {
   it('keeps a plain path readable (slashes intact)', () => {

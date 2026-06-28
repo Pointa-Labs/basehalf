@@ -4,7 +4,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  Updater,
+  cleanupUpdateLeftovers,
+  startBackgroundUpdateChecks,
+} from '../src/platform/update/electron-main/updater.js';
 import {
   bundlePathFromExec,
   compareSemver,
@@ -15,7 +20,29 @@ import {
   shouldRunBackgroundCheck,
   verifyArchiveSignature,
   verifyManifestSignature,
-} from '../src/main/update-protocol.js';
+} from '../src/platform/update/node/updateProtocol.js';
+
+const electronMock = vi.hoisted(() => ({
+  app: {
+    isPackaged: false,
+    on: vi.fn(),
+    relaunch: vi.fn(),
+    exit: vi.fn(),
+  },
+  BrowserWindow: {
+    getAllWindows: vi.fn(() => []),
+  },
+  net: {
+    fetch: vi.fn(),
+  },
+}));
+
+vi.mock('electron', () => electronMock);
+
+const prefs = (autoUpdateCheck = true, autoDownloadUpdate = false) =>
+  ({
+    get: () => ({ autoUpdateCheck, autoDownloadUpdate }),
+  }) as never;
 
 /** A keypair as the protocol consumes it: the public half SPKI-DER-base64
  *  (the shape verify* expects), ready to sign test messages with the private. */
@@ -26,6 +53,38 @@ function testKeypair(): { pubB64: string; privateKey: ReturnType<typeof createPr
     privateKey: createPrivateKey(privateKey.export({ type: 'pkcs8', format: 'pem' })),
   };
 }
+
+describe('Updater packaged-app guard', () => {
+  it('does not check the feed from a non-packaged Electron run', async () => {
+    const updater = new Updater('/tmp/basehalf-config', prefs(), { isPackaged: () => false });
+
+    await updater.check({ background: false });
+
+    expect(updater.getState()).toEqual({
+      phase: 'error',
+      message: 'Updates are only available in the packaged BaseHalf app.',
+    });
+    expect(electronMock.net.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not start background checks in development', () => {
+    electronMock.app.isPackaged = false;
+    electronMock.app.on.mockClear();
+
+    startBackgroundUpdateChecks(new Updater('/tmp/basehalf-config', prefs()), prefs());
+
+    expect(electronMock.app.on).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule update-leftover cleanup in development', () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+    cleanupUpdateLeftovers({ isPackaged: () => false });
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    setTimeoutSpy.mockRestore();
+  });
+});
 
 describe('parseSemver / compareSemver', () => {
   it('parses strict x.y.z only', () => {

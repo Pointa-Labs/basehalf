@@ -4,7 +4,7 @@ import {
   isSeparator,
   openContextMenu,
   useContextMenuStore,
-} from '../src/renderer/src/store/contextMenu.js';
+} from '../src/workbench/browser/parts/contextmenu/contextMenuStore.js';
 
 const action = (id: string): ContextMenuItem => ({ id, label: id, run: () => undefined });
 const sep: ContextMenuItem = { separator: true };

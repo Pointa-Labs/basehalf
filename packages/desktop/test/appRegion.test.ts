@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectRegion } from '../src/renderer/src/lib/appRegion.js';
+import { selectRegion } from '../src/workbench/browser/workbenchRegion.js';
 
 describe('selectRegion', () => {
   it('is welcome when no workspace is open, regardless of reachability', () => {

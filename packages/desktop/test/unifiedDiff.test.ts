@@ -4,8 +4,9 @@ import {
   type DiffSeg,
   computeUnifiedDiff,
   diffStat,
+  hunkOldRanges,
   segmentLine,
-} from '../src/renderer/src/lib/unifiedDiff.js';
+} from '../src/workbench/contrib/multiDiffEditor/browser/unifiedDiffModel.js';
 
 const ALL = { context: Number.POSITIVE_INFINITY };
 const join = (segs: readonly DiffSeg[]): string => segs.map((s) => s.text).join('');
@@ -103,5 +104,33 @@ describe('diffStat', () => {
   it('counts add / del rows', () => {
     const rows = computeUnifiedDiff('a\nb\nc', 'a\nX\nY\nc', ALL);
     expect(diffStat(rows)).toEqual({ added: 2, removed: 1 });
+  });
+});
+
+describe('hunkOldRanges', () => {
+  it('anchors a pure-add first hunk at old line 0', () => {
+    const rows: DiffRow[] = [
+      { kind: 'add', newLine: 1, segs: [{ text: 'new1', hi: false }] },
+      { kind: 'add', newLine: 2, segs: [{ text: 'new2', hi: false }] },
+    ];
+    expect(hunkOldRanges(rows)[0]).toEqual({ oldFrom: 0, oldTo: 0 });
+  });
+
+  it('uses hidden context before an add-only hunk as the old-side anchor', () => {
+    const rows: DiffRow[] = [
+      {
+        kind: 'gap',
+        oldStart: 5,
+        oldCount: 0,
+        newStart: 6,
+        newCount: 1,
+        hidden: [
+          { kind: 'context', oldLine: 1, newLine: 1, text: 'a' },
+          { kind: 'context', oldLine: 5, newLine: 5, text: 'e' },
+        ],
+      },
+      { kind: 'add', newLine: 6, segs: [{ text: 'inserted', hi: false }] },
+    ];
+    expect(hunkOldRanges(rows)[1]).toEqual({ oldFrom: 5, oldTo: 5 });
   });
 });

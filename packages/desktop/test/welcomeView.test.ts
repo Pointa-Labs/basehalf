@@ -1,6 +1,6 @@
-import type { WorkspaceEntry } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
-import { selectWelcomeView } from '../src/renderer/src/lib/welcomeView.js';
+import type { WorkspaceEntry } from '../src/platform/workspaces/common/workspaces.js';
+import { selectWelcomeView } from '../src/workbench/contrib/welcome/browser/welcomeView.js';
 
 const ws = (name: string, addedAt: string, lastOpenedAt?: string): WorkspaceEntry => ({
   name,

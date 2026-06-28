@@ -4,7 +4,7 @@ import {
   boundsForRects,
   snapResizeRect,
   snapTranslateRect,
-} from '../src/renderer/src/lib/canvasSnap.js';
+} from '../src/workbench/contrib/basehalfCanvas/browser/canvasSnap.js';
 
 const limits = { minWidth: 40, minHeight: 40, maxWidth: 400, maxHeight: 400 };
 const openEndedLimits = { minWidth: 40, minHeight: 40 };

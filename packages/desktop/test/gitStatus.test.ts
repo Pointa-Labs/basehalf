@@ -1,4 +1,3 @@
-import type { GitFileStatus } from '@basehalf/core';
 import { describe, expect, it } from 'vitest';
 import {
   buildFolderStatus,
@@ -6,7 +5,8 @@ import {
   fileDecoration,
   statusTooltip,
   totalChangeCount,
-} from '../src/renderer/src/lib/gitStatus.js';
+} from '../src/workbench/contrib/scm/browser/gitStatusModel.js';
+import type { GitFileStatus } from '../src/workbench/contrib/scm/common/git.js';
 
 const PAL = {
   added: 'green',
