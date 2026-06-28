@@ -1,18 +1,4 @@
-import { useCallback, useMemo } from 'react';
-import { prompt } from '../../../platform/dialogs/browser/dialogService.js';
-import { toast } from '../../../platform/notification/browser/notificationService.js';
-import { openSettings } from '../../contrib/preferences/browser/Settings.js';
-import { createBranchGitAdapter } from '../../contrib/scm/browser/branchGitAdapter.js';
-import { checkoutBranchWithRecovery } from '../../contrib/scm/browser/branchQuickPickCommands.js';
-import { gitScmService } from '../../contrib/scm/browser/gitScmService.js';
-import { useGitStatusStore } from '../../contrib/scm/browser/gitStatusStore.js';
-import { scmErrorMessage } from '../../contrib/scm/browser/scmCommandModel.js';
-import { useScmViewStore } from '../../contrib/scm/browser/scmViewStore.js';
-import type { GitRefInfo } from '../../contrib/scm/common/git.js';
-import { historyService } from '../../services/history/browser/historyService.js';
-import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
-import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/workbenchActions.js';
-import { useLayoutStore } from '../layout/layoutStore.js';
+import { useMemo } from 'react';
 import {
   useCommandPaletteContentSearch,
   useCommandPaletteFiles,
@@ -30,94 +16,66 @@ import {
   combineCommandPaletteRows,
   commandPaletteProviderIncludesAdditionalPicks,
 } from './commandPaletteProviders.js';
+import { useCommandPaletteWorkbenchContext } from './commandPaletteWorkbenchContext.js';
 
 export interface CommandPaletteRowsResult {
   readonly rows: readonly Action[];
   readonly matchMap: Map<string, IMatch[]>;
 }
 
-// Mac uses ⌘ / ⇧; everything else uses Ctrl / Shift to match what
-// Workbench contributions actually listen for.
-const MOD = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
-
 export function useCommandPaletteRows(args: {
   readonly open: boolean;
   readonly providerId?: string;
   readonly query: string;
 }): CommandPaletteRowsResult {
-  const workspaces = useWorkspaceStore((s) => s.workspaces);
-  const current = useWorkspaceStore((s) => s.current);
-  const use = useWorkspaceStore((s) => s.use);
-  const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
-  const recentFiles = useWorkspaceStore((s) =>
-    s.current === null ? [] : historyService.recentFilesFor(s.current),
-  );
+  const workbench = useCommandPaletteWorkbenchContext();
   const includeAdditionalPicks = commandPaletteProviderIncludesAdditionalPicks(args.providerId);
 
-  const { files, filesWorkspace } = useCommandPaletteFiles(args.open, current);
+  const { files, filesWorkspace } = useCommandPaletteFiles(args.open, workbench.current);
   const { contentHits, hitsQuery, hitsWorkspace } = useCommandPaletteContentSearch(
     args.open && includeAdditionalPicks,
-    current,
+    workbench.current,
     args.query,
   );
   const { gitRepo, gitBranches, gitCommits, gitWorkspace } = useCommandPaletteGitState(
     args.open,
-    current,
-  );
-  const checkoutPaletteBranch = useCallback(
-    (branch: GitRefInfo, refs: readonly GitRefInfo[]): void => {
-      void checkoutBranchWithRecovery(createBranchGitAdapter(gitScmService), branch, refs, () =>
-        useGitStatusStore.getState().refresh(),
-      ).catch((err) => toast.error(scmErrorMessage(err)));
-    },
-    [],
+    workbench.current,
   );
 
   const actions = useMemo<Action[]>(
     () =>
       buildCommandPaletteActions({
-        workspaces,
-        current,
+        workspaces: workbench.workspaces,
+        current: workbench.current,
         providerId: args.providerId,
         files,
         filesWorkspace,
-        recentFiles,
+        recentFiles: workbench.recentFiles,
         git: {
           repo: gitRepo,
           workspace: gitWorkspace,
           branches: gitBranches,
           commits: gitCommits,
         },
-        modifierLabel: MOD,
-        tildifyPath,
-        useWorkspace: (name) => void use(name),
-        openFile: openInPanel,
-        pickAndAdd: () => void pickAndAdd(),
-        createDemo: () => void createDemoAtDefault(),
-        newNote: () => void useWorkspaceStore.getState().newNote(),
-        promptForNewNote: () => void promptForNewNote(),
-        openSettings,
-        showSourceControl,
-        openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
-        promptCreateBranch: () =>
-          prompt({
-            title: 'Create Branch',
-            label: 'Branch name',
-            placeholder: 'feature/x',
-          }),
-        runGit: (fn) => void runGit(fn),
-        gitService: gitScmService,
+        modifierLabel: workbench.modifierLabel,
+        tildifyPath: workbench.tildifyPath,
+        useWorkspace: workbench.useWorkspace,
+        openFile: workbench.openFile,
+        pickAndAdd: workbench.pickAndAdd,
+        createDemo: workbench.createDemo,
+        newNote: workbench.newNote,
+        promptForNewNote: workbench.promptForNewNote,
+        openSettings: workbench.openSettings,
+        showSourceControl: workbench.showSourceControl,
+        openGitGraph: workbench.openGitGraph,
+        promptCreateBranch: workbench.promptCreateBranch,
+        runGit: workbench.runGit,
+        gitService: workbench.gitService,
       }),
     [
-      workspaces,
-      current,
+      workbench,
       files,
       filesWorkspace,
-      recentFiles,
-      use,
-      openInPanel,
-      pickAndAdd,
       gitRepo,
       gitWorkspace,
       gitBranches,
@@ -134,10 +92,10 @@ export function useCommandPaletteRows(args: {
       filterCommandPaletteActions({
         actions,
         query: args.query,
-        current,
-        recentFiles,
+        current: workbench.current,
+        recentFiles: workbench.recentFiles,
       }),
-    [actions, args.query, current, recentFiles],
+    [actions, args.query, workbench.current, workbench.recentFiles],
   );
 
   const contentActions = useMemo<Action[]>(
@@ -147,10 +105,10 @@ export function useCommandPaletteRows(args: {
             contentHits,
             hitsQuery,
             hitsWorkspace,
-            current,
+            current: workbench.current,
             query: args.query,
             filtered,
-            openFile: openInPanel,
+            openFile: workbench.openFile,
           })
         : [],
     [
@@ -158,10 +116,10 @@ export function useCommandPaletteRows(args: {
       contentHits,
       hitsQuery,
       hitsWorkspace,
-      current,
+      workbench.current,
       args.query,
       filtered,
-      openInPanel,
+      workbench.openFile,
     ],
   );
 
@@ -170,28 +128,31 @@ export function useCommandPaletteRows(args: {
       includeAdditionalPicks
         ? buildGitEntityActions({
             query: args.query,
-            current,
+            current: workbench.current,
             git: {
               repo: gitRepo,
               workspace: gitWorkspace,
               branches: gitBranches,
               commits: gitCommits,
             },
-            gitService: gitScmService,
-            runGit: (fn) => void runGit(fn),
-            checkoutBranch: checkoutPaletteBranch,
-            revealCommit: revealCommitInGraph,
+            gitService: workbench.gitService,
+            runGit: workbench.runGit,
+            checkoutBranch: workbench.checkoutBranch,
+            revealCommit: workbench.revealCommit,
           })
         : [],
     [
       includeAdditionalPicks,
       args.query,
-      current,
+      workbench.current,
       gitRepo,
       gitWorkspace,
       gitBranches,
       gitCommits,
-      checkoutPaletteBranch,
+      workbench.gitService,
+      workbench.runGit,
+      workbench.checkoutBranch,
+      workbench.revealCommit,
     ],
   );
 
@@ -201,22 +162,4 @@ export function useCommandPaletteRows(args: {
   );
 
   return { rows, matchMap };
-}
-
-function showSourceControl(section: 'changes' | 'graph'): void {
-  useLayoutStore.getState().setSidebarOpen(true);
-  useLayoutStore.getState().setSidebarView('scm');
-  if (section === 'graph') useScmViewStore.getState().setGraphOpen(true);
-  else useScmViewStore.getState().setChangesOpen(true);
-}
-
-function revealCommitInGraph(hash: string): void {
-  useLayoutStore.getState().setSidebarOpen(true);
-  useLayoutStore.getState().setSidebarView('scm');
-  useScmViewStore.getState().revealCommit(hash);
-}
-
-async function runGit(fn: () => Promise<unknown>): Promise<void> {
-  await fn();
-  await useGitStatusStore.getState().refresh();
 }
