@@ -5,6 +5,8 @@ import type {
   GitDiffResult,
   GitLogArgs,
   GitLogResult,
+  GitMergeBaseArgs,
+  GitMergeBaseResult,
   GitSearchHistoryArgs,
 } from '../common/git.js';
 import { type GitCommandHandler, runGit as git } from './gitCommandRunner.js';
@@ -39,7 +41,7 @@ export const searchHistory: GitCommandHandler<GitSearchHistoryArgs, GitLogResult
   if (args.query === '') return { commits: [] };
   assertCount(args.maxCount, 'git.searchHistory maxCount');
   if (args.path !== undefined) assertWorkspaceRelative(args.path);
-  const cmd = ['log', `--format=${LOG_FORMAT}`];
+  const cmd = ['log', '--topo-order', '--decorate=full', `--format=${LOG_FORMAT}`];
   if (args.maxCount !== undefined) cmd.push(`--max-count=${args.maxCount}`);
   if (args.ignoreCase === true) cmd.push('--regexp-ignore-case');
   cmd.push(`-S${args.query}`);
@@ -52,11 +54,16 @@ export const log: GitCommandHandler<GitLogArgs, GitLogResult> = async (args, ctx
   assertCount(args.maxCount, 'git.log maxCount');
   assertCount(args.skip, 'git.log skip');
   if (args.path !== undefined) assertWorkspaceRelative(args.path);
-  const cmd = ['log', `--format=${LOG_FORMAT}`];
+  const cmd = ['log', '--topo-order', '--decorate=full', `--format=${LOG_FORMAT}`];
   if (args.maxCount !== undefined) cmd.push(`--max-count=${args.maxCount}`);
   if (args.skip !== undefined) cmd.push(`--skip=${args.skip}`);
   if (args.all === true) {
     cmd.push('--all');
+  } else if (args.refNames !== undefined && args.refNames.length > 0) {
+    for (const ref of args.refNames) {
+      assertSafeRef(ref, 'git.log');
+      cmd.push(ref);
+    }
   } else {
     const ref = args.ref ?? 'HEAD';
     assertSafeRef(ref, 'git.log');
@@ -75,11 +82,28 @@ export const log: GitCommandHandler<GitLogArgs, GitLogResult> = async (args, ctx
   return { commits: parseLog(res.stdout) };
 };
 
+export const mergeBase: GitCommandHandler<GitMergeBaseArgs, GitMergeBaseResult> = async (
+  args,
+  ctx,
+) => {
+  for (const ref of args.refs) assertSafeRef(ref, 'git.mergeBase');
+  if (args.refs.length < 2) return { ref: null };
+  const res = await git(ctx, ['merge-base', ...args.refs], { acceptExitCodes: [0, 1, 128] });
+  if (res.exitCode === 0) return { ref: res.stdout.trim() || null };
+  if (res.exitCode === 1) return { ref: null };
+  throw new Error(`git merge-base failed: ${res.stderr.trim() || `exit ${res.exitCode}`}`);
+};
+
 export const commitFiles: GitCommandHandler<GitCommitFilesArgs, GitCommitFilesResult> = async (
   args,
   ctx,
 ) => {
   assertSafeRef(args.ref, 'git.commitFiles');
+  if (args.parent !== undefined) {
+    assertSafeRef(args.parent, 'git.commitFiles parent');
+    const res = await git(ctx, ['diff', '--name-status', '-z', args.parent, args.ref]);
+    return { files: parseNameStatus(res.stdout) };
+  }
   const res = await git(ctx, [
     'diff-tree',
     '--no-commit-id',

@@ -222,10 +222,14 @@ function parseDecorations(raw: string): { refs: string[]; tags: string[]; head: 
       if (arrow[1] !== undefined) refs.push(arrow[1]);
       continue;
     }
-    if (token.startsWith('tag: ')) tags.push(token.slice(5));
+    if (token.startsWith('tag: ')) tags.push(displayRefName(token.slice(5), 'refs/tags/'));
     else refs.push(token);
   }
   return { refs, tags, head };
+}
+
+function displayRefName(ref: string, prefix: string): string {
+  return ref.startsWith(prefix) ? ref.slice(prefix.length) : ref;
 }
 
 /**

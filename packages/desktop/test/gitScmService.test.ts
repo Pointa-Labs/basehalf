@@ -17,9 +17,14 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
       calls.push({ name: 'deleteWorkspaceEntry', args: [path, kind] }),
     commit: async (message, options) => calls.push({ name: 'commit', args: [message, options] }),
     push: async (options) => calls.push({ name: 'push', args: [options] }),
+    publish: async (options) => calls.push({ name: 'publish', args: [options] }),
     pull: async (options) => calls.push({ name: 'pull', args: [options] }),
     fetch: async () => calls.push({ name: 'fetch', args: [] }),
     sync: async () => calls.push({ name: 'sync', args: [] }),
+    remotes: async () => {
+      calls.push({ name: 'remotes', args: [] });
+      return { remotes: [{ name: 'origin', isReadOnly: false }] };
+    },
     reset: async (args) => calls.push({ name: 'reset', args: [args] }),
     checkout: async (branch, options) => calls.push({ name: 'checkout', args: [branch, options] }),
     createBranch: async (name, options) =>
@@ -75,12 +80,16 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
       calls.push({ name: 'log', args: [args] });
       return { commits: [{ hash: 'abc' }] };
     },
+    mergeBase: async (refs) => {
+      calls.push({ name: 'mergeBase', args: [refs] });
+      return 'base';
+    },
     searchHistory: async (args) => {
       calls.push({ name: 'searchHistory', args: [args] });
       return [{ hash: 'hit' }];
     },
-    commitFiles: async (ref) => {
-      calls.push({ name: 'commitFiles', args: [ref] });
+    commitFiles: async (ref, parent) => {
+      calls.push({ name: 'commitFiles', args: [ref, parent] });
       return [{ path: 'a.ts', status: 'M' }];
     },
     stash: async (message, options) => {
@@ -111,9 +120,11 @@ describe('gitScmService', () => {
     await service.deleteWorkspaceEntry('new-dir', 'folder');
     await service.commit('msg', { amend: true });
     await service.push({ force: true });
+    await service.publish({ remote: 'origin' });
     await service.pull({ rebase: true });
     await service.fetch();
     await service.sync();
+    expect(await service.remotes()).toEqual({ remotes: [{ name: 'origin', isReadOnly: false }] });
     await service.reset({ ref: 'HEAD~1', mode: 'soft' });
     await service.checkout('abc');
     await service.checkout('origin/topic', { track: true });
@@ -138,8 +149,9 @@ describe('gitScmService', () => {
     });
     expect(await service.refs({ includeRemote: true })).toMatchObject({ current: 'main' });
     expect(await service.log({ maxCount: 1 })).toEqual({ commits: [{ hash: 'abc' }] });
+    expect(await service.mergeBase(['main', 'origin/main'])).toBe('base');
     expect(await service.searchHistory({ query: 'needle' })).toEqual([{ hash: 'hit' }]);
-    expect(await service.commitFiles('abc')).toEqual([{ path: 'a.ts', status: 'M' }]);
+    expect(await service.commitFiles('abc', 'parent')).toEqual([{ path: 'a.ts', status: 'M' }]);
     expect(await service.stash('wip', { includeUntracked: true })).toEqual({ stashed: true });
     expect(await service.stash()).toEqual({ stashed: true });
     expect(await service.stashList()).toEqual([{ ref: 'stash@{0}', message: 'wip' }]);
@@ -157,9 +169,11 @@ describe('gitScmService', () => {
       { name: 'deleteWorkspaceEntry', args: ['new-dir', 'folder'] },
       { name: 'commit', args: ['msg', { amend: true }] },
       { name: 'push', args: [{ force: true }] },
+      { name: 'publish', args: [{ remote: 'origin' }] },
       { name: 'pull', args: [{ rebase: true }] },
       { name: 'fetch', args: [] },
       { name: 'sync', args: [] },
+      { name: 'remotes', args: [] },
       { name: 'reset', args: [{ ref: 'HEAD~1', mode: 'soft' }] },
       { name: 'checkout', args: ['abc', {}] },
       { name: 'checkout', args: ['origin/topic', { track: true }] },
@@ -180,8 +194,9 @@ describe('gitScmService', () => {
       { name: 'conflictStages', args: ['a.ts'] },
       { name: 'refs', args: [{ includeRemote: true }] },
       { name: 'log', args: [{ maxCount: 1 }] },
+      { name: 'mergeBase', args: [['main', 'origin/main']] },
       { name: 'searchHistory', args: [{ query: 'needle' }] },
-      { name: 'commitFiles', args: ['abc'] },
+      { name: 'commitFiles', args: ['abc', 'parent'] },
       { name: 'stash', args: ['wip', { includeUntracked: true }] },
       { name: 'stash', args: [undefined, {}] },
       { name: 'stashList', args: [] },

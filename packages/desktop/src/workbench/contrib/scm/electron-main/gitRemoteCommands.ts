@@ -20,26 +20,28 @@ import { assertBranchName, assertSafeRemote } from './gitRefGuards.js';
 
 const REMOTE_TIMEOUT_MS = 120_000;
 
-async function gitRemotes(ctx: GitCommandContext): Promise<string[]> {
-  const res = await git(ctx, ['remote']);
-  return res.stdout
-    .split(/\r?\n/)
-    .map((remote) => remote.trim())
-    .filter((remote) => remote !== '');
-}
-
 async function publishRemote(ctx: GitCommandContext, requested?: string): Promise<string> {
+  const remotes = await gitRemoteInfos(ctx);
+
   if (requested !== undefined) {
     assertSafeRemote(requested);
+    const remote = remotes.find((item) => item.name === requested);
+    if (remote === undefined) {
+      throw new Error(`Remote ${JSON.stringify(requested)} is not configured.`);
+    }
+    if (remote.isReadOnly) {
+      throw new Error(`Remote ${JSON.stringify(requested)} is read-only and cannot be pushed to.`);
+    }
     return requested;
   }
 
-  const remotes = await gitRemotes(ctx);
-  if (remotes.length === 0) {
-    throw new Error('Your repository has no remotes configured to publish to.');
+  const writable = remotes.filter((remote) => !remote.isReadOnly);
+  if (writable.length === 0) {
+    throw new Error('Your repository has no writable remotes configured to publish to.');
   }
+  if (writable.length === 1) return (writable[0] as GitRemoteInfo).name;
 
-  return remotes.includes('origin') ? 'origin' : (remotes[0] as string);
+  throw new Error('Multiple writable remotes are configured. Choose a remote to publish to.');
 }
 
 export function parseRemoteVerbose(stdout: string): GitRemoteInfo[] {
@@ -69,19 +71,38 @@ async function gitRemoteInfos(ctx: GitCommandContext): Promise<GitRemoteInfo[]> 
   return parseRemoteVerbose((await git(ctx, ['remote', '--verbose'])).stdout);
 }
 
+async function assertWritableRemote(ctx: GitCommandContext, remoteName: string): Promise<void> {
+  assertSafeRemote(remoteName);
+  const remote = (await gitRemoteInfos(ctx)).find((item) => item.name === remoteName);
+  if (remote === undefined) {
+    throw new Error(`Remote ${JSON.stringify(remoteName)} is not configured.`);
+  }
+  if (remote.isReadOnly) {
+    throw new Error(`Remote ${JSON.stringify(remoteName)} is read-only and cannot be pushed to.`);
+  }
+}
+
 function upstreamRemoteName(upstream: string | null): string | null {
+  return parseUpstream(upstream)?.remote ?? null;
+}
+
+function parseUpstream(upstream: string | null): { remote: string; branch: string } | null {
   if (upstream === null) return null;
   const slash = upstream.indexOf('/');
-  return slash > 0 ? upstream.slice(0, slash) : null;
+  if (slash <= 0 || slash === upstream.length - 1) return null;
+  return { remote: upstream.slice(0, slash), branch: upstream.slice(slash + 1) };
 }
 
 export const push: GitCommandHandler<GitPushArgs, GitRemoteResult> = async (args, ctx) => {
-  // No upstream yet -> publish to VS Code's default remote choice (origin when
-  // available, otherwise the first configured remote); else a plain push.
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   let cmd: string[];
-  if (st.upstream !== null || st.branch === null) {
-    cmd = ['push'];
+  const upstream = parseUpstream(st.upstream);
+  if (upstream !== null) {
+    await assertWritableRemote(ctx, upstream.remote);
+    assertBranchName(upstream.branch, 'git.push upstream branch');
+    cmd = ['push', upstream.remote, `HEAD:${upstream.branch}`];
+  } else if (st.branch === null) {
+    throw new Error('Please check out a branch to push to a remote.');
   } else {
     assertBranchName(st.branch, 'git.push branch');
     cmd = ['push', '-u', await publishRemote(ctx), st.branch];
@@ -113,7 +134,13 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
   if (st.upstream === null) {
     throw new Error('The current branch has no upstream branch. Use Publish Branch first.');
   }
+  const upstream = parseUpstream(st.upstream);
   const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
+  if (upstream !== null) {
+    assertSafeRemote(upstream.remote);
+    assertBranchName(upstream.branch, 'git.pull upstream branch');
+    cmd.push(upstream.remote, upstream.branch);
+  }
   const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
   return { stdout: res.stdout, stderr: res.stderr };
 };

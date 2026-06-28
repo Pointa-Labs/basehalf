@@ -15,6 +15,7 @@ import type {
   GitRebaseResult,
   GitRefsArgs,
   GitRefsResult,
+  GitRemotesResult,
   GitResetArgs,
   GitRevertResult,
   GitSearchHistoryArgs,
@@ -37,9 +38,11 @@ export interface GitScmService {
   deleteWorkspaceEntry(path: string, kind: 'file' | 'folder'): Promise<void>;
   commit(message: string, options?: { amend?: boolean }): Promise<void>;
   push(options?: { force?: boolean }): Promise<void>;
+  publish(options?: { remote?: string }): Promise<void>;
   pull(options?: { rebase?: boolean }): Promise<void>;
   fetch(): Promise<void>;
   sync(): Promise<void>;
+  remotes(): Promise<GitRemotesResult>;
   reset(args: GitResetArgs): Promise<void>;
   checkout(branch: string, options?: { force?: boolean; track?: boolean }): Promise<void>;
   createBranch(name: string, options?: Omit<GitCreateBranchArgs, 'name'>): Promise<void>;
@@ -60,8 +63,9 @@ export interface GitScmService {
   conflictStages(path: string): Promise<GitConflictStagesResult>;
   refs(args?: GitRefsArgs): Promise<GitRefsResult>;
   log(args: GitLogArgs): Promise<GitLogResult>;
+  mergeBase(refs: readonly string[]): Promise<string | null>;
   searchHistory(args: GitSearchHistoryArgs): Promise<GitLogResult['commits']>;
-  commitFiles(ref: string): Promise<GitCommitFilesResult['files']>;
+  commitFiles(ref: string, parent?: string): Promise<GitCommitFilesResult['files']>;
   stash(message?: string, options?: Omit<GitStashArgs, 'message'>): Promise<GitStashResult>;
   stashList(): Promise<readonly GitStashEntry[]>;
   stashApply(ref: GitStashEntry['ref']): Promise<void>;
@@ -98,6 +102,9 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     push: async (options = {}) => {
       await channel.push(options.force === true ? { force: true } : {});
     },
+    publish: async (options = {}) => {
+      await channel.publish(options.remote !== undefined ? { remote: options.remote } : {});
+    },
     pull: async (options = {}) => {
       await channel.pull(options.rebase === true ? { rebase: true } : {});
     },
@@ -107,6 +114,7 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     sync: async () => {
       await channel.sync();
     },
+    remotes: () => channel.remotes(),
     reset: async (args) => {
       await channel.reset(args);
     },
@@ -149,8 +157,9 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     conflictStages: (path) => channel.conflictStages(path),
     refs: (args = {}) => channel.refs(args),
     log: (args) => channel.log(args),
+    mergeBase: (refs) => channel.mergeBase(refs),
     searchHistory: (args) => channel.searchHistory(args),
-    commitFiles: (ref) => channel.commitFiles(ref),
+    commitFiles: (ref, parent) => channel.commitFiles(ref, parent),
     stash: (message, options = {}) => channel.stash(message, options),
     stashList: () => channel.stashList(),
     stashApply: async (ref) => {

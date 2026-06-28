@@ -12,6 +12,7 @@ import type {
   GitDiffResult,
   GitLogArgs,
   GitLogResult,
+  GitMergeBaseResult,
   GitMergeResult,
   GitRebaseInteractiveArgs,
   GitRebaseResult,
@@ -29,88 +30,11 @@ import type {
   GitStashResult,
   GitStatusResult,
 } from '../common/git.js';
+import type { GitBackendProvider } from './gitBackend.js';
 import * as gitCommands from './gitCliCommands.js';
 import { type GitCommandContext, requireWorkspaceRoot } from './gitCommandRunner.js';
 import { assertWorkspaceRelative } from './gitPathGuards.js';
 import { systemGit } from './systemGit.js';
-
-export interface GitBackendProvider {
-  init(workspaceRoot: string | null): Promise<void>;
-  stage(workspaceRoot: string | null, paths: readonly string[]): Promise<void>;
-  stageAll(workspaceRoot: string | null): Promise<void>;
-  unstage(workspaceRoot: string | null, paths: readonly string[]): Promise<void>;
-  unstageAll(workspaceRoot: string | null): Promise<void>;
-  discard(workspaceRoot: string | null, paths: readonly string[]): Promise<void>;
-  deleteWorkspaceEntry(
-    workspaceRoot: string | null,
-    path: string,
-    kind: 'file' | 'folder',
-  ): Promise<void>;
-  commit(
-    workspaceRoot: string | null,
-    message: string,
-    options?: { amend?: boolean },
-  ): Promise<void>;
-  push(workspaceRoot: string | null, options?: { force?: boolean }): Promise<void>;
-  pull(workspaceRoot: string | null, options?: { rebase?: boolean }): Promise<void>;
-  fetch(workspaceRoot: string | null): Promise<void>;
-  sync(workspaceRoot: string | null): Promise<void>;
-  remotes(workspaceRoot: string | null): Promise<GitRemotesResult>;
-  reset(workspaceRoot: string | null, args: GitResetArgs): Promise<void>;
-  checkout(
-    workspaceRoot: string | null,
-    branch: string,
-    options?: { force?: boolean; track?: boolean },
-  ): Promise<void>;
-  createBranch(
-    workspaceRoot: string | null,
-    name: string,
-    options?: Omit<GitCreateBranchArgs, 'name'>,
-  ): Promise<void>;
-  renameBranch(workspaceRoot: string | null, from: string, to: string): Promise<void>;
-  renameCurrentBranch(workspaceRoot: string | null, to: string): Promise<void>;
-  deleteBranch(
-    workspaceRoot: string | null,
-    name: string,
-    options?: { force?: boolean },
-  ): Promise<void>;
-  merge(workspaceRoot: string | null, branch: string): Promise<GitMergeResult>;
-  cherryPick(workspaceRoot: string | null, ref: string): Promise<GitCherryPickResult>;
-  revert(workspaceRoot: string | null, ref: string): Promise<GitRevertResult>;
-  rebaseInteractive(
-    workspaceRoot: string | null,
-    args: GitRebaseInteractiveArgs,
-  ): Promise<GitRebaseResult>;
-  tag(workspaceRoot: string | null, name: string, ref?: string): Promise<void>;
-  tagDelete(workspaceRoot: string | null, name: string): Promise<void>;
-  status(workspaceRoot: string | null): Promise<GitStatusResult>;
-  show(workspaceRoot: string | null, ref: string, path: string): Promise<GitShowResult>;
-  diff(
-    workspaceRoot: string | null,
-    path: string,
-    options?: Omit<GitDiffArgs, 'path'>,
-  ): Promise<GitDiffResult>;
-  apply(workspaceRoot: string | null, args: GitApplyArgs): Promise<void>;
-  blame(
-    workspaceRoot: string | null,
-    path: string,
-    options?: Omit<GitBlameArgs, 'path'>,
-  ): Promise<GitBlameResult>;
-  conflictStages(workspaceRoot: string | null, path: string): Promise<GitConflictStagesResult>;
-  refs(workspaceRoot: string | null, args?: GitRefsArgs): Promise<GitRefsResult>;
-  log(workspaceRoot: string | null, args: GitLogArgs): Promise<GitLogResult>;
-  searchHistory(workspaceRoot: string | null, args: GitSearchHistoryArgs): Promise<GitLogResult>;
-  commitFiles(workspaceRoot: string | null, ref: string): Promise<GitCommitFilesResult>;
-  stash(
-    workspaceRoot: string | null,
-    message?: string,
-    options?: Omit<GitStashArgs, 'message'>,
-  ): Promise<GitStashResult>;
-  stashList(workspaceRoot: string | null): Promise<GitStashListResult>;
-  stashApply(workspaceRoot: string | null, ref: GitStashEntry['ref']): Promise<void>;
-  stashPop(workspaceRoot: string | null, ref?: GitStashEntry['ref']): Promise<void>;
-  stashDrop(workspaceRoot: string | null, ref: GitStashEntry['ref']): Promise<void>;
-}
 
 export interface GitCliBackendProviderOptions {
   readonly git?: GitRunner;
@@ -184,6 +108,13 @@ export class GitCliBackendProvider implements GitBackendProvider {
   async push(workspaceRoot: string | null, options: { force?: boolean } = {}): Promise<void> {
     await gitCommands.push(
       options.force === true ? { force: true } : {},
+      this.context(workspaceRoot),
+    );
+  }
+
+  async publish(workspaceRoot: string | null, options: { remote?: string } = {}): Promise<void> {
+    await gitCommands.publish(
+      options.remote !== undefined ? { remote: options.remote } : {},
       this.context(workspaceRoot),
     );
   }
@@ -313,12 +244,23 @@ export class GitCliBackendProvider implements GitBackendProvider {
     return gitCommands.log(args, this.context(workspaceRoot));
   }
 
+  mergeBase(workspaceRoot: string | null, refs: readonly string[]): Promise<GitMergeBaseResult> {
+    return gitCommands.mergeBase({ refs }, this.context(workspaceRoot));
+  }
+
   searchHistory(workspaceRoot: string | null, args: GitSearchHistoryArgs): Promise<GitLogResult> {
     return gitCommands.searchHistory(args, this.context(workspaceRoot));
   }
 
-  commitFiles(workspaceRoot: string | null, ref: string): Promise<GitCommitFilesResult> {
-    return gitCommands.commitFiles({ ref }, this.context(workspaceRoot));
+  commitFiles(
+    workspaceRoot: string | null,
+    ref: string,
+    parent?: string,
+  ): Promise<GitCommitFilesResult> {
+    return gitCommands.commitFiles(
+      parent === undefined ? { ref } : { ref, parent },
+      this.context(workspaceRoot),
+    );
   }
 
   stash(

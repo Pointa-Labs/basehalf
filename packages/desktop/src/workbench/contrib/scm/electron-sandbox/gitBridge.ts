@@ -19,9 +19,13 @@ export function createGitBridge(ipcRenderer: IpcRendererLike): GitBridgeContaine
       commit: (message, options = {}) =>
         ipcRenderer.invoke(GIT_IPC_CHANNELS.commit, { message, ...options }) as Promise<void>,
       push: (options = {}) => ipcRenderer.invoke(GIT_IPC_CHANNELS.push, options) as Promise<void>,
+      publish: (options = {}) =>
+        ipcRenderer.invoke(GIT_IPC_CHANNELS.publish, options) as Promise<void>,
       pull: (options = {}) => ipcRenderer.invoke(GIT_IPC_CHANNELS.pull, options) as Promise<void>,
       fetch: () => ipcRenderer.invoke(GIT_IPC_CHANNELS.fetch) as Promise<void>,
       sync: () => ipcRenderer.invoke(GIT_IPC_CHANNELS.sync) as Promise<void>,
+      remotes: () =>
+        ipcRenderer.invoke(GIT_IPC_CHANNELS.remotes) as ReturnType<GitChannelBridge['remotes']>,
       reset: (args) => ipcRenderer.invoke(GIT_IPC_CHANNELS.reset, args) as Promise<void>,
       checkout: (branch, options = {}) =>
         ipcRenderer.invoke(GIT_IPC_CHANNELS.checkout, { branch, ...options }) as Promise<void>,
@@ -74,14 +78,19 @@ export function createGitBridge(ipcRenderer: IpcRendererLike): GitBridgeContaine
         ipcRenderer.invoke(GIT_IPC_CHANNELS.refs, args) as ReturnType<GitChannelBridge['refs']>,
       log: (args) =>
         ipcRenderer.invoke(GIT_IPC_CHANNELS.log, args) as ReturnType<GitChannelBridge['log']>,
+      mergeBase: (refs) =>
+        ipcRenderer.invoke(GIT_IPC_CHANNELS.mergeBase, [...refs]) as ReturnType<
+          GitChannelBridge['mergeBase']
+        >,
       searchHistory: (args) =>
         ipcRenderer.invoke(GIT_IPC_CHANNELS.searchHistory, args) as ReturnType<
           GitChannelBridge['searchHistory']
         >,
-      commitFiles: (ref) =>
-        ipcRenderer.invoke(GIT_IPC_CHANNELS.commitFiles, ref) as ReturnType<
-          GitChannelBridge['commitFiles']
-        >,
+      commitFiles: (ref, parent) =>
+        ipcRenderer.invoke(
+          GIT_IPC_CHANNELS.commitFiles,
+          parent === undefined ? { ref } : { ref, parent },
+        ) as ReturnType<GitChannelBridge['commitFiles']>,
       stash: (message, options = {}) =>
         ipcRenderer.invoke(
           GIT_IPC_CHANNELS.stash,

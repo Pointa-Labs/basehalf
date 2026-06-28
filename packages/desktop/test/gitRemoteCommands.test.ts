@@ -8,6 +8,7 @@ import {
 } from '../src/workbench/contrib/scm/electron-main/gitRefGuards.js';
 import {
   parseRemoteVerbose,
+  publish,
   push,
   remoteUrl,
   sync,
@@ -59,10 +60,14 @@ describe('git remote commands', () => {
     ]);
   });
 
-  it('publishes a branch without upstream to origin when available', async () => {
+  it('publishes a branch without upstream to the only writable remote', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## feature\0');
-      if (args[0] === 'remote') return ok('upstream\norigin\n');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
       if (args[0] === 'push') return ok('published');
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
@@ -71,15 +76,34 @@ describe('git remote commands', () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
-      ['remote'],
+      ['remote', '--verbose'],
       ['push', '-u', 'origin', 'feature'],
     ]);
     expect(calls[2]?.opts).toMatchObject({ cwd: '/repo', timeoutMs: 120_000 });
   });
 
+  it('does not silently choose a remote when multiple writable remotes exist', async () => {
+    const { ctx } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/upstream/repo.git (fetch)\norigin git@github.com:upstream/repo.git (push)\nfork https://github.com/fork/repo.git (fetch)\nfork git@github.com:fork/repo.git (push)\n',
+        );
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({}, ctx)).rejects.toThrow(/Multiple writable remotes/);
+  });
+
   it('uses --force-with-lease for force pushes', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## main...origin/main\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
       if (args[0] === 'push') return ok('forced');
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
@@ -88,7 +112,95 @@ describe('git remote commands', () => {
 
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
-      ['push', '--force-with-lease'],
+      ['remote', '--verbose'],
+      ['push', 'origin', 'HEAD:main', '--force-with-lease'],
+    ]);
+  });
+
+  it('pushes explicitly to the upstream branch refspec', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## local...origin/trunk [ahead 1]\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      if (args[0] === 'push') return ok('pushed');
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await push({}, ctx);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['remote', '--verbose'],
+      ['push', 'origin', 'HEAD:trunk'],
+    ]);
+  });
+
+  it('refuses to push to a read-only upstream remote', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## main...origin/main [ahead 1]\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok('origin https://github.com/acme/repo.git (fetch)\norigin no_push (push)\n');
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({}, ctx)).rejects.toThrow(/read-only/);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['remote', '--verbose'],
+    ]);
+  });
+
+  it('refuses to push from detached HEAD without an upstream branch', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## HEAD (no branch)\0');
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({}, ctx)).rejects.toThrow(/check out a branch/);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+    ]);
+  });
+
+  it('validates explicitly requested publish remotes before pushing', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok('origin https://github.com/acme/repo.git (fetch)\norigin no_push (push)\n');
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(publish({ remote: 'origin' }, ctx)).rejects.toThrow(/read-only/);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['remote', '--verbose'],
+    ]);
+  });
+
+  it('reports missing explicitly requested publish remotes before pushing', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(publish({ remote: 'fork' }, ctx)).rejects.toThrow(/not configured/);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['remote', '--verbose'],
     ]);
   });
 
@@ -107,8 +219,30 @@ describe('git remote commands', () => {
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
       ['status', '--porcelain=v1', '-z', '--branch'],
-      ['pull'],
+      ['pull', 'origin', 'main'],
       ['remote', '--verbose'],
+    ]);
+  });
+
+  it('sync publishes without pulling when the current branch has no upstream', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      if (args[0] === 'push') return ok('published');
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await sync({}, ctx);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['status', '--porcelain=v1', '-z', '--branch'],
+      ['remote', '--verbose'],
+      ['push', '-u', 'origin', 'feature'],
     ]);
   });
 

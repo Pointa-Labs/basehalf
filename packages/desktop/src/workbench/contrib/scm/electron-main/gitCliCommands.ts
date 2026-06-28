@@ -10,7 +10,7 @@ export {
   tagDelete,
 } from './gitBranchCommands.js';
 export { blame, conflictStages, diff, show } from './gitFileCommands.js';
-export { commitFiles, diffRef, log, searchHistory } from './gitHistoryCommands.js';
+export { commitFiles, diffRef, log, mergeBase, searchHistory } from './gitHistoryCommands.js';
 export {
   apply,
   commit,

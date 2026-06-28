@@ -9,6 +9,7 @@ import type {
   GitDiffArgs,
   GitLogArgs,
   GitLogResult,
+  GitMergeBaseResult,
   GitMergeResult,
   GitRebaseInteractiveArgs,
   GitRebaseResult,
@@ -23,7 +24,7 @@ import type {
   GitStashResult,
   GitStatusResult,
 } from '../common/git.js';
-import type { GitBackendProvider } from './gitBackendProvider.js';
+import type { GitBackendProvider } from './gitBackend.js';
 
 /**
  * Main-process Git service. It is the typed Electron-side repository façade
@@ -75,6 +76,10 @@ export class GitMainService {
 
   push(workspaceRoot: string | null, options: { force?: boolean } = {}): Promise<void> {
     return this.backend.push(workspaceRoot, options);
+  }
+
+  publish(workspaceRoot: string | null, options: { remote?: string } = {}): Promise<void> {
+    return this.backend.publish(workspaceRoot, options);
   }
 
   pull(workspaceRoot: string | null, options: { rebase?: boolean } = {}): Promise<void> {
@@ -198,6 +203,11 @@ export class GitMainService {
     return this.backend.log(workspaceRoot, args);
   }
 
+  async mergeBase(workspaceRoot: string | null, refs: readonly string[]): Promise<string | null> {
+    const result: GitMergeBaseResult = await this.backend.mergeBase(workspaceRoot, refs);
+    return result.ref;
+  }
+
   async searchHistory(
     workspaceRoot: string | null,
     args: GitSearchHistoryArgs,
@@ -209,8 +219,9 @@ export class GitMainService {
   async commitFiles(
     workspaceRoot: string | null,
     ref: string,
+    parent?: string,
   ): Promise<GitCommitFilesResult['files']> {
-    const result = await this.backend.commitFiles(workspaceRoot, ref);
+    const result = await this.backend.commitFiles(workspaceRoot, ref, parent);
     return result.files;
   }
 
