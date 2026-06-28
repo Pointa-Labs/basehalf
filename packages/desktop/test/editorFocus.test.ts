@@ -7,12 +7,12 @@ import {
   refineCursorLine,
   tileSourceNewlines,
   topLevelBlockOf,
-} from '../src/workbench/services/editor/browser/editorFocusModel.js';
+} from '../src/workbench/services/editor/common/editorFocusModel.js';
 import {
   RAW_PASSTHROUGH,
   type ReuseEntry,
   segmentBody,
-} from '../src/workbench/services/editor/browser/mdSegment.js';
+} from '../src/workbench/services/editor/common/mdSegment.js';
 
 // blockFileLine is pure — it reconstructs a block's .md source line from the same
 // id-keyed verbatim tiles the splice-save uses, with no BlockNote/DOM. So we build

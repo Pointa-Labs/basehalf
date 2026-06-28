@@ -1,7 +1,7 @@
 /**
  * ADHD reading-aids highlight layer for the BlockNote Markdown editor.
  *
- * The core `adhd` module stores reading aids as .md SOURCE data — keyword strings
+ * The ADHD mirror stores reading aids as .md SOURCE data — keyword strings
  * plus read line-ranges (see private-docs/focus_mode_spec). Reading aids are a
  * Markdown-only surface, and the rich editor has no source-line→row mapping, so this
  * module projects the aids onto BlockNote BLOCKS *without touching the document*: a
@@ -22,8 +22,8 @@ import { createExtension } from '@blocknote/core';
 import type { Node as PmNode } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
-import { keywordHits } from './adhdModel.js';
-import type { FocusBlock } from './editorFocusModel.js';
+import { keywordHits } from '../common/adhdModel.js';
+import type { FocusBlock } from '../common/editorFocusModel.js';
 
 /** The highlight targets: which TOP-LEVEL blocks are read, plus the keywords to
  *  highlight everywhere. Read state is addressed by block id (not line number) so a

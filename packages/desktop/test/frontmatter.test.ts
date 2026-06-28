@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   joinFrontmatter,
   splitFrontmatter,
-} from '../src/workbench/services/editor/browser/frontmatter.js';
+} from '../src/workbench/services/editor/common/frontmatter.js';
 
 describe('splitFrontmatter — byte-exact, fail-safe YAML frontmatter detection', () => {
   const roundTrips = (s: string) => {

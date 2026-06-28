@@ -1,15 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { keywordHits } from '../src/workbench/services/editor/browser/adhdModel.js';
+import { keywordHits } from '../src/workbench/services/editor/common/adhdModel.js';
 import {
   type FocusBlock,
   blockReadSpan,
   blockSourceSpan,
   linesToBlockIds,
-} from '../src/workbench/services/editor/browser/editorFocusModel.js';
-import {
-  type ReuseEntry,
-  segmentBody,
-} from '../src/workbench/services/editor/browser/mdSegment.js';
+} from '../src/workbench/services/editor/common/editorFocusModel.js';
+import { type ReuseEntry, segmentBody } from '../src/workbench/services/editor/common/mdSegment.js';
 
 // blockSourceSpan / linesToBlockIds are pure: they reconstruct a block's .md SOURCE
 // line span from the same id-keyed verbatim tiles the splice-save uses. We build the

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { segmentLine } from '../src/workbench/services/editor/browser/adhdModel.js';
+import { segmentLine } from '../src/workbench/services/editor/common/adhdModel.js';
 
 describe('segmentLine', () => {
   it('returns one non-hit segment when there are no keywords', () => {

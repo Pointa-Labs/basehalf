@@ -8,13 +8,13 @@ import {
   type AdhdEditorApi,
   pushAdhdDecorations,
 } from '../../../services/editor/browser/adhdHighlight.js';
-import type { LineRange } from '../../../services/editor/browser/adhdModel.js';
+import type { SharedDoc } from '../../../services/editor/browser/liveDoc.js';
+import type { LineRange } from '../../../services/editor/common/adhdModel.js';
 import {
   blockReadSpan,
   countNewlines,
   linesToBlockIds,
-} from '../../../services/editor/browser/editorFocusModel.js';
-import type { SharedDoc } from '../../../services/editor/browser/liveDoc.js';
+} from '../../../services/editor/common/editorFocusModel.js';
 import { adhdService } from '../../../services/mirror/browser/adhdService.js';
 
 /**

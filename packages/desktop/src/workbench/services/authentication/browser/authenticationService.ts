@@ -1,23 +1,15 @@
 import type { BaseHalfSandboxApi } from '../../../../code/electron-sandbox/sandboxApi.js';
 import { createLazySandboxChannel } from '../../../../platform/ipc/browser/sandboxApi.js';
 import type {
-  AuthenticationProviderSessionsChangeEvent,
-  AuthenticationSession,
+  AuthenticationChannelBridge,
+  AuthenticationService as AuthenticationServiceContract,
 } from '../common/authentication.js';
-import type { AuthenticationBridge } from '../electron-sandbox/authenticationBridge.js';
 
-export interface AuthenticationService {
-  getSessions(providerId: string): Promise<readonly AuthenticationSession[]>;
-  createSession(providerId: string, secret: string): Promise<AuthenticationSession | null>;
-  removeSession(providerId: string, sessionId: string): Promise<void>;
-  onDidChangeSessions(
-    listener: (event: AuthenticationProviderSessionsChangeEvent) => void,
-  ): () => void;
-}
+export type { AuthenticationService } from '../common/authentication.js';
 
-type AuthenticationChannel = AuthenticationBridge['authentication'];
-
-export function createAuthenticationService(channel: AuthenticationChannel): AuthenticationService {
+export function createAuthenticationService(
+  channel: AuthenticationChannelBridge,
+): AuthenticationServiceContract {
   return {
     getSessions: (providerId) => channel.getSessions(providerId),
     createSession: (providerId, secret) => channel.createSession(providerId, secret),
@@ -26,7 +18,9 @@ export function createAuthenticationService(channel: AuthenticationChannel): Aut
   };
 }
 
-export function createAuthenticationChannel(bridge: BaseHalfSandboxApi): AuthenticationChannel {
+export function createAuthenticationChannel(
+  bridge: BaseHalfSandboxApi,
+): AuthenticationChannelBridge {
   return bridge.authentication;
 }
 

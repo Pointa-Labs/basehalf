@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import { isImeComposing } from '../../../browser/ui/imeGuard.js';
-import { noteTitleOf } from '../../../services/editor/browser/noteTitleModel.js';
+import { noteTitleOf } from '../../../services/editor/common/noteTitleModel.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 
 /**

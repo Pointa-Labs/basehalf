@@ -18,23 +18,26 @@
  * doesn't grow unbounded.
  */
 
+import {
+  type RecentFilesMap,
+  type RecentFilesService,
+  trimRecentFiles,
+} from '../common/history.js';
+
 const STORAGE_KEY = 'bh:recent-files';
-const RECENT_LIMIT = 50;
 
-type RecentMap = Record<string, Record<string, number>>;
-
-function read(): RecentMap {
+function read(): RecentFilesMap {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed !== null ? (parsed as RecentMap) : {};
+    return typeof parsed === 'object' && parsed !== null ? (parsed as RecentFilesMap) : {};
   } catch {
     return {};
   }
 }
 
-function write(map: RecentMap): void {
+function write(map: RecentFilesMap): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
   } catch {
@@ -48,11 +51,7 @@ function write(map: RecentMap): void {
 export function noteOpenedFile(workspace: string, relPath: string): void {
   const map = read();
   const inner = { ...(map[workspace] ?? {}), [relPath]: Date.now() };
-  // Trim to the most recent RECENT_LIMIT entries.
-  const entries = Object.entries(inner).sort((a, b) => b[1] - a[1]);
-  const trimmed: Record<string, number> = {};
-  for (const [path, ts] of entries.slice(0, RECENT_LIMIT)) trimmed[path] = ts;
-  write({ ...map, [workspace]: trimmed });
+  write({ ...map, [workspace]: trimRecentFiles(inner) });
 }
 
 /** Get the list of relPaths in this workspace ordered most-recent-first.
@@ -64,3 +63,8 @@ export function recentFilesFor(workspace: string): readonly string[] {
     .sort((a, b) => b[1] - a[1])
     .map(([path]) => path);
 }
+
+export const recentFilesService: RecentFilesService = {
+  noteOpenedFile,
+  recentFilesFor,
+};

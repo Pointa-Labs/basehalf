@@ -22,7 +22,7 @@
  */
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { color, font, space } from '../../../browser/style/design.js';
-import { RAW_PASSTHROUGH } from './mdSegment.js';
+import { RAW_PASSTHROUGH } from '../common/mdSegment.js';
 
 interface PassthroughProps {
   raw?: string;

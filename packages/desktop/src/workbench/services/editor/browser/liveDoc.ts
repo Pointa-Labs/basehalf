@@ -1,5 +1,5 @@
 import { type XmlFragment, Doc as YDoc } from 'yjs';
-import type { ReuseEntry } from './mdSegment.js';
+import type { ReuseEntry } from '../common/mdSegment.js';
 
 /**
  * Per-file shared document registry — the in-memory "document model".

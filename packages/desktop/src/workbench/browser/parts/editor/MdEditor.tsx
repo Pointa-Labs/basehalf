@@ -13,18 +13,7 @@ import {
   unregisterDocFlusher,
   unregisterFlusher,
 } from '../../../services/editor/browser/editorFlush.js';
-import {
-  type FocusBlock,
-  type LinePrecision,
-  blockFileLine,
-  blockOrdinal,
-  countNewlines,
-  firstVisibleBlockId,
-  refineCursorLine,
-  tileSourceNewlines,
-  topLevelBlockOf,
-} from '../../../services/editor/browser/editorFocusModel.js';
-import { splitFrontmatter } from '../../../services/editor/browser/frontmatter.js';
+import { firstVisibleBlockId } from '../../../services/editor/browser/editorFocusModel.js';
 import {
   type LiveDocView,
   acquireDoc,
@@ -35,12 +24,23 @@ import {
   refreshOwner,
   releaseDoc,
 } from '../../../services/editor/browser/liveDoc.js';
+import { useReadingMode } from '../../../services/editor/browser/readingModeStore.js';
+import {
+  type FocusBlock,
+  type LinePrecision,
+  blockFileLine,
+  blockOrdinal,
+  countNewlines,
+  refineCursorLine,
+  tileSourceNewlines,
+  topLevelBlockOf,
+} from '../../../services/editor/common/editorFocusModel.js';
+import { splitFrontmatter } from '../../../services/editor/common/frontmatter.js';
 import {
   type MdEditorApi,
   buildLoadProjection,
   spliceSave,
-} from '../../../services/editor/browser/mdSegment.js';
-import { useReadingMode } from '../../../services/editor/browser/readingModeStore.js';
+} from '../../../services/editor/common/mdSegment.js';
 import {
   type FocusFields,
   makeFileFocusPusher,

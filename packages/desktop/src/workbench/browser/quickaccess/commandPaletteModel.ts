@@ -1,5 +1,5 @@
 import type { GitLogResult, GitRefInfo } from '../../contrib/scm/common/git.js';
-import { recentFilesFor } from '../../services/history/browser/recentFiles.js';
+import { recentFilesService } from '../../services/history/browser/recentFiles.js';
 import { type IMatch, createMatches, fuzzyMatch } from './fuzzyScore.js';
 
 export type { IMatch };
@@ -84,7 +84,9 @@ export function filterCommandPaletteActions(args: {
     const fallback = (): CommandPaletteAction[] =>
       args.actions.filter((a) => a.category !== 'File');
     if (args.current === null) return { filtered: fallback(), matchMap: new Map() };
-    const rank = new Map(recentFilesFor(args.current).map((p, i) => [p, i] as const));
+    const rank = new Map(
+      recentFilesService.recentFilesFor(args.current).map((p, i) => [p, i] as const),
+    );
     const recents = args.actions
       .filter((a) => a.category === 'File' && rank.has(fileId(a)))
       .sort((a, b) => (rank.get(fileId(a)) ?? 0) - (rank.get(fileId(b)) ?? 0))
@@ -110,7 +112,7 @@ export function filterCommandPaletteActions(args: {
 
   const rank =
     args.current !== null
-      ? new Map(recentFilesFor(args.current).map((p, i) => [p, i] as const))
+      ? new Map(recentFilesService.recentFilesFor(args.current).map((p, i) => [p, i] as const))
       : new Map<string, number>();
   scored.sort((x, y) => {
     if (y.score !== x.score) return y.score - x.score;

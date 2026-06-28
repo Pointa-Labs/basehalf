@@ -1,6 +1,7 @@
 import { checkoutTargetForRef } from '../../contrib/scm/browser/branchQuickPickModel.js';
 import type { GitScmService } from '../../contrib/scm/browser/gitScmService.js';
-import { recentFilesFor } from '../../services/history/browser/recentFiles.js';
+import type { GitRefInfo } from '../../contrib/scm/common/git.js';
+import { recentFilesService } from '../../services/history/browser/recentFiles.js';
 import type { SearchQueryResult } from '../../services/search/common/search.js';
 import {
   type CommandPaletteAction,
@@ -60,7 +61,7 @@ function workspacePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAct
 
 function filePicks(args: BuildCommandPaletteActionsArgs): CommandPaletteAction[] {
   if (args.filesWorkspace !== args.current || args.current === null) return [];
-  const recent = recentFilesFor(args.current);
+  const recent = recentFilesService.recentFilesFor(args.current);
   const recentRank = new Map<string, number>();
   recent.forEach((path, idx) => recentRank.set(path, idx));
   return [...args.files]
@@ -220,6 +221,7 @@ export function buildGitEntityActions(args: {
   readonly git: CommandPaletteGitState;
   readonly gitService: GitScmService;
   readonly runGit: (fn: () => Promise<unknown>) => void;
+  readonly checkoutBranch?: (branch: GitRefInfo, refs: readonly GitRefInfo[]) => void;
   readonly revealCommit: (hash: string) => void;
 }): CommandPaletteAction[] {
   const q = args.query.trim().toLowerCase();
@@ -239,6 +241,10 @@ export function buildGitEntityActions(args: {
       searchAlso: 'branch',
       run: () => {
         if (branch.current && branch.type === 'head') return;
+        if (args.checkoutBranch !== undefined) {
+          args.checkoutBranch(branch, args.git.branches);
+          return;
+        }
         const target = checkoutTargetForRef(branch, args.git.branches);
         args.runGit(() =>
           args.gitService.checkout(
