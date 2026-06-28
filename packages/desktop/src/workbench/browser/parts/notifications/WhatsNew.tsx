@@ -9,23 +9,9 @@
 
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { updateService } from '../../../../platform/update/browser/updateService.js';
+import type { JustInstalled } from '../../../../platform/update/common/update.js';
 import { color, font, motion, radius, shadow, space } from '../../style/design.js';
 import { Button } from '../../ui/primitives/Button.js';
-
-interface JustInstalled {
-  version: string;
-  notes: string;
-}
-
-/** Narrow the `unknown` IPC payload; null unless it's a real record with notes. */
-function asJustInstalled(v: unknown): JustInstalled | null {
-  if (typeof v !== 'object' || v === null) return null;
-  const r = v as Record<string, unknown>;
-  if (typeof r.version === 'string' && typeof r.notes === 'string' && r.notes.length > 0) {
-    return { version: r.version, notes: r.notes };
-  }
-  return null;
-}
 
 const backdropStyle: CSSProperties = {
   position: 'fixed',
@@ -65,8 +51,8 @@ export const WhatsNewHost = (): JSX.Element | null => {
     let cancelled = false;
     void updateService
       .justInstalled()
-      .then((v) => {
-        if (!cancelled) setInfo(asJustInstalled(v));
+      .then((info) => {
+        if (!cancelled) setInfo(info);
       })
       .catch(() => {});
     return () => {

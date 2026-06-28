@@ -13,52 +13,11 @@
 
 import { create } from 'zustand';
 import { updateService } from '../../../../platform/update/browser/updateService.js';
+import type { UpdateState } from '../../../../platform/update/common/update.js';
 
-export type UpdateUiState =
-  | { phase: 'idle' }
-  | { phase: 'checking' }
-  | { phase: 'upToDate'; version: string }
-  | { phase: 'available'; version: string }
-  | { phase: 'downloading'; version: string; received: number; total: number }
-  | { phase: 'staged'; version: string }
-  | { phase: 'error'; message: string };
+export type UpdateUiState = UpdateState;
 
-/** Narrow main's `unknown` push into the UI union; anything unrecognized
- *  degrades to idle rather than crashing the indicator. */
-function asUpdateUiState(raw: unknown): UpdateUiState {
-  if (typeof raw !== 'object' || raw === null) return { phase: 'idle' };
-  const r = raw as Record<string, unknown>;
-  switch (r.phase) {
-    case 'checking':
-      return { phase: 'checking' };
-    case 'upToDate':
-      return typeof r.version === 'string'
-        ? { phase: 'upToDate', version: r.version }
-        : { phase: 'idle' };
-    case 'available':
-      return typeof r.version === 'string'
-        ? { phase: 'available', version: r.version }
-        : { phase: 'idle' };
-    case 'downloading':
-      return typeof r.version === 'string' &&
-        typeof r.received === 'number' &&
-        typeof r.total === 'number'
-        ? { phase: 'downloading', version: r.version, received: r.received, total: r.total }
-        : { phase: 'idle' };
-    case 'staged':
-      return typeof r.version === 'string'
-        ? { phase: 'staged', version: r.version }
-        : { phase: 'idle' };
-    case 'error':
-      return typeof r.message === 'string'
-        ? { phase: 'error', message: r.message }
-        : { phase: 'idle' };
-    default:
-      return { phase: 'idle' };
-  }
-}
-
-export const useUpdateStore = create<{ state: UpdateUiState }>(() => ({
+export const useUpdateStore = create<{ state: UpdateState }>(() => ({
   state: { phase: 'idle' },
 }));
 
@@ -69,6 +28,6 @@ let updateBridgeWired = false;
 export function wireUpdateBridge(): void {
   if (updateBridgeWired) return;
   updateBridgeWired = true;
-  void updateService.getState().then((s) => useUpdateStore.setState({ state: asUpdateUiState(s) }));
-  updateService.onState((s) => useUpdateStore.setState({ state: asUpdateUiState(s) }));
+  void updateService.getState().then((state) => useUpdateStore.setState({ state }));
+  updateService.onState((state) => useUpdateStore.setState({ state }));
 }
