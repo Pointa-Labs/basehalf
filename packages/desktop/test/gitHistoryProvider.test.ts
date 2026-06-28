@@ -123,10 +123,14 @@ describe('gitHistoryProvider', () => {
     await expect(provider.resolveHistoryItem('abc')).resolves.toMatchObject({ id: 'abc' });
     await expect(
       provider.resolveHistoryItemRefsCommonAncestor(['main', 'origin/main']),
-    ).resolves.toBe('main+origin/main-base');
+    ).resolves.toBe('refs/heads/main+refs/remotes/origin/main-base');
     expect(logArgs).toEqual([
       { ref: 'feature/x', maxCount: 20, skip: 5 },
-      { refNames: ['main', 'origin/main'], maxCount: 30, skip: undefined },
+      {
+        refNames: ['refs/heads/main', 'refs/remotes/origin/main'],
+        maxCount: 30,
+        skip: undefined,
+      },
       { ref: 'abc', maxCount: 1 },
     ]);
   });
@@ -184,5 +188,60 @@ describe('gitHistoryProvider', () => {
         description: undefined,
       },
     ]);
+  });
+
+  it('adds an inferred base ref for Auto history and resolves the current common ancestor via remote', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/feature/scm',
+        name: 'feature/scm',
+        type: 'head',
+        current: true,
+        commit: 'feature',
+      },
+      {
+        id: 'refs/remotes/origin/feature/scm',
+        name: 'origin/feature/scm',
+        type: 'remoteHead',
+        current: false,
+        commit: 'remote',
+      },
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        commit: 'base',
+      },
+    ];
+    const calls: string[][] = [];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'feature/scm',
+        detached: false,
+        upstream: 'origin/feature/scm',
+        ahead: 1,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async () => ({ commits: [] }),
+      commitFiles: async () => [],
+      mergeBase: async (historyItemRefs) => {
+        calls.push([...historyItemRefs]);
+        return 'merge-base';
+      },
+    });
+
+    await expect(provider.provideCurrentHistoryItemRefs()).resolves.toMatchObject({
+      historyItemRef: { id: 'refs/heads/feature/scm', revision: 'feature' },
+      historyItemRemoteRef: { id: 'refs/remotes/origin/feature/scm', revision: 'remote' },
+      historyItemBaseRef: { id: 'refs/remotes/origin/main', revision: 'base' },
+    });
+    await expect(provider.resolveHistoryItemRefsCommonAncestor(['feature/scm'])).resolves.toBe(
+      'merge-base',
+    );
+    expect(calls).toEqual([['refs/heads/feature/scm', 'refs/remotes/origin/feature/scm']]);
   });
 });

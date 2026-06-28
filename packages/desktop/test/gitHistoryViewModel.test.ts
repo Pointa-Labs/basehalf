@@ -98,6 +98,11 @@ describe('gitHistoryViewModel', () => {
       provideCurrentHistoryItemRefs: async () => ({
         historyItemRef: ref('refs/heads/main', 'main', 'head'),
         historyItemRemoteRef: ref('refs/remotes/origin/main', 'origin/main', 'remoteHead'),
+        historyItemBaseRef: {
+          id: 'refs/remotes/origin/release',
+          name: 'origin/release',
+          revision: '1234567',
+        },
       }),
       provideGitRefs: async (args?: unknown) => {
         refArgs.push(args);
@@ -130,7 +135,7 @@ describe('gitHistoryViewModel', () => {
       skip: 0,
     });
     expect(commitOptions.at(-1)).toEqual({
-      historyItemRefs: ['refs/heads/main', 'refs/remotes/origin/main'],
+      historyItemRefs: ['refs/heads/main', 'refs/remotes/origin/main', '1234567'],
       limit: 2,
       skip: 0,
     });
