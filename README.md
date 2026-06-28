@@ -144,17 +144,21 @@ pnpm --filter @basehalf/desktop dev
 From the app, **Open Folder** registers a real folder as a workspace (path is
 identity — re-opening one just switches to it), scaffolds the `.bh/` mirror, and
 installs the agent-protocol hint into the folder's `CLAUDE.md` + `AGENTS.md`.
-Everything the app does goes through `@basehalf/core`'s `run(command, args)` —
-the one door; there is no separate CLI binary. Your agent then reads the
-published `.bh/` mirror (starting from `.bh/current_focus.yaml`) directly.
+The desktop app is the main product surface: renderer workbench parts talk to
+Electron main-process services and provider-style integrations over narrow
+protocols, following VS Code's architecture. The historical `@basehalf/core`
+package remains for legacy package history/tests, but new desktop work should
+not add business logic there merely to preserve the old "one door" shape. Your
+agent reads the published `.bh/` mirror (starting from
+`.bh/current_focus.yaml`) directly.
 
 ## Repo Layout
 
 ```text
 packages/
-  core/             kernel + first-party modules
+  core/             legacy command registry + historical first-party modules
     src/
-      index.ts        createCore() - the one door
+      index.ts        createCore() legacy command registry
       kernel/         registry, context, fs abstraction, mirror store, command types
       modules/
         workspace/    workspace registry + local file access
@@ -164,19 +168,21 @@ packages/
         adhd/         per-file adhd.yaml reading aids
         search/       full-text content search over workspace files
         watcher/      chokidar reconciliation for local filesystem changes
-  desktop/          Electron + React shell over core via IPC
+  desktop/          Electron + React workbench, main-process services, providers
 docs/             decisions, dependency policy, trademark policy
 ```
 
 ## Architecture Principles
 
-1. **One door.** All operations go through `@basehalf/core`'s
-   `run(command, args)`. The desktop UI, watcher, and any future MCP/CLI shell
-   stay thin.
-2. **Module isolation.** Modules live under `packages/core/src/modules/<name>/`
-   and compose through `ctx.run`.
-3. **Use the context filesystem.** Core modules use `ctx.fs`, so tests can swap
-   in a mock implementation.
+1. **VS Code-shaped boundaries.** Prefer workbench/browser UI parts, renderer
+   services, Electron main-process services, provider integrations, and narrow
+   shared protocols over new desktop behavior in `@basehalf/core`.
+2. **Provider isolation.** Source control, GitHub, workspace, mirror, settings,
+   and search behavior should sit behind explicit service/provider interfaces
+   that tests can replace.
+3. **Legacy core stays stable.** Existing core modules may remain for package
+   history and tests. When editing them, keep behavior stable and do not deepen
+   desktop coupling to `ctx.run`.
 4. **User files are content truth.** Your files remain the source; `.bh/` is the
    derived mirror (and `.bh/cache/` is rebuildable, gitignored).
 5. **Publish simple local context.** BaseHalf writes a small YAML mirror to disk
