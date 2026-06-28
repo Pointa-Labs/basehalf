@@ -2,7 +2,7 @@ import type {
   CommandPaletteFileEntry,
   CommandPaletteGitCommit,
   CommandPaletteGitRefInfo,
-} from './commandPaletteModel.js';
+} from '../../common/quickaccess/commandPaletteModel.js';
 import type { CommandPaletteSearchHit } from './commandPaletteProviders.js';
 
 export const COMMAND_PALETTE_CONTENT_QUERY_MIN_LENGTH = 3;

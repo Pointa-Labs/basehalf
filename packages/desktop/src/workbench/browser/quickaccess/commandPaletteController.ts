@@ -14,11 +14,11 @@ import {
   type IQuickPickItem,
   quickInputService,
 } from '../../../platform/quickinput/browser/quickInputService.js';
-import { isImeComposing } from '../ui/imeGuard.js';
 import {
   type CommandPaletteAction,
   reconcileCommandPaletteSelection,
-} from './commandPaletteModel.js';
+} from '../../common/quickaccess/commandPaletteModel.js';
+import { isImeComposing } from '../ui/imeGuard.js';
 
 export const commandPaletteListId = 'bh-command-palette-list';
 export const commandPaletteOptionId = (idx: number): string => `bh-command-palette-option-${idx}`;

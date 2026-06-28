@@ -11,7 +11,7 @@ import {
 import type {
   CommandPaletteGitCommit,
   CommandPaletteGitRefInfo,
-} from '../src/workbench/browser/quickaccess/commandPaletteModel.js';
+} from '../src/workbench/common/quickaccess/commandPaletteModel.js';
 
 const branch = (
   name: string,

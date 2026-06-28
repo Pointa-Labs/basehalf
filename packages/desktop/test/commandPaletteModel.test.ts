@@ -1,11 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type CommandPaletteAction,
-  filterCommandPaletteActions,
-  moveCommandPaletteSelection,
-  reconcileCommandPaletteSelection,
-} from '../src/workbench/browser/quickaccess/commandPaletteModel.js';
-import {
   COMMANDS_QUICK_ACCESS_ID,
   COMMANDS_QUICK_ACCESS_PREFIX,
   COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS,
@@ -15,6 +9,12 @@ import {
   buildGitEntityActions,
   commandPaletteProviderIncludesAdditionalPicks,
 } from '../src/workbench/browser/quickaccess/commandPaletteProviders.js';
+import {
+  type CommandPaletteAction,
+  filterCommandPaletteActions,
+  moveCommandPaletteSelection,
+  reconcileCommandPaletteSelection,
+} from '../src/workbench/common/quickaccess/commandPaletteModel.js';
 import { checkoutTargetForRef } from '../src/workbench/contrib/scm/browser/branchCheckoutModel.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';

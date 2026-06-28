@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
+import type { CommandPaletteAction, IMatch } from '../../common/quickaccess/commandPaletteModel.js';
 import { color, font, radius, space, transition } from '../style/design.js';
-import type { CommandPaletteAction, IMatch } from './commandPaletteModel.js';
 import { highlightSegments } from './highlightSegments.js';
 
 function renderHighlighted(text: string, query: string): JSX.Element {

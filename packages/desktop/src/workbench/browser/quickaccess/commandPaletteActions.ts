@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import {
+  type CommandPaletteAction as Action,
+  type IMatch,
+  filterCommandPaletteActions,
+} from '../../common/quickaccess/commandPaletteModel.js';
+import {
   useCommandPaletteContentSearch,
   useCommandPaletteFiles,
   useCommandPaletteGitState,
 } from './commandPaletteData.js';
-import {
-  type CommandPaletteAction as Action,
-  type IMatch,
-  filterCommandPaletteActions,
-} from './commandPaletteModel.js';
 import {
   buildCommandPaletteActions,
   buildContentSearchActions,

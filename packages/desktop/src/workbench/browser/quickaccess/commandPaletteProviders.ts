@@ -2,17 +2,17 @@ import type {
   QuickAccessProviderDescriptor,
   QuickAccessProviderHelp,
 } from '../../../platform/quickinput/common/quickAccess.js';
-import {
-  type CheckoutTarget,
-  checkoutTargetForRef,
-} from '../../contrib/scm/browser/branchCheckoutModel.js';
 import type {
   CommandPaletteAction,
   CommandPaletteFileEntry,
   CommandPaletteGitRefInfo,
   CommandPaletteGitState,
   CommandPaletteWorkspace,
-} from './commandPaletteModel.js';
+} from '../../common/quickaccess/commandPaletteModel.js';
+import {
+  type CheckoutTarget,
+  checkoutTargetForRef,
+} from '../../contrib/scm/browser/branchCheckoutModel.js';
 
 export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.anything';
 export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';

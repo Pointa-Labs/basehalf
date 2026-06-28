@@ -1,4 +1,5 @@
 import type { CSSProperties, JSX } from 'react';
+import type { CommandPaletteAction, IMatch } from '../../common/quickaccess/commandPaletteModel.js';
 import { color, font, motion, radius, shadow, space } from '../style/design.js';
 import { CommandPaletteRow } from './CommandPaletteRow.js';
 import {
@@ -6,7 +7,6 @@ import {
   commandPaletteListId,
   commandPaletteOptionId,
 } from './commandPaletteController.js';
-import type { CommandPaletteAction, IMatch } from './commandPaletteModel.js';
 
 const backdropStyle: CSSProperties = {
   position: 'fixed',
