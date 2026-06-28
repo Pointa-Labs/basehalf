@@ -1,9 +1,11 @@
 import type { IpcRendererLike } from '../../ipc/electron-sandbox/ipcRenderer.js';
-import { WORKSPACE_IPC_CHANNELS, type WorkspaceChannelBridge } from '../common/workspaces.js';
+import {
+  WORKSPACE_IPC_CHANNELS,
+  type WorkspaceBridge,
+  type WorkspaceChannelBridge,
+} from '../common/workspaces.js';
 
-export interface WorkspaceBridge {
-  readonly workspace: WorkspaceChannelBridge;
-}
+export type { WorkspaceBridge } from '../common/workspaces.js';
 
 export function createWorkspaceBridge(ipcRenderer: IpcRendererLike): WorkspaceBridge {
   return {

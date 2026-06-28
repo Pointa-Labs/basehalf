@@ -1,48 +1,17 @@
+import type { NativeHostService as NativeHostServiceContract } from '../common/native.js';
 import { type NativeHostChannel, nativeHostChannel } from './nativeHostChannel.js';
 
-export interface NativeHostResult {
-  readonly ok: boolean;
-  readonly error?: string;
-}
+export type {
+  NativeHostAppPrefs as AppPrefs,
+  NativeHostAppPrefsPatch as AppPrefsPatch,
+  NativeHostDisposable as Disposable,
+  NativeHostResult,
+  NativeHostService,
+  NativeHostWorkspaceMenuAction as WorkspaceMenuAction,
+  NativeHostZoomAction as ZoomAction,
+} from '../common/native.js';
 
-export interface AppPrefs {
-  readonly autoUpdateCheck: boolean;
-  readonly autoDownloadUpdate: boolean;
-}
-
-export type AppPrefsPatch = Partial<AppPrefs>;
-export type ZoomAction = 'in' | 'out' | 'reset';
-export type WorkspaceMenuAction = 'rename' | 'remove';
-export type Disposable = () => void;
-
-export interface NativeHostService {
-  readonly platform: string;
-  readonly homeDir: string;
-  pickWorkspace(): Promise<string | null>;
-  openWorkspace(name: string): Promise<{ readonly reused: boolean }>;
-  reopenWindow(name: string | null): Promise<void>;
-  getOpenWorkspaces(): Promise<readonly string[]>;
-  notifyWorkspacesChanged(): void;
-  pathKindForFile(file: File): Promise<'file' | 'dir' | null>;
-  pathForFile(file: File): string;
-  openPath(relPath: string): Promise<NativeHostResult>;
-  openExternal(url: string): Promise<NativeHostResult>;
-  suppressNextNativeContextMenu(): void;
-  appVersion(): Promise<string>;
-  getPrefs(): Promise<AppPrefs>;
-  setPrefs(patch: AppPrefsPatch): Promise<AppPrefs>;
-  getZoomFactor(): number;
-  zoomWindow(action: ZoomAction): Promise<void>;
-  onZoomFactor(handler: (factor: number) => void): Disposable;
-  onWorkspacesWindowsChanged(handler: () => void): Disposable;
-  onMenuOpenFolder(handler: () => void): Disposable;
-  onMenuWorkspaceAction(handler: (action: WorkspaceMenuAction) => void): Disposable;
-  onMenuOpenSettings(handler: () => void): Disposable;
-  onMenuCloseTab(handler: () => void): Disposable;
-  onFlushRequest(handler: () => Promise<boolean>): Disposable;
-}
-
-export function createNativeHostService(channel: NativeHostChannel): NativeHostService {
+export function createNativeHostService(channel: NativeHostChannel): NativeHostServiceContract {
   return {
     get platform() {
       return channel.platform;

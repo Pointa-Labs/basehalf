@@ -1,13 +1,5 @@
 import { ipcMain } from 'electron';
-import { type JustInstalled, UPDATE_IPC_CHANNELS, type UpdateState } from '../common/update.js';
-
-export interface UpdateMainService {
-  getState(): UpdateState;
-  check(opts: { background: boolean }): Promise<void>;
-  download(): Promise<void>;
-  install(): Promise<void>;
-  consumeJustInstalled(): JustInstalled | null;
-}
+import { UPDATE_IPC_CHANNELS, type UpdateMainService } from '../common/update.js';
 
 export interface IpcMainHandleLike {
   handle(channel: string, listener: (...args: unknown[]) => unknown): void;

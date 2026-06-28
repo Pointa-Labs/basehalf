@@ -1,5 +1,9 @@
 import { BrowserWindow, type WebContents, ipcMain } from 'electron';
-import { WINDOW_IPC_CHANNELS } from '../common/window.js';
+import {
+  WINDOW_IPC_CHANNELS,
+  parseWindowOpenWorkspaceName,
+  parseWindowReopenWorkspaceName,
+} from '../common/window.js';
 import type { WorkspaceWindowRouterMainService } from './workspaceWindowRouterMainService.js';
 
 type WorkspaceWindowIpcHandler = (event: WorkspaceWindowIpcEvent, payload?: unknown) => unknown;
@@ -32,13 +36,16 @@ export class WorkspaceWindowMainChannel {
 
   register(): void {
     this.ipc.handle(WINDOW_IPC_CHANNELS.workspaceOpen, (event, name) =>
-      this.router.openWorkspaceFromWindow(this.windowLocator.fromWebContents(event.sender), name),
+      this.router.openWorkspaceFromWindow(
+        this.windowLocator.fromWebContents(event.sender),
+        parseWindowOpenWorkspaceName(name),
+      ),
     );
 
     this.ipc.handle(WINDOW_IPC_CHANNELS.workspaceReopen, async (event, name): Promise<void> => {
       await this.router.reopenWorkspaceInWindow(
         this.windowLocator.fromWebContents(event.sender),
-        name,
+        parseWindowReopenWorkspaceName(name),
       );
     });
 

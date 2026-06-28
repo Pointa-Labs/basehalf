@@ -1,5 +1,11 @@
 import { type WebContents, ipcMain, webContents } from 'electron';
-import { TERMINAL_IPC_CHANNELS, type TerminalSpawnOpts } from '../common/terminal.js';
+import {
+  TERMINAL_IPC_CHANNELS,
+  type TerminalKillPayload,
+  type TerminalResizePayload,
+  type TerminalSpawnOptions,
+  type TerminalWritePayload,
+} from '../common/terminal.js';
 import type { TerminalMainService } from '../node/terminalMainService.js';
 
 type TerminalIpcHandler = (event: TerminalIpcEvent, payload?: unknown) => unknown;
@@ -22,21 +28,6 @@ export type TerminalWorkspaceRootResolver = (sender: WebContents) => string | nu
 
 interface TerminalIpcEvent {
   readonly sender: WebContents;
-}
-
-interface TerminalWritePayload {
-  readonly id: string;
-  readonly data: string;
-}
-
-interface TerminalResizePayload {
-  readonly id: string;
-  readonly cols: number;
-  readonly rows: number;
-}
-
-interface TerminalKillPayload {
-  readonly id: string;
 }
 
 /**
@@ -65,22 +56,25 @@ export class TerminalMainChannel {
       this.terminal.spawnTerminal(
         event.sender.id,
         this.getWorkspaceRoot(event.sender),
-        (rawOpts ?? {}) as TerminalSpawnOpts,
+        asTerminalSpawnOptions(rawOpts),
       ),
     );
 
     this.ipc.on(TERMINAL_IPC_CHANNELS.write, (event, rawPayload) => {
-      const payload = rawPayload as TerminalWritePayload;
+      const payload = asTerminalWritePayload(rawPayload);
+      if (payload === null) return;
       this.terminal.writeTerminal(event.sender.id, payload.id, payload.data);
     });
 
     this.ipc.on(TERMINAL_IPC_CHANNELS.resize, (event, rawPayload) => {
-      const payload = rawPayload as TerminalResizePayload;
+      const payload = asTerminalResizePayload(rawPayload);
+      if (payload === null) return;
       this.terminal.resizeTerminal(event.sender.id, payload.id, payload.cols, payload.rows);
     });
 
     this.ipc.on(TERMINAL_IPC_CHANNELS.kill, (event, rawPayload) => {
-      const payload = rawPayload as TerminalKillPayload;
+      const payload = asTerminalKillPayload(rawPayload);
+      if (payload === null) return;
       this.terminal.killTerminal(event.sender.id, payload.id);
     });
   }
@@ -89,4 +83,39 @@ export class TerminalMainChannel {
     const wc = this.wcRegistry.fromId(ownerWcId);
     if (wc && !wc.isDestroyed()) wc.send(channel, payload);
   }
+}
+
+function asTerminalSpawnOptions(raw: unknown): TerminalSpawnOptions {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
+  const out: { cols?: number; rows?: number; cwd?: string } = {};
+  if (typeof record.cols === 'number') out.cols = record.cols;
+  if (typeof record.rows === 'number') out.rows = record.rows;
+  if (typeof record.cwd === 'string') out.cwd = record.cwd;
+  return out;
+}
+
+function asTerminalWritePayload(raw: unknown): TerminalWritePayload | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  return typeof record.id === 'string' && typeof record.data === 'string'
+    ? { id: record.id, data: record.data }
+    : null;
+}
+
+function asTerminalResizePayload(raw: unknown): TerminalResizePayload | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  return typeof record.id === 'string' &&
+    typeof record.cols === 'number' &&
+    typeof record.rows === 'number'
+    ? { id: record.id, cols: record.cols, rows: record.rows }
+    : null;
+}
+
+function asTerminalKillPayload(raw: unknown): TerminalKillPayload | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const record = raw as Record<string, unknown>;
+  return typeof record.id === 'string' ? { id: record.id } : null;
 }

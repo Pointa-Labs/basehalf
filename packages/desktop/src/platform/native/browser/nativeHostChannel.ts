@@ -1,40 +1,8 @@
 import type { BaseHalfSandboxApi } from '../../../code/electron-sandbox/sandboxApi.js';
 import { createLazySandboxChannel } from '../../ipc/browser/sandboxApi.js';
-import type {
-  AppPrefs,
-  AppPrefsPatch,
-  Disposable,
-  NativeHostResult,
-  WorkspaceMenuAction,
-  ZoomAction,
-} from './nativeHostService.js';
+import type { NativeHostChannelBridge } from '../common/native.js';
 
-export interface NativeHostChannel {
-  readonly platform: string;
-  readonly homeDir: string;
-  pickWorkspace(): Promise<string | null>;
-  openWorkspace(name: string): Promise<{ readonly reused: boolean }>;
-  reopenWindow(name: string | null): Promise<void>;
-  getOpenWorkspaces(): Promise<readonly string[]>;
-  notifyWorkspacesChanged(): void;
-  pathKindForFile(file: File): Promise<'file' | 'dir' | null>;
-  pathForFile(file: File): string;
-  openPath(relPath: string): Promise<NativeHostResult>;
-  openExternal(url: string): Promise<NativeHostResult>;
-  suppressNextNativeContextMenu(): void;
-  appVersion(): Promise<string>;
-  getPrefs(): Promise<AppPrefs>;
-  setPrefs(patch: AppPrefsPatch): Promise<AppPrefs>;
-  getZoomFactor(): number;
-  zoomWindow(action: ZoomAction): Promise<void>;
-  onZoomFactor(handler: (factor: number) => void): Disposable;
-  onWorkspacesWindowsChanged(handler: () => void): Disposable;
-  onMenuOpenFolder(handler: () => void): Disposable;
-  onMenuWorkspaceAction(handler: (action: WorkspaceMenuAction) => void): Disposable;
-  onMenuOpenSettings(handler: () => void): Disposable;
-  onMenuCloseTab(handler: () => void): Disposable;
-  onFlushRequest(handler: () => Promise<boolean>): Disposable;
-}
+export interface NativeHostChannel extends NativeHostChannelBridge {}
 
 export function createNativeHostChannel(bridge: BaseHalfSandboxApi): NativeHostChannel {
   return {

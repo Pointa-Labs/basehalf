@@ -9,10 +9,8 @@ import { NativeHostMainChannel } from '../../platform/native/electron-main/nativ
 import type { NativeHostMainService } from '../../platform/native/electron-main/nativeHostMainService.js';
 import { TerminalMainChannel } from '../../platform/terminal/electron-main/terminalMainChannel.js';
 import type { TerminalMainService } from '../../platform/terminal/node/terminalMainService.js';
-import {
-  UpdateMainChannel,
-  type UpdateMainService,
-} from '../../platform/update/electron-main/updateMainChannel.js';
+import type { UpdateMainService } from '../../platform/update/common/update.js';
+import { UpdateMainChannel } from '../../platform/update/electron-main/updateMainChannel.js';
 import { WINDOW_IPC_CHANNELS } from '../../platform/windows/common/window.js';
 import { WorkspaceWindowMainChannel } from '../../platform/windows/electron-main/workspaceWindowMainChannel.js';
 import type { WorkspaceWindowRouterMainService } from '../../platform/windows/electron-main/workspaceWindowRouterMainService.js';

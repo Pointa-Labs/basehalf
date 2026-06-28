@@ -1,7 +1,7 @@
 import { spawn as ptySpawn } from '@lydell/node-pty';
-import type { TerminalSpawnOpts, TerminalSpawnResult } from '../common/terminal.js';
+import type { TerminalSpawnOptions, TerminalSpawnResult } from '../common/terminal.js';
 
-export type { TerminalSpawnOpts, TerminalSpawnResult };
+export type { TerminalSpawnOptions, TerminalSpawnResult };
 
 export interface TerminalDataDispatch {
   readonly ownerWcId: number;
@@ -89,7 +89,7 @@ export class TerminalMainService {
   spawnTerminal(
     ownerWcId: number,
     boundRoot: string | null,
-    opts: TerminalSpawnOpts = {},
+    opts: TerminalSpawnOptions = {},
   ): TerminalSpawnResult {
     const id = `t${this.nextId++}`;
     const cwd = resolveCwd(boundRoot, opts.cwd);

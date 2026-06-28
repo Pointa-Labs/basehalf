@@ -3,58 +3,42 @@ import type {
   IpcRendererLike,
   WebFrameLike,
 } from '../../ipc/electron-sandbox/ipcRenderer.js';
-import { WINDOW_IPC_CHANNELS } from '../common/window.js';
+import {
+  WINDOW_IPC_CHANNELS,
+  type WindowBridge,
+  asWindowFullscreenState,
+  asWindowOpenWorkspaceResult,
+  asWindowOpenWorkspaceRoots,
+  asWindowWorkspaceMenuAction,
+  asWindowZoomFactor,
+} from '../common/window.js';
 
-export interface WindowBridge {
-  openWorkspace(name: string): Promise<{ reused: boolean }>;
-  reopenWindow(name: string | null): Promise<void>;
-  newWindow(): Promise<void>;
-  getOpenWorkspaces(): Promise<string[]>;
-  notifyWorkspacesChanged(): void;
-  onWorkspacesWindowsChanged(handler: () => void): Disposable;
-  onFullscreenChange(handler: (isFullscreen: boolean) => void): Disposable;
-  getZoomFactor(): number;
-  onZoomFactor(handler: (factor: number) => void): Disposable;
-  suppressNextNativeContextMenu(): void;
-  onMenuOpenSettings(handler: () => void): Disposable;
-  onMenuCloseTab(handler: () => void): Disposable;
-  onFlushRequest(handler: () => Promise<boolean>): Disposable;
-  onMenuOpenFolder(handler: () => void): Disposable;
-  onMenuWorkspaceAction(handler: (action: 'rename' | 'remove') => void): Disposable;
-}
+export type { WindowBridge } from '../common/window.js';
 
 export function createWindowBridge(
   ipcRenderer: IpcRendererLike,
   webFrame: WebFrameLike,
 ): WindowBridge {
   return {
-    openWorkspace: (name) =>
-      ipcRenderer.invoke(WINDOW_IPC_CHANNELS.workspaceOpen, name) as Promise<{ reused: boolean }>,
+    openWorkspace: async (name) =>
+      asWindowOpenWorkspaceResult(
+        await ipcRenderer.invoke(WINDOW_IPC_CHANNELS.workspaceOpen, name),
+      ),
     reopenWindow: (name) =>
       ipcRenderer.invoke(WINDOW_IPC_CHANNELS.workspaceReopen, name) as Promise<void>,
     newWindow: () => ipcRenderer.invoke(WINDOW_IPC_CHANNELS.newWindow) as Promise<void>,
-    getOpenWorkspaces: () =>
-      ipcRenderer.invoke(WINDOW_IPC_CHANNELS.openWorkspaces) as Promise<string[]>,
+    getOpenWorkspaces: async () =>
+      asWindowOpenWorkspaceRoots(await ipcRenderer.invoke(WINDOW_IPC_CHANNELS.openWorkspaces)),
     notifyWorkspacesChanged: () => {
       ipcRenderer.send(WINDOW_IPC_CHANNELS.workspacesChanged);
     },
     onWorkspacesWindowsChanged: (handler) =>
       onVoid(ipcRenderer, WINDOW_IPC_CHANNELS.workspaceWindowsChanged, handler),
-    onFullscreenChange: (handler) => {
-      const wrapped = (_e: unknown, isFullscreen: unknown): void => {
-        handler(Boolean(isFullscreen));
-      };
-      ipcRenderer.on(WINDOW_IPC_CHANNELS.fullscreen, wrapped);
-      return () => ipcRenderer.off(WINDOW_IPC_CHANNELS.fullscreen, wrapped);
-    },
+    onFullscreenChange: (handler) =>
+      onPayload(ipcRenderer, WINDOW_IPC_CHANNELS.fullscreen, asWindowFullscreenState, handler),
     getZoomFactor: () => webFrame.getZoomFactor(),
-    onZoomFactor: (handler) => {
-      const wrapped = (_e: unknown, factor: unknown): void => {
-        if (typeof factor === 'number') handler(factor);
-      };
-      ipcRenderer.on(WINDOW_IPC_CHANNELS.zoomFactor, wrapped);
-      return () => ipcRenderer.off(WINDOW_IPC_CHANNELS.zoomFactor, wrapped);
-    },
+    onZoomFactor: (handler) =>
+      onPayload(ipcRenderer, WINDOW_IPC_CHANNELS.zoomFactor, asWindowZoomFactor, handler),
     suppressNextNativeContextMenu: () => {
       ipcRenderer.sendSync(WINDOW_IPC_CHANNELS.suppressNextContextMenu);
     },
@@ -72,18 +56,32 @@ export function createWindowBridge(
       return () => ipcRenderer.off(WINDOW_IPC_CHANNELS.flushRequest, wrapped);
     },
     onMenuOpenFolder: (handler) => onVoid(ipcRenderer, WINDOW_IPC_CHANNELS.menuOpenFolder, handler),
-    onMenuWorkspaceAction: (handler) => {
-      const wrapped = (_e: unknown, action: unknown): void => {
-        if (action === 'rename' || action === 'remove') handler(action);
-      };
-      ipcRenderer.on(WINDOW_IPC_CHANNELS.menuWorkspaceAction, wrapped);
-      return () => ipcRenderer.off(WINDOW_IPC_CHANNELS.menuWorkspaceAction, wrapped);
-    },
+    onMenuWorkspaceAction: (handler) =>
+      onPayload(
+        ipcRenderer,
+        WINDOW_IPC_CHANNELS.menuWorkspaceAction,
+        asWindowWorkspaceMenuAction,
+        handler,
+      ),
   };
 }
 
 function onVoid(ipcRenderer: IpcRendererLike, channel: string, handler: () => void): Disposable {
   const wrapped = (): void => handler();
+  ipcRenderer.on(channel, wrapped);
+  return () => ipcRenderer.off(channel, wrapped);
+}
+
+function onPayload<T>(
+  ipcRenderer: IpcRendererLike,
+  channel: string,
+  parse: (payload: unknown) => T | null,
+  handler: (payload: T) => void,
+): Disposable {
+  const wrapped = (_e: unknown, raw: unknown): void => {
+    const payload = parse(raw);
+    if (payload !== null) handler(payload);
+  };
   ipcRenderer.on(channel, wrapped);
   return () => ipcRenderer.off(channel, wrapped);
 }

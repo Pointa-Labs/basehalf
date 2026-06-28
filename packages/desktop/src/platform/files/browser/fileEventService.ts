@@ -1,15 +1,13 @@
-import type { WorkspaceFileEvent } from '../common/files.js';
+import type { FileEventService as FileEventServiceContract } from '../common/files.js';
 import { type FileEventChannel, fileEventChannel } from './fileEventChannel.js';
 
-export type { WorkspaceFileEvent };
+export type {
+  FileEventService,
+  FileEventSubscription,
+  WorkspaceFileEvent,
+} from '../common/files.js';
 
-export type FileEventSubscription = () => void;
-
-export interface FileEventService {
-  onDidChangeFiles(handler: (event: WorkspaceFileEvent) => void): FileEventSubscription;
-}
-
-export function createFileEventService(channel: FileEventChannel): FileEventService {
+export function createFileEventService(channel: FileEventChannel): FileEventServiceContract {
   return {
     onDidChangeFiles: (handler) => channel.onDidChangeFiles(handler),
   };

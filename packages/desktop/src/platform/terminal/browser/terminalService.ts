@@ -1,32 +1,20 @@
+import {
+  type TerminalChannelBridge,
+  type TerminalRawSpawnResult,
+  type TerminalSpawnOptions,
+  type TerminalSpawnResult,
+  normalizeTerminalSpawnResult,
+} from '../common/terminal.js';
 import { type TerminalChannel, terminalChannel } from './terminalChannel.js';
 
-export type TerminalSubscription = () => void;
-
-export interface TerminalSpawnOptions {
-  readonly cols?: number;
-  readonly rows?: number;
-  readonly cwd?: string;
-}
-
-export type TerminalSpawnResult =
-  | string
-  | {
-      readonly id: string;
-      readonly cwd: string;
-    };
-
-export interface TerminalService {
+export interface TerminalService extends TerminalChannelBridge {
   spawn(opts?: TerminalSpawnOptions): Promise<TerminalSpawnResult>;
-  write(id: string, data: string): void;
-  resize(id: string, cols: number, rows: number): void;
-  kill(id: string): void;
-  onData(handler: (id: string, data: string) => void): TerminalSubscription;
-  onExit(handler: (id: string, exitCode: number) => void): TerminalSubscription;
 }
 
 export function createTerminalService(channel: TerminalChannel): TerminalService {
   return {
-    spawn: (opts) => channel.spawn(opts),
+    spawn: async (opts) =>
+      normalizeTerminalSpawnResult((await channel.spawn(opts)) as TerminalRawSpawnResult),
     write: (id, data) => channel.write(id, data),
     resize: (id, cols, rows) => channel.resize(id, cols, rows),
     kill: (id) => channel.kill(id),

@@ -1,6 +1,5 @@
 import { type WebContents, ipcMain } from 'electron';
-import { SETTINGS_IPC_CHANNELS } from '../common/configuration.js';
-import type { SettingValue } from '../common/configuration.js';
+import { SETTINGS_IPC_CHANNELS, asSettingsSetPayload } from '../common/configuration.js';
 import type { SettingsMainService } from './configurationMainService.js';
 
 type SettingsIpcHandler = (event: SettingsIpcEvent, payload?: unknown) => unknown;
@@ -46,11 +45,13 @@ export class SettingsMainChannel {
       this.settings.get(this.root(event), key as string),
     );
     this.ipc.handle(SETTINGS_IPC_CHANNELS.setGlobal, (event, payload) => {
-      const p = payload as { key: string; value: SettingValue };
+      const p = asSettingsSetPayload(payload);
+      if (p === null) throw new Error('Invalid settings:set-global payload');
       return this.settings.setGlobal(this.root(event), p.key, p.value);
     });
     this.ipc.handle(SETTINGS_IPC_CHANNELS.setWorkspace, (event, payload) => {
-      const p = payload as { key: string; value: SettingValue };
+      const p = asSettingsSetPayload(payload);
+      if (p === null) throw new Error('Invalid settings:set-workspace payload');
       return this.settings.setWorkspace(this.root(event), p.key, p.value);
     });
     this.ipc.handle(SETTINGS_IPC_CHANNELS.clearWorkspace, (event, key) =>

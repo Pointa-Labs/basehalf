@@ -1,71 +1,9 @@
-import type {
-  WorkspaceAddArgs,
-  WorkspaceAddResult,
-  WorkspaceCreateDemoArgs,
-  WorkspaceCreateDemoResult,
-  WorkspaceCreateFileArgs,
-  WorkspaceCreateFileResult,
-  WorkspaceCreateFolderResult,
-  WorkspaceDeleteEntryResult,
-  WorkspaceEnsureSetupResult,
-  WorkspaceImportFileResult,
-  WorkspaceListCanvasResult,
-  WorkspaceListFilesResult,
-  WorkspaceListResult,
-  WorkspaceListSupportedFilesResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
-  WorkspaceRenameEntryResult,
-  WorkspaceRenameFileResult,
-  WorkspaceRenameResult,
-  WorkspaceRepathResult,
-  WorkspaceSetViewportArgs,
-  WorkspaceWriteFileResult,
-} from '../common/workspaces.js';
+import type { WorkspaceService as WorkspaceServiceContract } from '../common/workspaces.js';
 import { type WorkspaceChannel, workspaceChannel } from './workspaceChannel.js';
 
-export interface WorkspaceService {
-  startWatcher(): Promise<void>;
-  listWorkspaces(): Promise<WorkspaceListResult>;
-  probePath(path: string): Promise<void>;
-  ensureSetup(): Promise<WorkspaceEnsureSetupResult>;
-  addWorkspace(path: string, options?: Omit<WorkspaceAddArgs, 'path'>): Promise<WorkspaceAddResult>;
-  createDemo(
-    path: string,
-    options?: Omit<WorkspaceCreateDemoArgs, 'path'>,
-  ): Promise<WorkspaceCreateDemoResult>;
-  removeWorkspace(name: string): Promise<void>;
-  relocateWorkspace(
-    name: string,
-    path: string,
-    options?: { setup?: boolean },
-  ): Promise<WorkspaceRepathResult>;
-  renameWorkspace(from: string, to: string): Promise<WorkspaceRenameResult>;
-  listFiles(path: string): Promise<WorkspaceListFilesResult>;
-  listCanvas(folder: string | null): Promise<WorkspaceListCanvasResult>;
-  listSupportedFiles(folder: string | null): Promise<readonly string[]>;
-  readFile(
-    path: string,
-    options?: Omit<WorkspaceReadFileArgs, 'path'>,
-  ): Promise<WorkspaceReadFileResult>;
-  writeFile(path: string, content: string): Promise<WorkspaceWriteFileResult>;
-  renameFile(from: string, to: string): Promise<WorkspaceRenameFileResult>;
-  importFile(from: string, to?: string | null): Promise<WorkspaceImportFileResult>;
-  createFile(
-    path: string,
-    options?: Omit<WorkspaceCreateFileArgs, 'path'>,
-  ): Promise<WorkspaceCreateFileResult>;
-  createFolder(path: string): Promise<WorkspaceCreateFolderResult>;
-  renameEntry(
-    from: string,
-    to: string,
-    kind: 'file' | 'folder',
-  ): Promise<WorkspaceRenameEntryResult>;
-  deleteEntry(path: string, kind: 'file' | 'folder'): Promise<WorkspaceDeleteEntryResult>;
-  setViewport(viewport: WorkspaceSetViewportArgs['viewport']): Promise<void>;
-}
+export type { WorkspaceService } from '../common/workspaces.js';
 
-export function createWorkspaceService(channel: WorkspaceChannel): WorkspaceService {
+export function createWorkspaceService(channel: WorkspaceChannel): WorkspaceServiceContract {
   return {
     startWatcher: async () => {
       await channel.startWatcher();
@@ -85,9 +23,7 @@ export function createWorkspaceService(channel: WorkspaceChannel): WorkspaceServ
     listFiles: (path) => channel.listFiles({ path }),
     listCanvas: (folder) => channel.listCanvas({ folder }),
     listSupportedFiles: async (folder) => {
-      const result: WorkspaceListSupportedFilesResult = await channel.listSupportedFiles({
-        folder,
-      });
+      const result = await channel.listSupportedFiles({ folder });
       return result.files;
     },
     readFile: (path, options = {}) => channel.readFile({ path, ...options }),

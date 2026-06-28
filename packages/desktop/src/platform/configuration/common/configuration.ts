@@ -47,3 +47,23 @@ export interface SettingsChannelBridge {
   setWorkspace(key: string, value: SettingValue): Promise<SettingInspect>;
   clearWorkspace(key: string): Promise<SettingInspect>;
 }
+
+export interface SettingsService extends SettingsChannelBridge {}
+
+export interface SettingsBridge {
+  readonly settings: SettingsChannelBridge;
+}
+
+export interface SettingsSetPayload {
+  readonly key: string;
+  readonly value: SettingValue;
+}
+
+export function asSettingsSetPayload(raw: unknown): SettingsSetPayload | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const value = raw as Record<string, unknown>;
+  if (typeof value.key === 'string' && typeof value.value === 'boolean') {
+    return { key: value.key, value: value.value };
+  }
+  return null;
+}

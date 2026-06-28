@@ -47,4 +47,17 @@ describe('terminalService', () => {
       { name: 'onExit', args: [onExit] },
     ]);
   });
+
+  it('normalizes legacy string spawn results at the browser service boundary', async () => {
+    const service = createTerminalService({
+      spawn: async () => 'legacy-id' as never,
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined,
+      onData: () => () => undefined,
+      onExit: () => () => undefined,
+    });
+
+    await expect(service.spawn()).resolves.toEqual({ id: 'legacy-id' });
+  });
 });

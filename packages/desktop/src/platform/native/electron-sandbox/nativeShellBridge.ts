@@ -3,17 +3,14 @@ import type {
   PreloadProcessEnv,
   WebUtilsLike,
 } from '../../ipc/electron-sandbox/ipcRenderer.js';
-import { NATIVE_HOST_IPC_CHANNELS, type NativeHostPathKind } from '../common/native.js';
+import {
+  NATIVE_HOST_IPC_CHANNELS,
+  type NativeHostPathKind,
+  type NativeHostResult,
+  type NativeShellBridge,
+} from '../common/native.js';
 
-export interface NativeShellBridge {
-  pickWorkspace(): Promise<string | null>;
-  pathKindForFile(file: File): Promise<NativeHostPathKind>;
-  pathForFile(file: File): string;
-  openPath(relPath: string): Promise<{ ok: boolean; error?: string }>;
-  openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
-  readonly platform: NodeJS.Platform;
-  readonly homeDir: string;
-}
+export type { NativeShellBridge } from '../common/native.js';
 
 export function createNativeShellBridge(
   ipcRenderer: IpcRendererLike,
@@ -44,15 +41,9 @@ export function createNativeShellBridge(
       }
     },
     openPath: (relPath) =>
-      ipcRenderer.invoke(NATIVE_HOST_IPC_CHANNELS.openPath, relPath) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
+      ipcRenderer.invoke(NATIVE_HOST_IPC_CHANNELS.openPath, relPath) as Promise<NativeHostResult>,
     openExternal: (url) =>
-      ipcRenderer.invoke(NATIVE_HOST_IPC_CHANNELS.openExternal, url) as Promise<{
-        ok: boolean;
-        error?: string;
-      }>,
+      ipcRenderer.invoke(NATIVE_HOST_IPC_CHANNELS.openExternal, url) as Promise<NativeHostResult>,
     platform: env.platform,
     homeDir: env.homeDir,
   };

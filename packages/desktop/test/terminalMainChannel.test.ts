@@ -111,4 +111,32 @@ describe('TerminalMainChannel', () => {
       { id: 7, channel: TERMINAL_IPC_CHANNELS.exit, payload: { id: 't1', exitCode: 0 } },
     ]);
   });
+
+  it('ignores malformed terminal IPC payloads before dispatching to the pty service', async () => {
+    const ipc = fakeIpc();
+    const { service } = fakeTerminalService();
+    new TerminalMainChannel(service, () => '/workspace', ipc).register();
+
+    const event = { sender: { id: 7 } };
+    await ipc.handlers.get(TERMINAL_IPC_CHANNELS.spawn)?.(event, {
+      cols: '80',
+      rows: 24,
+      cwd: '/tmp/demo',
+    });
+    ipc.listeners.get(TERMINAL_IPC_CHANNELS.write)?.(event, { id: 't1' });
+    ipc.listeners.get(TERMINAL_IPC_CHANNELS.resize)?.(event, {
+      id: 't1',
+      cols: '100',
+      rows: 30,
+    });
+    ipc.listeners.get(TERMINAL_IPC_CHANNELS.kill)?.(event, { id: 1 });
+
+    expect(service.spawnTerminal).toHaveBeenCalledWith(7, '/workspace', {
+      rows: 24,
+      cwd: '/tmp/demo',
+    });
+    expect(service.writeTerminal).not.toHaveBeenCalled();
+    expect(service.resizeTerminal).not.toHaveBeenCalled();
+    expect(service.killTerminal).not.toHaveBeenCalled();
+  });
 });

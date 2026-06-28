@@ -70,4 +70,30 @@ describe('WorkspaceWindowMainChannel', () => {
     expect(router.createEmptyWindow).toHaveBeenCalledTimes(1);
     expect(router.refreshWorkspaceSurfaces).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects invalid workspace window IPC payloads before routing', async () => {
+    const ipc = fakeIpc();
+    const win = { webContents: { id: 7 } } as BrowserWindow;
+    const router = {
+      openWorkspaceFromWindow: vi.fn(async () => ({ reused: true })),
+      reopenWorkspaceInWindow: vi.fn(async () => undefined),
+      createEmptyWindow: vi.fn(async () => undefined),
+      getOpenWorkspaceRoots: vi.fn(() => []),
+      refreshWorkspaceSurfaces: vi.fn(),
+    } as unknown as WorkspaceWindowRouterMainService;
+    const windowLocator = { fromWebContents: vi.fn(() => win) };
+    new WorkspaceWindowMainChannel(router, windowLocator, ipc).register();
+
+    const event = { sender: { id: 7 } };
+    const open = ipc.handlers.get(WINDOW_IPC_CHANNELS.workspaceOpen);
+    const reopen = ipc.handlers.get(WINDOW_IPC_CHANNELS.workspaceReopen);
+
+    expect(() => open?.(event, null)).toThrow('window.openWorkspace: name must be a string');
+    await expect(reopen?.(event, 42)).rejects.toThrow(
+      'window.reopenWorkspace: name must be a string or null',
+    );
+
+    expect(router.openWorkspaceFromWindow).not.toHaveBeenCalled();
+    expect(router.reopenWorkspaceInWindow).not.toHaveBeenCalled();
+  });
 });

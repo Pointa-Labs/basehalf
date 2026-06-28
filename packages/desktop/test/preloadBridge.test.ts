@@ -61,6 +61,8 @@ describe('preload bridge modules', () => {
       if (channel === NATIVE_HOST_IPC_CHANNELS.pathKind) return 'file';
       if (channel === SETTINGS_IPC_CHANNELS.prefsGet)
         return { autoUpdateCheck: true, autoDownloadUpdate: false };
+      if (channel === WINDOW_IPC_CHANNELS.workspaceOpen) return { reused: true };
+      if (channel === WINDOW_IPC_CHANNELS.openWorkspaces) return ['/tmp/demo'];
       return { ok: true };
     });
     const webFrame = { getZoomFactor: vi.fn(() => 1.25) };
@@ -70,10 +72,15 @@ describe('preload bridge modules', () => {
       homeDir: '/Users/demo',
     });
     const onSettings = vi.fn();
+    const onFullscreen = vi.fn();
+    const onZoom = vi.fn();
+    const onWorkspaceAction = vi.fn();
 
     expect(bridge.platform).toBe('darwin');
     expect(bridge.homeDir).toBe('/Users/demo');
     await expect(bridge.pickWorkspace()).resolves.toBe('/tmp/demo');
+    await expect(bridge.openWorkspace('demo')).resolves.toEqual({ reused: true });
+    await expect(bridge.getOpenWorkspaces()).resolves.toEqual(['/tmp/demo']);
     const file = { name: 'a.md' } as File;
     await expect(bridge.pathKindForFile(file)).resolves.toBe('file');
     expect(bridge.pathForFile(file)).toBe('/tmp/a.md');
@@ -84,13 +91,33 @@ describe('preload bridge modules', () => {
     const dispose = bridge.onMenuOpenSettings(onSettings);
     ipc.listeners.get(WINDOW_IPC_CHANNELS.menuOpenSettings)?.({});
     dispose();
+    const disposeFullscreen = bridge.onFullscreenChange(onFullscreen);
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.fullscreen)?.({}, true);
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.fullscreen)?.({}, 'true');
+    disposeFullscreen();
+    const disposeZoom = bridge.onZoomFactor(onZoom);
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.zoomFactor)?.({}, 1.5);
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.zoomFactor)?.({}, Number.NaN);
+    disposeZoom();
+    const disposeWorkspaceAction = bridge.onMenuWorkspaceAction(onWorkspaceAction);
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.menuWorkspaceAction)?.({}, 'rename');
+    ipc.listeners.get(WINDOW_IPC_CHANNELS.menuWorkspaceAction)?.({}, 'delete');
+    disposeWorkspaceAction();
 
     expect(ipc.invoke).toHaveBeenCalledWith(NATIVE_HOST_IPC_CHANNELS.pickWorkspace);
+    expect(ipc.invoke).toHaveBeenCalledWith(WINDOW_IPC_CHANNELS.workspaceOpen, 'demo');
+    expect(ipc.invoke).toHaveBeenCalledWith(WINDOW_IPC_CHANNELS.openWorkspaces);
     expect(ipc.invoke).toHaveBeenCalledWith(NATIVE_HOST_IPC_CHANNELS.pathKind, '/tmp/a.md');
     expect(ipc.invoke).toHaveBeenCalledWith(SETTINGS_IPC_CHANNELS.prefsGet);
     expect(ipc.send).toHaveBeenCalledWith(WINDOW_IPC_CHANNELS.workspacesChanged);
     expect(ipc.sendSync).toHaveBeenCalledWith(WINDOW_IPC_CHANNELS.suppressNextContextMenu);
     expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(onFullscreen).toHaveBeenCalledWith(true);
+    expect(onFullscreen).toHaveBeenCalledTimes(1);
+    expect(onZoom).toHaveBeenCalledWith(1.5);
+    expect(onZoom).toHaveBeenCalledTimes(1);
+    expect(onWorkspaceAction).toHaveBeenCalledWith('rename');
+    expect(onWorkspaceAction).toHaveBeenCalledTimes(1);
     expect(ipc.off).toHaveBeenCalledWith(
       WINDOW_IPC_CHANNELS.menuOpenSettings,
       expect.any(Function),
@@ -629,7 +656,7 @@ describe('preload bridge modules', () => {
     ipc.listeners.get(WINDOW_IPC_CHANNELS.flushRequest)?.({});
     await Promise.resolve();
     update.onUpdateState(onUpdate);
-    ipc.listeners.get(UPDATE_IPC_CHANNELS.state)?.({}, { phase: 'ready' });
+    ipc.listeners.get(UPDATE_IPC_CHANNELS.state)?.({}, { phase: 'staged', version: '1.2.3' });
     files.onFileEvent(onFile);
     ipc.listeners.get(WATCHER_IPC_CHANNELS.fileEvent)?.(
       {},
@@ -658,7 +685,7 @@ describe('preload bridge modules', () => {
 
     expect(flush).toHaveBeenCalledTimes(1);
     expect(ipc.send).toHaveBeenCalledWith(WINDOW_IPC_CHANNELS.flushReply, false);
-    expect(onUpdate).toHaveBeenCalledWith({ phase: 'ready' });
+    expect(onUpdate).toHaveBeenCalledWith({ phase: 'staged', version: '1.2.3' });
     expect(onFile).toHaveBeenCalledWith({ type: 'change', relPath: 'a.md', isDir: false });
     expect(onFile).toHaveBeenCalledTimes(1);
     expect(onData).toHaveBeenCalledWith('1', 'hello');

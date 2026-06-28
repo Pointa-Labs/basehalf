@@ -1,9 +1,11 @@
 import type { IpcRendererLike } from '../../ipc/electron-sandbox/ipcRenderer.js';
-import { SETTINGS_IPC_CHANNELS, type SettingsChannelBridge } from '../common/configuration.js';
+import {
+  SETTINGS_IPC_CHANNELS,
+  type SettingsBridge,
+  type SettingsChannelBridge,
+} from '../common/configuration.js';
 
-export interface SettingsBridge {
-  readonly settings: SettingsChannelBridge;
-}
+export type { SettingsBridge } from '../common/configuration.js';
 
 export function createSettingsBridge(ipcRenderer: IpcRendererLike): SettingsBridge {
   return {

@@ -1,17 +1,9 @@
+import type { UpdateService as UpdateServiceContract } from '../common/update.js';
 import { type UpdateChannel, updateChannel } from './updateChannel.js';
 
-type Disposable = () => void;
+export type { UpdateService } from '../common/update.js';
 
-export interface UpdateService {
-  getState(): Promise<unknown>;
-  check(): Promise<void>;
-  download(): Promise<void>;
-  install(): Promise<void>;
-  justInstalled(): Promise<unknown>;
-  onState(handler: (state: unknown) => void): Disposable;
-}
-
-export function createUpdateService(channel: UpdateChannel): UpdateService {
+export function createUpdateService(channel: UpdateChannel): UpdateServiceContract {
   return {
     getState: () => channel.getState(),
     check: () => channel.check(),
