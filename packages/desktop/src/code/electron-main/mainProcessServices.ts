@@ -168,8 +168,11 @@ export function createBaseHalfMainServices(
       badges: badgeService,
     }),
   );
+  const authenticationService = new AuthenticationMainService();
+  const githubAuthenticationProvider = new GithubAuthenticationProvider({ secrets });
+  authenticationService.registerProvider(githubAuthenticationProvider);
   const gitBackend = new GitCliBackendProvider({
-    git: createGithubGitRunner(configDir, secrets),
+    git: createGithubGitRunner(configDir, githubAuthenticationProvider),
     deleteWorkspaceEntry: (workspaceRoot, args) =>
       workspaceService.deleteEntry(workspaceRoot, args),
   });
@@ -193,11 +196,9 @@ export function createBaseHalfMainServices(
     },
   };
   const githubService = new GithubMainService({
-    secrets,
+    tokenProvider: githubAuthenticationProvider,
     remoteProvider: gitRemoteProvider,
   });
-  const authenticationService = new AuthenticationMainService();
-  authenticationService.registerProvider(new GithubAuthenticationProvider(githubService));
 
   function persistWindowState(win: BrowserWindow): void {
     workspaceWindowFactory.persistWindowState(win);

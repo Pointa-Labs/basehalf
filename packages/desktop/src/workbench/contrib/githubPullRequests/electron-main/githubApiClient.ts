@@ -108,12 +108,17 @@ export class GithubApiClient {
 
   async loginFor(token: string): Promise<string | null> {
     if (token.trim() === '') return null;
+    let res: GithubHttpResponse;
     try {
-      const res = await this.request(token, 'GET', '/user');
-      const j = JSON.parse(res.body) as { login?: string };
-      return typeof j.login === 'string' ? j.login : null;
-    } catch {
-      return null;
+      res = await this.request(token, 'GET', '/user');
+    } catch (err) {
+      if (err instanceof Error && /invalid or expired/i.test(err.message)) return null;
+      throw err;
     }
+    const j = JSON.parse(res.body) as { login?: string };
+    if (typeof j.login !== 'string' || j.login === '') {
+      throw new Error('GitHub returned an unexpected user response.');
+    }
+    return j.login;
   }
 }

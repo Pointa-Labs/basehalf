@@ -1,4 +1,3 @@
-import type { SecretStore } from '../../../../platform/secrets/common/secrets.js';
 import type {
   GhPrFile,
   GhPullRequest,
@@ -6,7 +5,6 @@ import type {
   GithubRepo,
 } from '../common/githubPullRequests.js';
 import { GithubApiClient, type GithubHttpRunner, defaultGithubHttp } from './githubApiClient.js';
-import { GITHUB_TOKEN_SECRET_KEY } from './githubGitCredentials.js';
 import { parsePrPayload, parseReviewArgs } from './githubPayloads.js';
 import {
   type GitRemoteInfoLike,
@@ -29,14 +27,16 @@ export {
 } from './githubApiClient.js';
 export { parseGithubRepo, type GitRemoteInfoLike } from './githubRepositoryModel.js';
 
-export type GithubSecretStore = SecretStore;
-
 export interface GitRemoteProvider {
   getRemotes(workspaceRoot: string | null): Promise<readonly GitRemoteInfoLike[]>;
 }
 
+export interface GithubTokenProvider {
+  getToken(): Promise<string | null>;
+}
+
 export interface GithubMainServiceOptions {
-  readonly secrets: GithubSecretStore;
+  readonly tokenProvider: GithubTokenProvider;
   readonly remoteProvider: GitRemoteProvider;
   readonly http?: GithubHttpRunner;
 }
@@ -140,30 +140,8 @@ export class GithubMainService {
     });
   }
 
-  async signIn(token: unknown): Promise<string | null> {
-    if (typeof token !== 'string') throw new Error('The GitHub token is invalid.');
-    const login = await this.api.loginFor(token);
-    if (login === null) {
-      throw new Error(
-        'The GitHub token is invalid or missing permissions (repo access is required for private repositories and pull request reviews).',
-      );
-    }
-    await this.opts.secrets.set(GITHUB_TOKEN_SECRET_KEY, token);
-    return login;
-  }
-
-  async signOut(): Promise<void> {
-    await this.opts.secrets.delete(GITHUB_TOKEN_SECRET_KEY);
-  }
-
-  async viewer(): Promise<string | null> {
-    const token = await this.opts.secrets.get(GITHUB_TOKEN_SECRET_KEY);
-    if (token === null) return null;
-    return this.api.loginFor(token);
-  }
-
   private async requireToken(): Promise<string> {
-    const token = await this.opts.secrets.get(GITHUB_TOKEN_SECRET_KEY);
+    const token = await this.opts.tokenProvider.getToken();
     if (token === null || token.trim() === '') {
       throw new Error('Not signed in to GitHub. Sign in from Settings.');
     }

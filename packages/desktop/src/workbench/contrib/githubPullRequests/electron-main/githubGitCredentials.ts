@@ -1,12 +1,21 @@
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { type Server, createServer } from 'node:http';
 import { dirname, join } from 'node:path';
-import type { SecretStore } from '../../../../platform/secrets/common/secrets.js';
 import type { GitRunner } from '../../scm/common/git.js';
 import { systemGit } from '../../scm/electron-main/systemGit.js';
 
 export const GITHUB_TOKEN_SECRET_KEY = 'github.token';
 
-export type { SecretStore };
+export interface GithubCredentialsTokenProvider {
+  getToken(): Promise<string | null>;
+}
+
+export interface GithubAskpassBroker {
+  readonly url: string;
+  readonly authToken: string;
+  dispose(): Promise<void>;
+}
 
 export const GITHUB_ASKPASS_SCRIPT = `#!/bin/sh
 host_from_prompt() {
@@ -27,7 +36,13 @@ case "$(host_from_prompt "$*")" in
   github.com|api.github.com)
     case "$*" in
       *Username*) printf '%s\\n' "\${BH_GIT_ASKPASS_USERNAME:-x-access-token}" ;;
-      *Password*) printf '%s\\n' "\${BH_GIT_ASKPASS_PASSWORD}" ;;
+      *Password*)
+        if command -v curl >/dev/null 2>&1 && [ -n "\${BH_GIT_ASKPASS_URL}" ] && [ -n "\${BH_GIT_ASKPASS_TOKEN}" ]; then
+          curl --fail --silent --max-time 5 -H "Authorization: Bearer \${BH_GIT_ASKPASS_TOKEN}" "\${BH_GIT_ASKPASS_URL}/password" || printf '\\n'
+        else
+          printf '\\n'
+        fi
+        ;;
       *) printf '\\n' ;;
     esac
     ;;
@@ -44,14 +59,15 @@ export function isRemoteGitCommand(args: readonly string[]): boolean {
 
 export function githubAskpassEnv(
   scriptPath: string,
-  token: string,
+  broker: Pick<GithubAskpassBroker, 'url' | 'authToken'>,
 ): Readonly<Record<string, string>> {
   return {
     GIT_ASKPASS: scriptPath,
     GIT_TERMINAL_PROMPT: '0',
     GIT_HTTP_USER_AGENT: 'BaseHalf',
     BH_GIT_ASKPASS_USERNAME: 'x-access-token',
-    BH_GIT_ASKPASS_PASSWORD: token,
+    BH_GIT_ASKPASS_URL: broker.url,
+    BH_GIT_ASKPASS_TOKEN: broker.authToken,
   };
 }
 
@@ -99,6 +115,10 @@ async function shouldInjectGithubAskpass(
   const directUrl = args.find((arg) => gitUrlHost(arg) !== null);
   if (directUrl !== undefined) return isGithubUrl(directUrl);
 
+  if (args[0] === 'fetch' && (args.includes('--all') || args.includes('--multiple'))) {
+    return hasGithubFetchRemote(args, opts, base);
+  }
+
   const remote = remoteNameForGitCommand(args);
   if (remote === null || gitUrlHost(remote) !== null) return remote !== null && isGithubUrl(remote);
 
@@ -117,6 +137,33 @@ export async function ensureGithubAskpassScript(configDir: string): Promise<stri
   return scriptPath;
 }
 
+export async function createGithubAskpassBroker(secret: string): Promise<GithubAskpassBroker> {
+  const authToken = randomUUID();
+  const server = createServer((req, res) => {
+    if (req.method !== 'GET' || req.url !== '/password') {
+      res.writeHead(404).end();
+      return;
+    }
+    if (req.headers.authorization !== `Bearer ${authToken}`) {
+      res.writeHead(403).end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(secret);
+  });
+  await listenLocalhost(server);
+  const address = server.address();
+  if (typeof address !== 'object' || address === null) {
+    await closeServer(server);
+    throw new Error('Failed to start GitHub askpass broker.');
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    authToken,
+    dispose: () => closeServer(server),
+  };
+}
+
 /**
  * Desktop-side GitHub credentials provider for git.exe/git. This mirrors VS Code's
  * Git extension askpass boundary: the renderer never receives the token, and the
@@ -124,25 +171,52 @@ export async function ensureGithubAskpassScript(configDir: string): Promise<stri
  */
 export function createGithubGitRunner(
   configDir: string,
-  secrets: SecretStore,
+  tokenProvider: GithubCredentialsTokenProvider,
   base: GitRunner = systemGit(),
 ): GitRunner {
   return async (args, opts) => {
     if (!isRemoteGitCommand(args)) return base(args, opts);
 
-    const token = await secrets.get(GITHUB_TOKEN_SECRET_KEY);
+    const token = await tokenProvider.getToken();
     if (token === null || token.trim() === '') return base(args, opts);
     if (!(await shouldInjectGithubAskpass(args, opts, base))) return base(args, opts);
 
     const scriptPath = await ensureGithubAskpassScript(configDir);
-    return base(args, {
-      ...opts,
-      env: {
-        ...(opts.env ?? {}),
-        ...githubAskpassEnv(scriptPath, token),
-      },
-    });
+    const broker = await createGithubAskpassBroker(token);
+    try {
+      return await base(args, {
+        ...opts,
+        env: {
+          ...(opts.env ?? {}),
+          ...githubAskpassEnv(scriptPath, broker),
+        },
+      });
+    } finally {
+      await broker.dispose();
+    }
   };
+}
+
+async function listenLocalhost(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const onError = (err: Error): void => {
+      server.off('listening', onListening);
+      reject(err);
+    };
+    const onListening = (): void => {
+      server.off('error', onError);
+      resolve();
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(0, '127.0.0.1');
+  });
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => (err === undefined ? resolve() : reject(err)));
+  });
 }
 
 const GIT_REMOTE_OPTIONS_WITH_VALUE = new Set([
@@ -195,4 +269,49 @@ function gitOptionValue(args: readonly string[], option: string): string | null 
     if (arg.startsWith(prefix)) return arg.slice(prefix.length);
   }
   return null;
+}
+
+async function hasGithubFetchRemote(
+  args: readonly string[],
+  opts: Parameters<GitRunner>[1],
+  base: GitRunner,
+): Promise<boolean> {
+  const remotes = args.includes('--all')
+    ? await allRemoteNames(opts, base)
+    : gitCommandPositionals(args.slice(1));
+  for (const remote of remotes) {
+    if (gitUrlHost(remote) !== null) {
+      if (isGithubUrl(remote)) return true;
+      continue;
+    }
+    if (await remoteResolvesToGithub(remote, opts, base)) return true;
+  }
+  return false;
+}
+
+async function allRemoteNames(
+  opts: Parameters<GitRunner>[1],
+  base: GitRunner,
+): Promise<readonly string[]> {
+  const res = await base(['remote'], {
+    ...opts,
+    acceptExitCodes: [0, 2, 128],
+  });
+  if (res.exitCode !== 0) return [];
+  return res.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+async function remoteResolvesToGithub(
+  remote: string,
+  opts: Parameters<GitRunner>[1],
+  base: GitRunner,
+): Promise<boolean> {
+  const res = await base(['remote', 'get-url', remote], {
+    ...opts,
+    acceptExitCodes: [0, 2, 128],
+  });
+  return res.exitCode === 0 && isGithubUrl(res.stdout.trim());
 }

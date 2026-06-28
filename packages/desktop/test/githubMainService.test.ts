@@ -4,7 +4,7 @@ import {
   type GithubHttpRequest,
   type GithubHttpResponse,
   GithubMainService,
-  type GithubSecretStore,
+  type GithubTokenProvider,
   parseGithubRepo,
 } from '../src/workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 
@@ -23,17 +23,11 @@ function makeFakeHttp(reply: (req: GithubHttpRequest) => Partial<GithubHttpRespo
   return { http, calls };
 }
 
-function secretsWithToken(token: string | null = null): GithubSecretStore {
-  let current = token;
+function tokenProviderWithToken(token: string | null = null): GithubTokenProvider {
+  const current = token;
   return {
-    async get() {
+    async getToken() {
       return current;
-    },
-    async set(_key, value) {
-      current = value;
-    },
-    async delete() {
-      current = null;
     },
   };
 }
@@ -50,7 +44,7 @@ const serviceWithRemotes = (
   options: { http?: (req: GithubHttpRequest) => Promise<GithubHttpResponse>; token?: string } = {},
 ): GithubMainService =>
   new GithubMainService({
-    secrets: secretsWithToken(options.token ?? null),
+    tokenProvider: tokenProviderWithToken(options.token ?? null),
     http: options.http,
     remoteProvider: {
       getRemotes: async (workspaceRoot) => {
@@ -271,7 +265,7 @@ describe('GithubMainService pull request API', () => {
 
     const noTokenNeeded = new GithubMainService({
       http,
-      secrets: secretsWithToken(),
+      tokenProvider: tokenProviderWithToken(),
       remoteProvider: emptyRemoteProvider,
     });
     await expect(
@@ -308,39 +302,5 @@ describe('GithubMainService pull request API', () => {
         body: '  ',
       }),
     ).rejects.toThrow(/require a message/);
-  });
-});
-
-describe('GithubMainService signIn / signOut / viewer', () => {
-  it('signIn verifies + stores the token; viewer then reports the login; signOut clears', async () => {
-    const { http } = makeFakeHttp(() => ({ body: '{"login":"ada"}' }));
-    const secrets = secretsWithToken();
-    const service = new GithubMainService({ http, secrets, remoteProvider: emptyRemoteProvider });
-
-    await expect(service.signIn('tok')).resolves.toBe('ada');
-    await expect(secrets.get('github.token')).resolves.toBe('tok');
-    await expect(service.viewer()).resolves.toBe('ada');
-    await service.signOut();
-    await expect(secrets.get('github.token')).resolves.toBeNull();
-    await expect(service.viewer()).resolves.toBeNull();
-  });
-
-  it('signIn rejects an invalid token and does NOT store it', async () => {
-    const { http } = makeFakeHttp(() => ({ status: 401, body: '{"message":"Bad credentials"}' }));
-    const secrets = secretsWithToken();
-    const service = new GithubMainService({ http, secrets, remoteProvider: emptyRemoteProvider });
-    await expect(service.signIn('bad')).rejects.toThrow(/invalid or missing permissions/);
-    await expect(secrets.get('github.token')).resolves.toBeNull();
-  });
-
-  it('viewer is null when nothing is stored (no request)', async () => {
-    const { http, calls } = makeFakeHttp(() => ({}));
-    const service = new GithubMainService({
-      http,
-      secrets: secretsWithToken(),
-      remoteProvider: emptyRemoteProvider,
-    });
-    await expect(service.viewer()).resolves.toBeNull();
-    expect(calls).toHaveLength(0);
   });
 });
