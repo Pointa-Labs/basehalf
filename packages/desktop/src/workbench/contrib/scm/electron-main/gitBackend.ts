@@ -8,6 +8,7 @@ import type {
   GitCreateBranchArgs,
   GitDiffArgs,
   GitDiffResult,
+  GitFetchArgs,
   GitLogArgs,
   GitLogResult,
   GitMergeBaseResult,
@@ -48,14 +49,14 @@ export interface GitBackendProvider {
   push(workspaceRoot: string | null, options?: { readonly force?: boolean }): Promise<void>;
   publish(workspaceRoot: string | null, options?: { readonly remote?: string }): Promise<void>;
   pull(workspaceRoot: string | null, options?: { readonly rebase?: boolean }): Promise<void>;
-  fetch(workspaceRoot: string | null): Promise<void>;
+  fetch(workspaceRoot: string | null, args?: GitFetchArgs): Promise<void>;
   sync(workspaceRoot: string | null): Promise<void>;
   remotes(workspaceRoot: string | null): Promise<GitRemotesResult>;
   reset(workspaceRoot: string | null, args: GitResetArgs): Promise<void>;
   checkout(
     workspaceRoot: string | null,
     branch: string,
-    options?: { readonly force?: boolean; readonly track?: boolean },
+    options?: { readonly detached?: boolean; readonly force?: boolean; readonly track?: boolean },
   ): Promise<void>;
   createBranch(
     workspaceRoot: string | null,
@@ -66,6 +67,12 @@ export interface GitBackendProvider {
   renameCurrentBranch(workspaceRoot: string | null, to: string): Promise<void>;
   deleteBranch(
     workspaceRoot: string | null,
+    name: string,
+    options?: { readonly force?: boolean },
+  ): Promise<void>;
+  deleteRemoteRef(
+    workspaceRoot: string | null,
+    remote: string,
     name: string,
     options?: { readonly force?: boolean },
   ): Promise<void>;

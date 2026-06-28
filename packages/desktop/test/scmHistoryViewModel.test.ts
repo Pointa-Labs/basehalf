@@ -25,10 +25,10 @@ const ref = (id: string, name: string, revision?: string): ScmHistoryItemRef => 
 });
 
 describe('scmHistoryViewModel', () => {
-  it('maps resolved history item refs to provider options without treating display names as revisions', () => {
+  it('maps resolved history item refs to provider options using provider revisions when present', () => {
     expect(
       scmHistoryOptionsForRefs(
-        [ref('refs/heads/main', 'main', 'abc1234'), ref('refs/heads/798', '798', '798')],
+        [ref('refs/heads/main', 'main', 'abc1234'), ref('refs/heads/798', '798')],
         50,
         10,
       ),
@@ -36,6 +36,11 @@ describe('scmHistoryViewModel', () => {
       historyItemRefs: ['abc1234', 'refs/heads/798'],
       limit: 50,
       skip: 10,
+    });
+    expect(scmHistoryOptionsForRefs([ref('refs/heads/topic', 'topic', 'topic^2')], 10, 0)).toEqual({
+      historyItemRefs: ['topic^2'],
+      limit: 10,
+      skip: 0,
     });
   });
 
@@ -67,7 +72,20 @@ describe('scmHistoryViewModel', () => {
       ref('refs/heads/main', 'main'),
       ref('refs/remotes/origin/main', 'origin/main'),
     ]);
-    expect(calls).toEqual([undefined, ['refs/heads/missing']]);
+    await expect(
+      resolveScmHistoryItemRefs(provider, {
+        kind: 'refs',
+        refs: ['refs/heads/main', 'refs/remotes/origin/main'],
+      }),
+    ).resolves.toEqual([
+      ref('refs/heads/main', 'main'),
+      ref('refs/remotes/origin/main', 'origin/main'),
+    ]);
+    expect(calls).toEqual([
+      undefined,
+      ['refs/heads/missing'],
+      ['refs/heads/main', 'refs/remotes/origin/main'],
+    ]);
   });
 
   it('loads pages through the VS Code-style SCM history provider', async () => {
@@ -91,7 +109,7 @@ describe('scmHistoryViewModel', () => {
     await expect(
       loadScmHistoryPage({
         provider,
-        filter: { kind: 'ref', ref: 'refs/heads/main' },
+        filter: { kind: 'refs', refs: ['refs/heads/main'] },
         pageSize: 3,
         skip: 6,
       }),

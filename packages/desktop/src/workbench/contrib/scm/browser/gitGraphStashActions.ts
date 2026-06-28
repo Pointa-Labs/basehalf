@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import type { GitGraphActionDeps } from './gitGraphActionTypes.js';
 
 export function fullGraphStashMenu(ref: string, deps: GitGraphActionDeps): ContextMenuItem[] {

@@ -3,6 +3,7 @@ export {
   checkout,
   createBranch,
   deleteBranch,
+  deleteRemoteRef,
   merge,
   refs,
   renameBranch,

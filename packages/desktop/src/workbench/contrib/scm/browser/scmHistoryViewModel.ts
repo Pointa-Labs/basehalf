@@ -5,10 +5,9 @@ import type {
   ScmHistoryOptions,
   ScmHistoryProvider,
 } from '../common/history.js';
-import type { ScmHistoryFilter } from './scmViewStore.js';
+import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 
 const HEAD_HISTORY_ITEM_REF: ScmHistoryItemRef = { id: 'HEAD', name: 'HEAD' };
-const GIT_OBJECT_ID = /^[0-9a-f]{7,64}$/i;
 
 export interface ScmHistoryPage {
   readonly historyItems: readonly ScmHistoryItem[];
@@ -30,7 +29,7 @@ export function scmHistoryOptionsForRefs(
 }
 
 export function scmHistoryItemRefToProviderRef(ref: ScmHistoryItemRef): string {
-  return ref.revision !== undefined && GIT_OBJECT_ID.test(ref.revision) ? ref.revision : ref.id;
+  return ref.revision !== undefined && ref.revision !== ref.name ? ref.revision : ref.id;
 }
 
 export async function resolveScmHistoryItemRefs(
@@ -42,9 +41,19 @@ export async function resolveScmHistoryItemRefs(
   }
 
   if (filter.kind === 'ref') {
-    const refs = selectedHistoryItemRefs(
-      await provider.provideHistoryItemRefs([filter.ref]),
+    const refs = selectedHistoryItemRefs(await provider.provideHistoryItemRefs([filter.ref]), [
       filter.ref,
+    ]);
+    return refs.length === 0
+      ? currentHistoryItemRefsToArray(await provider.provideCurrentHistoryItemRefs())
+      : refs;
+  }
+
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) {
+    const refs = selectedHistoryItemRefs(
+      await provider.provideHistoryItemRefs(filterRefs),
+      filterRefs,
     );
     return refs.length === 0
       ? currentHistoryItemRefsToArray(await provider.provideCurrentHistoryItemRefs())
@@ -117,10 +126,13 @@ function currentHistoryItemRefsToArray(
 
 function selectedHistoryItemRefs(
   refs: readonly ScmHistoryItemRef[],
-  selectedRef: string,
+  selectedRefs: readonly string[],
 ): readonly ScmHistoryItemRef[] {
-  if (selectedRef.startsWith('refs/')) {
-    return refs.filter((ref) => ref.id === selectedRef);
-  }
-  return refs.filter((ref) => ref.id === selectedRef || ref.name === selectedRef);
+  return refs.filter((ref) =>
+    selectedRefs.some((selectedRef) =>
+      selectedRef.startsWith('refs/')
+        ? ref.id === selectedRef
+        : ref.id === selectedRef || ref.name === selectedRef || ref.revision === selectedRef,
+    ),
+  );
 }

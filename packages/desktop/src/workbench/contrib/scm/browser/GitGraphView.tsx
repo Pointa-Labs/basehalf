@@ -1,8 +1,8 @@
 import { type JSX, type MouseEvent, useCallback, useMemo, useState } from 'react';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
+import { confirm, prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
-import { confirm, prompt } from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import type { GitCommit } from '../common/git.js';
 import { FullGraphCommitDetails } from './FullGraphCommitDetails.js';
@@ -20,12 +20,11 @@ import {
   FULL_GRAPH_LANE_GAP,
   FULL_GRAPH_LEFT_OFFSET,
   type FullGraphDateMode,
-  type FullGraphRefKind,
+  type FullGraphRefModel,
   fullGraphCommitMatches,
   fullGraphInjectStashes,
-  fullGraphLocalBranches,
   fullGraphPaths,
-  fullGraphTrackingLocalBranches,
+  fullGraphRefIndex,
 } from './gitGraphViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { useGitStatusStore } from './gitStatusStore.js';
@@ -95,11 +94,9 @@ export const GitGraphView = ({
     [git, runGit],
   );
 
-  // Local-branch names — used to tell a local branch ref (rename/delete-able, even
-  // when it contains a "/" like feature/x) from a remote-tracking ref. A plain
-  // `name.includes('/')` test is wrong: local branches can carry slashes.
-  const localBranches = useMemo(() => fullGraphLocalBranches(branches), [branches]);
-  const trackingLocalBranches = useMemo(() => fullGraphTrackingLocalBranches(branches), [branches]);
+  // Structured ref metadata mirrors VS Code SCM History refs: renderers consume
+  // ids/categories/tracking data instead of guessing from display names.
+  const refIndex = useMemo(() => fullGraphRefIndex(branches), [branches]);
 
   // Stash nodes — Git Graph draws each stash as a node hanging off its base commit.
   // Inject a synthetic commit (parent = the stash's base) right before that base in
@@ -149,20 +146,10 @@ export const GitGraphView = ({
   );
 
   const openRefMenu = useCallback(
-    (
-      event: MouseEvent,
-      name: string,
-      kind: FullGraphRefKind,
-      targetRef: string,
-      trackingLocal: string | undefined,
-    ): void => {
+    (event: MouseEvent, ref: FullGraphRefModel): void => {
       event.preventDefault();
       event.stopPropagation();
-      openContextMenu(
-        event.clientX,
-        event.clientY,
-        fullGraphRefMenu({ name, kind, targetRef, trackingLocal }, actionDeps),
-      );
+      openContextMenu(event.clientX, event.clientY, fullGraphRefMenu(ref, actionDeps));
     },
     [actionDeps],
   );
@@ -197,8 +184,7 @@ export const GitGraphView = ({
           uncommitted={uncommitted}
           paths={paths}
           stashByHash={stashByHash}
-          localBranches={localBranches}
-          trackingLocalBranches={trackingLocalBranches}
+          refIndex={refIndex}
           selected={selected}
           isHighlighted={matches}
           onOpenUncommitted={openUncommittedChanges}

@@ -1,6 +1,7 @@
 import {
   GitError,
   GitErrorCodes,
+  type GitFetchArgs,
   type GitPublishArgs,
   type GitPullArgs,
   type GitPushArgs,
@@ -109,14 +110,18 @@ export const push: GitCommandHandler<GitPushArgs, GitRemoteResult> = async (args
     throw new Error('Please check out a branch to push to a remote.');
   } else {
     assertBranchName(st.branch, 'git.push branch');
-    throw noUpstreamBranchError(st.branch);
+    throw noUpstreamBranchError(st.branch, 'push');
   }
   // Force = --force-with-lease (never the unconditional --force): refuses to
   // overwrite upstream commits we haven't seen, so a force-push can't silently
   // clobber a teammate's work.
   if (args?.force === true) cmd.push('--force-with-lease');
-  const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
-  return { stdout: res.stdout, stderr: res.stderr };
+  try {
+    const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
+    return { stdout: res.stdout, stderr: res.stderr };
+  } catch (err) {
+    throw normalizePushError(err, args?.force === true);
+  }
 };
 
 export const publish: GitCommandHandler<GitPublishArgs, GitRemoteResult> = async (args, ctx) => {
@@ -126,8 +131,14 @@ export const publish: GitCommandHandler<GitPublishArgs, GitRemoteResult> = async
   }
   assertBranchName(st.branch, 'git.publish branch');
   const remote = await publishRemote(ctx, args?.remote);
-  const res = await git(ctx, ['push', '-u', remote, st.branch], { timeoutMs: REMOTE_TIMEOUT_MS });
-  return { stdout: res.stdout, stderr: res.stderr };
+  try {
+    const res = await git(ctx, ['push', '-u', remote, st.branch], {
+      timeoutMs: REMOTE_TIMEOUT_MS,
+    });
+    return { stdout: res.stdout, stderr: res.stderr };
+  } catch (err) {
+    throw normalizePushError(err, false);
+  }
 };
 
 export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args, ctx) => {
@@ -136,12 +147,14 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
     throw new Error('Please check out a branch before pulling.');
   }
   const upstream = parseUpstream(st.upstream);
-  const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
-  if (upstream !== null) {
-    assertSafeRemote(upstream.remote);
-    assertBranchName(upstream.branch, 'git.pull upstream branch');
-    cmd.push(upstream.remote, upstream.branch);
+  if (upstream === null) {
+    assertBranchName(st.branch, 'git.pull branch');
+    throw noUpstreamBranchError(st.branch, 'pull');
   }
+  const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
+  assertSafeRemote(upstream.remote);
+  assertBranchName(upstream.branch, 'git.pull upstream branch');
+  cmd.push(upstream.remote, upstream.branch);
   try {
     const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
     return { stdout: res.stdout, stderr: res.stderr };
@@ -153,7 +166,10 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
 export const sync: GitCommandHandler<GitSyncArgs, GitRemoteResult> = async (args, ctx) => {
   const st = parseStatus((await git(ctx, [...STATUS_ARGS])).stdout);
   if (st.branch === null) return { stdout: '', stderr: '' };
-  if (st.upstream === null) return publish({}, ctx);
+  if (st.upstream === null) {
+    assertBranchName(st.branch, 'git.sync branch');
+    throw noUpstreamBranchError(st.branch, 'sync');
+  }
 
   const pulled = await pull(args?.rebase === true ? { rebase: true } : {}, ctx);
   const remoteName = upstreamRemoteName(st.upstream);
@@ -175,9 +191,16 @@ export const sync: GitCommandHandler<GitSyncArgs, GitRemoteResult> = async (args
   };
 };
 
-export const fetch: GitCommandHandler<unknown, GitRemoteResult> = async (_args, ctx) => {
+export const fetch: GitCommandHandler<GitFetchArgs, GitRemoteResult> = async (args, ctx) => {
+  const cmd = ['fetch'];
+  if (args?.all === true) {
+    cmd.push('--all');
+  } else if (args?.remote !== undefined) {
+    assertSafeRemote(args.remote);
+    cmd.push(args.remote);
+  }
   try {
-    const res = await git(ctx, ['fetch'], { timeoutMs: REMOTE_TIMEOUT_MS });
+    const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
     return { stdout: res.stdout, stderr: res.stderr };
   } catch (err) {
     throw normalizeFetchError(err);
@@ -215,13 +238,40 @@ function normalizeFetchError(err: unknown): Error {
   return gitError;
 }
 
-function noUpstreamBranchError(branch: string): GitError {
+function noUpstreamBranchError(branch: string, command: 'pull' | 'push' | 'sync'): GitError {
   return new GitError({
     stderr: `The branch "${branch}" has no remote branch. Publish this branch first.\n`,
     gitErrorCode: GitErrorCodes.NoUpstreamBranch,
-    gitCommand: 'push',
-    gitArgs: ['push'],
+    gitCommand: command,
+    gitArgs: [command],
   });
+}
+
+function normalizePushError(err: unknown, forcePush: boolean): Error {
+  const gitError = ensureGitError(err);
+  const stderr = gitError.stderr ?? '';
+  if (/^error: failed to push some refs to\b/m.test(stderr)) {
+    if (forcePush && /! \[rejected\].*\(stale info\)/m.test(stderr)) {
+      return assignGitErrorCode(gitError, GitErrorCodes.ForcePushWithLeaseRejected);
+    }
+    if (forcePush && /! \[rejected\].*\(remote ref updated since checkout\)/m.test(stderr)) {
+      return assignGitErrorCode(gitError, GitErrorCodes.ForcePushWithLeaseIfIncludesRejected);
+    }
+    if (/! \[rejected\].*\(non-fast-forward\)/m.test(stderr)) {
+      return assignGitErrorCode(gitError, GitErrorCodes.BranchFastForwardRejected);
+    }
+    return assignGitErrorCode(gitError, GitErrorCodes.PushRejected);
+  }
+  if (/Permission.*denied/i.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.PermissionDenied);
+  }
+  if (/Could not read from remote repository/.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.RemoteConnectionError);
+  }
+  if (/^fatal: The current branch .* has no upstream branch/m.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.NoUpstreamBranch);
+  }
+  return gitError;
 }
 
 function normalizePullError(err: unknown): Error {
@@ -230,6 +280,9 @@ function normalizePullError(err: unknown): Error {
   const stdout = gitError.stdout ?? '';
   if (/^CONFLICT \([^)]+\): \b/m.test(stdout)) {
     return assignGitErrorCode(gitError, GitErrorCodes.Conflict);
+  }
+  if (/Please tell me who you are\./.test(stderr)) {
+    return assignGitErrorCode(gitError, GitErrorCodes.NoUserNameConfigured);
   }
   if (/Could not read from remote repository/.test(stderr)) {
     return assignGitErrorCode(gitError, GitErrorCodes.RemoteConnectionError);

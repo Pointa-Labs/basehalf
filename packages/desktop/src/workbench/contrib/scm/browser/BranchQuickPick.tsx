@@ -29,7 +29,7 @@ export const BranchQuickPick = ({
   const runPicker = (): void => {
     if (disabled || picking) return;
     setPicking(true);
-    void openBranchQuickPick({ status, git, onAfter }).finally(() => setPicking(false));
+    void openBranchQuickPick({ git, onAfter }).finally(() => setPicking(false));
   };
 
   return (

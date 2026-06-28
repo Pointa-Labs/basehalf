@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { confirm, pick } from '../../../browser/parts/dialogs/Dialog.js';
+import { confirm } from '../../../../platform/dialogs/browser/dialogService.js';
+import { pick } from '../../../../platform/quickinput/browser/quickInputService.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import type { GitScmService } from './gitScmService.js';
 import type { GitGroups, GitRow } from './gitStatusModel.js';

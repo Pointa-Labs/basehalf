@@ -8,6 +8,7 @@ import type {
   GitCreateBranchArgs,
   GitDiffArgs,
   GitDiffResult,
+  GitFetchArgs,
   GitLogArgs,
   GitLogResult,
   GitMergeResult,
@@ -40,15 +41,19 @@ export interface GitScmService {
   push(options?: { force?: boolean }): Promise<void>;
   publish(options?: { remote?: string }): Promise<void>;
   pull(options?: { rebase?: boolean }): Promise<void>;
-  fetch(): Promise<void>;
+  fetch(args?: GitFetchArgs): Promise<void>;
   sync(): Promise<void>;
   remotes(): Promise<GitRemotesResult>;
   reset(args: GitResetArgs): Promise<void>;
-  checkout(branch: string, options?: { force?: boolean; track?: boolean }): Promise<void>;
+  checkout(
+    branch: string,
+    options?: { detached?: boolean; force?: boolean; track?: boolean },
+  ): Promise<void>;
   createBranch(name: string, options?: Omit<GitCreateBranchArgs, 'name'>): Promise<void>;
   renameBranch(from: string, to: string): Promise<void>;
   renameCurrentBranch(to: string): Promise<void>;
   deleteBranch(name: string, options?: { force?: boolean }): Promise<void>;
+  deleteRemoteRef(remote: string, name: string, options?: { force?: boolean }): Promise<void>;
   merge(branch: string): Promise<GitMergeResult>;
   cherryPick(ref: string): Promise<GitCherryPickResult>;
   revert(ref: string): Promise<GitRevertResult>;
@@ -108,8 +113,8 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     pull: async (options = {}) => {
       await channel.pull(options.rebase === true ? { rebase: true } : {});
     },
-    fetch: async () => {
-      await channel.fetch();
+    fetch: async (args = {}) => {
+      await channel.fetch(args);
     },
     sync: async () => {
       await channel.sync();
@@ -132,6 +137,9 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     },
     deleteBranch: async (name, options = {}) => {
       await channel.deleteBranch(name, options);
+    },
+    deleteRemoteRef: async (remote, name, options = {}) => {
+      await channel.deleteRemoteRef(remote, name, options);
     },
     merge: (branch) => channel.merge(branch),
     cherryPick: (ref) => channel.cherryPick(ref),

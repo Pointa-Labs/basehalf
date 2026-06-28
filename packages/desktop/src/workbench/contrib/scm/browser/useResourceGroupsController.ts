@@ -5,11 +5,9 @@ import {
   useMemo,
   useState,
 } from 'react';
-import {
-  type ContextMenuItem,
-  openContextMenu,
-} from '../../../browser/parts/contextmenu/contextMenuStore.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import type { GitGroups, GitRow } from './gitStatusModel.js';
 import {
   type ResourceSelection,

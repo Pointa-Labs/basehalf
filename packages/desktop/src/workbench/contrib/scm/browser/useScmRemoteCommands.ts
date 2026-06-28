@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
-import { type PickOption, pick } from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
+import {
+  type QuickPickOption,
+  pick,
+} from '../../../../platform/quickinput/browser/quickInputService.js';
 import {
   type GithubPullRequestService,
   githubPullRequestService,
@@ -53,9 +56,9 @@ export function scmRemoteOperation(
     case 'publish':
       return { kind: 'publish' };
     case 'pull':
-      return { kind: 'pull' };
+      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull' };
     case 'pullRebase':
-      return { kind: 'pull', rebase: true };
+      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull', rebase: true };
     case 'push':
       return { kind: 'push' };
     case 'fetch':
@@ -181,7 +184,7 @@ export async function choosePublishRemote(
   }
 }
 
-function remotePickOption(remote: GitRemoteInfo): PickOption {
+function remotePickOption(remote: GitRemoteInfo): QuickPickOption {
   return {
     value: remote.name,
     label: remote.name,

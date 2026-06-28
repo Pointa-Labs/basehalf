@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitCommit, GitLogArgs, GitRefInfo, GitStashEntry } from '../common/git.js';
 import { FULL_GRAPH_PAGE_SIZE } from './gitGraphViewModel.js';
-import { GitHistoryProvider } from './gitHistoryProvider.js';
+import {
+  type GitHistoryOptions,
+  GitHistoryProvider,
+  type GitHistoryRawSource,
+  gitLogArgsForHistoryOptions,
+  normalizeGitHistoryItemRefs,
+} from './gitHistoryProvider.js';
 import {
   gitHistoryLogArgsForAvailableFilter,
   gitHistoryLogArgsForFilter,
+  gitHistoryOptionsForSourceFilter,
   loadGitHistoryPage,
 } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
+
+export type FullGraphHistoryFilter =
+  | ScmHistoryFilter
+  | { readonly kind: 'refs'; readonly refs: readonly string[] };
 
 export interface FullGitGraphHistoryState {
   readonly commits: readonly GitCommit[];
@@ -23,16 +34,58 @@ export interface FullGitGraphHistoryState {
   readonly runGraphMutation: (fn: () => Promise<unknown>) => void;
 }
 
-export function fullGraphLogArgs(filter: ScmHistoryFilter, skip: number): GitLogArgs {
+export function fullGraphLogArgs(filter: FullGraphHistoryFilter, skip: number): GitLogArgs {
+  if (filter.kind === 'refs') {
+    return gitLogArgsForHistoryOptions({
+      historyItemRefs: filter.refs,
+      limit: FULL_GRAPH_PAGE_SIZE,
+      skip,
+    });
+  }
   return gitHistoryLogArgsForFilter(filter, FULL_GRAPH_PAGE_SIZE, skip);
 }
 
 export const fullGraphAvailableLogArgs = (
-  filter: ScmHistoryFilter,
+  filter: FullGraphHistoryFilter,
   refs: readonly GitRefInfo[],
   skip: number,
-): GitLogArgs =>
-  gitHistoryLogArgsForAvailableFilter({
+): GitLogArgs => {
+  if (filter.kind === 'refs') {
+    const normalized = normalizeGitHistoryItemRefs(filter.refs, refs).filter((ref) =>
+      fullGraphRefExists(ref, refs),
+    );
+    return gitLogArgsForHistoryOptions({
+      historyItemRefs: normalized,
+      limit: FULL_GRAPH_PAGE_SIZE,
+      skip,
+    });
+  }
+
+  return gitHistoryLogArgsForAvailableFilter({
+    filter,
+    refs,
+    pageSize: FULL_GRAPH_PAGE_SIZE,
+    skip,
+  });
+};
+
+function fullGraphRefExists(ref: string, refs: readonly GitRefInfo[]): boolean {
+  return refs.some((candidate) => candidate.id === ref || candidate.commit === ref);
+}
+
+export const fullGraphHistoryOptionsForSource = ({
+  source,
+  filter,
+  refs,
+  skip,
+}: {
+  readonly source: GitHistoryRawSource;
+  readonly filter: ScmHistoryFilter;
+  readonly refs: readonly GitRefInfo[];
+  readonly skip: number;
+}): Promise<GitHistoryOptions> =>
+  gitHistoryOptionsForSourceFilter({
+    source,
     filter,
     refs,
     pageSize: FULL_GRAPH_PAGE_SIZE,

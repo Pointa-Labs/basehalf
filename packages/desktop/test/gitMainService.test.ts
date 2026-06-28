@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
+import { GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
 import type { GitBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackend.js';
 import { GitCliBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackendProvider.js';
 import { GitMainService } from '../src/workbench/contrib/scm/electron-main/gitMainService.js';
@@ -130,7 +130,7 @@ describe('GitMainService', () => {
     );
   });
 
-  it('classifies pull without upstream using VS Code-style GitError data', async () => {
+  it('classifies pull without upstream before running raw git pull', async () => {
     const calls: string[][] = [];
     const backend = new GitCliBackendProvider({
       git: async (args) => {
@@ -138,23 +138,16 @@ describe('GitMainService', () => {
         if (args[0] === 'status') {
           return { stdout: '## main\0', stderr: '', exitCode: 0 };
         }
-        if (args[0] === 'pull') {
-          throw new GitError({
-            stderr: 'There is no tracking information for the current branch.\n',
-            exitCode: 1,
-            gitCommand: 'pull',
-            gitArgs: args,
-          });
-        }
         return { stdout: '', stderr: '', exitCode: 0 };
       },
     });
 
     await expect(backend.pull('/repo')).rejects.toMatchObject({
       gitErrorCode: GitErrorCodes.NoUpstreamBranch,
-      stderr: expect.stringContaining('There is no tracking information'),
+      gitCommand: 'pull',
+      stderr: expect.stringContaining('Publish this branch first'),
     });
-    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch'], ['pull']]);
+    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch']]);
   });
 
   it('loads commit files relative to an explicit parent commit', async () => {

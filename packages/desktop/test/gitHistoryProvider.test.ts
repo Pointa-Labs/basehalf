@@ -62,6 +62,85 @@ describe('gitHistoryProvider', () => {
     });
   });
 
+  it('groups history refs and commit references like VS Code SCM history', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/tags/v1.0',
+        name: 'v1.0',
+        type: 'tag',
+        current: false,
+        commit: 'tag-tip',
+      },
+      {
+        id: 'refs/remotes/origin/main',
+        name: 'origin/main',
+        type: 'remoteHead',
+        current: false,
+        commit: 'remote-tip',
+      },
+      {
+        id: 'refs/heads/main',
+        name: 'main',
+        type: 'head',
+        current: true,
+        commit: 'main-tip',
+      },
+      {
+        id: 'refs/remotes/origin/HEAD',
+        name: 'origin/HEAD',
+        type: 'remoteHead',
+        current: false,
+        commit: 'remote-tip',
+      },
+      {
+        id: 'refs/remotes/upstream/HEAD',
+        name: 'upstream/HEAD',
+        type: 'remoteHead',
+        current: false,
+        commit: 'upstream-tip',
+      },
+    ];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'main',
+        detached: false,
+        upstream: 'origin/main',
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async () => ({ commits: [] }),
+      commitFiles: async () => [],
+      mergeBase: async () => null,
+    });
+
+    await expect(provider.provideHistoryItemRefs()).resolves.toMatchObject([
+      { id: 'refs/heads/main', name: 'main' },
+      { id: 'refs/remotes/origin/main', name: 'origin/main' },
+      { id: 'refs/tags/v1.0', name: 'v1.0' },
+    ]);
+    expect(
+      gitCommitToHistoryItem(
+        commit({
+          refs: [
+            'refs/remotes/origin/main',
+            'refs/remotes/origin/HEAD',
+            'upstream/HEAD',
+            'refs/heads/main',
+          ],
+          tags: ['v1.0'],
+        }),
+      ).references,
+    ).toMatchObject([
+      { id: 'HEAD', name: 'HEAD' },
+      { id: 'refs/heads/main', name: 'main' },
+      { id: 'refs/remotes/origin/main', name: 'origin/main' },
+      { id: 'refs/tags/v1.0', name: 'v1.0' },
+    ]);
+  });
+
   it('delegates refs, history items, changes, and resolve through the git service', async () => {
     const refs: GitRefInfo[] = [
       { id: 'refs/heads/main', name: 'main', type: 'head', current: true, commit: 'abc' },
@@ -112,8 +191,8 @@ describe('gitHistoryProvider', () => {
       },
     });
     await expect(
-      provider.provideHistoryItems({ historyItemRefs: ['feature/x'], limit: 20, skip: 5 }),
-    ).resolves.toMatchObject([{ id: 'feature/x' }]);
+      provider.provideHistoryItems({ historyItemRefs: ['main'], limit: 20, skip: 5 }),
+    ).resolves.toMatchObject([{ id: 'refs/heads/main' }]);
     await expect(
       provider.provideHistoryItems({ historyItemRefs: ['main', 'origin/main'], limit: 30 }),
     ).resolves.toHaveLength(1);
@@ -125,7 +204,7 @@ describe('gitHistoryProvider', () => {
       provider.resolveHistoryItemRefsCommonAncestor(['main', 'origin/main']),
     ).resolves.toBe('refs/heads/main+refs/remotes/origin/main-base');
     expect(logArgs).toEqual([
-      { ref: 'feature/x', maxCount: 20, skip: 5 },
+      { ref: 'refs/heads/main', maxCount: 20, skip: 5 },
       {
         refNames: ['refs/heads/main', 'refs/remotes/origin/main'],
         maxCount: 30,
@@ -249,6 +328,45 @@ describe('gitHistoryProvider', () => {
     expect(logArgs).toEqual([
       { ref: 'refs/heads/798', maxCount: 10, skip: undefined },
       { ref: 'refs/heads/deadbee', maxCount: 10, skip: undefined },
+    ]);
+  });
+
+  it('falls back to HEAD instead of passing unknown branch-like labels to git log', async () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/main',
+        name: 'main',
+        type: 'head',
+        current: true,
+        commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    ];
+    const logArgs: GitLogArgs[] = [];
+    const provider = new GitHistoryProvider({
+      status: async () => ({
+        isRepo: true,
+        branch: 'main',
+        detached: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        files: [],
+      }),
+      refs: async () => ({ refs }),
+      log: async (args) => {
+        logArgs.push(args);
+        return { commits: [] };
+      },
+      commitFiles: async () => [],
+      mergeBase: async () => null,
+    });
+
+    await provider.provideHistoryItems({ historyItemRefs: ['798'], limit: 10 });
+    await provider.provideHistoryItems({ historyItemRefs: ['refs/heads/deleted'], limit: 10 });
+
+    expect(logArgs).toEqual([
+      { ref: 'HEAD', maxCount: 10, skip: undefined },
+      { ref: 'HEAD', maxCount: 10, skip: undefined },
     ]);
   });
 

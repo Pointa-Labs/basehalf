@@ -26,18 +26,18 @@ describe('useScmRemoteCommands model helpers', () => {
     expect(scmRemoteOperation('publish', unpublished)).toEqual({ kind: 'publish' });
   });
 
-  it('keeps explicit push commands as push so no-upstream confirmation stays command-scoped', () => {
+  it('keeps explicit push commands as push so push-specific Git errors stay command-scoped', () => {
     const unpublished = status({ upstream: null });
 
     expect(scmRemoteOperation('push', unpublished)).toEqual({ kind: 'push' });
     expect(scmRemoteOperation('pushForce', unpublished)).toEqual({ kind: 'push', force: true });
   });
 
-  it('lets pull reach the git service so no-upstream errors are reported by the action runner', () => {
+  it('routes pull on an unpublished branch through publish instead of raw git pull', () => {
     const unpublished = status({ upstream: null });
 
-    expect(scmRemoteOperation('pull', unpublished)).toEqual({ kind: 'pull' });
-    expect(scmRemoteOperation('pullRebase', unpublished)).toEqual({ kind: 'pull', rebase: true });
+    expect(scmRemoteOperation('pull', unpublished)).toEqual({ kind: 'publish' });
+    expect(scmRemoteOperation('pullRebase', unpublished)).toEqual({ kind: 'publish' });
   });
 
   it('routes unpublished sync through publish so the status-bar remote action selects a remote', () => {

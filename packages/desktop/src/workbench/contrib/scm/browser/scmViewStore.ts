@@ -3,7 +3,14 @@ import { create } from 'zustand';
 export type ScmHistoryFilter =
   | { readonly kind: 'auto' }
   | { readonly kind: 'all' }
+  | { readonly kind: 'refs'; readonly refs: readonly string[] }
   | { readonly kind: 'ref'; readonly ref: string };
+
+export const scmHistoryFilterRefs = (filter: ScmHistoryFilter): readonly string[] | undefined => {
+  if (filter.kind === 'refs') return filter.refs;
+  if (filter.kind === 'ref') return [filter.ref];
+  return undefined;
+};
 
 /**
  * Source Control view state lifted out of the SourceControl component so other
@@ -16,7 +23,7 @@ interface ScmViewState {
   changesOpen: boolean;
   /** The Graph (commit DAG) section's open state. */
   graphOpen: boolean;
-  /** VS Code SCM History reference filter: Auto / All / a concrete branch ref. */
+  /** VS Code SCM History reference filter: Auto / All / selected history item refs. */
   historyFilter: ScmHistoryFilter;
   setChangesOpen: (open: boolean) => void;
   setGraphOpen: (open: boolean) => void;

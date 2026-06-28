@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from 'react';
-import { prompt } from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { color, font, radius, shadow, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { RebasePlanRow } from './RebasePlanRow.js';

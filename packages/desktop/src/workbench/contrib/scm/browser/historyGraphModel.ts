@@ -1,7 +1,8 @@
 import { color } from '../../../browser/style/design.js';
 import type { GitLogArgs, GitRefInfo } from '../common/git.js';
 import { laneColor } from './gitGraphLayout.js';
-import type { ScmHistoryFilter } from './scmViewStore.js';
+import { normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
+import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 
 // VS Code SCM History renderer constants:
 // reference/vscode/src/vs/workbench/contrib/scm/browser/scmHistory.ts
@@ -52,16 +53,18 @@ export const historyLogArgsForFilter = (
   skip: number,
 ): GitLogArgs => {
   const page = { maxCount: pageSize, skip };
-  if (filter.kind === 'all') return { ...page, all: true };
-  if (filter.kind === 'ref') return { ...page, ref: filter.ref };
+  if (filter.kind === 'all') return { ...page, ref: 'HEAD' };
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) {
+    if (filterRefs.length > 1) return { ...page, refNames: filterRefs };
+    return { ...page, ref: filterRefs[0] ?? 'HEAD' };
+  }
   return { ...page, ref: 'HEAD' };
 };
 
 export const historyRefExists = (filter: ScmHistoryFilter, refs: readonly GitRefInfo[]): boolean =>
-  filter.kind !== 'ref' ||
-  refs.some(
-    (ref) => ref.id === filter.ref || (ref.commit !== undefined && ref.commit === filter.ref),
-  );
+  scmHistoryFilterRefs(filter) === undefined ||
+  availableHistoryFilterRefs(filter, refs).kind !== 'auto';
 
 export const historyLogArgsForAvailableFilter = ({
   filter,
@@ -76,12 +79,49 @@ export const historyLogArgsForAvailableFilter = ({
   readonly skip: number;
   readonly currentBranch: string | null;
 }): GitLogArgs =>
-  historyLogArgsForFilter(
-    historyRefExists(filter, refs) ? filter : { kind: 'auto' },
-    currentBranch,
-    pageSize,
-    skip,
-  );
+  filter.kind === 'all'
+    ? historyLogArgsForHistoryRefs(refs, pageSize, skip)
+    : historyLogArgsForFilter(
+        availableHistoryFilterRefs(filter, refs),
+        currentBranch,
+        pageSize,
+        skip,
+      );
+
+function historyLogArgsForHistoryRefs(
+  refs: readonly GitRefInfo[],
+  pageSize: number,
+  skip: number,
+): GitLogArgs {
+  const refNames = refs.map(historyRefToProviderRef);
+  if (refNames.length > 1) return { refNames, maxCount: pageSize, skip };
+  return { ref: refNames[0] ?? 'HEAD', maxCount: pageSize, skip };
+}
+
+function historyRefToProviderRef(ref: GitRefInfo): string {
+  return ref.commit ?? ref.id;
+}
+
+function availableHistoryFilterRefs(
+  filter: ScmHistoryFilter,
+  refs: readonly GitRefInfo[],
+): ScmHistoryFilter {
+  if (filter.kind === 'all' || filter.kind === 'auto') return filter;
+
+  const filterRefs = scmHistoryFilterRefs(filter) ?? [];
+  const normalizedRefs = normalizeGitHistoryItemRefs(filterRefs, refs, { dropUnknown: true });
+  const availableRefs = normalizedRefs.flatMap((selectedRef) => {
+    const match = refs.find((ref) =>
+      selectedRef.startsWith('refs/')
+        ? ref.id === selectedRef
+        : ref.id === selectedRef || ref.commit === selectedRef,
+    );
+    return match === undefined ? [selectedRef] : [historyRefToProviderRef(match)];
+  });
+
+  if (availableRefs.length === 0) return { kind: 'auto' };
+  return { kind: 'refs', refs: [...new Set(availableRefs)] };
+}
 
 /** Compact relative time from an ISO date, matching the terse VS Code tree style. */
 export function historyTimeAgo(iso: string): string {

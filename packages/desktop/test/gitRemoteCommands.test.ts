@@ -139,6 +139,58 @@ describe('git remote commands', () => {
     ]);
   });
 
+  it('classifies push rejection stderr without replacing the Git message', async () => {
+    const { ctx } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## main...origin/main [ahead 1]\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      if (args[0] === 'push') {
+        throw new GitError({
+          stderr:
+            "To github.com:acme/repo.git\n ! [rejected] main -> main (fetch first)\nerror: failed to push some refs to 'github.com:acme/repo.git'\n",
+          exitCode: 1,
+          gitCommand: 'push',
+          gitArgs: args,
+        });
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.PushRejected,
+      stderr: expect.stringContaining('failed to push some refs'),
+    });
+  });
+
+  it('classifies force-with-lease rejections distinctly from generic push failures', async () => {
+    const { ctx } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## main...origin/main [ahead 1]\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      if (args[0] === 'push') {
+        throw new GitError({
+          stderr:
+            "To github.com:acme/repo.git\n ! [rejected] main -> main (stale info)\nerror: failed to push some refs to 'github.com:acme/repo.git'\n",
+          exitCode: 1,
+          gitCommand: 'push',
+          gitArgs: args,
+        });
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(push({ force: true }, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.ForcePushWithLeaseRejected,
+      stderr: expect.stringContaining('stale info'),
+    });
+  });
+
   it('pushes explicitly to the upstream branch refspec', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## local...origin/trunk [ahead 1]\0');
@@ -190,27 +242,19 @@ describe('git remote commands', () => {
     ]);
   });
 
-  it('classifies pull without tracking information as a non-upstream Git error', async () => {
+  it('reports pull without upstream before running raw git pull', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## feature\0');
-      if (args[0] === 'pull') {
-        throw new GitError({
-          stderr: 'There is no tracking information for the current branch.\n',
-          exitCode: 1,
-          gitCommand: 'pull',
-          gitArgs: args,
-        });
-      }
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
 
     await expect(pull({}, ctx)).rejects.toMatchObject({
       gitErrorCode: GitErrorCodes.NoUpstreamBranch,
-      stderr: expect.stringContaining('There is no tracking information'),
+      gitCommand: 'pull',
+      stderr: expect.stringContaining('Publish this branch first'),
     });
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
-      ['pull'],
     ]);
   });
 
@@ -232,6 +276,21 @@ describe('git remote commands', () => {
       stderr: expect.stringContaining('Could not read from remote repository'),
     });
     expect(calls.map((call) => call.args)).toEqual([['fetch']]);
+  });
+
+  it('fetches all remotes or a selected remote when requested', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'fetch') return ok('fetched');
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await fetch({ all: true }, ctx);
+    await fetch({ remote: 'origin' }, ctx);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['fetch', '--all'],
+      ['fetch', 'origin'],
+    ]);
   });
 
   it('validates explicitly requested publish remotes before pushing', async () => {
@@ -270,6 +329,31 @@ describe('git remote commands', () => {
     ]);
   });
 
+  it('classifies publish permission failures through the same push boundary', async () => {
+    const { ctx } = gitContext((args) => {
+      if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'remote' && args[1] === '--verbose') {
+        return ok(
+          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
+        );
+      }
+      if (args[0] === 'push') {
+        throw new GitError({
+          stderr: 'git@github.com: Permission denied (publickey).\n',
+          exitCode: 128,
+          gitCommand: 'push',
+          gitArgs: args,
+        });
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(publish({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.PermissionDenied,
+      stderr: expect.stringContaining('Permission denied'),
+    });
+  });
+
   it('does not push during sync when the upstream remote is read-only', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## main...origin/main [ahead 1]\0');
@@ -290,25 +374,18 @@ describe('git remote commands', () => {
     ]);
   });
 
-  it('sync publishes without pulling when the current branch has no upstream', async () => {
+  it('does not silently publish during sync when the current branch has no upstream', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## feature\0');
-      if (args[0] === 'remote' && args[1] === '--verbose') {
-        return ok(
-          'origin https://github.com/acme/repo.git (fetch)\norigin git@github.com:acme/repo.git (push)\n',
-        );
-      }
-      if (args[0] === 'push') return ok('published');
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
 
-    await sync({}, ctx);
+    await expect(sync({}, ctx)).rejects.toMatchObject({
+      gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+    });
 
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
-      ['status', '--porcelain=v1', '-z', '--branch'],
-      ['remote', '--verbose'],
-      ['push', '-u', 'origin', 'feature'],
     ]);
   });
 

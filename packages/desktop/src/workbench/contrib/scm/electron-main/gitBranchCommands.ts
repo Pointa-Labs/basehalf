@@ -5,6 +5,7 @@ import type {
   GitCheckoutArgs,
   GitCreateBranchArgs,
   GitDeleteBranchArgs,
+  GitDeleteRemoteRefArgs,
   GitMergeArgs,
   GitMergeResult,
   GitOkResult,
@@ -18,7 +19,7 @@ import type {
 import { type GitCommandHandler, runGit as git } from './gitCommandRunner.js';
 import { parseStatus } from './gitParsers.js';
 import { STATUS_ARGS } from './gitPorcelain.js';
-import { assertBranchName, assertSafeRef } from './gitRefGuards.js';
+import { assertBranchName, assertSafeRef, assertSafeRemote } from './gitRefGuards.js';
 
 export const branches: GitCommandHandler<GitBranchesArgs, GitBranchesResult> = async (
   args,
@@ -107,7 +108,9 @@ export const checkout: GitCommandHandler<GitCheckoutArgs, GitOkResult> = async (
   const cmd =
     args.create === true
       ? ['checkout', ...force, '-b', args.branch]
-      : ['checkout', ...force, ...(args.track === true ? ['--track'] : []), args.branch];
+      : args.detached === true
+        ? ['checkout', ...force, '--detach', args.branch]
+        : ['checkout', ...force, ...(args.track === true ? ['--track'] : []), args.branch];
   await git(ctx, cmd);
   return { ok: true };
 };
@@ -133,6 +136,22 @@ export const deleteBranch: GitCommandHandler<GitDeleteBranchArgs, GitOkResult> =
 ) => {
   assertBranchName(args.name, 'git.deleteBranch');
   await git(ctx, ['branch', args.force === true ? '-D' : '-d', args.name]);
+  return { ok: true };
+};
+
+export const deleteRemoteRef: GitCommandHandler<GitDeleteRemoteRefArgs, GitOkResult> = async (
+  args,
+  ctx,
+) => {
+  assertSafeRemote(args.remote);
+  assertBranchName(args.name, 'git.deleteRemoteRef ref');
+  await git(ctx, [
+    'push',
+    args.remote,
+    '--delete',
+    ...(args.force === true ? ['--force'] : []),
+    args.name,
+  ]);
   return { ok: true };
 };
 

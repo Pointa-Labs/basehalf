@@ -4,18 +4,15 @@ import type { GitCommit } from '../common/git.js';
 import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphDateMode,
-  type FullGraphRefKind,
-  fullGraphDisplayRef,
+  type FullGraphRefModel,
   fullGraphFormatDate,
   fullGraphFormatWhen,
-  fullGraphRefKind,
 } from './gitGraphViewModel.js';
 
 export const FullGraphCommitRow = ({
   commit,
   gridCols,
-  localBranches,
-  trackingLocalBranches,
+  refs,
   dateMode,
   stashRef,
   selected,
@@ -26,21 +23,14 @@ export const FullGraphCommitRow = ({
 }: {
   commit: GitCommit;
   gridCols: string;
-  localBranches: ReadonlySet<string>;
-  trackingLocalBranches: ReadonlyMap<string, string>;
+  refs: readonly FullGraphRefModel[];
   dateMode: FullGraphDateMode;
   stashRef: string | undefined;
   selected: boolean;
   highlighted: boolean;
   onSelect: () => void;
   onContextMenu: (event: React.MouseEvent) => void;
-  onRefMenu: (
-    event: React.MouseEvent,
-    name: string,
-    kind: FullGraphRefKind,
-    targetRef: string,
-    trackingLocal: string | undefined,
-  ) => void;
+  onRefMenu: (event: React.MouseEvent, ref: FullGraphRefModel) => void;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
   return (
@@ -87,25 +77,12 @@ export const FullGraphCommitRow = ({
       >
         {commit.head && <FullGraphPill text="HEAD" kind="head" />}
         {stashRef !== undefined && <FullGraphPill text={stashRef} kind="stash" />}
-        {commit.refs.map((ref) => {
-          const kind = fullGraphRefKind(ref, localBranches);
-          const label = fullGraphDisplayRef(ref);
-          const trackingLocal = kind === 'remote' ? trackingLocalBranches.get(label) : undefined;
-          return (
-            <FullGraphPill
-              key={ref}
-              text={label}
-              kind={kind}
-              onContextMenu={(event) => onRefMenu(event, label, kind, ref, trackingLocal)}
-            />
-          );
-        })}
-        {commit.tags.map((tag) => (
+        {refs.map((ref) => (
           <FullGraphPill
-            key={`tag:${tag}`}
-            text={tag}
-            kind="tag"
-            onContextMenu={(event) => onRefMenu(event, tag, 'tag', `refs/tags/${tag}`, undefined)}
+            key={ref.targetRef}
+            text={ref.name}
+            kind={ref.kind}
+            onContextMenu={(event) => onRefMenu(event, ref)}
           />
         ))}
         <span

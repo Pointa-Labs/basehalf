@@ -6,6 +6,7 @@ import type {
   GitCheckoutArgs,
   GitCreateBranchArgs,
   GitDiffArgs,
+  GitFetchArgs,
   GitLogArgs,
   GitRebaseInteractiveArgs,
   GitRebaseItem,
@@ -65,7 +66,9 @@ export class GitMainChannel {
     this.handle(GIT_IPC_CHANNELS.pull, (event, payload) =>
       this.git.pull(this.root(event), asPullPayload(payload)),
     );
-    this.handle(GIT_IPC_CHANNELS.fetch, (event) => this.git.fetch(this.root(event)));
+    this.handle(GIT_IPC_CHANNELS.fetch, (event, payload) =>
+      this.git.fetch(this.root(event), asFetchPayload(payload)),
+    );
     this.handle(GIT_IPC_CHANNELS.sync, (event) => this.git.sync(this.root(event)));
     this.handle(GIT_IPC_CHANNELS.remotes, (event) => this.git.remotes(this.root(event)));
     this.handle(GIT_IPC_CHANNELS.reset, (event, payload) =>
@@ -73,7 +76,10 @@ export class GitMainChannel {
     );
     this.handle(GIT_IPC_CHANNELS.checkout, (event, payload) => {
       const p = asCheckoutPayload(payload);
-      const options: { force?: boolean; track?: boolean } = {};
+      const options: { detached?: boolean; force?: boolean; track?: boolean } = {};
+      if (p.detached !== undefined) {
+        options.detached = p.detached;
+      }
       if (p.force !== undefined) {
         options.force = p.force;
       }
@@ -98,6 +104,15 @@ export class GitMainChannel {
       const p = asDeleteBranchPayload(payload);
       return this.git.deleteBranch(
         this.root(event),
+        p.name,
+        p.force !== undefined ? { force: p.force } : {},
+      );
+    });
+    this.handle(GIT_IPC_CHANNELS.deleteRemoteRef, (event, payload) => {
+      const p = asDeleteRemoteRefPayload(payload);
+      return this.git.deleteRemoteRef(
+        this.root(event),
+        p.remote,
         p.name,
         p.force !== undefined ? { force: p.force } : {},
       );
@@ -239,6 +254,16 @@ function asPullPayload(payload: unknown): { rebase?: boolean } {
   return rebase === undefined ? {} : { rebase };
 }
 
+function asFetchPayload(payload: unknown): GitFetchArgs {
+  const p = asOptionalRecord(payload, 'Invalid fetch payload.');
+  const remote = asOptionalNonEmptyString(p.remote, 'Invalid fetch remote.');
+  const all = asOptionalBoolean(p.all, 'Invalid fetch all option.');
+  const out: { remote?: string; all?: boolean } = {};
+  if (remote !== undefined) out.remote = remote;
+  if (all !== undefined) out.all = all;
+  return out;
+}
+
 function asResetPayload(payload: unknown): GitResetArgs {
   const p = asRecord(payload, 'Invalid reset payload.');
   const ref = asNonEmptyString(p.ref, 'Invalid reset ref.');
@@ -252,12 +277,15 @@ function asCheckoutPayload(payload: unknown): GitCheckoutArgs {
   const p = asRecord(payload, 'Invalid checkout payload.');
   const out: {
     branch: string;
+    detached?: boolean;
     force?: boolean;
     track?: boolean;
   } = { branch: asNonEmptyString(p.branch, 'Invalid checkout branch.') };
+  const detached = asOptionalBoolean(p.detached, 'Invalid checkout detached option.');
   const force = asOptionalBoolean(p.force, 'Invalid checkout force option.');
   const track = asOptionalBoolean(p.track, 'Invalid checkout track option.');
   if (p.create !== undefined) throw new Error('Invalid checkout create option.');
+  if (detached !== undefined) out.detached = detached;
   if (force !== undefined) out.force = force;
   if (track !== undefined) out.track = track;
   return out;
@@ -295,6 +323,18 @@ function asDeleteBranchPayload(payload: unknown): { name: string; force?: boolea
   const name = asNonEmptyString(p.name, 'Invalid branch name.');
   const force = asOptionalBoolean(p.force, 'Invalid delete branch force option.');
   return force === undefined ? { name } : { name, force };
+}
+
+function asDeleteRemoteRefPayload(payload: unknown): {
+  remote: string;
+  name: string;
+  force?: boolean;
+} {
+  const p = asRecord(payload, 'Invalid delete remote ref payload.');
+  const remote = asNonEmptyString(p.remote, 'Invalid remote name.');
+  const name = asNonEmptyString(p.name, 'Invalid remote ref name.');
+  const force = asOptionalBoolean(p.force, 'Invalid delete remote ref force option.');
+  return force === undefined ? { remote, name } : { remote, name, force };
 }
 
 function asRebaseInteractivePayload(payload: unknown): GitRebaseInteractiveArgs {

@@ -1,11 +1,13 @@
-import type { PickOption } from '../../../browser/parts/dialogs/Dialog.js';
+import type { QuickPickOption } from '../../../../platform/quickinput/common/quickInput.js';
 import type { GitRefInfo } from '../common/git.js';
 
 export type BranchQuickPickMode = 'switch' | 'merge';
+export type BranchQuickPickCommand = 'cmd:create' | 'cmd:createFrom' | 'cmd:checkoutDetached';
 
 export interface CheckoutTarget {
   readonly branch: string;
   readonly track?: boolean;
+  readonly detached?: boolean;
 }
 
 const CHECKOUT_BLOCKED_RE =
@@ -30,7 +32,34 @@ export const CHECKOUT_RECOVERY_OPTIONS = [
     hint: 'Discard local changes',
     detail: 'Overwrite files that block checkout.',
   },
-] satisfies readonly PickOption[];
+] satisfies readonly QuickPickOption[];
+
+export const BRANCH_QUICK_PICK_COMMANDS = [
+  {
+    value: 'cmd:create',
+    label: 'Create Branch...',
+    detail: 'Command',
+    alwaysShow: true,
+  },
+  {
+    value: 'cmd:createFrom',
+    label: 'Create Branch From...',
+    detail: 'Command',
+    alwaysShow: true,
+  },
+  {
+    value: 'cmd:checkoutDetached',
+    label: 'Checkout Detached...',
+    detail: 'Command',
+    alwaysShow: true,
+  },
+] satisfies readonly (QuickPickOption & { readonly value: BranchQuickPickCommand })[];
+
+export const HEAD_REF_OPTION = {
+  value: 'HEAD',
+  label: 'HEAD',
+  detail: 'Current HEAD',
+} satisfies QuickPickOption;
 
 export const isCheckoutBlockedError = (message: string): boolean =>
   CHECKOUT_BLOCKED_RE.test(message);
@@ -53,6 +82,70 @@ export const checkoutTargetForRef = (
   if (tracking !== undefined) return { branch: tracking.name };
   return { branch: ref.name, track: true };
 };
+
+export const detachedCheckoutTargetForRef = (ref: {
+  readonly name: string;
+  readonly commit?: string;
+}): CheckoutTarget => ({
+  branch: ref.commit ?? ref.name,
+  detached: true,
+});
+
+export const branchOption = (branch: GitRefInfo): QuickPickOption => {
+  const hint = branch.current
+    ? 'current branch'
+    : branch.type === 'remoteHead'
+      ? 'remote'
+      : undefined;
+  const detail =
+    branch.type === 'remoteHead'
+      ? 'Remote Branch'
+      : branch.type === 'tag'
+        ? 'Tag'
+        : branch.commit
+          ? branch.commit.slice(0, 7)
+          : 'Branch';
+  return {
+    value: branch.id,
+    label: branch.name,
+    hint,
+    detail,
+  };
+};
+
+export const createCheckoutPickOptions = (
+  refs: readonly GitRefInfo[],
+): readonly QuickPickOption[] => [
+  ...BRANCH_QUICK_PICK_COMMANDS,
+  ...refs.map((branch) => branchOption(branch)),
+];
+
+export const orderCheckoutPickOptions = (
+  query: string,
+  options: readonly QuickPickOption[],
+): readonly QuickPickOption[] => {
+  if (query.trim() === '') return options;
+  const commands = options.filter((option) => option.value.startsWith('cmd:'));
+  const refs = options.filter((option) => !option.value.startsWith('cmd:'));
+  return [...refs, ...commands];
+};
+
+export const createRefPickOptions = (refs: readonly GitRefInfo[]): readonly QuickPickOption[] =>
+  refs.map((branch) => branchOption(branch));
+
+export const createBranchFromPickOptions = (
+  refs: readonly GitRefInfo[],
+): readonly QuickPickOption[] => [HEAD_REF_OPTION, ...createRefPickOptions(refs)];
+
+export const createDetachedCheckoutPickOptions = (
+  refs: readonly GitRefInfo[],
+): readonly QuickPickOption[] => createRefPickOptions(refs.filter((ref) => ref.type !== 'tag'));
+
+export function defaultBranchNameFromRef(ref: GitRefInfo): string {
+  if (ref.type !== 'remoteHead' || ref.remote === undefined) return ref.name;
+  const prefix = `${ref.remote}/`;
+  return ref.name.startsWith(prefix) ? ref.name.slice(prefix.length) : ref.name;
+}
 
 export function trackingBranchForRemote(
   remoteRef: GitRefInfo,

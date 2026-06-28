@@ -16,7 +16,6 @@ import type {
 import { type GitScmService, gitScmService } from './gitScmService.js';
 
 export interface GitHistoryOptions extends ScmHistoryOptions {
-  readonly all?: boolean;
   readonly maxParents?: number;
 }
 
@@ -89,9 +88,11 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
       historyItemRefs === undefined
         ? null
         : new Set(normalizeGitHistoryItemRefs(historyItemRefs, refs));
-    return refs
-      .filter((ref) => wanted === null || gitRefMatchesWanted(ref, wanted))
-      .map(gitRefToHistoryItemRef);
+    return groupGitHistoryRefs(
+      refs
+        .filter((ref) => wanted === null || gitRefMatchesWanted(ref, wanted))
+        .filter((ref) => !isRemoteHeadRef(ref.id) && !isRemoteHeadRef(ref.name)),
+    ).map(gitRefToHistoryItemRef);
   }
 
   async provideHistoryItems(options: ScmHistoryOptions): Promise<readonly ScmHistoryItem[]> {
@@ -160,7 +161,8 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
     const values = historyItemRefs.filter((ref) => ref !== '');
     if (values.length === 0) return values;
     const refs = await this.provideGitRefs({ includeRemote: true, includeTags: true });
-    return normalizeGitHistoryItemRefs(values, refs);
+    const normalized = normalizeGitHistoryItemRefs(values, refs, { dropUnknown: true });
+    return normalized.length > 0 ? normalized : ['HEAD'];
   }
 
   private async firstHistoryItemRefCommit(ref: string): Promise<string | undefined> {
@@ -177,13 +179,6 @@ export function gitHistoryOptionsForScmOptions(options: ScmHistoryOptions): GitH
 
 export function gitLogArgsForHistoryOptions(options: GitHistoryOptions): GitLogArgs {
   const refs = options.historyItemRefs?.filter((ref) => ref !== '');
-  if (options.all === true) {
-    return {
-      all: true,
-      maxCount: options.limit,
-      skip: options.skip,
-    };
-  }
   if ((refs?.length ?? 0) > 1) {
     return {
       refNames: refs,
@@ -210,6 +205,15 @@ export function gitRefToHistoryItemRef(ref: GitRefInfo): ScmHistoryItemRef {
 }
 
 export function gitCommitToHistoryItem(commit: GitCommit): ScmHistoryItem {
+  const references = [
+    ...commit.refs.filter((ref) => !isRemoteHeadRef(ref)).map(gitDecorationRefToHistoryItemRef),
+    ...commit.tags.map((tag) => ({
+      id: `refs/tags/${tag}`,
+      name: tag,
+      category: 'tag' as const,
+    })),
+  ].sort(compareHistoryItemRef);
+
   return {
     id: commit.hash,
     parentIds: commit.parents,
@@ -221,12 +225,7 @@ export function gitCommitToHistoryItem(commit: GitCommit): ScmHistoryItem {
     timestamp: Date.parse(commit.author.date),
     references: [
       ...(commit.head ? [{ id: 'HEAD', name: 'HEAD', category: 'other' as const }] : []),
-      ...commit.refs.map(gitDecorationRefToHistoryItemRef),
-      ...commit.tags.map((tag) => ({
-        id: `refs/tags/${tag}`,
-        name: tag,
-        category: 'tag' as const,
-      })),
+      ...references,
     ],
   };
 }
@@ -260,6 +259,37 @@ function gitRefCategory(ref: GitRefInfo): ScmHistoryItemRef['category'] {
   if (ref.type === 'remoteHead') return 'remote';
   if (ref.type === 'tag') return 'tag';
   return 'other';
+}
+
+function groupGitHistoryRefs(refs: readonly GitRefInfo[]): readonly GitRefInfo[] {
+  const branches: GitRefInfo[] = [];
+  const remoteBranches: GitRefInfo[] = [];
+  const tags: GitRefInfo[] = [];
+  const other: GitRefInfo[] = [];
+
+  for (const ref of refs) {
+    if (ref.type === 'head') branches.push(ref);
+    else if (ref.type === 'remoteHead') remoteBranches.push(ref);
+    else if (ref.type === 'tag') tags.push(ref);
+    else other.push(ref);
+  }
+
+  return [...branches, ...remoteBranches, ...tags, ...other];
+}
+
+function compareHistoryItemRef(a: ScmHistoryItemRef, b: ScmHistoryItemRef): number {
+  const order = (ref: ScmHistoryItemRef): number => {
+    if (ref.id.startsWith('refs/heads/')) return 1;
+    if (ref.id.startsWith('refs/remotes/')) return 2;
+    if (ref.id.startsWith('refs/tags/')) return 3;
+    return 99;
+  };
+  const orderDelta = order(a) - order(b);
+  return orderDelta === 0 ? a.name.localeCompare(b.name) : orderDelta;
+}
+
+function isRemoteHeadRef(ref: string): boolean {
+  return /^refs\/remotes\/[^/]+\/HEAD$/.test(ref) || /^[^/]+\/HEAD$/.test(ref);
 }
 
 function gitRefOrHistoryItemRef(
@@ -323,8 +353,11 @@ function findBaseHistoryItemRef({
 export function normalizeGitHistoryItemRefs(
   historyItemRefs: readonly string[],
   refs: readonly GitRefInfo[],
+  options: { readonly dropUnknown?: boolean } = {},
 ): readonly string[] {
-  const normalized = historyItemRefs.map((ref) => normalizeGitHistoryItemRef(ref, refs));
+  const normalized = historyItemRefs
+    .map((ref) => normalizeGitHistoryItemRef(ref, refs, options))
+    .filter((ref): ref is string => ref !== undefined);
   const seen = new Set<string>();
   return normalized.filter((ref) => {
     if (seen.has(ref)) return false;
@@ -333,23 +366,40 @@ export function normalizeGitHistoryItemRefs(
   });
 }
 
-function normalizeGitHistoryItemRef(ref: string, refs: readonly GitRefInfo[]): string {
-  if (ref === 'HEAD' || ref.startsWith('refs/')) return ref;
-  const exact = findGitRefById(refs, ref);
+function normalizeGitHistoryItemRef(
+  ref: string,
+  refs: readonly GitRefInfo[],
+  options: { readonly dropUnknown?: boolean },
+): string | undefined {
+  const value = ref.trim();
+  if (value === '') return options.dropUnknown === true ? undefined : value;
+  if (value === 'HEAD') return value;
+
+  const exact = findGitRefById(refs, value);
   if (exact !== undefined) return exact.id;
 
-  const byName = refs.filter((candidate) => candidate.name === ref);
-  if (byName.length === 0) return ref;
-  if (byName.length === 1) return byName[0]?.id ?? ref;
+  const byName = refs.filter((candidate) => candidate.name === value);
+  if (byName.length === 1) return byName[0]?.id ?? value;
+  if (byName.length > 1) {
+    const preferred =
+      byName.find(
+        (candidate) => candidate.type === (value.includes('/') ? 'remoteHead' : 'head'),
+      ) ??
+      byName.find((candidate) => candidate.type === 'head') ??
+      byName[0];
+    if (preferred !== undefined) return preferred.id;
+  }
 
-  const preferred =
-    byName.find((candidate) => candidate.type === (ref.includes('/') ? 'remoteHead' : 'head')) ??
-    byName.find((candidate) => candidate.type === 'head') ??
-    byName[0];
-  if (preferred !== undefined) return preferred.id;
+  const byCommit = refs.find((candidate) => candidate.commit === value);
+  if (byCommit !== undefined) return byCommit.commit ?? byCommit.id;
 
-  if (isGitObjectId(ref)) return ref;
-  return ref;
+  if (isExplicitGitRevision(value)) return value;
+
+  return options.dropUnknown === true ? undefined : value;
+}
+
+function isExplicitGitRevision(ref: string): boolean {
+  return isGitObjectId(ref) || /(?:\.\.|\^|~|@\{)/.test(ref);
 }
 
 function isGitObjectId(ref: string): boolean {

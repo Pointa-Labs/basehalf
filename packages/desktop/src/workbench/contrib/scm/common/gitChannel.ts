@@ -7,6 +7,7 @@ import type {
   GitConflictStagesResult,
   GitCreateBranchArgs,
   GitDiffArgs,
+  GitFetchArgs,
   GitLogArgs,
   GitLogResult,
   GitMergeBaseResult,
@@ -46,6 +47,7 @@ export const GIT_IPC_CHANNELS = {
   renameBranch: 'git:rename-branch',
   renameCurrentBranch: 'git:rename-current-branch',
   deleteBranch: 'git:delete-branch',
+  deleteRemoteRef: 'git:delete-remote-ref',
   merge: 'git:merge',
   cherryPick: 'git:cherry-pick',
   revert: 'git:revert',
@@ -84,15 +86,19 @@ export interface GitChannelBridge {
   push(options?: { force?: boolean }): Promise<void>;
   publish(options?: { remote?: string }): Promise<void>;
   pull(options?: { rebase?: boolean }): Promise<void>;
-  fetch(): Promise<void>;
+  fetch(args?: GitFetchArgs): Promise<void>;
   sync(): Promise<void>;
   remotes(): Promise<GitRemotesResult>;
   reset(args: GitResetArgs): Promise<void>;
-  checkout(branch: string, options?: { force?: boolean; track?: boolean }): Promise<void>;
+  checkout(
+    branch: string,
+    options?: { detached?: boolean; force?: boolean; track?: boolean },
+  ): Promise<void>;
   createBranch(name: string, options?: Omit<GitCreateBranchArgs, 'name'>): Promise<void>;
   renameBranch(from: string, to: string): Promise<void>;
   renameCurrentBranch(to: string): Promise<void>;
   deleteBranch(name: string, options?: { force?: boolean }): Promise<void>;
+  deleteRemoteRef(remote: string, name: string, options?: { force?: boolean }): Promise<void>;
   merge(branch: string): Promise<GitMergeResult>;
   cherryPick(ref: string): Promise<GitCherryPickResult>;
   revert(ref: string): Promise<GitRevertResult>;

@@ -10,6 +10,7 @@ import type {
   GitCreateBranchArgs,
   GitDiffArgs,
   GitDiffResult,
+  GitFetchArgs,
   GitLogArgs,
   GitLogResult,
   GitMergeBaseResult,
@@ -126,8 +127,8 @@ export class GitCliBackendProvider implements GitBackendProvider {
     );
   }
 
-  async fetch(workspaceRoot: string | null): Promise<void> {
-    await gitCommands.fetch({}, this.context(workspaceRoot));
+  async fetch(workspaceRoot: string | null, args: GitFetchArgs = {}): Promise<void> {
+    await gitCommands.fetch(args, this.context(workspaceRoot));
   }
 
   async sync(workspaceRoot: string | null): Promise<void> {
@@ -145,7 +146,7 @@ export class GitCliBackendProvider implements GitBackendProvider {
   async checkout(
     workspaceRoot: string | null,
     branch: string,
-    options: { force?: boolean; track?: boolean } = {},
+    options: { detached?: boolean; force?: boolean; track?: boolean } = {},
   ): Promise<void> {
     await gitCommands.checkout({ branch, ...options }, this.context(workspaceRoot));
   }
@@ -172,6 +173,15 @@ export class GitCliBackendProvider implements GitBackendProvider {
     options: { force?: boolean } = {},
   ): Promise<void> {
     await gitCommands.deleteBranch({ name, ...options }, this.context(workspaceRoot));
+  }
+
+  async deleteRemoteRef(
+    workspaceRoot: string | null,
+    remote: string,
+    name: string,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
+    await gitCommands.deleteRemoteRef({ remote, name, ...options }, this.context(workspaceRoot));
   }
 
   merge(workspaceRoot: string | null, branch: string): Promise<GitMergeResult> {

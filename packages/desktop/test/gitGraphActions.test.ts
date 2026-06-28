@@ -9,7 +9,15 @@ import {
   fullGraphRefMenu,
   fullGraphStashMenu,
 } from '../src/workbench/contrib/scm/browser/gitGraphActions.js';
-import type { GitCommit } from '../src/workbench/contrib/scm/common/git.js';
+import {
+  deleteBranchRefWithRecovery,
+  fullGraphRefMenuCommands,
+} from '../src/workbench/contrib/scm/browser/gitGraphRefActions.js';
+import {
+  type GitCommit,
+  GitError,
+  GitErrorCodes,
+} from '../src/workbench/contrib/scm/common/git.js';
 
 const commit: GitCommit = {
   hash: 'abcdef1234567890',
@@ -59,6 +67,8 @@ function createDeps(): { deps: GitGraphActionDeps; calls: string[] } {
       renameBranch: async (from, to) => calls.push(`rename:${from}:${to}`),
       deleteBranch: async (name, options) =>
         calls.push(`branch-delete:${name}:${options?.force === true ? 'force' : 'safe'}`),
+      deleteRemoteRef: async (remote, name, options) =>
+        calls.push(`remote-delete:${remote}:${name}:${options?.force === true ? 'force' : 'safe'}`),
       stashApply: async (ref) => calls.push(`stash-apply:${ref}`),
       stashPop: async (ref) => calls.push(`stash-pop:${ref ?? ''}`),
       stashDrop: async (ref) => calls.push(`stash-drop:${ref}`),
@@ -124,19 +134,26 @@ describe('gitGraphActions', () => {
   });
 
   it('builds ref menus with local branch, remote tracking, and tag variants', async () => {
+    expect(fullGraphRefMenuCommands({ kind: 'branch' })).toEqual(['checkout', 'delete-branch']);
+    expect(fullGraphRefMenuCommands({ kind: 'remote' })).toEqual(['checkout', 'delete-branch']);
+    expect(fullGraphRefMenuCommands({ kind: 'tag' })).toEqual(['checkout', 'delete-tag']);
+    expect(fullGraphRefMenuCommands({ kind: 'branch', current: true })).toEqual(['checkout']);
+    expect(fullGraphRefMenuCommands({ kind: 'remote', activeRemote: true })).toEqual(['checkout']);
+    expect(fullGraphRefMenuCommands({ kind: 'remote', pseudo: true })).toEqual(['checkout']);
+
     const local = createDeps();
     const branchMenu = fullGraphRefMenu(
       { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
       local.deps,
     );
-    expect(ids(branchMenu)).toEqual(['checkout', 'merge', 'rename', '---', 'delete']);
+    expect(ids(branchMenu)).toEqual(['checkout', '---', 'delete']);
 
-    action(branchMenu, 'rename').run();
+    action(branchMenu, 'delete').run();
     await Promise.resolve();
     expect(local.calls).toEqual([
-      'prompt:Rename feature/scm',
+      'confirm:Delete branch feature/scm?',
       'runGit',
-      'rename:feature/scm:feature/scm-renamed',
+      'branch-delete:feature/scm:safe',
     ]);
 
     const remote = createDeps();
@@ -148,6 +165,33 @@ describe('gitGraphActions', () => {
       'checkout',
     ).run();
     expect(remote.calls).toEqual(['runGit', 'checkout:refs/remotes/origin/main:track']);
+
+    action(
+      fullGraphRefMenu(
+        { name: 'origin/main', kind: 'remote', targetRef: 'refs/remotes/origin/main' },
+        remote.deps,
+      ),
+      'delete',
+    ).run();
+    await Promise.resolve();
+    expect(remote.calls).toEqual([
+      'runGit',
+      'checkout:refs/remotes/origin/main:track',
+      'confirm:Delete branch origin/main?',
+      'runGit',
+      'remote-delete:origin:main:safe',
+    ]);
+
+    const activeRemoteMenu = fullGraphRefMenu(
+      {
+        name: 'origin/main',
+        kind: 'remote',
+        targetRef: 'refs/remotes/origin/main',
+        activeRemote: true,
+      },
+      createDeps().deps,
+    );
+    expect(ids(activeRemoteMenu)).toEqual(['checkout']);
 
     const trackedRemote = createDeps();
     action(
@@ -165,25 +209,68 @@ describe('gitGraphActions', () => {
     expect(trackedRemote.calls).toEqual(['runGit', 'checkout:main:plain']);
 
     const tag = createDeps();
-    action(
-      fullGraphRefMenu({ name: 'v1.0', kind: 'tag', targetRef: 'refs/tags/v1.0' }, tag.deps),
-      'delete',
-    ).run();
+    const tagMenu = fullGraphRefMenu(
+      { name: 'v1.0', kind: 'tag', targetRef: 'refs/tags/v1.0' },
+      tag.deps,
+    );
+    expect(ids(tagMenu)).toEqual(['checkout', '---', 'delete']);
+    action(tagMenu, 'delete').run();
     await Promise.resolve();
     expect(tag.calls).toEqual(['confirm:Delete tag v1.0?', 'runGit', 'tag-delete:v1.0']);
   });
 
-  it('uses full ref targets for merge actions to avoid ambiguous refs', () => {
+  it('uses full ref targets for remote checkout actions to avoid ambiguous refs', () => {
     const { deps, calls } = createDeps();
     action(
       fullGraphRefMenu(
-        { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
+        { name: 'origin/feature', kind: 'remote', targetRef: 'refs/remotes/origin/feature' },
         deps,
       ),
-      'merge',
+      'checkout',
     ).run();
 
-    expect(calls).toEqual(['runGit', 'merge:refs/heads/feature/scm']);
+    expect(calls).toEqual(['runGit', 'checkout:refs/remotes/origin/feature:track']);
+  });
+
+  it('only offers force branch delete for not-fully-merged failures', async () => {
+    const { deps, calls } = createDeps();
+    const failures: unknown[] = [];
+    const pending: Promise<void>[] = [];
+    const rejectingDeps: GitGraphActionDeps = {
+      ...deps,
+      git: {
+        ...deps.git,
+        deleteBranch: async () => {
+          throw new GitError({
+            message: 'permission denied',
+            gitErrorCode: GitErrorCodes.PermissionDenied,
+          });
+        },
+      },
+      runGit: (fn) => {
+        calls.push('runGit');
+        pending.push(fn().catch((err: unknown) => failures.push(err)));
+      },
+    };
+
+    action(
+      fullGraphRefMenu(
+        { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
+        rejectingDeps,
+      ),
+      'delete',
+    ).run();
+    await Promise.resolve();
+    await Promise.all(pending);
+
+    expect(calls).toEqual(['confirm:Delete branch feature/scm?', 'runGit']);
+    expect((failures[0] as GitError).gitErrorCode).toBe(GitErrorCodes.PermissionDenied);
+    await expect(
+      deleteBranchRefWithRecovery(
+        { name: 'feature/scm', kind: 'branch' },
+        { git: rejectingDeps.git, confirm: rejectingDeps.confirm },
+      ),
+    ).rejects.toMatchObject({ gitErrorCode: GitErrorCodes.PermissionDenied });
   });
 
   it('builds stash menu actions with confirmation for destructive drops', async () => {

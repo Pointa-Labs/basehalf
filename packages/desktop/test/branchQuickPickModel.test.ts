@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  branchOption,
   canDeleteBranch,
   checkoutTargetForRef,
+  createBranchFromPickOptions,
+  createCheckoutPickOptions,
+  createDetachedCheckoutPickOptions,
+  defaultBranchNameFromRef,
+  detachedCheckoutTargetForRef,
   filterBranches,
   isBranchPickDisabled,
   isCheckoutBlockedError,
+  orderCheckoutPickOptions,
 } from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
 import type { GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
@@ -50,6 +57,69 @@ describe('branchQuickPickModel', () => {
       track: true,
     });
     expect(checkoutTargetForRef(branch('feature-x'))).toEqual({ branch: 'feature-x' });
+  });
+
+  it('adds VS Code-style branch commands and detached targets to checkout picks', () => {
+    const refs = [
+      branch('main', { current: true, commit: 'abcdef123456' }),
+      remote('origin/feature-x', { commit: '1234567890ab' }),
+    ];
+
+    expect(createCheckoutPickOptions(refs).map((option) => option.value)).toEqual([
+      'cmd:create',
+      'cmd:createFrom',
+      'cmd:checkoutDetached',
+      'refs/heads/main',
+      'refs/remotes/origin/feature-x',
+    ]);
+    expect(branchOption(refs[0] as GitRefInfo)).toMatchObject({
+      label: 'main',
+      hint: 'current branch',
+      detail: 'abcdef1',
+    });
+    expect(detachedCheckoutTargetForRef(refs[1] as GitRefInfo)).toEqual({
+      branch: '1234567890ab',
+      detached: true,
+    });
+    expect(defaultBranchNameFromRef(refs[1] as GitRefInfo)).toBe('feature-x');
+  });
+
+  it('moves always-show command rows after refs once the user types', () => {
+    const options = createCheckoutPickOptions([branch('main'), remote('origin/feature-x')]);
+
+    expect(orderCheckoutPickOptions('', options).map((option) => option.value)).toEqual([
+      'cmd:create',
+      'cmd:createFrom',
+      'cmd:checkoutDetached',
+      'refs/heads/main',
+      'refs/remotes/origin/feature-x',
+    ]);
+    expect(orderCheckoutPickOptions('feat', options).map((option) => option.value)).toEqual([
+      'refs/heads/main',
+      'refs/remotes/origin/feature-x',
+      'cmd:create',
+      'cmd:createFrom',
+      'cmd:checkoutDetached',
+    ]);
+  });
+
+  it('uses VS Code-style create-from and detached source lists', () => {
+    const refs = [
+      branch('main'),
+      remote('origin/feature-x'),
+      { id: 'refs/tags/v1.0', name: 'v1.0', type: 'tag' as const, current: false },
+    ];
+
+    expect(createBranchFromPickOptions(refs).map((option) => option.value)).toEqual([
+      'HEAD',
+      'refs/heads/main',
+      'refs/remotes/origin/feature-x',
+      'refs/tags/v1.0',
+    ]);
+    expect(createDetachedCheckoutPickOptions(refs).map((option) => option.value)).toEqual([
+      'refs/heads/main',
+      'refs/remotes/origin/feature-x',
+    ]);
   });
 
   it('only allows deleting local non-current branches in switch mode', () => {

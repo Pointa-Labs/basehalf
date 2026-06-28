@@ -1,13 +1,17 @@
 import { type CSSProperties, type JSX, useState } from 'react';
-import { pick as pickDialog } from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
+import { pick } from '../../../../platform/quickinput/browser/quickInputService.js';
 import { color, font, radius, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
+import { GitHistoryProvider } from './gitHistoryProvider.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import {
   graphRefFilterFromPick,
   graphRefFilterLabel,
+  graphRefFilterTooltip,
+  graphRefNormalizeSelectedValues,
   graphRefPickOptions,
+  graphRefSelectedValues,
 } from './graphRefPickerModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 import { scm } from './styles.js';
@@ -33,15 +37,16 @@ export const HistoryRefPickerButton = ({
     if (disabled) return;
     void (async () => {
       try {
-        const result = await git.refs({
-          includeRemote: true,
-          includeTags: true,
-        });
-        const choice = await pickDialog({
+        const refs = await new GitHistoryProvider(git).provideHistoryItemRefs();
+        const selectedValues = graphRefSelectedValues(filter);
+        const choice = await pick({
           title: 'History Item Reference Picker',
-          placeholder: 'Select history item reference',
+          placeholder: 'Select one/more history item references to view, type to filter',
           emptyText: 'No refs found.',
-          options: graphRefPickOptions(result.refs),
+          canSelectMany: true,
+          selectedValues,
+          normalizeSelectedValues: graphRefNormalizeSelectedValues,
+          options: graphRefPickOptions(refs, selectedValues),
         });
         if (choice === null) return;
         const nextFilter = graphRefFilterFromPick(choice);
@@ -56,7 +61,7 @@ export const HistoryRefPickerButton = ({
     <button
       type="button"
       disabled={disabled}
-      title="History Item Reference Picker"
+      title={graphRefFilterTooltip(filter)}
       aria-label="History Item Reference Picker"
       aria-haspopup="dialog"
       data-testid={testId}
@@ -66,7 +71,10 @@ export const HistoryRefPickerButton = ({
       style={buttonStyle(disabled, hover, maxWidth)}
     >
       <Codicon name="git-branch" size={16} style={{ flexShrink: 0 }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <span
+        title={graphRefFilterTooltip(filter)}
+        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      >
         {graphRefFilterLabel(filter)}
       </span>
     </button>

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import {
   type GithubPullRequestService,
   githubPullRequestService,
@@ -97,7 +97,7 @@ export const useScmCommands = ({
   );
 
   const resourceCommands = useScmResourceCommands({ act, git, groups });
-  const commitCommands = useScmCommitCommands({ act, git, hasStaged, message, setMessage });
+  const commitCommands = useScmCommitCommands({ act, git, hasStaged, message, setMessage, status });
   const remoteCommands = useScmRemoteCommands({
     act,
     git,

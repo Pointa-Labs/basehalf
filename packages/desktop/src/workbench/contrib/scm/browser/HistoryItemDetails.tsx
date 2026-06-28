@@ -1,6 +1,6 @@
 import type { JSX, ReactNode } from 'react';
-import { confirm, prompt } from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
+import { confirm, prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { color, font, radius, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';

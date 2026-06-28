@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GitRunOptions, GitRunResult } from '../src/workbench/contrib/scm/common/git.js';
 import {
   checkout,
+  deleteRemoteRef,
   merge,
   refs,
 } from '../src/workbench/contrib/scm/electron-main/gitBranchCommands.js';
@@ -80,6 +81,32 @@ describe('git branch commands', () => {
     await checkout({ branch: 'origin/feature-x', track: true }, ctx);
 
     expect(calls.map((call) => call.args)).toEqual([['checkout', '--track', 'origin/feature-x']]);
+  });
+
+  it('checks out a ref in detached mode', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'checkout') return ok();
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await checkout({ branch: 'abc1234', detached: true }, ctx);
+
+    expect(calls.map((call) => call.args)).toEqual([['checkout', '--detach', 'abc1234']]);
+  });
+
+  it('deletes remote branches through the remote ref push path', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'push') return ok();
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await deleteRemoteRef({ remote: 'origin', name: 'feature/scm' }, ctx);
+    await deleteRemoteRef({ remote: 'origin', name: 'feature/force', force: true }, ctx);
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ['push', 'origin', '--delete', 'feature/scm'],
+      ['push', 'origin', '--delete', '--force', 'feature/force'],
+    ]);
   });
 
   it('returns merge conflicts as command data instead of throwing', async () => {

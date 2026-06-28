@@ -1,5 +1,5 @@
 import { type JSX, type MouseEvent as ReactMouseEvent, useState } from 'react';
-import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { CountBadge } from '../../../browser/ui/primitives/CountBadge.js';

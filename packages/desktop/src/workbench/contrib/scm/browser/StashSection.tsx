@@ -4,10 +4,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   useState,
 } from 'react';
-import {
-  type ContextMenuItem,
-  openContextMenu,
-} from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Disclosure } from '../../../browser/ui/primitives/Disclosure.js';
 import type { GitStashEntry } from '../common/git.js';

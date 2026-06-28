@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { confirm } from '../../../browser/parts/dialogs/Dialog.js';
+import { confirm } from '../../../../platform/dialogs/browser/dialogService.js';
 import type { GitStashEntry } from '../common/git.js';
 import type { GitScmService } from './gitScmService.js';
 import { type ScmActionRunner, dropStashPrompt } from './scmCommandModel.js';

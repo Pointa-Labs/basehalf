@@ -18,10 +18,15 @@ export const GitErrorCodes = {
   InvalidBranchName: 'InvalidBranchName',
   BranchAlreadyExists: 'BranchAlreadyExists',
   NoUpstreamBranch: 'NoUpstreamBranch',
+  PushRejected: 'PushRejected',
+  PermissionDenied: 'PermissionDenied',
+  ForcePushWithLeaseRejected: 'ForcePushWithLeaseRejected',
+  ForcePushWithLeaseIfIncludesRejected: 'ForcePushWithLeaseIfIncludesRejected',
   CantLockRef: 'CantLockRef',
   CantRebaseMultipleBranches: 'CantRebaseMultipleBranches',
   TagConflict: 'TagConflict',
   BranchFastForwardRejected: 'BranchFastForwardRejected',
+  NoUserNameConfigured: 'NoUserNameConfigured',
 } as const;
 
 export type GitErrorCode = (typeof GitErrorCodes)[keyof typeof GitErrorCodes];
@@ -145,9 +150,17 @@ export function classifyGitError(stderr: string, stdout = ''): GitErrorCode | un
   ) {
     return GitErrorCodes.RepositoryIsLocked;
   }
-  if (/Authentication failed/i.test(text)) return GitErrorCodes.AuthenticationFailed;
+  if (
+    /Authentication failed|could not read (?:Username|Password).*terminal prompts disabled/i.test(
+      text,
+    )
+  ) {
+    return GitErrorCodes.AuthenticationFailed;
+  }
   if (/Not a git repository/i.test(text)) return GitErrorCodes.NotAGitRepository;
   if (/bad config file/.test(text)) return GitErrorCodes.BadConfigFile;
+  if (/No remote repository specified\./.test(text))
+    return GitErrorCodes.NoRemoteRepositorySpecified;
   if (/Repository not found/.test(text)) return GitErrorCodes.RepositoryNotFound;
   if (/unable to access/.test(text)) return GitErrorCodes.CantAccessRemote;
   if (/branch '.+' is not fully merged/.test(text)) return GitErrorCodes.BranchNotFullyMerged;
@@ -155,12 +168,25 @@ export function classifyGitError(stderr: string, stdout = ''): GitErrorCode | un
   if (/A branch named '.+' already exists/.test(text)) return GitErrorCodes.BranchAlreadyExists;
   if (/'.+' is not a valid branch name/.test(text)) return GitErrorCodes.InvalidBranchName;
   if (/Please,? commit your changes or stash them/.test(text)) return GitErrorCodes.DirtyWorkTree;
+  if (/Please tell me who you are\./.test(text)) return GitErrorCodes.NoUserNameConfigured;
   if (/detected dubious ownership in repository at/.test(text))
     return GitErrorCodes.NotASafeGitRepository;
+  if (/Could not read from remote repository/.test(text))
+    return GitErrorCodes.RemoteConnectionError;
+  if (/Permission.*denied/i.test(text)) return GitErrorCodes.PermissionDenied;
   if (
-    /There is no tracking information for the current branch|no tracking information/i.test(text)
+    /There is no tracking information for the current branch|no tracking information|^fatal: The current branch .* has no upstream branch/im.test(
+      text,
+    )
   ) {
     return GitErrorCodes.NoUpstreamBranch;
+  }
+  if (/cannot lock ref|unable to update local ref/i.test(text)) return GitErrorCodes.CantLockRef;
+  if (/cannot rebase onto multiple branches/i.test(text)) {
+    return GitErrorCodes.CantRebaseMultipleBranches;
+  }
+  if (/! \[rejected\].*\(would clobber existing tag\)/m.test(text)) {
+    return GitErrorCodes.TagConflict;
   }
   if (
     /fatal: ambiguous argument|fatal: bad revision|unknown revision|Needed a single revision/i.test(

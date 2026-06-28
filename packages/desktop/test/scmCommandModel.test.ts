@@ -12,7 +12,7 @@ import {
   runScmAction,
   scmErrorMessage,
 } from '../src/workbench/contrib/scm/browser/scmCommandModel.js';
-import { GitError } from '../src/workbench/contrib/scm/common/git.js';
+import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
 
 const tracked = (path: string): GitRow => ({
   path,
@@ -124,6 +124,28 @@ describe('scmCommandModel', () => {
       stderr: 'Cannot pull with rebase, you have unstaged changes',
     });
     expect(scmErrorMessage(gitError)).toBe('Cannot pull with rebase, you have unstaged changes');
+    expect(
+      scmErrorMessage(
+        new GitError({
+          message: 'git pull failed (exit 1): There is no tracking information',
+          stderr: 'There is no tracking information for the current branch.\n',
+          gitErrorCode: GitErrorCodes.NoUpstreamBranch,
+          gitCommand: 'pull',
+          gitArgs: ['pull'],
+        }),
+      ),
+    ).toBe(
+      'The current branch has no upstream branch. Publish this branch or set an upstream branch before pulling.',
+    );
+    expect(
+      scmErrorMessage(
+        new GitError({
+          stderr:
+            "To github.com:acme/repo.git\n ! [rejected] main -> main (fetch first)\nerror: failed to push some refs to 'github.com:acme/repo.git'\n",
+          gitErrorCode: GitErrorCodes.PushRejected,
+        }),
+      ),
+    ).toBe('Can\'t push refs to remote. Try running "Pull" first to integrate your changes.');
     expect(scmErrorMessage('fatal')).toBe('fatal');
   });
 });

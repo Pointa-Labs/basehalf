@@ -21,7 +21,7 @@ export function createGitBridge(ipcRenderer: IpcRendererLike): GitBridgeContaine
       push: (options = {}) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.push, options),
       publish: (options = {}) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.publish, options),
       pull: (options = {}) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.pull, options),
-      fetch: () => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.fetch),
+      fetch: (args = {}) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.fetch, args),
       sync: () => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.sync),
       remotes: () => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.remotes),
       reset: (args) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.reset, args),
@@ -35,6 +35,8 @@ export function createGitBridge(ipcRenderer: IpcRendererLike): GitBridgeContaine
         invokeGit(ipcRenderer, GIT_IPC_CHANNELS.renameCurrentBranch, { to }),
       deleteBranch: (name, options = {}) =>
         invokeGit(ipcRenderer, GIT_IPC_CHANNELS.deleteBranch, { name, ...options }),
+      deleteRemoteRef: (remote, name, options = {}) =>
+        invokeGit(ipcRenderer, GIT_IPC_CHANNELS.deleteRemoteRef, { remote, name, ...options }),
       merge: (branch) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.merge, branch),
       cherryPick: (ref) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.cherryPick, ref),
       revert: (ref) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.revert, ref),

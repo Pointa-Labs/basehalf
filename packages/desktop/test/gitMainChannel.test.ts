@@ -44,6 +44,8 @@ describe('GitMainChannel', () => {
       stage: vi.fn(async () => undefined),
       deleteWorkspaceEntry: vi.fn(async () => undefined),
       commit: vi.fn(async () => undefined),
+      deleteRemoteRef: vi.fn(async () => undefined),
+      fetch: vi.fn(async () => undefined),
       reset: vi.fn(async () => undefined),
       commitFiles: vi.fn(async () => []),
       mergeBase: vi.fn(async () => 'base'),
@@ -68,6 +70,14 @@ describe('GitMainChannel', () => {
     await invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.commit), event, {
       message: 'msg',
       amend: true,
+    });
+    await invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.deleteRemoteRef), event, {
+      remote: 'origin',
+      name: 'feature/scm',
+      force: true,
+    });
+    await invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.fetch), event, {
+      all: true,
     });
     await invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.reset), event, {
       ref: 'HEAD~1',
@@ -106,6 +116,10 @@ describe('GitMainChannel', () => {
     expect(service.stage).toHaveBeenCalledWith('/repo', ['a.ts']);
     expect(service.deleteWorkspaceEntry).toHaveBeenCalledWith('/repo', 'new.md', 'file');
     expect(service.commit).toHaveBeenCalledWith('/repo', 'msg', { amend: true });
+    expect(service.deleteRemoteRef).toHaveBeenCalledWith('/repo', 'origin', 'feature/scm', {
+      force: true,
+    });
+    expect(service.fetch).toHaveBeenCalledWith('/repo', { all: true });
     expect(service.reset).toHaveBeenCalledWith('/repo', { ref: 'HEAD~1', mode: 'soft' });
     expect(service.commitFiles).toHaveBeenCalledWith('/repo', 'abc', 'parent');
     expect(service.mergeBase).toHaveBeenCalledWith('/repo', ['main', 'origin/main']);

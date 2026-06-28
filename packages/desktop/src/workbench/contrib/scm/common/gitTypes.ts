@@ -95,6 +95,11 @@ export interface GitRemotesResult {
   readonly remotes: readonly GitRemoteInfo[];
 }
 
+export interface GitFetchArgs {
+  readonly remote?: string;
+  readonly all?: boolean;
+}
+
 export interface GitStashArgs {
   readonly message?: string;
   readonly includeUntracked?: boolean;
@@ -207,6 +212,7 @@ export interface GitConflictStagesResult {
 export interface GitCheckoutArgs {
   readonly branch: string;
   readonly create?: boolean;
+  readonly detached?: boolean;
   readonly force?: boolean;
   readonly track?: boolean;
 }
@@ -218,6 +224,12 @@ export interface GitCreateBranchArgs {
 }
 
 export interface GitDeleteBranchArgs {
+  readonly name: string;
+  readonly force?: boolean;
+}
+
+export interface GitDeleteRemoteRefArgs {
+  readonly remote: string;
   readonly name: string;
   readonly force?: boolean;
 }

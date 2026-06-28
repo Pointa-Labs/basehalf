@@ -7,6 +7,7 @@ import type {
   GitConflictStagesResult,
   GitCreateBranchArgs,
   GitDiffArgs,
+  GitFetchArgs,
   GitLogArgs,
   GitLogResult,
   GitMergeBaseResult,
@@ -86,8 +87,8 @@ export class GitMainService {
     return this.backend.pull(workspaceRoot, options);
   }
 
-  fetch(workspaceRoot: string | null): Promise<void> {
-    return this.backend.fetch(workspaceRoot);
+  fetch(workspaceRoot: string | null, args: GitFetchArgs = {}): Promise<void> {
+    return this.backend.fetch(workspaceRoot, args);
   }
 
   sync(workspaceRoot: string | null): Promise<void> {
@@ -105,7 +106,7 @@ export class GitMainService {
   checkout(
     workspaceRoot: string | null,
     branch: string,
-    options: { force?: boolean; track?: boolean } = {},
+    options: { detached?: boolean; force?: boolean; track?: boolean } = {},
   ): Promise<void> {
     return this.backend.checkout(workspaceRoot, branch, options);
   }
@@ -132,6 +133,15 @@ export class GitMainService {
     options: { force?: boolean } = {},
   ): Promise<void> {
     return this.backend.deleteBranch(workspaceRoot, name, options);
+  }
+
+  deleteRemoteRef(
+    workspaceRoot: string | null,
+    remote: string,
+    name: string,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
+    return this.backend.deleteRemoteRef(workspaceRoot, remote, name, options);
   }
 
   merge(workspaceRoot: string | null, branch: string): Promise<GitMergeResult> {

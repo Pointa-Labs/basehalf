@@ -2,9 +2,7 @@ import type { GitCommit, GitLogArgs, GitRefInfo } from '../common/git.js';
 import type { ScmCurrentHistoryItemRefs, ScmHistoryItemRef } from '../common/history.js';
 import type { GitHistoryOptions, GitHistoryRawSource } from './gitHistoryProvider.js';
 import { gitLogArgsForHistoryOptions, normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
-import type { ScmHistoryFilter } from './scmViewStore.js';
-
-const GIT_OBJECT_ID = /^[0-9a-f]{7,64}$/i;
+import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 
 export interface GitHistoryPage {
   readonly commits: readonly GitCommit[];
@@ -18,8 +16,9 @@ export function gitHistoryOptionsForFilter(
   skip: number,
 ): GitHistoryOptions {
   const page = { limit: pageSize, skip };
-  if (filter.kind === 'all') return { ...page, all: true };
-  if (filter.kind === 'ref') return { ...page, historyItemRefs: [filter.ref] };
+  if (filter.kind === 'all') return { ...page, historyItemRefs: ['HEAD'] };
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) return { ...page, historyItemRefs: filterRefs };
   return { ...page, historyItemRefs: ['HEAD'] };
 }
 
@@ -35,12 +34,14 @@ export function gitHistoryOptionsForAvailableFilter({
   readonly skip: number;
 }): GitHistoryOptions {
   const page = { limit: pageSize, skip };
-  if (filter.kind === 'all') return { ...page, all: true };
-  if (filter.kind === 'ref') {
-    const normalized = normalizeGitHistoryItemRefs([filter.ref], refs)[0];
-    if (normalized !== undefined && gitHistoryRefExists(normalized, refs)) {
-      return { ...page, historyItemRefs: [normalized] };
-    }
+  if (filter.kind === 'all') {
+    const allRefs = allGitHistoryRefs(refs);
+    return { ...page, historyItemRefs: allRefs.length > 0 ? allRefs : ['HEAD'] };
+  }
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) {
+    const availableRefs = availableGitHistoryRefs(filterRefs, refs);
+    if (availableRefs.length > 0) return { ...page, historyItemRefs: availableRefs };
   }
   return { ...page, historyItemRefs: ['HEAD'] };
 }
@@ -58,12 +59,16 @@ export async function gitHistoryOptionsForSourceFilter({
   readonly pageSize: number;
   readonly skip: number;
 }): Promise<GitHistoryOptions> {
-  if (filter.kind === 'all') return gitHistoryOptionsForFilter(filter, pageSize, skip);
-  if (filter.kind === 'ref') {
-    const normalized = normalizeGitHistoryItemRefs([filter.ref], refs)[0];
-    if (normalized !== undefined && gitHistoryRefExists(normalized, refs)) {
+  if (filter.kind === 'all') {
+    const allRefs = allGitHistoryRefs(refs);
+    if (allRefs.length > 0) return { historyItemRefs: allRefs, limit: pageSize, skip };
+  }
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) {
+    const availableRefs = availableGitHistoryRefs(filterRefs, refs);
+    if (availableRefs.length > 0) {
       return {
-        historyItemRefs: [normalized],
+        historyItemRefs: availableRefs,
         limit: pageSize,
         skip,
       };
@@ -78,11 +83,38 @@ export async function gitHistoryOptionsForSourceFilter({
 }
 
 function gitHistoryRefExists(ref: string, refs: readonly GitRefInfo[]): boolean {
-  return refs.some((candidate) => candidate.id === ref || candidate.commit === ref);
+  return gitHistoryRefMatch(ref, refs) !== undefined;
+}
+
+function gitHistoryRefMatch(ref: string, refs: readonly GitRefInfo[]): GitRefInfo | undefined {
+  return refs.find((candidate) => candidate.id === ref || candidate.commit === ref);
+}
+
+function availableGitHistoryRefs(
+  historyItemRefs: readonly string[],
+  refs: readonly GitRefInfo[],
+): readonly string[] {
+  return normalizeGitHistoryItemRefs(historyItemRefs, refs).flatMap((ref) => {
+    const match = gitHistoryRefMatch(ref, refs);
+    return match === undefined ? [] : [gitRefInfoToProviderRef(match)];
+  });
 }
 
 export function gitHistoryItemRefToProviderRef(ref: ScmHistoryItemRef): string {
-  return ref.revision !== undefined && GIT_OBJECT_ID.test(ref.revision) ? ref.revision : ref.id;
+  return ref.revision !== undefined && ref.revision !== ref.name ? ref.revision : ref.id;
+}
+
+function gitRefInfoToProviderRef(ref: GitRefInfo): string {
+  return ref.commit ?? ref.id;
+}
+
+function allGitHistoryRefs(refs: readonly GitRefInfo[]): readonly string[] {
+  const seen = new Set<string>();
+  return refs.map(gitRefInfoToProviderRef).filter((ref) => {
+    if (seen.has(ref)) return false;
+    seen.add(ref);
+    return true;
+  });
 }
 
 export function gitHistoryLogArgsForFilter(

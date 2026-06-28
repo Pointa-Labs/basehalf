@@ -1,4 +1,4 @@
-import { GitError, type GitStashEntry, gitErrorMessage } from '../common/git.js';
+import { GitError, GitErrorCodes, type GitStashEntry, gitErrorMessage } from '../common/git.js';
 import { type GitScmService, entryKindForGitPath } from './gitScmService.js';
 import type { GitRow } from './gitStatusModel.js';
 import type { CommitActionOptions } from './types.js';
@@ -26,7 +26,42 @@ export interface CommitPlan {
 }
 
 export const scmErrorMessage = (err: unknown): string =>
-  err instanceof GitError ? gitErrorMessage(err) : err instanceof Error ? err.message : String(err);
+  err instanceof GitError
+    ? scmGitErrorMessage(err)
+    : err instanceof Error
+      ? err.message
+      : String(err);
+
+export function scmGitErrorMessage(err: GitError): string {
+  switch (err.gitErrorCode) {
+    case GitErrorCodes.DirtyWorkTree:
+      return 'Please clean your repository working tree before checkout.';
+    case GitErrorCodes.PushRejected:
+      return 'Can\'t push refs to remote. Try running "Pull" first to integrate your changes.';
+    case GitErrorCodes.ForcePushWithLeaseRejected:
+    case GitErrorCodes.ForcePushWithLeaseIfIncludesRejected:
+      return 'Can\'t force push refs to remote. The tip of the remote-tracking branch has been updated since the last checkout. Try running "Pull" first to pull the latest changes from the remote branch first.';
+    case GitErrorCodes.Conflict:
+      return 'There are merge conflicts. Please resolve them before committing your changes.';
+    case GitErrorCodes.NoUserNameConfigured:
+      return 'Make sure you configure your "user.name" and "user.email" in git.';
+    case GitErrorCodes.NoUpstreamBranch:
+      return noUpstreamGitErrorMessage(err);
+    default:
+      return gitErrorMessage(err);
+  }
+}
+
+function noUpstreamGitErrorMessage(err: GitError): string {
+  const command = err.gitCommand ?? err.gitArgs?.[0];
+  if (command === 'pull') {
+    return 'The current branch has no upstream branch. Publish this branch or set an upstream branch before pulling.';
+  }
+  if (command === 'sync') {
+    return 'The current branch has no upstream branch. Publish this branch before syncing.';
+  }
+  return 'The current branch has no remote branch. Publish this branch first.';
+}
 
 export async function runScmAction(
   action: () => Promise<unknown>,

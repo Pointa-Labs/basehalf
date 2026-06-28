@@ -33,6 +33,8 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
     renameCurrentBranch: async (to) => calls.push({ name: 'renameCurrentBranch', args: [to] }),
     deleteBranch: async (name, options) =>
       calls.push({ name: 'deleteBranch', args: [name, options] }),
+    deleteRemoteRef: async (remote, name, options) =>
+      calls.push({ name: 'deleteRemoteRef', args: [remote, name, options] }),
     merge: async (branch) => {
       calls.push({ name: 'merge', args: [branch] });
       return { merged: true, conflicts: false, stdout: '', stderr: '' };
@@ -128,10 +130,12 @@ describe('gitScmService', () => {
     await service.reset({ ref: 'HEAD~1', mode: 'soft' });
     await service.checkout('abc');
     await service.checkout('origin/topic', { track: true });
+    await service.checkout('abc1234', { detached: true });
     await service.createBranch('topic', { ref: 'abc' });
     await service.renameBranch('topic', 'renamed');
     await service.renameCurrentBranch('current-renamed');
     await service.deleteBranch('renamed', { force: true });
+    await service.deleteRemoteRef('origin', 'topic', { force: true });
     expect(await service.merge('abc')).toMatchObject({ conflicts: false });
     expect(await service.cherryPick('abc')).toMatchObject({ conflicts: false });
     expect(await service.revert('abc')).toMatchObject({ conflicts: false });
@@ -177,10 +181,12 @@ describe('gitScmService', () => {
       { name: 'reset', args: [{ ref: 'HEAD~1', mode: 'soft' }] },
       { name: 'checkout', args: ['abc', {}] },
       { name: 'checkout', args: ['origin/topic', { track: true }] },
+      { name: 'checkout', args: ['abc1234', { detached: true }] },
       { name: 'createBranch', args: ['topic', { ref: 'abc' }] },
       { name: 'renameBranch', args: ['topic', 'renamed'] },
       { name: 'renameCurrentBranch', args: ['current-renamed'] },
       { name: 'deleteBranch', args: ['renamed', { force: true }] },
+      { name: 'deleteRemoteRef', args: ['origin', 'topic', { force: true }] },
       { name: 'merge', args: ['abc'] },
       { name: 'cherryPick', args: ['abc'] },
       { name: 'revert', args: ['abc'] },

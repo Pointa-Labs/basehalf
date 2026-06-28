@@ -8,7 +8,9 @@ import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphDateMode,
   type FullGraphPath,
-  type FullGraphRefKind,
+  type FullGraphRefIndex,
+  type FullGraphRefModel,
+  fullGraphRefsForCommit,
 } from './gitGraphViewModel.js';
 
 export const FullGraphHistoryTable = ({
@@ -25,8 +27,7 @@ export const FullGraphHistoryTable = ({
   uncommitted,
   paths,
   stashByHash,
-  localBranches,
-  trackingLocalBranches,
+  refIndex,
   selected,
   isHighlighted,
   onOpenUncommitted,
@@ -48,20 +49,13 @@ export const FullGraphHistoryTable = ({
   uncommitted: number;
   paths: readonly FullGraphPath[];
   stashByHash: ReadonlyMap<string, GitStashEntry>;
-  localBranches: ReadonlySet<string>;
-  trackingLocalBranches: ReadonlyMap<string, string>;
+  refIndex: FullGraphRefIndex;
   selected: string | null;
   isHighlighted: (commit: GitCommit) => boolean;
   onOpenUncommitted: () => void;
   onSelectCommit: (hash: string) => void;
   onCommitContextMenu: (event: MouseEvent, commit: GitCommit, stashRef: string | undefined) => void;
-  onRefContextMenu: (
-    event: MouseEvent,
-    name: string,
-    kind: FullGraphRefKind,
-    targetRef: string,
-    trackingLocal: string | undefined,
-  ) => void;
+  onRefContextMenu: (event: MouseEvent, ref: FullGraphRefModel) => void;
   onLoadMore: () => void;
 }): JSX.Element => (
   <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -96,13 +90,13 @@ export const FullGraphHistoryTable = ({
         )}
         {rows.map((row) => {
           const stashRef = stashByHash.get(row.commit.hash)?.ref;
+          const refs = fullGraphRefsForCommit(row.commit, refIndex);
           return (
             <FullGraphCommitRow
               key={row.commit.hash}
               commit={row.commit}
               gridCols={gridColumns}
-              localBranches={localBranches}
-              trackingLocalBranches={trackingLocalBranches}
+              refs={refs}
               dateMode={dateMode}
               stashRef={stashRef}
               selected={selected === row.commit.hash}

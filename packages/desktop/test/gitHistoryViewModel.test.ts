@@ -32,7 +32,7 @@ const ref = (id: string, name: string, type: GitRefInfo['type']): GitRefInfo => 
 describe('gitHistoryViewModel', () => {
   it('maps UI filters to Git provider options and git log args', () => {
     expect(gitHistoryOptionsForFilter({ kind: 'all' }, 50, 10)).toEqual({
-      all: true,
+      historyItemRefs: ['HEAD'],
       limit: 50,
       skip: 10,
     });
@@ -46,9 +46,20 @@ describe('gitHistoryViewModel', () => {
       limit: 50,
       skip: 10,
     });
+    expect(
+      gitHistoryOptionsForFilter(
+        { kind: 'refs', refs: ['refs/heads/main', 'refs/remotes/origin/main'] },
+        50,
+        10,
+      ),
+    ).toEqual({
+      historyItemRefs: ['refs/heads/main', 'refs/remotes/origin/main'],
+      limit: 50,
+      skip: 10,
+    });
 
     expect(gitHistoryLogArgsForFilter({ kind: 'all' }, 50, 10)).toEqual({
-      all: true,
+      ref: 'HEAD',
       maxCount: 50,
       skip: 10,
     });
@@ -62,7 +73,22 @@ describe('gitHistoryViewModel', () => {
         pageSize: 50,
         skip: 0,
       }),
-    ).toEqual({ all: true, maxCount: 50, skip: 0 });
+    ).toEqual({
+      refNames: ['refs/heads/main', 'refs/remotes/origin/main'],
+      maxCount: 50,
+      skip: 0,
+    });
+    expect(
+      gitHistoryLogArgsForFilter(
+        { kind: 'refs', refs: ['refs/heads/main', 'refs/remotes/origin/main'] },
+        50,
+        10,
+      ),
+    ).toEqual({
+      refNames: ['refs/heads/main', 'refs/remotes/origin/main'],
+      maxCount: 50,
+      skip: 10,
+    });
   });
 
   it('falls back to HEAD provider options when a selected ref disappeared', () => {
@@ -78,7 +104,7 @@ describe('gitHistoryViewModel', () => {
     ).toEqual({ historyItemRefs: ['HEAD'], limit: 20, skip: 0 });
     expect(
       gitHistoryLogArgsForAvailableFilter({
-        filter: { kind: 'ref', ref: 'refs/heads/main' },
+        filter: { kind: 'refs', refs: ['refs/heads/main', 'refs/heads/deleted'] },
         refs,
         pageSize: 20,
         skip: 5,
@@ -108,6 +134,52 @@ describe('gitHistoryViewModel', () => {
         skip: 5,
       }),
     ).toEqual({ ref: 'refs/heads/deadbee', maxCount: 20, skip: 5 });
+  });
+
+  it('uses explicit provider refs for selected local, remote, and tag filters', () => {
+    const refs: GitRefInfo[] = [
+      {
+        id: 'refs/heads/798',
+        name: '798',
+        type: 'head',
+        current: true,
+        commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+      {
+        id: 'refs/remotes/origin/798',
+        name: 'origin/798',
+        type: 'remoteHead',
+        current: false,
+        commit: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      },
+      {
+        id: 'refs/tags/v798',
+        name: 'v798',
+        type: 'tag',
+        current: false,
+        commit: 'cccccccccccccccccccccccccccccccccccccccc',
+      },
+    ];
+
+    expect(
+      gitHistoryLogArgsForAvailableFilter({
+        filter: {
+          kind: 'refs',
+          refs: ['798', 'refs/remotes/origin/798', 'refs/tags/v798'],
+        },
+        refs,
+        pageSize: 20,
+        skip: 0,
+      }),
+    ).toEqual({
+      refNames: [
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        'cccccccccccccccccccccccccccccccccccccccc',
+      ],
+      maxCount: 20,
+      skip: 0,
+    });
   });
 
   it('loads Git graph pages and local branch names through the raw Git source', async () => {
@@ -141,7 +213,7 @@ describe('gitHistoryViewModel', () => {
     await expect(
       loadGitHistoryPage({
         source,
-        filter: { kind: 'ref', ref: 'refs/heads/main' },
+        filter: { kind: 'refs', refs: ['refs/heads/main', 'refs/remotes/origin/main'] },
         pageSize: 3,
         skip: 6,
       }),
@@ -150,7 +222,13 @@ describe('gitHistoryViewModel', () => {
       new Set(['main', 'feature/x']),
     );
     expect(refArgs).toEqual([{ includeRemote: true, includeTags: true }, { includeRemote: true }]);
-    expect(commitOptions).toEqual([{ historyItemRefs: ['refs/heads/main'], limit: 3, skip: 6 }]);
+    expect(commitOptions).toEqual([
+      {
+        historyItemRefs: ['refs/heads/main', 'refs/remotes/origin/main'],
+        limit: 3,
+        skip: 6,
+      },
+    ]);
 
     await loadGitHistoryPage({
       source,
@@ -160,6 +238,37 @@ describe('gitHistoryViewModel', () => {
     });
     expect(commitOptions.at(-1)).toEqual({
       historyItemRefs: ['refs/heads/main', 'refs/remotes/origin/main', '1234567'],
+      limit: 2,
+      skip: 0,
+    });
+
+    source.provideCurrentHistoryItemRefs = async () => ({
+      historyItemRef: {
+        id: 'refs/heads/topic',
+        name: 'topic',
+        revision: 'topic^2',
+      },
+    });
+    await loadGitHistoryPage({
+      source,
+      filter: { kind: 'auto' },
+      pageSize: 2,
+      skip: 0,
+    });
+    expect(commitOptions.at(-1)).toEqual({
+      historyItemRefs: ['topic^2'],
+      limit: 2,
+      skip: 0,
+    });
+
+    await loadGitHistoryPage({
+      source,
+      filter: { kind: 'all' },
+      pageSize: 2,
+      skip: 0,
+    });
+    expect(commitOptions.at(-1)).toEqual({
+      historyItemRefs: ['refs/heads/main', 'refs/heads/feature/x', 'refs/remotes/origin/main'],
       limit: 2,
       skip: 0,
     });

@@ -27,6 +27,7 @@ export interface GitGraphActionDeps {
     | 'tagDelete'
     | 'renameBranch'
     | 'deleteBranch'
+    | 'deleteRemoteRef'
     | 'stashApply'
     | 'stashPop'
     | 'stashDrop'

@@ -1,4 +1,4 @@
-import type { ContextMenuItem } from '../../../browser/parts/contextmenu/contextMenuStore.js';
+import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import type { GitCommit } from '../common/git.js';
 import type { GitGraphActionDeps } from './gitGraphActionTypes.js';
 

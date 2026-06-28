@@ -1,72 +1,53 @@
+import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import {
-  type PickOption,
-  pick as pickDialog,
-  prompt,
-} from '../../../browser/parts/dialogs/Dialog.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
-import type { GitRefInfo, GitStatusResult } from '../common/git.js';
+  pick,
+  pickWithInputValue,
+} from '../../../../platform/quickinput/browser/quickInputService.js';
+import type { GitRefInfo } from '../common/git.js';
 import type { BranchGitAdapter } from './branchGitAdapter.js';
 import {
+  type BranchQuickPickCommand,
   CHECKOUT_RECOVERY_OPTIONS,
   checkoutTargetForRef,
+  createBranchFromPickOptions,
+  createCheckoutPickOptions,
+  createDetachedCheckoutPickOptions,
+  detachedCheckoutTargetForRef,
   isCheckoutBlockedError,
+  orderCheckoutPickOptions,
 } from './branchQuickPickModel.js';
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
-const CREATE_BRANCH_COMMAND = 'cmd:create';
 
 export async function openBranchQuickPick({
   git,
   onAfter,
 }: {
-  readonly status: GitStatusResult;
   readonly git: BranchGitAdapter;
   readonly onAfter: () => void | Promise<void>;
 }): Promise<void> {
   try {
     const { refs } = await git.listRefs();
-    const options: PickOption[] = [
-      {
-        value: CREATE_BRANCH_COMMAND,
-        label: 'Create Branch...',
-        detail: 'Command',
-      },
-      ...refs.map((branch) => branchOption(branch)),
-    ];
 
-    const choice = await pickDialog({
+    const choice = await pickWithInputValue({
       title: 'Switch Branch',
       placeholder: 'Select a branch or tag to checkout',
       emptyText: 'No branches or tags found.',
-      options,
+      options: createCheckoutPickOptions(refs),
+      sortOptions: orderCheckoutPickOptions,
     });
     if (choice === null) return;
 
-    if (choice === CREATE_BRANCH_COMMAND) {
-      await createBranch(git, refs, onAfter);
+    if (isBranchQuickPickCommand(choice.value)) {
+      await runBranchQuickPickCommand(choice.value, choice.inputValue.trim(), git, refs, onAfter);
     } else {
-      const branch = refs.find((b) => b.id === choice);
+      const branch = refs.find((b) => b.id === choice.value);
       if (branch !== undefined) await checkoutBranchWithRecovery(git, branch, refs, onAfter);
     }
   } catch (err) {
     toast.error(msg(err));
   }
-}
-
-function branchOption(branch: GitRefInfo): PickOption {
-  const hint = branch.current
-    ? 'current branch'
-    : branch.type === 'remoteHead'
-      ? 'remote'
-      : undefined;
-  const detail =
-    branch.type === 'remoteHead' ? 'Remote Branch' : branch.type === 'tag' ? 'Tag' : 'Branch';
-  return {
-    value: branch.id,
-    label: branch.name,
-    hint,
-    detail,
-  };
 }
 
 export async function checkoutBranchWithRecovery(
@@ -91,12 +72,34 @@ export async function checkoutBranchWithRecovery(
   }
 }
 
-async function recoverCheckout(
+function isBranchQuickPickCommand(value: string): value is BranchQuickPickCommand {
+  return value === 'cmd:create' || value === 'cmd:createFrom' || value === 'cmd:checkoutDetached';
+}
+
+async function runBranchQuickPickCommand(
+  command: BranchQuickPickCommand,
+  inputValue: string,
   git: BranchGitAdapter,
-  target: { readonly branch: string; readonly track?: boolean },
+  refs: readonly GitRefInfo[],
   onAfter: () => void | Promise<void>,
 ): Promise<void> {
-  const choice = await pickDialog({
+  if (command === 'cmd:create') {
+    await createBranch(git, refs, onAfter, inputValue);
+    return;
+  }
+  if (command === 'cmd:createFrom') {
+    await createBranchFrom(git, refs, onAfter, inputValue);
+    return;
+  }
+  await checkoutDetached(git, refs, onAfter);
+}
+
+async function recoverCheckout(
+  git: BranchGitAdapter,
+  target: { readonly branch: string; readonly track?: boolean; readonly detached?: boolean },
+  onAfter: () => void | Promise<void>,
+): Promise<void> {
+  const choice = await pick({
     title: 'Your local changes would be overwritten',
     placeholder: 'Choose how to continue',
     emptyText: 'No checkout actions available.',
@@ -105,13 +108,10 @@ async function recoverCheckout(
   if (choice === null) return;
 
   if (choice === 'force') {
-    await git.checkout(
-      target.branch,
-      target.track === true ? { force: true, track: true } : { force: true },
-    );
+    await git.checkout(target.branch, checkoutOptions(target, { force: true }));
   } else {
     const stash = await git.stash(`Before checkout ${target.branch}`, { includeUntracked: true });
-    await git.checkout(target.branch, target.track === true ? { track: true } : undefined);
+    await git.checkout(target.branch, checkoutOptions(target));
     if (choice === 'migrate' && stash.stashed) await git.stashPop();
   }
 
@@ -125,16 +125,20 @@ async function createBranch(
   git: BranchGitAdapter,
   refs: readonly GitRefInfo[],
   onAfter: () => void | Promise<void>,
+  inputValue = '',
 ): Promise<void> {
   const validate = createBranchNameValidator(refs);
-  const name = (
-    await prompt({
-      title: 'Create Branch',
-      label: 'Branch name',
-      placeholder: 'feature/name',
-      validate,
-    })
-  )?.trim();
+  const name =
+    inputValue.trim() !== ''
+      ? inputValue.trim()
+      : (
+          await prompt({
+            title: 'Create Branch',
+            label: 'Branch name',
+            placeholder: 'feature/name',
+            validate,
+          })
+        )?.trim();
   if (!name) return;
   const invalid = validate(name);
   if (invalid !== null) {
@@ -144,6 +148,99 @@ async function createBranch(
   await git.createBranch(name);
   await onAfter();
   toast.info(`Created and checked out ${name}.`);
+}
+
+async function createBranchFrom(
+  git: BranchGitAdapter,
+  refs: readonly GitRefInfo[],
+  onAfter: () => void | Promise<void>,
+  inputValue = '',
+): Promise<void> {
+  const source = await pickRef('Create Branch From', refs, 'branchFrom');
+  if (source === null) return;
+  const validate = createBranchNameValidator(refs);
+  const name =
+    inputValue.trim() !== ''
+      ? inputValue.trim()
+      : (
+          await prompt({
+            title: 'Create Branch From',
+            label: 'Branch name',
+            placeholder: 'feature/name',
+            validate,
+          })
+        )?.trim();
+  if (!name) return;
+  const invalid = validate(name);
+  if (invalid !== null) {
+    toast.error(invalid);
+    return;
+  }
+  await git.createBranch(name, { ref: source.name });
+  await onAfter();
+  toast.info(`Created and checked out ${name}.`);
+}
+
+async function checkoutDetached(
+  git: BranchGitAdapter,
+  refs: readonly GitRefInfo[],
+  onAfter: () => void | Promise<void>,
+): Promise<void> {
+  const source = await pickRef('Checkout Detached', refs, 'detached');
+  if (source === null) return;
+  if (!isGitRefInfo(source)) return;
+  const target = detachedCheckoutTargetForRef(source);
+  try {
+    await git.checkout(target.branch, { detached: true });
+    await onAfter();
+    toast.info(`Checked out ${source.name} detached.`);
+  } catch (err) {
+    const message = msg(err);
+    if (isCheckoutBlockedError(message)) {
+      await recoverCheckout(git, target, onAfter);
+      return;
+    }
+    throw err;
+  }
+}
+
+async function pickRef(
+  title: string,
+  refs: readonly GitRefInfo[],
+  mode: 'branchFrom' | 'detached',
+): Promise<({ readonly name: string } & Partial<GitRefInfo>) | null> {
+  const options =
+    mode === 'branchFrom'
+      ? createBranchFromPickOptions(refs)
+      : createDetachedCheckoutPickOptions(refs);
+  const choice = await pick({
+    title,
+    placeholder:
+      mode === 'branchFrom' ? 'Select a ref to create the branch from' : 'Select a branch',
+    emptyText: 'No branches or tags found.',
+    options,
+  });
+  if (choice === null) return null;
+  if (choice === 'HEAD') return { name: 'HEAD' };
+  return refs.find((ref) => ref.id === choice) ?? null;
+}
+
+function isGitRefInfo(ref: { readonly name: string } & Partial<GitRefInfo>): ref is GitRefInfo {
+  return (
+    typeof ref.id === 'string' &&
+    (ref.type === 'head' || ref.type === 'remoteHead' || ref.type === 'tag')
+  );
+}
+
+function checkoutOptions(
+  target: { readonly track?: boolean; readonly detached?: boolean },
+  extra: { readonly force?: boolean } = {},
+): { readonly detached?: boolean; readonly force?: boolean; readonly track?: boolean } | undefined {
+  const options: { detached?: boolean; force?: boolean; track?: boolean } = {};
+  if (target.detached === true) options.detached = true;
+  if (target.track === true) options.track = true;
+  if (extra.force === true) options.force = true;
+  return Object.keys(options).length === 0 ? undefined : options;
 }
 
 function createBranchNameValidator(refs: readonly GitRefInfo[]): (value: string) => string | null {
