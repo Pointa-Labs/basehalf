@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildVisibleNavRows,
   isAgentHintFile,
   isVisibleNavEntry,
   joinNavPath,
@@ -8,6 +9,8 @@ import {
   parentAbsPath,
   parentRelPath,
   relativeToNavRoot,
+  removeNavEntryOptimistically,
+  renameNavEntryOptimistically,
   renameTargetForBasename,
   sortNavEntries,
 } from '../src/workbench/contrib/files/browser/navTreeModel.js';
@@ -122,5 +125,72 @@ describe('navTreeModel', () => {
     expect(navTreeKeyboardIntent(items, 'README.md', { key: 'F10', shiftKey: true })).toEqual({
       type: 'contextMenu',
     });
+  });
+
+  it('builds visible rows from loaded children and expansion state', () => {
+    const childrenByPath = new Map([
+      [
+        '/repo',
+        [
+          { name: 'docs', type: 'dir' as const },
+          { name: 'README.md', type: 'file' as const },
+          { name: '.bh', type: 'dir' as const },
+        ],
+      ],
+      ['/repo/docs', [{ name: 'a.md', type: 'file' as const }]],
+    ]);
+
+    expect(
+      buildVisibleNavRows({
+        childrenByPath,
+        expanded: new Set(['/repo/docs']),
+        rootPath: '/repo',
+        currentPath: 'docs/a.md',
+      }).map(({ rel, depth, kind, isSelected }) => ({ rel, depth, kind, isSelected })),
+    ).toEqual([
+      { rel: 'docs', depth: 0, kind: 'folder', isSelected: false },
+      { rel: 'docs/a.md', depth: 1, kind: 'file', isSelected: true },
+      { rel: 'README.md', depth: 0, kind: 'file', isSelected: false },
+    ]);
+  });
+
+  it('optimistically removes rows, cached descendants, and expanded descendants', () => {
+    const result = removeNavEntryOptimistically({
+      rootPath: '/repo',
+      rel: 'docs',
+      childrenByPath: new Map([
+        ['/repo', [{ name: 'docs', type: 'dir' as const }]],
+        ['/repo/docs', [{ name: 'a.md', type: 'file' as const }]],
+        ['/repo/docs/nested', [{ name: 'b.md', type: 'file' as const }]],
+      ]),
+      expanded: new Set(['/repo/docs', '/repo/docs/nested', '/repo/other']),
+    });
+
+    expect(result.childrenByPath.has('/repo/docs')).toBe(false);
+    expect(result.childrenByPath.has('/repo/docs/nested')).toBe(false);
+    expect(result.childrenByPath.get('/repo')).toEqual([]);
+    expect([...result.expanded]).toEqual(['/repo/other']);
+  });
+
+  it('optimistically renames rows, cached descendants, and expanded descendants', () => {
+    const result = renameNavEntryOptimistically({
+      rootPath: '/repo',
+      from: 'docs',
+      to: 'notes',
+      childrenByPath: new Map([
+        ['/repo', [{ name: 'docs', type: 'dir' as const }]],
+        ['/repo/docs', [{ name: 'a.md', type: 'file' as const }]],
+        ['/repo/docs/nested', [{ name: 'b.md', type: 'file' as const }]],
+      ]),
+      expanded: new Set(['/repo/docs', '/repo/docs/nested']),
+    });
+
+    expect(result.childrenByPath.get('/repo')).toEqual([{ name: 'notes', type: 'dir' }]);
+    expect(result.childrenByPath.has('/repo/docs')).toBe(false);
+    expect(result.childrenByPath.get('/repo/notes')).toEqual([{ name: 'a.md', type: 'file' }]);
+    expect(result.childrenByPath.get('/repo/notes/nested')).toEqual([
+      { name: 'b.md', type: 'file' },
+    ]);
+    expect([...result.expanded]).toEqual(['/repo/notes', '/repo/notes/nested']);
   });
 });

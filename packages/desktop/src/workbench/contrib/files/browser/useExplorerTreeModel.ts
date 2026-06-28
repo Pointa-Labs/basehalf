@@ -47,8 +47,10 @@ export function useExplorerTreeModel({
   const [focusedRel, setFocusedRel] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
   const childrenByPathRef = useRef(childrenByPath);
+  const expandedRef = useRef(expanded);
   const lastCurrentPathRef = useRef(currentPath);
   childrenByPathRef.current = childrenByPath;
+  expandedRef.current = expanded;
 
   const loadChildren = useCallback(async (path: string): Promise<void> => {
     try {
@@ -95,7 +97,7 @@ export function useExplorerTreeModel({
       setChildrenByPath((prev) => {
         const next = removeNavEntryOptimistically({
           childrenByPath: prev,
-          expanded,
+          expanded: expandedRef.current,
           rootPath,
           rel,
         });
@@ -111,14 +113,14 @@ export function useExplorerTreeModel({
         return next.expanded.size === prev.size ? prev : next.expanded;
       });
     });
-  }, [expanded, rootPath]);
+  }, [rootPath]);
 
   useEffect(() => {
     return subscribeEntryRenamed((from, to) => {
       setChildrenByPath((prev) => {
         const next = renameNavEntryOptimistically({
           childrenByPath: prev,
-          expanded,
+          expanded: expandedRef.current,
           rootPath,
           from,
           to,
@@ -136,7 +138,7 @@ export function useExplorerTreeModel({
         return next.expanded;
       });
     });
-  }, [expanded, rootPath]);
+  }, [rootPath]);
 
   const expandFolder = useCallback(
     (path: string): void => {

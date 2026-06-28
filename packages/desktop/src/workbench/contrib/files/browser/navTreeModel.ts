@@ -213,7 +213,9 @@ export function renameNavEntryOptimistically({
   if (entries) {
     nextChildren.set(
       parentAbs,
-      sortNavEntries(entries.map((entry) => (entry.name === oldName ? { ...entry, name: newName } : entry))),
+      sortNavEntries(
+        entries.map((entry) => (entry.name === oldName ? { ...entry, name: newName } : entry)),
+      ),
     );
   }
   for (const [key, val] of [...nextChildren]) {
