@@ -9,12 +9,14 @@ import { scm } from './styles.js';
 export const RepoHeader = ({
   status,
   busy,
+  onPublish,
   onSync,
   onAfterBranch,
   menuActions,
 }: {
   status: GitStatusResult;
   busy: boolean;
+  onPublish: () => void;
   onSync: () => void;
   onAfterBranch: () => void | Promise<void>;
   menuActions: MenuAction[];
@@ -52,7 +54,7 @@ export const RepoHeader = ({
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
         <IconBtn
           title={syncTitle}
-          onClick={onSync}
+          onClick={canPublish ? onPublish : onSync}
           disabled={busy}
           glyph={canPublish ? 'cloud-upload' : 'sync'}
         />

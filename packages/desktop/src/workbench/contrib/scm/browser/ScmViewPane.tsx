@@ -8,6 +8,10 @@ import { GraphSection } from './GraphSection.js';
 import { RepoHeader } from './RepoHeader.js';
 import { ResourceGroups } from './ResourceGroups.js';
 import { StashSection } from './StashSection.js';
+import {
+  type SourceControlPrimaryAction,
+  sourceControlActionButtonModel,
+} from './sourceControlActionButtonModel.js';
 import type { ScmViewPaneModel } from './useScmViewPaneModel.js';
 
 const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -54,16 +58,24 @@ export function ScmViewPane({ model }: { readonly model: ScmViewPaneModel }): JS
 
   const view = provider.view;
   if (view === null) return <Centered>{error ?? statusError ?? '…'}</Centered>;
+  const actionButton = sourceControlActionButtonModel(view);
+  const runPrimaryAction = (action: SourceControlPrimaryAction): void => {
+    if (action === 'publish') commands.publish();
+    else if (action === 'sync') commands.sync();
+    else commands.commit();
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <RepoHeader
         status={status}
         busy={busy}
+        onPublish={commands.publish}
         onSync={commands.sync}
         onAfterBranch={refresh}
         menuActions={[
           { label: 'Create Branch…', onClick: commands.createBranchPrompt },
+          { label: 'Publish Branch', onClick: commands.publish, disabled: !view.canPublish },
           { label: 'Pull', onClick: commands.pull, disabled: !view.canPull },
           { label: 'Pull (Rebase)', onClick: commands.pullRebase, disabled: !view.canPull },
           { label: 'Push', onClick: commands.push },
@@ -82,18 +94,10 @@ export function ScmViewPane({ model }: { readonly model: ScmViewPaneModel }): JS
         <CommitInput
           message={model.message}
           setMessage={model.setMessage}
-          canCommit={view.canCommit}
-          canCommitAmend={view.canCommitAmend}
-          canPrimaryAction={view.canCommit || view.canPublish || view.canSync}
           hasStaged={view.hasStaged}
           commitBranch={view.commitBranch}
-          primaryLabel={
-            view.canCommit ? 'Commit' : view.canPublish ? 'Publish Branch' : 'Sync Changes'
-          }
-          primaryGlyph={view.canCommit ? 'check' : view.canPublish ? 'cloud-upload' : 'sync'}
-          primaryAction={
-            view.canCommit ? undefined : view.canPublish ? commands.sync : commands.sync
-          }
+          actionButton={actionButton}
+          primaryAction={runPrimaryAction}
           commit={commands.commit}
         />
 

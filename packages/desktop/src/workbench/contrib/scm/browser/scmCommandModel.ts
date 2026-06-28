@@ -4,6 +4,7 @@ import type { GitRow } from './gitStatusModel.js';
 import type { CommitActionOptions } from './types.js';
 
 type MaybePromise = Promise<void> | void;
+export type ScmActionRunner = (action: () => Promise<unknown>) => Promise<void>;
 
 export interface ScmActionEffects {
   readonly setBusy: (busy: boolean) => void;

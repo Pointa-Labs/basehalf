@@ -21,18 +21,18 @@ export function sourceControlViewModel(
 ): SourceControlViewModel {
   const hasStaged = groups.staged.length > 0;
   const hasCommitMessage = message.trim().length > 0;
+  const hasBranch = status.detached !== true && status.branch !== null;
+  const hasUpstream = hasBranch && status.upstream !== null;
+  const branchIsAheadOrBehind = status.ahead > 0 || status.behind > 0;
   return {
     count: totalChangeCount(groups),
     hasStaged,
     hasCommitMessage,
     canCommit: !busy && hasStaged,
-    canCommitAmend: !busy,
-    canPublish:
-      !busy && status.detached !== true && status.branch !== null && status.upstream === null,
-    canPull:
-      !busy && status.detached !== true && status.branch !== null && status.upstream !== null,
-    canSync:
-      !busy && status.detached !== true && status.branch !== null && status.upstream !== null,
+    canCommitAmend: !busy && hasBranch,
+    canPublish: !busy && hasBranch && status.upstream === null,
+    canPull: !busy && hasUpstream,
+    canSync: !busy && hasUpstream && branchIsAheadOrBehind,
     commitBranch: status.detached ? 'detached' : (status.branch ?? ''),
   };
 }

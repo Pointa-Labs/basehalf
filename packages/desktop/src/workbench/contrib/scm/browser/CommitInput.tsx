@@ -1,9 +1,18 @@
 import { type JSX, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { toast } from '../../../browser/parts/notifications/toastStore.js';
 import { color, font, space } from '../../../browser/style/design.js';
-import { Codicon } from '../../../browser/ui/Codicon.js';
 import { CommitActionButton } from './CommitActionButton.js';
+import {
+  commitInputHeight,
+  commitInputPlaceholder,
+  nextCommitHistoryState,
+  recordCommitMessage,
+  validateCommitInput,
+} from './commitInputModel.js';
+import type {
+  SourceControlActionButtonModel,
+  SourceControlPrimaryAction,
+} from './sourceControlActionButtonModel.js';
 import { scm } from './styles.js';
 import type { CommitActionOptions } from './types.js';
 
@@ -14,27 +23,19 @@ const COMMIT_KEY = nativeHostService.platform === 'darwin' ? '⌘Enter' : 'Ctrl+
 export const CommitInput = ({
   message,
   setMessage,
-  canCommit,
-  canCommitAmend,
-  canPrimaryAction = canCommit,
   hasStaged,
   commitBranch,
   commit,
-  primaryLabel,
-  primaryGlyph,
+  actionButton,
   primaryAction,
 }: {
   message: string;
   setMessage: (s: string) => void;
-  canCommit: boolean;
-  canCommitAmend: boolean;
-  canPrimaryAction?: boolean;
   hasStaged: boolean;
   commitBranch: string;
   commit: (options?: CommitActionOptions) => void;
-  primaryLabel?: string;
-  primaryGlyph?: string;
-  primaryAction?: () => void;
+  actionButton: SourceControlActionButtonModel;
+  primaryAction: (action: SourceControlPrimaryAction) => void;
 }): JSX.Element => {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [commitHistory, setCommitHistory] = useState<readonly string[]>([]);
@@ -46,19 +47,21 @@ export const CommitInput = ({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    const nextHeight = Math.min(Math.max(el.scrollHeight, scm.inputMinHeight), scm.inputMaxHeight);
+    const nextHeight = commitInputHeight(el.scrollHeight, scm.inputMinHeight, scm.inputMaxHeight);
     el.style.height = `${nextHeight}px`;
     el.style.overflowY = el.scrollHeight > scm.inputMaxHeight ? 'auto' : 'hidden';
   });
 
   const updateHistory = useCallback(
     (next: 1 | -1): void => {
-      if (commitHistory.length === 0) return;
-      const end = commitHistory.length;
-      const current = historyCursor ?? end;
-      const index = Math.max(0, Math.min(end, current + next));
-      setHistoryCursor(index === end ? null : index);
-      setMessage(index === end ? '' : (commitHistory[index] ?? ''));
+      const state = nextCommitHistoryState({
+        history: commitHistory,
+        cursor: historyCursor,
+        direction: next,
+      });
+      if (state === null) return;
+      setHistoryCursor(state.cursor);
+      setMessage(state.message);
     },
     [commitHistory, historyCursor, setMessage],
   );
@@ -66,20 +69,13 @@ export const CommitInput = ({
   const attemptCommit = useCallback(
     (options: CommitActionOptions = {}): void => {
       const trimmed = message.trim();
-      if (trimmed === '') {
-        setValidation('Please provide a commit message.');
+      const validationMessage = validateCommitInput(message, options, hasStaged);
+      if (validationMessage !== null) {
+        setValidation(validationMessage);
         textareaRef.current?.focus();
         return;
       }
-      if (options.amend !== true && !hasStaged) {
-        setValidation('There are no staged changes to commit.');
-        textareaRef.current?.focus();
-        return;
-      }
-      setCommitHistory((history) => {
-        const withoutDuplicate = history.filter((entry) => entry !== trimmed);
-        return [...withoutDuplicate, trimmed].slice(-100);
-      });
+      setCommitHistory((history) => recordCommitMessage(history, trimmed));
       setHistoryCursor(null);
       setValidation(null);
       commit(options);
@@ -87,10 +83,11 @@ export const CommitInput = ({
     [commit, hasStaged, message],
   );
 
-  const commitPlaceholder =
-    commitBranch !== ''
-      ? `Message (${COMMIT_KEY} to commit on “${commitBranch}”)`
-      : `Message (${COMMIT_KEY} to commit)`;
+  const commitPlaceholder = commitInputPlaceholder(commitBranch, COMMIT_KEY);
+  const onPrimaryAction =
+    actionButton.primaryAction === 'commit'
+      ? undefined
+      : () => primaryAction(actionButton.primaryAction);
 
   return (
     <div
@@ -193,49 +190,10 @@ export const CommitInput = ({
               fontFamily: font.sans,
               fontSize: font.size.ui,
               lineHeight: '20px',
-              padding: '8px 0 8px 8px',
+              padding: '8px',
               outline: 'none',
             }}
           />
-        </div>
-        <div
-          style={{
-            width: scm.inputToolbarWidth,
-            flexShrink: 0,
-            boxSizing: 'border-box',
-            padding: '1px 3px 1px 1px',
-          }}
-        >
-          <button
-            type="button"
-            title="Generate Commit Message (AI)"
-            aria-label="Generate commit message"
-            onClick={() => toast.info('AI commit messages are not wired up yet.')}
-            style={{
-              width: scm.iconButtonSize,
-              height: scm.iconButtonSize,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'none',
-              border: 'none',
-              borderRadius: 3,
-              color: scm.inputPlaceholder,
-              cursor: 'pointer',
-              fontSize: font.size.body,
-              padding: 0,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = scm.buttonHoverBg;
-              e.currentTarget.style.color = color.textPrimary;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'none';
-              e.currentTarget.style.color = scm.inputPlaceholder;
-            }}
-          >
-            <Codicon name="sparkle" size={16} />
-          </button>
         </div>
       </div>
       {validation !== null && (
@@ -256,12 +214,8 @@ export const CommitInput = ({
         </div>
       )}
       <CommitActionButton
-        canPrimaryAction={canPrimaryAction}
-        canCommit={canCommit}
-        canCommitAmend={canCommitAmend}
-        primaryLabel={primaryLabel}
-        primaryGlyph={primaryGlyph}
-        onPrimaryAction={primaryAction}
+        model={actionButton}
+        onPrimaryAction={onPrimaryAction}
         onAction={attemptCommit}
       />
     </div>

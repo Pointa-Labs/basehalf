@@ -42,6 +42,12 @@ describe('sourceControlViewModel', () => {
       canCommit: false,
       canCommitAmend: true,
     });
+    expect(
+      sourceControlViewModel(status({ detached: true, branch: null }), emptyGroups, 'Amend', false),
+    ).toMatchObject({
+      canCommit: false,
+      canCommitAmend: false,
+    });
     expect(sourceControlViewModel(status(), stagedGroups, 'Ship it', true)).toMatchObject({
       canCommit: false,
       canCommitAmend: false,
@@ -58,6 +64,9 @@ describe('sourceControlViewModel', () => {
     });
     expect(
       sourceControlViewModel(status({ upstream: 'origin/main' }), emptyGroups, '', false),
+    ).toMatchObject({ canPublish: false, canPull: true, canSync: false });
+    expect(
+      sourceControlViewModel(status({ upstream: 'origin/main', ahead: 1 }), emptyGroups, '', false),
     ).toMatchObject({ canPublish: false, canPull: true, canSync: true });
     expect(
       sourceControlViewModel(status({ detached: true, branch: null }), emptyGroups, '', false),
