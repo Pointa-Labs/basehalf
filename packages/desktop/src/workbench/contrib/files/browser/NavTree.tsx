@@ -1,52 +1,24 @@
-import {
-  type JSX,
-  type KeyboardEvent,
-  type MouseEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
+import { type JSX, type KeyboardEvent, type MouseEvent, useRef } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
 import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { color, font, space } from '../../../browser/style/design.js';
-import {
-  subscribeEntryRemoved,
-  subscribeEntryRenamed,
-} from '../../../services/workspace/browser/workspaceFileEvents.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { ExplorerHeader } from './ExplorerHeader.js';
 import { NavTreeRow } from './NavTreeRow.js';
 import { buildFileMenu, confirmAndDelete, createAndRename } from './fileMenu.js';
 import {
   ROW_HEIGHT,
-  type VisibleNavTreeItem,
-  isVisibleNavEntry,
-  joinNavPath,
   navTreeKeyboardIntent,
   newItemDirForEntry,
-  parentAbsPath,
-  relativeToNavRoot,
   renameTargetForBasename,
-  sortNavEntries,
 } from './navTreeModel.js';
+import { type ExplorerTreeRow, useExplorerTreeModel } from './useExplorerTreeModel.js';
 
 interface NavTreeProps {
   rootPath: string;
 }
 
 const isMac = nativeHostService.platform === 'darwin';
-
-interface RenderNavRow extends VisibleNavTreeItem {
-  readonly entry: WorkspaceListFilesEntry;
-  readonly absPath: string;
-  readonly parentRel: string;
-  readonly isSelected: boolean;
-}
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false;
@@ -62,268 +34,19 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
   const endRename = useWorkspaceStore((s) => s.endRename);
   const renameEntry = useWorkspaceStore((s) => s.renameEntry);
   const currentPath = currentFile;
-  const [childrenByPath, setChildrenByPath] = useState<
-    Map<string, readonly WorkspaceListFilesEntry[]>
-  >(new Map());
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [focusedRel, setFocusedRel] = useState<string | null>(null);
-  const [error, setError] = useState<string>('');
-  const childrenByPathRef = useRef(childrenByPath);
-  const lastCurrentPathRef = useRef(currentPath);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
-  childrenByPathRef.current = childrenByPath;
-
-  const loadChildren = useCallback(async (path: string): Promise<void> => {
-    try {
-      const result = await workspaceService.listFiles(path);
-      setChildrenByPath((prev) => {
-        const next = new Map(prev);
-        next.set(path, result.entries);
-        return next;
-      });
-      // A successful load clears any stale error from a prior failure, so an
-      // old message can't linger across a recovered/refreshed tree.
-      setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    setChildrenByPath(new Map());
-    setExpanded(new Set());
-    setFocusedRel(null);
-    setError('');
-    void loadChildren(rootPath);
-  }, [rootPath, loadChildren]);
-
-  // Subscribe to watcher events so files created/deleted externally show
-  // up without a window reload. Only re-fetch parent directories we've
-  // already loaded — unexpanded ones load lazily on click anyway.
-  useEffect(() => {
-    const refreshParentOf = (rel: string): void => {
-      if (rel === '.bh' || rel.startsWith('.bh/')) return;
-      const parentAbs = parentAbsPath(rootPath, rel);
-      if (childrenByPathRef.current.has(parentAbs)) {
-        void loadChildren(parentAbs);
-      }
-    };
-    const unsub = fileEventService.onDidChangeFiles((event) => {
-      if (event.type === 'rename') {
-        // Refresh both ends — for same-dir renames this is the same dir
-        // twice (cheap), for cross-dir moves it correctly refreshes both.
-        refreshParentOf(event.fromRelPath);
-        refreshParentOf(event.toRelPath);
-        return;
-      }
-      refreshParentOf(event.relPath);
-    });
-    return unsub;
-  }, [rootPath, loadChildren]);
-
-  // Optimistic delete: drop the row immediately when an in-app delete succeeds,
-  // instead of waiting for the watcher's unlink event to re-list the parent.
-  useEffect(() => {
-    return subscribeEntryRemoved((rel) => {
-      const slash = rel.lastIndexOf('/');
-      const name = slash === -1 ? rel : rel.slice(slash + 1);
-      const parentAbs = parentAbsPath(rootPath, rel);
-      const removedAbs = joinNavPath(rootPath, rel);
-      setChildrenByPath((prev) => {
-        const entries = prev.get(parentAbs);
-        const next = new Map(prev);
-        if (entries)
-          next.set(
-            parentAbs,
-            entries.filter((e) => e.name !== name),
-          );
-        // Drop cached listings for a removed folder + its descendants.
-        for (const key of [...next.keys()]) {
-          if (key === removedAbs || key.startsWith(`${removedAbs}/`)) next.delete(key);
-        }
-        return next;
-      });
-      setExpanded((prev) => {
-        const next = new Set<string>();
-        for (const p of prev) {
-          if (p === removedAbs || p.startsWith(`${removedAbs}/`)) continue;
-          next.add(p);
-        }
-        return next.size === prev.size ? prev : next;
-      });
-    });
-  }, [rootPath]);
-
-  // Optimistic rename: rename the row in place (and remap any expanded/cached
-  // descendants for a folder) the instant the rename succeeds, instead of waiting
-  // for the watcher's rename event to re-list the parent.
-  useEffect(() => {
-    return subscribeEntryRenamed((from, to) => {
-      const fromSlash = from.lastIndexOf('/');
-      const oldName = fromSlash === -1 ? from : from.slice(fromSlash + 1);
-      const toSlash = to.lastIndexOf('/');
-      const newName = toSlash === -1 ? to : to.slice(toSlash + 1);
-      const parentAbs = parentAbsPath(rootPath, from);
-      const fromAbs = joinNavPath(rootPath, from);
-      const toAbs = joinNavPath(rootPath, to);
-      setChildrenByPath((prev) => {
-        const next = new Map(prev);
-        const entries = next.get(parentAbs);
-        if (entries) {
-          next.set(
-            parentAbs,
-            sortNavEntries(entries.map((e) => (e.name === oldName ? { ...e, name: newName } : e))),
-          );
-        }
-        // Remap cached listings under a renamed FOLDER (fromAbs/* → toAbs/*).
-        for (const [key, val] of [...next]) {
-          if (key === fromAbs || key.startsWith(`${fromAbs}/`)) {
-            next.delete(key);
-            next.set(`${toAbs}${key.slice(fromAbs.length)}`, val);
-          }
-        }
-        return next;
-      });
-      setExpanded((prev) => {
-        let changed = false;
-        const next = new Set<string>();
-        for (const p of prev) {
-          if (p === fromAbs || p.startsWith(`${fromAbs}/`)) {
-            next.add(`${toAbs}${p.slice(fromAbs.length)}`);
-            changed = true;
-          } else {
-            next.add(p);
-          }
-        }
-        return changed ? next : prev;
-      });
-    });
-  }, [rootPath]);
-
-  const expandFolder = useCallback(
-    (path: string): void => {
-      setExpanded((prev) => {
-        if (prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.add(path);
-        return next;
-      });
-      if (!childrenByPathRef.current.has(path)) void loadChildren(path);
-    },
-    [loadChildren],
-  );
-
-  const collapseFolder = (path: string): void => {
-    setExpanded((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  };
-
-  const toggleExpand = (path: string): void => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-        if (!childrenByPathRef.current.has(path)) void loadChildren(path);
-      }
-      return next;
-    });
-  };
-
-  // Explorer-header actions (VS Code's title toolbar): refresh re-lists every
-  // already-loaded directory; collapse-all clears the expanded set.
-  const refreshTree = (): void => {
-    for (const dir of childrenByPath.keys()) void loadChildren(dir);
-    if (!childrenByPath.has(rootPath)) void loadChildren(rootPath);
-  };
-  const collapseAll = (): void => setExpanded(new Set());
-
-  // When an entry enters inline-rename (a context-menu Rename, or a freshly
-  // created file/folder being named), make sure its row is visible: expand +
-  // load every ancestor folder so the row renders and shows the input. (A new
-  // entry surfaces via the watcher's parent re-list, which only fires for
-  // already-loaded dirs — so expanding the chain is what brings it on-screen.)
-  useEffect(() => {
-    if (renamingPath === null) return;
-    const parts = renamingPath.split('/');
-    parts.pop(); // drop the entry's own basename
-    if (parts.length === 0) {
-      // Root-level entry: there's no ancestor to expand, but a freshly-CREATED
-      // root entry isn't in the cached root listing yet, so its row (and the
-      // inline input) wouldn't render until the watcher's add event re-lists root.
-      // Re-list now so the name field appears immediately.
-      void loadChildren(rootPath);
-      return;
-    }
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      let acc = '';
-      for (const part of parts) {
-        acc = acc === '' ? part : `${acc}/${part}`;
-        const abs = joinNavPath(rootPath, acc);
-        next.add(abs);
-        if (!childrenByPathRef.current.has(abs)) void loadChildren(abs);
-      }
-      return next;
-    });
-  }, [renamingPath, rootPath, loadChildren]);
-
-  const collectEntries = useCallback(
-    (parentPath: string, depth: number): RenderNavRow[] => {
-      const entries = childrenByPath.get(parentPath);
-      if (!entries) return [];
-      return entries.filter(isVisibleNavEntry).flatMap((entry): RenderNavRow[] => {
-        const absPath = joinNavPath(parentPath, entry.name);
-        const isExpanded = expanded.has(absPath);
-        const isDir = entry.type === 'dir';
-        const rel = relativeToNavRoot(rootPath, absPath);
-        const isSelected = !isDir && currentPath === rel;
-        const parentRel = relativeToNavRoot(rootPath, parentPath);
-        const row: RenderNavRow = {
-          entry,
-          absPath,
-          rel,
-          parentRel,
-          depth,
-          kind: isDir ? 'folder' : 'file',
-          isExpanded,
-          isSelected,
-        };
-        if (isDir && isExpanded) return [row, ...collectEntries(absPath, depth + 1)];
-        return [row];
-      });
-    },
-    [childrenByPath, currentPath, expanded, rootPath],
-  );
-
-  const visibleRows = useMemo(() => collectEntries(rootPath, 0), [collectEntries, rootPath]);
-  const visibleItems: VisibleNavTreeItem[] = visibleRows.map(
-    ({ rel, kind, depth, isExpanded }) => ({
-      rel,
-      kind,
-      depth,
-      isExpanded,
-    }),
-  );
-
-  useEffect(() => {
-    const currentPathChanged = lastCurrentPathRef.current !== currentPath;
-    lastCurrentPathRef.current = currentPath;
-    setFocusedRel((prev) => {
-      const currentVisible = currentPath
-        ? visibleRows.some((row) => row.rel === currentPath)
-        : false;
-      if (currentPathChanged && currentPath && currentVisible) return currentPath;
-      if (prev && visibleRows.some((row) => row.rel === prev)) return prev;
-      if (currentPath && currentVisible) return currentPath;
-      return visibleRows[0]?.rel ?? null;
-    });
-  }, [currentPath, visibleRows]);
+  const {
+    visibleRows,
+    visibleItems,
+    focusedRel,
+    error,
+    setFocusedRel,
+    expandFolder,
+    collapseFolder,
+    toggleExpand,
+    refreshTree,
+    collapseAll,
+  } = useExplorerTreeModel({ rootPath, currentPath, renamingPath });
 
   const focusRow = (rel: string): void => {
     setFocusedRel(rel);
@@ -335,12 +58,12 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     }
   };
 
-  const openRow = (row: RenderNavRow): void => {
+  const openRow = (row: ExplorerTreeRow): void => {
     if (row.kind === 'folder') toggleExpand(row.absPath);
     else openInPanel(row.rel);
   };
 
-  const openRowContextMenu = (row: RenderNavRow, x: number, y: number): void => {
+  const openRowContextMenu = (row: ExplorerTreeRow, x: number, y: number): void => {
     const isDir = row.kind === 'folder';
     openContextMenu(
       x,
@@ -405,7 +128,7 @@ export const NavTree = ({ rootPath }: NavTreeProps): JSX.Element => {
     }
   };
 
-  const renderRow = (row: RenderNavRow, index: number): JSX.Element => {
+  const renderRow = (row: ExplorerTreeRow, index: number): JSX.Element => {
     const isDir = row.kind === 'folder';
     const onContextMenu = (e: MouseEvent): void => {
       e.preventDefault();

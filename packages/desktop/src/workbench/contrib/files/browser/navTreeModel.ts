@@ -92,6 +92,147 @@ export interface VisibleNavTreeItem {
   readonly isExpanded: boolean;
 }
 
+export interface ExplorerTreeRow extends VisibleNavTreeItem {
+  readonly entry: WorkspaceListFilesEntry;
+  readonly absPath: string;
+  readonly parentRel: string;
+  readonly isSelected: boolean;
+}
+
+export function buildVisibleNavRows({
+  childrenByPath,
+  expanded,
+  rootPath,
+  currentPath,
+  parentPath = rootPath,
+  depth = 0,
+}: {
+  readonly childrenByPath: ReadonlyMap<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: ReadonlySet<string>;
+  readonly rootPath: string;
+  readonly currentPath: string | null;
+  readonly parentPath?: string;
+  readonly depth?: number;
+}): ExplorerTreeRow[] {
+  const entries = childrenByPath.get(parentPath);
+  if (!entries) return [];
+  return entries.filter(isVisibleNavEntry).flatMap((entry): ExplorerTreeRow[] => {
+    const absPath = joinNavPath(parentPath, entry.name);
+    const isExpanded = expanded.has(absPath);
+    const isDir = entry.type === 'dir';
+    const rel = relativeToNavRoot(rootPath, absPath);
+    const parentRel = relativeToNavRoot(rootPath, parentPath);
+    const row: ExplorerTreeRow = {
+      entry,
+      absPath,
+      rel,
+      parentRel,
+      depth,
+      kind: isDir ? 'folder' : 'file',
+      isExpanded,
+      isSelected: !isDir && currentPath === rel,
+    };
+    return isDir && isExpanded
+      ? [
+          row,
+          ...buildVisibleNavRows({
+            childrenByPath,
+            expanded,
+            rootPath,
+            currentPath,
+            parentPath: absPath,
+            depth: depth + 1,
+          }),
+        ]
+      : [row];
+  });
+}
+
+export function removeNavEntryOptimistically({
+  childrenByPath,
+  expanded,
+  rootPath,
+  rel,
+}: {
+  readonly childrenByPath: ReadonlyMap<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: ReadonlySet<string>;
+  readonly rootPath: string;
+  readonly rel: string;
+}): {
+  readonly childrenByPath: Map<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: Set<string>;
+} {
+  const slash = rel.lastIndexOf('/');
+  const name = slash === -1 ? rel : rel.slice(slash + 1);
+  const parentAbs = parentAbsPath(rootPath, rel);
+  const removedAbs = joinNavPath(rootPath, rel);
+  const nextChildren = new Map(childrenByPath);
+  const entries = nextChildren.get(parentAbs);
+  if (entries) {
+    nextChildren.set(
+      parentAbs,
+      entries.filter((entry) => entry.name !== name),
+    );
+  }
+  for (const key of [...nextChildren.keys()]) {
+    if (key === removedAbs || key.startsWith(`${removedAbs}/`)) nextChildren.delete(key);
+  }
+  const nextExpanded = new Set<string>();
+  for (const path of expanded) {
+    if (path === removedAbs || path.startsWith(`${removedAbs}/`)) continue;
+    nextExpanded.add(path);
+  }
+  return { childrenByPath: nextChildren, expanded: nextExpanded };
+}
+
+export function renameNavEntryOptimistically({
+  childrenByPath,
+  expanded,
+  rootPath,
+  from,
+  to,
+}: {
+  readonly childrenByPath: ReadonlyMap<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: ReadonlySet<string>;
+  readonly rootPath: string;
+  readonly from: string;
+  readonly to: string;
+}): {
+  readonly childrenByPath: Map<string, readonly WorkspaceListFilesEntry[]>;
+  readonly expanded: Set<string>;
+} {
+  const fromSlash = from.lastIndexOf('/');
+  const oldName = fromSlash === -1 ? from : from.slice(fromSlash + 1);
+  const toSlash = to.lastIndexOf('/');
+  const newName = toSlash === -1 ? to : to.slice(toSlash + 1);
+  const parentAbs = parentAbsPath(rootPath, from);
+  const fromAbs = joinNavPath(rootPath, from);
+  const toAbs = joinNavPath(rootPath, to);
+  const nextChildren = new Map(childrenByPath);
+  const entries = nextChildren.get(parentAbs);
+  if (entries) {
+    nextChildren.set(
+      parentAbs,
+      sortNavEntries(entries.map((entry) => (entry.name === oldName ? { ...entry, name: newName } : entry))),
+    );
+  }
+  for (const [key, val] of [...nextChildren]) {
+    if (key === fromAbs || key.startsWith(`${fromAbs}/`)) {
+      nextChildren.delete(key);
+      nextChildren.set(`${toAbs}${key.slice(fromAbs.length)}`, val);
+    }
+  }
+  const nextExpanded = new Set<string>();
+  for (const path of expanded) {
+    nextExpanded.add(
+      path === fromAbs || path.startsWith(`${fromAbs}/`)
+        ? `${toAbs}${path.slice(fromAbs.length)}`
+        : path,
+    );
+  }
+  return { childrenByPath: nextChildren, expanded: nextExpanded };
+}
+
 export type NavTreeKeyboardIntent =
   | { readonly type: 'none' }
   | { readonly type: 'focus'; readonly rel: string }
