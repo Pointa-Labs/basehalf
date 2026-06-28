@@ -9,7 +9,7 @@ import { badgeService } from '../../../services/mirror/browser/badgeService.js';
 import {
   subscribeEntryRemoved,
   subscribeEntryRenamed,
-} from '../../../services/workspace/browser/workspaceFileEvents.js';
+} from '../../../services/workspace/common/workspaceFileEvents.js';
 import type { BadgeNodeData } from './badge-node/badgeNodeModel.js';
 import { clearPreviewCache } from './badge-node/badgePreviewCache.js';
 import {

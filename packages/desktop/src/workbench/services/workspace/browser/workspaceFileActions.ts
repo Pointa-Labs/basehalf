@@ -3,6 +3,11 @@ import { noteStemFromTitle } from '../../editor/browser/noteTitleModel.js';
 import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
 import type { WorkspaceFileActions } from '../common/workspaceActions.js';
 import {
+  emitEntryCreated,
+  emitEntryRemoved,
+  emitEntryRenamed,
+} from '../common/workspaceFileEvents.js';
+import {
   type WorkspaceEntryKind,
   closeEditorOverlayPatch,
   isOpenFileDeletedByEntry,
@@ -12,7 +17,6 @@ import {
 } from '../common/workspaceModel.js';
 import { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
 import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
-import { emitEntryCreated, emitEntryRemoved, emitEntryRenamed } from './workspaceFileEvents.js';
 
 interface WorkspaceFileActionState {
   readonly current: string | null;

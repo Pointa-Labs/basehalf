@@ -8,7 +8,7 @@ import {
   subscribeEntryRemoved,
   subscribeEntryRenamed,
   subscribeWorkspaceFileOperations,
-} from '../src/workbench/services/workspace/browser/workspaceFileEvents.js';
+} from '../src/workbench/services/workspace/common/workspaceFileEvents.js';
 
 describe('workspace file operation events', () => {
   it('emits one VS Code-style operation event for successful in-app create, delete, and move', () => {

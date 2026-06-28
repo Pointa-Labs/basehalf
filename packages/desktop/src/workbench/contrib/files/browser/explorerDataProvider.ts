@@ -4,7 +4,7 @@ import type { WorkspaceService } from '../../../../platform/workspaces/common/wo
 import {
   type WorkspaceFileOperationEvent,
   subscribeWorkspaceFileOperations,
-} from '../../../services/workspace/browser/workspaceFileEvents.js';
+} from '../../../services/workspace/common/workspaceFileEvents.js';
 import type { ExplorerDataProvider, ExplorerFileOperation } from '../common/explorer.js';
 
 type FileEventSource = Pick<typeof fileEventService, 'onDidChangeFiles'>;

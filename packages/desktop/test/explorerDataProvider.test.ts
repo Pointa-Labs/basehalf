@@ -4,7 +4,7 @@ import {
   createWorkspaceExplorerDataProvider,
   toExplorerFileOperation,
 } from '../src/workbench/contrib/files/browser/explorerDataProvider.js';
-import { WorkspaceFileOperationEvent } from '../src/workbench/services/workspace/browser/workspaceFileEvents.js';
+import { WorkspaceFileOperationEvent } from '../src/workbench/services/workspace/common/workspaceFileEvents.js';
 
 describe('explorerDataProvider', () => {
   it('adapts workspace files, watcher events, and operation events for explorer consumers', async () => {
