@@ -62,14 +62,22 @@ was tied to D2/D3. Now that agents edit MD directly, **audit comes from git**
 optional metadata (badge.references) that the agent can read and use. We don't
 *enforce* grounding at write time anymore — we make it cheap and obvious.
 
-## D5 — Interface: CLI-first, MCP as a thin wrapper later (still active)
+## D5 — ~~Interface: CLI-first, MCP as a thin wrapper later~~ (superseded by D19 / D20)
 
-**Decision.** Ship a CLI first. Add an MCP server later. Both are thin
+**Original decision.** Ship a CLI first. Add an MCP server later. Both are thin
 adapters over one `core`.
 
-**Why.** Every local coding agent has a shell → the CLI reaches all of them
-with zero config, and doubles as the human tool + test harness. The desktop
-app (D15) is another thin adapter over the same core.
+**Original why.** Every local coding agent has a shell → the CLI reaches all of
+them with zero config, and doubles as the human tool + test harness. At the
+time, the desktop app (D15) was expected to be another thin adapter over the same
+core.
+
+**Why it was superseded.** D19 deleted the CLI package, and the 2026-06-28
+architecture direction moves BaseHalf toward VS Code-style Electron
+workbench/services/providers instead of one core command bus with many thin
+facades. The active agent-facing floor is now the published `.bh/mirror/` file
+protocol; future non-file doors should expose cohesive services/providers, with
+the desktop app no longer required to preserve the old Core command bus.
 
 ## D6 — Local-first now; collaboration deferred but pre-wired (still active)
 
@@ -80,15 +88,17 @@ tombstones (in `.bh/`), git as the conflict-resolution layer.
 ## D7 — ~~Event tiering + compaction~~ (no longer applicable — no event log)
 
 **Why it was dropped.** D2/D3 overturn (D12) means no append-only event log at
-all. Storage stays naturally bounded by the size of MD files + `.bh/` JSON.
+all. Storage stays naturally bounded by the size of user files + `.bh/` mirror
+files.
 High-frequency events (e.g., per-keystroke text) don't apply — the editor
 writes to MD on save, not per-keystroke.
 
 ## D8 — Stack: TS + SQLite-when-needed; build on existing OSS (updated)
 
 **Decision.** TypeScript + Node + Electron for the production stack. Start
-with **flat JSON files** in `.bh/`; swap to SQLite (+ FTS5) only when search /
-list performance demands it (rough trigger: > 5k files in a workspace).
+with plain files in `.bh/` (the current mirror is YAML); swap to SQLite (+ FTS5)
+only when search / list performance demands it (rough trigger: > 5k files in a
+workspace).
 
 **Library picks** (the ones we actually use):
 
@@ -135,11 +145,17 @@ rather than a second product name.
 contributions: `CLA.md`, the CLA Assistant bot, branch protection requiring
 the CLA check + review.
 
+**2026-06-28 maintainer path.** External contributors still use branch → PR →
+CLA + checks → merge. Maintainers (including agents acting for them) push
+`main` directly after lint, typecheck, the full test suite, and any substantive
+in-session adversarial review are green; `maintainer-fastlane.yml` clears the
+CLA check for allowlisted direct pushes.
+
 ## D12 — MD = content truth; `.bh/` = derived cache; git = history (NEW, overturns D2/D3)
 
 **Decision.** Markdown files on disk are the source of truth for content.
-Anything BaseHalf adds (badge metadata, canvas positions, references) lives
-under `.bh/<workspace-root>/`. Git provides history and undo.
+Anything BaseHalf adds (badge metadata, canvas positions, focus viewport,
+reading aids) lives under `.bh/`. Git provides history and undo.
 
 **Why.** Two reasons:
 
@@ -196,8 +212,10 @@ traversal depth on the agent's behalf.
 ## D15 — Electron desktop app, Mac first, cross-platform target (NEW)
 
 **Decision.** The production product is an Electron desktop app. Mac is the
-first platform; Windows follows; Linux comes when there's pull. The CLI
-remains the agent-facing surface; the desktop app is the human-facing one.
+first platform; Windows follows; Linux comes when there's pull. The published
+`.bh/mirror/` file protocol is the agent-facing floor; the desktop app is the
+human-facing workbench. The old CLI sentence from this decision was superseded
+by D19 when the CLI package was deleted.
 
 **Why.** Electron because we want to reuse React + BlockNote + React Flow on
 the renderer and a Node main process for filesystem + chokidar (same model as
@@ -274,9 +292,9 @@ a Markdown focus brief, and a separate reverse index:
 - `.bh/mirror/<file>/adhd.yaml` — per-file reading aids (`highlight_keywords` +
   already-read line-ranges).
 
-**What was deleted.** The `bh` CLI package (the desktop app drives
-`@basehalf/core` over IPC — `run(command, args)` is the only door now), the
-`inbound` module (the reverse index moved *into* `badge.referenced_by`,
+**What was deleted.** The `bh` CLI package (the desktop app drove
+`@basehalf/core` over IPC during this phase), the `inbound` module (the reverse
+index moved *into* `badge.referenced_by`,
 maintained on the target badge), the `proposals` write-back module (overturning
 the short-lived agent-write-back experiment), and the `.bh/focus.md`
 curated-brief / turn-intent / `# source-folder:` provenance / "Copy brief"
@@ -294,8 +312,40 @@ visual layer. Embedding `referenced_by` makes "who points at me?" one read.
 **Consequences.** This was a **clean break** — no migration of old `.bh/`
 layouts (the spec assumes a fresh mirror). Everything except `.bh/cache/` stays
 in git so the mirror travels with the folder. The canonical agent-hint text now
-lives in `HINT_BODY` in `packages/core/src/modules/workspace/setup.ts`. This
-decision supersedes D14's specific file shapes (`.bh/focus.md` /
+lives in `HINT_BODY` in
+`packages/desktop/src/platform/workspaces/electron-main/workspaceSetup.ts`
+(core keeps a legacy/test copy). This decision supersedes D14's specific file
+shapes (`.bh/focus.md` /
 `.bh/badges/<file>.json` / `.bh/index/inbound.json`) while keeping its principle
 intact: **publish a file protocol any file-reading agent can navigate, don't
 inject into the agent's context.**
+
+**2026-06-28 note.** The "core as the only door" architecture that surrounded
+this refactor is no longer the target architecture. Current work moves BaseHalf
+toward VS Code-style Electron workbench/services/providers while preserving the
+file protocol above.
+
+## D20 — VS Code-aligned Electron boundaries; desktop is not Core-backed (NEW, 2026-06-28)
+
+**Decision.** BaseHalf's desktop app follows VS Code-style Electron boundaries:
+renderer workbench parts, Electron main-process services, provider/extension
+integrations, and narrow shared protocols. `@basehalf/core` remains as a
+legacy/historical package with its own tests, but the default desktop app path
+no longer constructs Core or adapts desktop behavior through Core-backed
+providers.
+
+**Why.** Git/GitHub integration, source control views, workspace/file
+operations, mirror storage, settings, search, and window/workbench orchestration
+have VS Code-shaped ownership boundaries. Keeping all behavior behind one
+`core.run` registry made early tests easy, but it now couples host credentials,
+SCM provider behavior, UI orchestration, and file services that should evolve
+independently.
+
+**Consequences.** New desktop work should compare against the nearest VS Code
+source under `reference/vscode/` and prefer cohesive workbench services,
+main-process services, and providers over adding business logic to core.
+Current Git/GitHub/SCM paths are desktop-native provider/channel services, with
+the concrete Git CLI backend in `GitCliBackendProvider` plus the GitHub askpass
+runner. Settings, search, workspace files/registry/viewport, badge/canvas/focus/
+ADHD YAML mirror storage, workspace entry operations, and the file watcher are
+also desktop-native service/provider paths.

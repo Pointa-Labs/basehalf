@@ -55,9 +55,9 @@ switch libraries than take on a commercialization blocker.
 
 1. **Propose** a new runtime dependency in an issue; note its license.
 2. CI runs **`license-check`** ([.github/workflows/license-check.yml](../.github/workflows/license-check.yml))
-   and fails the PR on anything outside the ✅ allowlist.
+   and fails any PR or main push on anything outside the ✅ allowlist.
 3. To add a ⚠️ review-needed dependency, a maintainer updates the allowlist in
-   that workflow in the same PR, with a one-line justification.
+   that workflow in the same change, with a one-line justification.
 4. Keep a `THIRD-PARTY-NOTICES.md` once we ship bundled dependencies (Apache-2.0
    §4 attribution).
 

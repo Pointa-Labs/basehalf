@@ -1,8 +1,9 @@
 # @basehalf/desktop
 
-Electron + React shell for BaseHalf. A thin UI layer over `@basehalf/core`
-— all operations go through the IPC bridge (`window.bh.run`) to core's
-single `run(command, args)` door. No business logic lives here.
+Electron + React workbench for BaseHalf. The desktop app follows VS Code-style
+renderer workbench parts, main-process services, provider adapters, and narrow
+shared protocols. The old core command-bus path is no longer the desktop data
+backend.
 
 ## Status
 
@@ -19,23 +20,20 @@ See [roadmap](../../docs/roadmap.md).
 
 ```text
 src/
-  main/      BrowserWindow + core singleton + window-state persistence;
-             ipc.ts handlers delegate bh:run → core
-  preload/   contextBridge → window.bh (run / pickWorkspace / platform)
-  renderer/  React app
-    App.tsx              three-region layout shell + banners
-    store/               Zustand stores (workspace, layout / paneTree)
-    components/          TitleBar, Sidebar + NavTree, Canvas + BadgeNode,
-                         EditorSpace + TabStrip (editor groups), CommandPalette
-                         (⌘K search), focus chip + BriefPreview, media/code viewers
-    lib/                 liveDoc (per-file Y.Doc registry), paneTree, mdSegment,
-                         focusBrief, and other renderer-only helpers
-    canvasConnections/   reference-edge rendering for the canvas
+  code/       Electron main entrypoint, sandbox preload, and service composition
+  platform/   cross-workbench platform services (windows, workspace, terminal,
+              update, native host, configuration, storage, files)
+  workbench/  renderer workbench parts, contributions, services, and desktop boot
+  renderer/   thin Vite HTML/env host for the workbench entry
 test/        vitest unit tests (ipc contract, paneTree, mdSegment, liveDoc, …)
 ```
 
 The exhaustive per-file tree is intentionally omitted — it rots faster than it
 helps. Browse `src/` for the current set.
+
+Git follows the VS Code split: `workbench/contrib/scm` owns native Git / SCM
+views, while `workbench/contrib/githubPullRequests` is a separate provider
+contribution consumed by SCM and Settings.
 
 ## Commands
 
@@ -60,9 +58,6 @@ the binary path (a string) instead of the API.
   whose `module.exports` is the path to the binary; only Electron's
   runtime CJS require-hook returns the real API. ESM `import 'electron'`
   bypasses the hook. Renderer stays ESM (Vite handles it).
-- **`@basehalf/core` is bundled into main, not externalized.** Rollup
-  inlines its ESM into the CJS main output; we can't `require()` an
-  ESM-only package at CJS runtime.
 - **`contextIsolation: true`, `sandbox: true`, `nodeIntegration: false`.**
   The renderer never gets Node APIs; only the explicit `window.bh`
   bridge from preload. Don't expose more without a security review.

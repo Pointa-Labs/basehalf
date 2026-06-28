@@ -1,17 +1,21 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **Status:** `@basehalf/core` ships eight modules: `workspace`, `badges`,
-> `canvas`, `focus`, `adhd`, `search`, `git` (plus an internal `watcher`). The
+> **Status:** the historical `@basehalf/core` package currently ships eight public
+> modules: `workspace`, `badges`, `canvas`, `focus`, `adhd`, `search`,
+> `settings`, and `git` (plus an internal `watcher`). The
 > `git` module is a full source-control surface (status/stage/commit/push/pull,
 > branch create/checkout/merge/delete/rename, `log`/`diffRef`/`commitFiles` for
 > the commit graph + commit diffs, `apply` for hunk staging, stash/revert) driven
-> by the desktop SCM panel, commit-graph view, ⌘K Git mode, and inline diff. The
-> desktop
-> app drives core over IPC (see [docs/roadmap.md](docs/roadmap.md)); there is no
-> standalone CLI. `workspace.add` with `setup` (and the desktop's Open Folder)
+> by the older architecture. The desktop app now exposes explicit main-process
+> provider/channel services and no longer adapts those paths through Core-backed
+> providers. GitHub integration lives in a desktop main-process provider/channel (see
+> [docs/roadmap.md](docs/roadmap.md)); there is no standalone CLI.
+> `workspace.add` with `setup` (and the desktop's Open Folder)
 > installs the **agent protocol** hint pointing agents at
 > `.bh/current_focus.yaml` + the per-node mirror YAMLs under `.bh/mirror/<path>/`
-> (see `packages/core/src/modules/workspace/setup.ts`).
+> (the desktop-owned source is
+> `packages/desktop/src/platform/workspaces/electron-main/workspaceSetup.ts`;
+> core keeps a legacy/test copy).
 >
 > A `2026-06` refactor aligned the code to `private-docs/focus_mode_spec/`: the
 > `bh` CLI package, the `inbound` module, the `proposals` write-back module, and
@@ -23,23 +27,44 @@
 > [docs/decisions.md D18](docs/decisions.md). Internal product decisions for the
 > BaseHalf project itself live in `private-docs/decisions/` (private repo).
 
-`@basehalf/core` is the **one door**: every operation is `run(command, args)`.
-The desktop app, the watcher, and any future MCP/CLI shell all go through that
-single registry — there is no `bh <cmd>` binary anymore. The command surface is
-defined by the modules registered in `packages/core/src/index.ts`; read a
-module's `commands.ts` + `types.ts` for exact args/results (they're the stable
-contract). When this doc and the code disagree, the code wins.
+Architecture direction changed on 2026-06-28: BaseHalf is now being refactored
+toward VS Code's Electron architecture, with cohesive workbench/browser UI
+parts, Electron main-process services, extension/provider-style integrations,
+and narrow shared protocol boundaries. `@basehalf/core` still exists as a
+legacy/historical package, but the desktop app no longer uses Core-backed
+providers or depends on Core. When touching a subsystem, compare against the
+relevant VS Code source under `reference/vscode/` and prefer the same kind of
+boundary over adding more business logic to core.
 
-Set `BH_CONFIG_DIR=/some/path` to point core at a non-default config directory
-(useful for tests / sandboxed runs). Default is OS-conventional:
+Current SCM status: GitHub API/token flows are desktop-native main-process
+services. Git operations are already exposed through workbench SCM
+provider/channel boundaries, and the concrete Git CLI backend now lives in
+desktop's `GitCliBackendProvider` plus the GitHub askpass runner. Settings now
+use desktop's platform configuration provider; workbench search now composes
+workspace files and badge metadata directly; workspace history, workspace
+registration/repath, and the pure registry command family (`list` / `use` /
+`current` / `touch` / `remove` / `rename`) now use desktop main-process file
+providers. Workspace file service (`listFiles` / `listSupportedFiles` /
+`readFile` / `writeFile` / `renameFile` / `importFile` / `createFile` /
+`createFolder`) and workspace viewport storage are also desktop-native.
+Workspace entry operations (`deleteEntry` / `renameEntry`) now use desktop file
+operations plus a workbench mirror participant. Badge, canvas, focus, and ADHD
+mirror storage now use a desktop-native YAML mirror backend, and the workspace
+file watcher is a desktop-native platform/files service. The default app path no
+longer constructs Core and the legacy Core-backed desktop adapters have been
+removed.
+
+Set `BH_CONFIG_DIR=/some/path` to point the desktop app and legacy core at a
+non-default config directory (useful for tests / sandboxed runs). Default is
+OS-conventional:
 `~/Library/Application Support/basehalf` on macOS, `$XDG_CONFIG_HOME/basehalf`
 on Linux, `%APPDATA%/basehalf` on Windows.
 
 ## Workspaces — which folder is "active"
 
 A *workspace* is a folder you've registered as a BaseHalf root. Files stay in
-place; core tracks which folder is "active" so the badge / canvas / focus /
-adhd / search modules know which root to operate on. Adding one creates a `.bh/`
+place; the desktop window/workspace services bind operations to the open root.
+Adding one creates a `.bh/`
 subdirectory (the mirror tree is a sparse overlay created lazily on first
 annotation — there is no eager materialization). **Folder identity is the
 path**: re-adding a registered folder returns the existing entry instead of
@@ -50,7 +75,7 @@ unregisters — it never deletes user files — and removing the *current* works
 leaves none current (the app shows its welcome state; it never auto-promotes
 another workspace).
 
-Workspace commands (call via `core.run(name, args)`):
+Workspace service commands / bridge methods:
 
 - `workspace.add` — register a folder (`{ path, name?, setup? }`); `setup` runs
   the `.gitignore` + agent-hint installer described below.
@@ -202,9 +227,9 @@ user's own files when they explicitly ask; when asked, you can also generate or
 update the `.bh/` YAMLs (match the shape, read the latest first, don't store
 anything derivable from paths / line numbers / the reference graph, and never
 replace the `current_focus.yaml` symlink with a regular file). The canonical
-hint text lives in `HINT_BODY` in
-`packages/core/src/modules/workspace/setup.ts` — that file is the source of
-truth, not this paragraph.
+desktop hint text lives in `HINT_BODY` in
+`packages/desktop/src/platform/workspaces/electron-main/workspaceSetup.ts`;
+the core package keeps a legacy/test copy.
 
 ## Content search
 
@@ -240,14 +265,17 @@ spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
 
 ## Rules (carry into future modules)
 
-- **One door.** All operations go through `@basehalf/core`'s `run(command, args)`.
-  The desktop UI / watcher / any future MCP or CLI shell are thin shells — never
-  put business logic in them.
-- **Module isolation.** A module lives under `packages/core/src/modules/<name>/`,
-  registers its commands via `core.register`, and touches core only through
-  the `Context` it's given. **Modules calling other modules use `ctx.run`,
-  never imports of another module's internals.**
-- **Use `ctx.fs`, never `node:fs` directly.** So tests can swap a mock.
+- **VS Code-aligned boundaries.** Prefer workbench parts, renderer services,
+  main-process services, and provider/extension integrations that mirror the
+  closest VS Code source. Do not add new business logic to `@basehalf/core`
+  merely because the old architecture made core the default place.
+- **Transition rule.** Existing core modules may remain for package history and
+  tests. When editing one, keep behavior stable but move any desktop-facing
+  orchestration toward cohesive services/adapters instead of deepening
+  `ctx.run` coupling.
+- **Testability.** Put side effects behind explicit service/provider interfaces
+  so tests can swap them. In legacy core files, keep using `ctx.fs`/`ctx.git`
+  until that code is migrated.
 - **User files = content truth, `.bh/` = derived mirror, git = history.** Per the
   architecture constitution. Modules that touch user files must be observers
   (chokidar + reconcile), never owners.
@@ -255,18 +283,19 @@ spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
   file (badge / canvas / focus / adhd) must serialize through `createKeyedMutex`
   (kernel) or it loses updates under concurrent writers (the watcher + an in-app
   edit). New stores need the same treatment.
-- **core never writes user files unprompted.** Only explicit user edits
-  through the BaseHalf UI write back to disk. Agents edit user files with
-  their own tools — core stays out of that path.
+- **Automated services never write user files unprompted.** Only explicit user
+  edits through the BaseHalf UI write back to disk. Agents edit user files with
+  their own tools; BaseHalf services observe and reconcile unless the user
+  triggers a concrete write action.
 - **Don't restore the deleted event-log impl.** It was overturned by the
   architecture; if you need to read it, it's in git history at `c441f79`.
 - **Don't restore the deleted decisions module.** It served the old
   AI-coding wedge as a dogfood tool; the corpus lives as MD in
   `private-docs/decisions/` now. See [docs/decisions.md D18](docs/decisions.md).
 - **Don't restore the deleted CLI / `inbound` / `proposals` / `focus.md`.** The
-  CLI package is gone (core drives everything); the reverse index is embedded in
-  `badge.referenced_by`; agent write-back was overturned; the curated focus brief
-  was replaced by the `focus.yaml` viewport mirror. See
+  CLI package is gone; the reverse index is embedded in `badge.referenced_by`;
+  agent write-back was overturned; the curated focus brief was replaced by the
+  `focus.yaml` viewport mirror. See
   [docs/decisions.md D19](docs/decisions.md).
 - **Maintainers (including agents working for them) push `main` directly —
   no PR.** `maintainer-fastlane.yml` auto-greens the `CLAAssistant` check on

@@ -15,15 +15,25 @@ product.
 > YAML files (`badge.yaml` / `canvas.yaml` / `focus.yaml` / `adhd.yaml` +
 > a `.bh/current_focus.yaml` symlink) and focus is a live viewport mirror, not a
 > curated list. See [decisions.md D19](decisions.md). The PR-numbered tables
-> below are historical; current modules are `workspace`, `badges`, `canvas`,
-> `focus`, `adhd`, `search`, and the internal `watcher`, all behind
-> `@basehalf/core`'s one `run(command, args)` door.
+> below are historical; the legacy core package still contains historical
+> modules, but new desktop-facing work should use the VS Code-aligned
+> workbench/main-process service boundaries below.
+>
+> **2026-06-28 architecture update.** The previous "`@basehalf/core` is the one
+> door" rule is being retired. BaseHalf is now refactoring toward VS Code's
+> Electron workbench shape: renderer workbench parts, main-process services,
+> provider/extension integrations, and narrow shared protocols. Existing core
+> modules remain for the package's own tests/history, but the desktop app is
+> moving off core adapters without changing user-visible behavior. GitHub
+> integration and the SCM/mirror/config/workspace data paths now live in
+> desktop main-process providers/channels. See [decisions.md D20](decisions.md).
 
 ## Product form, over time
 
-The center of gravity is **the desktop app**, talking to `@basehalf/core` over
-IPC. (Earlier phases shipped a `bh` CLI as a means; it was retired in the
-`2026-06` refactor — core's `run(command, args)` is the only door now.)
+The center of gravity is **the desktop app**. Earlier phases shipped a `bh` CLI
+and then consolidated around `@basehalf/core` over IPC; that was useful
+scaffolding, but new architecture work should follow VS Code-style workbench /
+service / provider boundaries instead of deepening a single core RPC layer.
 
 - **v0 (today → ~6–10 weeks):** Electron desktop app on Mac. Free-position
   canvas + block editor (BlockNote) + file tree + agent protocol. Workspace =
@@ -85,7 +95,7 @@ polish/hardening arc (status updated 2026-05-30):
   still deferred.
 - ✅ folder badge → sub-canvas (double-click) — scopes to folder contents.
 - ✅ saved-view selector in TopBar — later removed; grouping is now folder-based
-  (focus a folder; the folder badge's prompt becomes the turn intent).
+  (focus a folder; the folder badge description is available through the mirror).
 - ✅ file rename heuristic (watcher unlink+add → `badge.rename`; covered in
   `watcher.test.ts`).
 - ✅ external-edit IPC + reload prompt in the editor ("changed on disk" banner →
@@ -116,58 +126,42 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   it fetches only `maxChars*4` bytes via an O_NOFOLLOW partial read, so even a
   multi-GB mis-routed file (or a huge log) never lands in memory whole before the
   cap/sniff runs — the read-whole-then-cap step is gone.
-- **Core-level `.bh/` reconcile.** ✅ _shipped (focus.md leg)._ In-app edits to a
-  badge (prompt / refs) refresh derived caches the file watcher can't see (it
-  ignores `.bh/` writes). v0 first wired this in the renderer (editor panel pings
-  the canvas via a badge bus + re-set focus on a focused-file edit); the robust
-  version is now in core: `badge.set/addRef/removeRef` call `focus.resync`, which
-  re-inlines the active brief with fresh badge data and PRESERVES the `intent:`
-  line, guarded by a focus-file `createKeyedMutex` (resync is a read-modify-write
-  on focus.md). It no-ops when the edited file isn't active, so eager materialize
-  doesn't churn focus.md. This now covers CLI / agent edits, not just the desktop;
-  the renderer's `resyncFocusForFile` is consequently redundant (a follow-up can
-  remove it). The canvas badge-bus refresh (a UI concern the watcher can't cover)
-  stays in the renderer.
-- **Edit a folder badge's prompt in the desktop UI.** ✅ _shipped._ Folders are
-  first-class agent-protocol badges (a folder `.badge.json` carries a prompt +
-  refs), and they were CLI-only because single-click focuses / double-click
-  scopes into the sub-canvas / the editor opens only for files. Resolved with a
+- **Historical core-level `.bh/` reconcile.** ✅ _shipped, then superseded by the
+  mirror refactor._ This originally refreshed the old `focus.md` brief after
+  badge description/ref edits. D19 removed the brief; current badge/canvas/focus/
+  ADHD writes use the desktop-native YAML mirror services and keyed RMW guards.
+- **Edit a folder badge's description in the desktop UI.** ✅ _shipped._ Folders
+  are first-class agent-protocol badges (a folder `badge.yaml` carries a
+  description + refs), and they originally lacked a desktop editing affordance
+  because single-click focuses / double-click scopes into the sub-canvas / the
+  editor opens only for files. Resolved with a
   contextual affordance: while **scoped into** a folder, the toolbar shows an
-  **"Edit folder prompt"** action that reads the folder badge's current prompt,
-  opens a pre-filled dialog ("what the AI agent should know about this folder"),
-  and writes it back via `badge.set({ kind: 'folder' })`. Discoverable from the
-  one place you're already looking at the folder, no canvas clutter.
+  edit-folder-description action that reads the folder badge's current
+  description and writes it back through the mirror service. Discoverable from
+  the one place you're already looking at the folder, no canvas clutter.
 
 **2026-05-31 — retrieval + agent-handoff arc (#105–#110, all merged).** A
 first-principles pass strengthening the two ends of the daily loop, then a
 cross-feature composition review to confirm it all holds together:
 
-- **Full-text content search.** ✅ _shipped (#105)._ A `search` core module
-  (`search.query`) + `bh search` + a debounced "Search" section in the ⌘K
-  palette. The missing retrieval leg: before this, the palette matched only file
-  paths + the badge prompt, never the file BODY. Drives the already-hardened
-  `workspace.listFiles` + `workspace.readFile` via `ctx.run`, so all path-escape
-  / capped-read / binary-sniff guards are inherited (zero new path code); ranks
-  by match count before the file cap.
-- **Copy agent brief.** ✅ _shipped (#106, #108)._ A one-click "Copy brief" on
-  the focus chip + `bh focus brief` + a `focus.brief` core command hand the
-  curated `.bh/focus.md` turn brief to ANY chat — making the curate→agent payoff
-  tangible beyond the Claude-Code-auto-read-in-repo path. The clipboard copy
-  strips bh-internal noise (the `# source-view:` marker + the `.bh/`-pointing
-  footer) so the pasted brief is self-contained.
-- **View-prompt → brief-intent freshness.** ✅ _shipped (#107)._ Editing a
-  focused saved view's prompt now refreshes the brief's `intent:`, matched by an
-  exact `# source-view:` provenance marker (not inferred from members/text), with
-  all focus.md writers (set / resync / refreshViewIntent / clearProvenanceIfView
-  / renameActiveFile / toggleActiveFile) threading it consistently.
+- **Full-text content search.** ✅ _shipped (#105), then moved native._ This
+  originally landed as a `search` core module + `bh search` + a debounced palette
+  section. The current workbench search composes desktop workspace files and
+  badge metadata directly through main-process services/providers.
+- **Copy agent brief.** ✅ _shipped (#106, #108), then retired by D19._ This
+  handed the old curated `.bh/focus.md` turn brief to arbitrary chats. The
+  current agent floor is the `.bh/current_focus.yaml` symlink plus the
+  `.bh/mirror/` YAML files; there is no `bh focus brief` path.
+- **View-prompt → brief-intent freshness.** ✅ _shipped (#107), then retired by
+  D19._ The old `focus.md` intent/provenance writers were removed with the
+  curated brief machinery.
 - **Palette match highlighting.** ✅ _shipped (#109)._ The matched query run is
   marked (accent) in both row labels and content snippets — scannable results.
 - **Cross-feature composition review.** ✅ _shipped (#110)._ A holistic seam
-  review of the merged arc caught two P2s per-PR review structurally couldn't:
-  an error-handling asymmetry (`badge.rename` not tolerating a hostile
-  symlinked focus.md like its siblings) and a state-preservation gap (canvas
-  shift+click dropping intent + provenance). Both fixed. The core agent-protocol
-  aha loop was re-validated end-to-end with a fresh `claude -p` afterward.
+  review of the merged arc caught two P2s per-PR review structurally couldn't.
+  The specific fixes were for the pre-D19 `focus.md` protocol; the current risk
+  class maps to symlink-safe `current_focus.yaml` handling and keyed YAML mirror
+  writes.
 
 Note: code-viewer **syntax highlighting** (first bullet above) remains the open
 v0.x item, still gated on the dependency-policy weighing of a highlighter dep.

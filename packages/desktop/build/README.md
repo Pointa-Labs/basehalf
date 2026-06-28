@@ -26,7 +26,7 @@ installed apps can't find/verify it:
    manifest metadata with the project's Ed25519 update key and writes
    `packages/desktop/dist/update-manifest-darwin-arm64.json` (it refuses to run
    if the key doesn't match the public key embedded in
-   `src/main/update-protocol.ts`).
+   `src/platform/update/node/updateProtocol.ts`).
 3. `gh release create v<version>
    packages/desktop/dist/BaseHalf-<version>-arm64.dmg
    packages/desktop/dist/BaseHalf-<version>-arm64.zip
