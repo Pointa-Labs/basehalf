@@ -280,9 +280,9 @@ spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
   architecture constitution. Modules that touch user files must be observers
   (chokidar + reconcile), never owners.
 - **Any RMW on a `.bh/` YAML needs a mutex.** A read-modify-write on a mirror
-  file (badge / canvas / focus / adhd) must serialize through `createKeyedMutex`
-  (kernel) or it loses updates under concurrent writers (the watcher + an in-app
-  edit). New stores need the same treatment.
+  file (badge / canvas / focus / adhd) must serialize through the desktop
+  platform `createKeyedMutex` helper or it loses updates under concurrent
+  writers (the watcher + an in-app edit). New stores need the same treatment.
 - **Automated services never write user files unprompted.** Only explicit user
   edits through the BaseHalf UI write back to disk. Agents edit user files with
   their own tools; BaseHalf services observe and reconcile unless the user

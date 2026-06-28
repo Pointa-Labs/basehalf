@@ -1,13 +1,12 @@
 # Using BaseHalf (instructions for coding agents)
 
-> **This mirrors [`CLAUDE.md`](CLAUDE.md).** BaseHalf keeps ONE maintained agent
-> guide — `CLAUDE.md` in the repo root — so the two can't drift. Read it for the
-> full reference: the historical core `workspace`, `badges`, `canvas`, `focus`,
-> `adhd`, `search`, `settings`, and `git` modules (plus an internal `watcher`), and the
-> `.bh/mirror/` agent
+> **Companion to [`CLAUDE.md`](CLAUDE.md).** `CLAUDE.md` is the full maintained
+> guide for this repo; this file is the compact Codex/Cursor-facing entry point.
+> It repeats the load-bearing architecture direction, the `.bh/mirror/` agent
 > protocol (`.bh/current_focus.yaml` symlink + per-node `badge.yaml` /
-> `canvas.yaml` / `focus.yaml` / `adhd.yaml`). The load-bearing invariants are
-> repeated below so they hold even if this is the only file you read.
+> `canvas.yaml` / `focus.yaml` / `adhd.yaml`), and the rules that must hold even
+> if this is the only file an agent reads. Keep both files aligned when the
+> architecture direction changes.
 >
 > A `2026-06` refactor aligned the code to `private-docs/focus_mode_spec/`: the
 > `bh` CLI package, the `inbound` module, the `proposals` write-back module, and
@@ -103,8 +102,9 @@ spec for the current `.bh/mirror/` model is `private-docs/focus_mode_spec/`.
   architecture constitution. Modules that touch user files must be observers
   (chokidar + reconcile), never owners.
 - **Any RMW on a `.bh/` YAML needs a mutex.** A read-modify-write on a mirror
-  file (badge / canvas / focus / adhd) must serialize through `createKeyedMutex`
-  (kernel) or it loses updates under concurrent writers.
+  file (badge / canvas / focus / adhd) must serialize through the desktop
+  platform `createKeyedMutex` helper or it loses updates under concurrent
+  writers.
 - **Automated services never write user files unprompted.** Only explicit user
   edits through the BaseHalf UI write back to disk. Agents edit user files with
   their own tools; BaseHalf services observe and reconcile unless the user
