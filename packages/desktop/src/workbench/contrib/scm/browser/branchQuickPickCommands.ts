@@ -1,6 +1,5 @@
 import {
   type PickOption,
-  confirm,
   pick as pickDialog,
   prompt,
 } from '../../../browser/parts/dialogs/Dialog.js';
@@ -9,12 +8,12 @@ import type { GitRefInfo, GitStatusResult } from '../common/git.js';
 import type { BranchGitAdapter } from './branchGitAdapter.js';
 import {
   CHECKOUT_RECOVERY_OPTIONS,
-  canDeleteBranch,
   checkoutTargetForRef,
   isCheckoutBlockedError,
 } from './branchQuickPickModel.js';
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+const CREATE_BRANCH_COMMAND = 'cmd:create';
 
 export async function openBranchQuickPick({
   status,
@@ -25,35 +24,28 @@ export async function openBranchQuickPick({
   readonly git: BranchGitAdapter;
   readonly onAfter: () => void | Promise<void>;
 }): Promise<void> {
+  void status;
   try {
     const { refs } = await git.listRefs();
-    const branchRefs = refs.filter((ref) => ref.type === 'head' || ref.type === 'remoteHead');
     const options: PickOption[] = [
+      {
+        value: CREATE_BRANCH_COMMAND,
+        label: 'Create Branch...',
+        detail: 'Command',
+      },
       ...refs.map((branch) => branchOption(branch)),
-      { value: 'cmd:create', label: 'Create Branch...', detail: 'Command' },
-      { value: 'cmd:merge', label: 'Merge into Current Branch...', detail: 'Command' },
-      ...(!status.detached && status.branch !== null
-        ? [{ value: 'cmd:rename', label: 'Rename Current Branch...', detail: 'Command' }]
-        : []),
-      { value: 'cmd:delete', label: 'Delete Branch...', detail: 'Command' },
     ];
 
     const choice = await pickDialog({
       title: 'Switch Branch',
       placeholder: 'Select a branch or tag to checkout',
-      emptyText: 'No branches found.',
+      emptyText: 'No branches or tags found.',
       options,
     });
     if (choice === null) return;
 
-    if (choice === 'cmd:create') {
-      await createBranch(git, onAfter);
-    } else if (choice === 'cmd:merge') {
-      await mergeBranch(git, refs, onAfter);
-    } else if (choice === 'cmd:rename') {
-      await renameCurrentBranch(git, status, onAfter);
-    } else if (choice === 'cmd:delete') {
-      await deleteBranch(git, branchRefs, onAfter);
+    if (choice === CREATE_BRANCH_COMMAND) {
+      await createBranch(git, refs, onAfter);
     } else {
       const branch = refs.find((b) => b.id === choice);
       if (branch !== undefined) await checkoutBranch(git, branch, refs, onAfter);
@@ -133,97 +125,39 @@ async function recoverCheckout(
 
 async function createBranch(
   git: BranchGitAdapter,
+  refs: readonly GitRefInfo[],
   onAfter: () => void | Promise<void>,
 ): Promise<void> {
+  const validate = createBranchNameValidator(refs);
   const name = (
     await prompt({
       title: 'Create Branch',
       label: 'Branch name',
       placeholder: 'feature/name',
+      validate,
     })
   )?.trim();
   if (!name) return;
+  const invalid = validate(name);
+  if (invalid !== null) {
+    toast.error(invalid);
+    return;
+  }
   await git.createBranch(name);
   await onAfter();
-  toast.info(`Created ${name}.`);
+  toast.info(`Created and checked out ${name}.`);
 }
 
-async function mergeBranch(
-  git: BranchGitAdapter,
-  branches: readonly GitRefInfo[],
-  onAfter: () => void | Promise<void>,
-): Promise<void> {
-  const mergeable = branches.filter((branch) => !branch.current);
-  const choice = await pickDialog({
-    title: 'Merge into Current Branch',
-    placeholder: 'Select a branch or tag to merge from',
-    emptyText: 'No branches available to merge.',
-    options: mergeable.map(branchOption),
-  });
-  if (choice === null) return;
-  const ref = mergeable.find((item) => item.id === choice);
-  if (ref === undefined) return;
-  const result = await git.merge(ref.name);
-  await onAfter();
-  if (result.conflicts) toast.error(`Merge from ${ref.name} stopped on conflicts.`);
-  else toast.info(`Merged ${ref.name}.`);
-}
-
-async function renameCurrentBranch(
-  git: BranchGitAdapter,
-  status: GitStatusResult,
-  onAfter: () => void | Promise<void>,
-): Promise<void> {
-  if (status.detached || status.branch === null) return;
-  const name = (
-    await prompt({
-      title: `Rename ${status.branch}`,
-      label: 'New branch name',
-      defaultValue: status.branch,
-    })
-  )?.trim();
-  if (!name || name === status.branch) return;
-  await git.renameCurrent(name);
-  await onAfter();
-  toast.info(`Renamed branch to ${name}.`);
-}
-
-async function deleteBranch(
-  git: BranchGitAdapter,
-  branches: readonly GitRefInfo[],
-  onAfter: () => void | Promise<void>,
-): Promise<void> {
-  const deletable = branches.filter((branch) => canDeleteBranch(branch, 'switch'));
-  const choice = await pickDialog({
-    title: 'Delete Branch',
-    placeholder: 'Select a branch to delete',
-    emptyText: 'No local branches can be deleted.',
-    options: deletable.map(branchOption),
-  });
-  if (choice === null) return;
-  const branch = deletable.find((item) => item.id === choice);
-  if (branch === undefined) return;
-
-  const force = await confirm({
-    title: `Delete branch "${branch.name}"?`,
-    body: 'If it is not fully merged, you can force delete it after git rejects the safe delete.',
-    confirmText: 'Delete',
-    destructive: true,
-  });
-  if (!force) return;
-
-  try {
-    await git.deleteBranch(branch.name);
-  } catch {
-    const forceDelete = await confirm({
-      title: `Force delete branch "${branch.name}"?`,
-      body: 'This branch is not fully merged.',
-      confirmText: 'Force Delete',
-      destructive: true,
-    });
-    if (!forceDelete) return;
-    await git.deleteBranch(branch.name, { force: true });
-  }
-  await onAfter();
-  toast.info(`Deleted ${branch.name}.`);
+function createBranchNameValidator(
+  refs: readonly GitRefInfo[],
+): (value: string) => string | null {
+  const localBranches = new Set(
+    refs.filter((ref) => ref.type === 'head').map((ref) => ref.name),
+  );
+  return (value: string): string | null => {
+    const name = value.trim();
+    if (name === '') return 'Branch name is required.';
+    if (localBranches.has(name)) return `Branch "${name}" already exists.`;
+    return null;
+  };
 }
