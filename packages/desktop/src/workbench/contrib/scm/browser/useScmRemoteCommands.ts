@@ -8,7 +8,7 @@ import {
   type GithubPullRequestService,
   githubPullRequestService,
 } from '../../githubPullRequests/browser/githubPullRequestService.js';
-import type { GitRemoteInfo, GitStatusResult } from '../common/git.js';
+import type { GitFetchArgs, GitRemoteInfo, GitStatusResult } from '../common/git.js';
 import type { GitScmService } from './gitScmService.js';
 import { type ScmActionRunner, scmErrorMessage } from './scmCommandModel.js';
 
@@ -38,6 +38,8 @@ export type ScmRemoteOperation =
   | { readonly kind: 'push'; readonly force?: boolean }
   | { readonly kind: 'fetch' }
   | { readonly kind: 'sync' };
+
+export const FETCH_ALL_REMOTES_VALUE = '__all__';
 
 export function isPublishBranchState(status: GitStatusResult | null): boolean {
   return (
@@ -126,7 +128,10 @@ export function useScmRemoteCommands({
       } else if (operation.kind === 'push') {
         void act(() => git.push(operation.force === true ? { force: true } : undefined));
       } else if (operation.kind === 'fetch') {
-        void act(() => git.fetch());
+        void (async () => {
+          const args = await chooseFetchRemote(git);
+          if (args !== null) void act(() => git.fetch(args));
+        })();
       } else {
         void act(() => git.sync());
       }
@@ -159,6 +164,46 @@ export function useScmRemoteCommands({
   }, [runRemoteOperation, status]);
 
   return { createPullRequest, publish, pull, push, fetch, sync, pullRebase, pushForce };
+}
+
+export async function chooseFetchRemote(
+  git: Pick<GitScmService, 'fetch' | 'remotes'>,
+): Promise<GitFetchArgs | null> {
+  try {
+    const result = await git.remotes();
+    if (result.remotes.length === 0) return {};
+    if (result.remotes.length === 1) {
+      const remote = result.remotes[0];
+      return remote === undefined ? {} : { remote: remote.name };
+    }
+    const choice = await pick({
+      title: 'Fetch',
+      placeholder: 'Select a remote to fetch from',
+      emptyText: 'No remotes.',
+      options: fetchRemotePickOptions(result.remotes),
+    });
+    return choice === null ? null : fetchArgsForRemotePick(choice);
+  } catch (err) {
+    toast.error(scmErrorMessage(err));
+    return null;
+  }
+}
+
+export function fetchRemotePickOptions(
+  remotes: readonly GitRemoteInfo[],
+): readonly QuickPickOption[] {
+  return [
+    {
+      value: FETCH_ALL_REMOTES_VALUE,
+      label: 'All Remotes',
+      detail: 'Fetch from all remotes',
+    },
+    ...remotes.map(remotePickOption),
+  ];
+}
+
+export function fetchArgsForRemotePick(value: string): GitFetchArgs {
+  return value === FETCH_ALL_REMOTES_VALUE ? { all: true } : { remote: value };
 }
 
 export async function choosePublishRemote(
