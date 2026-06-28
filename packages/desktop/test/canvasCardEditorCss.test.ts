@@ -15,6 +15,18 @@ const canvasSource = readFileSync(
   join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/Canvas.tsx'),
   'utf-8',
 );
+const canvasNodeCommandsSource = readFileSync(
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/useCanvasNodeCommands.ts'),
+  'utf-8',
+);
+const canvasEdgeCommandsSource = readFileSync(
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/useCanvasEdgeCommands.ts'),
+  'utf-8',
+);
+const canvasWorkspaceDataSource = readFileSync(
+  join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/useCanvasWorkspaceData.ts'),
+  'utf-8',
+);
 const canvasSnapGuidesSource = readFileSync(
   join(__dirname, '../src/workbench/contrib/basehalfCanvas/browser/CanvasSnapGuides.tsx'),
   'utf-8',
@@ -199,12 +211,22 @@ describe('canvas card editor CSS', () => {
     expect(canvasFlowSnapSource).toContain('snapTranslateRect');
     expect(canvasFlowSnapSource).toContain('snapResizeRect');
     expect(canvasFlowSnapSource).toContain('dragGuidesForMovedAxes');
-    expect(canvasSource).toContain('snapFlowNodeChanges');
-    expect(canvasSource).not.toContain('function snapNodeChanges');
+    expect(canvasSource).toContain('useCanvasNodeCommands');
+    expect(canvasNodeCommandsSource).toContain('snapFlowNodeChanges');
+    expect(canvasNodeCommandsSource).not.toContain('function snapNodeChanges');
     expect(canvasSnapGuidesSource).toContain('<ViewportPortal>');
     expect(canvasSnapGuidesSource).toContain('data-testid="canvas-snap-guide"');
     expect(canvasSnapGuidesSource).toContain('repeating-linear-gradient');
     expect(canvasSnapGuidesSource).toContain('opacity: 0.48');
+  });
+
+  it('guards async canvas refreshes against stale workspace and folder context', () => {
+    expect(canvasWorkspaceDataSource).toContain('loadContextKeyRef.current !== loadContextKey');
+    expect(canvasWorkspaceDataSource).toContain('loadSeqRef.current += 1');
+    expect(canvasWorkspaceDataSource).toContain('${currentReachable ??');
+    expect(canvasEdgeCommandsSource).toContain('stillShowingContext');
+    expect(canvasEdgeCommandsSource).toContain('state.current === workspace');
+    expect(canvasEdgeCommandsSource).toContain('state.folderScope ?? null');
   });
 
   it('names icon-only canvas controls for assistive technology', () => {

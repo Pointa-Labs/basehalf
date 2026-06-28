@@ -1,103 +1,39 @@
 import {
   Background,
-  type Connection,
   ConnectionMode,
   type Edge,
   type EdgeTypes,
   type Node,
-  type NodeChange,
   type NodeMouseHandler,
   type NodeTypes,
-  type OnNodeDrag,
   type OnSelectionChangeFunc,
   ReactFlow,
   SelectionMode,
-  type Viewport,
-  applyNodeChanges,
 } from '@xyflow/react';
-import type { ViewportState } from '../../../../platform/workspaces/common/workspaces.js';
-import type { BadgeKind } from '../../../services/mirror/common/badge.js';
 import '@xyflow/react/dist/style.css';
-import {
-  type JSX,
-  type MouseEvent as ReactMouseEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import { flushSync } from 'react-dom';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
+import { type JSX, type MouseEvent as ReactMouseEvent, useCallback, useRef } from 'react';
 import { droppedPaths, handleExternalDrop } from '../../../browser/dnd/importDrop.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
 import { openContextMenu } from '../../../browser/parts/contextmenu/contextMenuStore.js';
 import { prompt } from '../../../browser/parts/dialogs/Dialog.js';
 import { color } from '../../../browser/style/design.js';
-import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
-import { badgeMutations } from '../../../services/mirror/browser/badgeMutations.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
-import { canvasMirrorService } from '../../../services/mirror/browser/canvasMirrorService.js';
-import { focusService } from '../../../services/mirror/browser/focusService.js';
-import { mirrorWritesSuspended } from '../../../services/mirror/browser/mirrorWrites.js';
-import {
-  subscribeEntryRemoved,
-  subscribeEntryRenamed,
-} from '../../../services/workspace/browser/workspaceFileEvents.js';
+import { isWorkspaceEditorOverlayOpen } from '../../../services/workspace/browser/workspaceModel.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { buildFileMenu } from '../../files/browser/fileMenu.js';
 import { BadgeNode } from './BadgeNode.js';
 import { CanvasControls } from './CanvasControls.js';
 import { CanvasSnapGuides } from './CanvasSnapGuides.js';
-import {
-  type BadgeNodeData,
-  CARD_MIN_HEIGHT,
-  CARD_MIN_WIDTH,
-  DEFAULT_FILE_CARD_HEIGHT,
-  DEFAULT_FILE_CARD_WIDTH,
-  DEFAULT_FOLDER_CARD_HEIGHT,
-  DEFAULT_FOLDER_CARD_WIDTH,
-} from './badge-node/badgeNodeModel.js';
-import { clearPreviewCache } from './badge-node/badgePreviewCache.js';
+import type { BadgeNodeData } from './badge-node/badgeNodeModel.js';
 import { CanvasChrome } from './canvas/CanvasChrome.js';
 import { GhostNoteCard } from './canvas/CanvasEmptyState.js';
 import { CanvasFramer, CanvasViewportTracker } from './canvas/CanvasViewportContributions.js';
-import {
-  CONNECTION_EDGE_SIZE_DEFAULTS,
-  DRAG_DEBOUNCE,
-  RESIZE_DEBOUNCE,
-  VIEWPORT_DEBOUNCE,
-  badgeToNode,
-  canvasPointForClient,
-  cardHeight,
-  cardWidth,
-  connectionEdges,
-  coverageForFolder,
-  debounce,
-  keyedDebounce,
-  nodeBadgeKind,
-  shouldPersistWorkspaceViewport,
-  viewportForCanvasFrame,
-} from './canvas/canvasModel.js';
-import {
-  CanvasConnectionLine,
-  ReferenceEdge,
-  type ReferenceEdgeRemoval,
-  type ReferenceEdgeUpdate,
-  SIDE_TO_ANCHOR,
-  applyReferenceEdgeUpdate,
-  inferConnectionSides,
-  referenceEdgeId,
-  removeReferenceEdgeUpdate,
-  sideFromHandle,
-} from './canvasConnections/index.js';
-import {
-  SNAP_GUIDE_SCREEN_THRESHOLD,
-  sameSnapGuides,
-  snapFlowNodeChanges,
-} from './canvasFlowSnap.js';
-import type { CanvasSnapGuide } from './canvasSnap.js';
+import { canvasPointForClient } from './canvas/canvasModel.js';
+import { CanvasConnectionLine, ReferenceEdge } from './canvasConnections/index.js';
+import { useCanvasEdgeCommands } from './useCanvasEdgeCommands.js';
+import { useCanvasNodeCommands } from './useCanvasNodeCommands.js';
+import { useCanvasViewportModel } from './useCanvasViewportModel.js';
+import { useCanvasWorkspaceData } from './useCanvasWorkspaceData.js';
 
 const NODE_TYPES: NodeTypes = { badge: BadgeNode };
 const EDGE_TYPES: EdgeTypes = { reference: ReferenceEdge };
@@ -117,12 +53,7 @@ export const Canvas = (): JSX.Element => {
   // Its own breadcrumb header then owns navigation, so the canvas's floating
   // chrome (breadcrumb pill, New-note button) hides rather than bleed on top.
   const openFile = useWorkspaceStore((s) => s.openFile);
-  // A git diff covers the canvas too (openFile is null then, but gitDiff is set),
-  // so the canvas chrome below must hide for it as well — else the floating
-  // "New note" + breadcrumb (z-index 8) bleed OVER the diff overlay (z-index 5).
-  const gitDiff = useWorkspaceStore((s) => s.gitDiff);
-  const gitGraphOpen = useWorkspaceStore((s) => s.gitGraphOpen);
-  const overlayOpen = openFile !== null || gitDiff !== null || gitGraphOpen;
+  const overlayOpen = useWorkspaceStore(isWorkspaceEditorOverlayOpen);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
   const setCanvasSelection = useWorkspaceStore((s) => s.setCanvasSelection);
   // While a card is being inline-edited, suspend viewport virtualization so a
@@ -130,307 +61,37 @@ export const Canvas = (): JSX.Element => {
   // unsaved autosave). Boolean selector → re-renders only on the 0↔1 transition.
   const cardEditing = useWorkspaceStore((s) => s.canvasEditingCardIds.size > 0);
   const sidebarInset = useLayoutStore((s) => (s.sidebarOpen ? s.sidebarWidth : 0));
-  const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
-  const [error, setError] = useState<string>('');
-  // How many child cards this folder held back (a folder over CANVAS_CHILD_LIMIT).
-  const [truncated, setTruncated] = useState(0);
-  const nodesRef = useRef<Node<BadgeNodeData>[]>([]);
-  // Monotonic sequence for loadData staleness checks (see loadData).
-  const loadSeqRef = useRef(0);
   // The canvas region's DOM node — drop-position math needs its screen rect.
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
-  // Persisted viewport for the current workspace, lifted into state so
-  // CanvasFramer (rendered inside <ReactFlow>) frames the canvas once per
-  // CONTEXT (workspace + view + folder-scope, captured in `key`): it RESTORES
-  // the saved viewport on the main canvas, and FITS to the visible badges when
-  // there's no saved viewport (fresh workspace / demo) OR we're inside a view /
-  // folder scope (whose badges live in a different coordinate space than the
-  // per-workspace saved viewport — applying it there would strand them
-  // off-screen). Keying by context frames on ENTER but never yanks the canvas
-  // out from under a within-context refresh (e.g. a watcher file event).
-  // react-flow's defaultViewport is read ONCE on mount, before refresh
-  // resolves; relying on it alone snapped users to (0,0,1) and left first-run
-  // badges spilling past the right edge. `vp` is resolved for THAT refresh, so
-  // a saved viewport is never mistaken for "none" mid-load.
-  const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
-  const viewportRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 });
-  const rootViewportRef = useRef<ViewportState | null>(null);
-  const rootViewportWorkspaceRef = useRef<string | null>(current);
-  // Live mirror of folderScope for the keyed-debounced card persisters — they
-  // are created once (empty-dep useMemo, to keep their per-key timers across
-  // renders), so they read the CURRENT canvas folder from this ref rather than a
-  // stale closure (canvas.setCard targets the folder's canvas.yaml).
-  const folderScopeRef = useRef<string | null>(folderScope);
-
-  useEffect(() => {
-    nodesRef.current = nodes;
-  }, [nodes]);
-
-  useEffect(() => {
-    folderScopeRef.current = folderScope;
-  }, [folderScope]);
-
-  useEffect(() => {
-    if (rootViewportWorkspaceRef.current !== current) {
-      rootViewportWorkspaceRef.current = current;
-      rootViewportRef.current = currentWorkspaceViewport;
-      return;
-    }
-    rootViewportRef.current = currentWorkspaceViewport;
-  }, [current, currentWorkspaceViewport]);
-
-  // Mirror what the user is looking at into the coarse focus signal — the SINGLE
-  // authority for current_focus. An OPEN file IS the focus node; with no file
-  // open, the scoped folder is (root = ''). Keyed on openFile too, so CLOSING a
-  // file (openFile → null) repoints focus back to the folder instead of leaving
-  // the agent stuck on the closed file, and a same-workspace refresh re-asserts
-  // the open file rather than clobbering it with the folder. Best-effort — a
-  // failed focus write must never block navigation.
-  useEffect(() => {
-    if (!current || !currentReachable) return;
-    const node = openFile
-      ? { path: openFile, kind: 'file' as const }
-      : { path: folderScope ?? '', kind: 'folder' as const };
-    // main injects this window's bound workspace root, so the call is
-    // workspace-immutable. The only race is a switch (a window reload): once that
-    // starts, mirrorWritesSuspended() is set, so a fire in the reload-commit gap
-    // skips instead of planting this path under the newly-bound workspace.
-    if (!mirrorWritesSuspended()) {
-      void focusService.set(node).catch(() => undefined);
-    }
-  }, [current, currentReachable, folderScope, openFile]);
-
-  // Load THIS folder's canvas. The filesystem IS the tree, so we read ONE level
-  // on demand (workspace.listCanvas) — the direct children of folderScope (null =
-  // root), each merged with its sparse badge overlay. Cheap (one readdir), so
-  // folder navigation re-runs it (loadData depends on folderScope). Each folder
-  // canvas fits its OWN contents on entry (vp:null → fit-to-view), so you always
-  // land looking at the items in THIS folder, not a stale pan/zoom.
-  const loadData = useCallback(async () => {
-    // Staleness guard: loadData closes over (current, folderScope) but is fired
-    // from many places (effects, file events, badge bus). A workspace/folder
-    // switch mid-flight must not let the OLD load's late resolution clobber the
-    // NEW context's nodes / hint-card state — same class as the palette's
-    // `cancelled` gates. Each call bumps the sequence; only the latest commits.
-    const seq = ++loadSeqRef.current;
-    const fresh = (): boolean => seq === loadSeqRef.current;
-    try {
-      // PHASE 1 — render THIS folder's cards immediately. listCanvas is one
-      // readdir (cheap), so the canvas paints as fast as the folder switch. The
-      // indicators (coverage bars, first-annotation hint) need a whole-workspace
-      // walk and used to block this render — that was the folder-entry lag. They
-      // now land in PHASE 2 below, after the cards are already on screen.
-      const {
-        children,
-        edges: canvasEdges,
-        truncated: held,
-      } = await workspaceService.listCanvas(folderScope);
-      if (!fresh()) return;
-      const nextNodes = children.map((b, i) => badgeToNode(b, i, children.length));
-      setNodes(nextNodes);
-      setTruncated(held ?? 0);
-      setEdges(connectionEdges(canvasEdges, nextNodes));
-      setSnapGuides([]);
-      setFrame({
-        key: `${current}|${folderScope ?? ''}`,
-        vp: viewportForCanvasFrame(
-          folderScope,
-          rootViewportRef.current ?? currentWorkspaceViewport,
-        ),
-      });
-      setError('');
-      if (!fresh()) return;
-
-      // PHASE 2 — the annotation layer, computed AFTER first paint. The
-      // supported-file census (a full tree walk, fetched only when folder cards
-      // are visible to price) derives each folder card's coverage bar.
-      // Best-effort: a transient failure leaves the cards rendered, just
-      // without the coverage indicators.
-      try {
-        const badgesAll = await badgeService.list();
-        const prompted = new Set(
-          badgesAll
-            .filter(
-              (b) =>
-                b.kind === 'file' && b.description !== undefined && b.description.trim() !== '',
-            )
-            .map((b) => b.path),
-        );
-        let filesAll: string[] = [];
-        if (children.some((b) => b.kind === 'folder')) {
-          filesAll = [...(await workspaceService.listSupportedFiles(null))];
-        }
-        if (!fresh()) return;
-        // Patch coverage onto the already-rendered folder cards in place — only
-        // when there's a census to apply, so a transient failure leaves them as-is.
-        if (filesAll.length > 0) {
-          setNodes((prev) =>
-            prev.map((n) => {
-              const data = n.data as unknown as BadgeNodeData;
-              if (data.kind !== 'folder') return n;
-              const coverage = coverageForFolder(n.id, filesAll, prompted);
-              if (coverage === undefined) return n;
-              return { ...n, data: { ...data, coverage } };
-            }),
-          );
-        }
-      } catch {
-        // Indicators degrade (no coverage bars) — cards stay.
-      }
-    } catch (err) {
-      if (!fresh()) return;
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [current, currentWorkspaceViewport, folderScope]);
-
-  // Drop cached previews when the active workspace changes — the cache is keyed
-  // by workspace-relative path, so a path present in two workspaces (README.md)
-  // must not carry the prior workspace's content across a switch.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `current` is the intentional re-run trigger; the body clears per-workspace caches and reads nothing.
-  useEffect(() => {
-    clearPreviewCache();
-  }, [current]);
-
-  useEffect(() => {
-    if (current && currentReachable) {
-      void loadData();
-    } else {
-      setNodes([]);
-      setEdges([]);
-      setSnapGuides([]);
-    }
-  }, [current, currentReachable, loadData]);
-
-  // Reload the canvas when an EXTERNAL writer (the `bh` CLI, an agent) touches
-  // .bh/badges/ — which the watcher ignores. Re-walking every badge each poll
-  // would be needless churn; the cheap stat-only revision gates a reload to when
-  // the badge store actually changed.
-  useEffect(() => {
-    if (!current || !currentReachable) return;
-    let lastBadgeRev = '';
-    const id = window.setInterval(() => {
-      void (async () => {
-        try {
-          const rev = await badgeService.revision();
-          const sig = `${rev.count}:${rev.maxMtimeMs}`;
-          if (lastBadgeRev === '') {
-            lastBadgeRev = sig; // first read establishes the baseline; no reload
-          } else if (sig !== lastBadgeRev) {
-            lastBadgeRev = sig;
-            void loadData(); // an out-of-app badge edit landed — refresh the canvas
-          }
-        } catch {
-          /* transient — keep the last known values */
-        }
-      })();
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [current, currentReachable, loadData]);
-
-  // Live-update the canvas when files are added / removed / renamed on disk
-  // (the file manager, the `bh` CLI, an AI agent writing a file). Without
-  // this the canvas went stale until a manual reload while the sidebar
-  // already refreshed — the hero surface silently lagged reality. The
-  // watcher already ignores `.bh/`, so these are real user-file events only.
-  // Skip 'change' (content edits don't alter the badge set).
-  //
-  // Two timers, tuned for how the watcher settles (badges are SPARSE now —
-  // listCanvas reads the filesystem directly, so a brand-new file is visible
-  // the moment its add event lands; nothing waits on materialization):
-  //  - FAST pass (150ms, coalescing): a plain `add` with no unlink in the
-  //    recent window is a new file — show its card near-instantly. This is
-  //    the save-in-the-file-manager → see-it-on-the-canvas latency the user
-  //    actually feels.
-  //  - SETTLE pass (1100ms, coalescing): every non-change event also queues
-  //    a reload past the watcher's 600ms rename window, so badge cascades
-  //    (badge.rename carrying position/refs, markOrphan) land in the final
-  //    render. Unlinks take only this pass: reloading them fast would flash a
-  //    rename as remove-then-re-add and yank the card's position.
-  useEffect(() => {
-    let fastTimer: ReturnType<typeof setTimeout> | undefined;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    let lastUnlinkAt = 0;
-    const unsub = fileEventService.onDidChangeFiles((event) => {
-      if (event.type === 'change') return;
-      if (event.type === 'unlink') lastUnlinkAt = Date.now();
-      if (settleTimer) clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => void loadData(), 1100);
-      // An add right after an unlink is likely a rename pair mid-flight —
-      // leave that to the settle pass (the rename window is 600ms; 700ms of
-      // quiet means this add stands alone).
-      if (event.type === 'add' && Date.now() - lastUnlinkAt > 700) {
-        if (fastTimer) clearTimeout(fastTimer);
-        fastTimer = setTimeout(() => void loadData(), 150);
-      }
+  const { viewportRef, rootViewportRef, folderScopeRef, onMove, onMoveEnd, onViewport } =
+    useCanvasViewportModel({
+      canvasRootRef,
+      current,
+      currentReachable,
+      currentWorkspaceViewport,
+      folderScope,
+      openFile,
     });
-    return () => {
-      if (fastTimer) clearTimeout(fastTimer);
-      if (settleTimer) clearTimeout(settleTimer);
-      unsub();
-    };
-  }, [loadData]);
 
-  // Live-update when a badge's metadata (prompt / references) is edited in the
-  // editor's badge panel. Those writes land in `.bh/`, which the watcher above
-  // ignores, so the canvas would otherwise show a stale prompt or miss a
-  // panel-added edge until reload. The panel emits on each successful mutation
-  // (see lib/badgeBus); re-deriving nodes + edges keeps the hero surface honest.
-  //
-  // COALESCED: loadData() re-walks every badge JSON (badge.list) + focus over IPC,
-  // so a burst of edits (rapid prompt saves / ref edits) must not trigger a full
-  // re-walk each. A trailing timer collapses a burst into one load (canvas is
-  // behind the editor overlay, so a small delay is invisible).
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const unsub = subscribeBadgeChange((origin) => {
-      // Our own writes already refreshed the canvas inline — only react to the
-      // OTHER surface's edits (panel), so we don't double-load after a drag.
-      if (origin === 'canvas') return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void loadData(), 250);
-    });
-    return () => {
-      if (timer) clearTimeout(timer);
-      unsub();
-    };
-  }, [loadData]);
-
-  // Optimistic delete: drop the card (and any edges touching it) the instant an
-  // in-app delete succeeds, instead of waiting for the watcher's unlink event
-  // (which this canvas debounces by 1100ms — see the settle pass above). The
-  // canvas renders one folder level, so an exact node-id match is the deleted
-  // card; the watcher reload that follows just confirms it's gone.
-  useEffect(() => {
-    return subscribeEntryRemoved((path) => {
-      setNodes((prev) => prev.filter((n) => n.id !== path));
-      setEdges((prev) => prev.filter((e) => e.source !== path && e.target !== path));
-    });
-  }, []);
-
-  // Optimistic rename: remap the card (node id + displayed label) and any edges
-  // touching it the instant the rename succeeds, instead of waiting for the
-  // watcher's rename event + reload. For a card with a SAVED canvas position the
-  // reload re-derives the same node, so it's a no-op; for an unannotated card (no
-  // saved position) the settle reload re-runs the alphabetical auto-layout, so its
-  // grid slot can still shift — a pre-existing behavior (any create/delete/rename
-  // reshuffles unplaced cards), not introduced by this optimistic path.
-  useEffect(() => {
-    return subscribeEntryRenamed((from, to) => {
-      setNodes((prev) =>
-        prev.map((n) => (n.id === from ? { ...n, id: to, data: { ...n.data, label: to } } : n)),
-      );
-      setEdges((prev) =>
-        prev.map((e) => {
-          if (e.source !== from && e.target !== from) return e;
-          const source = e.source === from ? to : e.source;
-          const target = e.target === from ? to : e.target;
-          return { ...e, source, target, id: referenceEdgeId(source, target) };
-        }),
-      );
-    });
-  }, []);
+  const {
+    nodes,
+    edges,
+    snapGuides,
+    error,
+    truncated,
+    frame,
+    nodesRef,
+    setNodes,
+    setEdges,
+    setSnapGuides,
+    setError,
+  } = useCanvasWorkspaceData({
+    current,
+    currentReachable,
+    currentWorkspaceViewport,
+    folderScope,
+    rootViewportRef,
+  });
 
   const onNodeDoubleClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
@@ -483,380 +144,22 @@ export const Canvas = (): JSX.Element => {
     [folderScope],
   );
 
-  // `folder` is the SECOND arg (keyed on `file`, the first), captured by the
-  // caller at drag/resize-end so a debounced flush that lands AFTER a fast folder
-  // switch still writes the card to the folder it was dragged in — never the
-  // folder now on screen (folderScopeRef would read the new one at flush time).
-  const persistCanvas = useMemo(
-    () =>
-      keyedDebounce(
-        (
-          file: string,
-          folder: string | null,
-          kind: BadgeKind,
-          x: number,
-          y: number,
-          width?: number,
-          height?: number,
-        ) => {
-          // CanvasCard requires width+height — fall back to the kind default when
-          // the node's measured size isn't known yet.
-          const w =
-            width ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_WIDTH : DEFAULT_FILE_CARD_WIDTH);
-          const h =
-            height ?? (kind === 'folder' ? DEFAULT_FOLDER_CARD_HEIGHT : DEFAULT_FILE_CARD_HEIGHT);
-          if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
-          void canvasMirrorService
-            .setCard(folder, { path: file, kind, x, y, width: w, height: h })
-            .catch(() => undefined);
-        },
-        DRAG_DEBOUNCE,
-      ),
-    [],
-  );
+  const { onNodesChange, onNodeDragStart, onNodeDragStop } = useCanvasNodeCommands({
+    folderScopeRef,
+    setNodes,
+    setSnapGuides,
+    viewportRef,
+  });
 
-  const persistSize = useMemo(
-    () =>
-      keyedDebounce(
-        (
-          file: string,
-          folder: string | null,
-          kind: BadgeKind,
-          x: number,
-          y: number,
-          width: number,
-          height: number,
-        ) => {
-          if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
-          void canvasMirrorService
-            .setCard(folder, { path: file, kind, x, y, width, height })
-            .catch(() => undefined);
-        },
-        RESIZE_DEBOUNCE,
-      ),
-    [],
-  );
-
-  const persistViewport = useMemo(
-    () =>
-      debounce((viewport: ViewportState) => {
-        if (mirrorWritesSuspended()) return; // a switch is reloading — don't write into the new workspace
-        void workspaceService.setViewport(viewport).catch(() => undefined);
-      }, VIEWPORT_DEBOUNCE),
-    [],
-  );
-
-  // Live-sync the FOLDER viewport into focus.yaml (viewport_center + zoom) so the
-  // agent knows where on the canvas the user is looking — but only when no file is
-  // open (an open file IS the focus node; the folder isn't). focus.set merges
-  // field-scoped, so this updates just the viewport fields of the focused folder's
-  // focus.yaml without disturbing the node-switch authority (the effect below).
-  // Both path and viewport are captured at SCHEDULE time (pan-end), so a late fire
-  // can't pair folder B's path with folder A's stale viewport coords; and the
-  // pending timer is cancelled on a folder switch / unmount (effect below).
-  const persistFolderFocus = useMemo(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = (viewport: Viewport, folderScopeAtPan: string | null): void => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        // A workspace switch is reloading the window — don't write this folder's
-        // viewport into the newly-bound workspace during the reload-commit gap.
-        if (mirrorWritesSuspended()) return;
-        const st = useWorkspaceStore.getState();
-        if (st.openFile || !st.current || st.currentReachable === false) return;
-        // Bail if the user navigated to a DIFFERENT folder since the pan ended —
-        // this viewport belongs to the folder we panned, not the current one.
-        if ((st.folderScope ?? null) !== folderScopeAtPan) return;
-        const rect = canvasRootRef.current?.getBoundingClientRect();
-        if (!rect) return;
-        // Un-project the screen-center into canvas coordinates.
-        const viewport_center = {
-          x: Math.round((rect.width / 2 - viewport.x) / viewport.zoom),
-          y: Math.round((rect.height / 2 - viewport.y) / viewport.zoom),
-        };
-        void focusService
-          .set({
-            path: folderScopeAtPan ?? '',
-            kind: 'folder',
-            viewport_center,
-            zoom: Number(viewport.zoom.toFixed(3)),
-          })
-          .catch(() => undefined);
-      }, VIEWPORT_DEBOUNCE);
-    };
-    const cancel = (): void => {
-      if (timer) clearTimeout(timer);
-    };
-    return { schedule, cancel };
-  }, []);
-  // Cancel a pending folder-viewport write on unmount (the schedule-time
-  // folderScope guard above already handles a folder switch; this just stops a
-  // timer firing after the canvas is gone).
-  useEffect(() => () => persistFolderFocus.cancel(), [persistFolderFocus]);
-
-  const onNodesChange = useCallback(
-    (changes: NodeChange<Node<BadgeNodeData>>[]) => {
-      setNodes((prev) => {
-        const threshold = SNAP_GUIDE_SCREEN_THRESHOLD / Math.max(0.2, viewportRef.current.zoom);
-        const snapped = snapFlowNodeChanges(prev, changes, {
-          threshold,
-          defaultWidth: DEFAULT_FILE_CARD_WIDTH,
-          defaultHeight: DEFAULT_FILE_CARD_HEIGHT,
-          minWidth: CARD_MIN_WIDTH,
-          minHeight: CARD_MIN_HEIGHT,
-        });
-        setSnapGuides((currentGuides) =>
-          sameSnapGuides(currentGuides, snapped.guides) ? currentGuides : snapped.guides,
-        );
-        const next = applyNodeChanges(snapped.changes, prev);
-        for (const change of snapped.changes) {
-          if (change.type === 'position' && change.dragging === false && change.position) {
-            const node = next.find((n) => n.id === change.id);
-            const kind = nodeBadgeKind(next, change.id);
-            persistCanvas(
-              change.id,
-              folderScopeRef.current,
-              kind,
-              change.position.x,
-              change.position.y,
-              cardWidth(node),
-              cardHeight(node),
-            );
-          }
-          if (change.type === 'dimensions' && change.resizing === false && change.dimensions) {
-            const node = next.find((n) => n.id === change.id);
-            const at = node?.position;
-            if (at) {
-              persistSize(
-                change.id,
-                folderScopeRef.current,
-                nodeBadgeKind(next, change.id),
-                at.x,
-                at.y,
-                change.dimensions.width,
-                change.dimensions.height,
-              );
-            }
-          }
-        }
-        return next;
-      });
-    },
-    [persistCanvas, persistSize],
-  );
-
-  // A badge drag begins: clear any stale snap guides. (The editor is a
-  // full-canvas overlay now — there's no docked panel to drag a card into, so a
-  // drag is a pure reposition; its final position persists in onNodesChange.)
-  const onNodeDragStart = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(() => {
-    setSnapGuides([]);
-  }, []);
-
-  // A drag ends: clear the live snap guides (the final position is persisted in
-  // onNodesChange when react-flow reports dragging === false).
-  const onNodeDragStop = useCallback<OnNodeDrag<Node<BadgeNodeData>>>(() => {
-    setSnapGuides([]);
-  }, []);
-
-  const onConnect = useCallback(
-    async (conn: Connection) => {
-      if (!conn.source || !conn.target) return;
-      // A self-drag (source handle back to the same badge's target) is a
-      // meaningless no-op, not an error — the mirror service rejects self-refs,
-      // so without this guard an accidental loop-back would flash a red error banner.
-      // Silently ignore it; the gesture just doesn't draw anything.
-      if (conn.source === conn.target) return;
-      const fromSide = sideFromHandle(conn.sourceHandle);
-      const toSide = sideFromHandle(conn.targetHandle);
-      const sourceKind = nodeBadgeKind(nodesRef.current, conn.source);
-      // OPTIMISTIC: draw the edge the instant the handle is released, instead of
-      // waiting for addRef + listCanvas (a 200–500ms round-trip the user feels as
-      // "the line doesn't appear"). We use the SAME sides the mirror service will
-      // persist — the explicit handle side, else the same geometry inference
-      // listCanvas uses — so the reconcile below re-derives an identical edge with
-      // no snap.
-      const inferred = inferConnectionSides(
-        nodesRef.current.find((n) => n.id === conn.source),
-        nodesRef.current.find((n) => n.id === conn.target),
-        CONNECTION_EDGE_SIZE_DEFAULTS,
-      );
-      const fromSideFinal = fromSide ?? inferred.fromSide;
-      const toSideFinal = toSide ?? inferred.toSide;
-      flushSync(() => {
-        setEdges((prev) =>
-          applyReferenceEdgeUpdate(prev, {
-            previousId: '', // no prior edge → applyReferenceEdgeUpdate appends
-            previousSource: conn.source as string,
-            previousTarget: conn.target as string,
-            source: conn.source as string,
-            target: conn.target as string,
-            sourceHandle: fromSideFinal,
-            targetHandle: toSideFinal,
-            label: undefined,
-          }),
-        );
-      });
-      try {
-        // canvas.connect writes the canvas edge AND the badge.references link in
-        // lockstep. We send the SAME anchors the canvas listing provider will persist
-        // (the explicit handle side, else the geometry inference connectionEdges uses) so the reconcile
-        // re-derives an identical edge with no snap.
-        await badgeMutations.connect(
-          {
-            folder: folderScope,
-            from: conn.source,
-            to: conn.target,
-            from_anchor: SIDE_TO_ANCHOR[fromSideFinal],
-            to_anchor: SIDE_TO_ANCHOR[toSideFinal],
-            kind: sourceKind,
-          },
-          'canvas',
-        );
-        // Reconcile: re-derive from the listing provider so the inbound
-        // (referenced_by) ripple + any
-        // geometry settle land (invisible — the edge is already drawn).
-        const { edges: canvasEdges } = await workspaceService.listCanvas(folderScope);
-        setEdges(connectionEdges(canvasEdges, nodesRef.current));
-        // A healthy connection clears any stale error banner, matching the sibling
-        // commitReferenceEdgeUpdate / commitReferenceEdgeRemoval handlers.
-        setError('');
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        // Roll back the optimistic edge — the listing provider has no such edge,
-        // so re-deriving drops it.
-        try {
-          const { edges: canvasEdges } = await workspaceService.listCanvas(folderScope);
-          setEdges(connectionEdges(canvasEdges, nodesRef.current));
-        } catch {
-          // leave the optimistic edge rather than blank the canvas
-        }
-      }
-    },
-    [folderScope],
-  );
-
-  const resetReferenceEdgesFromCanvasListing = useCallback(async (): Promise<void> => {
-    const { children, edges: canvasEdges } = await workspaceService.listCanvas(folderScope);
-    setEdges(connectionEdges(canvasEdges, nodesRef.current));
-    // Refresh each card's reference count from the same fetch: an edge mutation
-    // commits with origin 'canvas', which the badge-bus listener ignores (by
-    // design — no full reload for our own writes), so the connection indicator
-    // would otherwise lag until the next unrelated reload.
-    const refCounts = new Map(children.map((b) => [b.path, b.references.length]));
-    setNodes((prev) =>
-      prev.map((n) => {
-        const c = refCounts.get(n.id);
-        if (c === undefined || n.data.notedRefs === c) return n;
-        return { ...n, data: { ...n.data, notedRefs: c } };
-      }),
-    );
-  }, [folderScope]);
-
-  // Edge deletion: react-flow selects-then-Delete-key flow gives us the removed
-  // edges here. canvas.disconnect drops the canvas edge AND the badge reference in
-  // lockstep, keyed by the edge's source/target.
-  const onEdgesDelete = useCallback(
-    async (deleted: Edge[]) => {
-      const deletedIds = new Set(deleted.map((edge) => edge.id));
-      setEdges((prev) => prev.filter((edge) => !deletedIds.has(edge.id)));
-      try {
-        for (const e of deleted) {
-          await badgeMutations.disconnect(
-            { folder: folderScope, from: e.source, to: e.target },
-            'canvas',
-          );
-        }
-        // Re-derive edges AND each card's reference count from the canvas listing:
-        // a removed edge otherwise leaves the source card's connection indicator
-        // stale (the 'canvas'-origin write is ignored by the bus listener) until
-        // an unrelated reload.
-        await resetReferenceEdgesFromCanvasListing();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [folderScope, resetReferenceEdgesFromCanvasListing],
-  );
-
-  const commitReferenceEdgeUpdate = useCallback(
-    (update: ReferenceEdgeUpdate): void => {
-      flushSync(() => {
-        setEdges((prev) => applyReferenceEdgeUpdate(prev, update));
-      });
-      void (async () => {
-        try {
-          // canvas.reconnect moves/relabels the edge: it rewrites the canvas edge
-          // (anchors + label) and, when the endpoints change, moves the badge
-          // reference (removeRef previous + addRef next) in lockstep. Anchors fall
-          // back to geometry inference when a handle side wasn't carried.
-          const inferred = inferConnectionSides(
-            nodesRef.current.find((n) => n.id === update.source),
-            nodesRef.current.find((n) => n.id === update.target),
-            CONNECTION_EDGE_SIZE_DEFAULTS,
-          );
-          await badgeMutations.reconnect(
-            {
-              folder: folderScope,
-              previous: { from: update.previousSource, to: update.previousTarget },
-              next: {
-                from: update.source,
-                to: update.target,
-                from_anchor: SIDE_TO_ANCHOR[update.sourceHandle ?? inferred.fromSide],
-                to_anchor: SIDE_TO_ANCHOR[update.targetHandle ?? inferred.toSide],
-                kind: nodeBadgeKind(nodesRef.current, update.source),
-                ...(update.label !== undefined && { label: update.label }),
-              },
-            },
-            'canvas',
-          );
-          await resetReferenceEdgesFromCanvasListing();
-          setError('');
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-          await resetReferenceEdgesFromCanvasListing().catch(() => undefined);
-        }
-      })();
-    },
-    [folderScope, resetReferenceEdgesFromCanvasListing],
-  );
-
-  const commitReferenceEdgeRemoval = useCallback(
-    (removal: ReferenceEdgeRemoval): void => {
-      flushSync(() => {
-        setEdges((prev) => removeReferenceEdgeUpdate(prev, removal.id));
-      });
-      void (async () => {
-        try {
-          await badgeMutations.disconnect(
-            { folder: folderScope, from: removal.source, to: removal.target },
-            'canvas',
-          );
-          await resetReferenceEdgesFromCanvasListing();
-          setError('');
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-          await resetReferenceEdgesFromCanvasListing().catch(() => undefined);
-        }
-      })();
-    },
-    [folderScope, resetReferenceEdgesFromCanvasListing],
-  );
-
-  const renderedEdges = useMemo(
-    () =>
-      edges.map((edge) => {
-        const data = edge.data && typeof edge.data === 'object' ? edge.data : {};
-        return {
-          ...edge,
-          data: {
-            ...data,
-            onReferenceEdgeUpdate: commitReferenceEdgeUpdate,
-            onReferenceEdgeRemove: commitReferenceEdgeRemoval,
-          },
-        };
-      }),
-    [commitReferenceEdgeRemoval, commitReferenceEdgeUpdate, edges],
-  );
+  const { renderedEdges, onConnect, onEdgesDelete } = useCanvasEdgeCommands({
+    edges,
+    current,
+    folderScope,
+    nodesRef,
+    setEdges,
+    setError,
+    setNodes,
+  });
 
   const onNodeClick = useCallback<NodeMouseHandler>(
     (event, node) => {
@@ -869,44 +172,6 @@ export const Canvas = (): JSX.Element => {
       setCanvasSelection({ kind: 'file', files: [node.id], source: 'canvas' });
     },
     [setCanvasSelection],
-  );
-
-  // Publish the live zoom to CSS as --bh-zoom so size-aware card chrome (the mini
-  // chip's counter-scaled label, see BadgeNode/cardLod) can react to zoom in pure
-  // CSS — one DOM write per frame here, zero per-node React re-renders. The var
-  // inherits from the canvas root down into every node.
-  const writeZoomVar = useCallback((zoom: number) => {
-    canvasRootRef.current?.style.setProperty('--bh-zoom', String(zoom));
-  }, []);
-
-  const onMoveEnd = useCallback(
-    (_event: unknown, viewport: Viewport) => {
-      viewportRef.current = viewport;
-      writeZoomVar(viewport.zoom);
-      const viewportState = { offsetX: viewport.x, offsetY: viewport.y, scale: viewport.zoom };
-      if (shouldPersistWorkspaceViewport(folderScopeRef.current)) {
-        rootViewportRef.current = viewportState;
-        persistViewport(viewportState);
-      }
-      persistFolderFocus.schedule(viewport, folderScopeRef.current);
-    },
-    [persistViewport, persistFolderFocus, writeZoomVar],
-  );
-
-  const onMove = useCallback(
-    (_event: unknown, viewport: Viewport) => {
-      viewportRef.current = viewport;
-      writeZoomVar(viewport.zoom);
-    },
-    [writeZoomVar],
-  );
-
-  const onViewport = useCallback(
-    (viewport: Viewport) => {
-      viewportRef.current = viewport;
-      writeZoomVar(viewport.zoom);
-    },
-    [writeZoomVar],
   );
 
   const onSelectionChange = useCallback<OnSelectionChangeFunc<Node<BadgeNodeData>, Edge>>(

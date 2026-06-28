@@ -8,6 +8,47 @@ export type CanvasSelection =
 
 export type WorkspaceEntryKind = 'file' | 'folder';
 
+export interface GitDiffEditorInput {
+  readonly path: string;
+  readonly staged: boolean;
+  readonly leftRef?: string;
+  readonly rightRef?: string;
+  readonly title?: string;
+}
+
+export interface PullRequestEditorInput {
+  readonly number: number;
+  readonly title: string;
+  readonly remoteUrl: string;
+  readonly url: string;
+}
+
+export interface WorkspaceEditorOverlaySnapshot {
+  readonly openFile: string | null;
+  readonly gitDiff: GitDiffEditorInput | null;
+  readonly gitGraphOpen: boolean;
+  readonly mergeFile: string | null;
+  readonly prView: PullRequestEditorInput | null;
+}
+
+export type WorkspaceEditorOverlayKind =
+  | 'pullRequest'
+  | 'merge'
+  | 'gitGraph'
+  | 'gitDiff'
+  | 'file'
+  | null;
+
+export interface WorkspaceEditorOverlayPatch {
+  readonly openFile: string | null;
+  readonly currentFile: string | null;
+  readonly openMatchQuery: string | null;
+  readonly gitDiff: GitDiffEditorInput | null;
+  readonly gitGraphOpen: boolean;
+  readonly mergeFile: string | null;
+  readonly prView: PullRequestEditorInput | null;
+}
+
 export interface WorkspaceRegistrySnapshot {
   readonly workspaces: readonly WorkspaceEntry[];
   readonly current: string | null;
@@ -19,6 +60,8 @@ export interface WorkspaceSurfacePatch {
   readonly currentReachable: null;
   readonly error: '';
   readonly openFile?: null;
+  readonly gitDiff?: null;
+  readonly gitGraphOpen?: false;
   readonly mergeFile?: null;
   readonly prView?: null;
   readonly currentFile?: null;
@@ -31,10 +74,14 @@ export interface WorkspaceSurfacePatch {
 export const openEditorOverlayPatch = (
   file: string,
   opts: { readonly matchQuery?: string | null } = {},
-): { openFile: string; currentFile: string; openMatchQuery: string | null } => ({
+): WorkspaceEditorOverlayPatch => ({
   openFile: file,
   currentFile: file,
   openMatchQuery: opts.matchQuery ?? null,
+  gitDiff: null,
+  gitGraphOpen: false,
+  mergeFile: null,
+  prView: null,
 });
 
 export const closeEditorOverlayPatch = (): {
@@ -46,6 +93,64 @@ export const closeEditorOverlayPatch = (): {
   currentFile: null,
   openMatchQuery: null,
 });
+
+export const openGitDiffOverlayPatch = (
+  gitDiff: GitDiffEditorInput,
+): WorkspaceEditorOverlayPatch => ({
+  openFile: null,
+  currentFile: null,
+  openMatchQuery: null,
+  gitDiff,
+  gitGraphOpen: false,
+  mergeFile: null,
+  prView: null,
+});
+
+export const openGitGraphOverlayPatch = (): WorkspaceEditorOverlayPatch => ({
+  openFile: null,
+  currentFile: null,
+  openMatchQuery: null,
+  gitDiff: null,
+  gitGraphOpen: true,
+  mergeFile: null,
+  prView: null,
+});
+
+export const openMergeOverlayPatch = (mergeFile: string): WorkspaceEditorOverlayPatch => ({
+  openFile: null,
+  currentFile: null,
+  openMatchQuery: null,
+  gitDiff: null,
+  gitGraphOpen: false,
+  mergeFile,
+  prView: null,
+});
+
+export const openPullRequestOverlayPatch = (
+  prView: PullRequestEditorInput,
+): WorkspaceEditorOverlayPatch => ({
+  openFile: null,
+  currentFile: null,
+  openMatchQuery: null,
+  gitDiff: null,
+  gitGraphOpen: false,
+  mergeFile: null,
+  prView,
+});
+
+export const workspaceEditorOverlayKind = (
+  state: WorkspaceEditorOverlaySnapshot,
+): WorkspaceEditorOverlayKind => {
+  if (state.prView !== null) return 'pullRequest';
+  if (state.mergeFile !== null) return 'merge';
+  if (state.gitGraphOpen) return 'gitGraph';
+  if (state.gitDiff !== null) return 'gitDiff';
+  if (state.openFile !== null) return 'file';
+  return null;
+};
+
+export const isWorkspaceEditorOverlayOpen = (state: WorkspaceEditorOverlaySnapshot): boolean =>
+  workspaceEditorOverlayKind(state) !== null;
 
 export const shouldPreserveWorkspaceSurface = (
   previous: WorkspaceRegistrySnapshot,
@@ -75,6 +180,8 @@ export const workspaceRefreshPatch = (
         current: next.current,
         currentReachable: null,
         openFile: null,
+        gitDiff: null,
+        gitGraphOpen: false,
         mergeFile: null,
         prView: null,
         currentFile: null,

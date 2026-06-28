@@ -6,6 +6,10 @@ import { UnifiedDiffView } from '../../../contrib/multiDiffEditor/browser/Unifie
 import { GitGraphView } from '../../../contrib/scm/browser/GitGraphView.js';
 import { useTerminalStore } from '../../../contrib/terminal/browser/terminalStore.js';
 import {
+  isWorkspaceEditorOverlayOpen,
+  workspaceEditorOverlayKind,
+} from '../../../services/workspace/browser/workspaceModel.js';
+import {
   EDITOR_OVERLAY_PANE_ID,
   useWorkspaceStore,
 } from '../../../services/workspace/browser/workspaceStore.js';
@@ -43,6 +47,7 @@ export const EditorOverlay = (): JSX.Element | null => {
   const closeMerge = useWorkspaceStore((s) => s.closeMerge);
   const prView = useWorkspaceStore((s) => s.prView);
   const closePr = useWorkspaceStore((s) => s.closePr);
+  const overlayOpen = useWorkspaceStore(isWorkspaceEditorOverlayOpen);
   // The Sidebar floats over the canvas's left at z-index 6 (opaque). If the
   // overlay started at left:0 it would tuck its top bar (✕ + filename) UNDER the
   // sidebar. Inset the overlay's left by the sidebar width when it's open, so the
@@ -58,38 +63,32 @@ export const EditorOverlay = (): JSX.Element | null => {
   // their own field, not to close the document under the user.
   const close = useCallback((): void => {
     const st = useWorkspaceStore.getState();
-    if (st.prView !== null) {
-      st.closePr();
-      return;
+    switch (workspaceEditorOverlayKind(st)) {
+      case 'pullRequest':
+        st.closePr();
+        return;
+      case 'merge':
+        st.closeMerge();
+        return;
+      case 'gitGraph':
+        st.closeGitGraph();
+        return;
+      case 'gitDiff':
+        st.closeGitDiff();
+        return;
+      case 'file':
+        st.closeEditor();
+        return;
+      case null:
+        return;
     }
-    if (st.mergeFile !== null) {
-      st.closeMerge();
-      return;
-    }
-    if (st.gitGraphOpen) {
-      st.closeGitGraph();
-      return;
-    }
-    if (st.gitDiff !== null) {
-      st.closeGitDiff();
-      return;
-    }
-    if (st.openFile === null) return;
-    st.closeEditor();
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
       const st = useWorkspaceStore.getState();
-      if (
-        st.openFile === null &&
-        st.gitDiff === null &&
-        !st.gitGraphOpen &&
-        st.mergeFile === null &&
-        st.prView === null
-      )
-        return;
+      if (!isWorkspaceEditorOverlayOpen(st)) return;
       if (isImeComposing(e)) return;
       const target = e.target as HTMLElement | null;
       if (
@@ -119,14 +118,7 @@ export const EditorOverlay = (): JSX.Element | null => {
     [close],
   );
 
-  if (
-    openFile === null &&
-    gitDiff === null &&
-    !gitGraphOpen &&
-    mergeFile === null &&
-    prView === null
-  )
-    return null;
+  if (!overlayOpen) return null;
 
   return (
     <div

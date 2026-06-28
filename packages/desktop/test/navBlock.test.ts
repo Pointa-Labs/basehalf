@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { workspaceService } from '../src/platform/workspaces/browser/workspaceService.js';
 import {
   registerFlusher,
   unregisterFlusher,
@@ -23,6 +24,14 @@ const store = useWorkspaceStore;
 const tick = (): Promise<void> => new Promise((r) => setTimeout(r));
 const PANE = EDITOR_OVERLAY_PANE_ID;
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 // The overlay open on `a.md`, plus an optional registered flusher for it (the
 // editor that would block on a conflict).
 function setupOpenFile(flush?: () => Promise<boolean>): void {
@@ -32,12 +41,21 @@ function setupOpenFile(flush?: () => Promise<boolean>): void {
     current: 'ws',
     busy: false,
     error: '',
+    gitDiff: null,
+    gitGraphOpen: false,
+    mergeFile: null,
+    prView: null,
+    folderScope: null,
+    renamingPath: null,
   });
   unregisterFlusher(PANE);
   if (flush) registerFlusher(PANE, flush);
 }
 
-afterEach(() => unregisterFlusher(PANE));
+afterEach(() => {
+  unregisterFlusher(PANE);
+  vi.restoreAllMocks();
+});
 
 describe('store navigation blocks on an unresolved editor conflict', () => {
   it('openInPanel switches when the overlay flush resolves true (clean)', async () => {
@@ -73,6 +91,47 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     expect(store.getState().openFile).toBe('b.md');
   });
 
+  it('read-only overlays do not open into a workspace that changed during flush', async () => {
+    const cases = [
+      {
+        open: () => store.getState().openGitDiff('b.md', false),
+        assertClosed: () => expect(store.getState().gitDiff).toBe(null),
+      },
+      {
+        open: () => store.getState().openCommitDiff('b.md', 'abc123'),
+        assertClosed: () => expect(store.getState().gitDiff).toBe(null),
+      },
+      {
+        open: () => store.getState().openGitGraph(),
+        assertClosed: () => expect(store.getState().gitGraphOpen).toBe(false),
+      },
+      {
+        open: () => store.getState().openMerge('b.md'),
+        assertClosed: () => expect(store.getState().mergeFile).toBe(null),
+      },
+      {
+        open: () =>
+          store.getState().openPr({
+            number: 1,
+            title: 'Ship',
+            remoteUrl: 'https://github.com/acme/repo.git',
+            url: 'https://github.com/acme/repo/pull/1',
+          }),
+        assertClosed: () => expect(store.getState().prView).toBe(null),
+      },
+    ];
+
+    for (const testCase of cases) {
+      const gate = deferred<boolean>();
+      setupOpenFile(() => gate.promise);
+      testCase.open();
+      store.setState({ current: 'other' });
+      gate.resolve(true);
+      await tick();
+      testCase.assertClosed();
+    }
+  });
+
   it('closeEditor blocks on an unresolved conflict, closes on a clean flush', async () => {
     setupOpenFile(async () => false);
     store.getState().closeEditor();
@@ -99,6 +158,43 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
     setupOpenFile(async () => false);
     await store.getState().createNote('fresh-note.md');
     expect(store.getState().error).toMatch(/save or resolve/i);
+  });
+
+  it('createNote does not open a relative path in a new workspace after write returns', async () => {
+    setupOpenFile(async () => true);
+    vi.spyOn(workspaceService, 'readFile').mockRejectedValue(new Error('[PATH_NOT_FOUND] missing'));
+    vi.spyOn(workspaceService, 'writeFile').mockImplementation(async (path) => {
+      store.setState({ current: 'other' });
+      return { path, bytes: 0 };
+    });
+
+    await store.getState().createNote('fresh-note.md');
+
+    expect(store.getState().openFile).toBe('a.md');
+    expect(store.getState().error).toBe('');
+  });
+
+  it('deleteEntry does not restore an old open file after the workspace changes on failure', async () => {
+    setupOpenFile(async () => true);
+    vi.spyOn(workspaceService, 'deleteEntry').mockImplementation(async () => {
+      store.setState({ current: 'other' });
+      throw new Error('trash failed');
+    });
+
+    await store.getState().deleteEntry('a.md', 'file');
+
+    expect(store.getState().openFile).toBe(null);
+    expect(store.getState().error).toBe('');
+  });
+
+  it('setFolderScope does not apply an old scope after the workspace changes during flush', async () => {
+    const gate = deferred<boolean>();
+    setupOpenFile(() => gate.promise);
+    const pending = store.getState().setFolderScope('docs');
+    store.setState({ current: 'other' });
+    gate.resolve(true);
+    await pending;
+    expect(store.getState().folderScope).toBe(null);
   });
 
   // rename rebind: a renamed-away file's old path is gone, so the rebind must NOT

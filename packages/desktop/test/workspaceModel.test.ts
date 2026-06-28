@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest';
 import {
   closeEditorOverlayPatch,
   isOpenFileDeletedByEntry,
+  isWorkspaceEditorOverlayOpen,
   openEditorOverlayPatch,
+  openGitDiffOverlayPatch,
+  openGitGraphOverlayPatch,
+  openMergeOverlayPatch,
+  openPullRequestOverlayPatch,
   parentFolderScopeAfterDelete,
   rebaseFolderScopeForRename,
   rebindCanvasSelectionForRename,
   rebindOpenFileForEntryRename,
   rebindOpenFileForRename,
   toggleCanvasEditingCard,
+  workspaceEditorOverlayKind,
   workspaceRefreshPatch,
 } from '../src/workbench/services/workspace/browser/workspaceModel.js';
 
@@ -18,6 +24,10 @@ describe('workspaceModel', () => {
       openFile: 'a.md',
       currentFile: 'a.md',
       openMatchQuery: null,
+      gitDiff: null,
+      gitGraphOpen: false,
+      mergeFile: null,
+      prView: null,
     });
     expect(openEditorOverlayPatch('a.md', { matchQuery: 'needle' }).openMatchQuery).toBe('needle');
     expect(closeEditorOverlayPatch()).toEqual({
@@ -25,6 +35,75 @@ describe('workspaceModel', () => {
       currentFile: null,
       openMatchQuery: null,
     });
+  });
+
+  it('builds mutually exclusive editor overlay input patches', () => {
+    expect(openGitDiffOverlayPatch({ path: 'a.md', staged: true })).toMatchObject({
+      openFile: null,
+      currentFile: null,
+      gitDiff: { path: 'a.md', staged: true },
+      gitGraphOpen: false,
+      mergeFile: null,
+      prView: null,
+    });
+    expect(openGitGraphOverlayPatch()).toMatchObject({
+      openFile: null,
+      gitDiff: null,
+      gitGraphOpen: true,
+      mergeFile: null,
+      prView: null,
+    });
+    expect(openMergeOverlayPatch('conflict.md')).toMatchObject({
+      openFile: null,
+      gitDiff: null,
+      gitGraphOpen: false,
+      mergeFile: 'conflict.md',
+      prView: null,
+    });
+    expect(
+      openPullRequestOverlayPatch({
+        number: 12,
+        title: 'Ship',
+        remoteUrl: 'https://github.com/acme/repo.git',
+        url: 'https://github.com/acme/repo/pull/12',
+      }),
+    ).toMatchObject({
+      openFile: null,
+      gitDiff: null,
+      gitGraphOpen: false,
+      mergeFile: null,
+      prView: { number: 12 },
+    });
+  });
+
+  it('detects overlay kinds with the same priority as the editor overlay renderer', () => {
+    expect(
+      workspaceEditorOverlayKind({
+        openFile: null,
+        gitDiff: null,
+        gitGraphOpen: false,
+        mergeFile: null,
+        prView: null,
+      }),
+    ).toBe(null);
+    expect(
+      isWorkspaceEditorOverlayOpen({
+        openFile: null,
+        gitDiff: null,
+        gitGraphOpen: false,
+        mergeFile: 'a.md',
+        prView: null,
+      }),
+    ).toBe(true);
+    expect(
+      workspaceEditorOverlayKind({
+        openFile: 'a.md',
+        gitDiff: { path: 'b.md', staged: false },
+        gitGraphOpen: true,
+        mergeFile: 'c.md',
+        prView: { number: 1, title: 'PR', remoteUrl: 'origin', url: 'https://example.com' },
+      }),
+    ).toBe('pullRequest');
   });
 
   it('preserves the live surface when a workspace rename keeps the same path', () => {
@@ -44,6 +123,8 @@ describe('workspaceModel', () => {
     );
     expect(patch.openFile).toBe(null);
     expect(patch.currentFile).toBe(null);
+    expect(patch.gitDiff).toBe(null);
+    expect(patch.gitGraphOpen).toBe(false);
     expect(patch.folderScope).toBe(null);
     expect(patch.canvasSelection).toBe(null);
   });
