@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AUTHENTICATION_IPC_CHANNELS } from '../src/workbench/services/authentication/common/authentication.js';
+import {
+  AUTHENTICATION_IPC_CHANNELS,
+  type AuthenticationProviderSessionsChangeEvent,
+} from '../src/workbench/services/authentication/common/authentication.js';
 import { AuthenticationMainChannel } from '../src/workbench/services/authentication/electron-main/authenticationMainChannel.js';
 import type { AuthenticationMainService } from '../src/workbench/services/authentication/electron-main/authenticationMainService.js';
 
@@ -35,7 +38,8 @@ function fakeIpc(): { handle: ReturnType<typeof vi.fn>; handlers: Map<string, Ha
 describe('AuthenticationMainChannel', () => {
   it('registers session IPC handlers and forwards provider session changes', async () => {
     const ipc = fakeIpc();
-    let sessionListener: ((event: { providerId: string }) => void) | null = null;
+    let sessionListener: ((event: AuthenticationProviderSessionsChangeEvent) => void) | null =
+      null;
     const service = {
       getSessions: vi.fn(async () => []),
       createSession: vi.fn(async () => ({ id: 'github' })),
@@ -76,7 +80,23 @@ describe('AuthenticationMainChannel', () => {
         sessionId: 'github',
       },
     );
-    sessionListener?.({ providerId: 'github' });
+    const changeEvent = {
+      providerId: 'github',
+      label: 'GitHub',
+      event: {
+        added: [
+          {
+            id: 'github',
+            providerId: 'github',
+            account: { id: 'ada', label: 'ada' },
+            scopes: ['repo'],
+          },
+        ],
+        removed: [],
+        changed: [],
+      },
+    };
+    sessionListener?.(changeEvent);
 
     expect(service.getSessions).toHaveBeenCalledWith('github');
     expect(service.createSession).toHaveBeenCalledWith('github', 'tok');
@@ -84,7 +104,7 @@ describe('AuthenticationMainChannel', () => {
     expect(electronMock.sent).toEqual([
       {
         channel: AUTHENTICATION_IPC_CHANNELS.sessionsChanged,
-        event: { providerId: 'github' },
+        event: changeEvent,
       },
     ]);
   });

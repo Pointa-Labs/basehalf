@@ -19,14 +19,18 @@ describe('GithubAuthenticationProvider', () => {
     const provider = new GithubAuthenticationProvider(github);
 
     await expect(provider.getSessions()).resolves.toEqual([]);
-    await expect(provider.createSession('tok')).resolves.toMatchObject({
+    const signedIn = await provider.createSession('tok');
+    expect(github.signIn).toHaveBeenCalledWith('tok');
+    expect(signedIn).toMatchObject({
       id: 'github',
       providerId: GITHUB_AUTH_PROVIDER_ID,
       account: { label: 'ada' },
       scopes: ['repo'],
     });
+    expect(signedIn).not.toHaveProperty('accessToken');
     await expect(provider.getSessions()).resolves.toHaveLength(1);
     await provider.removeSession('github');
+    expect(github.signOut).toHaveBeenCalledTimes(1);
     await expect(provider.getSessions()).resolves.toEqual([]);
   });
 });
