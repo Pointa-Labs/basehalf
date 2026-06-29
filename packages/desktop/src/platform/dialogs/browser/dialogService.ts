@@ -8,6 +8,11 @@ import type {
   PromptOptions,
   SinglePickOptions,
 } from '../common/dialogs.js';
+import {
+  confirmDialogFromOptions,
+  pickDialogFromOptions,
+  promptDialogFromOptions,
+} from '../common/dialogs.js';
 
 export type {
   ConfirmDialog,
@@ -47,32 +52,13 @@ export const useDialogStore = create<DialogStore>((set, get) => ({
 
 export function confirm(opts: ConfirmOptions): Promise<boolean> {
   return new Promise((resolve) => {
-    useDialogStore.getState().show({
-      type: 'confirm',
-      title: opts.title,
-      ...(opts.body !== undefined && { body: opts.body }),
-      confirmText: opts.confirmText ?? 'Continue',
-      cancelText: opts.cancelText ?? 'Cancel',
-      destructive: opts.destructive ?? false,
-      resolve,
-    });
+    useDialogStore.getState().show(confirmDialogFromOptions(opts, resolve));
   });
 }
 
 export function prompt(opts: PromptOptions): Promise<string | null> {
   return new Promise((resolve) => {
-    useDialogStore.getState().show({
-      type: 'prompt',
-      title: opts.title,
-      ...(opts.body !== undefined && { body: opts.body }),
-      label: opts.label,
-      placeholder: opts.placeholder ?? '',
-      defaultValue: opts.defaultValue ?? '',
-      confirmText: opts.confirmText ?? 'OK',
-      cancelText: opts.cancelText ?? 'Cancel',
-      ...(opts.validate !== undefined && { validate: opts.validate }),
-      resolve,
-    });
+    useDialogStore.getState().show(promptDialogFromOptions(opts, resolve));
   });
 }
 
@@ -84,43 +70,14 @@ export function pick(
   return new Promise((resolve) => {
     const resolvePick: PickDialog['resolve'] = (value) =>
       resolve(value as string | readonly string[] | null);
-    useDialogStore.getState().show({
-      type: 'pick',
-      title: opts.title,
-      placeholder: opts.placeholder ?? 'Search…',
-      emptyText: opts.emptyText ?? 'Nothing to choose from.',
-      options: opts.options,
-      canSelectMany: opts.canSelectMany === true,
-      selectedValues: opts.canSelectMany === true ? (opts.selectedValues ?? []) : [],
-      includeInputValue: false,
-      ...(opts.canSelectMany !== true &&
-        opts.sortOptions !== undefined && {
-          sortOptions: opts.sortOptions,
-        }),
-      ...(opts.canSelectMany === true &&
-        opts.normalizeSelectedValues !== undefined && {
-          normalizeSelectedValues: opts.normalizeSelectedValues,
-        }),
-      resolve: resolvePick,
-    });
+    useDialogStore.getState().show(pickDialogFromOptions(opts, resolvePick));
   });
 }
 
 export function pickWithInputValue(opts: SinglePickOptions): Promise<PickValueResult | null> {
   return new Promise((resolve) => {
     const resolvePick: PickDialog['resolve'] = (value) => resolve(value as PickValueResult | null);
-    useDialogStore.getState().show({
-      type: 'pick',
-      title: opts.title,
-      placeholder: opts.placeholder ?? 'Search…',
-      emptyText: opts.emptyText ?? 'Nothing to choose from.',
-      options: opts.options,
-      canSelectMany: false,
-      selectedValues: [],
-      includeInputValue: true,
-      ...(opts.sortOptions !== undefined && { sortOptions: opts.sortOptions }),
-      resolve: resolvePick,
-    });
+    useDialogStore.getState().show(pickDialogFromOptions(opts, resolvePick, true));
   });
 }
 
