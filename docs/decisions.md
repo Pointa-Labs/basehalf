@@ -3,10 +3,12 @@
 Short ADR-style record of the calls that shaped this project, and *why* — so we
 (and contributors) don't relitigate them by accident.
 
-> **2026-05-27 architecture pivot**: D2 / D3 / D7 (event-log as source of truth)
-> were **overturned** when the team replaced the event-log model with **MD =
-> content truth + `.bh/` = derived cache + git = history**. D8's library picks
-> have also evolved (see notes inline). D12–D17 below capture the new direction.
+> **2026-05-27+ architecture pivots**: D2 / D3 / D7 (event-log as source of
+> truth) were **overturned** when the team replaced the event-log model with
+> **MD = content truth + `.bh/` = derived cache + git = history**. D5
+> (CLI-first over one core) was later superseded by the Electron desktop path
+> and the 2026-06 VS Code-base migration. D8's library picks have also evolved
+> (see notes inline). D12–D22 capture the current direction.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -62,14 +64,16 @@ was tied to D2/D3. Now that agents edit MD directly, **audit comes from git**
 optional metadata (badge.references) that the agent can read and use. We don't
 *enforce* grounding at write time anymore — we make it cheap and obvious.
 
-## D5 — Interface: CLI-first, MCP as a thin wrapper later (still active)
+## D5 — ~~Interface: CLI-first, MCP as a thin wrapper later~~ (superseded by D15 / D19 / D20)
 
-**Decision.** Ship a CLI first. Add an MCP server later. Both are thin
+**Original decision.** Ship a CLI first. Add an MCP server later. Both are thin
 adapters over one `core`.
 
-**Why.** Every local coding agent has a shell → the CLI reaches all of them
-with zero config, and doubles as the human tool + test harness. The desktop
-app (D15) is another thin adapter over the same core.
+**Why it was overturned.** The product became an Electron desktop app first
+(D15), then the old CLI package was deleted with the `.bh/mirror/` refactor
+(D19), and the 2026-06 migration moved the desktop architecture toward a real
+VS Code base rather than one `@basehalf/core` door (D20). Do not restore the
+old `bh <cmd>` product path as current architecture.
 
 ## D6 — Local-first now; collaboration deferred but pre-wired (still active)
 
@@ -299,3 +303,82 @@ decision supersedes D14's specific file shapes (`.bh/focus.md` /
 `.bh/badges/<file>.json` / `.bh/index/inbound.json`) while keeping its principle
 intact: **publish a file protocol any file-reading agent can navigate, don't
 inject into the agent's context.**
+
+## D20 — VS Code as substrate, BaseHalf as canvas-first product (NEW, 2026-06-30)
+
+**Decision.** The migration uses VS Code as the lower application substrate,
+not as the final product shape. Reuse VS Code's native capabilities for files,
+working copies, Git/SCM, GitHub auth, quick input, search, editor
+infrastructure, workbench services, terminal process/profile APIs, menus,
+keybindings, notifications, progress, and dialogs. Keep BaseHalf's own product
+layer for the `.bh` mirror protocol, canvas, focus/ADHD state, badge/reference
+graph, agent-oriented search/brief logic, canvas-first navigation, and the
+right-side Agent Area.
+
+**Why.** The previous hand-rolled VS Code-like Git/SCM/GitHub/workbench refactor
+was sunk cost: it tried to chase mature VS Code systems from the outside. Using
+VS Code as the base lets BaseHalf inherit those systems while still preserving
+what makes the product different: folders are AI-native canvases, the canvas is
+the background, opening a card enters a BaseHalf card-detail surface, and
+standard VS Code editor groups are fallback/advanced capability rather than the
+primary open model.
+
+**Consequences.** `@basehalf/core` becomes historical migration material for the
+original product semantics, not the required desktop architecture center. For
+Markdown, the text file / VS Code `TextDocument` / working copy is the single
+source of truth, with BaseHalf projections inside card detail: rich editable
+Markdown by default, raw source editing, and rendered preview. The rich
+projection keeps BaseHalf's original BlockNote + per-file YJS live document +
+byte-preserving splice-save model.
+
+## D21 — Right side is Agent Area, not Terminal panel (NEW, 2026-06-30)
+
+**Decision.** The right side of the app is an **Agent Area**. Terminal is one
+renderer/session type inside it, not the product concept. Agent Area sessions
+can be TUI agents (Codex CLI, Claude Code CLI, other shell/TUI agents through
+BaseHalf's xterm/pty surface), VS Code-extension agents (through extension host,
+webviews, commands, auth/secrets, and terminal APIs), or plain shell sessions.
+
+**Why.** BaseHalf's terminal work already carries important interaction
+quality: tabbed sessions, split panes, focus routing, zoom, soft close, and a
+TUI-friendly xterm/pty surface. At the same time, VS Code compatibility is how
+Codex/Claude-style extensions and the broader extension ecosystem can
+participate. The right abstraction is therefore not "use VS Code's terminal UI"
+or "keep only a custom terminal", but "route both TUI and extension-backed
+agents into one BaseHalf-owned Agent Area."
+
+**Consequences.** New right-side work should model agent sessions, not a generic
+terminal panel. Extension calls such as `vscode.window.createTerminal()` should
+open or attach to Agent Area sessions rather than reviving the default VS Code
+terminal panel as the primary UI. VS Code's native Agent/Chat/Copilot/Sessions
+product surfaces should be hidden or removed from BaseHalf: no default agent
+views, chat panels, sessions welcome surfaces, status items, or commands should
+ship unless they are intentionally remapped into BaseHalf's Agent Area. Their
+services and APIs can remain as compatibility plumbing for extensions.
+
+## D22 — Sidebar, extension allowlist, and file-open remapping (NEW, 2026-06-30)
+
+**Decision.** BaseHalf's left sidebar has exactly three product areas: Files,
+Git, and Search. Reuse VS Code's Explorer/Search/SCM view containers and their
+mature interaction model where possible, including context menus, tree state,
+drag/drop, and SCM behavior. Do not add Agent to the sidebar. File activation
+from Explorer/Search must remap into BaseHalf navigation: folders open canvases,
+files open card detail, and VS Code editor tabs remain fallback/advanced
+behavior.
+
+The first VS Code-base migration phase uses a curated extension allowlist, not
+the full marketplace. The allowed extension families are Git, GitHub, GitHub
+authentication, Codex, and Claude.
+
+**Why.** VS Code's sidebar infrastructure is better than BaseHalf's hand-rolled
+sidebar for Files, Git, Search, and right-click workflows, so reusing it reduces
+product risk. But BaseHalf's differentiator is the folder-as-canvas model, not
+VS Code's generic editor workspace. Similarly, VS Code extension compatibility
+is valuable for GitHub auth and Codex/Claude, but exposing the whole marketplace
+would force product and trust decisions before the BaseHalf shell is ready.
+
+**Consequences.** Implement a BaseHalf window/contribution profile instead of
+importing the stock VS Code desktop workbench wholesale. Keep Explorer/Search/SCM
+visible, hide generic Extensions/Marketplace and VS Code-native Agent/Chat
+surfaces, and route `open`/file-selection commands through BaseHalf's
+folder/canvas/card-detail state machine.
