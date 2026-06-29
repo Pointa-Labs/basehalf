@@ -157,8 +157,6 @@ export function createBaseHalfMainServices(
       configDir,
       startWatcher: (root) => watcherService.start(root),
       canvasListing: canvasListingService,
-      entryMirror: mirrorNodeOperations,
-      trash: opts.trash ?? ((path: string) => shell.trashItem(path)),
       demo: {
         setBadge: (root, args) => badgeService.set(root, args),
         setCanvasCard: (root, args) => canvasService.setCard(root, args),

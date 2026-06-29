@@ -1,39 +1,6 @@
 import { mkdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type {
-  WorkspaceCreateFileArgs,
-  WorkspaceCreateFileResult,
-  WorkspaceCreateFolderArgs,
-  WorkspaceCreateFolderResult,
-  WorkspaceDeleteEntryArgs,
-  WorkspaceDeleteEntryResult,
-  WorkspaceImportFileArgs,
-  WorkspaceImportFileResult,
-  WorkspaceListFilesArgs,
-  WorkspaceListFilesResult,
-  WorkspaceListSupportedFilesArgs,
-  WorkspaceListSupportedFilesResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
-  WorkspaceRenameEntryArgs,
-  WorkspaceRenameEntryResult,
-  WorkspaceRenameFileArgs,
-  WorkspaceRenameFileResult,
-  WorkspaceWriteFileArgs,
-  WorkspaceWriteFileResult,
-} from '../../files/common/workspaceFiles.js';
-import {
-  createWorkspaceFile,
-  createWorkspaceFolder,
-  deleteWorkspaceEntry,
-  importWorkspaceFile,
-  listWorkspaceFiles,
-  listWorkspaceSupportedFiles,
-  readWorkspaceFile,
-  renameWorkspaceFile,
-  writeWorkspaceFile,
-} from '../../files/electron-main/workspaceFileOperations.js';
-import type {
   WorkspaceAddArgs,
   WorkspaceAddResult,
   WorkspaceCreateDemoArgs,
@@ -104,33 +71,14 @@ export interface DesktopWorkspaceBackendProviderOptions {
   readonly startWatcher?: (workspaceRoot: string | null) => Promise<void>;
   readonly demo?: WorkspaceDemoMirrorProvider;
   readonly canvasListing?: Pick<WorkspaceBackendProvider, 'listCanvas'>;
-  readonly entryMirror?: WorkspaceEntryMirrorProvider;
-  readonly trash?: (path: string) => Promise<void>;
-}
-
-export interface WorkspaceEntryMirrorProvider {
-  rename(
-    workspaceRoot: string,
-    args: {
-      readonly from: string;
-      readonly to: string;
-      readonly kind: 'file' | 'folder';
-      readonly ifExists: true;
-    },
-  ): Promise<unknown>;
-  purgeDeletedNode(
-    workspaceRoot: string,
-    args: { readonly path: string; readonly kind: 'file' | 'folder' },
-  ): Promise<void>;
 }
 
 /**
  * Main-process workspace backend for registry-oriented operations. VS Code keeps
  * workspace history/selection in typed main-process services; BaseHalf now does
- * the same for the workspaces.json command family, setup bootstrap, viewport
- * storage, demo seeding, canvas listing, entry file operations, and workspace
- * file service while optional injected providers cover extension points that
- * have not moved into this concrete backend.
+ * the same for the workspaces.json command family, setup bootstrap, demo
+ * seeding, canvas listing, and viewport storage while platform/files owns
+ * workspace-relative file operations.
  */
 export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider {
   constructor(private readonly opts: DesktopWorkspaceBackendProviderOptions) {}
@@ -374,13 +322,6 @@ export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider
     return this.requireFallback('createDemo').createDemo(workspaceRoot, args);
   }
 
-  listFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListFilesArgs,
-  ): Promise<WorkspaceListFilesResult> {
-    return listWorkspaceFiles(workspaceRoot, args.path);
-  }
-
   listCanvas(
     workspaceRoot: string | null,
     args: WorkspaceListCanvasArgs,
@@ -389,13 +330,6 @@ export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider
       return this.opts.canvasListing.listCanvas(workspaceRoot, args);
     }
     return this.requireFallback('listCanvas').listCanvas(workspaceRoot, args);
-  }
-
-  listSupportedFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListSupportedFilesArgs,
-  ): Promise<WorkspaceListSupportedFilesResult> {
-    return listWorkspaceSupportedFiles(workspaceRoot, args);
   }
 
   async getViewport(workspaceRoot: string | null): Promise<WorkspaceGetViewportResult> {
@@ -423,81 +357,6 @@ export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider
       });
       return {};
     });
-  }
-
-  readFile(
-    workspaceRoot: string | null,
-    args: WorkspaceReadFileArgs,
-  ): Promise<WorkspaceReadFileResult> {
-    return readWorkspaceFile(workspaceRoot, args);
-  }
-
-  writeFile(
-    workspaceRoot: string | null,
-    args: WorkspaceWriteFileArgs,
-  ): Promise<WorkspaceWriteFileResult> {
-    return writeWorkspaceFile(workspaceRoot, args);
-  }
-
-  renameFile(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameFileArgs,
-  ): Promise<WorkspaceRenameFileResult> {
-    return renameWorkspaceFile(workspaceRoot, args);
-  }
-
-  importFile(
-    workspaceRoot: string | null,
-    args: WorkspaceImportFileArgs,
-  ): Promise<WorkspaceImportFileResult> {
-    return importWorkspaceFile(workspaceRoot, args);
-  }
-
-  createFile(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFileArgs,
-  ): Promise<WorkspaceCreateFileResult> {
-    return createWorkspaceFile(workspaceRoot, args);
-  }
-
-  createFolder(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFolderArgs,
-  ): Promise<WorkspaceCreateFolderResult> {
-    return createWorkspaceFolder(workspaceRoot, args);
-  }
-
-  async deleteEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceDeleteEntryArgs,
-  ): Promise<WorkspaceDeleteEntryResult> {
-    if (this.opts.entryMirror === undefined) {
-      throw new Error('DesktopWorkspaceBackendProvider: deleteEntry is not configured.');
-    }
-    const root = requireWorkspaceRoot(workspaceRoot);
-    const res = await deleteWorkspaceEntry(root, args, this.opts.trash);
-    await this.opts.entryMirror.purgeDeletedNode(root, args);
-    return res;
-  }
-
-  async renameEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameEntryArgs,
-  ): Promise<WorkspaceRenameEntryResult> {
-    if (this.opts.entryMirror === undefined) {
-      throw new Error('DesktopWorkspaceBackendProvider: renameEntry is not configured.');
-    }
-    const root = requireWorkspaceRoot(workspaceRoot);
-    const moved = await renameWorkspaceFile(root, { from: args.from, to: args.to }, args.kind);
-    if (moved.renamed) {
-      await this.opts.entryMirror.rename(root, {
-        from: args.from,
-        to: moved.to,
-        kind: args.kind,
-        ifExists: true,
-      });
-    }
-    return { from: moved.from, to: moved.to, renamed: moved.renamed };
   }
 
   private requireFallback(method: keyof WorkspaceBackendProvider): WorkspaceBackendProvider {
