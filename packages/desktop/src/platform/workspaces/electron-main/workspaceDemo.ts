@@ -1,5 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { basename, isAbsolute, resolve } from 'node:path';
+import { writeWorkspaceFileIfMissing } from '../../files/electron-main/workspaceFileOperations.js';
 import type {
   SetupReport,
   WorkspaceAddArgs,
@@ -7,7 +8,6 @@ import type {
   WorkspaceCreateDemoArgs,
   WorkspaceCreateDemoResult,
 } from '../common/workspaces.js';
-import { writeWorkspaceFileIfMissing } from './workspaceFiles.js';
 import { NAME_PATTERN, readWorkspaces, samePath } from './workspaceRegistryStore.js';
 import { runWorkspaceSetup } from './workspaceSetup.js';
 

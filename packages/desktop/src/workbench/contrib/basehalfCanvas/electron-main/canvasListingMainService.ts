@@ -1,4 +1,11 @@
 import { join } from 'node:path';
+import {
+  SKIP_NAMES,
+  assertWorkspaceRelative,
+  isCanvasFile,
+  listWorkspaceFiles,
+  toPosix,
+} from '../../../../platform/files/electron-main/workspaceFileOperations.js';
 import type {
   CanvasChildBadge,
   CanvasFolderPreview,
@@ -7,13 +14,6 @@ import type {
   WorkspaceListCanvasResult,
   WorkspaceListFilesEntry,
 } from '../../../../platform/workspaces/common/workspaces.js';
-import {
-  SKIP_NAMES,
-  assertWorkspaceRelative,
-  isCanvasFile,
-  listWorkspaceFiles,
-  toPosix,
-} from '../../../../platform/workspaces/electron-main/workspaceFiles.js';
 import type { BadgeFile } from '../../../services/mirror/common/badge.js';
 import type { CanvasEdge, CanvasFile } from '../../../services/mirror/common/canvas.js';
 

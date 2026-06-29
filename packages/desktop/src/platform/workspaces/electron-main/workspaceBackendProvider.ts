@@ -1,5 +1,16 @@
 import { mkdir, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import {
+  createWorkspaceFile,
+  createWorkspaceFolder,
+  deleteWorkspaceEntry,
+  importWorkspaceFile,
+  listWorkspaceFiles,
+  listWorkspaceSupportedFiles,
+  readWorkspaceFile,
+  renameWorkspaceFile,
+  writeWorkspaceFile,
+} from '../../files/electron-main/workspaceFileOperations.js';
 import type {
   WorkspaceAddArgs,
   WorkspaceAddResult,
@@ -45,17 +56,6 @@ import type {
   WorkspaceWriteFileResult,
 } from '../common/workspaces.js';
 import { type WorkspaceDemoMirrorProvider, createWorkspaceDemo } from './workspaceDemo.js';
-import {
-  createWorkspaceFile,
-  createWorkspaceFolder,
-  deleteWorkspaceEntry,
-  importWorkspaceFile,
-  listWorkspaceFiles,
-  listWorkspaceSupportedFiles,
-  readWorkspaceFile,
-  renameWorkspaceFile,
-  writeWorkspaceFile,
-} from './workspaceFiles.js';
 import {
   NAME_PATTERN,
   type WorkspacesFileEntry,
