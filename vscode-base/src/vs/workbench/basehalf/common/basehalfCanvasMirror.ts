@@ -3,8 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { parse } from 'yaml';
 import { URI } from '../../../base/common/uri.js';
+import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
@@ -62,13 +62,7 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 			throw error;
 		}
 
-		let parsed: unknown;
-		try {
-			parsed = parse(raw) ?? null;
-		} catch (cause) {
-			throw new BaseHalfCanvasMirrorCorrupt(resource, 'YAML parse failed', { cause });
-		}
-
+		const parsed = parseCanvasYaml(raw, resource);
 		if (parsed === null) {
 			return null;
 		}
@@ -203,3 +197,55 @@ function anchorField(record: Record<string, unknown>, key: string, resource: URI
 }
 
 registerSingleton(IBaseHalfCanvasMirrorService, BaseHalfCanvasMirrorService, InstantiationType.Delayed);
+
+function parseCanvasYaml(raw: string, resource: URI): Record<string, unknown> | null {
+	const errors: YamlParseError[] = [];
+	const node = parseYaml(raw, errors);
+	if (errors.length > 0) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, errors[0].message);
+	}
+
+	if (!node) {
+		return null;
+	}
+
+	return asRecord(yamlNodeToValue(node), resource, 'canvas root must be an object');
+}
+
+function yamlNodeToValue(node: YamlNode): unknown {
+	if (node.type === 'map') {
+		const value: Record<string, unknown> = {};
+		for (const property of node.properties) {
+			value[property.key.value] = yamlNodeToValue(property.value);
+		}
+		return value;
+	}
+
+	if (node.type === 'sequence') {
+		return node.items.map(item => yamlNodeToValue(item));
+	}
+
+	return yamlScalarValue(node);
+}
+
+function yamlScalarValue(node: YamlScalarNode): string | number | boolean | null {
+	const value = node.value;
+	const trimmed = value.trim();
+	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+		return Number(trimmed);
+	}
+
+	if (trimmed === 'true') {
+		return true;
+	}
+
+	if (trimmed === 'false') {
+		return false;
+	}
+
+	if (trimmed === 'null' || trimmed === '~') {
+		return null;
+	}
+
+	return value;
+}

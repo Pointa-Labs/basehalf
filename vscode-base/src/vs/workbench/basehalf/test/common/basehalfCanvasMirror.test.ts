@@ -73,14 +73,41 @@ suite('BaseHalfCanvasMirrorService', () => {
 		});
 	});
 
+	test('accepts VS Code YAML parser syntax for quoted values and inline empty arrays', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/docs/canvas.yaml', [
+				'path: "docs"',
+				'size: { width: 640, height: 360 }',
+				'cards:',
+				`  - path: 'docs/a:b.md'`,
+				'    kind: file',
+				'    x: 1',
+				'    y: 2',
+				'    width: 3',
+				'    height: 4',
+				'edges: []',
+				''
+			].join('\n')]
+		]));
+
+		const canvas = await service.readCanvas(folder('docs'));
+
+		assert.deepStrictEqual(canvas, {
+			path: 'docs',
+			size: { width: 640, height: 360 },
+			cards: [{ path: 'docs/a:b.md', kind: 'file', x: 1, y: 2, width: 3, height: 4 }],
+			edges: []
+		});
+	});
+
 	test('throws a typed corrupt error for invalid YAML', async () => {
 		const service = createService(new Map([
-			['/work/.bh/mirror/canvas.yaml', 'path: : broken']
+			['/work/.bh/mirror/canvas.yaml', 'path: [unterminated']
 		]));
 
 		await assert.rejects(
 			() => service.readCanvas(folder('')),
-			error => error instanceof BaseHalfCanvasMirrorCorrupt && error.reason === 'YAML parse failed'
+			error => error instanceof BaseHalfCanvasMirrorCorrupt
 		);
 	});
 

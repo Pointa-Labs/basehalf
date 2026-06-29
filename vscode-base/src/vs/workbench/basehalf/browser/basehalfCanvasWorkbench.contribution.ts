@@ -40,6 +40,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
 	private readonly detailBody: HTMLElement;
+	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
 
 	private renderSeq = 0;
@@ -61,7 +62,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			throw new Error('BaseHalf canvas requires the main editor part container.');
 		}
 
-		editorContainer.classList.add('basehalf-canvas-host');
+		this.editorContainer = editorContainer;
+		this.editorContainer.classList.add('basehalf-canvas-host');
 		this.root = $('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
 
@@ -82,7 +84,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(close, 'click', () => this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
 
-		editorContainer.prepend(this.root);
+		this.editorContainer.prepend(this.root);
 
 		this._register(this.canvasNavigationService.onDidChangeState(() => this.render()));
 		this._register(this.fileService.onDidFilesChange(event => {
@@ -91,13 +93,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.render();
 			}
 		}));
-		this._register(editorService.onDidActiveEditorChange(() => this.canvasNavigationService.closeCardDetail()));
+		this._register(editorService.onDidVisibleEditorsChange(() => this.updateCanvasLayer(editorService)));
+		this._register(editorService.onDidActiveEditorChange(() => {
+			this.canvasNavigationService.closeCardDetail();
+			this.updateCanvasLayer(editorService);
+		}));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
 				this.canvasNavigationService.closeCardDetail();
 			}
 		}));
 
+		this.updateCanvasLayer(editorService);
 		void this.render();
 	}
 
@@ -194,6 +201,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			relativePath: '',
 			source: 'api'
 		};
+	}
+
+	private updateCanvasLayer(editorService: IEditorService): void {
+		this.editorContainer.classList.toggle('basehalf-canvas-on-top', editorService.visibleEditors.length === 0);
 	}
 
 	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {

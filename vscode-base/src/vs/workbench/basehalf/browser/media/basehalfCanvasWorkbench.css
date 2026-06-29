@@ -17,6 +17,23 @@
 	pointer-events: auto;
 }
 
+.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .content {
+	z-index: 0;
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host.basehalf-canvas-on-top > .basehalf-canvas-workbench {
+	z-index: 2;
+}
+
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty,
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .grid-view-container,
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .split-view-view,
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container,
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container > .editor-container,
+.monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-container > .title {
+	background: transparent;
+}
+
 .monaco-workbench .part.editor.basehalf-canvas-host > .content.empty .editor-group-watermark-wrapper {
 	display: none;
 }
