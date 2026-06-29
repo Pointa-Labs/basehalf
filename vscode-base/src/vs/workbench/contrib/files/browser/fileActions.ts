@@ -61,6 +61,7 @@ import { Categories } from '../../../../platform/action/common/actionCommonCateg
 import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 export const NEW_FILE_COMMAND_ID = 'explorer.newFile';
 export const NEW_FILE_LABEL = nls.localize2('newFile', "New File...");
@@ -905,6 +906,7 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 	const configService = accessor.get(IConfigurationService);
 	const filesConfigService = accessor.get(IFilesConfigurationService);
 	const editorService = accessor.get(IEditorService);
+	const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 	const viewsService = accessor.get(IViewsService);
 	const notificationService = accessor.get(INotificationService);
 	const remoteAgentService = accessor.get(IRemoteAgentService);
@@ -959,8 +961,15 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 
 			if (isFolder) {
 				await explorerService.select(resourceToCreate, true);
+				baseHalfCanvasNavigationService.openFolderCanvas(resourceToCreate, { source: 'fileCommand' });
 			} else {
-				await editorService.openEditor({ resource: resourceToCreate, options: { pinned: true } });
+				const result = baseHalfCanvasNavigationService.openCardDetail(resourceToCreate, {
+					source: 'fileCommand',
+					pinned: true
+				});
+				if (!result.handled) {
+					await editorService.openEditor({ resource: resourceToCreate, options: { pinned: true } });
+				}
 			}
 		} catch (error) {
 			onErrorWithRetry(notificationService, error, () => onSuccess(value));

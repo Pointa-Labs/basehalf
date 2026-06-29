@@ -56,6 +56,7 @@ import { ResourceMap } from '../../../../../base/common/map.js';
 import { AbstractTreePart } from '../../../../../base/browser/ui/tree/abstractTree.js';
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
 
 
 function hasExpandedRootChild(tree: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>, treeInput: ExplorerItem[]): boolean {
@@ -215,7 +216,8 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IOpenerService openerService: IOpenerService,
-		@IAccessibilityService private readonly accessibilityService: IAccessibilityService
+		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(options, keybindingService, contextMenuService, configurationService, contextKeyService, viewDescriptorService, instantiationService, openerService, themeService, hoverService);
 
@@ -546,13 +548,30 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			const shiftDown = DOM.isKeyboardEvent(e.browserEvent) && e.browserEvent.shiftKey;
 			if (!shiftDown) {
 				if (element.isDirectory || this.explorerService.isEditable(undefined)) {
-					// Do not react if user is clicking on explorer items while some are being edited #70276
-					// Do not react if clicking on directories
+					if (element.isDirectory && !this.explorerService.isEditable(undefined)) {
+						await this.baseHalfCanvasNavigationService.openResource(element.resource, {
+							source: 'explorer',
+							preserveFocus: e.editorOptions.preserveFocus,
+							pinned: e.editorOptions.pinned
+						});
+					}
+					// Do not open editors if user is clicking on explorer items while some are being edited #70276
+					// Directories keep the VS Code tree behavior while updating BaseHalf's canvas folder.
 					return;
 				}
 				this.telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: 'workbench.files.openFile', from: 'explorer' });
 				try {
 					this.delegate?.willOpenElement(e.browserEvent);
+					if (!e.sideBySide) {
+						const result = await this.baseHalfCanvasNavigationService.openResource(element.resource, {
+							source: 'explorer',
+							preserveFocus: e.editorOptions.preserveFocus,
+							pinned: e.editorOptions.pinned
+						});
+						if (result.handled) {
+							return;
+						}
+					}
 					await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 				} finally {
 					this.delegate?.didOpenElement();

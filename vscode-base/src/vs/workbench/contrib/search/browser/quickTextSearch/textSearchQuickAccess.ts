@@ -35,6 +35,7 @@ import { SearchModelImpl } from '../searchTreeModel/searchModel.js';
 import { SearchModelLocation, RenderableMatch, ISearchTreeFileMatch, ISearchTreeMatch, ISearchResult } from '../searchTreeModel/searchTreeCommon.js';
 import { searchComparer } from '../searchCompare.js';
 import { IMatch } from '../../../../../base/common/filters.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
 
 export const TEXT_SEARCH_QUICK_ACCESS_PREFIX = '%';
 
@@ -86,7 +87,8 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		@IEditorService private readonly _editorService: IEditorService,
 		@ILabelService private readonly _labelService: ILabelService,
 		@IViewsService private readonly _viewsService: IViewsService,
-		@IConfigurationService private readonly _configurationService: IConfigurationService
+		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@IBaseHalfCanvasNavigationService private readonly _baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(TEXT_SEARCH_QUICK_ACCESS_PREFIX, { canAcceptInBackground: true, shouldSkipTrimPickFilter: true });
 
@@ -338,6 +340,18 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 
 		// from https://github.com/microsoft/vscode/blob/f40dabca07a1622b2a0ae3ee741cfc94ab964bef/src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts#L1037
 		const targetGroup = options.keyMods?.alt || (this.configuration.openEditorPinned && options.keyMods?.ctrlCmd) || options.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP;
+
+		if (targetGroup !== SIDE_GROUP) {
+			const result = await this._baseHalfCanvasNavigationService.openResource(iFileInstanceMatch.resource, {
+				source: 'quickAccess',
+				preserveFocus: editorOptions.preserveFocus,
+				pinned: editorOptions.pinned,
+				selection: editorOptions.selection
+			});
+			if (result.handled) {
+				return;
+			}
+		}
 
 		await this._editorService.openEditor({
 			resource: iFileInstanceMatch.resource,

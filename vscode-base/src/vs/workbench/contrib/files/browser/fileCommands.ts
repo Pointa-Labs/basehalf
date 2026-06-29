@@ -52,6 +52,7 @@ import { RemoveRootFolderAction } from '../../../browser/actions/workspaceAction
 import { OpenEditorsView } from './views/openEditorsView.js';
 import { ExplorerView } from './views/explorerView.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 export const openWindowCommand = (accessor: ServicesAccessor, toOpen: IWindowOpenable[], options?: IOpenWindowOptions) => {
 	if (Array.isArray(toOpen)) {
@@ -128,9 +129,21 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	id: 'explorer.openAndPassFocus', handler: async (accessor, _resource: URI | object) => {
 		const editorService = accessor.get(IEditorService);
 		const explorerService = accessor.get(IExplorerService);
+		const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 		const resources = explorerService.getContext(true);
 
 		if (resources.length) {
+			if (resources.length === 1) {
+				const result = await baseHalfCanvasNavigationService.openResource(resources[0].resource, {
+					source: 'explorerCommand',
+					preserveFocus: false,
+					pinned: true
+				});
+				if (result.handled) {
+					return;
+				}
+			}
+
 			await editorService.openEditors(resources.map(r => ({ resource: r.resource, options: { preserveFocus: false, pinned: true } })));
 		}
 	}
