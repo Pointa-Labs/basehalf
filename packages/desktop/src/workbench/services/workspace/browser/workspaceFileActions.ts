@@ -1,6 +1,6 @@
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { noteStemFromTitle } from '../../editor/browser/noteTitleModel.js';
 import { flushAll, flushPane } from '../../editor/common/editorFlush.js';
+import { textFileService } from '../../textfile/browser/textFileService.js';
 import type { WorkspaceFileActions } from '../common/workspaceActions.js';
 import {
   emitEntryCreated,
@@ -17,6 +17,7 @@ import {
 } from '../common/workspaceModel.js';
 import { EDITOR_OVERLAY_PANE_ID } from './workspaceEditorOverlayActions.js';
 import { formatWorkspaceError, isWorkspacePathNotFoundError } from './workspaceErrors.js';
+import { workspaceFileOperationService } from './workspaceFileOperationService.js';
 
 interface WorkspaceFileActionState {
   readonly current: string | null;
@@ -61,7 +62,7 @@ export function createWorkspaceFileActions(
       }
       if (get().current !== current) return null;
       try {
-        const res = await workspaceService.renameFile(openFile, desired);
+        const res = await workspaceFileOperationService.renameFile(openFile, desired);
         // Workspace switched during the flush / IPC -> the new root already reset
         // the open file; don't clobber it. Rebind eagerly to the landing path so
         // the editor follows immediately (the watcher's later rename event no-ops).
@@ -91,11 +92,11 @@ export function createWorkspaceFileActions(
           return;
         }
         if (get().current !== ws) return;
-        // Refuse to clobber an existing file. workspace.readFile throws
+        // Refuse to clobber an existing file. textFileService.read throws
         // PATH_NOT_FOUND if the file doesn't exist; that's the success signal.
         let alreadyExists = false;
         try {
-          await workspaceService.readFile(relPath);
+          await textFileService.read(relPath);
           alreadyExists = true;
         } catch (err) {
           if (!isWorkspacePathNotFoundError(err)) throw err;
@@ -108,7 +109,7 @@ export function createWorkspaceFileActions(
           return;
         }
         if (get().current !== ws) return;
-        await workspaceService.writeFile(relPath, '');
+        await textFileService.write(relPath, '');
         if (get().current !== ws) return;
         get().openInPanel(relPath);
       } catch (err) {
@@ -132,7 +133,7 @@ export function createWorkspaceFileActions(
           const candidate = folder === null ? base : `${folder}/${base}`;
           let taken = false;
           try {
-            await workspaceService.readFile(candidate);
+            await textFileService.read(candidate);
             taken = true;
           } catch (err) {
             if (!isWorkspacePathNotFoundError(err)) throw err;
@@ -148,7 +149,7 @@ export function createWorkspaceFileActions(
           return;
         }
         if (get().current !== ws) return;
-        await workspaceService.writeFile(name, '');
+        await textFileService.write(name, '');
         if (get().current !== ws) return;
         get().openInPanel(name);
         set({ titleFocusPath: name });
@@ -163,7 +164,7 @@ export function createWorkspaceFileActions(
       // No editor switch: the file-tree "New File" creates + inline-names, it
       // doesn't open the big editor. The watcher surfaces the new row/card.
       try {
-        const res = await workspaceService.createFile(relPath);
+        const res = await workspaceFileOperationService.createFile(relPath);
         if (get().current === ws) emitEntryCreated(res.path, 'file');
         return get().current === ws ? res.path : null;
       } catch (err) {
@@ -176,7 +177,7 @@ export function createWorkspaceFileActions(
       const ws = get().current;
       if (ws === null) return null;
       try {
-        const res = await workspaceService.createFolder(relPath);
+        const res = await workspaceFileOperationService.createFolder(relPath);
         if (get().current === ws) emitEntryCreated(res.path, 'folder');
         return get().current === ws ? res.path : null;
       } catch (err) {
@@ -197,7 +198,7 @@ export function createWorkspaceFileActions(
       }
       if (get().current !== ws) return null;
       try {
-        const res = await workspaceService.renameEntry(from, to, kind);
+        const res = await workspaceFileOperationService.renameEntry(from, to, kind);
         if (get().current !== ws) return null;
         if (res.renamed) {
           const rebound = rebindOpenFileForEntryRename(get().openFile, from, res.to, kind);
@@ -224,7 +225,7 @@ export function createWorkspaceFileActions(
       const wasOpen = isOpenFileDeletedByEntry(open, path, kind);
       if (wasOpen) set(closeEditorOverlayPatch());
       try {
-        const res = await workspaceService.deleteEntry(path, kind);
+        const res = await workspaceFileOperationService.deleteEntry(path, kind);
         if (res.deleted && get().current === ws) {
           const parentScope = parentFolderScopeAfterDelete(get().folderScope, path, kind);
           if (parentScope !== undefined) {
