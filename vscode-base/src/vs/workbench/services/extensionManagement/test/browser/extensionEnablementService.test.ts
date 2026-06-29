@@ -1222,6 +1222,11 @@ suite('ExtensionEnablementService Test', () => {
 		assert.strictEqual(testObject.getEnablementState(target), EnablementState.DisabledByAllowlist);
 	});
 
+	test('test system extension is disabled by allowed list', async () => {
+		const target = aLocalExtension2('unallowed.extension', {}, { type: ExtensionType.System });
+		assert.strictEqual(testObject.getEnablementState(target), EnablementState.DisabledByAllowlist);
+	});
+
 	test('test extension is disabled by malicious', async () => {
 		malicious.push({ id: 'malicious.extensionA' });
 		testObject = disposableStore.add(new TestExtensionEnablementService(instantiationService));
