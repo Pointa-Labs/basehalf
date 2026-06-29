@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaceFilesService } from '../src/platform/files/browser/workspaceFilesService.js';
+import { getWorkbenchAction } from '../src/workbench/browser/actions/workbenchActions.js';
+import {
+  WORKBENCH_OPEN_FOLDER_COMMAND_ID,
+  registerWorkspaceActions,
+  runOpenFolderAction,
+  workspaceWorkbenchActions,
+} from '../src/workbench/browser/actions/workspaceActions.js';
 import { useWorkspaceStore } from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // Pin the multi-window "Open Folder" semantics (pickAndAdd / addDroppedPaths /
@@ -145,6 +152,27 @@ describe('refresh', () => {
 });
 
 describe('pickAndAdd (File ▸ Open Folder)', () => {
+  it('registers the workbench Open Folder action idempotently', () => {
+    registerWorkspaceActions();
+    registerWorkspaceActions();
+
+    expect(getWorkbenchAction(WORKBENCH_OPEN_FOLDER_COMMAND_ID)?.label).toBe('Open Folder...');
+  });
+
+  it('exposes the workbench Open Folder action over the same open-or-focus flow', async () => {
+    pickResult = '/vault';
+    expect(workspaceWorkbenchActions.map((action) => action.id)).toContain(
+      WORKBENCH_OPEN_FOLDER_COMMAND_ID,
+    );
+
+    await runOpenFolderAction();
+
+    expect(registry.map((w) => w.name)).toEqual(['vault']);
+    expect(openCalls).toEqual(['vault']);
+    expect(runCalls).not.toContain('workspace.use');
+    expect(useWorkspaceStore.getState().error).toBe('');
+  });
+
   it('first folder: registers it and opens it (no extra workspace.use)', async () => {
     pickResult = '/vault';
     await useWorkspaceStore.getState().pickAndAdd();

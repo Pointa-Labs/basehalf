@@ -10,6 +10,8 @@ import { useCommandPaletteStore } from './commandPaletteStore.js';
  * Mirroring VS Code's quickinput split, provider/action assembly lives in
  * `commandPaletteActions`, focus and keyboard state lives in
  * `commandPaletteController`, and this file only wires those parts to the view.
+ * The host passes the quick access value/provider state through; provider
+ * adapters decide what rows and async data they own.
  */
 export const CommandPalette = (): JSX.Element | null => {
   const open = useCommandPaletteStore((s) => s.open);
@@ -22,6 +24,7 @@ export const CommandPalette = (): JSX.Element | null => {
   const { rows, matchMap } = useCommandPaletteRows({
     open,
     providerId: quickAccessProviderId,
+    value: quickAccessValue,
     query: quickAccessFilterValue,
   });
   useEffect(() => {

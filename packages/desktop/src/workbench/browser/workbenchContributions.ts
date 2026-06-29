@@ -12,7 +12,9 @@ import { useReadingMode } from '../services/editor/browser/readingModeStore.js';
 import { flushAll } from '../services/editor/common/editorFlush.js';
 import { workbenchFileChangeService } from '../services/files/browser/fileChangeService.js';
 import { useWorkspaceStore } from '../services/workspace/browser/workspaceStore.js';
+import { registerQuickAccessActions, runQuickOpenAction } from './actions/quickAccessActions.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './actions/workbenchActions.js';
+import { registerWorkspaceActions, runOpenFolderAction } from './actions/workspaceActions.js';
 import { useLayoutStore } from './layout/layoutStore.js';
 import { createCommandsQuickAccessContextSnapshot } from './quickaccess/commandPaletteWorkbenchContext.js';
 import { CommandsQuickAccessProvider } from './quickaccess/commandsQuickAccess.js';
@@ -32,6 +34,7 @@ export interface WorkbenchContributionsState {
  * workbench parts and hosts.
  */
 export function useWorkbenchContributions(state: WorkbenchContributionsState): void {
+  useWorkbenchActionContribution();
   registerScmWorkbenchContributions();
   useQuickAccessContribution();
   useInitialWorkspaceRefresh(state.refreshWorkspace);
@@ -46,6 +49,13 @@ export function useWorkbenchContributions(state: WorkbenchContributionsState): v
   useReadingModeContribution(state.current);
   useTransientNoticeContribution(state.notice, state.clearNotice);
   useUpdateContribution();
+}
+
+function useWorkbenchActionContribution(): void {
+  useEffect(() => {
+    registerQuickAccessActions();
+    registerWorkspaceActions();
+  }, []);
 }
 
 function useQuickAccessContribution(): void {
@@ -112,7 +122,7 @@ function useWorkbenchKeyboardContribution(): void {
         (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA');
       if (e.key === 'k') {
         e.preventDefault();
-        quickInputService.quickAccess.show();
+        runQuickOpenAction();
         return;
       }
       if (e.key === 'b' || e.key === 'B') {
@@ -158,10 +168,7 @@ function useExternalLinksContribution(): void {
 }
 
 function useWorkspaceMenuContribution(): void {
-  useEffect(
-    () => nativeHostService.onMenuOpenFolder(() => void useWorkspaceStore.getState().pickAndAdd()),
-    [],
-  );
+  useEffect(() => nativeHostService.onMenuOpenFolder(() => void runOpenFolderAction()), []);
 
   useEffect(
     () =>

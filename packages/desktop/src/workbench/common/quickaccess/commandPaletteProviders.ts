@@ -7,11 +7,16 @@ import type {
   CommandPaletteFileEntry,
   CommandPaletteSearchHit,
   CommandPaletteWorkspace,
+  IMatch,
 } from './commandPaletteModel.js';
+import { filterCommandPaletteActions } from './commandPaletteModel.js';
 
 export const DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID = 'basehalf.quickAccess.anything';
 export const COMMANDS_QUICK_ACCESS_ID = 'basehalf.quickAccess.commands';
 export const COMMANDS_QUICK_ACCESS_PREFIX = '>';
+export const WORKBENCH_QUICK_OPEN_COMMAND_ID = 'workbench.action.quickOpen';
+export const WORKBENCH_SHOW_COMMANDS_COMMAND_ID = 'workbench.action.showCommands';
+export const WORKBENCH_OPEN_FOLDER_COMMAND_ID = 'workbench.action.files.openFolder';
 
 export type CommandPaletteProviderDescriptor = Pick<
   QuickAccessProviderDescriptor,
@@ -21,7 +26,9 @@ export type CommandPaletteProviderDescriptor = Pick<
 export interface CommandPaletteQuickAccessProvider {
   readonly descriptor: CommandPaletteProviderDescriptor;
   readonly includeAdditionalPicks: boolean;
+  readonly dataRequirements: CommandPaletteQuickAccessDataRequirements;
   readonly buildActions: (args: BuildCommandPaletteActionsBaseArgs) => CommandPaletteAction[];
+  readonly buildRows: (args: BuildCommandPaletteRowsArgs) => CommandPaletteRowsBuildResult;
 }
 
 export interface CommandPaletteQuickAccessContribution {
@@ -62,10 +69,33 @@ export interface BuildCommandPaletteActionsArgs extends BuildCommandPaletteActio
   readonly providerId?: string;
 }
 
+export interface BuildCommandPaletteRowsArgs extends BuildCommandPaletteActionsArgs {
+  readonly query: string;
+  readonly contentHits: readonly CommandPaletteSearchHit[];
+  readonly hitsQuery: string;
+  readonly hitsWorkspace: string | null;
+}
+
+export interface CommandPaletteRowsBuildResult {
+  readonly rows: readonly CommandPaletteAction[];
+  readonly matchMap: Map<string, IMatch[]>;
+}
+
+export interface CommandPaletteQuickAccessDataRequirements {
+  readonly files: boolean;
+  readonly contentSearch: boolean;
+  readonly gitState: boolean;
+}
+
+export interface CommandPaletteQuickAccessProviderState {
+  readonly providerId?: string;
+  readonly value?: string;
+}
+
 const commandPaletteQuickAccessHelpEntries: readonly QuickAccessProviderHelp[] = [
   {
     description: 'Switch workspace, open a file, or run an action',
-    commandId: 'workbench.action.quickOpen',
+    commandId: WORKBENCH_QUICK_OPEN_COMMAND_ID,
   },
 ];
 
@@ -73,7 +103,7 @@ const commandsQuickAccessHelpEntries: readonly QuickAccessProviderHelp[] = [
   {
     prefix: COMMANDS_QUICK_ACCESS_PREFIX,
     description: 'Show and run commands',
-    commandId: 'workbench.action.showCommands',
+    commandId: WORKBENCH_SHOW_COMMANDS_COMMAND_ID,
   },
 ];
 
@@ -85,12 +115,18 @@ const defaultCommandPaletteQuickAccessProvider: CommandPaletteQuickAccessProvide
     helpEntries: commandPaletteQuickAccessHelpEntries,
   },
   includeAdditionalPicks: true,
+  dataRequirements: {
+    files: true,
+    contentSearch: true,
+    gitState: true,
+  },
   buildActions: (args) => [
     ...workspacePicks(args),
     ...filePicks(args),
     ...chromeActionPicks(args),
     ...contributionPicks(args),
   ],
+  buildRows: (args) => buildDefaultCommandPaletteRows(args),
 };
 
 const commandsQuickAccessProvider: CommandPaletteQuickAccessProvider = {
@@ -101,7 +137,13 @@ const commandsQuickAccessProvider: CommandPaletteQuickAccessProvider = {
     helpEntries: commandsQuickAccessHelpEntries,
   },
   includeAdditionalPicks: false,
+  dataRequirements: {
+    files: false,
+    contentSearch: false,
+    gitState: true,
+  },
   buildActions: (args) => [...chromeActionPicks(args), ...contributionPicks(args)],
+  buildRows: (args) => buildCommandsQuickAccessRows(args),
 };
 
 export const COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS: readonly CommandPaletteQuickAccessProvider[] =
@@ -117,6 +159,31 @@ export function commandPaletteQuickAccessProviderForId(
   );
 }
 
+export function commandPaletteQuickAccessProviderForValue(
+  value: string | undefined,
+): CommandPaletteQuickAccessProvider {
+  if (value !== undefined && value.length > 0) {
+    const explicit = [...COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS]
+      .filter((provider) => provider.descriptor.prefix.length > 0)
+      .sort((a, b) => b.descriptor.prefix.length - a.descriptor.prefix.length)
+      .find((provider) => value.startsWith(provider.descriptor.prefix));
+    if (explicit !== undefined) return explicit;
+  }
+  return defaultCommandPaletteQuickAccessProvider;
+}
+
+export function commandPaletteQuickAccessProviderForState(
+  state: CommandPaletteQuickAccessProviderState,
+): CommandPaletteQuickAccessProvider {
+  const idMatch =
+    state.providerId === undefined
+      ? undefined
+      : COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS.find(
+          (provider) => provider.descriptor.id === state.providerId,
+        );
+  return idMatch ?? commandPaletteQuickAccessProviderForValue(state.value);
+}
+
 export function commandPaletteProviderIncludesAdditionalPicks(
   providerId: string | undefined,
 ): boolean {
@@ -127,6 +194,14 @@ export function buildCommandPaletteActions(
   args: BuildCommandPaletteActionsArgs,
 ): CommandPaletteAction[] {
   return commandPaletteQuickAccessProviderForId(args.providerId).buildActions(args);
+}
+
+export function buildCommandPaletteRows(
+  args: BuildCommandPaletteRowsArgs,
+): CommandPaletteRowsBuildResult {
+  return commandPaletteQuickAccessProviderForState({
+    ...(args.providerId !== undefined && { providerId: args.providerId }),
+  }).buildRows(args);
 }
 
 function workspacePicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
@@ -172,7 +247,7 @@ function filePicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteActi
 function chromeActionPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
   const out: CommandPaletteAction[] = [
     {
-      id: 'action:add-folder',
+      id: WORKBENCH_OPEN_FOLDER_COMMAND_ID,
       label: 'Add folder…',
       category: 'Action',
       run: args.pickAndAdd,
@@ -278,4 +353,49 @@ export function combineCommandPaletteRows(
   gitMatches: readonly CommandPaletteAction[],
 ): CommandPaletteAction[] {
   return [...filtered, ...contentActions, ...gitMatches];
+}
+
+function buildDefaultCommandPaletteRows(
+  args: BuildCommandPaletteRowsArgs,
+): CommandPaletteRowsBuildResult {
+  const actions = defaultCommandPaletteQuickAccessProvider.buildActions(args);
+  const { filtered, matchMap } = filterCommandPaletteActions({
+    actions,
+    query: args.query,
+    current: args.current,
+    ...(args.recentFiles !== undefined && { recentFiles: args.recentFiles }),
+  });
+  const contentActions = buildContentSearchActions({
+    contentHits: args.contentHits,
+    hitsQuery: args.hitsQuery,
+    hitsWorkspace: args.hitsWorkspace,
+    current: args.current,
+    query: args.query,
+    filtered,
+    openFile: args.openFile,
+  });
+  const contributedAdditionalActions = buildCommandPaletteAdditionalActions({
+    query: args.query,
+    filtered,
+    ...(args.quickAccessContributions !== undefined && {
+      quickAccessContributions: args.quickAccessContributions,
+    }),
+  });
+  return {
+    rows: combineCommandPaletteRows(filtered, contentActions, contributedAdditionalActions),
+    matchMap,
+  };
+}
+
+function buildCommandsQuickAccessRows(
+  args: BuildCommandPaletteRowsArgs,
+): CommandPaletteRowsBuildResult {
+  const actions = commandsQuickAccessProvider.buildActions(args);
+  const { filtered, matchMap } = filterCommandPaletteActions({
+    actions,
+    query: args.query,
+    current: args.current,
+    ...(args.recentFiles !== undefined && { recentFiles: args.recentFiles }),
+  });
+  return { rows: filtered, matchMap };
 }

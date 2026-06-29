@@ -1,15 +1,11 @@
 import { useMemo } from 'react';
-import {
-  type CommandPaletteAction as Action,
-  type IMatch,
-  filterCommandPaletteActions,
+import type {
+  CommandPaletteAction as Action,
+  IMatch,
 } from '../../common/quickaccess/commandPaletteModel.js';
 import {
-  buildCommandPaletteActions,
-  buildCommandPaletteAdditionalActions,
-  buildContentSearchActions,
-  combineCommandPaletteRows,
-  commandPaletteProviderIncludesAdditionalPicks,
+  buildCommandPaletteRows,
+  commandPaletteQuickAccessProviderForState,
 } from '../../common/quickaccess/commandPaletteProviders.js';
 import { createGitQuickAccessContribution } from '../../contrib/scm/browser/gitQuickAccessContribution.js';
 import {
@@ -27,21 +23,39 @@ export interface CommandPaletteRowsResult {
 export function useCommandPaletteRows(args: {
   readonly open: boolean;
   readonly providerId?: string;
+  readonly value: string;
   readonly query: string;
 }): CommandPaletteRowsResult {
   const workbench = useCommandPaletteWorkbenchContext();
-  const includeAdditionalPicks = commandPaletteProviderIncludesAdditionalPicks(args.providerId);
+  const provider = useMemo(
+    () =>
+      commandPaletteQuickAccessProviderForState({
+        value: args.value,
+        ...(args.providerId !== undefined && { providerId: args.providerId }),
+      }),
+    [args.providerId, args.value],
+  );
+  const dataRequirements = provider.dataRequirements;
 
-  const { files, filesWorkspace } = useCommandPaletteFiles(args.open, workbench.current);
-  const { contentHits, hitsQuery, hitsWorkspace } = useCommandPaletteContentSearch(
-    args.open && includeAdditionalPicks,
+  const filesData = useCommandPaletteFiles(args.open && dataRequirements.files, workbench.current);
+  const contentData = useCommandPaletteContentSearch(
+    args.open && dataRequirements.contentSearch,
     workbench.current,
     args.query,
   );
-  const { gitRepo, gitBranches, gitCommits, gitWorkspace } = useCommandPaletteGitState(
-    args.open,
+  const gitData = useCommandPaletteGitState(
+    args.open && dataRequirements.gitState,
     workbench.current,
   );
+  const files = dataRequirements.files ? filesData.files : [];
+  const filesWorkspace = dataRequirements.files ? filesData.filesWorkspace : null;
+  const contentHits = dataRequirements.contentSearch ? contentData.contentHits : [];
+  const hitsQuery = dataRequirements.contentSearch ? contentData.hitsQuery : '';
+  const hitsWorkspace = dataRequirements.contentSearch ? contentData.hitsWorkspace : null;
+  const gitRepo = dataRequirements.gitState ? gitData.gitRepo : false;
+  const gitBranches = dataRequirements.gitState ? gitData.gitBranches : [];
+  const gitCommits = dataRequirements.gitState ? gitData.gitCommits : [];
+  const gitWorkspace = dataRequirements.gitState ? gitData.gitWorkspace : null;
   const quickAccessContributions = useMemo(
     () => [
       createGitQuickAccessContribution({
@@ -77,12 +91,12 @@ export function useCommandPaletteRows(args: {
     ],
   );
 
-  const actions = useMemo<Action[]>(
+  const { rows, matchMap } = useMemo(
     () =>
-      buildCommandPaletteActions({
+      buildCommandPaletteRows({
         workspaces: workbench.workspaces,
         current: workbench.current,
-        providerId: args.providerId,
+        ...(provider.descriptor.id !== undefined && { providerId: provider.descriptor.id }),
         files,
         filesWorkspace,
         recentFiles: workbench.recentFiles,
@@ -96,64 +110,22 @@ export function useCommandPaletteRows(args: {
         promptForNewNote: workbench.promptForNewNote,
         openSettings: workbench.openSettings,
         quickAccessContributions,
-      }),
-    [workbench, files, filesWorkspace, quickAccessContributions, args.providerId],
-  );
-
-  const { filtered, matchMap } = useMemo<{
-    filtered: Action[];
-    matchMap: Map<string, IMatch[]>;
-  }>(
-    () =>
-      filterCommandPaletteActions({
-        actions,
         query: args.query,
-        current: workbench.current,
-        recentFiles: workbench.recentFiles,
+        contentHits,
+        hitsQuery,
+        hitsWorkspace,
       }),
-    [actions, args.query, workbench.current, workbench.recentFiles],
-  );
-
-  const contentActions = useMemo<Action[]>(
-    () =>
-      includeAdditionalPicks
-        ? buildContentSearchActions({
-            contentHits,
-            hitsQuery,
-            hitsWorkspace,
-            current: workbench.current,
-            query: args.query,
-            filtered,
-            openFile: workbench.openFile,
-          })
-        : [],
     [
-      includeAdditionalPicks,
+      workbench,
+      provider.descriptor.id,
+      files,
+      filesWorkspace,
+      quickAccessContributions,
+      args.query,
       contentHits,
       hitsQuery,
       hitsWorkspace,
-      workbench.current,
-      args.query,
-      filtered,
-      workbench.openFile,
     ],
-  );
-
-  const contributedAdditionalActions = useMemo<Action[]>(
-    () =>
-      includeAdditionalPicks
-        ? buildCommandPaletteAdditionalActions({
-            query: args.query,
-            filtered,
-            quickAccessContributions,
-          })
-        : [],
-    [includeAdditionalPicks, args.query, filtered, quickAccessContributions],
-  );
-
-  const rows = useMemo(
-    () => combineCommandPaletteRows(filtered, contentActions, contributedAdditionalActions),
-    [filtered, contentActions, contributedAdditionalActions],
   );
 
   return { rows, matchMap };

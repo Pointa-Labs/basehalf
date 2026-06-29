@@ -1,8 +1,8 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { quickInputService } from '../../../../platform/quickinput/browser/quickInputService.js';
 import { UpdateChip } from '../../../contrib/update/browser/UpdateChip.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
+import { runQuickOpenAction } from '../../actions/quickAccessActions.js';
 import { useLayoutStore } from '../../layout/layoutStore.js';
 import { color, font, radius, space, transition } from '../../style/design.js';
 import { selectRegion } from '../../workbenchRegion.js';
@@ -192,7 +192,7 @@ export const TitleBar = (): JSX.Element | null => {
       <div style={centerZone}>
         <button
           type="button"
-          onClick={() => quickInputService.quickAccess.show()}
+          onClick={() => runQuickOpenAction()}
           onMouseEnter={() => setBoxHover(true)}
           onMouseLeave={() => setBoxHover(false)}
           aria-label="Search and commands"

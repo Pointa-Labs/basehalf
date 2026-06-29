@@ -17,6 +17,7 @@ import type { GitRefInfo } from '../../contrib/scm/common/git.js';
 import { historyService } from '../../services/history/browser/historyService.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/workbenchActions.js';
+import { runOpenFolderAction } from '../actions/workspaceActions.js';
 import { useLayoutStore } from '../layout/layoutStore.js';
 
 export interface CommandPaletteWorkbenchContext
@@ -63,7 +64,7 @@ export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteA
     tildifyPath,
     useWorkspace: (name: string) => void useWorkspaceStore.getState().use(name),
     openFile: (file, opts) => useWorkspaceStore.getState().openInPanel(file, opts),
-    pickAndAdd: () => void useWorkspaceStore.getState().pickAndAdd(),
+    pickAndAdd: () => void runOpenFolderAction(),
     createDemo: () => void createDemoAtDefault(),
     newNote: () => void useWorkspaceStore.getState().newNote(),
     promptForNewNote: () => void promptForNewNote(),
@@ -88,7 +89,6 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
   const current = useWorkspaceStore((s) => s.current);
   const use = useWorkspaceStore((s) => s.use);
   const openInPanel = useWorkspaceStore((s) => s.openInPanel);
-  const pickAndAdd = useWorkspaceStore((s) => s.pickAndAdd);
   const recentFiles = useWorkspaceStore((s) =>
     s.current === null ? [] : historyService.recentFilesFor(s.current),
   );
@@ -103,7 +103,7 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
       tildifyPath,
       useWorkspace: (name: string) => void use(name),
       openFile: openInPanel,
-      pickAndAdd: () => void pickAndAdd(),
+      pickAndAdd: () => void runOpenFolderAction(),
       createDemo: () => void createDemoAtDefault(),
       newNote: () => void useWorkspaceStore.getState().newNote(),
       promptForNewNote: () => void promptForNewNote(),
@@ -116,7 +116,7 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
       checkoutBranch,
       revealCommit: revealCommitInGraph,
     }),
-    [workspaces, current, recentFiles, use, openInPanel, pickAndAdd, checkoutBranch],
+    [workspaces, current, recentFiles, use, openInPanel, checkoutBranch],
   );
 }
 

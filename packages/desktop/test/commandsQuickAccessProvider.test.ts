@@ -14,7 +14,10 @@ import type {
 } from '../src/workbench/browser/quickaccess/commandsQuickAccess.js';
 import { CommandsQuickAccessProvider } from '../src/workbench/browser/quickaccess/commandsQuickAccess.js';
 import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
-import type { BuildCommandPaletteActionsBaseArgs } from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
+import {
+  type BuildCommandPaletteActionsBaseArgs,
+  WORKBENCH_OPEN_FOLDER_COMMAND_ID,
+} from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
 import { createGitQuickAccessContribution } from '../src/workbench/contrib/scm/browser/gitQuickAccessContribution.js';
 
 class CapturingCommandsQuickAccessProvider extends CommandsQuickAccessProvider {
@@ -42,7 +45,7 @@ describe('CommandsQuickAccessProvider', () => {
 
     const ids = commandIds(provider);
     expect(ids).toEqual(
-      expect.arrayContaining(['action:add-folder', 'action:new-note', 'git:init']),
+      expect.arrayContaining([WORKBENCH_OPEN_FOLDER_COMMAND_ID, 'action:new-note', 'git:init']),
     );
     expect(ids).not.toContain('ws:docs');
     expect(ids).not.toContain('file:notes.md');

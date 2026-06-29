@@ -11,6 +11,28 @@ import { confirm, prompt } from '../../../platform/dialogs/browser/dialogService
 import { nativeHostService } from '../../../platform/native/browser/nativeHostService.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 
+export interface WorkbenchActionDescriptor {
+  readonly id: string;
+  readonly label: string;
+  readonly category?: string;
+  readonly shortcut?: string;
+  readonly run: (...args: readonly unknown[]) => void | Promise<void>;
+}
+
+const workbenchActions = new Map<string, WorkbenchActionDescriptor>();
+
+export function registerWorkbenchAction(action: WorkbenchActionDescriptor): void {
+  workbenchActions.set(action.id, action);
+}
+
+export function getWorkbenchAction(id: string): WorkbenchActionDescriptor | undefined {
+  return workbenchActions.get(id);
+}
+
+export function listWorkbenchActions(): readonly WorkbenchActionDescriptor[] {
+  return [...workbenchActions.values()];
+}
+
 /** Default location for the demo workspace. Both the welcome page's "Open a
  *  demo" button and the palette "Try a demo workspace…" action use this
  *  path so they're idempotent against each other (createDemo itself is

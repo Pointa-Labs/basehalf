@@ -10,10 +10,13 @@ import {
   COMMANDS_QUICK_ACCESS_PREFIX,
   COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS,
   DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+  WORKBENCH_OPEN_FOLDER_COMMAND_ID,
   buildCommandPaletteActions,
   buildCommandPaletteAdditionalActions,
+  buildCommandPaletteRows,
   buildContentSearchActions,
   commandPaletteProviderIncludesAdditionalPicks,
+  commandPaletteQuickAccessProviderForState,
 } from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
 import { checkoutTargetForRef } from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
 import {
@@ -174,7 +177,7 @@ describe('commandPaletteModel', () => {
     expect(actions.map((item) => item.id)).not.toContain('ws:docs');
     expect(actions.map((item) => item.id)).not.toContain('file:notes/today.md');
     expect(actions.map((item) => item.id)).toEqual(
-      expect.arrayContaining(['action:add-folder', 'action:new-note', 'git:init']),
+      expect.arrayContaining([WORKBENCH_OPEN_FOLDER_COMMAND_ID, 'action:new-note', 'git:init']),
     );
   });
 
@@ -209,6 +212,79 @@ describe('commandPaletteModel', () => {
       commandPaletteProviderIncludesAdditionalPicks(DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID),
     ).toBe(true);
     expect(commandPaletteProviderIncludesAdditionalPicks(COMMANDS_QUICK_ACCESS_ID)).toBe(false);
+    expect(
+      commandPaletteQuickAccessProviderForState({ value: `${COMMANDS_QUICK_ACCESS_PREFIX}git` })
+        .descriptor.id,
+    ).toBe(COMMANDS_QUICK_ACCESS_ID);
+    expect(commandPaletteQuickAccessProviderForState({ value: 'notes' }).descriptor.id).toBe(
+      DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+    );
+    expect(
+      COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS.map((provider) => [
+        provider.descriptor.id,
+        provider.dataRequirements,
+      ]),
+    ).toEqual([
+      [
+        DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+        { files: true, contentSearch: true, gitState: true },
+      ],
+      [COMMANDS_QUICK_ACCESS_ID, { files: false, contentSearch: false, gitState: true }],
+    ]);
+  });
+
+  it('builds rows through provider-owned row adapters', () => {
+    const baseArgs = {
+      workspaces: [{ name: 'main', path: '/repo/main' }],
+      current: 'main',
+      files: [{ file: 'notes/branch.md', prompt: 'branch planning' }],
+      filesWorkspace: 'main',
+      recentFiles: [],
+      modifierLabel: 'Ctrl+',
+      tildifyPath: (path: string) => path,
+      useWorkspace: vi.fn(),
+      openFile: vi.fn(),
+      pickAndAdd: vi.fn(),
+      createDemo: vi.fn(),
+      newNote: vi.fn(),
+      promptForNewNote: vi.fn(),
+      openSettings: vi.fn(),
+      quickAccessContributions: [
+        {
+          id: 'test.contrib',
+          buildActions: () => [action('contrib:branch', 'Branch Command')],
+          buildAdditionalActions: ({ query }: { readonly query: string }) => [
+            action(`extra:${query}`, 'Extra Branch'),
+          ],
+        },
+      ],
+      query: 'branch',
+      contentHits: [{ file: 'search.md', matches: [{ text: 'branch from content' }] }],
+      hitsQuery: 'branch',
+      hitsWorkspace: 'main',
+    };
+
+    const defaultRows = buildCommandPaletteRows({
+      ...baseArgs,
+      providerId: DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
+    }).rows.map((item) => item.id);
+    const commandsRows = buildCommandPaletteRows({
+      ...baseArgs,
+      providerId: COMMANDS_QUICK_ACCESS_ID,
+    }).rows.map((item) => item.id);
+
+    expect(defaultRows).toEqual(
+      expect.arrayContaining([
+        'file:notes/branch.md',
+        'contrib:branch',
+        'search:search.md',
+        'extra:branch',
+      ]),
+    );
+    expect(commandsRows).toContain('contrib:branch');
+    expect(commandsRows).not.toContain('file:notes/branch.md');
+    expect(commandsRows).not.toContain('search:search.md');
+    expect(commandsRows).not.toContain('extra:branch');
   });
 
   it('empty query returns recent file picks before falling back to non-file actions', () => {
