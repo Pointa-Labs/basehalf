@@ -1,8 +1,8 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
 import { fileUrl } from '../../../../../platform/files/common/fileUrl.js';
-import { workspaceService } from '../../../../../platform/workspaces/browser/workspaceService.js';
 import type { BadgeType } from '../../../../browser/labels/FileGlyph.js';
 import { color, font, radius, space } from '../../../../browser/style/design.js';
+import { workspaceCanvasDataService } from '../../../../services/workspace/browser/workspaceCanvasDataService.js';
 import { UnifiedDiff } from '../../../multiDiffEditor/browser/UnifiedDiff.js';
 import { useFileDiff } from '../../../multiDiffEditor/browser/useFileDiff.js';
 import { PREVIEW_CHARS } from './badgeNodeModel.js';
@@ -155,7 +155,7 @@ function usePreviewSource(label: string): string | null {
     void (async () => {
       let out: PreviewContent;
       try {
-        const res = await workspaceService.readFile(label, { maxChars: PREVIEW_CHARS });
+        const res = await workspaceCanvasDataService.readFile(label, { maxChars: PREVIEW_CHARS });
         out = { text: res.content.slice(0, PREVIEW_CHARS).trimEnd() };
       } catch {
         out = { text: '' };

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { type PickOption, pick } from '../../../../platform/dialogs/browser/dialogService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { registerFlusher, unregisterFlusher } from '../../../services/editor/common/editorFlush.js';
 import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
 import { badgeMutations } from '../../../services/mirror/browser/badgeMutations.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
 import type { BadgeFile, BadgeKind } from '../../../services/mirror/common/badge.js';
+import { workspaceCanvasDataService } from '../../../services/workspace/browser/workspaceCanvasDataService.js';
 
 // Everything about ONE badge (file OR folder) — load, autosave, references,
 // inbound, and cross-surface sync — lives here, so the badge UI (the in-card
@@ -174,7 +174,7 @@ export function useFileBadge(
     const folder = kind === 'folder' ? file : slashIdx === -1 ? null : file.slice(0, slashIdx);
     let options: PickOption[];
     try {
-      const res = await workspaceService.listCanvas(folder);
+      const res = await workspaceCanvasDataService.listCanvas(folder);
       const existing = new Set(badge?.references ?? []);
       options = res.children
         .filter((b) => b.kind === 'file' && b.path !== file && !existing.has(b.path))

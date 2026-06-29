@@ -2,8 +2,8 @@ import type { Connection, Edge, Node } from '@xyflow/react';
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { flushSync } from 'react-dom';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { badgeMutations } from '../../../services/mirror/browser/badgeMutations.js';
+import { workspaceCanvasDataService } from '../../../services/workspace/browser/workspaceCanvasDataService.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import type { BadgeNodeData } from './badge-node/badgeNodeModel.js';
 import {
@@ -54,7 +54,7 @@ export function useCanvasEdgeCommands({
 
   const resetReferenceEdgesFromCanvasListing = useCallback(
     async (workspace: string | null, folder: string | null): Promise<boolean> => {
-      const { children, edges: canvasEdges } = await workspaceService.listCanvas(folder);
+      const { children, edges: canvasEdges } = await workspaceCanvasDataService.listCanvas(folder);
       if (!stillShowingContext(workspace, folder)) return false;
       setEdges(connectionEdges(canvasEdges, nodesRef.current));
       const refCounts = new Map(children.map((badge) => [badge.path, badge.references.length]));

@@ -1,10 +1,12 @@
 import type { Viewport } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { MutableRefObject } from 'react';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { ViewportState } from '../../../../platform/workspaces/common/workspaces.js';
 import { focusService } from '../../../services/mirror/browser/focusService.js';
 import { mirrorWritesSuspended } from '../../../services/mirror/browser/mirrorWrites.js';
+import {
+  type WorkspaceCanvasViewportState,
+  workspaceCanvasDataService,
+} from '../../../services/workspace/browser/workspaceCanvasDataService.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import {
   VIEWPORT_DEBOUNCE,
@@ -14,7 +16,7 @@ import {
 
 export interface CanvasViewportModel {
   readonly viewportRef: MutableRefObject<Viewport>;
-  readonly rootViewportRef: MutableRefObject<ViewportState | null>;
+  readonly rootViewportRef: MutableRefObject<WorkspaceCanvasViewportState | null>;
   readonly folderScopeRef: MutableRefObject<string | null>;
   readonly onMove: (_event: unknown, viewport: Viewport) => void;
   readonly onMoveEnd: (_event: unknown, viewport: Viewport) => void;
@@ -32,12 +34,12 @@ export function useCanvasViewportModel({
   readonly canvasRootRef: MutableRefObject<HTMLDivElement | null>;
   readonly current: string | null;
   readonly currentReachable: boolean | null;
-  readonly currentWorkspaceViewport: ViewportState | null;
+  readonly currentWorkspaceViewport: WorkspaceCanvasViewportState | null;
   readonly folderScope: string | null;
   readonly openFile: string | null;
 }): CanvasViewportModel {
   const viewportRef = useRef<Viewport>({ x: 0, y: 0, zoom: 1 });
-  const rootViewportRef = useRef<ViewportState | null>(null);
+  const rootViewportRef = useRef<WorkspaceCanvasViewportState | null>(null);
   const rootViewportWorkspaceRef = useRef<string | null>(current);
   const folderScopeRef = useRef<string | null>(folderScope);
 
@@ -66,9 +68,9 @@ export function useCanvasViewportModel({
 
   const persistViewport = useMemo(
     () =>
-      debounce((viewport: ViewportState) => {
+      debounce((viewport: WorkspaceCanvasViewportState) => {
         if (mirrorWritesSuspended()) return;
-        void workspaceService.setViewport(viewport).catch(() => undefined);
+        void workspaceCanvasDataService.setViewport(viewport).catch(() => undefined);
       }, VIEWPORT_DEBOUNCE),
     [],
   );

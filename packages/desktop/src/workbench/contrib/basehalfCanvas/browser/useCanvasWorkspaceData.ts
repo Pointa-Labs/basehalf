@@ -2,10 +2,12 @@ import type { Edge, Node } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { ViewportState } from '../../../../platform/workspaces/common/workspaces.js';
 import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
+import {
+  type WorkspaceCanvasViewportState,
+  workspaceCanvasDataService,
+} from '../../../services/workspace/browser/workspaceCanvasDataService.js';
 import {
   subscribeEntryRemoved,
   subscribeEntryRenamed,
@@ -27,7 +29,7 @@ export interface CanvasWorkspaceDataState {
   readonly snapGuides: readonly CanvasSnapGuide[];
   readonly error: string;
   readonly truncated: number;
-  readonly frame: { key: string; vp: ViewportState | null } | null;
+  readonly frame: { key: string; vp: WorkspaceCanvasViewportState | null } | null;
 }
 
 export interface CanvasWorkspaceDataModel extends CanvasWorkspaceDataState {
@@ -48,16 +50,19 @@ export function useCanvasWorkspaceData({
 }: {
   readonly current: string | null;
   readonly currentReachable: boolean | null;
-  readonly currentWorkspaceViewport: ViewportState | null;
+  readonly currentWorkspaceViewport: WorkspaceCanvasViewportState | null;
   readonly folderScope: string | null;
-  readonly rootViewportRef: MutableRefObject<ViewportState | null>;
+  readonly rootViewportRef: MutableRefObject<WorkspaceCanvasViewportState | null>;
 }): CanvasWorkspaceDataModel {
   const [nodes, setNodes] = useState<Node<BadgeNodeData>[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [snapGuides, setSnapGuides] = useState<readonly CanvasSnapGuide[]>([]);
   const [error, setError] = useState<string>('');
   const [truncated, setTruncated] = useState(0);
-  const [frame, setFrame] = useState<{ key: string; vp: ViewportState | null } | null>(null);
+  const [frame, setFrame] = useState<{
+    key: string;
+    vp: WorkspaceCanvasViewportState | null;
+  } | null>(null);
   const loadContextKey = `${current ?? ''}\0${currentReachable ?? ''}\0${folderScope ?? ''}`;
   const nodesRef = useRef<readonly Node<BadgeNodeData>[]>([]);
   const loadSeqRef = useRef(0);
@@ -82,7 +87,7 @@ export function useCanvasWorkspaceData({
         children,
         edges: canvasEdges,
         truncated: held,
-      } = await workspaceService.listCanvas(folderScope);
+      } = await workspaceCanvasDataService.listCanvas(folderScope);
       if (!fresh()) return;
       const nextNodes = children.map((badge, index) => badgeToNode(badge, index, children.length));
       setNodes(nextNodes);
@@ -113,7 +118,7 @@ export function useCanvasWorkspaceData({
         );
         let filesAll: string[] = [];
         if (children.some((badge) => badge.kind === 'folder')) {
-          filesAll = [...(await workspaceService.listSupportedFiles(null))];
+          filesAll = [...(await workspaceCanvasDataService.listSupportedFiles(null))];
         }
         if (!fresh()) return;
         if (filesAll.length > 0) {
