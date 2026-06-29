@@ -26,17 +26,27 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			update: new ArrayBuffer(2)
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.save',
+			key: 'workspace\u0000doc.md',
+			requestId: 'save-1',
+			forceSerialize: true,
+			forceWrite: false
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.saveResult',
 			key: 'workspace\u0000doc.md',
+			requestId: 'save-1',
 			result: 'blockedByConflict',
+			disk: 'External edits\n',
 			message: 'External edits'
 		}), true);
 
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: '' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'other.init', key: 'workspace\u0000doc.md' }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', result: 'maybe' }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', result: 'saved', message: 1 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);
 	});
 
 	test('recognizes valid webview messages and validates byte payloads', () => {
@@ -48,6 +58,19 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.yjsUpdate',
 			key: 'workspace\u0000doc.md',
 			update: [0, 1, 255]
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.saveRequested',
+			key: 'workspace\u0000doc.md',
+			requestId: 'save-1',
+			content: '# Edited\n',
+			previousContent: '# Before\n',
+			forceWrite: false
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.dirtyChanged',
+			key: 'workspace\u0000doc.md',
+			dirty: true
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.focusChanged',
@@ -64,6 +87,18 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.yjsUpdate',
 			key: 'workspace\u0000doc.md',
 			update: [256]
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.saveRequested',
+			key: 'workspace\u0000doc.md',
+			requestId: 'save-1',
+			content: '# Edited\n',
+			previousContent: '# Before\n'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.dirtyChanged',
+			key: 'workspace\u0000doc.md',
+			dirty: 'yes'
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.error',

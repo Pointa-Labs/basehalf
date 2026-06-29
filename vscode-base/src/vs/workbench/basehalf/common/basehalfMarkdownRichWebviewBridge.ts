@@ -54,12 +54,29 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	sendSaveResult(result: 'saved' | 'noop' | 'blockedByConflict' | 'writeFailed', message?: string): Promise<boolean> {
+	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean }): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.save',
+			key: this.key,
+			requestId,
+			forceSerialize: options.forceSerialize,
+			forceWrite: options.forceWrite
+		});
+	}
+
+	sendSaveResult(
+		requestId: string,
+		result: 'saved' | 'noop' | 'blockedByConflict' | 'writeFailed',
+		options: { readonly content?: string; readonly disk?: string; readonly message?: string } = {}
+	): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.saveResult',
 			key: this.key,
+			requestId,
 			result,
-			...(message !== undefined ? { message } : {})
+			...(options.content !== undefined ? { content: options.content } : {}),
+			...(options.disk !== undefined ? { disk: options.disk } : {}),
+			...(options.message !== undefined ? { message: options.message } : {})
 		});
 	}
 

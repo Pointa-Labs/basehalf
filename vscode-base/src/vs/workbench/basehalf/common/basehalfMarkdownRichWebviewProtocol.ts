@@ -27,9 +27,19 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.save';
+		readonly key: string;
+		readonly requestId: string;
+		readonly forceSerialize: boolean;
+		readonly forceWrite: boolean;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.saveResult';
 		readonly key: string;
+		readonly requestId: string;
 		readonly result: 'saved' | 'noop' | 'blockedByConflict' | 'writeFailed';
+		readonly content?: string;
+		readonly disk?: string;
 		readonly message?: string;
 	};
 
@@ -46,6 +56,15 @@ export type BaseHalfMarkdownRichWebviewMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.saveRequested';
 		readonly key: string;
+		readonly requestId: string;
+		readonly content: string;
+		readonly previousContent: string;
+		readonly forceWrite: boolean;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.dirtyChanged';
+		readonly key: string;
+		readonly dirty: boolean;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.focusChanged';
@@ -79,11 +98,20 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
 			return typeof candidate.editable === 'boolean';
+		case 'basehalf.markdownRich.save':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.forceSerialize === 'boolean'
+				&& typeof candidate.forceWrite === 'boolean';
 		case 'basehalf.markdownRich.saveResult':
-			return (candidate.result === 'saved'
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& (candidate.result === 'saved'
 				|| candidate.result === 'noop'
 				|| candidate.result === 'blockedByConflict'
 				|| candidate.result === 'writeFailed')
+				&& (candidate.content === undefined || typeof candidate.content === 'string')
+				&& (candidate.disk === undefined || typeof candidate.disk === 'string')
 				&& (candidate.message === undefined || typeof candidate.message === 'string');
 		default:
 			return false;
@@ -98,8 +126,15 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 
 	switch (candidate.type) {
 		case 'basehalf.markdownRich.ready':
-		case 'basehalf.markdownRich.saveRequested':
 			return true;
+		case 'basehalf.markdownRich.saveRequested':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.content === 'string'
+				&& typeof candidate.previousContent === 'string'
+				&& typeof candidate.forceWrite === 'boolean';
+		case 'basehalf.markdownRich.dirtyChanged':
+			return typeof candidate.dirty === 'boolean';
 		case 'basehalf.markdownRich.yjsUpdate':
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
 		case 'basehalf.markdownRich.focusChanged':

@@ -12,14 +12,15 @@ import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTranspor
 suite('BaseHalfMarkdownRichWebviewBridge', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('sends init, editable, and save result host messages', async () => {
+	test('sends init, editable, save, and save result host messages', async () => {
 		const host = new YDoc();
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
 
 		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', '# Doc\n', true), true);
 		assert.strictEqual(await bridge.sendEditable(false), true);
-		assert.strictEqual(await bridge.sendSaveResult('blockedByConflict', 'Disk changed'), true);
+		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
+		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 
 		assert.deepStrictEqual(transport.messages.map(entry => entry.message), [
 			{
@@ -35,9 +36,18 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				editable: false
 			},
 			{
+				type: 'basehalf.markdownRich.save',
+				key: 'workspace\u0000doc.md',
+				requestId: 'save-1',
+				forceSerialize: true,
+				forceWrite: false
+			},
+			{
 				type: 'basehalf.markdownRich.saveResult',
 				key: 'workspace\u0000doc.md',
+				requestId: 'save-1',
 				result: 'blockedByConflict',
+				disk: 'Disk changed\n',
 				message: 'Disk changed'
 			}
 		]);
