@@ -22,7 +22,6 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { clampContextMenuPosition } from '../../../../platform/contextview/browser/contextMenuPosition.js';
 import {
   contextMenuService,
   useContextMenuStore,
@@ -31,6 +30,7 @@ import {
   type ContextMenuItem,
   isContextMenuSeparator,
 } from '../../../../platform/contextview/common/contextMenu.js';
+import { clampContextMenuPosition } from '../../../../platform/contextview/common/contextMenuPosition.js';
 import { color, font, radius, shadow, space, transition } from '../../style/design.js';
 
 const MENU_MIN_WIDTH = 200;
