@@ -3,6 +3,7 @@ import { openContextMenu } from '../../../../platform/contextview/browser/contex
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
 import { color } from '../../../browser/style/design.js';
+import { terminalActiveLayout, terminalPaneMounts } from '../common/terminalDockModel.js';
 import { TerminalView } from './Terminal.js';
 import { TerminalCloseToasts } from './TerminalCloseToasts.js';
 import {
@@ -14,7 +15,6 @@ import {
 import { TerminalPaneDropZones, TerminalPaneGrabHandle } from './TerminalPaneDragDrop.js';
 import { TerminalSash } from './TerminalSash.js';
 import { TerminalTabBar } from './TerminalTabs.js';
-import { terminalActiveLayout, terminalPaneMounts } from './terminalDockModel.js';
 import { buildTerminalMenu } from './terminalMenus.js';
 import { useTerminalStore } from './terminalStore.js';
 import { TERMINAL_BG } from './terminalTheme.js';

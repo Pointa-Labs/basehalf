@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   terminalActiveLayout,
   terminalPaneMounts,
-} from '../src/workbench/contrib/terminal/browser/terminalDockModel.js';
+} from '../src/workbench/contrib/terminal/common/terminalDockModel.js';
 import type { TermTab } from '../src/workbench/contrib/terminal/common/terminalGroupModel.js';
 import { type TermNode, leaf } from '../src/workbench/contrib/terminal/common/terminalTree.js';
 
