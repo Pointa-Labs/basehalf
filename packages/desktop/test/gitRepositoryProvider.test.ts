@@ -23,6 +23,8 @@ describe('gitRepositoryProvider', () => {
     expect(gitRepositoryProviderModel(null, '', false)).toMatchObject({
       loading: true,
       isRepository: false,
+      repository: null,
+      provider: null,
       groups: { merge: [], staged: [], changes: [] },
       view: null,
     });
@@ -30,6 +32,8 @@ describe('gitRepositoryProvider', () => {
     expect(gitRepositoryProviderModel(status({ isRepo: false }), '', false)).toMatchObject({
       loading: false,
       isRepository: false,
+      repository: null,
+      provider: null,
       groups: { merge: [], staged: [], changes: [] },
       view: null,
     });
@@ -49,10 +53,25 @@ describe('gitRepositoryProvider', () => {
 
     expect(provider.loading).toBe(false);
     expect(provider.isRepository).toBe(true);
-    expect(provider.groups.staged.map((row) => row.path)).toEqual(['staged.md', 'both.md']);
-    expect(provider.groups.changes.map((row) => row.path)).toEqual(['dirty.md', 'both.md']);
-    expect(provider.groups.merge.map((row) => row.path)).toEqual(['conflict.md']);
-    expect(provider.view).toMatchObject({
+    expect(provider.provider).toMatchObject({
+      id: 'git',
+      providerId: 'git',
+      label: 'Git',
+      name: 'Git',
+      status: repo,
+    });
+    expect(provider.repository).toMatchObject({ id: 'git' });
+    expect(provider.repository?.provider).toBe(provider.provider);
+    expect(provider.provider?.groups.staged.map((row) => row.path)).toEqual([
+      'staged.md',
+      'both.md',
+    ]);
+    expect(provider.provider?.groups.changes.map((row) => row.path)).toEqual([
+      'dirty.md',
+      'both.md',
+    ]);
+    expect(provider.provider?.groups.merge.map((row) => row.path)).toEqual(['conflict.md']);
+    expect(provider.provider?.view).toMatchObject({
       count: 5,
       hasStaged: true,
       hasCommitMessage: true,
@@ -61,11 +80,17 @@ describe('gitRepositoryProvider', () => {
       canPublish: true,
       commitBranch: 'main',
     });
+    expect(provider.provider?.action).toMatchObject({
+      primaryAction: 'commit',
+      primaryLabel: 'Commit',
+      primaryEnabled: true,
+    });
   });
 
   it('reflects busy and detached branch state in the provider view', () => {
     expect(
-      gitRepositoryProviderModel(status({ branch: null, detached: true }), 'Amend', true).view,
+      gitRepositoryProviderModel(status({ branch: null, detached: true }), 'Amend', true).provider
+        ?.view,
     ).toMatchObject({
       canCommit: false,
       canCommitAmend: false,

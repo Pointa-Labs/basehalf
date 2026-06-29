@@ -63,7 +63,7 @@ export function useScmViewPaneModel(): ScmViewPaneModel {
     refresh,
     loadStashes,
   });
-  const provider = useMemo(
+  const repositoryModel = useMemo(
     () => gitRepositoryProviderModel(status, message, commands.busy, groups),
     [status, message, commands.busy, groups],
   );
@@ -79,7 +79,7 @@ export function useScmViewPaneModel(): ScmViewPaneModel {
     stashes,
     stashesOpen,
     setStashesOpen,
-    provider,
+    provider: repositoryModel,
     groups,
     commands,
   };

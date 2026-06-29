@@ -1,6 +1,3 @@
-import type { GitStatusResult } from './git.js';
-import { type GitGroups, totalChangeCount } from './gitStatusModel.js';
-
 export interface SourceControlViewModel {
   readonly count: number;
   readonly hasStaged: boolean;
@@ -13,9 +10,40 @@ export interface SourceControlViewModel {
   readonly commitBranch: string;
 }
 
+export interface SourceControlProvider<TGroups = unknown, TAction = unknown> {
+  readonly id: string;
+  readonly providerId: string;
+  readonly label: string;
+  readonly name: string;
+  readonly groups: TGroups;
+  readonly view: SourceControlViewModel;
+  readonly action: TAction;
+}
+
+export interface SourceControlRepository<
+  TProvider extends SourceControlProvider<unknown, unknown> = SourceControlProvider,
+> {
+  readonly id: string;
+  readonly provider: TProvider;
+}
+
+export interface SourceControlBranchState {
+  readonly detached?: boolean;
+  readonly branch: string | null;
+  readonly upstream: string | null;
+  readonly ahead: number;
+  readonly behind: number;
+}
+
+export interface SourceControlChangeGroups {
+  readonly merge: readonly unknown[];
+  readonly staged: readonly unknown[];
+  readonly changes: readonly unknown[];
+}
+
 export function sourceControlViewModel(
-  status: GitStatusResult,
-  groups: GitGroups,
+  status: SourceControlBranchState,
+  groups: SourceControlChangeGroups,
   message: string,
   busy: boolean,
 ): SourceControlViewModel {
@@ -25,7 +53,7 @@ export function sourceControlViewModel(
   const hasUpstream = hasBranch && status.upstream !== null;
   const branchIsAheadOrBehind = status.ahead > 0 || status.behind > 0;
   return {
-    count: totalChangeCount(groups),
+    count: groups.merge.length + groups.staged.length + groups.changes.length,
     hasStaged,
     hasCommitMessage,
     canCommit: !busy && hasStaged,

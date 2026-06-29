@@ -72,4 +72,31 @@ describe('sourceControlViewModel', () => {
       sourceControlViewModel(status({ detached: true, branch: null }), emptyGroups, '', false),
     ).toMatchObject({ canPublish: false, canPull: false, commitBranch: 'detached' });
   });
+
+  it('accepts provider-shaped branch and group state without a Git status object', () => {
+    expect(
+      sourceControlViewModel(
+        {
+          branch: 'trunk',
+          detached: false,
+          upstream: 'origin/trunk',
+          ahead: 0,
+          behind: 2,
+        },
+        {
+          merge: [{}],
+          staged: [{}],
+          changes: [{}, {}],
+        },
+        '',
+        false,
+      ),
+    ).toMatchObject({
+      count: 4,
+      hasStaged: true,
+      canPull: true,
+      canSync: true,
+      commitBranch: 'trunk',
+    });
+  });
 });

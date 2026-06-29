@@ -1,10 +1,7 @@
 import { Fragment, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { color, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
-import {
-  type SourceControlPrimaryAction,
-  sourceControlActionButtonModel,
-} from '../common/sourceControlActionButtonModel.js';
+import type { SourceControlPrimaryAction } from '../common/sourceControlActionButtonModel.js';
 import { CommitInput } from './CommitInput.js';
 import { Centered, ErrorLine } from './EmptyState.js';
 import { GraphSection } from './GraphSection.js';
@@ -47,14 +44,14 @@ export function ScmViewPane({
   readonly contributions?: readonly ScmViewContribution[];
   readonly model: ScmViewPaneModel;
 }): JSX.Element {
-  const { commands, groups, provider, refresh, status, statusError } = model;
+  const { commands, provider: repositoryModel, refresh, status, statusError } = model;
   const { busy, error } = commands;
 
   if (status === null) {
     return <Centered>{error ?? statusError ?? '…'}</Centered>;
   }
 
-  if (!provider.isRepository) {
+  if (!repositoryModel.isRepository) {
     return (
       <Centered>
         <div style={{ color: color.textSecondary, marginBottom: space[3], lineHeight: 1.5 }}>
@@ -68,9 +65,10 @@ export function ScmViewPane({
     );
   }
 
+  const provider = repositoryModel.repository?.provider ?? null;
+  if (provider === null) return <Centered>{error ?? statusError ?? '…'}</Centered>;
   const view = provider.view;
-  if (view === null) return <Centered>{error ?? statusError ?? '…'}</Centered>;
-  const actionButton = sourceControlActionButtonModel(view);
+  const actionButton = provider.action;
   const visibleContributions = scmVisibleViewContributions(
     contributions ?? scmViewContributionRegistry.getScmViewContributions(),
     model,
@@ -106,7 +104,7 @@ export function ScmViewPane({
 
         <ResourceGroups
           count={view.count}
-          groups={groups}
+          groups={provider.groups}
           busy={busy}
           hasStaged={view.hasStaged}
           openRow={commands.openRow}
