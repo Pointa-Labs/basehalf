@@ -37,13 +37,18 @@ import { WorkspaceRegistryMainService } from '../../platform/workspaces/electron
 import { WorkspaceSurfacesMainService } from '../../platform/workspaces/electron-main/workspaceSurfacesMainService.js';
 import { WorkspaceMainService } from '../../platform/workspaces/electron-main/workspacesMainService.js';
 import { GithubAuthenticationProvider } from '../../workbench/contrib/githubPullRequests/electron-main/githubAuthenticationProvider.js';
-import { createGithubGitRunner } from '../../workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
+import { registerGithubGitCredentialsProvider } from '../../workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
 import {
   type GitRemoteInfoLike,
   GithubMainService,
 } from '../../workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 import { GitCliBackendProvider } from '../../workbench/contrib/scm/electron-main/gitBackendProvider.js';
+import {
+  GitCredentialsProviderRegistry,
+  createCredentialedGitRunner,
+} from '../../workbench/contrib/scm/electron-main/gitCredentials.js';
 import { GitMainService } from '../../workbench/contrib/scm/electron-main/gitMainService.js';
+import { systemGit } from '../../workbench/contrib/scm/electron-main/systemGit.js';
 import { AuthenticationMainService } from '../../workbench/services/authentication/electron-main/authenticationMainService.js';
 import { AdhdYamlBackendProvider } from '../../workbench/services/mirror/electron-main/adhdBackendProvider.js';
 import { AdhdMainService } from '../../workbench/services/mirror/electron-main/adhdMainService.js';
@@ -174,8 +179,13 @@ export function createBaseHalfMainServices(
   const authenticationService = new AuthenticationMainService();
   const githubAuthenticationProvider = new GithubAuthenticationProvider({ secrets });
   authenticationService.registerProvider(githubAuthenticationProvider);
+  const gitCredentials = new GitCredentialsProviderRegistry();
+  registerGithubGitCredentialsProvider(gitCredentials, {
+    configDir,
+    tokenProvider: githubAuthenticationProvider,
+  });
   const gitBackend = new GitCliBackendProvider({
-    git: createGithubGitRunner(configDir, githubAuthenticationProvider),
+    git: createCredentialedGitRunner(gitCredentials, systemGit()),
     deleteWorkspaceEntry: (workspaceRoot, args) =>
       workspaceFilesService.deleteEntry(workspaceRoot, args),
   });

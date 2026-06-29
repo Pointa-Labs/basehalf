@@ -3,12 +3,23 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { type Server, createServer } from 'node:http';
 import { dirname, join } from 'node:path';
 import type { GitRunner } from '../../scm/common/git.js';
+import {
+  type GitCredentialsProvider,
+  type GitCredentialsProviderRegistration,
+  GitCredentialsProviderRegistry,
+  createCredentialedGitRunner,
+} from '../../scm/electron-main/gitCredentials.js';
 import { systemGit } from '../../scm/electron-main/systemGit.js';
 
 export const GITHUB_TOKEN_SECRET_KEY = 'github.token';
 
 export interface GithubCredentialsTokenProvider {
   getToken(): Promise<string | null>;
+}
+
+export interface GithubGitCredentialsProviderOptions {
+  readonly configDir: string;
+  readonly tokenProvider: GithubCredentialsTokenProvider;
 }
 
 export interface GithubAskpassBroker {
@@ -165,36 +176,51 @@ export async function createGithubAskpassBroker(secret: string): Promise<GithubA
 }
 
 /**
- * Desktop-side GitHub credentials provider for git.exe/git. This mirrors VS Code's
- * Git extension askpass boundary: the renderer never receives the token, and the
- * git module stays generic; the host injects credentials only for network git ops.
+ * Desktop-side GitHub credentials provider for git.exe/git. This mirrors VS
+ * Code's Git extension credentials provider boundary: the renderer never
+ * receives the token, and the git module stays generic; the host injects
+ * credentials only for matching network git ops.
  */
+export class GithubGitCredentialsProvider implements GitCredentialsProvider {
+  readonly id = 'github';
+
+  constructor(private readonly opts: GithubGitCredentialsProviderOptions) {}
+
+  async provideGitEnvironment(
+    args: readonly string[],
+    gitOpts: Parameters<GitRunner>[1],
+    base: GitRunner,
+  ): Promise<{ readonly env: Readonly<Record<string, string>>; dispose(): Promise<void> } | null> {
+    if (!isRemoteGitCommand(args)) return null;
+
+    const token = await this.opts.tokenProvider.getToken();
+    if (token === null || token.trim() === '') return null;
+    if (!(await shouldInjectGithubAskpass(args, gitOpts, base))) return null;
+
+    const scriptPath = await ensureGithubAskpassScript(this.opts.configDir);
+    const broker = await createGithubAskpassBroker(token);
+    return {
+      env: githubAskpassEnv(scriptPath, broker),
+      dispose: () => broker.dispose(),
+    };
+  }
+}
+
+export function registerGithubGitCredentialsProvider(
+  registry: GitCredentialsProviderRegistry,
+  options: GithubGitCredentialsProviderOptions,
+): GitCredentialsProviderRegistration {
+  return registry.register(new GithubGitCredentialsProvider(options));
+}
+
 export function createGithubGitRunner(
   configDir: string,
   tokenProvider: GithubCredentialsTokenProvider,
   base: GitRunner = systemGit(),
 ): GitRunner {
-  return async (args, opts) => {
-    if (!isRemoteGitCommand(args)) return base(args, opts);
-
-    const token = await tokenProvider.getToken();
-    if (token === null || token.trim() === '') return base(args, opts);
-    if (!(await shouldInjectGithubAskpass(args, opts, base))) return base(args, opts);
-
-    const scriptPath = await ensureGithubAskpassScript(configDir);
-    const broker = await createGithubAskpassBroker(token);
-    try {
-      return await base(args, {
-        ...opts,
-        env: {
-          ...(opts.env ?? {}),
-          ...githubAskpassEnv(scriptPath, broker),
-        },
-      });
-    } finally {
-      await broker.dispose();
-    }
-  };
+  const registry = new GitCredentialsProviderRegistry();
+  registerGithubGitCredentialsProvider(registry, { configDir, tokenProvider });
+  return createCredentialedGitRunner(registry, base);
 }
 
 async function listenLocalhost(server: Server): Promise<void> {

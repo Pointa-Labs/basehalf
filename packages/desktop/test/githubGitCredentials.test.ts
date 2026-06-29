@@ -14,9 +14,14 @@ import {
   githubAskpassEnv,
   isGithubUrl,
   isRemoteGitCommand,
+  registerGithubGitCredentialsProvider,
   remoteNameForGitCommand,
 } from '../src/workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
 import type { GitRunOptions, GitRunner } from '../src/workbench/contrib/scm/common/git.js';
+import {
+  GitCredentialsProviderRegistry,
+  createCredentialedGitRunner,
+} from '../src/workbench/contrib/scm/electron-main/gitCredentials.js';
 
 const tokenProvider = (value: string | null): GithubCredentialsTokenProvider => ({
   async getToken() {
@@ -95,6 +100,37 @@ describe('github git credentials provider', () => {
     const script = await readFile(scriptPath ?? '', 'utf8');
     expect(script).toBe(GITHUB_ASKPASS_SCRIPT);
     expect(script).not.toContain('secret-token');
+  });
+
+  it('registers GitHub credentials through the generic Git credentials registry', async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'bh-github-askpass-'));
+    const calls: Array<{ args: readonly string[]; opts: GitRunOptions }> = [];
+    const base: GitRunner = async (args, opts) => {
+      calls.push({ args, opts });
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+    const registry = new GitCredentialsProviderRegistry();
+    const registration = registerGithubGitCredentialsProvider(registry, {
+      configDir: tempDir,
+      tokenProvider: tokenProvider('secret-token'),
+    });
+    const runner = createCredentialedGitRunner(registry, base);
+
+    await runner(['clone', 'https://github.com/owner/repo.git'], {
+      cwd: '/repo',
+      env: { EXISTING: '1' },
+    });
+    registration.dispose();
+    await runner(['clone', 'https://github.com/owner/repo.git'], { cwd: '/repo' });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.opts.env).toMatchObject({
+      EXISTING: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      BH_GIT_ASKPASS_USERNAME: 'x-access-token',
+    });
+    expect(typeof calls[0]?.opts.env?.BH_GIT_ASKPASS_URL).toBe('string');
+    expect(calls[1]?.opts.env).toBeUndefined();
   });
 
   it('leaves non-GitHub remotes untouched even when a GitHub token is stored', async () => {
