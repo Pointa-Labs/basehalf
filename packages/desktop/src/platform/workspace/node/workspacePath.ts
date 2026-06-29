@@ -2,6 +2,31 @@ import { realpath } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 
 /**
+ * VS Code keeps low-level path normalization and parent/relative checks in
+ * common path helpers instead of scattering bespoke guards through features.
+ * This is the desktop node-side equivalent for paths that must be workspace
+ * relative before a caller joins them to a workspace root.
+ */
+export function assertWorkspaceRelativePath(rel: string): void {
+  if (typeof rel !== 'string' || rel.length === 0) {
+    throw new Error('Path must be a non-empty string');
+  }
+  if (rel.includes('\0')) {
+    throw new Error('Path must not contain NUL bytes');
+  }
+  if (/^([a-zA-Z]:|[\\/])/.test(rel)) {
+    throw new Error(`Path must be relative, got: ${rel}`);
+  }
+  const segments = rel.split(/[\\/]/);
+  if (segments.some((seg) => seg === '..')) {
+    throw new Error(`Path traversal rejected: ${rel}`);
+  }
+  if (segments.some((seg) => seg === '' || seg === '.')) {
+    throw new Error(`Path must be normalized and relative, got: ${rel}`);
+  }
+}
+
+/**
  * Resolve a workspace-relative path to an absolute path that is PROVABLY inside
  * the workspace root — the guard used before handing a path to the OS (e.g.
  * shell.openPath).
@@ -31,11 +56,9 @@ export async function resolveInsideWorkspace(
     return { ok: false, error: 'A path is required.' };
   }
   // Fast string pre-filter (belt-and-suspenders; realpath below is authoritative).
-  if (
-    relPath.startsWith('/') ||
-    relPath.startsWith('\\') ||
-    relPath.split(/[\\/]/).includes('..')
-  ) {
+  try {
+    assertWorkspaceRelativePath(relPath);
+  } catch {
     return { ok: false, error: 'Refusing to open a path outside the workspace.' };
   }
   try {

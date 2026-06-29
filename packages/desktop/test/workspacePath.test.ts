@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { resolveInsideWorkspace } from '../src/platform/workspace/node/workspacePath.js';
+import {
+  assertWorkspaceRelativePath,
+  resolveInsideWorkspace,
+} from '../src/platform/workspace/node/workspacePath.js';
 
 // Real filesystem fixture: a workspace with a normal file + a SYMLINK that
 // escapes the root, plus an outside directory the symlink points into.
@@ -59,5 +62,31 @@ describe('resolveInsideWorkspace — symlink-safe workspace containment', () => 
   it('refuses empty / non-string input', async () => {
     expect((await resolveInsideWorkspace(WS, '')).ok).toBe(false);
     expect((await resolveInsideWorkspace(WS, undefined)).ok).toBe(false);
+  });
+});
+
+describe('assertWorkspaceRelativePath', () => {
+  it('allows normalized workspace-relative paths', () => {
+    expect(() => assertWorkspaceRelativePath('src/file.ts')).not.toThrow();
+    expect(() => assertWorkspaceRelativePath('docs/nested/file.md')).not.toThrow();
+  });
+
+  it('rejects empty, root, absolute, traversal, and non-normalized paths', () => {
+    for (const path of [
+      '',
+      '.',
+      '/tmp/file',
+      '\\tmp\\file',
+      'C:\\tmp\\file',
+      'C:tmp\\file',
+      '../file',
+      'src/../file',
+      'src//file',
+      'src/./file',
+      'src/file/',
+      'src/\0file',
+    ]) {
+      expect(() => assertWorkspaceRelativePath(path)).toThrow();
+    }
   });
 });

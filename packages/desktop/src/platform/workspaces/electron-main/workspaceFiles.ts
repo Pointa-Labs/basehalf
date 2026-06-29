@@ -12,6 +12,7 @@ import {
   stat,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { assertWorkspaceRelativePath } from '../../workspace/node/workspacePath.js';
 import type {
   WorkspaceCreateFileArgs,
   WorkspaceCreateFileResult,
@@ -394,22 +395,7 @@ function requireWorkspaceRoot(workspaceRoot: string | null): string {
 }
 
 export function assertWorkspaceRelative(rel: string): void {
-  if (typeof rel !== 'string' || rel.length === 0) {
-    throw new Error('Path must be a non-empty string');
-  }
-  if (rel.includes('\0')) {
-    throw new Error('Path must not contain NUL bytes');
-  }
-  if (/^([a-zA-Z]:|[\\/])/.test(rel)) {
-    throw new Error(`Path must be relative, got: ${rel}`);
-  }
-  const segments = rel.split(/[\\/]/);
-  if (segments.some((seg) => seg === '..')) {
-    throw new Error(`Path traversal rejected: ${rel}`);
-  }
-  if (segments.some((seg) => seg === '' || seg === '.')) {
-    throw new Error(`Path must be normalized and relative, got: ${rel}`);
-  }
+  assertWorkspaceRelativePath(rel);
 }
 
 async function canonicalize(p: string): Promise<string> {
