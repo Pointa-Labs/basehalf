@@ -46,10 +46,61 @@ suite('BaseHalfCanvasNavigationService', () => {
 
 		assert.strictEqual(result.handled, true);
 		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace/docs');
+		assert.strictEqual(service.state.canvasFolder?.source, 'search');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/readme.md');
 		assert.strictEqual(service.state.cardDetail?.source, 'search');
 		assert.deepStrictEqual(service.state.cardDetail?.selection, { startLineNumber: 4, startColumn: 2, endLineNumber: 4, endColumn: 9 });
 		assert.strictEqual(service.state.cardDetail?.pinned, true);
+	});
+
+	test('opens root workspace files over the workspace root canvas', async () => {
+		const service = createService(new Map([
+			['/workspace/readme.md', aFileStat(URI.file('/workspace/readme.md'), FileType.File)]
+		]));
+
+		const result = await service.openResource(URI.file('/workspace/readme.md'), { source: 'explorer' });
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace');
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
+	});
+
+	test('opening another file moves the canvas to that file parent folder', async () => {
+		const service = createService(new Map([
+			['/workspace/readme.md', aFileStat(URI.file('/workspace/readme.md'), FileType.File)],
+			['/workspace/docs/guide.md', aFileStat(URI.file('/workspace/docs/guide.md'), FileType.File)]
+		]));
+
+		await service.openResource(URI.file('/workspace/readme.md'), { source: 'explorer' });
+		const result = await service.openResource(URI.file('/workspace/docs/guide.md'), { source: 'quickAccess' });
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace/docs');
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(service.state.canvasFolder?.source, 'quickAccess');
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
+	});
+
+	test('uses the most specific workspace folder for nested multi-root workspaces', async () => {
+		const service = createService(
+			new Map([
+				['/workspace/packages/app/readme.md', aFileStat(URI.file('/workspace/packages/app/readme.md'), FileType.File)]
+			]),
+			[URI.file('/workspace'), URI.file('/workspace/packages/app')]
+		);
+
+		const result = await service.openResource(URI.file('/workspace/packages/app/readme.md'), { source: 'explorer' });
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(service.state.canvasFolder?.workspaceFolder.fsPath, '/workspace/packages/app');
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
+		assert.strictEqual(service.state.cardDetail?.workspaceFolder.fsPath, '/workspace/packages/app');
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
 	});
 
 	test('reports outside workspace resources for fallback instead of mutating state', async () => {
@@ -89,7 +140,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
-	function createService(files: Map<string, IFileStat>): BaseHalfCanvasNavigationService {
+	function createService(files: Map<string, IFileStat>, workspaceFolders: URI[] = [workspaceFolder]): BaseHalfCanvasNavigationService {
 		const fileService = {
 			onDidFilesChange: Event.None,
 			onDidRunOperation: Event.None,
@@ -115,7 +166,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 				getWorkbenchState: () => WorkbenchState.FOLDER,
 				getWorkspace: () => ({
 					...TestWorkspace,
-					folders: [{ uri: workspaceFolder, name: 'workspace', index: 0 }]
+					folders: workspaceFolders.map((uri, index) => ({ uri, name: uri.path.split('/').pop() ?? 'workspace', index }))
 				}) as IWorkspace
 			} as Partial<IWorkspaceContextService> as IWorkspaceContextService
 		));

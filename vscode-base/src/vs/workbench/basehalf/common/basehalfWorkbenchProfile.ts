@@ -114,8 +114,36 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		id: 'workbench.action.files.openFile',
 		kind: 'command',
 		area: 'canvas',
-		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
+		source: 'src/vs/workbench/browser/actions/workspaceActions.ts',
 		reason: 'File open commands should enter BaseHalf card detail by default; VS Code editor groups are fallback behavior.'
+	},
+	{
+		id: 'explorer.openAndPassFocus',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
+		reason: 'Explorer keyboard activation should enter BaseHalf folder canvas or card detail instead of default tab-first editor focus.'
+	},
+	{
+		id: 'search.action.openResult',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/search/browser/searchActionsNav.ts',
+		reason: 'Search result activation should open the matching file as BaseHalf card detail while preserving the result selection.'
+	},
+	{
+		id: 'workbench.action.quickOpen',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/search/browser/searchQuickAccess.contribution.ts',
+		reason: 'Go to File accepts should route workspace files into BaseHalf card detail by default.'
+	},
+	{
+		id: 'workbench.action.quickTextSearch',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/search/browser/searchActionsTextQuickAccess.ts',
+		reason: 'Quick Search accepts should route matching workspace files into BaseHalf card detail by default.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 

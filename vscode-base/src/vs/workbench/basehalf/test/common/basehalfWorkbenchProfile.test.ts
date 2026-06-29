@@ -55,10 +55,27 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.scm.repositories'), 'primary');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('terminal'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.new'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openAndPassFocus'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openResult'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickOpen'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickTextSearch'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.extensions'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.chat'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
+	});
+
+	test('declares the VS Code open-entry commands remapped into canvas navigation', () => {
+		assert.deepStrictEqual(
+			BASEHALF_REMAPPED_SURFACES.filter(surface => surface.area === 'canvas').map(surface => surface.id),
+			[
+				'workbench.action.files.openFile',
+				'explorer.openAndPassFocus',
+				'search.action.openResult',
+				'workbench.action.quickOpen',
+				'workbench.action.quickTextSearch'
+			]
+		);
 	});
 
 	test('selects hidden view containers without deregistering VS Code registries', () => {

@@ -9,7 +9,7 @@ import { URI } from '../../../base/common/uri.js';
 import { IFileService } from '../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
-import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
+import { IWorkspaceContextService, IWorkspaceFolder } from '../../../platform/workspace/common/workspace.js';
 import {
 	BaseHalfNavigationResult,
 	IBaseHalfCanvasFolderState,
@@ -89,6 +89,11 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			return { handled: false, reason: 'outsideWorkspace' };
 		}
 
+		const canvasFolder = this.toParentCanvasFolder(resource, options);
+		if (!canvasFolder) {
+			return { handled: false, reason: 'outsideWorkspace' };
+		}
+
 		const cardDetail: IBaseHalfCardDetailState = {
 			...workspaceResource,
 			source: options.source,
@@ -97,7 +102,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			pinned: options.pinned
 		};
 		this.updateState({
-			canvasFolder: this._state.canvasFolder,
+			canvasFolder,
 			cardDetail
 		});
 		return { handled: true, target: 'cardDetail', state: cardDetail };
@@ -120,9 +125,19 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 	}
 
 	private toWorkspaceResource(resource: URI): { resource: URI; workspaceFolder: URI; relativePath: string } | undefined {
-		const folder = this.workspaceContextService.getWorkspace().folders.find(folder => {
-			return this.uriIdentityService.extUri.isEqualOrParent(resource, folder.uri);
-		});
+		let folder: IWorkspaceFolder | undefined;
+		let relativePath: string | undefined;
+		for (const candidate of this.workspaceContextService.getWorkspace().folders) {
+			if (!this.uriIdentityService.extUri.isEqualOrParent(resource, candidate.uri)) {
+				continue;
+			}
+
+			const candidateRelativePath = this.uriIdentityService.extUri.relativePath(candidate.uri, resource) ?? '';
+			if (relativePath === undefined || candidateRelativePath.length < relativePath.length) {
+				folder = candidate;
+				relativePath = candidateRelativePath;
+			}
+		}
 
 		if (!folder) {
 			return undefined;
@@ -131,7 +146,25 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return {
 			resource,
 			workspaceFolder: folder.uri,
-			relativePath: this.uriIdentityService.extUri.relativePath(folder.uri, resource) ?? ''
+			relativePath: relativePath ?? ''
+		};
+	}
+
+	private toParentCanvasFolder(resource: URI, options: IBaseHalfOpenResourceOptions): IBaseHalfCanvasFolderState | undefined {
+		const workspaceResource = this.toWorkspaceResource(resource);
+		if (!workspaceResource) {
+			return undefined;
+		}
+
+		const parent = this.uriIdentityService.extUri.dirname(resource);
+		const parentWorkspaceResource = this.toWorkspaceResource(parent);
+		if (!parentWorkspaceResource) {
+			return undefined;
+		}
+
+		return {
+			...parentWorkspaceResource,
+			source: options.source
 		};
 	}
 }
