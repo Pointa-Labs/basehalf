@@ -1,0 +1,5 @@
+markdown-rich-src/**
+esbuild.markdownRich.mts
+tsconfig.json
+node_modules/**
+**/*.map

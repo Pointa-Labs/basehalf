@@ -1,0 +1,21 @@
+{
+	"name": "basehalf",
+	"displayName": "BaseHalf",
+	"description": "BaseHalf workbench webview media.",
+	"version": "0.1.0",
+	"publisher": "pointa",
+	"license": "Apache-2.0",
+	"engines": {
+		"vscode": "^1.128.0"
+	},
+	"extensionKind": [
+		"ui",
+		"web"
+	],
+	"categories": [
+		"Other"
+	],
+	"devDependencies": {
+		"@types/vscode-webview": "1.57.5"
+	}
+}

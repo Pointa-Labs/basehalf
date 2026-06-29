@@ -1,0 +1,107 @@
+html,
+body,
+#root {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	background: var(--vscode-editor-background);
+	color: var(--vscode-editor-foreground);
+	font-family: var(--vscode-font-family);
+}
+
+.basehalf-markdown-rich {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	background: var(--vscode-editor-background);
+	color: var(--vscode-editor-foreground);
+}
+
+.basehalf-markdown-rich-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 14px;
+	border-bottom: 1px solid var(--vscode-panel-border);
+	font-size: 12px;
+	line-height: 18px;
+}
+
+.basehalf-markdown-rich-banner.warning {
+	color: var(--vscode-editorWarning-foreground);
+	background: var(--vscode-inputValidation-warningBackground);
+	border-bottom-color: var(--vscode-inputValidation-warningBorder);
+}
+
+.basehalf-markdown-rich-banner.error {
+	color: var(--vscode-editorError-foreground);
+	background: var(--vscode-inputValidation-errorBackground);
+	border-bottom-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.basehalf-markdown-rich-banner span {
+	flex: 1;
+	min-width: 0;
+}
+
+.basehalf-markdown-rich-banner button {
+	border: 0;
+	border-radius: 3px;
+	padding: 3px 9px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	font: inherit;
+	cursor: pointer;
+}
+
+.basehalf-markdown-rich-banner button.secondary {
+	color: var(--vscode-button-secondaryForeground);
+	background: var(--vscode-button-secondaryBackground);
+}
+
+.basehalf-markdown-rich-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+}
+
+.basehalf-markdown-rich-page {
+	box-sizing: border-box;
+	max-width: 760px;
+	min-height: 100%;
+	margin: 0 auto;
+	padding: 56px 24px 80px;
+}
+
+.basehalf-markdown-rich:not(.ready) .basehalf-markdown-rich-page {
+	opacity: 0.65;
+}
+
+.basehalf-markdown-rich .bn-container,
+.basehalf-markdown-rich .bn-editor {
+	background: transparent;
+	color: var(--vscode-editor-foreground);
+	font-family: var(--vscode-font-family);
+}
+
+.basehalf-markdown-rich .bn-editor {
+	padding: 0;
+}
+
+.basehalf-raw-passthrough {
+	margin: 4px 0;
+	padding-left: 8px;
+	border-left: 2px solid var(--vscode-panel-border);
+}
+
+.basehalf-raw-passthrough pre {
+	margin: 0;
+	color: var(--vscode-descriptionForeground);
+	font-family: var(--vscode-editor-font-family);
+	font-size: 12px;
+	line-height: 18px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}

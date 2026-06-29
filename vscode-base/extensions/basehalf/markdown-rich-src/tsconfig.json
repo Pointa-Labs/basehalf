@@ -1,0 +1,25 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"jsx": "react-jsx",
+		"lib": [
+			"es2024",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"types": [
+			"vscode-webview"
+		],
+		"typeRoots": [
+			"../node_modules/@types"
+		],
+		"skipLibCheck": true,
+		"noEmit": true
+	},
+	"include": [
+		"./**/*.ts",
+		"./**/*.tsx"
+	]
+}
