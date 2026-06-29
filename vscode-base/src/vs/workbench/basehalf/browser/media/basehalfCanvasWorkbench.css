@@ -132,6 +132,14 @@
 	font-size: 13px;
 }
 
+.monaco-workbench .basehalf-canvas-truncated {
+	position: absolute;
+	left: 48px;
+	bottom: 20px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
 .monaco-workbench .basehalf-card-detail {
 	position: absolute;
 	inset: 0;

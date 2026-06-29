@@ -16,10 +16,12 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
-import { baseHalfCanvasItemsFromStat, baseHalfCanvasPosition, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
+import { baseHalfCanvasModelFromStat, baseHalfCanvasPosition, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
 
 const MAX_DETAIL_PREVIEW_BYTES = 256 * 1024;
+const DEFAULT_CARD_WIDTH = 220;
+const DEFAULT_CARD_HEIGHT = 112;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -132,7 +134,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		const items = baseHalfCanvasItemsFromStat(stat, folder.relativePath.length === 0);
+		const model = baseHalfCanvasModelFromStat(stat, {
+			rootLevel: folder.relativePath.length === 0,
+			folderRelativePath: folder.relativePath
+		});
+		const items = model.items;
 		clearNode(this.cards);
 		this.cardListeners.clear();
 		if (items.length === 0) {
@@ -141,7 +147,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			for (let i = 0; i < items.length; i++) {
 				this.renderCard(items[i], i, items.length);
 			}
-			const size = this.canvasSize(items.length);
+			if (model.truncated > 0) {
+				this.renderTruncated(model.truncated);
+			}
+			const size = this.canvasSize(items);
 			this.cards.style.width = `${size.width}px`;
 			this.cards.style.height = `${size.height}px`;
 		}
@@ -169,10 +178,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {
-		const position = baseHalfCanvasPosition(index, total);
+		const fallbackPosition = baseHalfCanvasPosition(index, total);
+		const x = item.card?.x ?? fallbackPosition.x;
+		const y = item.card?.y ?? fallbackPosition.y;
+		const width = item.card?.width ?? DEFAULT_CARD_WIDTH;
+		const height = item.card?.height ?? DEFAULT_CARD_HEIGHT;
 		const card = append(this.cards, $('button.basehalf-canvas-card')) as HTMLButtonElement;
 		card.type = 'button';
-		card.style.transform = `translate(${position.x}px, ${position.y}px)`;
+		card.style.transform = `translate(${x}px, ${y}px)`;
+		card.style.width = `${width}px`;
+		card.style.height = `${height}px`;
 		card.setAttribute('aria-label', item.name);
 
 		const icon = append(card, $('.basehalf-canvas-card-icon.codicon'));
@@ -185,6 +200,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.cardListeners.add(this.addDisposableListener(card, 'click', () => {
 			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 		}));
+	}
+
+	private renderTruncated(heldBack: number): void {
+		const truncated = append(this.cards, $('.basehalf-canvas-truncated'));
+		truncated.textContent = `+${heldBack} more`;
 	}
 
 	private renderEmpty(message: string): void {
@@ -266,13 +286,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return `L${selection.startLineNumber}:${selection.startColumn}`;
 	}
 
-	private canvasSize(total: number): Dimension {
-		if (total === 0) {
+	private canvasSize(items: readonly IBaseHalfCanvasItem[]): Dimension {
+		if (items.length === 0) {
 			return new Dimension(800, 480);
 		}
 
-		const last = baseHalfCanvasPosition(total - 1, total);
-		return new Dimension(last.x + 280, last.y + 188);
+		let maxX = 0;
+		let maxY = 0;
+		for (let index = 0; index < items.length; index++) {
+			const fallback = baseHalfCanvasPosition(index, items.length);
+			const item = items[index];
+			const x = item.card?.x ?? fallback.x;
+			const y = item.card?.y ?? fallback.y;
+			const width = item.card?.width ?? DEFAULT_CARD_WIDTH;
+			const height = item.card?.height ?? DEFAULT_CARD_HEIGHT;
+			maxX = Math.max(maxX, x + width);
+			maxY = Math.max(maxY, y + height);
+		}
+		return new Dimension(maxX + 48, maxY + 76);
 	}
 }
 
