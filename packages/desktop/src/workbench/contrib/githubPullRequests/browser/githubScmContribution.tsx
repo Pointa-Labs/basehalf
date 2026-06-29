@@ -19,6 +19,7 @@ import {
 } from './githubPullRequestService.js';
 import { registerGithubRemoteSourceProvider } from './githubRemoteSourceProvider.js';
 import { usePullRequestsSectionModel } from './pullRequestsSectionModel.js';
+import { registerGithubPushErrorHandler } from './pushErrorHandler.js';
 
 export interface CreateGithubPullRequestOptions {
   readonly status: GitStatusResult | null;
@@ -99,7 +100,9 @@ export function registerGithubPullRequestsScmContribution(
   const scmRegistry = registry ?? scmViewContributionRegistry;
   const disposables = [
     registerScmViewContribution(createGithubPullRequestsScmContribution(provider), scmRegistry),
-    ...(scmRegistry === scmViewContributionRegistry ? [registerGithubRemoteSourceProvider()] : []),
+    ...(scmRegistry === scmViewContributionRegistry
+      ? [registerGithubRemoteSourceProvider(), registerGithubPushErrorHandler()]
+      : []),
   ];
   return () => {
     for (const dispose of [...disposables].reverse()) dispose();

@@ -3,8 +3,11 @@ import {
   GithubPushErrorHandler,
   GithubPushErrorKinds,
   classifyGithubPushError,
+  createGithubPushErrorDelegate,
   parseGithubRemoteUrl,
+  registerGithubPushErrorHandler,
 } from '../src/workbench/contrib/githubPullRequests/browser/pushErrorHandler.js';
+import { PushErrorHandlerRegistry } from '../src/workbench/contrib/scm/browser/pushErrorRegistry.js';
 import {
   GitError,
   type GitErrorCode,
@@ -136,6 +139,46 @@ describe('GitHub push error handler', () => {
       error: { kind: GithubPushErrorKinds.PermissionDenied, owner: 'acme', repo: 'basehalf' },
       repository,
     });
+  });
+
+  it('provides a default delegate that reports GitHub-specific push failures', async () => {
+    const messages: string[] = [];
+    const delegate = createGithubPushErrorDelegate({
+      toastError: (message) => messages.push(message),
+    });
+
+    await expect(
+      Promise.resolve(
+        delegate.handleGithubPushError(
+          {
+            kind: GithubPushErrorKinds.PushProtection,
+            owner: 'acme',
+            repo: 'basehalf',
+            remoteName: 'origin',
+            remoteUrl: 'https://github.com/acme/basehalf.git',
+            refspec: 'HEAD:main',
+            stderr: 'remote: error GH009: Secrets detected!',
+          },
+          repository,
+        ),
+      ),
+    ).resolves.toBe(true);
+
+    expect(messages).toEqual([
+      'Your push to "acme/basehalf" was rejected by GitHub push protection because one or more secrets were detected.',
+    ]);
+  });
+
+  it('registers the GitHub push error handler with the SCM registry', () => {
+    const registry = new PushErrorHandlerRegistry();
+    const handler = new GithubPushErrorHandler({ handleGithubPushError: async () => true });
+
+    const dispose = registerGithubPushErrorHandler(registry, handler);
+
+    expect(registry.getPushErrorHandlers()).toEqual([handler]);
+
+    dispose();
+    expect(registry.getPushErrorHandlers()).toEqual([]);
   });
 
   it('does not delegate unclassified push errors', async () => {

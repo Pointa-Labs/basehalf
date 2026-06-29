@@ -1,7 +1,14 @@
+import { toast } from '../../../../platform/notification/browser/notificationService.js';
+import { registerPushErrorHandler } from '../../scm/browser/pushErrorRegistry.js';
 import type { GitError, GitRemoteInfo } from '../../scm/common/git.js';
 import { GitErrorCodes } from '../../scm/common/git.js';
-import type { PushErrorHandler, PushErrorRepository } from '../../scm/common/pushError.js';
-import type { GithubRepo } from '../common/githubPullRequests.js';
+import type {
+  PushErrorHandler,
+  PushErrorHandlerRegistry,
+  PushErrorRepository,
+} from '../../scm/common/pushError.js';
+import { parseGithubRemoteUrl } from '../common/githubRemote.js';
+export { parseGithubRemoteUrl } from '../common/githubRemote.js';
 
 export const GithubPushErrorKinds = {
   PermissionDenied: 'permissionDenied',
@@ -27,6 +34,10 @@ export interface GithubPushErrorDelegate {
   ): Promise<boolean> | boolean;
 }
 
+export interface GithubPushErrorDelegateOptions {
+  readonly toastError?: (message: string) => void;
+}
+
 export class GithubPushErrorHandler implements PushErrorHandler {
   constructor(private readonly delegate: GithubPushErrorDelegate) {}
 
@@ -40,6 +51,26 @@ export class GithubPushErrorHandler implements PushErrorHandler {
     if (githubError === null) return false;
     return this.delegate.handleGithubPushError(githubError, repository);
   }
+}
+
+export function createGithubPushErrorDelegate({
+  toastError = toast.error,
+}: GithubPushErrorDelegateOptions = {}): GithubPushErrorDelegate {
+  return {
+    handleGithubPushError: (error) => {
+      toastError(githubPushErrorMessage(error));
+      return true;
+    },
+  };
+}
+
+export const githubPushErrorHandler = new GithubPushErrorHandler(createGithubPushErrorDelegate());
+
+export function registerGithubPushErrorHandler(
+  registry?: PushErrorHandlerRegistry,
+  handler: PushErrorHandler = githubPushErrorHandler,
+): () => void {
+  return registerPushErrorHandler(handler, registry);
 }
 
 export function classifyGithubPushError(
@@ -82,30 +113,9 @@ export function classifyGithubPushError(
   return null;
 }
 
-export function parseGithubRemoteUrl(remoteUrl: string): GithubRepo | null {
-  const trimmed = remoteUrl.trim();
-  if (trimmed === '') return null;
-
-  const scp = /^[\w.-]+@([^:/]+):(.+)$/.exec(trimmed);
-  if (scp !== null) {
-    return repoFromHostAndPath(scp[1] ?? '', scp[2] ?? '');
+function githubPushErrorMessage(error: GithubPushError): string {
+  if (error.kind === GithubPushErrorKinds.PermissionDenied) {
+    return `You don't have permission to push to "${error.owner}/${error.repo}" on GitHub.`;
   }
-
-  try {
-    const url = new URL(trimmed);
-    return repoFromHostAndPath(url.host, url.pathname);
-  } catch {
-    return null;
-  }
-}
-
-function repoFromHostAndPath(host: string, rawPath: string): GithubRepo | null {
-  if (host.toLowerCase() !== 'github.com') return null;
-  const path = rawPath
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-    .replace(/\.git$/i, '');
-  const [owner, repo] = path.split('/');
-  if (owner === undefined || owner === '' || repo === undefined || repo === '') return null;
-  return { owner, repo };
+  return `Your push to "${error.owner}/${error.repo}" was rejected by GitHub push protection because one or more secrets were detected.`;
 }
