@@ -140,6 +140,29 @@ export const branchOption = (branch: GitRefInfo): QuickPickOption => {
 export const branchQuickAccessHint = (branch: GitRefInfo): string =>
   branch.current ? 'current branch' : branch.type === 'remoteHead' ? 'remote' : 'Switch branch';
 
+const BRANCH_NAME_SANITIZE_RE =
+  /^\.|\/\.|\.\.|~|\^|:|\/$|\.lock$|\.lock\/|\\|\*|\s|^\s*$|\.$|\[|\]$/g;
+
+export function sanitizeBranchNameInput(input: string, whitespaceChar = '-'): string {
+  const trimmed = input.trim();
+  if (trimmed === '') return '';
+  const withoutLeadingDashes = trimmed.replace(/^-+/, '');
+  if (withoutLeadingDashes === '') return '';
+  return withoutLeadingDashes.replace(BRANCH_NAME_SANITIZE_RE, whitespaceChar);
+}
+
+export function createBranchNameValidator(
+  refs: readonly GitRefInfo[],
+): (value: string) => string | null {
+  const localBranches = new Set(refs.filter((ref) => ref.type === 'head').map((ref) => ref.name));
+  return (value: string): string | null => {
+    const name = sanitizeBranchNameInput(value);
+    if (name === '') return 'Branch name is required.';
+    if (localBranches.has(name)) return `Branch "${name}" already exists.`;
+    return null;
+  };
+}
+
 export const createCheckoutPickOptions = (
   refs: readonly GitRefInfo[],
 ): readonly QuickPickOption[] => [

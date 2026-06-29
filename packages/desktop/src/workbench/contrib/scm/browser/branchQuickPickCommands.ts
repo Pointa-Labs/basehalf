@@ -11,11 +11,13 @@ import {
   CHECKOUT_RECOVERY_OPTIONS,
   checkoutTargetForRef,
   createBranchFromPickOptions,
+  createBranchNameValidator,
   createCheckoutPickOptions,
   createDetachedCheckoutPickOptions,
   detachedCheckoutTargetForRef,
   isCheckoutBlockedError,
   orderCheckoutPickOptions,
+  sanitizeBranchNameInput,
 } from './branchQuickPickModel.js';
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -46,7 +48,7 @@ async function openBranchQuickPick({ git, onAfter }: CheckoutBranchCommandArgs):
   if (choice === null) return;
 
   if (isBranchQuickPickCommand(choice.value)) {
-    await runBranchQuickPickCommand(choice.value, choice.inputValue.trim(), git, refs, onAfter);
+    await runBranchQuickPickCommand(choice.value, choice.inputValue, git, refs, onAfter);
   } else {
     const branch = refs.find((b) => b.id === choice.value);
     if (branch !== undefined) await checkoutBranchWithRecovery(git, branch, refs, onAfter);
@@ -131,19 +133,18 @@ async function createBranch(
   inputValue = '',
 ): Promise<void> {
   const validate = createBranchNameValidator(refs);
-  const name =
+  const rawName =
     inputValue.trim() !== ''
-      ? inputValue.trim()
-      : (
-          await prompt({
-            title: 'Create Branch',
-            label: 'Branch name',
-            placeholder: 'feature/name',
-            validate,
-          })
-        )?.trim();
+      ? inputValue
+      : await prompt({
+          title: 'Create Branch',
+          label: 'Branch name',
+          placeholder: 'feature/name',
+          validate,
+        });
+  const name = rawName == null ? undefined : sanitizeBranchNameInput(rawName);
   if (!name) return;
-  const invalid = validate(name);
+  const invalid = validate(rawName ?? '');
   if (invalid !== null) {
     toast.error(invalid);
     return;
@@ -162,19 +163,18 @@ async function createBranchFrom(
   const source = await pickRef('Create Branch From', refs, 'branchFrom');
   if (source === null) return;
   const validate = createBranchNameValidator(refs);
-  const name =
+  const rawName =
     inputValue.trim() !== ''
-      ? inputValue.trim()
-      : (
-          await prompt({
-            title: 'Create Branch From',
-            label: 'Branch name',
-            placeholder: 'feature/name',
-            validate,
-          })
-        )?.trim();
+      ? inputValue
+      : await prompt({
+          title: 'Create Branch From',
+          label: 'Branch name',
+          placeholder: 'feature/name',
+          validate,
+        });
+  const name = rawName == null ? undefined : sanitizeBranchNameInput(rawName);
   if (!name) return;
-  const invalid = validate(name);
+  const invalid = validate(rawName ?? '');
   if (invalid !== null) {
     toast.error(invalid);
     return;
@@ -244,14 +244,4 @@ function checkoutOptions(
   if (target.track === true) options.track = true;
   if (extra.force === true) options.force = true;
   return Object.keys(options).length === 0 ? undefined : options;
-}
-
-function createBranchNameValidator(refs: readonly GitRefInfo[]): (value: string) => string | null {
-  const localBranches = new Set(refs.filter((ref) => ref.type === 'head').map((ref) => ref.name));
-  return (value: string): string | null => {
-    const name = value.trim();
-    if (name === '') return 'Branch name is required.';
-    if (localBranches.has(name)) return `Branch "${name}" already exists.`;
-    return null;
-  };
 }

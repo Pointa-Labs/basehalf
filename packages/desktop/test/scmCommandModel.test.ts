@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import {
+  createBranchNameValidator,
+  sanitizeBranchNameInput,
+} from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import {
   applyDiscardPlan,
@@ -14,7 +18,11 @@ import {
   discardPlan,
   entryKindForGitPath,
 } from '../src/workbench/contrib/scm/common/discardModel.js';
-import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
+import {
+  GitError,
+  GitErrorCodes,
+  type GitRefInfo,
+} from '../src/workbench/contrib/scm/common/git.js';
 import type { GitRow } from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
 const tracked = (path: string): GitRow => ({
@@ -31,6 +39,13 @@ const untracked = (path: string): GitRow => ({
   staged: false,
   untracked: true,
   conflict: false,
+});
+
+const ref = (name: string): GitRefInfo => ({
+  id: `refs/heads/${name}`,
+  name,
+  type: 'head',
+  current: false,
 });
 
 describe('scmCommandModel', () => {
@@ -152,5 +167,17 @@ describe('scmCommandModel', () => {
       ),
     ).toBe('Can\'t push refs to remote. Try running "Pull" first to integrate your changes.');
     expect(scmErrorMessage('fatal')).toBe('fatal');
+  });
+
+  it('sanitizes branch names before checkout picker branch creation reaches git', () => {
+    expect(sanitizeBranchNameInput('  feature/new branch  ')).toBe('feature/new-branch');
+    expect(sanitizeBranchNameInput('-topic')).toBe('topic');
+    expect(sanitizeBranchNameInput('topic.lock')).toBe('topic-');
+
+    const validate = createBranchNameValidator([ref('feature/new-branch')]);
+
+    expect(validate('feature/new branch')).toBe('Branch "feature/new-branch" already exists.');
+    expect(validate('   ')).toBe('Branch name is required.');
+    expect(validate('feature/other branch')).toBeNull();
   });
 });
