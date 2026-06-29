@@ -1,4 +1,9 @@
 import type { CommitActionOptions } from './commitTypes.js';
+import {
+  DEFAULT_GIT_POST_COMMIT_COMMANDS,
+  type ScmPostCommitCommand,
+  postCommitCommandActions,
+} from './postCommitCommands.js';
 import type { SourceControlViewModel } from './sourceControlViewModel.js';
 
 export type SourceControlPrimaryAction = 'commit' | 'publish' | 'sync';
@@ -18,14 +23,22 @@ export interface SourceControlActionButtonModel {
   readonly secondaryActions: readonly SourceControlSecondaryAction[];
 }
 
+export interface SourceControlActionButtonModelOptions {
+  readonly postCommitCommandGroups?: readonly (readonly ScmPostCommitCommand[])[];
+}
+
 /**
  * Mirrors VS Code's Git action button priority:
  * Commit Changes -> Publish Branch -> Sync Changes -> disabled Commit Changes.
  */
 export function sourceControlActionButtonModel(
   view: SourceControlViewModel,
+  options: SourceControlActionButtonModelOptions = {},
 ): SourceControlActionButtonModel {
-  const secondaryActions = commitSecondaryActions(view);
+  const secondaryActions = commitSecondaryActions(
+    view,
+    options.postCommitCommandGroups ?? [DEFAULT_GIT_POST_COMMIT_COMMANDS],
+  );
   const commitMenuEnabled = secondaryActions.some((action) => action.disabled !== true);
   if (view.canCommit) {
     return {
@@ -69,6 +82,7 @@ export function sourceControlActionButtonModel(
 
 function commitSecondaryActions(
   view: SourceControlViewModel,
+  postCommitCommandGroups: readonly (readonly ScmPostCommitCommand[])[],
 ): readonly SourceControlSecondaryAction[] {
   if (!view.canCommitAmend) return [];
   const actions: SourceControlSecondaryAction[] = [
@@ -76,8 +90,10 @@ function commitSecondaryActions(
   ];
   if (view.canCommit) {
     actions.push(
-      { label: 'Commit & Push', options: { after: 'push' } },
-      { label: 'Commit & Sync', options: { after: 'sync' } },
+      ...postCommitCommandActions(postCommitCommandGroups).map((action) => ({
+        label: action.label,
+        options: action.options,
+      })),
     );
   }
   return actions;
