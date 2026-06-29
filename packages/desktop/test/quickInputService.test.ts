@@ -1,10 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   QuickPickFocus,
+  isQuickPickItem,
   quickInputService,
 } from '../src/platform/quickinput/browser/quickInputService.js';
+import type { IQuickPick, IQuickPickItem } from '../src/platform/quickinput/common/quickInput.js';
 
 describe('quickInputService', () => {
+  afterEach(() => {
+    quickInputService.cancel();
+    quickInputService.quickAccess.hide();
+  });
+
   it('owns a stable quick access controller instance', () => {
     expect(quickInputService.quickAccess).toBe(quickInputService.quickAccess);
 
@@ -150,4 +157,109 @@ describe('quickInputService', () => {
 
     expect(onAccept).toHaveBeenCalledWith({ inBackground: true });
   });
+
+  it('resolves single picks through the host quick pick model', async () => {
+    const choice = quickInputService.pick({
+      title: 'Switch Branch',
+      options: [
+        { value: 'main', label: 'main' },
+        { value: 'topic', label: 'topic', hint: 'local' },
+      ],
+    });
+    const picker = expectActiveQuickPick();
+
+    expect(picker).toMatchObject({
+      visible: true,
+      title: 'Switch Branch',
+      placeholder: 'Search…',
+      canSelectMany: false,
+    });
+    expect(picker.items.map((item) => (isQuickPickItem(item) ? item.label : ''))).toEqual([
+      'main',
+      'topic',
+    ]);
+    expect(picker.activeItems.map((item) => item.id)).toEqual(['main']);
+
+    quickInputService.accept();
+
+    await expect(choice).resolves.toBe('main');
+    expect(quickInputService.getHostState().activeQuickPick).toBeUndefined();
+  });
+
+  it('resolves pickWithInputValue with the raw query while preserving always-show choices', async () => {
+    const choice = quickInputService.pickWithInputValue({
+      title: 'Create Branch',
+      options: [{ value: 'cmd:create', label: 'Create new branch', alwaysShow: true }],
+    });
+    const picker = expectActiveQuickPick();
+
+    picker.value = 'feature/new-branch';
+    picker.activeItems = [expectQuickPickItem(picker, 0)];
+    quickInputService.accept();
+
+    await expect(choice).resolves.toEqual({
+      value: 'cmd:create',
+      inputValue: 'feature/new-branch',
+    });
+  });
+
+  it('resolves many picks with selected value normalization intact', async () => {
+    const choice = quickInputService.pick({
+      title: 'Select refs',
+      canSelectMany: true,
+      selectedValues: ['main', 'missing'],
+      normalizeSelectedValues: ({ addedValue, nextValues }) =>
+        addedValue === 'topic' ? ['topic'] : nextValues,
+      options: [
+        { value: 'main', label: 'main' },
+        { value: 'topic', label: 'topic' },
+      ],
+    });
+    const picker = expectActiveQuickPick();
+    const topic = expectQuickPickItem(picker, 1);
+
+    expect(picker.canSelectMany).toBe(true);
+    expect(picker.selectedItems.map((item) => item.id)).toEqual(['main']);
+
+    picker.selectedItems = [...picker.selectedItems, topic];
+    quickInputService.accept();
+
+    await expect(choice).resolves.toEqual(['topic']);
+  });
+
+  it('keeps many-pick selections while filtering hides selected rows', async () => {
+    const choice = quickInputService.pick({
+      title: 'Select refs',
+      canSelectMany: true,
+      selectedValues: ['main'],
+      options: [
+        { value: 'main', label: 'main' },
+        { value: 'topic', label: 'topic' },
+      ],
+    });
+    const picker = expectActiveQuickPick();
+
+    picker.value = 'topic';
+
+    expect(picker.items.map((item) => (isQuickPickItem(item) ? item.id : ''))).toEqual(['topic']);
+    expect(picker.selectedItems).toEqual([]);
+
+    quickInputService.accept();
+
+    await expect(choice).resolves.toEqual(['main']);
+  });
 });
+
+function expectActiveQuickPick(): IQuickPick<IQuickPickItem> {
+  const picker = quickInputService.getHostState().activeQuickPick;
+  if (picker === undefined) throw new Error('Expected an active host quick pick');
+  return picker;
+}
+
+function expectQuickPickItem(picker: IQuickPick<IQuickPickItem>, index: number): IQuickPickItem {
+  const item = picker.items[index];
+  if (item === undefined || !isQuickPickItem(item)) {
+    throw new Error(`Expected quick pick item at index ${index}`);
+  }
+  return item;
+}

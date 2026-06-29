@@ -6,7 +6,15 @@
  * while this workbench part renders the active dialog at the root.
  */
 
-import { type CSSProperties, type JSX, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type JSX,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import type {
   ConfirmDialog,
   PickDialog,
@@ -22,6 +30,13 @@ export {
   type PickSelectionChange,
   type PickValueResult,
 } from '../../../../platform/dialogs/browser/dialogService.js';
+import {
+  type IQuickPick,
+  type IQuickPickItem,
+  QuickPickFocus,
+  isQuickPickItem,
+  quickInputService,
+} from '../../../../platform/quickinput/browser/quickInputService.js';
 import {
   filterQuickPickOptions,
   moveQuickPickActiveIndex,
@@ -105,20 +120,30 @@ const FOCUSABLE_SELECTOR =
 export const DialogHost = (): JSX.Element | null => {
   const current = useDialogStore((s) => s.current);
   const resolveAndClose = useDialogStore((s) => s.resolveAndClose);
+  const quickInputHostState = useSyncExternalStore(
+    (listener) => quickInputService.subscribe(listener),
+    () => quickInputService.getHostState(),
+    () => quickInputService.getHostState(),
+  );
   const containerRef = useRef<HTMLDivElement>(null);
+  const activeQuickPick = current === null ? quickInputHostState.activeQuickPick : undefined;
 
   // Esc cancels + Tab/Shift+Tab cycle focus inside the dialog only.
   // Without the trap, Tab could move focus to background buttons (the
   // topbar buttons, sidebar rows, etc.) — confusing because the user
   // would lose track of "I'm in a modal."
   useEffect(() => {
-    if (!current) return;
+    if (!current && activeQuickPick === undefined) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         if (isImeComposing(e)) return;
         e.preventDefault();
         e.stopPropagation();
-        resolveAndClose(current.type === 'confirm' ? false : null);
+        if (current) {
+          resolveAndClose(current.type === 'confirm' ? false : null);
+        } else {
+          activeQuickPick?.hide();
+        }
         return;
       }
       if (e.key !== 'Tab') return;
@@ -142,24 +167,36 @@ export const DialogHost = (): JSX.Element | null => {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [current, resolveAndClose]);
+  }, [activeQuickPick, current, resolveAndClose]);
 
-  if (!current) return null;
+  if (!current && activeQuickPick === undefined) return null;
   return (
     <div
       ref={containerRef}
-      style={current.type === 'pick' ? quickPickBackdropStyle : backdropStyle}
+      style={
+        current?.type === 'pick' || activeQuickPick !== undefined
+          ? quickPickBackdropStyle
+          : backdropStyle
+      }
       onMouseDown={(e) => {
         // Click outside dismisses (treats as Cancel).
         if (e.target === e.currentTarget) {
-          resolveAndClose(current.type === 'confirm' ? false : null);
+          if (current) {
+            resolveAndClose(current.type === 'confirm' ? false : null);
+          } else {
+            activeQuickPick?.hide();
+          }
         }
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="bh-dialog-title"
     >
-      {current.type === 'confirm' ? (
+      {current === null ? (
+        activeQuickPick !== undefined ? (
+          <QuickPickBody picker={activeQuickPick} />
+        ) : null
+      ) : current.type === 'confirm' ? (
         <ConfirmBody dialog={current} onResolve={resolveAndClose} />
       ) : current.type === 'prompt' ? (
         <PromptBody dialog={current} onResolve={resolveAndClose} />
@@ -299,6 +336,252 @@ const PromptBody = ({
         </Button>
       </div>
     </form>
+  );
+};
+
+const QuickPickBody = ({
+  picker,
+}: {
+  picker: IQuickPick<IQuickPickItem>;
+}): JSX.Element => {
+  const [, setVersion] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = 'bh-pick-list';
+
+  useEffect(() => {
+    const bump = (): void => setVersion((version) => version + 1);
+    const disposables = [
+      picker.onDidChangeValue(bump),
+      picker.onDidChangeActive(bump),
+      picker.onDidChangeSelection(bump),
+      picker.onDidHide(bump),
+      picker.onDidFocus(() => inputRef.current?.focus()),
+    ];
+    inputRef.current?.focus();
+    return () => {
+      for (const dispose of disposables) dispose();
+    };
+  }, [picker]);
+
+  const rows = picker.items.filter(isQuickPickItem);
+  const activeItem = picker.activeItems[0];
+  const activeIdx = activeItem === undefined ? null : rows.indexOf(activeItem);
+  const activeOptionId =
+    activeIdx !== null && activeIdx >= 0 ? `bh-pick-option-${activeIdx}` : undefined;
+  const selectedItems = useMemo(() => new Set(picker.selectedItems), [picker.selectedItems]);
+
+  // Keep the highlighted row in view as the cursor moves past the fold.
+  useEffect(() => {
+    if (activeIdx === null || activeIdx < 0) return;
+    const row = listRef.current?.children[activeIdx] as HTMLElement | undefined;
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [activeIdx]);
+
+  const toggleItem = (item: IQuickPickItem): void => {
+    picker.selectedItems = selectedItems.has(item)
+      ? picker.selectedItems.filter((selectedItem) => selectedItem !== item)
+      : [...picker.selectedItems, item];
+  };
+
+  const choose = (item: IQuickPickItem): void => {
+    picker.activeItems = [item];
+    if (picker.canSelectMany) {
+      toggleItem(item);
+      return;
+    }
+    picker.accept();
+  };
+
+  const emptyText =
+    picker.value.trim() === '' ? (picker.emptyText ?? 'Nothing to choose from.') : 'No matches.';
+
+  return (
+    <div
+      style={{
+        ...quickPickStyle,
+        padding: 0,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ padding: `${space[4]}px ${space[5]}px ${space[2]}px` }}>
+        <div id="bh-dialog-title" style={titleStyle}>
+          {picker.title}
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="text"
+        value={picker.value}
+        placeholder={picker.placeholder}
+        spellCheck={false}
+        role="combobox"
+        aria-expanded="true"
+        aria-controls={listId}
+        aria-activedescendant={activeOptionId}
+        aria-autocomplete="list"
+        onFocus={() => picker.focusOnInput()}
+        onChange={(e) => {
+          picker.value = e.target.value;
+          setVersion((version) => version + 1);
+        }}
+        onKeyDown={(e) => {
+          if (isImeComposing(e)) return; // Enter picks a candidate, not a row
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            quickInputService.navigate(true);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            quickInputService.navigate(false);
+          } else if (e.key === 'Home') {
+            e.preventDefault();
+            picker.focus(QuickPickFocus.First);
+          } else if (e.key === 'End') {
+            e.preventDefault();
+            picker.focus(QuickPickFocus.Last);
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            picker.accept();
+          } else if (e.key === ' ' && picker.canSelectMany && activeItem !== undefined) {
+            e.preventDefault();
+            toggleItem(activeItem);
+          }
+        }}
+        style={{
+          margin: `0 ${space[5]}px`,
+          padding: `${space[2]}px ${space[3]}px`,
+          fontSize: font.size.body,
+          fontFamily: font.sans,
+          color: color.textPrimary,
+          background: color.bg,
+          border: `1px solid ${color.borderStrong}`,
+          borderRadius: radius.md,
+          outline: 'none',
+        }}
+      />
+      <div
+        id={listId}
+        ref={listRef}
+        role="listbox"
+        aria-multiselectable={picker.canSelectMany || undefined}
+        style={{
+          marginTop: space[2],
+          maxHeight: 320,
+          overflowY: 'auto',
+          padding: `0 ${space[3]}px ${space[3]}px`,
+        }}
+      >
+        {rows.length === 0 ? (
+          <div
+            style={{
+              padding: `${space[3]}px ${space[2]}px`,
+              fontSize: font.size.caption,
+              color: color.textTertiary,
+            }}
+          >
+            {emptyText}
+          </div>
+        ) : (
+          rows.map((item, idx) => {
+            const checked = selectedItems.has(item);
+            const active = item === activeItem;
+            return (
+              <div
+                key={item.id ?? `${item.label}-${idx}`}
+                id={`bh-pick-option-${idx}`}
+                role={picker.canSelectMany ? 'checkbox' : 'option'}
+                aria-checked={picker.canSelectMany ? checked : undefined}
+                aria-selected={picker.canSelectMany ? undefined : active}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep focus on the input; don't blur-then-click
+                  choose(item);
+                }}
+                onMouseMove={() => {
+                  picker.activeItems = [item];
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: space[2],
+                  padding: `${space[1.5]}px ${space[2]}px`,
+                  borderRadius: radius.md,
+                  cursor: 'pointer',
+                  background: active ? color.accentSofter : checked ? color.divider : 'transparent',
+                }}
+              >
+                {picker.canSelectMany && (
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    readOnly
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    style={{
+                      width: 13,
+                      height: 13,
+                      margin: 0,
+                      flexShrink: 0,
+                      accentColor: color.accent,
+                    }}
+                  />
+                )}
+                <span
+                  style={{
+                    fontSize: font.size.body,
+                    color: color.textPrimary,
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  {item.label}
+                </span>
+                {item.description && (
+                  <span
+                    style={{
+                      fontSize: font.size.caption,
+                      fontFamily: font.mono,
+                      color: color.textTertiary,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {item.description}
+                  </span>
+                )}
+                {item.detail && (
+                  <span
+                    style={{
+                      marginLeft: 'auto',
+                      fontSize: font.size.caption,
+                      color: color.textGhost,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '45%',
+                    }}
+                  >
+                    {item.detail}
+                  </span>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+      {picker.canSelectMany && (
+        <div style={{ ...actionsStyle, margin: 0, padding: `${space[3]}px ${space[5]}px` }}>
+          <Button variant="ghost" type="button" onClick={() => picker.hide()}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="button" onClick={() => picker.accept()}>
+            {picker.okLabel ?? 'OK'}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };
 

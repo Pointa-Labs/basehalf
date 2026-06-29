@@ -71,4 +71,29 @@ describe('QuickInputController', () => {
 
     expect(activeIds).toEqual([['first'], ['second'], ['first']]);
   });
+
+  it('exposes only host-rendered quick picks to React host subscribers', () => {
+    const controller = new QuickInputController();
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    const rawPicker = controller.createQuickPick();
+    rawPicker.show();
+
+    expect(controller.getHostState().activeQuickPick).toBeUndefined();
+    expect(listener).not.toHaveBeenCalled();
+
+    const hostedPicker = controller.createQuickPick({ renderInHost: true });
+    hostedPicker.show();
+
+    expect(controller.getHostState().activeQuickPick).toBe(hostedPicker);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    hostedPicker.hide();
+
+    expect(controller.getHostState().activeQuickPick).toBeUndefined();
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    rawPicker.hide();
+  });
 });

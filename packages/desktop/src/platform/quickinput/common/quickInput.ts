@@ -149,8 +149,10 @@ export interface IQuickPickSeparatorButtonEvent {
 export interface IQuickPick<T extends IQuickPickItem = IQuickPickItem> {
   value: string;
   filterValue: (value: string) => string;
+  title?: string;
   ariaLabel?: string;
   placeholder?: string;
+  emptyText?: string;
   prompt?: string;
   items: readonly QuickPickItemOrSeparator<T>[];
   activeItems: readonly T[];
@@ -208,10 +210,19 @@ export interface IQuickPick<T extends IQuickPickItem = IQuickPickItem> {
 
 export interface CreateQuickPickOptions {
   readonly useSeparators?: boolean;
+  readonly renderInHost?: boolean;
 }
+
+export interface QuickInputHostState {
+  readonly activeQuickPick: IQuickPick<IQuickPickItem> | undefined;
+}
+
+export type QuickInputHostStateListener = () => void;
 
 export interface IQuickInputService {
   readonly quickAccess: IQuickAccessController;
+  getHostState(): QuickInputHostState;
+  subscribe(listener: QuickInputHostStateListener): () => void;
   createQuickPick<T extends IQuickPickItem>(options?: CreateQuickPickOptions): IQuickPick<T>;
   focus(): void;
   navigate(next: boolean): void;

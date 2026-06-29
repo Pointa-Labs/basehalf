@@ -39,8 +39,10 @@ export class HeadlessQuickPick<T extends IQuickPickItem> implements IQuickPick<T
   private readonly focusListeners = new Set<() => void>();
 
   filterValue = (value: string): string => value;
+  title?: string;
   ariaLabel?: string;
   placeholder?: string;
+  emptyText?: string;
   prompt?: string;
   canSelectMany = false;
   canAcceptInBackground = false;
