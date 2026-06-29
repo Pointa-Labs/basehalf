@@ -36,6 +36,7 @@ describe('GithubMainChannel', () => {
     const service = {
       repository: vi.fn(async () => null),
       createPullRequestUrl: vi.fn(async () => 'https://github.com/o/r/compare/topic?expand=1'),
+      branchProtection: vi.fn(async () => [{ remote: 'origin', rules: [{ include: ['main'] }] }]),
       listRemoteSources: vi.fn(async () => []),
       listRemoteBranches: vi.fn(async () => []),
       listPullRequests: vi.fn(async () => []),
@@ -48,6 +49,7 @@ describe('GithubMainChannel', () => {
     expect([...ipc.handlers.keys()]).toEqual([
       GITHUB_IPC_CHANNELS.repository,
       GITHUB_IPC_CHANNELS.createPullRequestUrl,
+      GITHUB_IPC_CHANNELS.branchProtection,
       GITHUB_IPC_CHANNELS.listRemoteSources,
       GITHUB_IPC_CHANNELS.listRemoteBranches,
       GITHUB_IPC_CHANNELS.listPullRequests,
@@ -66,6 +68,9 @@ describe('GithubMainChannel', () => {
         'topic',
       ),
     ).resolves.toBe('https://github.com/o/r/compare/topic?expand=1');
+    await expect(
+      invokeGithubHandler(ipc.handlers.get(GITHUB_IPC_CHANNELS.branchProtection), event, '/repo'),
+    ).resolves.toEqual([{ remote: 'origin', rules: [{ include: ['main'] }] }]);
     await expect(
       invokeGithubHandler(
         ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteSources),
@@ -101,6 +106,7 @@ describe('GithubMainChannel', () => {
 
     expect(service.repository).toHaveBeenCalledWith('/repo');
     expect(service.createPullRequestUrl).toHaveBeenCalledWith('/repo', 'topic');
+    expect(service.branchProtection).toHaveBeenCalledWith('/repo', '/repo');
     expect(service.listRemoteSources).toHaveBeenCalledWith('basehalf');
     expect(service.listRemoteBranches).toHaveBeenCalledWith('https://github.com/o/r.git');
     expect(service.listPullRequests).toHaveBeenCalledWith('/repo', 'https://github.com/o/r.git');

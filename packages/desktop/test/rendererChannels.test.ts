@@ -87,6 +87,10 @@ describe('renderer service channels', () => {
           calls.push({ name: 'createPullRequestUrl', args: [branch] });
           return 'https://github.com/o/r/compare/topic?expand=1';
         },
+        branchProtection: async (repositoryRoot: string) => {
+          calls.push({ name: 'branchProtection', args: [repositoryRoot] });
+          return [{ remote: 'origin', rules: [{ include: ['main'] }] }];
+        },
         listRemoteSources: async (query?: string) => {
           calls.push({ name: 'listRemoteSources', args: [query] });
           return [{ name: 'o/r', url: 'https://github.com/o/r.git' }];
@@ -114,6 +118,9 @@ describe('renderer service channels', () => {
     await expect(channel.createPullRequestUrl('topic')).resolves.toBe(
       'https://github.com/o/r/compare/topic?expand=1',
     );
+    await expect(channel.branchProtection('/repo')).resolves.toEqual([
+      { remote: 'origin', rules: [{ include: ['main'] }] },
+    ]);
     await expect(channel.listRemoteSources('o')).resolves.toEqual([
       { name: 'o/r', url: 'https://github.com/o/r.git' },
     ]);
@@ -131,6 +138,7 @@ describe('renderer service channels', () => {
     expect(calls).toEqual([
       { name: 'repository', args: [] },
       { name: 'createPullRequestUrl', args: ['topic'] },
+      { name: 'branchProtection', args: ['/repo'] },
       { name: 'listRemoteSources', args: ['o'] },
       { name: 'listRemoteBranches', args: ['https://github.com/o/r.git'] },
       { name: 'listPullRequests', args: ['https://github.com/o/r.git'] },

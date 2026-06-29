@@ -37,6 +37,9 @@ export class GithubMainChannel {
     this.handle(GITHUB_IPC_CHANNELS.createPullRequestUrl, (event, branch) =>
       this.github.createPullRequestUrl(this.getWorkspaceRoot(event.sender), branch),
     );
+    this.handle(GITHUB_IPC_CHANNELS.branchProtection, (event, repositoryRoot) =>
+      this.github.branchProtection(this.getWorkspaceRoot(event.sender), repositoryRoot),
+    );
     this.handle(GITHUB_IPC_CHANNELS.listRemoteSources, (_event, query) =>
       this.github.listRemoteSources(query),
     );

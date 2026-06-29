@@ -152,6 +152,92 @@ describe('GithubMainService repository / createPullRequestUrl', () => {
   });
 });
 
+describe('GithubMainService branch protection API', () => {
+  it('maps writable GitHub pull-request rulesets into SCM branch protection rules', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      if (req.url === 'https://api.github.com/repos/o/r') {
+        return {
+          body: JSON.stringify({
+            default_branch: 'main',
+            permissions: { push: true },
+          }),
+        };
+      }
+      if (
+        req.url ===
+        'https://api.github.com/repos/o/r/rulesets?includes_parents=true&per_page=100&page=1'
+      ) {
+        return {
+          body: JSON.stringify([
+            {
+              target: 'branch',
+              enforcement: 'active',
+              rules: [{ type: 'pull_request' }],
+              conditions: {
+                ref_name: {
+                  include: ['~DEFAULT_BRANCH', 'refs/heads/release/*', '~ALL'],
+                  exclude: ['refs/heads/wip/*'],
+                },
+              },
+            },
+            {
+              target: 'branch',
+              enforcement: 'disabled',
+              rules: [{ type: 'pull_request' }],
+              conditions: { ref_name: { include: ['refs/heads/ignored'] } },
+            },
+            {
+              target: 'branch',
+              enforcement: 'active',
+              rules: [{ type: 'required_status_checks' }],
+              conditions: { ref_name: { include: ['refs/heads/ignored'] } },
+            },
+          ]),
+        };
+      }
+      return { body: '{}' };
+    });
+    const service = serviceWithRemotes(GITHUB_OR_REMOTE, { http, token: 'tok' });
+
+    await expect(service.branchProtection(ROOT, ROOT)).resolves.toEqual([
+      {
+        remote: 'origin',
+        rules: [
+          {
+            include: ['main', 'release/*', '**/*'],
+            exclude: ['wip/*'],
+          },
+        ],
+      },
+    ]);
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://api.github.com/repos/o/r',
+      'https://api.github.com/repos/o/r/rulesets?includes_parents=true&per_page=100&page=1',
+    ]);
+  });
+
+  it('does not expose branch protection for read-only GitHub sessions or other roots', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      if (req.url === 'https://api.github.com/repos/o/r') {
+        return {
+          body: JSON.stringify({
+            default_branch: 'main',
+            permissions: { push: false, maintain: false, admin: false },
+          }),
+        };
+      }
+      return { body: '[]' };
+    });
+    const service = serviceWithRemotes(GITHUB_OR_REMOTE, { http, token: 'tok' });
+
+    await expect(service.branchProtection(ROOT, ROOT)).resolves.toEqual([]);
+    await expect(service.branchProtection(ROOT, '/other')).resolves.toEqual([]);
+    await expect(service.branchProtection(null, ROOT)).resolves.toEqual([]);
+    expect(calls.map((call) => call.url)).toEqual(['https://api.github.com/repos/o/r']);
+  });
+});
+
 describe('GithubMainService remote source API', () => {
   it('lists authenticated GitHub repositories as remote sources', async () => {
     const { http, calls } = makeFakeHttp(() => ({

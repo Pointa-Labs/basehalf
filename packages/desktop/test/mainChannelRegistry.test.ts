@@ -107,6 +107,7 @@ describe('MainChannelRegistry', () => {
         GIT_IPC_CHANNELS.status,
         GITHUB_IPC_CHANNELS.repository,
         GITHUB_IPC_CHANNELS.createPullRequestUrl,
+        GITHUB_IPC_CHANNELS.branchProtection,
         GITHUB_IPC_CHANNELS.listRemoteSources,
         GITHUB_IPC_CHANNELS.listRemoteBranches,
         GITHUB_IPC_CHANNELS.listPullRequests,

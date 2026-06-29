@@ -1,3 +1,4 @@
+import type { BranchProtection } from '../../scm/common/branchProtection.js';
 import type { RemoteSource, RemoteSourceBranch } from '../../scm/common/remoteSources.js';
 
 export interface GithubRepo {
@@ -45,6 +46,7 @@ export interface GithubReviewArgs {
 export const GITHUB_IPC_CHANNELS = {
   repository: 'github:repository',
   createPullRequestUrl: 'github:create-pull-request-url',
+  branchProtection: 'github:branch-protection',
   listRemoteSources: 'github:list-remote-sources',
   listRemoteBranches: 'github:list-remote-branches',
   listPullRequests: 'github:list-pull-requests',
@@ -96,6 +98,7 @@ export function unwrapGithubIpcResult<T>(raw: unknown): T {
 export interface GithubChannelBridge {
   repository(): Promise<GithubRemoteRepository | null>;
   createPullRequestUrl(branch: string): Promise<string | null>;
+  branchProtection(repositoryRoot: string): Promise<readonly BranchProtection[]>;
   listRemoteSources(query?: string): Promise<readonly RemoteSource[]>;
   listRemoteBranches(remoteUrl: string): Promise<readonly RemoteSourceBranch[]>;
   listPullRequests(remoteUrl: string): Promise<readonly GhPullRequest[]>;

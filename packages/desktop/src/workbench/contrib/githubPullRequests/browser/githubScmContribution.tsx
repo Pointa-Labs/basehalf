@@ -12,6 +12,8 @@ import {
 import { choosePublishRemote } from '../../scm/browser/useScmRemoteCommands.js';
 import type { GitStatusResult } from '../../scm/common/git.js';
 import { PullRequestsSection } from './PullRequestsSection.js';
+import { registerGithubBranchProtectionProviders } from './githubBranchProtectionProvider.js';
+import { registerGithubHistoryItemDetailsProvider } from './githubHistoryItemDetailsProvider.js';
 import {
   type GithubPullRequestProvider,
   githubErrorMessage,
@@ -101,7 +103,12 @@ export function registerGithubPullRequestsScmContribution(
   const disposables = [
     registerScmViewContribution(createGithubPullRequestsScmContribution(provider), scmRegistry),
     ...(scmRegistry === scmViewContributionRegistry
-      ? [registerGithubRemoteSourceProvider(), registerGithubPushErrorHandler()]
+      ? [
+          registerGithubRemoteSourceProvider(),
+          registerGithubPushErrorHandler(),
+          registerGithubBranchProtectionProviders(),
+          registerGithubHistoryItemDetailsProvider(),
+        ]
       : []),
   ];
   return () => {

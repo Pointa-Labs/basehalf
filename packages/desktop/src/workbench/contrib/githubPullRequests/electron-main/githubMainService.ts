@@ -2,6 +2,7 @@ import {
   type AuthenticationSession,
   GITHUB_AUTH_PROVIDER_ID,
 } from '../../../services/authentication/common/authentication.js';
+import type { BranchProtection, BranchProtectionRule } from '../../scm/common/branchProtection.js';
 import type { RemoteSource, RemoteSourceBranch } from '../../scm/common/remoteSources.js';
 import {
   type GhPrFile,
@@ -61,6 +62,33 @@ interface GithubRemoteSourceResponse {
   readonly html_url?: string;
 }
 
+interface GithubRepositoryDetailsResponse {
+  readonly default_branch?: string;
+  readonly permissions?: {
+    readonly admin?: boolean;
+    readonly maintain?: boolean;
+    readonly push?: boolean;
+  };
+  readonly viewer_permission?: string;
+}
+
+interface GithubRulesetResponse {
+  readonly target?: string;
+  readonly enforcement?: string;
+  readonly rules?: readonly {
+    readonly type?: string;
+  }[];
+  readonly conditions?: {
+    readonly ref_name?: GithubRulesetRefNameCondition;
+    readonly refName?: GithubRulesetRefNameCondition;
+  };
+}
+
+interface GithubRulesetRefNameCondition {
+  readonly include?: readonly string[];
+  readonly exclude?: readonly string[];
+}
+
 function asRemoteSource(raw: GithubRemoteSourceResponse): RemoteSource {
   const cloneUrls = [raw.clone_url, raw.ssh_url].filter(
     (url): url is string => typeof url === 'string' && url.trim() !== '',
@@ -89,6 +117,13 @@ function parseOptionalQuery(query: unknown): string | undefined {
   if (typeof query !== 'string') throw new Error('Invalid GitHub remote source query.');
   const trimmed = query.trim();
   return trimmed === '' ? undefined : trimmed;
+}
+
+function parseRepositoryRoot(root: unknown): string {
+  if (typeof root !== 'string' || root.trim() === '') {
+    throw new Error('Invalid repository root.');
+  }
+  return root;
 }
 
 function parseGithubRepoQuery(query: string): GithubRepo | null {
@@ -125,6 +160,38 @@ export class GithubMainService {
       trimmedBranch,
       head !== undefined ? { owner: head.owner, repo: head.repo } : undefined,
     );
+  }
+
+  async branchProtection(
+    workspaceRoot: string | null,
+    repositoryRoot: unknown,
+  ): Promise<readonly BranchProtection[]> {
+    const root = parseRepositoryRoot(repositoryRoot);
+    if (workspaceRoot === null || root !== workspaceRoot) return [];
+
+    const [token, remotes] = await Promise.all([
+      this.requireToken(),
+      this.opts.remoteProvider.getRemotes(root),
+    ]);
+    const branchProtection: BranchProtection[] = [];
+
+    for (const remote of remotes) {
+      const repo = githubRepositoryFromRemote(remote);
+      if (repo === null) continue;
+
+      const details = await this.githubRepositoryDetails(token, repo);
+      if (!githubRepositoryHasWriteAccess(details)) continue;
+
+      const rules = githubRulesetsToBranchProtectionRules(
+        details,
+        await this.githubRepositoryRulesets(token, repo),
+      );
+      if (rules.length !== 0) {
+        branchProtection.push({ remote: repo.remoteName, rules });
+      }
+    }
+
+    return branchProtection;
   }
 
   async listRemoteSources(query?: unknown): Promise<readonly RemoteSource[]> {
@@ -292,4 +359,89 @@ export class GithubMainService {
     );
     return raw.map(asRemoteSource);
   }
+
+  private async githubRepositoryDetails(
+    token: string,
+    repo: GithubRepo,
+  ): Promise<GithubRepositoryDetailsResponse> {
+    const res = await this.api.request(token, 'GET', `/repos/${repo.owner}/${repo.repo}`);
+    return JSON.parse(res.body) as GithubRepositoryDetailsResponse;
+  }
+
+  private async githubRepositoryRulesets(
+    token: string,
+    repo: GithubRepo,
+  ): Promise<readonly GithubRulesetResponse[]> {
+    return this.api.arrayPages<GithubRulesetResponse>(
+      token,
+      `/repos/${repo.owner}/${repo.repo}/rulesets?includes_parents=true`,
+    );
+  }
+}
+
+function githubRepositoryHasWriteAccess(details: GithubRepositoryDetailsResponse): boolean {
+  const viewerPermission = details.viewer_permission?.toUpperCase();
+  if (
+    viewerPermission === 'ADMIN' ||
+    viewerPermission === 'MAINTAIN' ||
+    viewerPermission === 'WRITE'
+  ) {
+    return true;
+  }
+
+  const permissions = details.permissions;
+  return (
+    permissions?.admin === true || permissions?.maintain === true || permissions?.push === true
+  );
+}
+
+function githubRulesetsToBranchProtectionRules(
+  repository: GithubRepositoryDetailsResponse,
+  rulesets: readonly GithubRulesetResponse[],
+): readonly BranchProtectionRule[] {
+  return rulesets
+    .filter(isActiveBranchPullRequestRuleset)
+    .map((ruleset) => githubRulesetToBranchProtectionRule(repository, ruleset));
+}
+
+function isActiveBranchPullRequestRuleset(ruleset: GithubRulesetResponse): boolean {
+  return (
+    ruleset.target?.toUpperCase() === 'BRANCH' &&
+    ruleset.enforcement?.toUpperCase() === 'ACTIVE' &&
+    (ruleset.rules ?? []).some((rule) => rule.type === 'pull_request')
+  );
+}
+
+function githubRulesetToBranchProtectionRule(
+  repository: GithubRepositoryDetailsResponse,
+  ruleset: GithubRulesetResponse,
+): BranchProtectionRule {
+  const refName = ruleset.conditions?.ref_name ?? ruleset.conditions?.refName;
+  const include = githubRulesetRefPatterns(repository, refName?.include, ['**/*']);
+  const exclude = githubRulesetRefPatterns(repository, refName?.exclude, []);
+  return {
+    ...(include.length !== 0 && { include }),
+    ...(exclude.length !== 0 && { exclude }),
+  };
+}
+
+function githubRulesetRefPatterns(
+  repository: GithubRepositoryDetailsResponse,
+  patterns: readonly string[] | undefined,
+  fallback: readonly string[],
+): readonly string[] {
+  const raw = patterns === undefined || patterns.length === 0 ? fallback : patterns;
+  return raw
+    .map((pattern) => githubRulesetRefPattern(repository, pattern))
+    .filter((pattern) => pattern !== '');
+}
+
+function githubRulesetRefPattern(
+  repository: GithubRepositoryDetailsResponse,
+  pattern: string,
+): string {
+  if (pattern.startsWith('refs/heads/')) return pattern.slice('refs/heads/'.length);
+  if (pattern === '~ALL') return '**/*';
+  if (pattern === '~DEFAULT_BRANCH') return repository.default_branch ?? '';
+  return pattern;
 }
