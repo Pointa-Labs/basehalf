@@ -13,7 +13,19 @@ import type {
   ScmHistoryOptions,
   ScmHistoryProvider,
 } from '../common/history.js';
+import type {
+  ScmHistoryAvatarQuery,
+  ScmHistoryItemCommand,
+  ScmHistoryItemDetailsProviderRegistry,
+  ScmHistoryRepository,
+} from '../common/historyItemDetails.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
+import {
+  provideScmHistoryItemAvatar,
+  provideScmHistoryItemHoverCommands,
+  provideScmHistoryItemMessageLinks,
+  scmHistoryItemDetailsProviderRegistry,
+} from './historyItemDetailsProviderRegistry.js';
 
 export interface GitHistoryOptions extends ScmHistoryOptions {
   readonly maxParents?: number;
@@ -30,8 +42,29 @@ type GitHistoryProviderGit = Pick<
   'status' | 'refs' | 'log' | 'commitFiles' | 'mergeBase'
 >;
 
+export interface GitHistoryProviderOptions {
+  readonly historyItemDetailsRegistry?: Pick<
+    ScmHistoryItemDetailsProviderRegistry,
+    'getScmHistoryItemDetailsProviders'
+  >;
+  readonly repository?: ScmHistoryRepository;
+}
+
 export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSource {
-  constructor(private readonly git: GitHistoryProviderGit) {}
+  private readonly historyItemDetailsRegistry: Pick<
+    ScmHistoryItemDetailsProviderRegistry,
+    'getScmHistoryItemDetailsProviders'
+  >;
+  private readonly repository: ScmHistoryRepository;
+
+  constructor(
+    private readonly git: GitHistoryProviderGit,
+    options: GitHistoryProviderOptions = {},
+  ) {
+    this.historyItemDetailsRegistry =
+      options.historyItemDetailsRegistry ?? scmHistoryItemDetailsProviderRegistry;
+    this.repository = options.repository ?? { root: null };
+  }
 
   async provideGitRefs(args: GitRefsArgs = {}): Promise<readonly GitRefInfo[]> {
     const result = await this.git.refs(args);
@@ -143,6 +176,24 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
 
     const ref = await this.git.mergeBase(normalized);
     return ref ?? undefined;
+  }
+
+  async provideHistoryItemAvatar(
+    query: ScmHistoryAvatarQuery,
+  ): Promise<Map<string, string | undefined> | undefined> {
+    return provideScmHistoryItemAvatar(this.historyItemDetailsRegistry, this.repository, query);
+  }
+
+  async provideHistoryItemHoverCommands(): Promise<readonly ScmHistoryItemCommand[] | undefined> {
+    return provideScmHistoryItemHoverCommands(this.historyItemDetailsRegistry, this.repository);
+  }
+
+  async provideHistoryItemMessageLinks(message: string): Promise<string | undefined> {
+    return provideScmHistoryItemMessageLinks(
+      this.historyItemDetailsRegistry,
+      this.repository,
+      message,
+    );
   }
 
   private async withNormalizedHistoryItemRefs(

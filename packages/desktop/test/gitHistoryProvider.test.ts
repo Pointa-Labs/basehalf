@@ -5,6 +5,7 @@ import {
   gitCommitToHistoryItem,
   gitRefToHistoryItemRef,
 } from '../src/workbench/contrib/scm/browser/gitHistoryProvider.js';
+import { ScmHistoryItemDetailsProviderRegistry } from '../src/workbench/contrib/scm/browser/historyItemDetailsProviderRegistry.js';
 import type { GitCommit, GitLogArgs, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 const commit = (props: Partial<GitCommit> = {}): GitCommit => ({
@@ -212,6 +213,49 @@ describe('gitHistoryProvider', () => {
       },
       { ref: 'abc', maxCount: 1 },
     ]);
+  });
+
+  it('delegates history item details to the injected provider registry', async () => {
+    const registry = new ScmHistoryItemDetailsProviderRegistry();
+    const calls: string[] = [];
+    const avatar = new Map([['abc', 'https://example.com/avatar.png']]);
+    const commands = [{ id: 'github.openCommit', title: 'Open Commit', arguments: ['abc'] }];
+    registry.registerScmHistoryItemDetailsProvider({
+      provideAvatar: async (repository, query) => {
+        calls.push(`avatar:${repository.root}:${query.commits[0]?.hash ?? ''}:${query.size}`);
+        return avatar;
+      },
+      provideHoverCommands: async (repository) => {
+        calls.push(`commands:${repository.root}`);
+        return commands;
+      },
+      provideMessageLinks: async (repository, message) => {
+        calls.push(`links:${repository.root}:${message}`);
+        return message.replace('#12', 'https://github.com/o/r/pull/12');
+      },
+    });
+    const provider = new GitHistoryProvider(
+      {
+        status: async () => ({ isRepo: true, files: [] }),
+        refs: async () => ({ refs: [] }),
+        log: async () => ({ commits: [] }),
+        commitFiles: async () => [],
+        mergeBase: async () => null,
+      },
+      { historyItemDetailsRegistry: registry, repository: { root: '/repo' } },
+    );
+
+    await expect(
+      provider.provideHistoryItemAvatar({
+        commits: [{ hash: 'abc', authorName: 'Ada', authorEmail: 'ada@example.com' }],
+        size: 32,
+      }),
+    ).resolves.toBe(avatar);
+    await expect(provider.provideHistoryItemHoverCommands()).resolves.toBe(commands);
+    await expect(provider.provideHistoryItemMessageLinks('Fixes #12')).resolves.toBe(
+      'Fixes https://github.com/o/r/pull/12',
+    );
+    expect(calls).toEqual(['avatar:/repo:abc:32', 'commands:/repo', 'links:/repo:Fixes #12']);
   });
 
   it('prefers full ref ids for current remote refs and selected ref lookups', async () => {
