@@ -1,11 +1,14 @@
 import {
+  type TerminalChannel,
+  terminalChannel,
+} from '../../../../platform/terminal/browser/terminalChannel.js';
+import {
   type TerminalChannelBridge,
   type TerminalRawSpawnResult,
   type TerminalSpawnOptions,
   type TerminalSpawnResult,
   normalizeTerminalSpawnResult,
-} from '../common/terminal.js';
-import { type TerminalChannel, terminalChannel } from './terminalChannel.js';
+} from '../../../../platform/terminal/common/terminal.js';
 
 export interface TerminalService extends TerminalChannelBridge {
   spawn(opts?: TerminalSpawnOptions): Promise<TerminalSpawnResult>;

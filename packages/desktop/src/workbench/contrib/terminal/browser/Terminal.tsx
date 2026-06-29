@@ -1,8 +1,8 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
-import { terminalService } from '../../../../platform/terminal/browser/terminalService.js';
 import { color, font, space } from '../../../browser/style/design.js';
 import { termRegistry } from './termRegistry.js';
+import { terminalService } from './terminalService.js';
 import {
   type XtermTerminalHandle,
   createXtermTerminal,
