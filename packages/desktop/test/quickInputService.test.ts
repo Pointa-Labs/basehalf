@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { quickInputService } from '../src/platform/quickinput/browser/quickInputService.js';
+import {
+  QuickPickFocus,
+  quickInputService,
+} from '../src/platform/quickinput/browser/quickInputService.js';
 
 describe('quickInputService', () => {
   it('owns a stable quick access controller instance', () => {
@@ -102,5 +105,49 @@ describe('quickInputService', () => {
     expect(onAccept).toHaveBeenCalledTimes(1);
     expect(onHide).toHaveBeenCalledTimes(1);
     expect(picker.visible).toBe(false);
+  });
+
+  it('keeps VS Code-shaped quick pick state and accept events headless', () => {
+    const picker = quickInputService.createQuickPick<{
+      readonly id: string;
+      readonly label: string;
+    }>({ useSeparators: true });
+    const first = { id: 'first', label: 'First' };
+    const second = { id: 'second', label: 'Second' };
+    const onAccept = vi.fn();
+    const onWillAccept = vi.fn();
+
+    picker.items = [{ type: 'separator', label: 'Group' }, first, second];
+    picker.filterValue = (value) => value.replace(/^>/, '');
+    picker.valueSelection = [1, 4];
+    picker.onWillAccept((event) => {
+      onWillAccept();
+      event.veto();
+    });
+    picker.onDidAccept(onAccept);
+
+    expect(picker.filterValue('>git')).toBe('git');
+    expect(picker.valueSelection).toEqual([1, 4]);
+
+    picker.show();
+    picker.focusOnInput();
+    expect(picker.inputHasFocus()).toBe(true);
+
+    picker.focus(QuickPickFocus.Last);
+    expect(picker.activeItems).toEqual([second]);
+
+    picker.accept(true);
+    expect(onWillAccept).toHaveBeenCalledTimes(1);
+    expect(onAccept).not.toHaveBeenCalled();
+  });
+
+  it('passes background accept metadata when no will-accept listener vetoes', () => {
+    const picker = quickInputService.createQuickPick();
+    const onAccept = vi.fn();
+
+    picker.onDidAccept(onAccept);
+    picker.accept(true);
+
+    expect(onAccept).toHaveBeenCalledWith({ inBackground: true });
   });
 });

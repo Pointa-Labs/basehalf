@@ -1,5 +1,5 @@
 import type { CreateQuickPickOptions, IQuickPick, IQuickPickItem } from '../common/quickInput.js';
-import { HeadlessQuickPick } from '../common/quickInputModel.js';
+import { HeadlessQuickPick, pickableQuickPickItems } from '../common/quickInputModel.js';
 
 /**
  * Headless quick input controller.
@@ -30,16 +30,18 @@ export class QuickInputController {
 
   navigate(next: boolean): void {
     const picker = this.activeQuickPick;
-    if (picker === undefined || picker.items.length === 0) return;
+    if (picker === undefined) return;
+    const items = pickableQuickPickItems(picker.items);
+    if (items.length === 0) return;
     const active = picker.activeItems[0];
-    const currentIndex = active === undefined ? -1 : picker.items.indexOf(active);
+    const currentIndex = active === undefined ? -1 : items.indexOf(active);
     const nextIndex =
       currentIndex < 0
         ? next
           ? 0
-          : picker.items.length - 1
-        : (currentIndex + (next ? 1 : -1) + picker.items.length) % picker.items.length;
-    const nextItem = picker.items[nextIndex];
+          : items.length - 1
+        : (currentIndex + (next ? 1 : -1) + items.length) % items.length;
+    const nextItem = items[nextIndex];
     picker.activeItems = nextItem === undefined ? [] : [nextItem];
   }
 

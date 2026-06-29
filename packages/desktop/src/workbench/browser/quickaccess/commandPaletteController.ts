@@ -12,6 +12,7 @@ import {
 import {
   type IQuickPick,
   type IQuickPickItem,
+  isQuickPickItem,
   quickInputService,
 } from '../../../platform/quickinput/browser/quickInputService.js';
 import {
@@ -234,7 +235,9 @@ export function useCommandPaletteController(args: {
       setSelectedIdx(idx);
       const picker = pickerRef.current;
       const item = picker?.items[idx];
-      if (picker !== null && item !== undefined) picker.activeItems = [item];
+      if (picker !== null && item !== undefined && isQuickPickItem(item)) {
+        picker.activeItems = [item];
+      }
     },
     [mouseActive],
   );

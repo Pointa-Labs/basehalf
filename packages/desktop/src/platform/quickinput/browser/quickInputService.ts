@@ -16,11 +16,20 @@ import { QuickInputController } from './quickInputController.js';
 
 export type {
   CreateQuickPickOptions,
+  IKeyMods,
+  IQuickInputButton,
   IQuickInputService,
+  IQuickNavigateConfiguration,
   IQuickPick,
+  IQuickPickDidAcceptEvent,
   IQuickPickItem,
+  IQuickPickItemButtonEvent,
   IQuickPickSeparator,
+  IQuickPickSeparatorButtonEvent,
+  IQuickPickWillAcceptEvent,
+  QuickInputValidationSeverity,
   QuickPickBaseOptions,
+  QuickPickItemOrSeparator,
   QuickPickManyOptions,
   QuickPickOption,
   QuickPickOptions,
@@ -29,6 +38,14 @@ export type {
   QuickPickSingleOptions,
   QuickPickSortOptions,
   QuickPickValueResult,
+} from '../common/quickInput.js';
+export {
+  ItemActivation,
+  NO_KEY_MODS,
+  QuickPickFocus,
+  isKeyModified,
+  isQuickPickItem,
+  isQuickPickSeparator,
 } from '../common/quickInput.js';
 
 class DialogBackedQuickInputService implements IQuickInputService {

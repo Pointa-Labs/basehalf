@@ -51,4 +51,24 @@ describe('QuickInputController', () => {
 
     expect(onAccept).not.toHaveBeenCalled();
   });
+
+  it('skips separators while navigating a quick pick', () => {
+    const controller = new QuickInputController();
+    const picker = controller.createQuickPick<{ readonly id: string; readonly label: string }>({
+      useSeparators: true,
+    });
+    const first = { id: 'first', label: 'First' };
+    const second = { id: 'second', label: 'Second' };
+    const activeIds: string[][] = [];
+
+    picker.items = [{ type: 'separator', label: 'Group' }, first, { type: 'separator' }, second];
+    picker.onDidChangeActive((items) => activeIds.push(items.map((item) => item.id)));
+    picker.show();
+
+    controller.navigate(true);
+    controller.navigate(true);
+    controller.navigate(false);
+
+    expect(activeIds).toEqual([['first'], ['second'], ['first']]);
+  });
 });
