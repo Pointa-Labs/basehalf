@@ -109,7 +109,7 @@ export function scmGitErrorMessage(err: GitError): string {
 function noUpstreamGitErrorMessage(err: GitError): string {
   const command = err.gitCommand ?? err.gitArgs?.[0];
   if (command === 'pull') {
-    return 'The current branch has no upstream branch. Publish this branch or set an upstream branch before pulling.';
+    return gitErrorMessage(err);
   }
   if (command === 'sync') {
     return 'The current branch has no upstream branch. Publish this branch before syncing.';

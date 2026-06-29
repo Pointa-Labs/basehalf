@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
+import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
 import type { GitBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackend.js';
 import { GitCliBackendProvider } from '../src/workbench/contrib/scm/electron-main/gitBackendProvider.js';
 import { GitMainService } from '../src/workbench/contrib/scm/electron-main/gitMainService.js';
@@ -138,13 +138,21 @@ describe('GitMainService', () => {
     );
   });
 
-  it('classifies pull without upstream before running raw git pull', async () => {
+  it('classifies pull without upstream from raw git pull stderr', async () => {
     const calls: string[][] = [];
     const backend = new GitCliBackendProvider({
       git: async (args) => {
         calls.push([...args]);
         if (args[0] === 'status') {
           return { stdout: '## main\0', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'pull') {
+          throw new GitError({
+            stderr: 'There is no tracking information for the current branch.\n',
+            exitCode: 1,
+            gitCommand: 'pull',
+            gitArgs: args,
+          });
         }
         return { stdout: '', stderr: '', exitCode: 0 };
       },
@@ -153,9 +161,9 @@ describe('GitMainService', () => {
     await expect(backend.pull('/repo')).rejects.toMatchObject({
       gitErrorCode: GitErrorCodes.NoUpstreamBranch,
       gitCommand: 'pull',
-      stderr: expect.stringContaining('Publish this branch first'),
+      stderr: expect.stringContaining('There is no tracking information'),
     });
-    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch']]);
+    expect(calls).toEqual([['status', '--porcelain=v1', '-z', '--branch'], ['pull']]);
   });
 
   it('loads commit files relative to an explicit parent commit', async () => {
@@ -349,7 +357,7 @@ describe('GitMainService', () => {
     expect(calls.at(-1)).toContain('refs/heads/main');
   });
 
-  it('classifies ambiguous log revisions without adding a git-log wrapper message', async () => {
+  it('returns empty history for ambiguous log revisions instead of surfacing git stderr', async () => {
     const calls: string[][] = [];
     const backend = new GitCliBackendProvider({
       git: async (args) => {
@@ -369,10 +377,8 @@ describe('GitMainService', () => {
       },
     });
 
-    await expect(backend.log('/repo', { ref: '798', maxCount: 5 })).rejects.toMatchObject({
-      message: "fatal: ambiguous argument '798': unknown revision or path not in the working tree.",
-      gitErrorCode: GitErrorCodes.BadRevision,
-      stderr: expect.stringContaining("ambiguous argument '798'"),
+    await expect(backend.log('/repo', { ref: '798', maxCount: 5 })).resolves.toEqual({
+      commits: [],
     });
     expect(calls.at(-1)).toContain('798');
   });

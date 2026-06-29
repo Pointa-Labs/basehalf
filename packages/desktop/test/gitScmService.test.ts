@@ -14,6 +14,7 @@ import type {
 
 interface FakeGitChannelOptions {
   readonly pushError?: unknown;
+  readonly publishError?: unknown;
   readonly status?: GitStatusResult;
   readonly remotes?: readonly GitRemoteInfo[];
 }
@@ -36,7 +37,10 @@ function fakeGitChannel(
       calls.push({ name: 'push', args: [pushOptions] });
       if (options.pushError !== undefined) throw options.pushError;
     },
-    publish: async (options) => calls.push({ name: 'publish', args: [options] }),
+    publish: async (publishOptions) => {
+      calls.push({ name: 'publish', args: [publishOptions] });
+      if (options.publishError !== undefined) throw options.publishError;
+    },
     pull: async (options) => calls.push({ name: 'pull', args: [options] }),
     fetch: async () => calls.push({ name: 'fetch', args: [] }),
     sync: async () => calls.push({ name: 'sync', args: [] }),
@@ -295,7 +299,45 @@ describe('gitScmService', () => {
       {
         repository: { root: '/repo', status },
         remote: originRemote,
-        refspec: 'HEAD:main',
+        refspec: 'topic:main',
+        error,
+      },
+    ]);
+  });
+
+  it('runs push error handlers for publish failures using the selected remote and branch refspec', async () => {
+    const calls: Array<{ name: string; args: unknown[] }> = [];
+    const error = new GitError({
+      stderr: 'git@github.com: Permission denied.\n',
+      gitErrorCode: GitErrorCodes.PermissionDenied,
+      gitCommand: 'push',
+    });
+    const status = cleanStatus({ branch: 'topic', upstream: null });
+    const handled: Array<{
+      repository: PushErrorRepository;
+      remote: GitRemoteInfo;
+      refspec: string;
+      error: GitError;
+    }> = [];
+    const handler: PushErrorHandler = {
+      handlePushError: async (repository, remote, refspec, currentError) => {
+        handled.push({ repository, remote, refspec, error: currentError });
+        return true;
+      },
+    };
+    const service = createGitScmService(fakeGitChannel(calls, { publishError: error }), {
+      pushErrorHandlers: { getPushErrorHandlers: () => [handler] },
+      resolvePushErrorContext: () => ({ root: '/repo', status, remotes: [originRemote] }),
+    });
+
+    await expect(service.publish({ remote: 'origin' })).resolves.toBeUndefined();
+
+    expect(calls).toEqual([{ name: 'publish', args: [{ remote: 'origin' }] }]);
+    expect(handled).toEqual([
+      {
+        repository: { root: '/repo', status },
+        remote: originRemote,
+        refspec: 'topic',
         error,
       },
     ]);
@@ -351,6 +393,6 @@ describe('gitScmService', () => {
     });
 
     await expect(service.push()).rejects.toBe(error);
-    expect(handled).toEqual(['HEAD:main']);
+    expect(handled).toEqual(['topic:main']);
   });
 });

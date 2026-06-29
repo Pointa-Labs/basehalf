@@ -147,14 +147,12 @@ export const pull: GitCommandHandler<GitPullArgs, GitRemoteResult> = async (args
     throw new Error('Please check out a branch before pulling.');
   }
   const upstream = parseUpstream(st.upstream);
-  if (upstream === null) {
-    assertBranchName(st.branch, 'git.pull branch');
-    throw noUpstreamBranchError(st.branch, 'pull');
-  }
   const cmd = args?.rebase === true ? ['pull', '--rebase'] : ['pull'];
-  assertSafeRemote(upstream.remote);
-  assertBranchName(upstream.branch, 'git.pull upstream branch');
-  cmd.push(upstream.remote, upstream.branch);
+  if (upstream !== null) {
+    assertSafeRemote(upstream.remote);
+    assertBranchName(upstream.branch, 'git.pull upstream branch');
+    cmd.push(upstream.remote, upstream.branch);
+  }
   try {
     const res = await git(ctx, cmd, { timeoutMs: REMOTE_TIMEOUT_MS });
     return { stdout: res.stdout, stderr: res.stderr };

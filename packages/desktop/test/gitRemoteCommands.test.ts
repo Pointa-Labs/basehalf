@@ -242,19 +242,28 @@ describe('git remote commands', () => {
     ]);
   });
 
-  it('reports pull without upstream before running raw git pull', async () => {
+  it('classifies pull without upstream from raw git pull stderr', async () => {
     const { ctx, calls } = gitContext((args) => {
       if (args[0] === 'status') return ok('## feature\0');
+      if (args[0] === 'pull') {
+        throw new GitError({
+          stderr: 'There is no tracking information for the current branch.\n',
+          exitCode: 1,
+          gitCommand: 'pull',
+          gitArgs: args,
+        });
+      }
       throw new Error(`unexpected git ${args.join(' ')}`);
     });
 
     await expect(pull({}, ctx)).rejects.toMatchObject({
       gitErrorCode: GitErrorCodes.NoUpstreamBranch,
       gitCommand: 'pull',
-      stderr: expect.stringContaining('Publish this branch first'),
+      stderr: expect.stringContaining('There is no tracking information'),
     });
     expect(calls.map((call) => call.args)).toEqual([
       ['status', '--porcelain=v1', '-z', '--branch'],
+      ['pull'],
     ]);
   });
 

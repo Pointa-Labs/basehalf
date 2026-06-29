@@ -176,9 +176,7 @@ describe('scmCommandModel', () => {
           gitArgs: ['pull'],
         }),
       ),
-    ).toBe(
-      'The current branch has no upstream branch. Publish this branch or set an upstream branch before pulling.',
-    );
+    ).toBe('There is no tracking information for the current branch.');
     expect(
       scmErrorMessage(
         new GitError({

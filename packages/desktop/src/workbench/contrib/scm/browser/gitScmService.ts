@@ -139,7 +139,14 @@ export function createGitScmService(
       }
     },
     publish: async (options = {}) => {
-      await channel.publish(options.remote !== undefined ? { remote: options.remote } : {});
+      try {
+        await channel.publish(options.remote !== undefined ? { remote: options.remote } : {});
+      } catch (err) {
+        if (await handlePublishError(pushHandlers, resolvePushErrorContext, options.remote, err)) {
+          return;
+        }
+        throw err;
+      }
     },
     pull: async (options = {}) => {
       await channel.pull(options.rebase === true ? { rebase: true } : {});
@@ -230,12 +237,37 @@ async function handlePushError(
   resolveContext: GitScmPushErrorContextResolver,
   err: unknown,
 ): Promise<boolean> {
+  return handleGitPushError(registry, () => resolveTrackedPushErrorTarget(resolveContext), err);
+}
+
+async function handlePublishError(
+  registry: Pick<PushErrorHandlerRegistry, 'getPushErrorHandlers'>,
+  resolveContext: GitScmPushErrorContextResolver,
+  remoteName: string | undefined,
+  err: unknown,
+): Promise<boolean> {
+  return handleGitPushError(
+    registry,
+    () => resolvePublishPushErrorTarget(resolveContext, remoteName),
+    err,
+  );
+}
+
+async function handleGitPushError(
+  registry: Pick<PushErrorHandlerRegistry, 'getPushErrorHandlers'>,
+  resolveTarget: () => Promise<{
+    readonly repository: PushErrorRepository;
+    readonly remote: GitRemoteInfo;
+    readonly refspec: string;
+  } | null>,
+  err: unknown,
+): Promise<boolean> {
   if (!(err instanceof GitError)) return false;
 
   const handlers = registry.getPushErrorHandlers();
   if (handlers.length === 0) return false;
 
-  const target = await resolvePushErrorTarget(resolveContext);
+  const target = await resolveTarget();
   if (target === null) return false;
 
   return runPushErrorHandlers(
@@ -247,7 +279,9 @@ async function handlePushError(
   );
 }
 
-async function resolvePushErrorTarget(resolveContext: GitScmPushErrorContextResolver): Promise<{
+async function resolveTrackedPushErrorTarget(
+  resolveContext: GitScmPushErrorContextResolver,
+): Promise<{
   readonly repository: PushErrorRepository;
   readonly remote: GitRemoteInfo;
   readonly refspec: string;
@@ -261,6 +295,7 @@ async function resolvePushErrorTarget(resolveContext: GitScmPushErrorContextReso
 
   const status = context.status;
   if (status === null) return null;
+  if (status.branch === null || status.detached === true) return null;
 
   const upstream = parseUpstream(status.upstream);
   if (upstream === null) return null;
@@ -271,8 +306,44 @@ async function resolvePushErrorTarget(resolveContext: GitScmPushErrorContextReso
   return {
     repository: { root: context.root, status },
     remote,
-    refspec: `HEAD:${upstream.branch}`,
+    refspec: `${status.branch}:${upstream.branch}`,
   };
+}
+
+async function resolvePublishPushErrorTarget(
+  resolveContext: GitScmPushErrorContextResolver,
+  remoteName: string | undefined,
+): Promise<{
+  readonly repository: PushErrorRepository;
+  readonly remote: GitRemoteInfo;
+  readonly refspec: string;
+} | null> {
+  let context: GitScmPushErrorContext;
+  try {
+    context = await resolveContext();
+  } catch {
+    return null;
+  }
+
+  const status = context.status;
+  if (status === null || status.branch === null || status.detached === true) return null;
+
+  const remote =
+    remoteName !== undefined
+      ? context.remotes.find((item) => item.name === remoteName)
+      : singleWritableRemote(context.remotes);
+  if (remote === undefined) return null;
+
+  return {
+    repository: { root: context.root, status },
+    remote,
+    refspec: status.branch,
+  };
+}
+
+function singleWritableRemote(remotes: readonly GitRemoteInfo[]): GitRemoteInfo | undefined {
+  const writable = remotes.filter((remote) => !remote.isReadOnly);
+  return writable.length === 1 ? writable[0] : undefined;
 }
 
 function parseUpstream(upstream: string | null): { remote: string; branch: string } | null {

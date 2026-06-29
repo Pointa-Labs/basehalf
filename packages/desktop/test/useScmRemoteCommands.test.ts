@@ -44,11 +44,11 @@ describe('useScmRemoteCommands model helpers', () => {
     expect(scmRemoteOperation('pushForce', unpublished)).toEqual({ kind: 'push', force: true });
   });
 
-  it('routes pull on an unpublished branch through publish instead of raw git pull', () => {
+  it('keeps pull on an unpublished branch as pull so no-upstream errors stay pull-scoped', () => {
     const unpublished = status({ upstream: null });
 
-    expect(scmRemoteOperation('pull', unpublished)).toEqual({ kind: 'publish' });
-    expect(scmRemoteOperation('pullRebase', unpublished)).toEqual({ kind: 'publish' });
+    expect(scmRemoteOperation('pull', unpublished)).toEqual({ kind: 'pull' });
+    expect(scmRemoteOperation('pullRebase', unpublished)).toEqual({ kind: 'pull', rebase: true });
   });
 
   it('routes unpublished sync through publish so the status-bar remote action selects a remote', () => {

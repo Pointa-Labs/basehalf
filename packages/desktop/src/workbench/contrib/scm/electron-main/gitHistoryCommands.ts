@@ -87,7 +87,7 @@ export const log: GitCommandHandler<GitLogArgs, GitLogResult> = async (args, ctx
     ...(stdin !== undefined && { stdin }),
   });
   if (res.exitCode !== 0) {
-    if (isEmptyRepositoryLogFailure(res.stderr)) {
+    if (isEmptyRepositoryLogFailure(res.stderr) || isBadRevisionLogFailure(res.stderr)) {
       return { commits: [] };
     }
     throw normalizeLogError(createGitErrorFromResult(res, cmd));
@@ -189,14 +189,16 @@ async function normalizeLogRef(ref: string, ctx: GitCommandContext): Promise<str
 
 function normalizeLogError(err: unknown): Error {
   const gitError = ensureGitError(err);
-  if (
-    /fatal: ambiguous argument|fatal: bad revision|unknown revision|Needed a single revision/i.test(
-      gitError.stderr ?? '',
-    )
-  ) {
+  if (isBadRevisionLogFailure(gitError.stderr ?? '')) {
     return assignGitErrorCode(gitError, GitErrorCodes.BadRevision);
   }
   return gitError;
+}
+
+function isBadRevisionLogFailure(stderr: string): boolean {
+  return /fatal: ambiguous argument|fatal: bad revision|unknown revision|Needed a single revision/i.test(
+    stderr,
+  );
 }
 
 function isEmptyRepositoryLogFailure(stderr: string): boolean {

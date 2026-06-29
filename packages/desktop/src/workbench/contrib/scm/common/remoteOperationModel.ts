@@ -37,9 +37,9 @@ export function scmRemoteOperation(
     case 'publish':
       return { kind: 'publish' };
     case 'pull':
-      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull' };
+      return { kind: 'pull' };
     case 'pullRebase':
-      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull', rebase: true };
+      return { kind: 'pull', rebase: true };
     case 'push':
       return { kind: 'push' };
     case 'fetch':
