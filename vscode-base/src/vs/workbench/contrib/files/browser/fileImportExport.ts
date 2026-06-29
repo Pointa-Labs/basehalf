@@ -35,6 +35,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { WebFileSystemAccess } from '../../../../platform/files/browser/webFileSystemAccess.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 //#region Browser File Upload (drag and drop, input element)
 
@@ -78,6 +79,7 @@ export class BrowserFileUpload {
 		@IDialogService private readonly dialogService: IDialogService,
 		@IExplorerService private readonly explorerService: IExplorerService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IFileService private readonly fileService: IFileService
 	) {
 	}
@@ -189,10 +191,16 @@ export class BrowserFileUpload {
 
 		operation.progressScheduler.dispose();
 
-		// Open uploaded file in editor only if we upload just one
+		// Open the uploaded file only if we upload just one.
 		const firstUploadedFile = results[0];
 		if (!token.isCancellationRequested && firstUploadedFile?.isFile) {
-			await this.editorService.openEditor({ resource: firstUploadedFile.resource, options: { pinned: true } });
+			const result = await this.baseHalfCanvasNavigationService.openResource(firstUploadedFile.resource, {
+				source: 'fileCommand',
+				pinned: true
+			});
+			if (!result.handled) {
+				await this.editorService.openEditor({ resource: firstUploadedFile.resource, options: { pinned: true } });
+			}
 		}
 	}
 
@@ -395,6 +403,7 @@ export class ExternalFileImport {
 		@IWorkspaceEditingService private readonly workspaceEditingService: IWorkspaceEditingService,
 		@IExplorerService private readonly explorerService: IExplorerService,
 		@IEditorService private readonly editorService: IEditorService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IProgressService private readonly progressService: IProgressService,
 		@INotificationService private readonly notificationService: INotificationService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService
@@ -567,7 +576,13 @@ export class ExternalFileImport {
 			if (autoOpen && resourceFileEdits.length === 1) {
 				const item = this.explorerService.findClosest(resourceFileEdits[0].newResource!);
 				if (item && !item.isDirectory) {
-					this.editorService.openEditor({ resource: item.resource, options: { pinned: true } });
+					const result = await this.baseHalfCanvasNavigationService.openResource(item.resource, {
+						source: 'fileCommand',
+						pinned: true
+					});
+					if (!result.handled) {
+						await this.editorService.openEditor({ resource: item.resource, options: { pinned: true } });
+					}
 				}
 			}
 		}

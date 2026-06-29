@@ -125,6 +125,41 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		reason: 'Explorer keyboard activation should enter BaseHalf folder canvas or card detail instead of default tab-first editor focus.'
 	},
 	{
+		id: 'explorer.newFile',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileActions.ts',
+		reason: 'New files should enter BaseHalf card detail after the Explorer create flow completes.'
+	},
+	{
+		id: 'explorer.newFolder',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileActions.ts',
+		reason: 'New folders should become the active BaseHalf canvas after the Explorer create flow completes.'
+	},
+	{
+		id: 'explorer.upload',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileActions.ts',
+		reason: 'Uploaded single files should open as BaseHalf card detail, preserving VS Code upload plumbing.'
+	},
+	{
+		id: 'filesExplorer.paste',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileActions.contribution.ts',
+		reason: 'Pasted single files should open as BaseHalf card detail instead of default editor tabs.'
+	},
+	{
+		id: 'filesExplorer.openFilePreserveFocus',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileActions.contribution.ts',
+		reason: 'Explorer preserve-focus activation should still use BaseHalf card detail for single workspace files.'
+	},
+	{
 		id: 'search.action.openResult',
 		kind: 'command',
 		area: 'canvas',

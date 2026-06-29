@@ -56,6 +56,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('terminal'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.new'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openAndPassFocus'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.upload'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('filesExplorer.paste'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openResult'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickOpen'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickTextSearch'), 'remapped');
@@ -71,6 +73,11 @@ suite('BaseHalfWorkbenchProfile', () => {
 			[
 				'workbench.action.files.openFile',
 				'explorer.openAndPassFocus',
+				'explorer.newFile',
+				'explorer.newFolder',
+				'explorer.upload',
+				'filesExplorer.paste',
+				'filesExplorer.openFilePreserveFocus',
 				'search.action.openResult',
 				'workbench.action.quickOpen',
 				'workbench.action.quickTextSearch'

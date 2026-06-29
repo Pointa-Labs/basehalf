@@ -1135,6 +1135,7 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 	const fileService = accessor.get(IFileService);
 	const notificationService = accessor.get(INotificationService);
 	const editorService = accessor.get(IEditorService);
+	const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 	const configurationService = accessor.get(IConfigurationService);
 	const uriIdentityService = accessor.get(IUriIdentityService);
 	const dialogService = accessor.get(IDialogService);
@@ -1281,7 +1282,14 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 			if (targets.length === 1) {
 				const item = explorerService.findClosest(firstTarget);
 				if (item && !item.isDirectory) {
-					await editorService.openEditor({ resource: item.resource, options: { pinned: true, preserveFocus: true } });
+					const result = await baseHalfCanvasNavigationService.openResource(item.resource, {
+						source: 'fileCommand',
+						pinned: true,
+						preserveFocus: true
+					});
+					if (!result.handled) {
+						await editorService.openEditor({ resource: item.resource, options: { pinned: true, preserveFocus: true } });
+					}
 				}
 			}
 		}
@@ -1331,9 +1339,21 @@ async function getFilesToPaste(fileList: FileList | undefined, clipboardService:
 export const openFilePreserveFocusHandler = async (accessor: ServicesAccessor) => {
 	const editorService = accessor.get(IEditorService);
 	const explorerService = accessor.get(IExplorerService);
+	const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 	const stats = explorerService.getContext(true);
+	const files = stats.filter(s => !s.isDirectory);
 
-	await editorService.openEditors(stats.filter(s => !s.isDirectory).map(s => ({
+	if (files.length === 1) {
+		const result = await baseHalfCanvasNavigationService.openResource(files[0].resource, {
+			source: 'explorerCommand',
+			preserveFocus: true
+		});
+		if (result.handled) {
+			return;
+		}
+	}
+
+	await editorService.openEditors(files.map(s => ({
 		resource: s.resource,
 		options: { preserveFocus: true }
 	})));
