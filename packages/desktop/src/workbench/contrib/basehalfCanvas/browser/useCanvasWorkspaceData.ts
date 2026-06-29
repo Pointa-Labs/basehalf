@@ -1,10 +1,8 @@
 import type { Edge, Node } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import {
-  type WorkbenchFileChangeEvent,
-  workbenchFileChangeService,
-} from '../../../services/files/browser/fileChangeService.js';
+import { workbenchFileChangeService } from '../../../services/files/browser/fileChangeService.js';
+import type { WorkbenchFileChangeEvent } from '../../../services/files/common/fileChangeTypes.js';
 import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
 import {

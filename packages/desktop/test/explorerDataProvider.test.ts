@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkspaceFileEvent } from '../src/platform/files/common/files.js';
 import {
   createWorkspaceExplorerDataProvider,
   toExplorerFileOperation,
 } from '../src/workbench/contrib/files/browser/explorerDataProvider.js';
+import type { WorkbenchFileChangeEvent } from '../src/workbench/services/files/common/fileChangeTypes.js';
 import { WorkspaceFileOperationEvent } from '../src/workbench/services/workspace/common/workspaceFileEvents.js';
 
 describe('explorerDataProvider', () => {
   it('adapts workspace files, watcher events, and operation events for explorer consumers', async () => {
-    const fileListeners = new Set<(event: WorkspaceFileEvent) => void>();
+    const fileListeners = new Set<(event: WorkbenchFileChangeEvent) => void>();
     const operationListeners = new Set<(event: WorkspaceFileOperationEvent) => void>();
     const listCalls: string[] = [];
     const provider = createWorkspaceExplorerDataProvider({
@@ -35,7 +35,7 @@ describe('explorerDataProvider', () => {
     await expect(provider.listChildren('/repo')).resolves.toEqual([{ name: 'src', type: 'dir' }]);
     expect(listCalls).toEqual(['/repo']);
 
-    const watcherEvents: WorkspaceFileEvent[] = [];
+    const watcherEvents: WorkbenchFileChangeEvent[] = [];
     const unsubscribeFiles = provider.onDidChangeFiles((event) => watcherEvents.push(event));
     for (const listener of fileListeners) {
       listener({ type: 'add', relPath: 'src/index.ts', isDir: false });

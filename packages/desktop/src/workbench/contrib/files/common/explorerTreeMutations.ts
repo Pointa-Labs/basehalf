@@ -1,4 +1,4 @@
-import type { WorkspaceFileEvent } from '../../../../platform/files/common/files.js';
+import type { WorkbenchFileChangeEvent } from '../../../services/files/common/fileChangeTypes.js';
 import type { ExplorerFileOperation, ExplorerTreeMutation, ExplorerTreeState } from './explorer.js';
 import {
   addNavEntryOptimistically,
@@ -17,7 +17,7 @@ export function affectedLoadedExplorerDirectories({
 }: {
   readonly rootPath: string;
   readonly childrenByPath: ExplorerTreeState['childrenByPath'];
-  readonly event: WorkspaceFileEvent;
+  readonly event: WorkbenchFileChangeEvent;
 }): readonly string[] {
   const affectedRelPaths =
     event.type === 'rename' ? [event.fromRelPath, event.toRelPath] : [event.relPath];
@@ -64,7 +64,7 @@ export function applyExplorerFileOperation(
 
 export function applyExplorerFileEvent(
   state: ExplorerTreeState,
-  event: WorkspaceFileEvent,
+  event: WorkbenchFileChangeEvent,
 ): ExplorerTreeMutation | null {
   if (event.type === 'unlink') {
     if (isMirrorControlPath(event.relPath)) return null;

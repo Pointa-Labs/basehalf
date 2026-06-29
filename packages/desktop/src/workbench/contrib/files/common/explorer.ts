@@ -1,7 +1,7 @@
 import type {
-  FileEventSubscription,
-  WorkspaceFileEvent,
-} from '../../../../platform/files/common/files.js';
+  WorkbenchFileChangeEvent,
+  WorkbenchFileChangeSubscription,
+} from '../../../services/files/common/fileChangeTypes.js';
 import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 
 export type ExplorerEntryKind = 'file' | 'folder';
@@ -27,11 +27,11 @@ export type ExplorerFileOperation =
 export interface ExplorerDataProvider {
   readonly listChildren: (path: string) => Promise<readonly WorkspaceListFilesEntry[]>;
   readonly onDidChangeFiles: (
-    listener: (event: WorkspaceFileEvent) => void,
-  ) => FileEventSubscription;
+    listener: (event: WorkbenchFileChangeEvent) => void,
+  ) => WorkbenchFileChangeSubscription;
   readonly onDidRunOperation: (
     listener: (event: ExplorerFileOperation) => void,
-  ) => FileEventSubscription;
+  ) => WorkbenchFileChangeSubscription;
 }
 
 export interface ExplorerTreeState {
@@ -48,15 +48,15 @@ export interface ExplorerTreeMutation {
 export interface ExplorerService {
   readonly resolveChildren: (path: string) => Promise<readonly WorkspaceListFilesEntry[]>;
   readonly onDidChangeFiles: (
-    listener: (event: WorkspaceFileEvent) => void,
-  ) => FileEventSubscription;
+    listener: (event: WorkbenchFileChangeEvent) => void,
+  ) => WorkbenchFileChangeSubscription;
   readonly onDidRunOperation: (
     listener: (event: ExplorerFileOperation) => void,
-  ) => FileEventSubscription;
+  ) => WorkbenchFileChangeSubscription;
   readonly affectedLoadedDirectories: (args: {
     readonly rootPath: string;
     readonly childrenByPath: ReadonlyMap<string, readonly WorkspaceListFilesEntry[]>;
-    readonly event: WorkspaceFileEvent;
+    readonly event: WorkbenchFileChangeEvent;
   }) => readonly string[];
   readonly applyFileOperation: (
     state: ExplorerTreeState,
@@ -64,6 +64,6 @@ export interface ExplorerService {
   ) => ExplorerTreeMutation;
   readonly applyFileEvent: (
     state: ExplorerTreeState,
-    event: WorkspaceFileEvent,
+    event: WorkbenchFileChangeEvent,
   ) => ExplorerTreeMutation | null;
 }

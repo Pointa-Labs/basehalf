@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkbenchFileChangeEvent } from '../src/workbench/services/files/browser/fileChangeService.js';
+import type { WorkbenchFileChangeEvent } from '../src/workbench/services/files/common/fileChangeTypes.js';
 
 const fileChangeMock = vi.hoisted(() => ({
   listeners: new Set<(event: WorkbenchFileChangeEvent) => void>(),

@@ -1,7 +1,7 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
-import { fileUrl } from '../../../../../platform/files/common/fileUrl.js';
 import type { BadgeType } from '../../../../browser/labels/FileGlyph.js';
 import { color, font, radius, space } from '../../../../browser/style/design.js';
+import { fileUrl } from '../../../../services/files/common/fileResource.js';
 import { workspaceCanvasDataService } from '../../../../services/workspace/browser/workspaceCanvasDataService.js';
 import { UnifiedDiff } from '../../../multiDiffEditor/browser/UnifiedDiff.js';
 import { useFileDiff } from '../../../multiDiffEditor/browser/useFileDiff.js';

@@ -1,14 +1,14 @@
 import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
 import type {
-  FileEventSubscription,
-  FileEventService as PlatformFileEventService,
-  WorkspaceFileEvent,
-} from '../../../../platform/files/common/files.js';
+  WorkbenchFileChangeEvent,
+  WorkbenchFileChangeSubscription,
+} from '../common/fileChangeTypes.js';
 
-type FileChangeBackend = Pick<PlatformFileEventService, 'onDidChangeFiles'>;
-
-export type WorkbenchFileChangeEvent = WorkspaceFileEvent;
-export type WorkbenchFileChangeSubscription = FileEventSubscription;
+type FileChangeBackend = {
+  onDidChangeFiles(
+    handler: (event: WorkbenchFileChangeEvent) => void,
+  ): WorkbenchFileChangeSubscription;
+};
 
 export interface WorkbenchFileChangeService {
   onDidChangeFiles(

@@ -1,7 +1,5 @@
-import {
-  type WorkbenchFileChangeEvent,
-  workbenchFileChangeService,
-} from '../../../../services/files/browser/fileChangeService.js';
+import { workbenchFileChangeService } from '../../../../services/files/browser/fileChangeService.js';
+import type { WorkbenchFileChangeEvent } from '../../../../services/files/common/fileChangeTypes.js';
 
 export type PreviewContent = { text: string };
 
