@@ -189,7 +189,10 @@ that point instead of relying on this guide.
   verification, and a clear keep/delete boundary against old BaseHalf code.
   A module cannot be called done while it still depends on placeholder UI,
   disconnected command handlers, TODO-only integration seams, or behavior that
-  is merely demonstrated instead of usable.
+  is merely demonstrated instead of usable. If a large module is split across
+  commits, each commit should complete a named coherent submodule; do not land
+  user-visible dead ends, disabled controls, fake data, or detached UI that only
+  reserves space for a later pass.
 - **Sidebar is Files/Git/Search.** Reuse VS Code Explorer/Search/SCM mechanics
   where possible, including context menus and tree behavior, but keep Agent out
   of the sidebar and remap file activation into BaseHalf's canvas/card-detail

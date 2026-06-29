@@ -400,6 +400,14 @@ target state. A module cannot exit with placeholder UI, disconnected command
 handlers, TODO-only integration seams, or behavior that is merely demonstrated
 instead of usable.
 
+When a large module must be split, each commit should name the smaller coherent
+submodule it completes, such as routing, document ownership, preview rendering,
+or focus mirror write-back. Those slices must still be complete for their stated
+scope. Do not land user-visible dead ends, disabled controls, fake data, or
+detached UI that exists only to reserve space for a later pass. The product can
+be incomplete across modules, but a shipped path should not be intentionally
+half-working inside the module currently being claimed.
+
 **Why.** The failed hand-rolled Git/SCM/GitHub refactor showed that partial
 reimplementations accumulate subtle UI and behavior mismatches. The new
 strategy is valuable only if each module is carried far enough to replace old
