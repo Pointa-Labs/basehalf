@@ -38,11 +38,11 @@ folder/canvas/card-detail navigation: folders open canvases, files open
 BaseHalf card detail, and standard VS Code editor tabs are only fallback or
 advanced behavior.
 
-The extension ecosystem starts curated, not marketplace-open. First migration
-phase should allow only the extension families needed for the product shape:
-Git, GitHub, GitHub authentication, Codex, and Claude. Keep the full
-Marketplace/Extensions product surface hidden until there is an explicit
-product decision to expose it.
+The extension ecosystem starts curated, not marketplace-open. The initial
+BaseHalf product profile should allow only the extension families needed for
+the product shape: Git, GitHub, GitHub authentication, Codex, and Claude. Keep
+the full Marketplace/Extensions product surface hidden until there is an
+explicit product decision to expose it.
 
 BaseHalf is canvas-first. Opening a canvas card must enter a full-screen card
 detail surface inside the BaseHalf canvas flow; it must not default to VS
@@ -187,6 +187,9 @@ that point instead of relying on this guide.
   should be implemented to product quality: source-aligned architecture,
   complete expected UI states, interactions, error paths, tests or explicit
   verification, and a clear keep/delete boundary against old BaseHalf code.
+  A module cannot be called done while it still depends on placeholder UI,
+  disconnected command handlers, TODO-only integration seams, or behavior that
+  is merely demonstrated instead of usable.
 - **Sidebar is Files/Git/Search.** Reuse VS Code Explorer/Search/SCM mechanics
   where possible, including context menus and tree behavior, but keep Agent out
   of the sidebar and remap file activation into BaseHalf's canvas/card-detail

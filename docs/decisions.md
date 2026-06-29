@@ -366,8 +366,8 @@ from Explorer/Search must remap into BaseHalf navigation: folders open canvases,
 files open card detail, and VS Code editor tabs remain fallback/advanced
 behavior.
 
-The first VS Code-base migration phase uses a curated extension allowlist, not
-the full marketplace. The allowed extension families are Git, GitHub, GitHub
+The initial BaseHalf product profile uses a curated extension allowlist, not the
+full marketplace. The allowed extension families are Git, GitHub, GitHub
 authentication, Codex, and Claude.
 
 **Why.** VS Code's sidebar infrastructure is better than BaseHalf's hand-rolled
@@ -396,7 +396,9 @@ comparison, the chosen keep/delete boundary against old BaseHalf code, complete
 expected UI states, interaction behavior, error/empty/loading states, and tests
 or explicit verification. Temporary scaffolding is allowed only as local
 construction support; it should not become a named product milestone or the
-target state.
+target state. A module cannot exit with placeholder UI, disconnected command
+handlers, TODO-only integration seams, or behavior that is merely demonstrated
+instead of usable.
 
 **Why.** The failed hand-rolled Git/SCM/GitHub refactor showed that partial
 reimplementations accumulate subtle UI and behavior mismatches. The new
