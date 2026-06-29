@@ -3,6 +3,7 @@ import type { GitRunOptions, GitRunResult } from '../src/workbench/contrib/scm/c
 import type { GitCommandContext } from '../src/workbench/contrib/scm/electron-main/gitCommandRunner.js';
 import {
   cherryPick,
+  rebase,
   rebaseInteractive,
   reset,
 } from '../src/workbench/contrib/scm/electron-main/gitRewriteCommands.js';
@@ -50,6 +51,30 @@ describe('git rewrite commands', () => {
       /Invalid reset mode/,
     );
     expect(calls).toEqual([]);
+  });
+
+  it('runs ordinary rebase onto the selected branch', async () => {
+    const { ctx, calls } = gitContext((args) => {
+      if (args[0] === 'rebase') return ok();
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(rebase({ branch: 'origin/main' }, ctx)).resolves.toEqual({ ok: true });
+    expect(calls.map((call) => call.args)).toEqual([['rebase', 'origin/main']]);
+  });
+
+  it('returns ordinary rebase conflicts as command data', async () => {
+    const { ctx } = gitContext((args) => {
+      if (args[0] === 'rebase') {
+        return { stdout: 'CONFLICT (content): Merge conflict', stderr: '', exitCode: 1 };
+      }
+      throw new Error(`unexpected git ${args.join(' ')}`);
+    });
+
+    await expect(rebase({ branch: 'feature/scm' }, ctx)).resolves.toEqual({
+      ok: false,
+      conflicts: true,
+    });
   });
 
   it('rejects interactive rebase when tracked files are dirty', async () => {

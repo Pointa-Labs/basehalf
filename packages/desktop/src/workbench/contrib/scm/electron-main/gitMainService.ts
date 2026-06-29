@@ -156,6 +156,10 @@ export class GitMainService {
     return this.backend.revert(workspaceRoot, ref);
   }
 
+  rebase(workspaceRoot: string | null, branch: string): Promise<GitRebaseResult> {
+    return this.backend.rebase(workspaceRoot, branch);
+  }
+
   rebaseInteractive(
     workspaceRoot: string | null,
     args: GitRebaseInteractiveArgs,

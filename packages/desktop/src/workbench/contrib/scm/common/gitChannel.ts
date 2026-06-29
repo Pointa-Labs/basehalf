@@ -51,6 +51,7 @@ export const GIT_IPC_CHANNELS = {
   merge: 'git:merge',
   cherryPick: 'git:cherry-pick',
   revert: 'git:revert',
+  rebase: 'git:rebase',
   rebaseInteractive: 'git:rebase-interactive',
   tag: 'git:tag',
   tagDelete: 'git:tag-delete',
@@ -102,6 +103,7 @@ export interface GitChannelBridge {
   merge(branch: string): Promise<GitMergeResult>;
   cherryPick(ref: string): Promise<GitCherryPickResult>;
   revert(ref: string): Promise<GitRevertResult>;
+  rebase(branch: string): Promise<GitRebaseResult>;
   rebaseInteractive(args: GitRebaseInteractiveArgs): Promise<GitRebaseResult>;
   tag(name: string, ref?: string): Promise<void>;
   tagDelete(name: string): Promise<void>;

@@ -194,6 +194,10 @@ export interface GitRebaseInteractiveArgs {
   readonly items: readonly GitRebaseItem[];
 }
 
+export interface GitRebaseArgs {
+  readonly branch: string;
+}
+
 export interface GitRebaseResult {
   readonly ok: boolean;
   readonly conflicts?: boolean;

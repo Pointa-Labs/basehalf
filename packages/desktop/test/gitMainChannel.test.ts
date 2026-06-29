@@ -49,6 +49,7 @@ describe('GitMainChannel', () => {
       reset: vi.fn(async () => undefined),
       commitFiles: vi.fn(async () => []),
       mergeBase: vi.fn(async () => 'base'),
+      rebase: vi.fn(async () => ({ ok: true })),
       log: vi.fn(async () => ({ commits: [] })),
       show: vi.fn(async () => 'content'),
       status: vi.fn(async () => ({ isRepo: true, files: [] })),
@@ -83,6 +84,9 @@ describe('GitMainChannel', () => {
       ref: 'HEAD~1',
       mode: 'soft',
     });
+    await expect(
+      invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.rebase), event, 'origin/main'),
+    ).resolves.toEqual({ ok: true });
     await invokeGitHandler(ipc.handlers.get(GIT_IPC_CHANNELS.commitFiles), event, {
       ref: 'abc',
       parent: 'parent',
@@ -121,6 +125,7 @@ describe('GitMainChannel', () => {
     });
     expect(service.fetch).toHaveBeenCalledWith('/repo', { all: true });
     expect(service.reset).toHaveBeenCalledWith('/repo', { ref: 'HEAD~1', mode: 'soft' });
+    expect(service.rebase).toHaveBeenCalledWith('/repo', 'origin/main');
     expect(service.commitFiles).toHaveBeenCalledWith('/repo', 'abc', 'parent');
     expect(service.mergeBase).toHaveBeenCalledWith('/repo', ['main', 'origin/main']);
     expect(service.log).toHaveBeenCalledWith('/repo', {
@@ -144,6 +149,7 @@ describe('GitMainChannel', () => {
       checkout: vi.fn(async () => undefined),
       log: vi.fn(async () => ({ commits: [] })),
       searchHistory: vi.fn(async () => []),
+      rebase: vi.fn(async () => ({ ok: true })),
       rebaseInteractive: vi.fn(async () => ({ ok: true })),
       apply: vi.fn(async () => undefined),
       stash: vi.fn(async () => ({ stashed: true })),
@@ -226,6 +232,11 @@ describe('GitMainChannel', () => {
       'Invalid search history query.',
     );
     await expectGitHandlerFailure(
+      ipc.handlers.get(GIT_IPC_CHANNELS.rebase),
+      [event, ''],
+      'Invalid rebase branch.',
+    );
+    await expectGitHandlerFailure(
       ipc.handlers.get(GIT_IPC_CHANNELS.rebaseInteractive),
       [
         event,
@@ -255,6 +266,7 @@ describe('GitMainChannel', () => {
     expect(service.checkout).not.toHaveBeenCalled();
     expect(service.log).not.toHaveBeenCalled();
     expect(service.searchHistory).not.toHaveBeenCalled();
+    expect(service.rebase).not.toHaveBeenCalled();
     expect(service.rebaseInteractive).not.toHaveBeenCalled();
     expect(service.apply).not.toHaveBeenCalled();
     expect(service.stash).not.toHaveBeenCalled();

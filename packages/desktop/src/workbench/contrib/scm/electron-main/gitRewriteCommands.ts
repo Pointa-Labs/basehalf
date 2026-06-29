@@ -2,12 +2,14 @@ import type {
   GitCherryPickArgs,
   GitCherryPickResult,
   GitOkResult,
+  GitRebaseArgs,
   GitRebaseInteractiveArgs,
   GitRebaseResult,
   GitResetArgs,
   GitRevertArgs,
   GitRevertResult,
 } from '../common/git.js';
+import { createGitErrorFromResult } from '../common/git.js';
 import { type GitCommandHandler, runGit as git } from './gitCommandRunner.js';
 import { parseStatus } from './gitParsers.js';
 import { STATUS_ARGS } from './gitPorcelain.js';
@@ -42,6 +44,16 @@ export const revert: GitCommandHandler<GitRevertArgs, GitRevertResult> = async (
   const conflicts = /conflict/i.test(res.stdout) || /conflict/i.test(res.stderr);
   if (conflicts) return { reverted: false, conflicts: true };
   throw new Error(`git revert failed: ${res.stderr.trim() || res.stdout.trim() || 'exit 1'}`);
+};
+
+export const rebase: GitCommandHandler<GitRebaseArgs, GitRebaseResult> = async (args, ctx) => {
+  assertSafeRef(args.branch, 'git.rebase');
+  const gitArgs = ['rebase', args.branch];
+  const res = await git(ctx, gitArgs, { acceptExitCodes: [0, 1] });
+  if (res.exitCode === 0) return { ok: true };
+  const conflicts = /conflict/i.test(res.stdout) || /conflict/i.test(res.stderr);
+  if (conflicts) return { ok: false, conflicts: true };
+  throw createGitErrorFromResult(res, gitArgs);
 };
 
 export const rebaseInteractive: GitCommandHandler<

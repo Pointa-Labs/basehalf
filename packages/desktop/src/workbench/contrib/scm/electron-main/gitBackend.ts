@@ -79,6 +79,7 @@ export interface GitBackendProvider {
   merge(workspaceRoot: string | null, branch: string): Promise<GitMergeResult>;
   cherryPick(workspaceRoot: string | null, ref: string): Promise<GitCherryPickResult>;
   revert(workspaceRoot: string | null, ref: string): Promise<GitRevertResult>;
+  rebase(workspaceRoot: string | null, branch: string): Promise<GitRebaseResult>;
   rebaseInteractive(
     workspaceRoot: string | null,
     args: GitRebaseInteractiveArgs,

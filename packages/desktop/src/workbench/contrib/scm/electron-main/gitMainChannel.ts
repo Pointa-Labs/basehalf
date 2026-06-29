@@ -126,6 +126,9 @@ export class GitMainChannel {
     this.handle(GIT_IPC_CHANNELS.revert, (event, ref) =>
       this.git.revert(this.root(event), asNonEmptyString(ref, 'Invalid revert ref.')),
     );
+    this.handle(GIT_IPC_CHANNELS.rebase, (event, branch) =>
+      this.git.rebase(this.root(event), asNonEmptyString(branch, 'Invalid rebase branch.')),
+    );
     this.handle(GIT_IPC_CHANNELS.rebaseInteractive, (event, payload) =>
       this.git.rebaseInteractive(this.root(event), asRebaseInteractivePayload(payload)),
     );

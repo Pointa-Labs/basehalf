@@ -14,6 +14,10 @@ describe('GitMainService', () => {
       async publish(...args: [string | null, { remote?: string }]) {
         calls.push({ name: 'publish', args });
       },
+      async rebase(...args: [string | null, string]) {
+        calls.push({ name: 'rebase', args });
+        return { ok: true };
+      },
       async deleteWorkspaceEntry(...args: [string | null, string, 'file' | 'folder']) {
         calls.push({ name: 'deleteWorkspaceEntry', args });
       },
@@ -46,6 +50,7 @@ describe('GitMainService', () => {
 
     await service.stage('/repo', ['a.ts']);
     await service.publish('/repo', { remote: 'origin' });
+    expect(await service.rebase('/repo', 'origin/main')).toEqual({ ok: true });
     await service.deleteWorkspaceEntry('/repo', 'dir', 'folder');
     expect(await service.show('/repo', 'HEAD', 'a.ts')).toBe('content');
     expect(await service.diff('/repo', 'a.ts', { staged: true })).toBe('patch');
@@ -59,6 +64,7 @@ describe('GitMainService', () => {
     expect(calls).toEqual([
       { name: 'stage', args: ['/repo', ['a.ts']] },
       { name: 'publish', args: ['/repo', { remote: 'origin' }] },
+      { name: 'rebase', args: ['/repo', 'origin/main'] },
       { name: 'deleteWorkspaceEntry', args: ['/repo', 'dir', 'folder'] },
       { name: 'show', args: ['/repo', 'HEAD', 'a.ts'] },
       { name: 'diff', args: ['/repo', 'a.ts', { staged: true }] },
@@ -107,6 +113,7 @@ describe('GitMainService', () => {
     await backend.stage('/repo', ['a.ts']);
     await backend.publish('/repo', { remote: 'origin' });
     await backend.commit('/repo', 'msg');
+    await backend.rebase('/repo', 'origin/main');
     await backend.deleteWorkspaceEntry('/repo', 'b.ts', 'file');
 
     expect(calls).toEqual([
@@ -116,6 +123,7 @@ describe('GitMainService', () => {
       { args: ['remote', '--verbose'], cwd: '/repo' },
       { args: ['push', '-u', 'origin', 'main'], cwd: '/repo' },
       { args: ['commit', '-F', '-'], cwd: '/repo', stdin: 'msg' },
+      { args: ['rebase', 'origin/main'], cwd: '/repo' },
     ]);
     expect(deleted).toEqual([{ workspaceRoot: '/repo', path: 'b.ts', kind: 'file' }]);
   });

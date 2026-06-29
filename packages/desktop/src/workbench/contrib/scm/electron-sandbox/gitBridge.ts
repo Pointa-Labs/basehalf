@@ -40,6 +40,7 @@ export function createGitBridge(ipcRenderer: IpcRendererLike): GitBridgeContaine
       merge: (branch) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.merge, branch),
       cherryPick: (ref) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.cherryPick, ref),
       revert: (ref) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.revert, ref),
+      rebase: (branch) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.rebase, branch),
       rebaseInteractive: (args) => invokeGit(ipcRenderer, GIT_IPC_CHANNELS.rebaseInteractive, args),
       tag: (name, ref) =>
         invokeGit(ipcRenderer, GIT_IPC_CHANNELS.tag, ref !== undefined ? { name, ref } : { name }),

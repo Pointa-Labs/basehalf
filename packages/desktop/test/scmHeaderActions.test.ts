@@ -162,4 +162,15 @@ describe('scmHeaderActionModel', () => {
     expect(action('Rename Branch…')).toMatchObject({ disabled: true });
     expect(action('Delete Branch…')).toMatchObject({ danger: true, disabled: false });
   });
+
+  it('enables Rebase Branch for an attached current branch', () => {
+    const actions = scmBranchMenuActions({
+      status: status({ branch: 'main', detached: false }),
+      busy: false,
+      commands,
+    });
+
+    const action = actions.filter(isAction).find((item) => item.label === 'Rebase Branch…');
+    expect(action).toMatchObject({ disabled: false });
+  });
 });

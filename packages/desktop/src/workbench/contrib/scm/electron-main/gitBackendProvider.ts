@@ -196,6 +196,10 @@ export class GitCliBackendProvider implements GitBackendProvider {
     return gitCommands.revert({ ref }, this.context(workspaceRoot));
   }
 
+  rebase(workspaceRoot: string | null, branch: string): Promise<GitRebaseResult> {
+    return gitCommands.rebase({ branch }, this.context(workspaceRoot));
+  }
+
   rebaseInteractive(
     workspaceRoot: string | null,
     args: GitRebaseInteractiveArgs,

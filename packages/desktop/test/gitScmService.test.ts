@@ -44,6 +44,10 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
       calls.push({ name: 'revert', args: [ref] });
       return { reverted: true, conflicts: false };
     },
+    rebase: async (branch) => {
+      calls.push({ name: 'rebase', args: [branch] });
+      return { ok: true };
+    },
     rebaseInteractive: async (args) => {
       calls.push({ name: 'rebaseInteractive', args: [args] });
       return { rebased: true, conflicts: false };
@@ -136,6 +140,7 @@ describe('gitScmService', () => {
     expect(await service.merge('abc')).toMatchObject({ conflicts: false });
     expect(await service.cherryPick('abc')).toMatchObject({ conflicts: false });
     expect(await service.revert('abc')).toMatchObject({ conflicts: false });
+    expect(await service.rebase('origin/main')).toMatchObject({ ok: true });
     await service.tag('v1.0', 'abc');
     await service.tagDelete('v1.0');
     expect(await service.status()).toMatchObject({ isRepo: true });
@@ -187,6 +192,7 @@ describe('gitScmService', () => {
       { name: 'merge', args: ['abc'] },
       { name: 'cherryPick', args: ['abc'] },
       { name: 'revert', args: ['abc'] },
+      { name: 'rebase', args: ['origin/main'] },
       { name: 'tag', args: ['v1.0', 'abc'] },
       { name: 'tagDelete', args: ['v1.0'] },
       { name: 'status', args: [] },

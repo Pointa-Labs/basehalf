@@ -53,6 +53,14 @@ export async function runMergeBranchCommand(args: CheckoutBranchCommandArgs): Pr
   }
 }
 
+export async function runRebaseBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
+  try {
+    await rebaseBranch(args);
+  } catch (err) {
+    toast.error(msg(err));
+  }
+}
+
 export async function runRenameBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
   try {
     await renameCurrentBranch(args);
@@ -158,6 +166,35 @@ async function mergeBranch({ git, onAfter }: CheckoutBranchCommandArgs): Promise
     toast.info(`Merged ${branch.name}.`);
   } else {
     toast.info(`Already up to date with ${branch.name}.`);
+  }
+}
+
+async function rebaseBranch({ git, onAfter }: CheckoutBranchCommandArgs): Promise<void> {
+  const { current, refs } = await git.listRefs();
+  const currentBranch = currentLocalBranch(refs, current);
+  if (currentBranch === null) {
+    toast.error('A current branch is required to rebase.');
+    return;
+  }
+
+  const candidates = rebaseBranchCandidates(refs, currentBranch);
+  const upstream = currentBranchRef(refs, currentBranch)?.upstream;
+  const choice = await pick({
+    title: 'Rebase Branch',
+    placeholder: 'Select a branch to rebase onto',
+    emptyText: 'No branches found.',
+    options: candidates.map((branch) => rebaseBranchOption(branch, upstream)),
+  });
+  if (choice === null) return;
+  const branch = candidates.find((ref) => ref.id === choice);
+  if (branch === undefined) return;
+
+  const result = await git.rebase(branch.name);
+  await onAfter();
+  if (result.conflicts) {
+    toast.info(`Rebase onto ${branch.name} stopped with conflicts.`);
+  } else {
+    toast.info(`Rebased current branch onto ${branch.name}.`);
   }
 }
 
@@ -279,6 +316,37 @@ function currentLocalBranch(refs: readonly GitRefInfo[], current: string | null)
   if (currentRef !== undefined) return currentRef.name;
   if (current === null) return null;
   return refs.some((ref) => ref.type === 'head' && ref.name === current) ? current : null;
+}
+
+function currentBranchRef(
+  refs: readonly GitRefInfo[],
+  currentBranch: string,
+): GitRefInfo | undefined {
+  return refs.find((ref) => ref.type === 'head' && ref.name === currentBranch);
+}
+
+function rebaseBranchCandidates(
+  refs: readonly GitRefInfo[],
+  currentBranch: string,
+): readonly GitRefInfo[] {
+  const upstream = currentBranchRef(refs, currentBranch)?.upstream;
+  const upstreamRef =
+    upstream === undefined
+      ? undefined
+      : refs.find((ref) => ref.type === 'remoteHead' && ref.name === upstream);
+  const candidates = refs.filter((ref) => {
+    if (ref.type !== 'head' && ref.type !== 'remoteHead') return false;
+    if (ref.type === 'head' && ref.name === currentBranch) return false;
+    return !(upstream !== undefined && ref.type === 'remoteHead' && ref.name === upstream);
+  });
+  return upstreamRef === undefined ? candidates : [upstreamRef, ...candidates];
+}
+
+function rebaseBranchOption(branch: GitRefInfo, upstream: string | undefined) {
+  const option = branchOption(branch);
+  if (branch.type !== 'remoteHead' || branch.name !== upstream) return option;
+  const { separator: _separator, ...upstreamOption } = option;
+  return { ...upstreamOption, hint: '(upstream)' };
 }
 
 async function deleteBranchWithRecovery(git: BranchGitAdapter, name: string): Promise<boolean> {

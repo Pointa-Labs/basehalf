@@ -7,6 +7,7 @@ import {
   runCheckoutBranchCommand,
   runDeleteBranchCommand,
   runMergeBranchCommand,
+  runRebaseBranchCommand,
   runRenameBranchCommand,
 } from '../src/workbench/contrib/scm/browser/branchQuickPickCommands.js';
 import {
@@ -34,13 +35,22 @@ vi.mock('../src/platform/notification/browser/notificationService.js', () => ({
   },
 }));
 
-const ref = (id: string, name: string, type: GitRefInfo['type'], current = false): GitRefInfo => ({
+const ref = (
+  id: string,
+  name: string,
+  type: GitRefInfo['type'],
+  current = false,
+  extra: Partial<GitRefInfo> = {},
+): GitRefInfo => ({
   id,
   name,
   type,
   current,
-  ...(id.endsWith('/topic') ? { remote: 'origin' } : {}),
+  ...(type === 'remoteHead' && name.includes('/')
+    ? { remote: name.slice(0, name.indexOf('/')) }
+    : {}),
   ...(id.startsWith('refs/tags/') ? { commit: 'abc1234567890' } : {}),
+  ...extra,
 });
 
 function adapterFor(refs: readonly GitRefInfo[], calls: string[] = []): BranchGitAdapter {
@@ -64,6 +74,10 @@ function adapterFor(refs: readonly GitRefInfo[], calls: string[] = []): BranchGi
     merge: async (branch) => {
       calls.push(`merge:${branch}`);
       return { merged: true, conflicts: false, stdout: '', stderr: '' };
+    },
+    rebase: async (branch) => {
+      calls.push(`rebase:${branch}`);
+      return { ok: true };
     },
     stash: vi.fn(),
     stashPop: vi.fn(),
@@ -155,6 +169,66 @@ describe('branchQuickPickCommands', () => {
     ]);
     expect(calls).toEqual(['merge:origin/topic', 'after']);
     expect(toast.info).toHaveBeenCalledWith('Merged origin/topic.');
+  });
+
+  it('rebases onto the selected branch with the upstream item first', async () => {
+    const calls: string[] = [];
+    const rebaseRefs = [
+      ref('refs/heads/main', 'main', 'head', true, { upstream: 'origin/main' }),
+      ref('refs/heads/feature/scm', 'feature/scm', 'head'),
+      ref('refs/remotes/origin/main', 'origin/main', 'remoteHead'),
+      ref('refs/remotes/origin/topic', 'origin/topic', 'remoteHead'),
+      ref('refs/tags/v1.0', 'v1.0', 'tag'),
+    ] satisfies readonly GitRefInfo[];
+    const adapter = adapterFor(rebaseRefs, calls);
+
+    vi.mocked(pick).mockResolvedValueOnce('refs/remotes/origin/main');
+
+    await runRebaseBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    const pickOptions = vi.mocked(pick).mock.calls[0]?.[0];
+    expect(pickOptions?.title).toBe('Rebase Branch');
+    expect(pickOptions?.placeholder).toBe('Select a branch to rebase onto');
+    expect(pickOptions?.options.map((option) => option.value)).toEqual([
+      'refs/remotes/origin/main',
+      'refs/heads/feature/scm',
+      'refs/remotes/origin/topic',
+    ]);
+    expect(pickOptions?.options[0]).toMatchObject({
+      label: 'origin/main',
+      hint: '(upstream)',
+    });
+    expect(pickOptions?.options[0]).not.toHaveProperty('separator');
+    expect(calls).toEqual(['rebase:origin/main', 'after']);
+    expect(toast.info).toHaveBeenCalledWith('Rebased current branch onto origin/main.');
+  });
+
+  it('reports ordinary rebase conflicts without invoking the interactive planner', async () => {
+    const calls: string[] = [];
+    const adapter: BranchGitAdapter = {
+      ...adapterFor(refs, calls),
+      rebase: async (branch) => {
+        calls.push(`rebase:${branch}`);
+        return { ok: false, conflicts: true };
+      },
+    };
+
+    vi.mocked(pick).mockResolvedValueOnce('refs/heads/feature/scm');
+
+    await runRebaseBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    expect(calls).toEqual(['rebase:feature/scm', 'after']);
+    expect(toast.info).toHaveBeenCalledWith('Rebase onto feature/scm stopped with conflicts.');
   });
 
   it('creates a branch from the command, validates local duplicates, and refreshes', async () => {

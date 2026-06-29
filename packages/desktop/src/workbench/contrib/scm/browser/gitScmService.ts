@@ -57,6 +57,7 @@ export interface GitScmService {
   merge(branch: string): Promise<GitMergeResult>;
   cherryPick(ref: string): Promise<GitCherryPickResult>;
   revert(ref: string): Promise<GitRevertResult>;
+  rebase(branch: string): Promise<GitRebaseResult>;
   rebaseInteractive(args: GitRebaseInteractiveArgs): Promise<GitRebaseResult>;
   tag(name: string, ref?: string): Promise<void>;
   tagDelete(name: string): Promise<void>;
@@ -144,6 +145,7 @@ export function createGitScmService(channel: GitChannel): GitScmService {
     merge: (branch) => channel.merge(branch),
     cherryPick: (ref) => channel.cherryPick(ref),
     revert: (ref) => channel.revert(ref),
+    rebase: (branch) => channel.rebase(branch),
     rebaseInteractive: (args) => channel.rebaseInteractive(args),
     tag: async (name, ref) => {
       await channel.tag(name, ref);

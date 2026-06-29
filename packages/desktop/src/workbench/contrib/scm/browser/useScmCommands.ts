@@ -8,6 +8,7 @@ import {
   runCreateBranchFromCommand,
   runDeleteBranchCommand,
   runMergeBranchCommand,
+  runRebaseBranchCommand,
   runRenameBranchCommand,
 } from './branchQuickPickCommands.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
@@ -119,8 +120,8 @@ export const useScmCommands = ({
     void runMergeBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
   }, [afterBranchCommand, branchGit]);
   const rebaseBranchPrompt = useCallback((): void => {
-    toast.error('Rebase Branch is not available yet.');
-  }, []);
+    void runRebaseBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
+  }, [afterBranchCommand, branchGit]);
   const renameBranchPrompt = useCallback((): void => {
     void runRenameBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
   }, [afterBranchCommand, branchGit]);

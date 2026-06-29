@@ -24,5 +24,5 @@ export {
   unstageAll,
 } from './gitIndexCommands.js';
 export { fetch, pull, publish, push, remoteUrl, remotes, sync } from './gitRemoteCommands.js';
-export { cherryPick, rebaseInteractive, reset, revert } from './gitRewriteCommands.js';
+export { cherryPick, rebase, rebaseInteractive, reset, revert } from './gitRewriteCommands.js';
 export { stash, stashApply, stashDrop, stashList, stashPop } from './gitStashCommands.js';

@@ -1,6 +1,7 @@
 import type {
   GitCreateBranchArgs,
   GitMergeResult,
+  GitRebaseResult,
   GitRefsResult,
   GitStashResult,
 } from '../common/git.js';
@@ -19,6 +20,7 @@ export interface BranchGitAdapter {
   readonly deleteBranch: (name: string, options?: { readonly force?: boolean }) => Promise<unknown>;
   readonly renameCurrent: (to: string) => Promise<unknown>;
   readonly merge: (branch: string) => Promise<GitMergeResult>;
+  readonly rebase: (branch: string) => Promise<GitRebaseResult>;
   readonly stash: (
     message: string,
     options?: { readonly includeUntracked?: boolean },
@@ -33,6 +35,7 @@ export const createBranchGitAdapter = (git: GitScmService): BranchGitAdapter => 
   deleteBranch: (name, options) => git.deleteBranch(name, options),
   renameCurrent: (to) => git.renameCurrentBranch(to),
   merge: (branch) => git.merge(branch),
+  rebase: (branch) => git.rebase(branch),
   stash: (message, options) => git.stash(message, options),
   stashPop: () => git.stashPop(),
 });

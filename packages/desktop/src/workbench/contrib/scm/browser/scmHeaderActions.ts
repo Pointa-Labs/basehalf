@@ -104,7 +104,8 @@ export function scmBranchMenuActions({
     label: descriptor.label,
     onClick: handlers[descriptor.id],
     disabled:
-      busy || descriptor.id === 'rebase' || (descriptor.id === 'renameBranch' && !hasCurrentBranch),
+      busy ||
+      ((descriptor.id === 'rebase' || descriptor.id === 'renameBranch') && !hasCurrentBranch),
     ...(descriptor.danger === true && { danger: true }),
   });
 
