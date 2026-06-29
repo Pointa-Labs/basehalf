@@ -64,6 +64,7 @@ describe('githubScmContribution', () => {
 
   it('opens the GitHub pull request compare URL for the current branch', async () => {
     const openExternal = vi.fn(async () => ({ ok: true }));
+    const selectPublishRemote = vi.fn();
     const toastError = vi.fn();
 
     await createGithubPullRequest({
@@ -71,12 +72,100 @@ describe('githubScmContribution', () => {
       service: service({
         createPullRequestUrl: async (branch) => `https://github.com/o/r/compare/${branch}?expand=1`,
       }),
+      selectPublishRemote,
       openExternal,
       toastError,
     });
 
     expect(openExternal).toHaveBeenCalledWith('https://github.com/o/r/compare/feature/a?expand=1');
+    expect(selectPublishRemote).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('publishes an unpublished branch before asking GitHub for the pull request URL', async () => {
+    const calls: string[] = [];
+    const url = 'https://github.com/o/r/compare/topic?expand=1';
+    const git = {
+      remotes: async () => ({ remotes: [] }),
+      publish: async (options?: { remote?: string }) => {
+        calls.push(`publish:${options?.remote ?? ''}`);
+      },
+    };
+    const selectPublishRemote = vi.fn(async (passedGit) => {
+      expect(passedGit).toBe(git);
+      calls.push('pick');
+      return 'origin';
+    });
+    const createPullRequestUrl = vi.fn(async (branch: string) => {
+      calls.push(`url:${branch}`);
+      return url;
+    });
+    const openExternal = vi.fn(async (openedUrl: string) => {
+      calls.push(`open:${openedUrl}`);
+      return { ok: true };
+    });
+    const toastError = vi.fn();
+
+    await createGithubPullRequest({
+      status: status({ upstream: null }),
+      service: service({ createPullRequestUrl }),
+      git,
+      selectPublishRemote,
+      openExternal,
+      toastError,
+    });
+
+    expect(calls).toEqual(['pick', 'publish:origin', 'url:topic', `open:${url}`]);
+    expect(createPullRequestUrl).toHaveBeenCalledWith('topic');
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('does not open a pull request when publish remote selection is cancelled', async () => {
+    const createPullRequestUrl = vi.fn();
+    const publish = vi.fn();
+    const openExternal = vi.fn();
+    const toastError = vi.fn();
+
+    await createGithubPullRequest({
+      status: status({ upstream: null }),
+      service: service({ createPullRequestUrl }),
+      git: {
+        remotes: async () => ({ remotes: [] }),
+        publish,
+      },
+      selectPublishRemote: async () => null,
+      openExternal,
+      toastError,
+    });
+
+    expect(publish).not.toHaveBeenCalled();
+    expect(createPullRequestUrl).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('surfaces publish failures without opening the pull request URL', async () => {
+    const createPullRequestUrl = vi.fn();
+    const openExternal = vi.fn();
+    const toastError = vi.fn();
+
+    await createGithubPullRequest({
+      status: status({ upstream: null }),
+      service: service({ createPullRequestUrl }),
+      git: {
+        remotes: async () => ({ remotes: [] }),
+        publish: async () => {
+          throw new Error('publish failed');
+        },
+      },
+      selectPublishRemote: async () => 'origin',
+      openExternal,
+      toastError,
+    });
+
+    expect(createPullRequestUrl).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith('publish failed');
   });
 
   it('surfaces native browser-open failures', async () => {

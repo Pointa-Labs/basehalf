@@ -1,7 +1,13 @@
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import type { NativeHostResult } from '../../../../platform/native/common/native.js';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
-import type { ScmViewContribution } from '../../scm/browser/scmViewContributions.js';
+import { type GitScmService, gitScmService } from '../../scm/browser/gitScmService.js';
+import {
+  type ScmViewContribution,
+  type ScmViewContributionRegistryLike,
+  registerScmViewContribution,
+} from '../../scm/browser/scmViewContributions.js';
+import { choosePublishRemote } from '../../scm/browser/useScmRemoteCommands.js';
 import type { GitStatusResult } from '../../scm/common/git.js';
 import { PullRequestsSection } from './PullRequestsSection.js';
 import {
@@ -13,6 +19,8 @@ import {
 export interface CreateGithubPullRequestOptions {
   readonly status: GitStatusResult | null;
   readonly service?: GithubPullRequestService;
+  readonly git?: Pick<GitScmService, 'publish' | 'remotes'>;
+  readonly selectPublishRemote?: (git: Pick<GitScmService, 'remotes'>) => Promise<string | null>;
   readonly openExternal?: (url: string) => Promise<NativeHostResult>;
   readonly toastError?: (message: string) => void;
 }
@@ -20,6 +28,8 @@ export interface CreateGithubPullRequestOptions {
 export async function createGithubPullRequest({
   status,
   service = githubPullRequestService,
+  git = gitScmService,
+  selectPublishRemote = choosePublishRemote,
   openExternal = (url) => nativeHostService.openExternal(url),
   toastError = toast.error,
 }: CreateGithubPullRequestOptions): Promise<void> {
@@ -30,6 +40,12 @@ export async function createGithubPullRequest({
   }
 
   try {
+    if (status.upstream === null) {
+      const remote = await selectPublishRemote(git);
+      if (remote === null) return;
+      await git.publish({ remote });
+    }
+
     const url = await service.createPullRequestUrl(branch);
     if (url === null) {
       toastError('No GitHub remote is configured.');
@@ -45,6 +61,7 @@ export async function createGithubPullRequest({
 
 export const githubPullRequestsScmContribution: ScmViewContribution = {
   id: 'github.pullRequests',
+  when: ({ model }) => model.status?.isRepo === true,
   menuActions: ({ status }) => [
     {
       label: 'Create Pull Request…',
@@ -55,3 +72,9 @@ export const githubPullRequestsScmContribution: ScmViewContribution = {
   ],
   renderSection: () => <PullRequestsSection />,
 };
+
+export function registerGithubPullRequestsScmContribution(
+  registry?: ScmViewContributionRegistryLike,
+): () => void {
+  return registerScmViewContribution(githubPullRequestsScmContribution, registry);
+}

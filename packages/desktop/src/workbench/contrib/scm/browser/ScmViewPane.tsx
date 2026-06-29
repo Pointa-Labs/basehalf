@@ -11,7 +11,12 @@ import { GraphSection } from './GraphSection.js';
 import { RepoHeader } from './RepoHeader.js';
 import { ResourceGroups } from './ResourceGroups.js';
 import { StashSection } from './StashSection.js';
-import { type ScmViewContribution, scmContributionMenuActions } from './scmViewContributions.js';
+import {
+  type ScmViewContribution,
+  scmContributionMenuActions,
+  scmViewContributionRegistry,
+  scmVisibleViewContributions,
+} from './scmViewContributions.js';
 import type { ScmViewPaneModel } from './useScmViewPaneModel.js';
 
 const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -35,7 +40,7 @@ const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
  * provider/input/resource-group model and delegates Git behavior to commands.
  */
 export function ScmViewPane({
-  contributions = [],
+  contributions,
   model,
 }: {
   readonly contributions?: readonly ScmViewContribution[];
@@ -65,6 +70,10 @@ export function ScmViewPane({
   const view = provider.view;
   if (view === null) return <Centered>{error ?? statusError ?? '…'}</Centered>;
   const actionButton = sourceControlActionButtonModel(view);
+  const visibleContributions = scmVisibleViewContributions(
+    contributions ?? scmViewContributionRegistry.getScmViewContributions(),
+    model,
+  );
   const runPrimaryAction = (action: SourceControlPrimaryAction): void => {
     if (action === 'publish') commands.publish();
     else if (action === 'sync') commands.sync();
@@ -87,7 +96,7 @@ export function ScmViewPane({
           { label: 'Push', onClick: commands.push },
           { label: 'Push (Force)', onClick: commands.pushForce },
           { label: 'Fetch', onClick: commands.fetch },
-          ...scmContributionMenuActions(contributions, model),
+          ...scmContributionMenuActions(visibleContributions, model),
           { label: 'Undo Last Commit', onClick: commands.undoLastCommit },
           { label: 'Stash', onClick: commands.stash },
           { label: 'Pop Stash', onClick: () => commands.popStash() },
@@ -135,7 +144,7 @@ export function ScmViewPane({
           commands={commands}
         />
 
-        {contributions.map((contribution) => {
+        {visibleContributions.map((contribution) => {
           const section = contribution.renderSection?.(model);
           return section === undefined || section === null ? null : (
             <Fragment key={contribution.id}>{section}</Fragment>

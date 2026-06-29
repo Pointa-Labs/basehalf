@@ -1,11 +1,11 @@
 import type { JSX } from 'react';
-import { githubPullRequestsScmContribution } from '../../githubPullRequests/browser/githubScmContribution.js';
 import { ScmViewPane } from './ScmViewPane.js';
+import { registerBuiltinScmViewContributions } from './scmBuiltinViewContributions.js';
 import { useScmViewPaneModel } from './useScmViewPaneModel.js';
 
-const scmContributions = [githubPullRequestsScmContribution] as const;
+registerBuiltinScmViewContributions();
 
 export const SourceControl = (): JSX.Element => {
   const model = useScmViewPaneModel();
-  return <ScmViewPane contributions={scmContributions} model={model} />;
+  return <ScmViewPane model={model} />;
 };
