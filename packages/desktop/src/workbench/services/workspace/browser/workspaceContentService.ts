@@ -2,13 +2,22 @@ import { workspaceService } from '../../../../platform/workspaces/browser/worksp
 import type {
   WorkspaceService as PlatformWorkspaceService,
   WorkspaceListFilesResult,
+  WorkspaceReadFileArgs,
+  WorkspaceReadFileResult,
 } from '../../../../platform/workspaces/common/workspaces.js';
 
-type WorkspaceContentBackend = Pick<PlatformWorkspaceService, 'listFiles' | 'listSupportedFiles'>;
+type WorkspaceContentBackend = Pick<
+  PlatformWorkspaceService,
+  'listFiles' | 'listSupportedFiles' | 'readFile'
+>;
 
 export interface WorkspaceContentService {
   listFiles(path: string): Promise<WorkspaceListFilesResult>;
   listSupportedFiles(folder: string | null): Promise<readonly string[]>;
+  readFile(
+    path: string,
+    options?: Omit<WorkspaceReadFileArgs, 'path'>,
+  ): Promise<WorkspaceReadFileResult>;
 }
 
 export function createWorkspaceContentService(
@@ -17,6 +26,7 @@ export function createWorkspaceContentService(
   return {
     listFiles: (path) => backend.listFiles(path),
     listSupportedFiles: (folder) => backend.listSupportedFiles(folder),
+    readFile: (path, options = {}) => backend.readFile(path, options),
   };
 }
 

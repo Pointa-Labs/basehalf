@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
+import { workspaceContentService } from '../../../services/workspace/browser/workspaceContentService.js';
 import { gitScmService } from '../../scm/browser/gitScmService.js';
 import {
   type FileDiffOptions,
@@ -83,7 +83,7 @@ export function useFileDiff(
         });
         const resolved = await resolveFileDiffSource(source, {
           git: gitScmService,
-          workspace: workspaceService,
+          workspace: workspaceContentService,
         });
         if (cancelled) return;
         const { original, modified } = resolved;

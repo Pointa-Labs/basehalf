@@ -1,4 +1,4 @@
-import type { WorkspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
+import type { WorkspaceContentService } from '../../../services/workspace/browser/workspaceContentService.js';
 import { isWorkspacePathNotFoundError } from '../../../services/workspace/browser/workspaceErrors.js';
 import type { GitScmService } from '../../scm/browser/gitScmService.js';
 
@@ -46,7 +46,7 @@ export interface FileDiffSourceProvider {
 
 export interface FileDiffSourceResolverServices {
   readonly git: Pick<GitScmService, 'show'>;
-  readonly workspace: Pick<WorkspaceService, 'readFile'>;
+  readonly workspace: Pick<WorkspaceContentService, 'readFile'>;
 }
 
 export interface FileDiffSourceResolver {
