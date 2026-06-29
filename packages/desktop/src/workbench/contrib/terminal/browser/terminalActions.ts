@@ -1,4 +1,4 @@
-import type { FocusDir, SplitDir } from './terminalTree.js';
+import type { FocusDir, SplitDir } from '../common/terminalTree.js';
 
 export enum TerminalActionId {
   New = 'workbench.action.terminal.new',

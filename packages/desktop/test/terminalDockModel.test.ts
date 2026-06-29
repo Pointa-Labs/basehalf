@@ -3,8 +3,8 @@ import {
   terminalActiveLayout,
   terminalPaneMounts,
 } from '../src/workbench/contrib/terminal/browser/terminalDockModel.js';
-import type { TermTab } from '../src/workbench/contrib/terminal/browser/terminalStore.js';
-import { type TermNode, leaf } from '../src/workbench/contrib/terminal/browser/terminalTree.js';
+import type { TermTab } from '../src/workbench/contrib/terminal/common/terminalGroupModel.js';
+import { type TermNode, leaf } from '../src/workbench/contrib/terminal/common/terminalTree.js';
 
 const split = (
   id: string,

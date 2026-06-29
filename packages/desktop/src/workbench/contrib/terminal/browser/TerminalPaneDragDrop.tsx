@@ -1,7 +1,7 @@
 import { type CSSProperties, type JSX, useEffect, useRef, useState } from 'react';
 import { color, radius, space, transition } from '../../../browser/style/design.js';
+import { type FocusDir, dropEdge } from '../common/terminalTree.js';
 import { useTerminalStore } from './terminalStore.js';
-import { type FocusDir, dropEdge } from './terminalTree.js';
 
 const HANDLE_REVEAL_FACTOR = 0.2;
 

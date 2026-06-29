@@ -4,7 +4,7 @@ import {
   findLeaf,
   leaf,
   orderedLeafIds,
-} from '../src/workbench/contrib/terminal/browser/terminalTree.js';
+} from '../src/workbench/contrib/terminal/common/terminalTree.js';
 
 // Reset the singleton store to one tab ("tab0") holding one pane ("p0") before
 // each test. Actions mint fresh ids internally, so post-reset ids never collide.

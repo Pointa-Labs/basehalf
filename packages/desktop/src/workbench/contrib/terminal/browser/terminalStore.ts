@@ -27,10 +27,10 @@ import {
   switchTabState,
   toggleZoomState,
   undoCloseState,
-} from './terminalGroupModel.js';
-import type { FocusDir, SplitDir } from './terminalTree.js';
+} from '../common/terminalGroupModel.js';
+import type { FocusDir, SplitDir } from '../common/terminalTree.js';
 
-export type { ClosingEntry, TermTab } from './terminalGroupModel.js';
+export type { ClosingEntry, TermTab } from '../common/terminalGroupModel.js';
 
 // Terminal dock state, modeled on VS Code's terminal group split: the store is a
 // renderer adapter around terminalGroupModel. It owns focus/plumbing flags and

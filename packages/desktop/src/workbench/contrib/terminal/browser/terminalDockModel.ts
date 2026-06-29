@@ -1,11 +1,11 @@
-import type { TermTab } from './terminalStore.js';
+import type { TermTab } from '../common/terminalGroupModel.js';
 import {
   type Divider,
   type Rect,
   leafRects,
   orderedLeafIds,
   splitDividers,
-} from './terminalTree.js';
+} from '../common/terminalTree.js';
 
 export type TerminalClosingEntryLike =
   | { readonly kind: 'tab'; readonly tab: TermTab }
