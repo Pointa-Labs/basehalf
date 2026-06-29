@@ -6,6 +6,7 @@ import {
   normalizeQuickPickSelectedValues,
   quickPickActiveOptionId,
   quickPickInitialActiveIndex,
+  quickPickItemsWithSeparators,
   toggleQuickPickSelectedValue,
   updateQuickPickSelectedValues,
 } from '../src/platform/quickinput/common/quickPickModel.js';
@@ -35,6 +36,32 @@ describe('quickPickModel', () => {
     const ordered = filterQuickPickOptions('', options, (_query, items) => [...items].reverse());
 
     expect(ordered.map((option) => option.value)).toEqual(['create', 'feature', 'main']);
+  });
+
+  it('injects VS Code-style separators when option groups change', () => {
+    const groupedOptions: readonly QuickPickOption[] = [
+      { value: 'create', label: 'Create Branch', separator: 'Commands' },
+      { value: 'main', label: 'main', separator: 'Branches' },
+      { value: 'topic', label: 'topic', separator: 'Branches' },
+      { value: 'origin/topic', label: 'origin/topic', separator: 'Remote Branches' },
+    ];
+    const itemByValue = new Map(groupedOptions.map((option) => [option.value, option]));
+
+    const items = quickPickItemsWithSeparators(groupedOptions, (option) =>
+      itemByValue.get(option.value),
+    );
+
+    expect(
+      items.map((item) => ('type' in item && item.type === 'separator' ? item.label : item.value)),
+    ).toEqual([
+      'Commands',
+      'create',
+      'Branches',
+      'main',
+      'topic',
+      'Remote Branches',
+      'origin/topic',
+    ]);
   });
 
   it('models the active item cursor without wrapping', () => {

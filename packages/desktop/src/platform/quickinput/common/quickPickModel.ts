@@ -1,4 +1,6 @@
 import type {
+  IQuickPickItem,
+  QuickPickItemOrSeparator,
   QuickPickOption,
   QuickPickSelectionNormalizer,
   QuickPickSortOptions,
@@ -36,6 +38,30 @@ export function filterQuickPickOptions(
       (option.hint?.toLowerCase().includes(needle) ?? false) ||
       (option.detail?.toLowerCase().includes(needle) ?? false),
   );
+}
+
+export function quickPickItemsWithSeparators<T extends IQuickPickItem>(
+  options: readonly QuickPickOption[],
+  itemForOption: (option: QuickPickOption) => T | undefined,
+): readonly QuickPickItemOrSeparator<T>[] {
+  const items: QuickPickItemOrSeparator<T>[] = [];
+  let currentSeparator: string | undefined;
+
+  for (const option of options) {
+    const item = itemForOption(option);
+    if (item === undefined) continue;
+
+    if (option.separator !== currentSeparator) {
+      currentSeparator = option.separator;
+      if (currentSeparator !== undefined) {
+        items.push({ type: 'separator', label: currentSeparator });
+      }
+    }
+
+    items.push(item);
+  }
+
+  return items;
 }
 
 export function moveQuickPickActiveIndex(

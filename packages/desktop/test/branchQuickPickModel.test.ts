@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   branchOption,
   branchQuickAccessHint,
+  branchQuickPickSeparator,
   canDeleteBranch,
   checkoutTargetForRef,
   createBranchCheckoutCommandModel,
@@ -120,6 +121,7 @@ describe('branchQuickPickModel', () => {
       label: 'main',
       hint: 'current branch',
       detail: 'abcdef1',
+      separator: 'Branches',
     });
     expect(detachedCheckoutTargetForRef(refs[1] as GitRefInfo)).toEqual({
       branch: '1234567890ab',
@@ -132,6 +134,25 @@ describe('branchQuickPickModel', () => {
     expect(branchQuickAccessHint(branch('main', { current: true }))).toBe('current branch');
     expect(branchQuickAccessHint(remote('origin/feature-x'))).toBe('remote');
     expect(branchQuickAccessHint(branch('feature-x'))).toBe('Switch branch');
+  });
+
+  it('adds option separators for branch picker command and ref groups', () => {
+    const options = createCheckoutPickOptions([
+      branch('main'),
+      remote('origin/feature-x'),
+      { id: 'refs/tags/v1.0', name: 'v1.0', type: 'tag' as const, current: false },
+    ]);
+
+    expect(options.map((option) => option.separator)).toEqual([
+      'Commands',
+      'Commands',
+      'Commands',
+      'Branches',
+      'Remote Branches',
+      'Tags',
+    ]);
+    expect(branchQuickPickSeparator(branch('topic'))).toBe('Branches');
+    expect(branchQuickPickSeparator(remote('origin/topic'))).toBe('Remote Branches');
   });
 
   it('moves always-show command rows after refs once the user types', () => {

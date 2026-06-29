@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   QuickPickFocus,
   isQuickPickItem,
+  isQuickPickSeparator,
   quickInputService,
 } from '../src/platform/quickinput/browser/quickInputService.js';
 import type { IQuickPick, IQuickPickItem } from '../src/platform/quickinput/common/quickInput.js';
@@ -184,6 +185,39 @@ describe('quickInputService', () => {
 
     await expect(choice).resolves.toBe('main');
     expect(quickInputService.getHostState().activeQuickPick).toBeUndefined();
+  });
+
+  it('preserves option separators in the host quick pick while activating real items', async () => {
+    const choice = quickInputService.pick({
+      title: 'Switch Branch',
+      options: [
+        { value: 'cmd:create', label: 'Create Branch...', separator: 'Commands' },
+        { value: 'main', label: 'main', separator: 'Branches' },
+        { value: 'origin/topic', label: 'origin/topic', separator: 'Remote Branches' },
+      ],
+    });
+    const picker = expectActiveQuickPick();
+
+    expect(
+      picker.items.map((item) =>
+        isQuickPickSeparator(item) ? `separator:${item.label ?? ''}` : item.id,
+      ),
+    ).toEqual([
+      'separator:Commands',
+      'cmd:create',
+      'separator:Branches',
+      'main',
+      'separator:Remote Branches',
+      'origin/topic',
+    ]);
+    expect(picker.activeItems.map((item) => item.id)).toEqual(['cmd:create']);
+
+    quickInputService.navigate(true);
+    expect(picker.activeItems.map((item) => item.id)).toEqual(['main']);
+
+    quickInputService.accept();
+
+    await expect(choice).resolves.toBe('main');
   });
 
   it('resolves pickWithInputValue with the raw query while preserving always-show choices', async () => {

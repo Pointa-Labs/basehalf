@@ -29,6 +29,7 @@ export interface QuickPickOption {
   readonly hint?: string;
   readonly detail?: string;
   readonly alwaysShow?: boolean;
+  readonly separator?: string;
 }
 
 export interface QuickPickSelectionChange {

@@ -5,14 +5,17 @@ import type {
   IQuickPickItem,
   QuickInputHostState,
   QuickInputHostStateListener,
+  QuickPickItemOrSeparator,
   QuickPickManyOptions,
   QuickPickOption,
   QuickPickSingleOptions,
   QuickPickValueResult,
 } from '../common/quickInput.js';
+import { isQuickPickItem } from '../common/quickInput.js';
 import {
   filterQuickPickOptions,
   normalizeQuickPickSelectedValues,
+  quickPickItemsWithSeparators,
   updateQuickPickSelectedValues,
 } from '../common/quickPickModel.js';
 import { QuickAccessController } from './quickAccessController.js';
@@ -116,7 +119,10 @@ class BrowserQuickInputService implements IQuickInputService {
     includeInputValue: boolean,
   ): Promise<string | readonly string[] | QuickPickValueResult | null> {
     return new Promise((resolve) => {
-      const picker = this.controller.createQuickPick<ServiceQuickPickItem>({ renderInHost: true });
+      const picker = this.controller.createQuickPick<ServiceQuickPickItem>({
+        renderInHost: true,
+        useSeparators: true,
+      });
       const optionItems = opts.options.map(quickPickItemFromOption);
       const itemByOption = new Map<QuickPickOption, ServiceQuickPickItem>();
       const itemByValue = new Map<string, ServiceQuickPickItem>();
@@ -134,14 +140,21 @@ class BrowserQuickInputService implements IQuickInputService {
       let applyingFilteredItems = false;
       const disposables: (() => void)[] = [];
 
-      const filteredItems = (query: string): readonly ServiceQuickPickItem[] =>
-        filterQuickPickOptions(
-          query,
-          opts.options,
-          opts.canSelectMany === true ? undefined : opts.sortOptions,
-        )
-          .map((option) => itemByOption.get(option))
-          .filter((item): item is ServiceQuickPickItem => item !== undefined);
+      const filteredItems = (
+        query: string,
+      ): readonly QuickPickItemOrSeparator<ServiceQuickPickItem>[] =>
+        quickPickItemsWithSeparators(
+          filterQuickPickOptions(
+            query,
+            opts.options,
+            opts.canSelectMany === true ? undefined : opts.sortOptions,
+          ),
+          (option) => itemByOption.get(option),
+        );
+
+      const visibleQuickPickItems = (
+        items: readonly QuickPickItemOrSeparator<ServiceQuickPickItem>[],
+      ): readonly ServiceQuickPickItem[] => items.filter(isQuickPickItem);
 
       const selectedItemsForValues = (
         values: readonly string[],
@@ -157,15 +170,16 @@ class BrowserQuickInputService implements IQuickInputService {
 
       const applyFilteredItems = (query: string): void => {
         const items = filteredItems(query);
+        const visibleItems = visibleQuickPickItems(items);
         applyingFilteredItems = true;
         picker.items = items;
         if (picker.canSelectMany) {
           picker.activeItems = [];
-          picker.selectedItems = selectedItemsForValues(previousSelectedValues, items);
+          picker.selectedItems = selectedItemsForValues(previousSelectedValues, visibleItems);
           applyingFilteredItems = false;
           return;
         }
-        const first = items[0];
+        const first = visibleItems[0];
         picker.activeItems = first === undefined ? [] : [first];
         applyingFilteredItems = false;
       };

@@ -51,18 +51,21 @@ export const BRANCH_QUICK_PICK_COMMANDS = [
     label: 'Create Branch...',
     detail: 'Command',
     alwaysShow: true,
+    separator: 'Commands',
   },
   {
     value: 'cmd:createFrom',
     label: 'Create Branch From...',
     detail: 'Command',
     alwaysShow: true,
+    separator: 'Commands',
   },
   {
     value: 'cmd:checkoutDetached',
     label: 'Checkout Detached...',
     detail: 'Command',
     alwaysShow: true,
+    separator: 'Commands',
   },
 ] satisfies readonly (QuickPickOption & { readonly value: BranchQuickPickCommand })[];
 
@@ -134,11 +137,18 @@ export const branchOption = (branch: GitRefInfo): QuickPickOption => {
     label: branch.name,
     hint,
     detail,
+    separator: branchQuickPickSeparator(branch),
   };
 };
 
 export const branchQuickAccessHint = (branch: GitRefInfo): string =>
   branch.current ? 'current branch' : branch.type === 'remoteHead' ? 'remote' : 'Switch branch';
+
+export const branchQuickPickSeparator = (branch: GitRefInfo): string => {
+  if (branch.type === 'remoteHead') return 'Remote Branches';
+  if (branch.type === 'tag') return 'Tags';
+  return 'Branches';
+};
 
 const BRANCH_NAME_SANITIZE_RE =
   /^\.|\/\.|\.\.|~|\^|:|\/$|\.lock$|\.lock\/|\\|\*|\s|^\s*$|\.$|\[|\]$/g;
