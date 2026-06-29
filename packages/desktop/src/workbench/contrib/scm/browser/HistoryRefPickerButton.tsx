@@ -1,9 +1,9 @@
-import { type CSSProperties, type JSX, useState } from 'react';
+import { type CSSProperties, type JSX, useMemo, useState } from 'react';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { pick } from '../../../../platform/quickinput/browser/quickInputService.js';
 import { color, font, radius, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
-import { GitHistoryProvider } from './gitHistoryProvider.js';
+import { GitHistoryProvider, gitHistoryProvider } from './gitHistoryProvider.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import {
   graphRefFilterFromPick,
@@ -21,6 +21,7 @@ export const HistoryRefPickerButton = ({
   filter,
   onFilter,
   gitService: git = gitScmService,
+  historyProvider,
   maxWidth = 112,
   testId,
 }: {
@@ -28,16 +29,22 @@ export const HistoryRefPickerButton = ({
   readonly filter: ScmHistoryFilter;
   readonly onFilter: (filter: ScmHistoryFilter) => void;
   readonly gitService?: GitScmService;
+  readonly historyProvider?: Pick<GitHistoryProvider, 'provideHistoryItemRefs'>;
   readonly maxWidth?: number;
   readonly testId?: string;
 }): JSX.Element => {
   const [hover, setHover] = useState(false);
+  const history = useMemo(
+    () =>
+      historyProvider ?? (git === gitScmService ? gitHistoryProvider : new GitHistoryProvider(git)),
+    [git, historyProvider],
+  );
 
   const openPicker = (): void => {
     if (disabled) return;
     void (async () => {
       try {
-        const refs = await new GitHistoryProvider(git).provideHistoryItemRefs();
+        const refs = await history.provideHistoryItemRefs();
         const selectedValues = graphRefSelectedValues(filter);
         const choice = await pick({
           title: 'History Item Reference Picker',

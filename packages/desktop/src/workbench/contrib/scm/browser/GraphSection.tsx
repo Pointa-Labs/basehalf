@@ -4,6 +4,7 @@ import { GitGraph } from './GitGraph.js';
 import { GraphRefPicker } from './GraphRefPicker.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
 import { type GraphHeaderButtonAction, graphHeaderActions } from './graphHeaderActionModel.js';
+import { useScmViewStore } from './scmViewStore.js';
 import type { ScmCommands } from './useScmCommands.js';
 
 export const GraphSection = ({
@@ -49,12 +50,18 @@ function GraphHeaderButton({
   readonly commands: Pick<ScmCommands, 'openFullGraph' | 'revealHead'>;
   readonly onRefresh: () => void;
 }): JSX.Element {
-  const onClick =
-    action.id === 'revealCurrent'
-      ? commands.revealHead
-      : action.id === 'refresh'
-        ? onRefresh
-        : commands.openFullGraph;
+  const onClick = (): void => {
+    if (action.id === 'revealCurrent') {
+      commands.revealHead();
+      return;
+    }
+    if (action.id === 'refresh') {
+      useScmViewStore.getState().requestHistoryReload();
+      onRefresh();
+      return;
+    }
+    commands.openFullGraph();
+  };
 
   return (
     <IconBtn

@@ -27,7 +27,7 @@ import {
 } from './gitGraphViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { useGitStatusStore } from './gitStatusStore.js';
-import type { ScmHistoryFilter } from './scmViewStore.js';
+import { useScmViewStore } from './scmViewStore.js';
 import { useFullGitGraphHistory } from './useFullGitGraphHistory.js';
 
 /**
@@ -49,10 +49,11 @@ export const GitGraphView = ({
   gitService?: GitScmService;
 }): JSX.Element => {
   const openCommitDiff = useWorkspaceStore((s) => s.openCommitDiff);
-  const [selected, setSelected] = useState<string | null>(null);
-  // Controls: a VS Code-style history ref filter, a remote-branch toggle, and a
-  // find query.
-  const [historyFilter, setHistoryFilter] = useState<ScmHistoryFilter>({ kind: 'auto' });
+  const selected = useScmViewStore((s) => s.selectedHistoryItemId);
+  const setSelected = useScmViewStore((s) => s.selectHistoryItem);
+  const historyFilter = useScmViewStore((s) => s.historyFilter);
+  const setHistoryFilter = useScmViewStore((s) => s.setHistoryFilter);
+  // Controls: a VS Code-style history ref filter, a remote-branch toggle, and a find query.
   const [showRemote, setShowRemote] = useState(false);
   const [find, setFind] = useState('');
   // The interactive-rebase planner, opened (base = a commit) from the commit menu.
@@ -193,13 +194,18 @@ export const GitGraphView = ({
           onLoadMore={() => void loadPage(commits.length)}
         />
 
-        {selected !== null && (
+        {selectedCommit !== null && (
           <FullGraphCommitDetails
             commit={selectedCommit}
             gitService={git}
             onClose={() => setSelected(null)}
             onOpenFile={(path, parent) =>
-              openCommitDiff(path, selected, parent, `${selected.slice(0, 7)} ↔ parent`)
+              openCommitDiff(
+                path,
+                selectedCommit.hash,
+                parent,
+                `${selectedCommit.shortHash} ↔ parent`,
+              )
             }
           />
         )}

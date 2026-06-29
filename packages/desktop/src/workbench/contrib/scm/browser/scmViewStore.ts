@@ -25,9 +25,15 @@ interface ScmViewState {
   graphOpen: boolean;
   /** VS Code SCM History reference filter: Auto / All / selected history item refs. */
   historyFilter: ScmHistoryFilter;
+  /** Shared SCM History selection/focus, used by graph surfaces and quick access reveal. */
+  selectedHistoryItemId: string | null;
+  /** Monotonic signal for history views to reload from their provider. */
+  historyReloadRequest: number;
   setChangesOpen: (open: boolean) => void;
   setGraphOpen: (open: boolean) => void;
   setHistoryFilter: (filter: ScmHistoryFilter) => void;
+  selectHistoryItem: (historyItemId: string | null) => void;
+  requestHistoryReload: () => void;
   /** A commit hash the graph should reveal (expand + scroll) once, then clear. */
   focusCommit: string | null;
   /** From ⌘K "jump to commit": open the graph section and reveal `hash`. */
@@ -40,10 +46,15 @@ export const useScmViewStore = create<ScmViewState>((set) => ({
   changesOpen: true,
   graphOpen: true,
   historyFilter: { kind: 'auto' },
+  selectedHistoryItemId: null,
+  historyReloadRequest: 0,
   setChangesOpen: (changesOpen) => set({ changesOpen }),
   setGraphOpen: (graphOpen) => set({ graphOpen }),
   setHistoryFilter: (historyFilter) => set({ historyFilter }),
+  selectHistoryItem: (selectedHistoryItemId) => set({ selectedHistoryItemId }),
+  requestHistoryReload: () =>
+    set((state) => ({ historyReloadRequest: state.historyReloadRequest + 1 })),
   focusCommit: null,
-  revealCommit: (hash) => set({ graphOpen: true, focusCommit: hash }),
+  revealCommit: (hash) => set({ graphOpen: true, focusCommit: hash, selectedHistoryItemId: hash }),
   consumeFocus: () => set({ focusCommit: null }),
 }));

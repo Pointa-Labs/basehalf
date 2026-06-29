@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import { layoutGraph } from '../common/gitGraphLayout.js';
 import { HistoryItemRow } from './HistoryItemRow.js';
@@ -13,13 +13,15 @@ const PAGE_SIZE = 80;
 
 export const GitGraph = (): JSX.Element => {
   const historyFilter = useScmViewStore((s) => s.historyFilter);
+  const selected = useScmViewStore((s) => s.selectedHistoryItemId);
+  const selectHistoryItem = useScmViewStore((s) => s.selectHistoryItem);
+  const reloadRequest = useScmViewStore((s) => s.historyReloadRequest);
   const currentBranch = useGitStatusStore((s) => s.status?.branch ?? null);
   const { commits, loading, error, done, localBranches, loadPage, reload } = useGitGraphHistory(
     PAGE_SIZE,
     historyFilter,
     currentBranch,
   );
-  const [selected, setSelected] = useState<string | null>(null);
   const focusCommit = useScmViewStore((s) => s.focusCommit);
   const consumeFocus = useScmViewStore((s) => s.consumeFocus);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -30,11 +32,16 @@ export const GitGraph = (): JSX.Element => {
   useEffect(() => {
     if (focusCommit === null) return;
     if (!commits.some((commit) => commit.hash === focusCommit)) return;
-    setSelected(focusCommit);
+    selectHistoryItem(focusCommit);
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-commit="${focusCommit}"]`);
     el?.scrollIntoView({ block: 'center' });
     consumeFocus();
-  }, [focusCommit, commits, consumeFocus]);
+  }, [focusCommit, commits, consumeFocus, selectHistoryItem]);
+
+  useEffect(() => {
+    if (reloadRequest === 0) return;
+    void reload();
+  }, [reloadRequest, reload]);
 
   if (error !== null) {
     return <Hint tone="danger">{error}</Hint>;
@@ -52,9 +59,7 @@ export const GitGraph = (): JSX.Element => {
           row={row}
           gutterWidth={gutterWidth}
           expanded={selected === row.commit.hash}
-          onToggle={() =>
-            setSelected((prev) => (prev === row.commit.hash ? null : row.commit.hash))
-          }
+          onToggle={() => selectHistoryItem(selected === row.commit.hash ? null : row.commit.hash)}
           localBranches={localBranches}
           onMutate={reload}
         />
