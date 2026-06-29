@@ -1,7 +1,7 @@
 import {
-  type WorkspaceFileEvent,
-  fileEventService,
-} from '../../../../../platform/files/browser/fileEventService.js';
+  type WorkbenchFileChangeEvent,
+  workbenchFileChangeService,
+} from '../../../../services/files/browser/fileChangeService.js';
 
 export type PreviewContent = { text: string };
 
@@ -34,7 +34,7 @@ export function invalidatePreviewCache(label: string): void {
   mdHtmlCache.delete(label);
 }
 
-function invalidatePreviewCacheForEvent(event: WorkspaceFileEvent): void {
+function invalidatePreviewCacheForEvent(event: WorkbenchFileChangeEvent): void {
   if (event.type === 'change' || event.type === 'unlink') {
     invalidatePreviewCache(event.relPath);
     return;
@@ -48,12 +48,12 @@ function invalidatePreviewCacheForEvent(event: WorkspaceFileEvent): void {
 // One shared file-event subscription fans out to all mounted tiles, instead of
 // each tile registering its own ipcRenderer listener (which trips Node's
 // MaxListeners warning past ~10 text badges and fans out O(N) per event).
-const tileListeners = new Set<(e: WorkspaceFileEvent) => void>();
+const tileListeners = new Set<(e: WorkbenchFileChangeEvent) => void>();
 let tileHubUnsub: (() => void) | null = null;
 
-export function subscribeTile(listener: (e: WorkspaceFileEvent) => void): () => void {
+export function subscribeTile(listener: (e: WorkbenchFileChangeEvent) => void): () => void {
   if (!tileHubUnsub) {
-    tileHubUnsub = fileEventService.onDidChangeFiles((event) => {
+    tileHubUnsub = workbenchFileChangeService.onDidChangeFiles((event) => {
       invalidatePreviewCacheForEvent(event);
       for (const l of tileListeners) l(event);
     });

@@ -1,7 +1,10 @@
 import type { Edge, Node } from '@xyflow/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
+import {
+  type WorkbenchFileChangeEvent,
+  workbenchFileChangeService,
+} from '../../../services/files/browser/fileChangeService.js';
 import { subscribeBadgeChange } from '../../../services/mirror/browser/badgeBus.js';
 import { badgeService } from '../../../services/mirror/browser/badgeService.js';
 import {
@@ -184,7 +187,7 @@ export function useCanvasWorkspaceData({
     let fastTimer: ReturnType<typeof setTimeout> | undefined;
     let settleTimer: ReturnType<typeof setTimeout> | undefined;
     let lastUnlinkAt = 0;
-    const unsub = fileEventService.onDidChangeFiles((event) => {
+    const unsub = workbenchFileChangeService.onDidChangeFiles((event: WorkbenchFileChangeEvent) => {
       if (event.type === 'change') return;
       if (event.type === 'unlink') lastUnlinkAt = Date.now();
       if (settleTimer) clearTimeout(settleTimer);
