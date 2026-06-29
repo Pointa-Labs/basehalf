@@ -1,5 +1,4 @@
 import {
-  type CancellationToken,
   DefaultQuickAccessFilterValue,
   type IQuickAccessController,
   type QuickAccessControllerListener,
@@ -10,6 +9,12 @@ import {
   type QuickAccessRegistryLike,
   quickAccessRegistry,
 } from '../common/quickAccess.js';
+import {
+  QuickAccessCancellationTokenSource,
+  closedQuickAccessState,
+  quickAccessStatesEqual,
+  valueSelectionForQuickAccess,
+} from '../common/quickAccessModel.js';
 import type { IQuickPick, IQuickPickItem } from '../common/quickInput.js';
 
 interface QuickAccessQuickInputService {
@@ -34,7 +39,7 @@ interface VisibleQuickAccessProviderRun {
  * this small controller while commands and title-bar chrome call `show`.
  */
 export class QuickAccessController implements IQuickAccessController {
-  private state: QuickAccessControllerState = closedState();
+  private state: QuickAccessControllerState = closedQuickAccessState();
   private readonly listeners = new Set<QuickAccessControllerListener>();
   private readonly lastAcceptedValues = new Map<string, string>();
   private visibleProviderRun: VisibleQuickAccessProviderRun | undefined;
@@ -74,7 +79,7 @@ export class QuickAccessController implements IQuickAccessController {
   hide(): void {
     this.visibleOptions = {};
     this.disposeProviderRun();
-    this.setState(closedState());
+    this.setState(closedQuickAccessState());
   }
 
   toggle(value = '', options: QuickAccessOptions = {}): void {
@@ -212,73 +217,4 @@ export class QuickAccessController implements IQuickAccessController {
     if (typeof defaultFilterValue === 'string') return `${descriptor.prefix}${defaultFilterValue}`;
     return value;
   }
-}
-
-class QuickAccessCancellationTokenSource {
-  private cancellationRequested = false;
-  private readonly listeners = new Set<() => void>();
-  readonly token: CancellationToken;
-
-  constructor() {
-    const source = this;
-    this.token = {
-      get isCancellationRequested() {
-        return source.cancellationRequested;
-      },
-      onCancellationRequested: (listener) => source.onCancellationRequested(listener),
-    };
-  }
-
-  cancel(): void {
-    if (this.cancellationRequested) return;
-    this.cancellationRequested = true;
-    for (const listener of this.listeners) listener();
-    this.listeners.clear();
-  }
-
-  private onCancellationRequested(listener: () => void): () => void {
-    if (this.cancellationRequested) {
-      listener();
-      return () => {};
-    }
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-}
-
-function closedState(): QuickAccessControllerState {
-  return {
-    visible: false,
-    value: '',
-    filterValue: '',
-    prefix: '',
-    valueSelection: [0, 0],
-  };
-}
-
-function valueSelectionForQuickAccess(
-  value: string,
-  prefix: string,
-  options: QuickAccessOptions,
-): readonly [number, number] {
-  if (options.preserveValue === true) return [value.length, value.length];
-  return [prefix.length, value.length];
-}
-
-function quickAccessStatesEqual(
-  a: QuickAccessControllerState,
-  b: QuickAccessControllerState,
-): boolean {
-  return (
-    a.visible === b.visible &&
-    a.value === b.value &&
-    a.filterValue === b.filterValue &&
-    a.providerId === b.providerId &&
-    a.prefix === b.prefix &&
-    a.placeholder === b.placeholder &&
-    a.valueSelection[0] === b.valueSelection[0] &&
-    a.valueSelection[1] === b.valueSelection[1]
-  );
 }
