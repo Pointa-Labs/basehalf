@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { GITHUB_IPC_CHANNELS } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
+import {
+  GITHUB_IPC_CHANNELS,
+  unwrapGithubIpcResult,
+} from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
 import { GithubMainChannel } from '../src/workbench/contrib/githubPullRequests/electron-main/githubMainChannel.js';
 import type { GithubMainService } from '../src/workbench/contrib/githubPullRequests/electron-main/githubMainService.js';
 
@@ -17,6 +20,13 @@ function fakeIpc(): { handle: ReturnType<typeof vi.fn>; handlers: Map<string, Ha
       handlers.set(channel, handler);
     }),
   };
+}
+
+async function invokeGithubHandler<T>(
+  handler: Handler | undefined,
+  ...args: unknown[]
+): Promise<T> {
+  return unwrapGithubIpcResult<T>(await handler?.(...args));
 }
 
 describe('GithubMainChannel', () => {
@@ -45,29 +55,44 @@ describe('GithubMainChannel', () => {
     ]);
 
     const event = { sender: { id: 7 } };
-    await expect(ipc.handlers.get(GITHUB_IPC_CHANNELS.repository)?.(event)).resolves.toBeNull();
     await expect(
-      ipc.handlers.get(GITHUB_IPC_CHANNELS.createPullRequestUrl)?.(event, 'topic'),
+      invokeGithubHandler(ipc.handlers.get(GITHUB_IPC_CHANNELS.repository), event),
+    ).resolves.toBeNull();
+    await expect(
+      invokeGithubHandler(
+        ipc.handlers.get(GITHUB_IPC_CHANNELS.createPullRequestUrl),
+        event,
+        'topic',
+      ),
     ).resolves.toBe('https://github.com/o/r/compare/topic?expand=1');
     await expect(
-      ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteSources)?.(event, 'basehalf'),
+      invokeGithubHandler(
+        ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteSources),
+        event,
+        'basehalf',
+      ),
     ).resolves.toEqual([]);
     await expect(
-      ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteBranches)?.(
+      invokeGithubHandler(
+        ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteBranches),
         event,
         'https://github.com/o/r.git',
       ),
     ).resolves.toEqual([]);
     await expect(
-      ipc.handlers.get(GITHUB_IPC_CHANNELS.listPullRequests)?.(event, 'https://github.com/o/r.git'),
+      invokeGithubHandler(
+        ipc.handlers.get(GITHUB_IPC_CHANNELS.listPullRequests),
+        event,
+        'https://github.com/o/r.git',
+      ),
     ).resolves.toEqual([]);
     await expect(
-      ipc.handlers.get(GITHUB_IPC_CHANNELS.pullRequestFiles)?.(event, {
+      invokeGithubHandler(ipc.handlers.get(GITHUB_IPC_CHANNELS.pullRequestFiles), event, {
         remoteUrl: 'https://github.com/o/r.git',
         number: 7,
       }),
     ).resolves.toEqual([]);
-    await ipc.handlers.get(GITHUB_IPC_CHANNELS.reviewPullRequest)?.(event, {
+    await invokeGithubHandler(ipc.handlers.get(GITHUB_IPC_CHANNELS.reviewPullRequest), event, {
       remoteUrl: 'https://github.com/o/r.git',
       number: 7,
       event: 'APPROVE',
@@ -88,5 +113,36 @@ describe('GithubMainChannel', () => {
       event: 'APPROVE',
     });
     expect(getWorkspaceRoot).toHaveBeenCalledWith(event.sender);
+  });
+
+  it('serializes GitHub provider errors without changing the renderer message', async () => {
+    const ipc = fakeIpc();
+    const error = new Error('Not signed in to GitHub. Sign in from Settings.') as Error & {
+      code?: string;
+    };
+    error.code = 'GITHUB_AUTH_REQUIRED';
+    const service = {
+      listRemoteSources: vi.fn(async () => {
+        throw error;
+      }),
+    } as unknown as GithubMainService;
+    new GithubMainChannel(service, () => '/repo', ipc).register();
+
+    const result = await ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteSources)?.(
+      { sender: { id: 7 } },
+      'basehalf',
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        name: 'Error',
+        message: 'Not signed in to GitHub. Sign in from Settings.',
+        code: 'GITHUB_AUTH_REQUIRED',
+      },
+    });
+    expect(() => unwrapGithubIpcResult(result)).toThrow(
+      'Not signed in to GitHub. Sign in from Settings.',
+    );
   });
 });

@@ -95,6 +95,17 @@ describe('renderer service channels', () => {
           calls.push({ name: 'listRemoteBranches', args: [remoteUrl] });
           return [{ name: 'main' }];
         },
+        listPullRequests: async (remoteUrl: string) => {
+          calls.push({ name: 'listPullRequests', args: [remoteUrl] });
+          return [];
+        },
+        pullRequestFiles: async (remoteUrl: string, number: number) => {
+          calls.push({ name: 'pullRequestFiles', args: [remoteUrl, number] });
+          return [];
+        },
+        reviewPullRequest: async (args: unknown) => {
+          calls.push({ name: 'reviewPullRequest', args: [args] });
+        },
       },
     } as unknown as BaseHalfSandboxApi;
     const channel = createGithubChannel(bridge);
@@ -109,12 +120,25 @@ describe('renderer service channels', () => {
     await expect(channel.listRemoteBranches('https://github.com/o/r.git')).resolves.toEqual([
       { name: 'main' },
     ]);
+    await expect(channel.listPullRequests('https://github.com/o/r.git')).resolves.toEqual([]);
+    await expect(channel.pullRequestFiles('https://github.com/o/r.git', 7)).resolves.toEqual([]);
+    await channel.reviewPullRequest({
+      remoteUrl: 'https://github.com/o/r.git',
+      number: 7,
+      event: 'APPROVE',
+    });
 
     expect(calls).toEqual([
       { name: 'repository', args: [] },
       { name: 'createPullRequestUrl', args: ['topic'] },
       { name: 'listRemoteSources', args: ['o'] },
       { name: 'listRemoteBranches', args: ['https://github.com/o/r.git'] },
+      { name: 'listPullRequests', args: ['https://github.com/o/r.git'] },
+      { name: 'pullRequestFiles', args: ['https://github.com/o/r.git', 7] },
+      {
+        name: 'reviewPullRequest',
+        args: [{ remoteUrl: 'https://github.com/o/r.git', number: 7, event: 'APPROVE' }],
+      },
     ]);
   });
 

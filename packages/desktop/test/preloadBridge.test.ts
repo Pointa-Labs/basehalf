@@ -130,12 +130,15 @@ describe('preload bridge modules', () => {
     const ipc = fakeIpc();
     ipc.invoke.mockImplementation(async (channel: string) => {
       if (channel === GITHUB_IPC_CHANNELS.createPullRequestUrl)
-        return 'https://github.com/o/r/compare/topic?expand=1';
+        return { ok: true, value: 'https://github.com/o/r/compare/topic?expand=1' };
       if (channel === GITHUB_IPC_CHANNELS.listRemoteSources)
-        return [{ name: 'o/r', url: 'https://github.com/o/r.git' }];
-      if (channel === GITHUB_IPC_CHANNELS.listRemoteBranches) return [{ name: 'main' }];
-      if (channel === GITHUB_IPC_CHANNELS.listPullRequests) return [];
-      return null;
+        return { ok: true, value: [{ name: 'o/r', url: 'https://github.com/o/r.git' }] };
+      if (channel === GITHUB_IPC_CHANNELS.listRemoteBranches)
+        return { ok: true, value: [{ name: 'main' }] };
+      if (channel === GITHUB_IPC_CHANNELS.listPullRequests) return { ok: true, value: [] };
+      if (channel === GITHUB_IPC_CHANNELS.pullRequestFiles) return { ok: true, value: [] };
+      if (channel === GITHUB_IPC_CHANNELS.reviewPullRequest) return { ok: true, value: undefined };
+      return { ok: true, value: null };
     });
     const bridge = createGithubBridge(ipc).github;
 
@@ -150,6 +153,12 @@ describe('preload bridge modules', () => {
     await expect(bridge.listRemoteBranches('https://github.com/o/r.git')).resolves.toEqual([
       { name: 'main' },
     ]);
+    await expect(bridge.pullRequestFiles('https://github.com/o/r.git', 7)).resolves.toEqual([]);
+    await bridge.reviewPullRequest({
+      remoteUrl: 'https://github.com/o/r.git',
+      number: 7,
+      event: 'APPROVE',
+    });
 
     expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.repository);
     expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.createPullRequestUrl, 'topic');
@@ -162,6 +171,34 @@ describe('preload bridge modules', () => {
       GITHUB_IPC_CHANNELS.listPullRequests,
       'https://github.com/o/r.git',
     );
+    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.pullRequestFiles, {
+      remoteUrl: 'https://github.com/o/r.git',
+      number: 7,
+    });
+    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.reviewPullRequest, {
+      remoteUrl: 'https://github.com/o/r.git',
+      number: 7,
+      event: 'APPROVE',
+    });
+  });
+
+  it('unwraps GitHub provider IPC errors as ordinary renderer errors', async () => {
+    const ipc = fakeIpc();
+    ipc.invoke.mockResolvedValue({
+      ok: false,
+      error: {
+        name: 'Error',
+        message: 'Not signed in to GitHub. Sign in from Settings.',
+        code: 'GITHUB_AUTH_REQUIRED',
+      },
+    });
+    const bridge = createGithubBridge(ipc).github;
+
+    await expect(bridge.listPullRequests('https://github.com/o/r.git')).rejects.toMatchObject({
+      name: 'Error',
+      message: 'Not signed in to GitHub. Sign in from Settings.',
+      code: 'GITHUB_AUTH_REQUIRED',
+    });
   });
 
   it('maps authentication provider calls and session events to Electron IPC', async () => {

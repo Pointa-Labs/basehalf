@@ -119,4 +119,17 @@ describe('githubPullRequestService', () => {
       },
     ]);
   });
+
+  it('preserves provider error messages for renderer callers', async () => {
+    const service = createGithubPullRequestService({
+      listPullRequests: async () => {
+        throw new Error('Not signed in to GitHub. Sign in from Settings.');
+      },
+    } as GithubChannel);
+    const provider = createGithubPullRequestProvider(service);
+
+    await expect(provider.providePullRequests('remote')).rejects.toThrow(
+      'Not signed in to GitHub. Sign in from Settings.',
+    );
+  });
 });

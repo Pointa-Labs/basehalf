@@ -3,6 +3,7 @@ import {
   GITHUB_IPC_CHANNELS,
   type GithubChannelBridge,
   type GithubReviewArgs,
+  unwrapGithubIpcResult,
 } from '../common/githubPullRequests.js';
 
 export interface GithubBridgeContainer {
@@ -13,31 +14,50 @@ export function createGithubBridge(ipcRenderer: IpcRendererLike): GithubBridgeCo
   return {
     github: {
       repository: () =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.repository) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['repository']>>
-        >,
+        invokeGithub<Awaited<ReturnType<GithubChannelBridge['repository']>>>(
+          ipcRenderer,
+          GITHUB_IPC_CHANNELS.repository,
+        ),
       createPullRequestUrl: (branch) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.createPullRequestUrl, branch) as Promise<
-          string | null
-        >,
+        invokeGithub<string | null>(ipcRenderer, GITHUB_IPC_CHANNELS.createPullRequestUrl, branch),
       listRemoteSources: (query) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listRemoteSources, query) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['listRemoteSources']>>
-        >,
+        invokeGithub<Awaited<ReturnType<GithubChannelBridge['listRemoteSources']>>>(
+          ipcRenderer,
+          GITHUB_IPC_CHANNELS.listRemoteSources,
+          query,
+        ),
       listRemoteBranches: (remoteUrl) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listRemoteBranches, remoteUrl) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['listRemoteBranches']>>
-        >,
+        invokeGithub<Awaited<ReturnType<GithubChannelBridge['listRemoteBranches']>>>(
+          ipcRenderer,
+          GITHUB_IPC_CHANNELS.listRemoteBranches,
+          remoteUrl,
+        ),
       listPullRequests: (remoteUrl) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listPullRequests, remoteUrl) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['listPullRequests']>>
-        >,
+        invokeGithub<Awaited<ReturnType<GithubChannelBridge['listPullRequests']>>>(
+          ipcRenderer,
+          GITHUB_IPC_CHANNELS.listPullRequests,
+          remoteUrl,
+        ),
       pullRequestFiles: (remoteUrl, number) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.pullRequestFiles, { remoteUrl, number }) as Promise<
-          Awaited<ReturnType<GithubChannelBridge['pullRequestFiles']>>
-        >,
+        invokeGithub<Awaited<ReturnType<GithubChannelBridge['pullRequestFiles']>>>(
+          ipcRenderer,
+          GITHUB_IPC_CHANNELS.pullRequestFiles,
+          { remoteUrl, number },
+        ),
       reviewPullRequest: (args: GithubReviewArgs) =>
-        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.reviewPullRequest, args) as Promise<void>,
+        invokeGithub<void>(ipcRenderer, GITHUB_IPC_CHANNELS.reviewPullRequest, args),
     },
   };
+}
+
+async function invokeGithub<T = void>(
+  ipcRenderer: IpcRendererLike,
+  channel: string,
+  ...payload: [] | [unknown]
+): Promise<T> {
+  const raw =
+    payload.length === 0
+      ? await ipcRenderer.invoke(channel)
+      : await ipcRenderer.invoke(channel, payload[0]);
+  return unwrapGithubIpcResult<T>(raw);
 }
