@@ -8,7 +8,7 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = derived cache + git = history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D22 capture the current direction.
+> (see notes inline). D12–D23 capture the current direction.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -375,10 +375,39 @@ sidebar for Files, Git, Search, and right-click workflows, so reusing it reduces
 product risk. But BaseHalf's differentiator is the folder-as-canvas model, not
 VS Code's generic editor workspace. Similarly, VS Code extension compatibility
 is valuable for GitHub auth and Codex/Claude, but exposing the whole marketplace
-would force product and trust decisions before the BaseHalf shell is ready.
+would force product and trust decisions before the BaseHalf product surface is
+ready.
 
 **Consequences.** Implement a BaseHalf window/contribution profile instead of
 importing the stock VS Code desktop workbench wholesale. Keep Explorer/Search/SCM
 visible, hide generic Extensions/Marketplace and VS Code-native Agent/Chat
 surfaces, and route `open`/file-selection commands through BaseHalf's
 folder/canvas/card-detail state machine.
+
+## D23 — Module-complete migration, not MVP or intermediate shell (NEW, 2026-06-30)
+
+**Decision.** The VS Code-base migration is not an MVP, spike, or temporary
+shell. BaseHalf should be rebuilt as a complete product on top of VS Code's
+architecture, module by module. Work may be sequenced and committed in pieces,
+but a module is not considered done until it reaches product quality.
+
+Each module's definition of done must include the relevant VS Code source
+comparison, the chosen keep/delete boundary against old BaseHalf code, complete
+expected UI states, interaction behavior, error/empty/loading states, and tests
+or explicit verification. Temporary scaffolding is allowed only as local
+construction support; it should not become a named product milestone or the
+target state.
+
+**Why.** The failed hand-rolled Git/SCM/GitHub refactor showed that partial
+reimplementations accumulate subtle UI and behavior mismatches. The new
+strategy is valuable only if each module is carried far enough to replace old
+BaseHalf behavior with a durable VS Code-aligned implementation. A "minimal
+shell first" framing would invite half-built surfaces and defer the hard
+integration questions until they are harder to fix.
+
+**Consequences.** Planning should use module tracks rather than MVP stages:
+workbench/window profile, Explorer/files/navigation/canvas, Git/SCM/GitHub,
+search/quick input, Markdown/rich editor, Agent Area/terminal/extension agents,
+extension allowlist/auth/secrets, `.bh` mirror integration, theming/layout, and
+packaging/dev loop. Each track can be parallelized, but it should exit only
+when the module is coherent enough to be kept, not merely demonstrated.

@@ -121,6 +121,7 @@ Current public decision index:
 - D20 — VS Code as substrate, BaseHalf as canvas-first product.
 - D21 — Right side is Agent Area, not Terminal panel.
 - D22 — Sidebar, extension allowlist, and file-open remapping.
+- D23 — Module-complete migration, not MVP or intermediate shell.
 
 Current private decision index:
 
@@ -159,6 +160,7 @@ Current private decision index:
 - [v1-evolution-not-blocked.md](private-docs/decisions/v1-evolution-not-blocked.md) — v1+ ambitions are not blocked.
 - [vscode-aligned-electron-architecture.md](private-docs/decisions/vscode-aligned-electron-architecture.md) — align with VS Code Electron workbench/provider model.
 - [vscode-base-canvas-detail-markdown-projections.md](private-docs/decisions/vscode-base-canvas-detail-markdown-projections.md) — VS Code substrate with BaseHalf canvas detail and Markdown projections.
+- [vscode-base-module-complete-migration.md](private-docs/decisions/vscode-base-module-complete-migration.md) — migrate modules to complete product quality, not MVP/intermediate shell.
 - [vscode-base-sidebar-extension-and-file-open-boundaries.md](private-docs/decisions/vscode-base-sidebar-extension-and-file-open-boundaries.md) — VS Code sidebar mechanics with BaseHalf navigation.
 - [wedge-is-compound-thinking-not-decisions.md](private-docs/decisions/wedge-is-compound-thinking-not-decisions.md) — wedge is compound thinking, not decision provenance.
 
@@ -180,6 +182,11 @@ that point instead of relying on this guide.
   context keys, menus, quick input, and working-copy/file services that mirror
   the closest VS Code source. Do not deepen `@basehalf/core` coupling for new
   desktop work.
+- **Module-complete migration.** Do not frame the VS Code-base work as an MVP,
+  spike, or temporary shell. Work may land module by module, but each module
+  should be implemented to product quality: source-aligned architecture,
+  complete expected UI states, interactions, error paths, tests or explicit
+  verification, and a clear keep/delete boundary against old BaseHalf code.
 - **Sidebar is Files/Git/Search.** Reuse VS Code Explorer/Search/SCM mechanics
   where possible, including context menus and tree behavior, but keep Agent out
   of the sidebar and remap file activation into BaseHalf's canvas/card-detail
