@@ -1,19 +1,16 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { prompt } from '../../../platform/dialogs/browser/dialogService.js';
-import { toast } from '../../../platform/notification/browser/notificationService.js';
 import type { BuildCommandPaletteActionsBaseArgs } from '../../common/quickaccess/commandPaletteProviders.js';
 import { openSettings } from '../../contrib/preferences/browser/Settings.js';
 import { createBranchGitAdapter } from '../../contrib/scm/browser/branchGitAdapter.js';
-import { checkoutBranchWithRecovery } from '../../contrib/scm/browser/branchQuickPickCommands.js';
+import { runCheckoutBranchCommand } from '../../contrib/scm/browser/branchQuickPickCommands.js';
 import {
   type GitQuickAccessService,
   createGitQuickAccessContribution,
 } from '../../contrib/scm/browser/gitQuickAccessContribution.js';
 import { gitScmService } from '../../contrib/scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../contrib/scm/browser/gitStatusStore.js';
-import { scmErrorMessage } from '../../contrib/scm/browser/scmCommandModel.js';
 import { useScmViewStore } from '../../contrib/scm/browser/scmViewStore.js';
-import type { GitRefInfo } from '../../contrib/scm/common/git.js';
 import { historyService } from '../../services/history/browser/historyService.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/workbenchActions.js';
@@ -28,11 +25,11 @@ export interface CommandPaletteWorkbenchContext
   readonly current: string | null;
   readonly recentFiles: readonly string[];
   readonly gitService: GitQuickAccessService;
+  readonly checkoutBranchPicker: () => void;
   readonly promptCreateBranch: () => Promise<string | null | undefined>;
   readonly showSourceControl: (section: 'changes' | 'graph') => void;
   readonly openGitGraph: () => void;
   readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly checkoutBranch: (branch: GitRefInfo, refs: readonly GitRefInfo[]) => void;
   readonly revealCommit: (hash: string) => void;
 }
 
@@ -74,6 +71,7 @@ export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteA
         current,
         git,
         gitService: gitScmService,
+        checkoutBranchPicker: openCheckoutBranchPicker,
         promptCreateBranch,
         showSourceControl,
         openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
@@ -92,7 +90,6 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
   const recentFiles = useWorkspaceStore((s) =>
     s.current === null ? [] : historyService.recentFilesFor(s.current),
   );
-  const checkoutBranch = useCallback(checkoutBranchWithRecoveryToast, []);
 
   return useMemo(
     () => ({
@@ -110,13 +107,13 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
       openSettings,
       showSourceControl,
       openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
+      checkoutBranchPicker: openCheckoutBranchPicker,
       promptCreateBranch: createPromptCreateBranch,
       runGit: (fn: () => Promise<unknown>) => void runGit(fn),
       gitService: gitScmService,
-      checkoutBranch,
       revealCommit: revealCommitInGraph,
     }),
-    [workspaces, current, recentFiles, use, openInPanel, checkoutBranch],
+    [workspaces, current, recentFiles, use, openInPanel],
   );
 }
 
@@ -128,10 +125,11 @@ function createPromptCreateBranch(): Promise<string | null | undefined> {
   });
 }
 
-function checkoutBranchWithRecoveryToast(branch: GitRefInfo, refs: readonly GitRefInfo[]): void {
-  void checkoutBranchWithRecovery(createBranchGitAdapter(gitScmService), branch, refs, () =>
-    useGitStatusStore.getState().refresh(),
-  ).catch((err) => toast.error(scmErrorMessage(err)));
+function openCheckoutBranchPicker(): void {
+  void runCheckoutBranchCommand({
+    git: createBranchGitAdapter(gitScmService),
+    onAfter: () => useGitStatusStore.getState().refresh(),
+  });
 }
 
 function showSourceControl(section: 'changes' | 'graph'): void {

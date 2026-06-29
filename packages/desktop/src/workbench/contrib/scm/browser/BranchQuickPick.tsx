@@ -56,20 +56,35 @@ export const BranchQuickPick = ({
           animation: model.iconSpin ? 'bh-spin 0.8s linear infinite' : undefined,
         }}
       />
-      <span
-        style={{
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          minWidth: 0,
-          maxWidth: variant === 'statusBar' ? 200 : undefined,
-        }}
-      >
-        {model.label}
-      </span>
+      <BranchLabel label={model.label} variant={variant} />
+      {variant === 'scm' && !model.disabled && (
+        <Codicon name="chevron-down" size={12} style={{ flexShrink: 0, opacity: 0.8 }} />
+      )}
     </button>
   );
 };
+
+function BranchLabel({
+  label,
+  variant,
+}: {
+  readonly label: string;
+  readonly variant: 'scm' | 'statusBar';
+}): JSX.Element {
+  return (
+    <span
+      style={{
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        minWidth: 0,
+        maxWidth: variant === 'statusBar' ? 200 : undefined,
+      }}
+    >
+      {label}
+    </span>
+  );
+}
 
 function triggerStyle(
   variant: 'scm' | 'statusBar',

@@ -266,6 +266,40 @@ describe('quickInputService', () => {
     });
   });
 
+  it('accepts the filtered branch ref before always-show checkout commands', async () => {
+    const choice = quickInputService.pickWithInputValue({
+      title: 'Checkout Branch/Tag',
+      sortOptions: (query, items) => {
+        if (query.trim() === '') return items;
+        const commands = items.filter((item) => item.value.startsWith('cmd:'));
+        const refs = items.filter((item) => !item.value.startsWith('cmd:'));
+        return [...refs, ...commands];
+      },
+      options: [
+        { value: 'cmd:create', label: 'Create Branch...', alwaysShow: true, separator: 'Commands' },
+        { value: 'main', label: 'main', separator: 'Branches' },
+        { value: 'origin/feature', label: 'origin/feature', separator: 'Remote Branches' },
+      ],
+    });
+    const picker = expectActiveQuickPick();
+
+    picker.value = 'feature';
+
+    expect(
+      picker.items.map((item) =>
+        isQuickPickSeparator(item) ? `separator:${item.label ?? ''}` : item.id,
+      ),
+    ).toEqual(['separator:Remote Branches', 'origin/feature', 'separator:Commands', 'cmd:create']);
+    expect(picker.activeItems.map((item) => item.id)).toEqual(['origin/feature']);
+
+    quickInputService.accept();
+
+    await expect(choice).resolves.toEqual({
+      value: 'origin/feature',
+      inputValue: 'feature',
+    });
+  });
+
   it('resolves many picks with selected value normalization intact', async () => {
     const choice = quickInputService.pick({
       title: 'Select refs',

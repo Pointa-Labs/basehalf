@@ -131,6 +131,7 @@ function contextProvider(
           stashPop: vi.fn(async () => undefined),
           unstageAll: vi.fn(async () => undefined),
         },
+        checkoutBranchPicker: vi.fn(),
         promptCreateBranch: vi.fn(async () => null),
         showSourceControl: vi.fn(),
         openGitGraph: vi.fn(),

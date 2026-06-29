@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   branchOption,
-  branchQuickAccessHint,
   branchQuickPickSeparator,
   canDeleteBranch,
   checkoutTargetForRef,
@@ -128,12 +127,6 @@ describe('branchQuickPickModel', () => {
       detached: true,
     });
     expect(defaultBranchNameFromRef(refs[1] as GitRefInfo)).toBe('feature-x');
-  });
-
-  it('owns command-palette branch hints for SCM quick access rows', () => {
-    expect(branchQuickAccessHint(branch('main', { current: true }))).toBe('current branch');
-    expect(branchQuickAccessHint(remote('origin/feature-x'))).toBe('remote');
-    expect(branchQuickAccessHint(branch('feature-x'))).toBe('Switch branch');
   });
 
   it('adds option separators for branch picker command and ref groups', () => {

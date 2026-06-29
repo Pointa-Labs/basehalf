@@ -102,6 +102,7 @@ function gitQuickAccessContribution(
     current: 'main',
     git: { repo: false, workspace: 'main', branches: [], commits: [] },
     gitService: fakeGitService(),
+    checkoutBranchPicker: vi.fn(),
     promptCreateBranch: vi.fn(async () => null),
     showSourceControl: vi.fn(),
     openGitGraph: vi.fn(),
@@ -387,10 +388,41 @@ describe('commandPaletteModel', () => {
     expect(rows.map((item) => item.id)).toEqual(['extra:feature:action:settings']);
   });
 
-  it('builds Git entity rows and checks out remote refs using VS Code-style tracking targets', () => {
-    const checkout = vi.fn(async () => undefined);
-    const gitService = fakeGitService({ checkout });
-    const runGit = vi.fn((fn: () => Promise<unknown>) => void fn());
+  it('builds a VS Code-style Git checkout command that opens the shared branch picker', () => {
+    const checkoutBranchPicker = vi.fn();
+    const actions = buildCommandPaletteActions({
+      providerId: COMMANDS_QUICK_ACCESS_ID,
+      workspaces: [],
+      current: 'main',
+      files: [],
+      filesWorkspace: null,
+      modifierLabel: 'Ctrl+',
+      tildifyPath: (path) => path,
+      useWorkspace: vi.fn(),
+      openFile: vi.fn(),
+      pickAndAdd: vi.fn(),
+      createDemo: vi.fn(),
+      newNote: vi.fn(),
+      promptForNewNote: vi.fn(),
+      openSettings: vi.fn(),
+      quickAccessContributions: [
+        gitQuickAccessContribution({
+          git: { repo: true, workspace: 'main', branches: [], commits: [] },
+          checkoutBranchPicker,
+        }),
+      ],
+    });
+
+    const checkoutAction = actions.find((action) => action.id === 'git:checkout');
+    expect(checkoutAction).toMatchObject({
+      label: 'Git: Checkout Branch/Tag…',
+      category: 'Git',
+    });
+    checkoutAction?.run();
+    expect(checkoutBranchPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps branch refs out of default quick access additional rows', () => {
     const rows = buildGitQuickAccessEntityActions({
       query: 'origin/feature-x',
       current: 'main',
@@ -400,43 +432,35 @@ describe('commandPaletteModel', () => {
         branches: [remote('origin/feature-x'), branch('main')],
         commits: [commit('Add feature')],
       },
-      gitService,
-      runGit,
       revealCommit: vi.fn(),
     });
 
-    expect(rows[0]).toMatchObject({ id: 'git:branch:origin/feature-x', hint: 'remote' });
-    rows[0]?.run();
-    expect(runGit).toHaveBeenCalledTimes(1);
-    expect(checkout).toHaveBeenCalledWith('origin/feature-x', { track: true });
+    expect(rows.map((row) => row.id)).not.toContain('git:branch:origin/feature-x');
+    expect(rows).toEqual([]);
   });
 
-  it('delegates branch checkout to the shared branch quick-pick recovery flow when provided', () => {
-    const checkout = vi.fn(async () => undefined);
-    const checkoutBranch = vi.fn();
-    const gitService = fakeGitService({ checkout });
-    const runGit = vi.fn((fn: () => Promise<unknown>) => void fn());
-    const branches = [remote('origin/feature-x'), branch('main')];
+  it('keeps commit reveal rows as Git quick access additional rows', () => {
+    const revealCommit = vi.fn();
     const rows = buildGitQuickAccessEntityActions({
-      query: 'origin/feature-x',
+      query: 'feature',
       current: 'main',
       git: {
         repo: true,
         workspace: 'main',
-        branches,
-        commits: [],
+        branches: [remote('origin/feature-x'), branch('main')],
+        commits: [commit('Add feature', 'def5678')],
       },
-      gitService,
-      runGit,
-      checkoutBranch,
-      revealCommit: vi.fn(),
+      revealCommit,
     });
 
     rows[0]?.run();
 
-    expect(checkoutBranch).toHaveBeenCalledWith(branches[0], branches);
-    expect(runGit).not.toHaveBeenCalled();
-    expect(checkout).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({
+      id: 'git:commit:def5678def5678',
+      label: 'Add feature',
+      hint: 'def5678',
+    });
+    expect(revealCommit).toHaveBeenCalledWith('def5678def5678');
   });
 
   it('resolves remote branch checkout targets through the shared SCM model', () => {

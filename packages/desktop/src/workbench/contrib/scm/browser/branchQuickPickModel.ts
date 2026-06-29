@@ -141,9 +141,6 @@ export const branchOption = (branch: GitRefInfo): QuickPickOption => {
   };
 };
 
-export const branchQuickAccessHint = (branch: GitRefInfo): string =>
-  branch.current ? 'current branch' : branch.type === 'remoteHead' ? 'remote' : 'Switch branch';
-
 export const branchQuickPickSeparator = (branch: GitRefInfo): string => {
   if (branch.type === 'remoteHead') return 'Remote Branches';
   if (branch.type === 'tag') return 'Tags';

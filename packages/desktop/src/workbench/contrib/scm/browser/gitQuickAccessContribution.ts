@@ -1,10 +1,8 @@
 import type {
   CommandPaletteAction,
-  CommandPaletteGitRefInfo,
   CommandPaletteGitState,
 } from '../../../common/quickaccess/commandPaletteModel.js';
 import type { CommandPaletteQuickAccessContribution } from '../../../common/quickaccess/commandPaletteProviders.js';
-import { branchQuickAccessHint, checkoutTargetForRef } from './branchQuickPickModel.js';
 
 export interface GitQuickAccessService {
   readonly checkout: (branch: string, opts?: { readonly track?: boolean }) => Promise<unknown>;
@@ -23,14 +21,11 @@ export interface GitQuickAccessContributionArgs {
   readonly current: string | null;
   readonly git: CommandPaletteGitState;
   readonly gitService: GitQuickAccessService;
+  readonly checkoutBranchPicker: () => void;
   readonly promptCreateBranch: () => Promise<string | null | undefined>;
   readonly showSourceControl: (section: 'changes' | 'graph') => void;
   readonly openGitGraph: () => void;
   readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly checkoutBranch?: (
-    branch: CommandPaletteGitRefInfo,
-    refs: readonly CommandPaletteGitRefInfo[],
-  ) => void;
   readonly revealCommit: (hash: string) => void;
 }
 
@@ -38,12 +33,6 @@ export interface GitQuickAccessEntityActionsArgs {
   readonly query: string;
   readonly current: string | null;
   readonly git: CommandPaletteGitState;
-  readonly gitService: Pick<GitQuickAccessService, 'checkout'>;
-  readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly checkoutBranch?: (
-    branch: CommandPaletteGitRefInfo,
-    refs: readonly CommandPaletteGitRefInfo[],
-  ) => void;
   readonly revealCommit: (hash: string) => void;
 }
 
@@ -81,6 +70,7 @@ export function buildGitQuickAccessCommandActions(
   });
 
   return [
+    G('git:checkout', 'Git: Checkout Branch/Tag…', args.checkoutBranchPicker),
     G('git:create-branch', 'Git: Create Branch…', () => {
       void args.promptCreateBranch().then((n) => {
         const name = n?.trim();
@@ -114,32 +104,6 @@ export function buildGitQuickAccessEntityActions(
   if (q.length === 0 || args.git.workspace !== args.current || !args.git.repo) return [];
 
   const out: CommandPaletteAction[] = [];
-  for (const branch of args.git.branches) {
-    if (!branch.name.toLowerCase().includes(q)) continue;
-    out.push({
-      id: `git:branch:${branch.name}`,
-      label: branch.name,
-      category: 'Git',
-      hint: branchQuickAccessHint(branch),
-      searchAlso: 'branch',
-      run: () => {
-        if (branch.current && branch.type === 'head') return;
-        if (args.checkoutBranch !== undefined) {
-          args.checkoutBranch(branch, args.git.branches);
-          return;
-        }
-        const target = checkoutTargetForRef(branch, args.git.branches);
-        args.runGit(() =>
-          args.gitService.checkout(
-            target.branch,
-            target.track === true ? { track: true } : undefined,
-          ),
-        );
-      },
-    });
-    if (out.length >= 6) break;
-  }
-
   let commitCount = 0;
   for (const commit of args.git.commits) {
     if (commitCount >= 8) break;
