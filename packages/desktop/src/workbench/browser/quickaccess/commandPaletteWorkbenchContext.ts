@@ -1,13 +1,14 @@
 import { useCallback, useMemo } from 'react';
 import { prompt } from '../../../platform/dialogs/browser/dialogService.js';
 import { toast } from '../../../platform/notification/browser/notificationService.js';
-import type {
-  BuildCommandPaletteActionsBaseArgs,
-  CommandPaletteGitService,
-} from '../../common/quickaccess/commandPaletteProviders.js';
+import type { BuildCommandPaletteActionsBaseArgs } from '../../common/quickaccess/commandPaletteProviders.js';
 import { openSettings } from '../../contrib/preferences/browser/Settings.js';
 import { createBranchGitAdapter } from '../../contrib/scm/browser/branchGitAdapter.js';
 import { checkoutBranchWithRecovery } from '../../contrib/scm/browser/branchQuickPickCommands.js';
+import {
+  type GitQuickAccessService,
+  createGitQuickAccessContribution,
+} from '../../contrib/scm/browser/gitQuickAccessContribution.js';
 import { gitScmService } from '../../contrib/scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../contrib/scm/browser/gitStatusStore.js';
 import { scmErrorMessage } from '../../contrib/scm/browser/scmCommandModel.js';
@@ -19,10 +20,17 @@ import { createDemoAtDefault, promptForNewNote, tildifyPath } from '../actions/w
 import { useLayoutStore } from '../layout/layoutStore.js';
 
 export interface CommandPaletteWorkbenchContext
-  extends Omit<BuildCommandPaletteActionsBaseArgs, 'files' | 'filesWorkspace' | 'git'> {
+  extends Omit<
+    BuildCommandPaletteActionsBaseArgs,
+    'files' | 'filesWorkspace' | 'quickAccessContributions'
+  > {
   readonly current: string | null;
   readonly recentFiles: readonly string[];
-  readonly gitService: CommandPaletteGitService;
+  readonly gitService: GitQuickAccessService;
+  readonly promptCreateBranch: () => Promise<string | null | undefined>;
+  readonly showSourceControl: (section: 'changes' | 'graph') => void;
+  readonly openGitGraph: () => void;
+  readonly runGit: (fn: () => Promise<unknown>) => void;
   readonly checkoutBranch: (branch: GitRefInfo, refs: readonly GitRefInfo[]) => void;
   readonly revealCommit: (hash: string) => void;
 }
@@ -36,6 +44,14 @@ export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteA
   const current = workspaceState.current;
   const recentFiles = current === null ? [] : historyService.recentFilesFor(current);
   const gitStatus = useGitStatusStore.getState().status;
+  const promptCreateBranch = createPromptCreateBranch;
+  const runGitAction = (fn: () => Promise<unknown>) => void runGit(fn);
+  const git = {
+    repo: gitStatus?.isRepo ?? false,
+    workspace: current,
+    branches: [],
+    commits: [],
+  };
 
   return {
     workspaces: workspaceState.workspaces,
@@ -43,12 +59,6 @@ export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteA
     files: [],
     filesWorkspace: current,
     recentFiles,
-    git: {
-      repo: gitStatus?.isRepo ?? false,
-      workspace: current,
-      branches: [],
-      commits: [],
-    },
     modifierLabel: MOD,
     tildifyPath,
     useWorkspace: (name: string) => void useWorkspaceStore.getState().use(name),
@@ -58,16 +68,18 @@ export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteA
     newNote: () => void useWorkspaceStore.getState().newNote(),
     promptForNewNote: () => void promptForNewNote(),
     openSettings,
-    showSourceControl,
-    openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
-    promptCreateBranch: () =>
-      prompt({
-        title: 'Create Branch',
-        label: 'Branch name',
-        placeholder: 'feature/x',
+    quickAccessContributions: [
+      createGitQuickAccessContribution({
+        current,
+        git,
+        gitService: gitScmService,
+        promptCreateBranch,
+        showSourceControl,
+        openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
+        runGit: runGitAction,
+        revealCommit: revealCommitInGraph,
       }),
-    runGit: (fn: () => Promise<unknown>) => void runGit(fn),
-    gitService: gitScmService,
+    ],
   };
 }
 
@@ -98,12 +110,7 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
       openSettings,
       showSourceControl,
       openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
-      promptCreateBranch: () =>
-        prompt({
-          title: 'Create Branch',
-          label: 'Branch name',
-          placeholder: 'feature/x',
-        }),
+      promptCreateBranch: createPromptCreateBranch,
       runGit: (fn: () => Promise<unknown>) => void runGit(fn),
       gitService: gitScmService,
       checkoutBranch,
@@ -111,6 +118,14 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
     }),
     [workspaces, current, recentFiles, use, openInPanel, pickAndAdd, checkoutBranch],
   );
+}
+
+function createPromptCreateBranch(): Promise<string | null | undefined> {
+  return prompt({
+    title: 'Create Branch',
+    label: 'Branch name',
+    placeholder: 'feature/x',
+  });
 }
 
 function checkoutBranchWithRecoveryToast(branch: GitRefInfo, refs: readonly GitRefInfo[]): void {

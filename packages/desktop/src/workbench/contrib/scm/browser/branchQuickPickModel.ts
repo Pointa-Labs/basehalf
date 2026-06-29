@@ -137,6 +137,9 @@ export const branchOption = (branch: GitRefInfo): QuickPickOption => {
   };
 };
 
+export const branchQuickAccessHint = (branch: GitRefInfo): string =>
+  branch.current ? 'current branch' : branch.type === 'remoteHead' ? 'remote' : 'Switch branch';
+
 export const createCheckoutPickOptions = (
   refs: readonly GitRefInfo[],
 ): readonly QuickPickOption[] => [

@@ -2,15 +2,9 @@ import type {
   QuickAccessProviderDescriptor,
   QuickAccessProviderHelp,
 } from '../../../platform/quickinput/common/quickAccess.js';
-import {
-  type CheckoutTarget,
-  checkoutTargetForRef,
-} from '../../contrib/scm/common/branchCheckoutModel.js';
 import type {
   CommandPaletteAction,
   CommandPaletteFileEntry,
-  CommandPaletteGitRefInfo,
-  CommandPaletteGitState,
   CommandPaletteSearchHit,
   CommandPaletteWorkspace,
 } from './commandPaletteModel.js';
@@ -30,17 +24,17 @@ export interface CommandPaletteQuickAccessProvider {
   readonly buildActions: (args: BuildCommandPaletteActionsBaseArgs) => CommandPaletteAction[];
 }
 
-export interface CommandPaletteGitService {
-  readonly checkout: (branch: string, opts?: { readonly track?: boolean }) => Promise<unknown>;
-  readonly createBranch: (name: string) => Promise<unknown>;
-  readonly fetch: () => Promise<unknown>;
-  readonly init: () => Promise<unknown>;
-  readonly pull: () => Promise<unknown>;
-  readonly push: () => Promise<unknown>;
-  readonly stageAll: () => Promise<unknown>;
-  readonly stash: () => Promise<unknown>;
-  readonly stashPop: () => Promise<unknown>;
-  readonly unstageAll: () => Promise<unknown>;
+export interface CommandPaletteQuickAccessContribution {
+  readonly id: string;
+  readonly buildActions: () => readonly CommandPaletteAction[];
+  readonly buildAdditionalActions?: (
+    args: CommandPaletteQuickAccessAdditionalActionsArgs,
+  ) => readonly CommandPaletteAction[];
+}
+
+export interface CommandPaletteQuickAccessAdditionalActionsArgs {
+  readonly query: string;
+  readonly filtered: readonly CommandPaletteAction[];
 }
 
 export interface BuildCommandPaletteActionsBaseArgs {
@@ -49,7 +43,6 @@ export interface BuildCommandPaletteActionsBaseArgs {
   readonly files: readonly CommandPaletteFileEntry[];
   readonly filesWorkspace: string | null;
   readonly recentFiles?: readonly string[];
-  readonly git: CommandPaletteGitState;
   readonly modifierLabel: string;
   readonly tildifyPath: (path: string) => string;
   readonly useWorkspace: (name: string) => void;
@@ -62,11 +55,7 @@ export interface BuildCommandPaletteActionsBaseArgs {
   readonly newNote: () => void;
   readonly promptForNewNote: () => void;
   readonly openSettings: () => void;
-  readonly showSourceControl: (section: 'changes' | 'graph') => void;
-  readonly openGitGraph: () => void;
-  readonly promptCreateBranch: () => Promise<string | null | undefined>;
-  readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly gitService: CommandPaletteGitService;
+  readonly quickAccessContributions?: readonly CommandPaletteQuickAccessContribution[];
 }
 
 export interface BuildCommandPaletteActionsArgs extends BuildCommandPaletteActionsBaseArgs {
@@ -100,7 +89,7 @@ const defaultCommandPaletteQuickAccessProvider: CommandPaletteQuickAccessProvide
     ...workspacePicks(args),
     ...filePicks(args),
     ...chromeActionPicks(args),
-    ...gitCommandPicks(args),
+    ...contributionPicks(args),
   ],
 };
 
@@ -112,7 +101,7 @@ const commandsQuickAccessProvider: CommandPaletteQuickAccessProvider = {
     helpEntries: commandsQuickAccessHelpEntries,
   },
   includeAdditionalPicks: false,
-  buildActions: (args) => [...chromeActionPicks(args), ...gitCommandPicks(args)],
+  buildActions: (args) => [...chromeActionPicks(args), ...contributionPicks(args)],
 };
 
 export const COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS: readonly CommandPaletteQuickAccessProvider[] =
@@ -225,50 +214,10 @@ function chromeActionPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPal
   return out;
 }
 
-function gitCommandPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
-  if (args.git.workspace !== args.current || args.current === null) return [];
-  if (!args.git.repo) {
-    return [
-      {
-        id: 'git:init',
-        label: 'Git: Initialize Repository',
-        category: 'Git',
-        run: () => args.runGit(() => args.gitService.init()),
-      },
-    ];
-  }
-  const G = (id: string, label: string, run: () => void): CommandPaletteAction => ({
-    id,
-    label,
-    category: 'Git',
-    searchAlso: 'git',
-    run,
-  });
-  return [
-    G('git:create-branch', 'Git: Create Branch…', () => {
-      void args.promptCreateBranch().then((n) => {
-        const name = n?.trim();
-        if (name) args.runGit(() => args.gitService.createBranch(name));
-      });
-    }),
-    G('git:commit', 'Git: Commit…', () => args.showSourceControl('changes')),
-    G('git:graph', 'Git: Show Commit Graph', () => args.showSourceControl('graph')),
-    G('git:graph-full', 'Git: Open Git Graph (full view)', args.openGitGraph),
-    G('git:stage-all', 'Git: Stage All Changes', () =>
-      args.runGit(() => args.gitService.stageAll()),
-    ),
-    G('git:unstage-all', 'Git: Unstage All Changes', () =>
-      args.runGit(() => args.gitService.unstageAll()),
-    ),
-    G('git:stash', 'Git: Stash Changes', () => args.runGit(() => args.gitService.stash())),
-    G('git:stash-pop', 'Git: Pop Latest Stash', () =>
-      args.runGit(() => args.gitService.stashPop()),
-    ),
-    G('git:amend', 'Git: Amend Last Commit…', () => args.showSourceControl('changes')),
-    G('git:push', 'Git: Push', () => args.runGit(() => args.gitService.push())),
-    G('git:pull', 'Git: Pull', () => args.runGit(() => args.gitService.pull())),
-    G('git:fetch', 'Git: Fetch', () => args.runGit(() => args.gitService.fetch())),
-  ];
+function contributionPicks(args: BuildCommandPaletteActionsBaseArgs): CommandPaletteAction[] {
+  return (
+    args.quickAccessContributions?.flatMap((contribution) => contribution.buildActions()) ?? []
+  );
 }
 
 export function buildContentSearchActions(args: {
@@ -307,75 +256,20 @@ export function buildContentSearchActions(args: {
   return out;
 }
 
-export function buildGitEntityActions(args: {
+export function buildCommandPaletteAdditionalActions(args: {
   readonly query: string;
-  readonly current: string | null;
-  readonly git: CommandPaletteGitState;
-  readonly gitService: CommandPaletteGitService;
-  readonly runGit: (fn: () => Promise<unknown>) => void;
-  readonly checkoutBranch?: (
-    branch: CommandPaletteGitRefInfo,
-    refs: readonly CommandPaletteGitRefInfo[],
-  ) => void;
-  readonly resolveCheckoutTarget?: (
-    branch: CommandPaletteGitRefInfo,
-    refs: readonly CommandPaletteGitRefInfo[],
-  ) => CheckoutTarget;
-  readonly revealCommit: (hash: string) => void;
+  readonly filtered: readonly CommandPaletteAction[];
+  readonly quickAccessContributions?: readonly CommandPaletteQuickAccessContribution[];
 }): CommandPaletteAction[] {
-  const q = args.query.trim().toLowerCase();
-  if (q.length === 0 || args.git.workspace !== args.current || !args.git.repo) return [];
-  const out: CommandPaletteAction[] = [];
-  for (const branch of args.git.branches) {
-    if (!branch.name.toLowerCase().includes(q)) continue;
-    out.push({
-      id: `git:branch:${branch.name}`,
-      label: branch.name,
-      category: 'Git',
-      hint: branch.current
-        ? 'current branch'
-        : branch.type === 'remoteHead'
-          ? 'remote'
-          : 'Switch branch',
-      searchAlso: 'branch',
-      run: () => {
-        if (branch.current && branch.type === 'head') return;
-        if (args.checkoutBranch !== undefined) {
-          args.checkoutBranch(branch, args.git.branches);
-          return;
-        }
-        const target =
-          args.resolveCheckoutTarget?.(branch, args.git.branches) ??
-          checkoutTargetForRef(branch, args.git.branches);
-        args.runGit(() =>
-          args.gitService.checkout(
-            target.branch,
-            target.track === true ? { track: true } : undefined,
-          ),
-        );
-      },
-    });
-    if (out.length >= 6) break;
-  }
-
-  let commitCount = 0;
-  for (const commit of args.git.commits) {
-    if (commitCount >= 8) break;
-    if (!commit.subject.toLowerCase().includes(q) && !commit.shortHash.toLowerCase().includes(q)) {
-      continue;
-    }
-    commitCount++;
-    out.push({
-      id: `git:commit:${commit.hash}`,
-      label: commit.subject,
-      hint: commit.shortHash,
-      category: 'Git',
-      sub: commit.author.name,
-      searchAlso: `commit ${commit.shortHash}`,
-      run: () => args.revealCommit(commit.hash),
-    });
-  }
-  return out;
+  return (
+    args.quickAccessContributions?.flatMap(
+      (contribution) =>
+        contribution.buildAdditionalActions?.({
+          query: args.query,
+          filtered: args.filtered,
+        }) ?? [],
+    ) ?? []
+  );
 }
 
 export function combineCommandPaletteRows(

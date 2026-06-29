@@ -15,6 +15,7 @@ import type {
 import { CommandsQuickAccessProvider } from '../src/workbench/browser/quickaccess/commandsQuickAccess.js';
 import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
 import type { BuildCommandPaletteActionsBaseArgs } from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
+import { createGitQuickAccessContribution } from '../src/workbench/contrib/scm/browser/gitQuickAccessContribution.js';
 
 class CapturingCommandsQuickAccessProvider extends CommandsQuickAccessProvider {
   lastPicker: IQuickPick<CommandsQuickAccessPick> | undefined;
@@ -102,7 +103,6 @@ function contextProvider(
     files: [{ file: 'notes.md' }],
     filesWorkspace: 'main',
     recentFiles: [],
-    git: { repo: false, workspace: 'main', branches: [], commits: [] },
     modifierLabel: 'Ctrl+',
     tildifyPath: (path) => path,
     useWorkspace: vi.fn(),
@@ -112,22 +112,29 @@ function contextProvider(
     newNote: vi.fn(),
     promptForNewNote: vi.fn(),
     openSettings: vi.fn(),
-    showSourceControl: vi.fn(),
-    openGitGraph: vi.fn(),
-    promptCreateBranch: vi.fn(async () => null),
-    runGit: vi.fn(),
-    gitService: {
-      checkout: vi.fn(async () => undefined),
-      createBranch: vi.fn(async () => undefined),
-      fetch: vi.fn(async () => undefined),
-      init: vi.fn(async () => undefined),
-      pull: vi.fn(async () => undefined),
-      push: vi.fn(async () => undefined),
-      stageAll: vi.fn(async () => undefined),
-      stash: vi.fn(async () => undefined),
-      stashPop: vi.fn(async () => undefined),
-      unstageAll: vi.fn(async () => undefined),
-    },
+    quickAccessContributions: [
+      createGitQuickAccessContribution({
+        current: 'main',
+        git: { repo: false, workspace: 'main', branches: [], commits: [] },
+        gitService: {
+          checkout: vi.fn(async () => undefined),
+          createBranch: vi.fn(async () => undefined),
+          fetch: vi.fn(async () => undefined),
+          init: vi.fn(async () => undefined),
+          pull: vi.fn(async () => undefined),
+          push: vi.fn(async () => undefined),
+          stageAll: vi.fn(async () => undefined),
+          stash: vi.fn(async () => undefined),
+          stashPop: vi.fn(async () => undefined),
+          unstageAll: vi.fn(async () => undefined),
+        },
+        promptCreateBranch: vi.fn(async () => null),
+        showSourceControl: vi.fn(),
+        openGitGraph: vi.fn(),
+        runGit: vi.fn(),
+        revealCommit: vi.fn(),
+      }),
+    ],
     ...overrides,
   });
 }

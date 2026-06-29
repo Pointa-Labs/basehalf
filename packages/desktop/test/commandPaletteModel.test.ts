@@ -11,12 +11,17 @@ import {
   COMMAND_PALETTE_QUICK_ACCESS_PROVIDERS,
   DEFAULT_COMMAND_PALETTE_QUICK_ACCESS_ID,
   buildCommandPaletteActions,
+  buildCommandPaletteAdditionalActions,
   buildContentSearchActions,
-  buildGitEntityActions,
   commandPaletteProviderIncludesAdditionalPicks,
 } from '../src/workbench/common/quickaccess/commandPaletteProviders.js';
-import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
-import { checkoutTargetForRef } from '../src/workbench/contrib/scm/common/branchCheckoutModel.js';
+import { checkoutTargetForRef } from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
+import {
+  type GitQuickAccessContributionArgs,
+  type GitQuickAccessService,
+  buildGitQuickAccessEntityActions,
+  createGitQuickAccessContribution,
+} from '../src/workbench/contrib/scm/browser/gitQuickAccessContribution.js';
 import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 const branch = (name: string, props: Partial<GitRefInfo> = {}): GitRefInfo => ({
@@ -71,7 +76,7 @@ function action(id: string, label: string, category: CommandPaletteAction['categ
   return { id, label, category, run: vi.fn() } satisfies CommandPaletteAction;
 }
 
-function fakeGitService(overrides: Partial<GitScmService> = {}): GitScmService {
+function fakeGitService(overrides: Partial<GitQuickAccessService> = {}): GitQuickAccessService {
   return {
     checkout: vi.fn(async () => undefined),
     createBranch: vi.fn(async () => undefined),
@@ -84,7 +89,23 @@ function fakeGitService(overrides: Partial<GitScmService> = {}): GitScmService {
     stashPop: vi.fn(async () => undefined),
     unstageAll: vi.fn(async () => undefined),
     ...overrides,
-  } as unknown as GitScmService;
+  };
+}
+
+function gitQuickAccessContribution(
+  overrides: Partial<GitQuickAccessContributionArgs> = {},
+): ReturnType<typeof createGitQuickAccessContribution> {
+  return createGitQuickAccessContribution({
+    current: 'main',
+    git: { repo: false, workspace: 'main', branches: [], commits: [] },
+    gitService: fakeGitService(),
+    promptCreateBranch: vi.fn(async () => null),
+    showSourceControl: vi.fn(),
+    openGitGraph: vi.fn(),
+    runGit: vi.fn(),
+    revealCommit: vi.fn(),
+    ...overrides,
+  });
 }
 
 describe('commandPaletteModel', () => {
@@ -105,7 +126,6 @@ describe('commandPaletteModel', () => {
       current: 'main',
       files: [{ file: 'notes/today.md', prompt: 'daily planning' }],
       filesWorkspace: 'main',
-      git: { repo: false, workspace: 'main', branches: [], commits: [] },
       modifierLabel: 'Ctrl+',
       tildifyPath: (path) => path.replace('/repo', '~'),
       useWorkspace: vi.fn(),
@@ -115,11 +135,7 @@ describe('commandPaletteModel', () => {
       newNote: vi.fn(),
       promptForNewNote: vi.fn(),
       openSettings: vi.fn(),
-      showSourceControl: vi.fn(),
-      openGitGraph: vi.fn(),
-      promptCreateBranch: vi.fn(async () => null),
-      runGit: vi.fn(),
-      gitService: fakeGitService(),
+      quickAccessContributions: [gitQuickAccessContribution()],
     });
 
     expect(actions.map((item) => item.id)).toContain('ws:docs');
@@ -143,7 +159,6 @@ describe('commandPaletteModel', () => {
       current: 'main',
       files: [{ file: 'notes/today.md', prompt: 'daily planning' }],
       filesWorkspace: 'main',
-      git: { repo: false, workspace: 'main', branches: [], commits: [] },
       modifierLabel: 'Ctrl+',
       tildifyPath: (path) => path.replace('/repo', '~'),
       useWorkspace: vi.fn(),
@@ -153,11 +168,7 @@ describe('commandPaletteModel', () => {
       newNote: vi.fn(),
       promptForNewNote: vi.fn(),
       openSettings: vi.fn(),
-      showSourceControl: vi.fn(),
-      openGitGraph: vi.fn(),
-      promptCreateBranch: vi.fn(async () => null),
-      runGit: vi.fn(),
-      gitService: fakeGitService(),
+      quickAccessContributions: [gitQuickAccessContribution()],
     });
 
     expect(actions.map((item) => item.id)).not.toContain('ws:docs');
@@ -277,11 +288,34 @@ describe('commandPaletteModel', () => {
     expect(openFile).toHaveBeenCalledWith('b.md', { pinned: true, matchQuery: 'world' });
   });
 
+  it('collects provider-specific additional rows through quick access contributions', () => {
+    const rows = buildCommandPaletteAdditionalActions({
+      query: 'feature',
+      filtered: [action('action:settings', 'Settings...')],
+      quickAccessContributions: [
+        {
+          id: 'test.contrib',
+          buildActions: () => [],
+          buildAdditionalActions: ({ query, filtered }) => [
+            {
+              id: `extra:${query}:${filtered[0]?.id ?? 'none'}`,
+              label: 'Extra Feature',
+              category: 'Action',
+              run: vi.fn(),
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(rows.map((item) => item.id)).toEqual(['extra:feature:action:settings']);
+  });
+
   it('builds Git entity rows and checks out remote refs using VS Code-style tracking targets', () => {
     const checkout = vi.fn(async () => undefined);
     const gitService = fakeGitService({ checkout });
     const runGit = vi.fn((fn: () => Promise<unknown>) => void fn());
-    const rows = buildGitEntityActions({
+    const rows = buildGitQuickAccessEntityActions({
       query: 'origin/feature-x',
       current: 'main',
       git: {
@@ -307,7 +341,7 @@ describe('commandPaletteModel', () => {
     const gitService = fakeGitService({ checkout });
     const runGit = vi.fn((fn: () => Promise<unknown>) => void fn());
     const branches = [remote('origin/feature-x'), branch('main')];
-    const rows = buildGitEntityActions({
+    const rows = buildGitQuickAccessEntityActions({
       query: 'origin/feature-x',
       current: 'main',
       git: {

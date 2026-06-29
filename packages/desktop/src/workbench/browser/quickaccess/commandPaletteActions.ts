@@ -6,11 +6,12 @@ import {
 } from '../../common/quickaccess/commandPaletteModel.js';
 import {
   buildCommandPaletteActions,
+  buildCommandPaletteAdditionalActions,
   buildContentSearchActions,
-  buildGitEntityActions,
   combineCommandPaletteRows,
   commandPaletteProviderIncludesAdditionalPicks,
 } from '../../common/quickaccess/commandPaletteProviders.js';
+import { createGitQuickAccessContribution } from '../../contrib/scm/browser/gitQuickAccessContribution.js';
 import {
   useCommandPaletteContentSearch,
   useCommandPaletteFiles,
@@ -41,6 +42,40 @@ export function useCommandPaletteRows(args: {
     args.open,
     workbench.current,
   );
+  const quickAccessContributions = useMemo(
+    () => [
+      createGitQuickAccessContribution({
+        current: workbench.current,
+        git: {
+          repo: gitRepo,
+          workspace: gitWorkspace,
+          branches: gitBranches,
+          commits: gitCommits,
+        },
+        gitService: workbench.gitService,
+        promptCreateBranch: workbench.promptCreateBranch,
+        showSourceControl: workbench.showSourceControl,
+        openGitGraph: workbench.openGitGraph,
+        runGit: workbench.runGit,
+        checkoutBranch: workbench.checkoutBranch,
+        revealCommit: workbench.revealCommit,
+      }),
+    ],
+    [
+      workbench.current,
+      gitRepo,
+      gitWorkspace,
+      gitBranches,
+      gitCommits,
+      workbench.gitService,
+      workbench.promptCreateBranch,
+      workbench.showSourceControl,
+      workbench.openGitGraph,
+      workbench.runGit,
+      workbench.checkoutBranch,
+      workbench.revealCommit,
+    ],
+  );
 
   const actions = useMemo<Action[]>(
     () =>
@@ -51,12 +86,6 @@ export function useCommandPaletteRows(args: {
         files,
         filesWorkspace,
         recentFiles: workbench.recentFiles,
-        git: {
-          repo: gitRepo,
-          workspace: gitWorkspace,
-          branches: gitBranches,
-          commits: gitCommits,
-        },
         modifierLabel: workbench.modifierLabel,
         tildifyPath: workbench.tildifyPath,
         useWorkspace: workbench.useWorkspace,
@@ -66,22 +95,9 @@ export function useCommandPaletteRows(args: {
         newNote: workbench.newNote,
         promptForNewNote: workbench.promptForNewNote,
         openSettings: workbench.openSettings,
-        showSourceControl: workbench.showSourceControl,
-        openGitGraph: workbench.openGitGraph,
-        promptCreateBranch: workbench.promptCreateBranch,
-        runGit: workbench.runGit,
-        gitService: workbench.gitService,
+        quickAccessContributions,
       }),
-    [
-      workbench,
-      files,
-      filesWorkspace,
-      gitRepo,
-      gitWorkspace,
-      gitBranches,
-      gitCommits,
-      args.providerId,
-    ],
+    [workbench, files, filesWorkspace, quickAccessContributions, args.providerId],
   );
 
   const { filtered, matchMap } = useMemo<{
@@ -123,42 +139,21 @@ export function useCommandPaletteRows(args: {
     ],
   );
 
-  const gitMatches = useMemo<Action[]>(
+  const contributedAdditionalActions = useMemo<Action[]>(
     () =>
       includeAdditionalPicks
-        ? buildGitEntityActions({
+        ? buildCommandPaletteAdditionalActions({
             query: args.query,
-            current: workbench.current,
-            git: {
-              repo: gitRepo,
-              workspace: gitWorkspace,
-              branches: gitBranches,
-              commits: gitCommits,
-            },
-            gitService: workbench.gitService,
-            runGit: workbench.runGit,
-            checkoutBranch: workbench.checkoutBranch,
-            revealCommit: workbench.revealCommit,
+            filtered,
+            quickAccessContributions,
           })
         : [],
-    [
-      includeAdditionalPicks,
-      args.query,
-      workbench.current,
-      gitRepo,
-      gitWorkspace,
-      gitBranches,
-      gitCommits,
-      workbench.gitService,
-      workbench.runGit,
-      workbench.checkoutBranch,
-      workbench.revealCommit,
-    ],
+    [includeAdditionalPicks, args.query, filtered, quickAccessContributions],
   );
 
   const rows = useMemo(
-    () => combineCommandPaletteRows(filtered, contentActions, gitMatches),
-    [filtered, contentActions, gitMatches],
+    () => combineCommandPaletteRows(filtered, contentActions, contributedAdditionalActions),
+    [filtered, contentActions, contributedAdditionalActions],
   );
 
   return { rows, matchMap };
