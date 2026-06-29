@@ -5,7 +5,7 @@ import {
   type TerminalKeybindingEvent,
   resolveTerminalKeybinding,
   runTerminalAction,
-} from '../src/workbench/contrib/terminal/browser/terminalActions.js';
+} from '../src/workbench/contrib/terminal/common/terminalActions.js';
 
 const key = (overrides: Partial<TerminalKeybindingEvent>): TerminalKeybindingEvent => ({
   key: '',

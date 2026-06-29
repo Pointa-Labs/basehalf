@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { resolveTerminalKeybinding, runTerminalAction } from './terminalActions.js';
+import { resolveTerminalKeybinding, runTerminalAction } from '../common/terminalActions.js';
 import { useTerminalStore } from './terminalStore.js';
 
 export function useTerminalKeymap(): void {
