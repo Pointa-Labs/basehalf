@@ -3,10 +3,11 @@ import { useState } from 'react';
 import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { type GitRow, statusColor } from '../common/gitStatusModel.js';
+import { rowStatusText } from '../common/resourceModel.js';
+import type { ScmGroupId } from '../common/resourceTypes.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
-import { rowStatusText } from './resourceModel.js';
 import { STATUS_PALETTE, scm } from './styles.js';
-import type { RowAction, ScmGroupId } from './types.js';
+import type { RowAction } from './types.js';
 
 export const ResourceRow = ({
   rowKey: key,

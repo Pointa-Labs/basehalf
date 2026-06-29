@@ -4,10 +4,11 @@ import { color, font, space, transition } from '../../../browser/style/design.js
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { CountBadge } from '../../../browser/ui/primitives/CountBadge.js';
 import type { GitRow } from '../common/gitStatusModel.js';
+import { type ScmGroupId, rowKey } from '../common/resourceTypes.js';
 import { ResourceRow } from './ResourceRow.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
 import { scm } from './styles.js';
-import { type RowAction, type ScmGroupId, rowKey } from './types.js';
+import type { RowAction } from './types.js';
 
 export const ResourceGroup = ({
   groupId,

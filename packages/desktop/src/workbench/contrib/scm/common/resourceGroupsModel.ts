@@ -1,5 +1,5 @@
-import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
-import { type ScmGroupId, rowKey } from './types.js';
+import type { GitGroups, GitRow } from './gitStatusModel.js';
+import { type ScmGroupId, rowKey } from './resourceTypes.js';
 
 export interface ResourceRowItem {
   readonly key: string;

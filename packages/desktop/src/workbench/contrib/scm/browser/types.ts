@@ -1,6 +1,3 @@
-import type { GitRow } from '../common/gitStatusModel.js';
-
-export type ScmGroupId = 'merge' | 'staged' | 'changes';
 export type CommitAfter = 'push' | 'sync';
 
 export interface CommitActionOptions {
@@ -14,5 +11,3 @@ export interface RowAction {
   onClick: () => void;
   danger?: boolean;
 }
-
-export const rowKey = (groupId: ScmGroupId, row: GitRow): string => `${groupId}:${row.path}`;

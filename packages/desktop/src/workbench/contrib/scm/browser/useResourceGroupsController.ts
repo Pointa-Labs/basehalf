@@ -18,8 +18,9 @@ import {
   selectResourceRange,
   selectedRowsForResourceAction,
   toggleResourceSelection,
-} from './resourceGroupsModel.js';
-import { type RowAction, type ScmGroupId, rowKey } from './types.js';
+} from '../common/resourceGroupsModel.js';
+import { type ScmGroupId, rowKey } from '../common/resourceTypes.js';
+import type { RowAction } from './types.js';
 
 export interface ResourceGroupsControllerArgs {
   readonly groups: GitGroups;
