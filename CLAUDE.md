@@ -75,7 +75,7 @@ unregisters — it never deletes user files — and removing the *current* works
 leaves none current (the app shows its welcome state; it never auto-promotes
 another workspace).
 
-Workspace service commands / bridge methods:
+Workspace registry/surface service commands / bridge methods:
 
 - `workspace.add` — register a folder (`{ path, name?, setup? }`); `setup` runs
   the `.gitignore` + agent-hint installer described below.
@@ -84,10 +84,16 @@ Workspace service commands / bridge methods:
   (path + `.bh/` untouched).
 - `workspace.listCanvas` — one folder level of children for the canvas (the
   filesystem-as-tree read the mirror overlays onto).
-- `workspace.readFile` / `workspace.writeFile` / `workspace.createFile` /
-  `workspace.createFolder` / `workspace.renameEntry` / `workspace.deleteEntry`
-  / `workspace.importFile` — hardened, path-contained file access.
+- `workspace.getViewport` / `workspace.setViewport` — workspace-bound surface
+  viewport state.
 - `workspace.createDemo` — generate a demo workspace.
+
+Workspace-relative file operations now live behind `platform/files`, matching
+VS Code's workspace/files split: `files.listFiles` / `files.listSupportedFiles`
+/ `files.readFile` / `files.writeFile` / `files.renameFile` /
+`files.importFile` / `files.createFile` / `files.createFolder` /
+`files.renameEntry` / `files.deleteEntry`. Workbench services compose that file
+service directly instead of routing file I/O through `platform/workspaces`.
 
 There is no `bh init` binary; the desktop app's Open Folder is the one-shot for
 a new project. It registers the directory, appends `.bh/cache/` to `.gitignore`
