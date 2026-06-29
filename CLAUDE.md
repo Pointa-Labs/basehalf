@@ -246,8 +246,9 @@ Full-text **content search** across the current workspace's text files — the
 path + description only). Case-insensitive substring; skips binary files and
 tooling dirs (`.bh/`, `node_modules`, …); reads each file under a bounded cap.
 In the desktop it's wired into the ⌘K palette (debounced, below the name
-matches). Read-only — it walks via the already-hardened `workspace.listFiles` +
-`workspace.readFile`, so path containment is inherited, not re-implemented.
+matches). Read-only — it walks via the desktop `platform/files` service
+(`files.listFiles` + `files.readFile`), so path containment is inherited, not
+re-implemented.
 
 ```text
 search.query  { query, maxFiles?, maxMatchesPerFile? }   # ranked file hits
