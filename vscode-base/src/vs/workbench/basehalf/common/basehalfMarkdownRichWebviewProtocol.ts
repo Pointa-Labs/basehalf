@@ -1,0 +1,183 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { IBaseHalfMarkdownFocusFields } from './basehalfMarkdownFocus.js';
+
+export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
+export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
+
+export type BaseHalfMarkdownRichHostMessage =
+	| {
+		readonly type: 'basehalf.markdownRich.init';
+		readonly key: string;
+		readonly resource: string;
+		readonly content: string;
+		readonly editable: boolean;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
+		readonly key: string;
+		readonly update: ArrayBuffer;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.setEditable';
+		readonly key: string;
+		readonly editable: boolean;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.saveResult';
+		readonly key: string;
+		readonly result: 'saved' | 'noop' | 'blockedByConflict' | 'writeFailed';
+		readonly message?: string;
+	};
+
+export type BaseHalfMarkdownRichWebviewMessage =
+	| {
+		readonly type: 'basehalf.markdownRich.ready';
+		readonly key: string;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.yjsUpdate';
+		readonly key: string;
+		readonly update: ArrayBuffer | Uint8Array | readonly number[];
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.saveRequested';
+		readonly key: string;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.focusChanged';
+		readonly key: string;
+		readonly fields: IBaseHalfMarkdownFocusFields;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.error';
+		readonly key: string;
+		readonly message: string;
+		readonly stack?: string;
+	};
+
+export interface IBaseHalfMarkdownRichTransferableUpdate {
+	readonly update: ArrayBuffer;
+	readonly transfer: readonly ArrayBuffer[];
+}
+
+export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is BaseHalfMarkdownRichHostMessage {
+	const candidate = message as Partial<BaseHalfMarkdownRichHostMessage> | undefined;
+	if (!isBaseHalfMarkdownRichMessageEnvelope(candidate)) {
+		return false;
+	}
+
+	switch (candidate.type) {
+		case 'basehalf.markdownRich.init':
+			return typeof candidate.resource === 'string'
+				&& typeof candidate.content === 'string'
+				&& typeof candidate.editable === 'boolean';
+		case 'basehalf.markdownRich.applyYjsUpdate':
+			return candidate.update instanceof ArrayBuffer;
+		case 'basehalf.markdownRich.setEditable':
+			return typeof candidate.editable === 'boolean';
+		case 'basehalf.markdownRich.saveResult':
+			return (candidate.result === 'saved'
+				|| candidate.result === 'noop'
+				|| candidate.result === 'blockedByConflict'
+				|| candidate.result === 'writeFailed')
+				&& (candidate.message === undefined || typeof candidate.message === 'string');
+		default:
+			return false;
+	}
+}
+
+export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message is BaseHalfMarkdownRichWebviewMessage {
+	const candidate = message as Partial<BaseHalfMarkdownRichWebviewMessage> | undefined;
+	if (!isBaseHalfMarkdownRichMessageEnvelope(candidate)) {
+		return false;
+	}
+
+	switch (candidate.type) {
+		case 'basehalf.markdownRich.ready':
+		case 'basehalf.markdownRich.saveRequested':
+			return true;
+		case 'basehalf.markdownRich.yjsUpdate':
+			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
+		case 'basehalf.markdownRich.focusChanged':
+			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
+		case 'basehalf.markdownRich.error':
+			return typeof candidate.message === 'string'
+				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
+		default:
+			return false;
+	}
+}
+
+export function toBaseHalfMarkdownRichTransferableUpdate(update: Uint8Array): IBaseHalfMarkdownRichTransferableUpdate {
+	const copy = new Uint8Array(update.byteLength);
+	copy.set(update);
+	return {
+		update: copy.buffer,
+		transfer: [copy.buffer]
+	};
+}
+
+export function baseHalfMarkdownRichUpdateFromPayload(payload: ArrayBuffer | Uint8Array | readonly number[]): Uint8Array {
+	if (payload instanceof Uint8Array) {
+		return payload;
+	}
+	if (payload instanceof ArrayBuffer) {
+		return new Uint8Array(payload);
+	}
+	if (Array.isArray(payload)) {
+		return Uint8Array.from(payload);
+	}
+	throw new Error('Unsupported BaseHalf Markdown rich YJS update payload');
+}
+
+function isBaseHalfMarkdownRichMessageEnvelope(message: { readonly type?: unknown; readonly key?: unknown } | undefined): message is { readonly type: string; readonly key: string } {
+	return typeof message?.type === 'string'
+		&& message.type.startsWith(`${BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX}.`)
+		&& typeof message.key === 'string'
+		&& message.key.length > 0;
+}
+
+function isBaseHalfMarkdownRichUpdatePayload(payload: unknown): payload is ArrayBuffer | Uint8Array | readonly number[] {
+	return payload instanceof ArrayBuffer
+		|| payload instanceof Uint8Array
+		|| (Array.isArray(payload) && payload.every(value => Number.isInteger(value) && value >= 0 && value <= 255));
+}
+
+function isBaseHalfMarkdownRichFocusFields(value: unknown): value is IBaseHalfMarkdownFocusFields {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const fields = value as Partial<IBaseHalfMarkdownFocusFields>;
+	return (fields.visible_lines === undefined || isBaseHalfMarkdownRichStartField(fields.visible_lines))
+		&& (fields.visible_blocks === undefined || isBaseHalfMarkdownRichStartField(fields.visible_blocks))
+		&& (fields.cursor === undefined || isBaseHalfMarkdownRichCursor(fields.cursor));
+}
+
+function isBaseHalfMarkdownRichStartField(value: unknown): value is { readonly start: number } {
+	return isObject(value) && isPositiveInteger((value as { readonly start?: unknown }).start);
+}
+
+function isBaseHalfMarkdownRichCursor(value: unknown): value is NonNullable<IBaseHalfMarkdownFocusFields['cursor']> {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const cursor = value as Partial<NonNullable<IBaseHalfMarkdownFocusFields['cursor']>>;
+	return isPositiveInteger(cursor.line)
+		&& isPositiveInteger(cursor.column)
+		&& (cursor.line_precision === 'exact' || cursor.line_precision === 'block_start' || cursor.line_precision === 'estimated')
+		&& (cursor.block === undefined || isPositiveInteger(cursor.block));
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isObject(value: unknown): value is object {
+	return typeof value === 'object' && value !== null;
+}
