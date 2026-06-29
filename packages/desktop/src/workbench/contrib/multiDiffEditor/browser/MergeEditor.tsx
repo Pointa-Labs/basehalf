@@ -1,7 +1,7 @@
 import { type JSX, useCallback, useEffect, useState } from 'react';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
+import { textFileService } from '../../../services/textfile/browser/textFileService.js';
 import { gitScmService } from '../../scm/browser/gitScmService.js';
 import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
 import {
@@ -19,7 +19,7 @@ import {
  * When no markers remain, "Complete Merge" stages the file.
  *
  * Sides come from git index stages 2/3 (git.conflictStages); the result is the
- * working-tree file. Read-modify-write goes through workspace.writeFile — the disk
+ * working-tree file. Read-modify-write goes through textFileService — the disk
  * file stays the truth, same as the inline conflict UI this complements.
  */
 
@@ -45,7 +45,7 @@ export const MergeEditor = ({
       const st = await gitScmService.conflictStages(path);
       setOurs(st.ours ?? '');
       setTheirs(st.theirs ?? '');
-      const f = await workspaceService.readFile(path);
+      const f = await textFileService.read(path);
       setResult(f.content ?? '');
     } catch (e) {
       setErr(msg(e));
@@ -68,7 +68,7 @@ export const MergeEditor = ({
         ...lines.slice(block.endLine),
       ].join('\n');
       try {
-        await workspaceService.writeFile(path, next);
+        await textFileService.write(path, next);
         setResult(next);
         await refresh();
       } catch (e) {
