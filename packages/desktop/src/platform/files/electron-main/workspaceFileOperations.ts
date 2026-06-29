@@ -32,7 +32,7 @@ import type {
   WorkspaceRenameFileResult,
   WorkspaceWriteFileArgs,
   WorkspaceWriteFileResult,
-} from '../../workspaces/common/workspaces.js';
+} from '../common/workspaceFiles.js';
 
 export const SKIP_NAMES: ReadonlySet<string> = new Set([
   '.git',

@@ -3,5 +3,5 @@ export type {
   CanvasFolderPreview,
   ViewportState,
   WorkspaceEntry,
-  WorkspaceListFilesEntry,
 } from '../../../../platform/workspaces/common/workspaces.js';
+export type { WorkspaceListFilesEntry } from '../../../../platform/files/common/workspaceFiles.js';

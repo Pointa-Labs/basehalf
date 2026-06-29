@@ -1,10 +1,12 @@
+import type {
+  WorkspaceReadFileArgs,
+  WorkspaceReadFileResult,
+} from '../../../../platform/files/common/workspaceFiles.js';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type {
   WorkspaceService as PlatformWorkspaceService,
   ViewportState,
   WorkspaceListCanvasResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
 } from '../../../../platform/workspaces/common/workspaces.js';
 
 type WorkspaceCanvasDataBackend = Pick<

@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { WorkspaceListFilesEntry } from '../../../../platform/files/common/workspaceFiles.js';
 import {
   SKIP_NAMES,
   assertWorkspaceRelative,
@@ -12,7 +13,6 @@ import type {
   WorkspaceCanvasEdge,
   WorkspaceListCanvasArgs,
   WorkspaceListCanvasResult,
-  WorkspaceListFilesEntry,
 } from '../../../../platform/workspaces/common/workspaces.js';
 import type { BadgeFile } from '../../mirror/common/badge.js';
 import type { CanvasEdge, CanvasFile } from '../../mirror/common/canvas.js';

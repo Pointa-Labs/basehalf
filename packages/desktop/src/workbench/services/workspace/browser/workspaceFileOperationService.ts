@@ -1,6 +1,4 @@
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type {
-  WorkspaceService as PlatformWorkspaceService,
   WorkspaceCreateFileArgs,
   WorkspaceCreateFileResult,
   WorkspaceCreateFolderResult,
@@ -8,7 +6,9 @@ import type {
   WorkspaceImportFileResult,
   WorkspaceRenameEntryResult,
   WorkspaceRenameFileResult,
-} from '../../../../platform/workspaces/common/workspaces.js';
+} from '../../../../platform/files/common/workspaceFiles.js';
+import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
+import type { WorkspaceService as PlatformWorkspaceService } from '../../../../platform/workspaces/common/workspaces.js';
 
 type WorkspaceFileOperationBackend = Pick<
   PlatformWorkspaceService,
