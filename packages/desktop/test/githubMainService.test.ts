@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { GithubReviewArgs } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
+import {
+  GITHUB_AUTH_REQUIRED_ERROR_CODE,
+  type GithubReviewArgs,
+} from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
 import {
   type GithubAuthenticationSessionProvider,
   type GithubHttpRequest,
@@ -224,10 +227,20 @@ describe('GithubMainService remote source API', () => {
         url: 'https://github.com/basehalf/app.git',
       },
     ]);
+    await expect(service.listRemoteSources('o/r')).resolves.toEqual([
+      {
+        name: 'basehalf/app',
+        description: '10 stars',
+        detail: 'BaseHalf',
+        icon: 'github',
+        url: 'https://github.com/basehalf/app.git',
+      },
+    ]);
 
     expect(calls.map((call) => call.url)).toEqual([
       'https://api.github.com/repos/o/r',
       'https://api.github.com/search/repositories?q=basehalf%20fork%3Atrue&sort=stars',
+      'https://api.github.com/search/repositories?q=user%3Ao%2Br%20fork%3Atrue&sort=stars',
     ]);
   });
 
@@ -344,9 +357,11 @@ describe('GithubMainService pull request API', () => {
     expect(calls).toHaveLength(0);
 
     const signedOut = serviceWithRemotes(GITHUB_OR_REMOTE, { http });
-    await expect(signedOut.listPullRequests(ROOT, 'https://github.com/o/r')).rejects.toThrow(
-      /Not signed in/,
-    );
+    await expect(signedOut.listPullRequests(ROOT, 'https://github.com/o/r')).rejects.toMatchObject({
+      name: 'GithubAuthenticationRequiredError',
+      code: GITHUB_AUTH_REQUIRED_ERROR_CODE,
+      message: 'Not signed in to GitHub. Sign in from Settings.',
+    });
   });
 
   it('rejects renderer-supplied GitHub remotes that are not in the workspace', async () => {

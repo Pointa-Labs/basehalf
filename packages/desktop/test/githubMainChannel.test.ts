@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   GITHUB_IPC_CHANNELS,
+  GithubAuthenticationRequiredError,
   unwrapGithubIpcResult,
 } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
 import { GithubMainChannel } from '../src/workbench/contrib/githubPullRequests/electron-main/githubMainChannel.js';
@@ -117,10 +118,7 @@ describe('GithubMainChannel', () => {
 
   it('serializes GitHub provider errors without changing the renderer message', async () => {
     const ipc = fakeIpc();
-    const error = new Error('Not signed in to GitHub. Sign in from Settings.') as Error & {
-      code?: string;
-    };
-    error.code = 'GITHUB_AUTH_REQUIRED';
+    const error = new GithubAuthenticationRequiredError();
     const service = {
       listRemoteSources: vi.fn(async () => {
         throw error;
@@ -136,7 +134,7 @@ describe('GithubMainChannel', () => {
     expect(result).toEqual({
       ok: false,
       error: {
-        name: 'Error',
+        name: 'GithubAuthenticationRequiredError',
         message: 'Not signed in to GitHub. Sign in from Settings.',
         code: 'GITHUB_AUTH_REQUIRED',
       },

@@ -3,11 +3,12 @@ import {
   GITHUB_AUTH_PROVIDER_ID,
 } from '../../../services/authentication/common/authentication.js';
 import type { RemoteSource, RemoteSourceBranch } from '../../scm/common/remoteSources.js';
-import type {
-  GhPrFile,
-  GhPullRequest,
-  GithubRemoteRepository,
-  GithubRepo,
+import {
+  type GhPrFile,
+  type GhPullRequest,
+  GithubAuthenticationRequiredError,
+  type GithubRemoteRepository,
+  type GithubRepo,
 } from '../common/githubPullRequests.js';
 import { GithubApiClient, type GithubHttpRunner, defaultGithubHttp } from './githubApiClient.js';
 import { parsePrPayload, parseReviewArgs } from './githubPayloads.js';
@@ -90,6 +91,13 @@ function parseOptionalQuery(query: unknown): string | undefined {
   return trimmed === '' ? undefined : trimmed;
 }
 
+function parseGithubRepoQuery(query: string): GithubRepo | null {
+  const match = /^([^/\s]+)\/([^/\s]+)$/.exec(query);
+  if (match === null) return null;
+  const [, owner, repo] = match;
+  return owner !== undefined && repo !== undefined ? { owner, repo } : null;
+}
+
 export class GithubMainService {
   private readonly api: GithubApiClient;
 
@@ -133,7 +141,12 @@ export class GithubMainService {
       return [asRemoteSource(JSON.parse(res.body) as GithubRemoteSourceResponse)];
     }
 
-    const q = encodeURIComponent(`${trimmedQuery} fork:true`);
+    const queryRepo = parseGithubRepoQuery(trimmedQuery);
+    const githubQuery =
+      queryRepo === null
+        ? `${trimmedQuery} fork:true`
+        : `user:${queryRepo.owner}+${queryRepo.repo} fork:true`;
+    const q = encodeURIComponent(githubQuery);
     const res = await this.api.request(token, 'GET', `/search/repositories?q=${q}&sort=stars`);
     const raw = JSON.parse(res.body) as { items?: GithubRemoteSourceResponse[] };
     if (!Array.isArray(raw.items)) throw new Error('GitHub returned an unexpected response.');
@@ -237,7 +250,7 @@ export class GithubMainService {
     );
     const token = sessions[0]?.accessToken ?? null;
     if (token === null || token.trim() === '') {
-      throw new Error('Not signed in to GitHub. Sign in from Settings.');
+      throw new GithubAuthenticationRequiredError();
     }
     return token;
   }

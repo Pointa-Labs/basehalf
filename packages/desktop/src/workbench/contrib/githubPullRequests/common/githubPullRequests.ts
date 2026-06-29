@@ -68,6 +68,17 @@ export type GithubIpcResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: GithubErrorData };
 
+export const GITHUB_AUTH_REQUIRED_ERROR_CODE = 'GITHUB_AUTH_REQUIRED';
+
+export class GithubAuthenticationRequiredError extends Error {
+  override name = 'GithubAuthenticationRequiredError';
+  readonly code = GITHUB_AUTH_REQUIRED_ERROR_CODE;
+
+  constructor(message = 'Not signed in to GitHub. Sign in from Settings.') {
+    super(message);
+  }
+}
+
 export function githubIpcSuccess<T>(value: T): GithubIpcResult<T> {
   return { ok: true, value };
 }
