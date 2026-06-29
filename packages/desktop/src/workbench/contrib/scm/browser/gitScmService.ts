@@ -183,8 +183,3 @@ export function createGitScmService(channel: GitChannel): GitScmService {
 }
 
 export const gitScmService = createGitScmService(gitChannel);
-
-export const entryKindForGitPath = (path: string): { path: string; kind: 'file' | 'folder' } => {
-  const isDir = path.endsWith('/');
-  return { path: isDir ? path.slice(0, -1) : path, kind: isDir ? 'folder' : 'file' };
-};

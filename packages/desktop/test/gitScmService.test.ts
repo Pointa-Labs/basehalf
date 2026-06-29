@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GitChannel } from '../src/workbench/contrib/scm/browser/gitChannel.js';
-import {
-  createGitScmService,
-  entryKindForGitPath,
-} from '../src/workbench/contrib/scm/browser/gitScmService.js';
+import { createGitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 
 function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitChannel {
   return {
@@ -210,10 +207,5 @@ describe('gitScmService', () => {
       { name: 'stashPop', args: [undefined] },
       { name: 'stashDrop', args: ['stash@{0}'] },
     ]);
-  });
-
-  it('normalizes collapsed untracked directory paths', () => {
-    expect(entryKindForGitPath('new-file.md')).toEqual({ path: 'new-file.md', kind: 'file' });
-    expect(entryKindForGitPath('new-folder/')).toEqual({ path: 'new-folder', kind: 'folder' });
   });
 });

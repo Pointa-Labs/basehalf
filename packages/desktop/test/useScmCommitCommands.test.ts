@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import type { GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
 import {
   type ScmPostCommitRemoteOperation,
   scmPostCommitRemoteOperation,
-} from '../src/workbench/contrib/scm/browser/useScmCommitCommands.js';
-import type { GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
+} from '../src/workbench/contrib/scm/common/remoteOperationModel.js';
 
 const status = (props: Partial<GitStatusResult> = {}): GitStatusResult => ({
   isRepo: true,

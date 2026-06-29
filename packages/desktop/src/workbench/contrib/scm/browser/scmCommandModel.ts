@@ -1,7 +1,7 @@
-import type { CommitActionOptions } from '../common/commitTypes.js';
+import type { DiscardPlan } from '../common/discardModel.js';
 import { GitError, GitErrorCodes, type GitStashEntry, gitErrorMessage } from '../common/git.js';
 import type { GitRow } from '../common/gitStatusModel.js';
-import { type GitScmService, entryKindForGitPath } from './gitScmService.js';
+import type { GitScmService } from './gitScmService.js';
 
 type MaybePromise = Promise<void> | void;
 export type ScmActionRunner = (action: () => Promise<unknown>) => Promise<void>;
@@ -12,17 +12,6 @@ export interface ScmActionEffects {
   readonly toastError: (message: string) => void;
   readonly refresh: () => MaybePromise;
   readonly loadStashes: () => MaybePromise;
-}
-
-export interface DiscardPlan {
-  readonly trackedPaths: readonly string[];
-  readonly untrackedEntries: readonly { path: string; kind: 'file' | 'folder' }[];
-}
-
-export interface CommitPlan {
-  readonly message: string;
-  readonly amend: boolean;
-  readonly after?: CommitActionOptions['after'];
 }
 
 export const scmErrorMessage = (err: unknown): string =>
@@ -112,19 +101,6 @@ export function dropStashPrompt(ref: GitStashEntry['ref']): string {
   return `Delete stash ${ref}? This is IRREVERSIBLE.`;
 }
 
-export function discardPlan(rows: readonly GitRow[]): DiscardPlan {
-  const trackedPaths: string[] = [];
-  const untrackedEntries: Array<{ path: string; kind: 'file' | 'folder' }> = [];
-  for (const row of rows) {
-    if (row.untracked) {
-      untrackedEntries.push(entryKindForGitPath(row.path));
-    } else {
-      trackedPaths.push(row.path);
-    }
-  }
-  return { trackedPaths, untrackedEntries };
-}
-
 export async function applyDiscardPlan(
   plan: DiscardPlan,
   git: Pick<GitScmService, 'discard' | 'deleteWorkspaceEntry'>,
@@ -133,20 +109,4 @@ export async function applyDiscardPlan(
   for (const entry of plan.untrackedEntries) {
     await git.deleteWorkspaceEntry(entry.path, entry.kind);
   }
-}
-
-export function commitPlan(
-  message: string,
-  options: CommitActionOptions,
-  hasStaged: boolean,
-): CommitPlan | null {
-  const trimmed = message.trim();
-  if (trimmed === '') return null;
-  const amend = options.amend === true;
-  if (!amend && !hasStaged) return null;
-  return {
-    message: trimmed,
-    amend,
-    ...(options.after !== undefined && { after: options.after }),
-  };
 }

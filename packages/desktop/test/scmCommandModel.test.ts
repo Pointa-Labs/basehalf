@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import {
   applyDiscardPlan,
-  commitPlan,
   discardAllPrompt,
   discardManyPrompt,
-  discardPlan,
   discardRowPrompt,
   dropStashPrompt,
   runScmAction,
   scmErrorMessage,
 } from '../src/workbench/contrib/scm/browser/scmCommandModel.js';
+import { commitPlan } from '../src/workbench/contrib/scm/common/commitActionModel.js';
+import {
+  discardPlan,
+  entryKindForGitPath,
+} from '../src/workbench/contrib/scm/common/discardModel.js';
 import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
 import type { GitRow } from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
@@ -104,6 +107,8 @@ describe('scmCommandModel', () => {
       deleteWorkspaceEntry: async (path, kind) => calls.push(`delete:${kind}:${path}`),
     } as Pick<GitScmService, 'discard' | 'deleteWorkspaceEntry'>);
     expect(calls).toEqual(['discard:a.md', 'delete:file:new.md', 'delete:folder:new-folder']);
+    expect(entryKindForGitPath('new-file.md')).toEqual({ path: 'new-file.md', kind: 'file' });
+    expect(entryKindForGitPath('new-folder/')).toEqual({ path: 'new-folder', kind: 'folder' });
   });
 
   it('plans commit variants and preserves useful error messages', () => {

@@ -1,10 +1,12 @@
 import { useCallback } from 'react';
 import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { commitPlan } from '../common/commitActionModel.js';
 import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { GitStatusResult } from '../common/git.js';
+import { scmPostCommitRemoteOperation } from '../common/remoteOperationModel.js';
 import type { GitScmService } from './gitScmService.js';
-import { type ScmActionRunner, commitPlan } from './scmCommandModel.js';
-import { choosePublishRemote, isPublishBranchState } from './useScmRemoteCommands.js';
+import type { ScmActionRunner } from './scmCommandModel.js';
+import { choosePublishRemote } from './useScmRemoteCommands.js';
 
 export interface ScmCommitCommands {
   readonly commit: (options?: CommitActionOptions) => void;
@@ -68,13 +70,4 @@ export function useScmCommitCommands({
   return { commit, createBranchPrompt, undoLastCommit };
 }
 
-export type ScmPostCommitRemoteOperation = 'publish' | 'push' | 'sync' | null;
-
-export function scmPostCommitRemoteOperation(
-  after: CommitActionOptions['after'],
-  status: GitStatusResult | null,
-): ScmPostCommitRemoteOperation {
-  if (after === undefined) return null;
-  if ((after === 'push' || after === 'sync') && isPublishBranchState(status)) return 'publish';
-  return after;
-}
+export type { ScmPostCommitRemoteOperation } from '../common/remoteOperationModel.js';

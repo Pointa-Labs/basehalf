@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { fetchRemotePickOptions } from '../src/workbench/contrib/scm/browser/useScmRemoteCommands.js';
+import type { GitRemoteInfo, GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
 import {
   FETCH_ALL_REMOTES_VALUE,
   fetchArgsForRemotePick,
-  fetchRemotePickOptions,
   isPublishBranchState,
   scmRemoteOperation,
-} from '../src/workbench/contrib/scm/browser/useScmRemoteCommands.js';
-import type { GitRemoteInfo, GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
+} from '../src/workbench/contrib/scm/common/remoteOperationModel.js';
 
 function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
   return {

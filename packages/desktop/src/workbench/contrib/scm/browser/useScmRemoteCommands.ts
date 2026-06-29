@@ -9,6 +9,12 @@ import {
   githubPullRequestService,
 } from '../../githubPullRequests/browser/githubPullRequestService.js';
 import type { GitFetchArgs, GitRemoteInfo, GitStatusResult } from '../common/git.js';
+import {
+  FETCH_ALL_REMOTES_VALUE,
+  type ScmRemoteOperation,
+  fetchArgsForRemotePick,
+  scmRemoteOperation,
+} from '../common/remoteOperationModel.js';
 import type { GitScmService } from './gitScmService.js';
 import { type ScmActionRunner, scmErrorMessage } from './scmCommandModel.js';
 
@@ -21,55 +27,6 @@ export interface ScmRemoteCommands {
   readonly sync: () => void;
   readonly pullRebase: () => void;
   readonly pushForce: () => void;
-}
-
-export type ScmRemoteCommandKind =
-  | 'publish'
-  | 'pull'
-  | 'pullRebase'
-  | 'push'
-  | 'fetch'
-  | 'sync'
-  | 'pushForce';
-
-export type ScmRemoteOperation =
-  | { readonly kind: 'publish' }
-  | { readonly kind: 'pull'; readonly rebase?: boolean }
-  | { readonly kind: 'push'; readonly force?: boolean }
-  | { readonly kind: 'fetch' }
-  | { readonly kind: 'sync' };
-
-export const FETCH_ALL_REMOTES_VALUE = '__all__';
-
-export function isPublishBranchState(status: GitStatusResult | null): boolean {
-  return (
-    status !== null &&
-    status.detached !== true &&
-    status.branch !== null &&
-    status.upstream === null
-  );
-}
-
-export function scmRemoteOperation(
-  command: ScmRemoteCommandKind,
-  status: GitStatusResult | null,
-): ScmRemoteOperation {
-  switch (command) {
-    case 'publish':
-      return { kind: 'publish' };
-    case 'pull':
-      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull' };
-    case 'pullRebase':
-      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'pull', rebase: true };
-    case 'push':
-      return { kind: 'push' };
-    case 'fetch':
-      return { kind: 'fetch' };
-    case 'sync':
-      return isPublishBranchState(status) ? { kind: 'publish' } : { kind: 'sync' };
-    case 'pushForce':
-      return { kind: 'push', force: true };
-  }
 }
 
 export function useScmRemoteCommands({
@@ -200,10 +157,6 @@ export function fetchRemotePickOptions(
     },
     ...remotes.map(remotePickOption),
   ];
-}
-
-export function fetchArgsForRemotePick(value: string): GitFetchArgs {
-  return value === FETCH_ALL_REMOTES_VALUE ? { all: true } : { remote: value };
 }
 
 export async function choosePublishRemote(
