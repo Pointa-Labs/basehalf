@@ -1,5 +1,5 @@
-import type { GitStatusResult } from '../common/git.js';
-import { type GitGroups, totalChangeCount } from '../common/gitStatusModel.js';
+import type { GitStatusResult } from './git.js';
+import { type GitGroups, totalChangeCount } from './gitStatusModel.js';
 
 export interface SourceControlViewModel {
   readonly count: number;

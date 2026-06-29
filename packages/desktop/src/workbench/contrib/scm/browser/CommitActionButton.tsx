@@ -3,7 +3,7 @@ import { color, font, space } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { Menu } from '../../../browser/ui/primitives/Menu.js';
 import type { CommitActionOptions } from '../common/commitTypes.js';
-import type { SourceControlActionButtonModel } from './sourceControlActionButtonModel.js';
+import type { SourceControlActionButtonModel } from '../common/sourceControlActionButtonModel.js';
 import { scm } from './styles.js';
 
 export const CommitActionButton = ({

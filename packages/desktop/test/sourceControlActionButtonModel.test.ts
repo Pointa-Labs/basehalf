@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   type SourceControlActionButtonModel,
   sourceControlActionButtonModel,
-} from '../src/workbench/contrib/scm/browser/sourceControlActionButtonModel.js';
-import type { SourceControlViewModel } from '../src/workbench/contrib/scm/browser/sourceControlViewModel.js';
+} from '../src/workbench/contrib/scm/common/sourceControlActionButtonModel.js';
+import type { SourceControlViewModel } from '../src/workbench/contrib/scm/common/sourceControlViewModel.js';
 
 const view = (overrides: Partial<SourceControlViewModel> = {}): SourceControlViewModel => ({
   count: 0,

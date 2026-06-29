@@ -9,11 +9,11 @@ import {
   validateCommitInput,
 } from '../common/commitInputModel.js';
 import type { CommitActionOptions } from '../common/commitTypes.js';
-import { CommitActionButton } from './CommitActionButton.js';
 import type {
   SourceControlActionButtonModel,
   SourceControlPrimaryAction,
-} from './sourceControlActionButtonModel.js';
+} from '../common/sourceControlActionButtonModel.js';
+import { CommitActionButton } from './CommitActionButton.js';
 import { scm } from './styles.js';
 
 // Platform-correct commit shortcut for the placeholder (the handler accepts

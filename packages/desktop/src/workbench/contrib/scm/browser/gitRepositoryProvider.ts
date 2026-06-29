@@ -1,6 +1,9 @@
 import type { GitStatusResult } from '../common/git.js';
 import { type GitGroups, classifyStatus } from '../common/gitStatusModel.js';
-import { type SourceControlViewModel, sourceControlViewModel } from './sourceControlViewModel.js';
+import {
+  type SourceControlViewModel,
+  sourceControlViewModel,
+} from '../common/sourceControlViewModel.js';
 
 const EMPTY_GROUPS: GitGroups = Object.freeze({
   merge: Object.freeze([]),

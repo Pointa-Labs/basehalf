@@ -2,16 +2,16 @@ import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { color, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { PullRequestsSection } from '../../githubPullRequests/browser/PullRequestsSection.js';
+import {
+  type SourceControlPrimaryAction,
+  sourceControlActionButtonModel,
+} from '../common/sourceControlActionButtonModel.js';
 import { CommitInput } from './CommitInput.js';
 import { Centered, ErrorLine } from './EmptyState.js';
 import { GraphSection } from './GraphSection.js';
 import { RepoHeader } from './RepoHeader.js';
 import { ResourceGroups } from './ResourceGroups.js';
 import { StashSection } from './StashSection.js';
-import {
-  type SourceControlPrimaryAction,
-  sourceControlActionButtonModel,
-} from './sourceControlActionButtonModel.js';
 import type { ScmViewPaneModel } from './useScmViewPaneModel.js';
 
 const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
