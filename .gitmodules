@@ -1,4 +1,0 @@
-[submodule "vscode-base"]
-	path = vscode-base
-	url = https://github.com/microsoft/vscode.git
-	branch = main
