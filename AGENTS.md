@@ -28,14 +28,16 @@ relevant VS Code source under `reference/vscode/` and prefer the same kind of
 boundary over adding more business logic to core.
 
 Current SCM status: GitHub API/token flows are desktop-native main-process
-services. Git operations are already exposed through workbench SCM
-provider/channel boundaries, and the concrete Git CLI backend now lives in
-desktop's `GitCliBackendProvider` plus the GitHub askpass runner. Settings now
-use desktop's platform configuration provider; workbench search now composes
-workspace files and badge metadata directly; workspace history, workspace
-registration/repath, and the pure registry command family (`list` / `use` /
-`current` / `touch` / `remove` / `rename`) now use desktop main-process file
-providers. Workspace file service (`listFiles` / `listSupportedFiles` /
+services. Git operations are exposed through workbench SCM provider/channel
+boundaries; the concrete CLI backend lives in desktop's
+`GitCliBackendProvider`, and GitHub authentication registers through the Git
+credentials provider registry. SCM view state, Git quick access rows, GitGraph
+actions, and GitHub Pull Requests sections now use provider-shaped workbench
+models. Settings now use desktop's platform configuration provider; workbench
+search composes workspace files and badge metadata directly; workspace history,
+workspace registration/repath, and the pure registry command family (`list` /
+`use` / `current` / `touch` / `remove` / `rename`) use desktop main-process
+file providers. Workspace file service (`listFiles` / `listSupportedFiles` /
 `readFile` / `writeFile` / `renameFile` / `importFile` / `createFile` /
 `createFolder`) and workspace viewport storage are also desktop-native.
 Workspace entry operations (`deleteEntry` / `renameEntry`) now use desktop file

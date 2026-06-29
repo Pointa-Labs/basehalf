@@ -344,8 +344,10 @@ independently.
 **Consequences.** New desktop work should compare against the nearest VS Code
 source under `reference/vscode/` and prefer cohesive workbench services,
 main-process services, and providers over adding business logic to core.
-Current Git/GitHub/SCM paths are desktop-native provider/channel services, with
-the concrete Git CLI backend in `GitCliBackendProvider` plus the GitHub askpass
-runner. Settings, search, workspace files/registry/viewport, badge/canvas/focus/
-ADHD YAML mirror storage, workspace entry operations, and the file watcher are
-also desktop-native service/provider paths.
+Current Git/GitHub/SCM paths are desktop-native provider/channel services: the
+concrete Git CLI backend lives in `GitCliBackendProvider`, GitHub credentials
+register through the Git credentials provider registry, and SCM/GitGraph/GitHub
+Pull Requests renderer state is moving behind provider-shaped workbench models.
+Settings, search, workspace files/registry/viewport, badge/canvas/focus/ADHD
+YAML mirror storage, workspace entry operations, and the file watcher are also
+desktop-native service/provider paths.
