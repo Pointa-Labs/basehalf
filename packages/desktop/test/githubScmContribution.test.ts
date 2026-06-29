@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { GithubPullRequestService } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
-import { createGithubPullRequest } from '../src/workbench/contrib/githubPullRequests/browser/githubScmContribution.js';
+import type { GithubPullRequestProvider } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
+import {
+  createGithubPullRequest,
+  createGithubPullRequestsScmContribution,
+} from '../src/workbench/contrib/githubPullRequests/browser/githubScmContribution.js';
 import type { GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
 
 function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
@@ -16,12 +19,14 @@ function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
   };
 }
 
-function service(overrides: Partial<GithubPullRequestService> = {}): GithubPullRequestService {
+function provider(overrides: Partial<GithubPullRequestProvider> = {}): GithubPullRequestProvider {
   return {
-    repository: async () => null,
+    id: 'github',
+    name: 'GitHub',
+    provideRepository: async () => null,
     createPullRequestUrl: async () => 'https://github.com/o/r/compare/topic?expand=1',
-    listPullRequests: async () => [],
-    pullRequestFiles: async () => [],
+    providePullRequests: async () => [],
+    providePullRequestFiles: async () => [],
     reviewPullRequest: async () => {},
     ...overrides,
   };
@@ -35,7 +40,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status({ branch: null }),
-      service: service({ createPullRequestUrl }),
+      provider: provider({ createPullRequestUrl }),
       openExternal,
       toastError,
     });
@@ -53,7 +58,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status(),
-      service: service({ createPullRequestUrl: async () => null }),
+      provider: provider({ createPullRequestUrl: async () => null }),
       openExternal,
       toastError,
     });
@@ -69,7 +74,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status({ branch: 'feature/a' }),
-      service: service({
+      provider: provider({
         createPullRequestUrl: async (branch) => `https://github.com/o/r/compare/${branch}?expand=1`,
       }),
       selectPublishRemote,
@@ -108,7 +113,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status({ upstream: null }),
-      service: service({ createPullRequestUrl }),
+      provider: provider({ createPullRequestUrl }),
       git,
       selectPublishRemote,
       openExternal,
@@ -128,7 +133,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status({ upstream: null }),
-      service: service({ createPullRequestUrl }),
+      provider: provider({ createPullRequestUrl }),
       git: {
         remotes: async () => ({ remotes: [] }),
         publish,
@@ -151,7 +156,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status({ upstream: null }),
-      service: service({ createPullRequestUrl }),
+      provider: provider({ createPullRequestUrl }),
       git: {
         remotes: async () => ({ remotes: [] }),
         publish: async () => {
@@ -173,7 +178,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status(),
-      service: service(),
+      provider: provider(),
       openExternal: async () => ({ ok: false, error: 'blocked' }),
       toastError,
     });
@@ -187,7 +192,7 @@ describe('githubScmContribution', () => {
 
     await createGithubPullRequest({
       status: status(),
-      service: service({
+      provider: provider({
         createPullRequestUrl: async () => {
           throw new Error('bad credentials');
         },
@@ -198,5 +203,19 @@ describe('githubScmContribution', () => {
 
     expect(openExternal).not.toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith('bad credentials');
+  });
+
+  it('binds the SCM menu command to the registered GitHub pull request provider', async () => {
+    const createPullRequestUrl = vi.fn(async () => 'https://github.com/o/r/compare/topic?expand=1');
+    const contribution = createGithubPullRequestsScmContribution(
+      provider({ createPullRequestUrl }),
+    );
+    const actions = contribution.menuActions?.({ status: status() } as never) ?? [];
+
+    actions[0]?.onClick?.();
+
+    await vi.waitFor(() => {
+      expect(createPullRequestUrl).toHaveBeenCalledWith('topic');
+    });
   });
 });

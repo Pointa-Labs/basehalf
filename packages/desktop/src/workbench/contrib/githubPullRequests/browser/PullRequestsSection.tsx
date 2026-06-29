@@ -1,24 +1,7 @@
-import { type JSX, type ReactNode, useEffect, useState } from 'react';
+import type { JSX, ReactNode } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import { Disclosure } from '../../../browser/ui/primitives/Disclosure.js';
-import {
-  type AuthenticationService,
-  authenticationService,
-} from '../../../services/authentication/browser/authenticationService.js';
-import { GITHUB_AUTH_PROVIDER_ID } from '../../../services/authentication/common/authentication.js';
-import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
-import { openSettings } from '../../preferences/browser/Settings.js';
-import type { GhPullRequest, GithubRemoteRepository } from '../common/githubPullRequests.js';
-import {
-  type GithubPullRequestService,
-  githubPullRequestService,
-} from './githubPullRequestService.js';
-import {
-  loadPullRequests,
-  loginFromAuthenticationSessions,
-  resolvePullRequestRepository,
-  shouldLoadPullRequests,
-} from './pullRequestsSectionModel.js';
+import type { PullRequestsSectionModel } from './pullRequestsSectionModel.js';
 
 /**
  * The Pull Requests section in Source Control — VS Code's GitHub Pull Requests
@@ -26,108 +9,46 @@ import {
  * github.com. Signed out → a one-click jump to Settings to sign in; signed in →
  * the open PRs (title · #number · author → branch), each opening the PR.
  *
- * Reads a GitHub PR service to decide visibility and list PRs. The default
- * service is the IPC-backed provider; tests and future extensions can swap it.
+ * Renders the GitHub-owned PR section model. Provider/service/auth loading stays
+ * in `pullRequestsSectionModel`, so the SCM view only receives view state and
+ * commands.
  */
 
 export const PullRequestsSection = ({
-  authService = authenticationService,
-  service = githubPullRequestService,
+  model,
 }: {
-  authService?: AuthenticationService;
-  service?: GithubPullRequestService;
+  model: PullRequestsSectionModel;
 }): JSX.Element | null => {
-  const [open, setOpen] = useState(true);
-  const [login, setLogin] = useState<string | null | undefined>(undefined);
-  const [repository, setRepository] = useState<GithubRemoteRepository | null | undefined>(
-    undefined,
-  );
-  const [prs, setPrs] = useState<GhPullRequest[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const openPr = useWorkspaceStore((s) => s.openPr);
-
-  useEffect(() => {
-    let cancelled = false;
-    const refreshContext = (): void => {
-      setPrs(null);
-      setError(null);
-      void (async () => {
-        const [nextRepository, sessions] = await Promise.all([
-          resolvePullRequestRepository(service),
-          authService.getSessions(GITHUB_AUTH_PROVIDER_ID).catch(() => []),
-        ]);
-        if (cancelled) return;
-        setRepository(nextRepository);
-        setLogin(loginFromAuthenticationSessions(sessions));
-      })();
-    };
-    refreshContext();
-    const unsubscribe = authService.onDidChangeSessions((event) => {
-      if (event.providerId === GITHUB_AUTH_PROVIDER_ID) refreshContext();
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [authService, service]);
-
-  useEffect(() => {
-    if (!shouldLoadPullRequests(repository, login, open)) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      setError(null);
-      const result = await loadPullRequests(service, repository.remoteUrl);
-      if (cancelled) return;
-      setError(result.error);
-      setPrs(result.pullRequests);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [repository, login, open, service]);
+  const { repository, login, pullRequests, error, open, count } = model;
 
   // Still resolving, or not a github repo → render nothing.
   if (repository === undefined || login === undefined) return null;
   if (repository === null) return null;
 
   return (
-    <Disclosure
-      title="Pull Requests"
-      count={prs?.length ?? 0}
-      open={open}
-      onToggle={() => setOpen(!open)}
-    >
+    <Disclosure title="Pull Requests" count={count} open={open} onToggle={model.toggleOpen}>
       <div data-testid="pull-requests">
         {login === null ? (
           <Hint>
             Sign in to GitHub to see pull requests here.{' '}
-            <button type="button" onClick={() => openSettings()} style={linkStyle}>
+            <button type="button" onClick={model.openSettings} style={linkStyle}>
               Open Settings
             </button>
           </Hint>
-        ) : prs === null ? (
+        ) : pullRequests === null ? (
           <Hint>Loading pull requests…</Hint>
         ) : error !== null ? (
           <Hint>{error}</Hint>
-        ) : prs.length === 0 ? (
+        ) : pullRequests.length === 0 ? (
           <Hint>No open pull requests.</Hint>
         ) : (
-          prs.map((pr) => (
+          pullRequests.map((pr) => (
             <button
               key={pr.number}
               type="button"
               data-testid="pr-row"
               title={`#${pr.number} · ${pr.headRef} → ${pr.baseRef}`}
-              onClick={() =>
-                openPr({
-                  number: pr.number,
-                  title: pr.title,
-                  remoteUrl: repository.remoteUrl,
-                  url: pr.url,
-                })
-              }
+              onClick={() => model.openPullRequest(pr)}
               style={{
                 display: 'flex',
                 flexDirection: 'column',

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { GithubChannel } from '../src/workbench/contrib/githubPullRequests/browser/githubChannel.js';
-import { createGithubPullRequestService } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
+import {
+  createGithubPullRequestProvider,
+  createGithubPullRequestService,
+} from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
 
 describe('githubPullRequestService', () => {
   it('maps repository and pull request creation commands into service methods', async () => {
@@ -64,6 +67,50 @@ describe('githubPullRequestService', () => {
     await service.reviewPullRequest({ remoteUrl: 'remote', number: 7, event: 'APPROVE' });
 
     expect(calls).toEqual([
+      { name: 'listPullRequests', args: { remoteUrl: 'remote' } },
+      { name: 'pullRequestFiles', args: { remoteUrl: 'remote', number: 7 } },
+      {
+        name: 'reviewPullRequest',
+        args: { remoteUrl: 'remote', number: 7, event: 'APPROVE' },
+      },
+    ]);
+  });
+
+  it('wraps the IPC service as the GitHub pull request provider surface', async () => {
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const provider = createGithubPullRequestProvider({
+      repository: async () => {
+        calls.push({ name: 'repository', args: {} });
+        return null;
+      },
+      createPullRequestUrl: async (branch) => {
+        calls.push({ name: 'createPullRequestUrl', args: { branch } });
+        return null;
+      },
+      listPullRequests: async (remoteUrl) => {
+        calls.push({ name: 'listPullRequests', args: { remoteUrl } });
+        return [];
+      },
+      pullRequestFiles: async (remoteUrl, number) => {
+        calls.push({ name: 'pullRequestFiles', args: { remoteUrl, number } });
+        return [];
+      },
+      reviewPullRequest: async (args) => {
+        calls.push({ name: 'reviewPullRequest', args });
+      },
+    });
+
+    expect(provider.id).toBe('github');
+    expect(provider.name).toBe('GitHub');
+    await expect(provider.provideRepository()).resolves.toBeNull();
+    await expect(provider.createPullRequestUrl('topic')).resolves.toBeNull();
+    await expect(provider.providePullRequests('remote')).resolves.toEqual([]);
+    await expect(provider.providePullRequestFiles('remote', 7)).resolves.toEqual([]);
+    await provider.reviewPullRequest({ remoteUrl: 'remote', number: 7, event: 'APPROVE' });
+
+    expect(calls).toEqual([
+      { name: 'repository', args: {} },
+      { name: 'createPullRequestUrl', args: { branch: 'topic' } },
       { name: 'listPullRequests', args: { remoteUrl: 'remote' } },
       { name: 'pullRequestFiles', args: { remoteUrl: 'remote', number: 7 } },
       {

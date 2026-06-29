@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isSafePullRequestExternalUrl,
   pullRequestFileRows,
+  pullRequestViewFiles,
   reviewSuccessMessage,
   selectPullRequestFile,
 } from '../src/workbench/contrib/githubPullRequests/browser/pullRequestViewModel.js';
@@ -44,6 +45,44 @@ describe('pullRequestViewModel', () => {
     expect(reviewSuccessMessage('APPROVE')).toBe('Approved.');
     expect(reviewSuccessMessage('REQUEST_CHANGES')).toBe('Changes requested.');
     expect(reviewSuccessMessage('COMMENT')).toBe('Comment submitted.');
+  });
+
+  it('loads pull request files from either service or provider-shaped sources', async () => {
+    await expect(
+      pullRequestViewFiles(
+        {
+          pullRequestFiles: async (remoteUrl, number) => [
+            {
+              filename: `${remoteUrl}/${number}.ts`,
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+            },
+          ],
+          reviewPullRequest: async () => {},
+        },
+        'remote',
+        7,
+      ),
+    ).resolves.toMatchObject([{ filename: 'remote/7.ts' }]);
+
+    await expect(
+      pullRequestViewFiles(
+        {
+          providePullRequestFiles: async (remoteUrl, number) => [
+            {
+              filename: `${remoteUrl}/${number}.ts`,
+              status: 'modified',
+              additions: 1,
+              deletions: 0,
+            },
+          ],
+          reviewPullRequest: async () => {},
+        },
+        'remote',
+        8,
+      ),
+    ).resolves.toMatchObject([{ filename: 'remote/8.ts' }]);
   });
 
   it('allows only the exact github.com pull request URL for external opening', () => {

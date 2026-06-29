@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { GithubPullRequestService } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
+import type { GithubPullRequestProvider } from '../src/workbench/contrib/githubPullRequests/browser/githubPullRequestService.js';
 import {
   loadPullRequests,
   loginFromAuthenticationSessions,
+  pullRequestEditorInput,
   resolvePullRequestRepository,
   shouldLoadPullRequests,
 } from '../src/workbench/contrib/githubPullRequests/browser/pullRequestsSectionModel.js';
@@ -18,12 +19,14 @@ const repo: GithubRemoteRepository = {
   isReadOnly: false,
 };
 
-function service(overrides: Partial<GithubPullRequestService> = {}): GithubPullRequestService {
+function provider(overrides: Partial<GithubPullRequestProvider> = {}): GithubPullRequestProvider {
   return {
-    repository: async () => repo,
+    id: 'github',
+    name: 'GitHub',
+    provideRepository: async () => repo,
     createPullRequestUrl: async () => null,
-    listPullRequests: async () => [],
-    pullRequestFiles: async () => [],
+    providePullRequests: async () => [],
+    providePullRequestFiles: async () => [],
     reviewPullRequest: async () => {},
     ...overrides,
   };
@@ -31,12 +34,12 @@ function service(overrides: Partial<GithubPullRequestService> = {}): GithubPullR
 
 describe('pullRequestsSectionModel', () => {
   it('resolves repository without owning authentication', async () => {
-    await expect(resolvePullRequestRepository(service())).resolves.toEqual(repo);
+    await expect(resolvePullRequestRepository(provider())).resolves.toEqual(repo);
 
     await expect(
       resolvePullRequestRepository(
-        service({
-          repository: async () => {
+        provider({
+          provideRepository: async () => {
             throw new Error('not a github repo');
           },
         }),
@@ -66,8 +69,8 @@ describe('pullRequestsSectionModel', () => {
   it('maps provider success and failure into view state', async () => {
     await expect(
       loadPullRequests(
-        service({
-          listPullRequests: async () => [
+        provider({
+          providePullRequests: async () => [
             {
               number: 7,
               title: 'Ship',
@@ -87,13 +90,34 @@ describe('pullRequestsSectionModel', () => {
 
     await expect(
       loadPullRequests(
-        service({
-          listPullRequests: async () => {
+        provider({
+          providePullRequests: async () => {
             throw new Error('bad credentials');
           },
         }),
         repo.remoteUrl,
       ),
     ).resolves.toEqual({ pullRequests: [], error: 'bad credentials' });
+  });
+
+  it('maps a GitHub pull request into the workspace PR editor input', () => {
+    expect(
+      pullRequestEditorInput(repo, {
+        number: 7,
+        title: 'Ship',
+        author: 'ada',
+        state: 'open',
+        draft: false,
+        headRef: 'topic',
+        baseRef: 'main',
+        url: 'https://github.com/o/r/pull/7',
+        updatedAt: '2026-06-28T00:00:00Z',
+      }),
+    ).toEqual({
+      number: 7,
+      title: 'Ship',
+      remoteUrl: 'https://github.com/o/r.git',
+      url: 'https://github.com/o/r/pull/7',
+    });
   });
 });

@@ -2,7 +2,11 @@ import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from
 import { parseUnifiedPatch } from '../../multiDiffEditor/browser/parseUnifiedPatch.js';
 import type { DiffRow } from '../../multiDiffEditor/browser/unifiedDiffModel.js';
 import type { GhPrFile, GithubReviewArgs } from '../common/githubPullRequests.js';
-import { type GithubPullRequestService, githubErrorMessage } from './githubPullRequestService.js';
+import {
+  type GithubPullRequestProvider,
+  type GithubPullRequestService,
+  githubErrorMessage,
+} from './githubPullRequestService.js';
 
 const GITHUB_TOP_LEVEL_ROUTES = new Set([
   'codespaces',
@@ -31,6 +35,10 @@ export interface PullRequestReviewSubmitResult {
   readonly ok: boolean;
   readonly message: string;
 }
+
+export type PullRequestViewDataSource =
+  | Pick<GithubPullRequestService, 'pullRequestFiles' | 'reviewPullRequest'>
+  | Pick<GithubPullRequestProvider, 'providePullRequestFiles' | 'reviewPullRequest'>;
 
 export interface PullRequestViewModel {
   readonly files: readonly GhPrFile[] | null;
@@ -89,6 +97,16 @@ export function isSafePullRequestExternalUrl(value: string, number: number): boo
   );
 }
 
+export function pullRequestViewFiles(
+  source: PullRequestViewDataSource,
+  remoteUrl: string,
+  number: number,
+): Promise<readonly GhPrFile[]> {
+  return 'providePullRequestFiles' in source
+    ? source.providePullRequestFiles(remoteUrl, number)
+    : source.pullRequestFiles(remoteUrl, number);
+}
+
 export function usePullRequestViewModel({
   number,
   remoteUrl,
@@ -96,7 +114,7 @@ export function usePullRequestViewModel({
 }: {
   readonly number: number;
   readonly remoteUrl: string;
-  readonly service: GithubPullRequestService;
+  readonly service: PullRequestViewDataSource;
 }): PullRequestViewModel {
   const [files, setFiles] = useState<readonly GhPrFile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +129,7 @@ export function usePullRequestViewModel({
       setFiles(null);
       setSelected(null);
       try {
-        const pullRequestFiles = await service.pullRequestFiles(remoteUrl, number);
+        const pullRequestFiles = await pullRequestViewFiles(service, remoteUrl, number);
         if (cancelled) return;
         const nextFiles = [...pullRequestFiles];
         setFiles(nextFiles);
