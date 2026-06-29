@@ -8,7 +8,11 @@ import {
   type IQuickAccessProvider,
   QuickAccessRegistry,
 } from '../src/platform/quickinput/common/quickAccess.js';
-import { ItemActivation } from '../src/platform/quickinput/common/quickInput.js';
+import {
+  type IQuickPick,
+  type IQuickPickItem,
+  ItemActivation,
+} from '../src/platform/quickinput/common/quickInput.js';
 import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
 import {
   COMMANDS_QUICK_ACCESS_ID,
@@ -200,6 +204,55 @@ describe('QuickAccessController', () => {
     expect(registry.getQuickAccessProvider('>')?.provider).toBe(provider);
   });
 
+  it('lazily resolves provider factories and constructors from descriptors', () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    const factoryProvide = vi.fn(() => ({ dispose: vi.fn() }));
+    const factory = vi.fn(
+      (): IQuickAccessProvider => ({
+        defaultFilterValue: 'factory',
+        provide: factoryProvide,
+      }),
+    );
+    let constructed = 0;
+    const ctorProvide = vi.fn(() => ({ dispose: vi.fn() }));
+    class CtorProvider implements IQuickAccessProvider {
+      readonly defaultFilterValue = 'ctor';
+
+      constructor() {
+        constructed += 1;
+      }
+
+      provide = ctorProvide;
+    }
+    registry.registerQuickAccessProvider({ id: 'factory', prefix: '?', factory });
+    registry.registerQuickAccessProvider({ id: 'ctor', prefix: '#', ctor: CtorProvider });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    controller.show('?');
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factoryProvide).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({
+      value: '?factory',
+      filterValue: 'factory',
+      providerId: 'factory',
+    });
+
+    controller.hide();
+    controller.show('?again');
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factoryProvide).toHaveBeenCalledTimes(2);
+
+    controller.show('#');
+    expect(constructed).toBe(1);
+    expect(ctorProvide).toHaveBeenCalledTimes(1);
+    expect(controller.getState()).toMatchObject({
+      value: '#ctor',
+      filterValue: 'ctor',
+      providerId: 'ctor',
+    });
+  });
+
   it('runs provider lifecycle with a quick pick when quick input is available', () => {
     const registry = new QuickAccessRegistry();
     const quickInput = new QuickInputController();
@@ -239,6 +292,55 @@ describe('QuickAccessController', () => {
     expect(picker?.items).toEqual([{ label: 'Git: Fetch' }]);
     expect(token?.isCancellationRequested).toBe(false);
     expect(options).toEqual({ from: 'test' });
+  });
+
+  it('picks the active provider item without executing provider accept handlers', async () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    const providerAccept = vi.fn();
+    const pick: IQuickPickItem = { id: 'git.fetch', label: 'Git: Fetch' };
+    let providedPicker: IQuickPick<IQuickPickItem> | undefined;
+    const provider: IQuickAccessProvider = {
+      provide: vi.fn((picker) => {
+        providedPicker = picker;
+        picker.items = [pick];
+        picker.activeItems = [pick];
+        picker.onDidAccept(providerAccept);
+        return { dispose: vi.fn() };
+      }),
+    };
+    registry.registerQuickAccessProvider({ id: 'commands', prefix: '>', provider });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    const picked = controller.pick('>');
+    if (providedPicker === undefined) throw new Error('picker was not provided');
+    providedPicker.accept();
+
+    await expect(picked).resolves.toEqual([pick]);
+    expect(providerAccept).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({ visible: false, value: '' });
+  });
+
+  it('resolves pick as undefined when the picker is canceled', async () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    let providedPicker: IQuickPick<IQuickPickItem> | undefined;
+    const provider: IQuickAccessProvider = {
+      provide: vi.fn((picker) => {
+        providedPicker = picker;
+        picker.items = [{ id: 'git.fetch', label: 'Git: Fetch' }];
+        return { dispose: vi.fn() };
+      }),
+    };
+    registry.registerQuickAccessProvider({ id: 'commands', prefix: '>', provider });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    const picked = controller.pick('>');
+    if (providedPicker === undefined) throw new Error('picker was not provided');
+    providedPicker.hide();
+
+    await expect(picked).resolves.toBeUndefined();
+    expect(controller.getState()).toMatchObject({ visible: false, value: '' });
   });
 
   it('switches provider runs when a provider-owned picker value changes prefix', () => {

@@ -36,6 +36,10 @@ export interface IQuickAccessController {
   getState(): QuickAccessControllerState;
   subscribe(listener: QuickAccessControllerListener): () => void;
   show(value?: string, options?: QuickAccessOptions): void;
+  pick(
+    value?: string,
+    options?: QuickAccessOptions,
+  ): Promise<readonly IQuickPickItem[] | undefined>;
   updateValue(value: string): void;
   hide(): void;
   toggle(value?: string, options?: QuickAccessOptions): void;
@@ -72,13 +76,19 @@ export interface QuickAccessProviderHelp {
   readonly commandId?: string;
 }
 
+export type QuickAccessProviderFactory = () => IQuickAccessProvider;
+
+export type QuickAccessProviderCtor = new () => IQuickAccessProvider;
+
 export interface QuickAccessProviderDescriptor {
-  readonly id: string;
+  readonly id?: string;
   readonly prefix: string;
   readonly placeholder?: string;
   readonly contextKey?: string;
   readonly defaultFilterValue?: string | DefaultQuickAccessFilterValue;
   readonly provider?: IQuickAccessProvider;
+  readonly factory?: QuickAccessProviderFactory;
+  readonly ctor?: QuickAccessProviderCtor;
   readonly helpEntries?: readonly QuickAccessProviderHelp[];
 }
 

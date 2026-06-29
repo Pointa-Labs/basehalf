@@ -1,6 +1,7 @@
 import {
   DefaultQuickAccessFilterValue,
   type IQuickAccessController,
+  type IQuickAccessProvider,
   type QuickAccessControllerListener,
   type QuickAccessControllerState,
   type QuickAccessOptions,
@@ -31,6 +32,15 @@ interface VisibleQuickAccessProviderRun {
   readonly unsubscribeHide: () => void;
   readonly unsubscribeValue: () => void;
   readonly unsubscribeAccept: () => void;
+  pickSession?: VisibleQuickAccessPickSession;
+}
+
+interface VisibleQuickAccessPickSession {
+  readonly promise: Promise<readonly IQuickPickItem[] | undefined>;
+  unsubscribeWillAccept: () => void;
+  acceptedItems?: readonly IQuickPickItem[];
+  settled: boolean;
+  resolve: (items: readonly IQuickPickItem[] | undefined) => void;
 }
 
 /**
@@ -43,7 +53,11 @@ interface VisibleQuickAccessProviderRun {
 export class QuickAccessController implements IQuickAccessController {
   private state: QuickAccessControllerState = closedQuickAccessState();
   private readonly listeners = new Set<QuickAccessControllerListener>();
-  private readonly lastAcceptedValues = new Map<string, string>();
+  private readonly lastAcceptedValues = new Map<QuickAccessProviderDescriptor, string>();
+  private readonly providerInstances = new Map<
+    QuickAccessProviderDescriptor,
+    IQuickAccessProvider
+  >();
   private visibleProviderRun: VisibleQuickAccessProviderRun | undefined;
   private visibleOptions: QuickAccessOptions = {};
 
@@ -61,11 +75,32 @@ export class QuickAccessController implements IQuickAccessController {
   }
 
   show(value = '', options: QuickAccessOptions = {}): void {
+    this.showOrPick(value, options, false);
+  }
+
+  pick(
+    value = '',
+    options: QuickAccessOptions = {},
+  ): Promise<readonly IQuickPickItem[] | undefined> {
+    return this.showOrPick(value, options, true) ?? Promise.resolve(undefined);
+  }
+
+  private showOrPick(value: string, options: QuickAccessOptions, pick: false): void;
+  private showOrPick(
+    value: string,
+    options: QuickAccessOptions,
+    pick: true,
+  ): Promise<readonly IQuickPickItem[] | undefined> | undefined;
+  private showOrPick(
+    value: string,
+    options: QuickAccessOptions,
+    pick: boolean,
+  ): Promise<readonly IQuickPickItem[] | undefined> | undefined {
     this.visibleOptions = options;
     const descriptor = this.providerForValue(value, options.enabledProviderPrefixes);
     const nextValue = this.valueForShow(value, descriptor, options);
     this.setOpenState(descriptor, nextValue, options);
-    this.syncProviderRun(descriptor, nextValue, options);
+    return this.syncProviderRun(descriptor, nextValue, options, pick);
   }
 
   updateValue(value: string): void {
@@ -75,7 +110,7 @@ export class QuickAccessController implements IQuickAccessController {
       ...this.visibleOptions,
       preserveValue: true,
     });
-    this.syncProviderRun(descriptor, value, this.visibleOptions);
+    this.syncProviderRun(descriptor, value, this.visibleOptions, false);
   }
 
   hide(): void {
@@ -90,8 +125,11 @@ export class QuickAccessController implements IQuickAccessController {
   }
 
   accept(value = this.state.value): void {
-    if (this.state.providerId !== undefined) {
-      this.lastAcceptedValues.set(this.state.providerId, value);
+    const descriptor =
+      this.visibleProviderRun?.descriptor ??
+      this.providerForValue(value, this.visibleOptions.enabledProviderPrefixes);
+    if (descriptor !== undefined) {
+      this.lastAcceptedValues.set(descriptor, value);
     }
   }
 
@@ -129,20 +167,21 @@ export class QuickAccessController implements IQuickAccessController {
     descriptor: QuickAccessProviderDescriptor | undefined,
     value: string,
     options: QuickAccessOptions,
-  ): void {
-    const provider = descriptor?.provider;
+    pick: boolean,
+  ): Promise<readonly IQuickPickItem[] | undefined> | undefined {
+    const provider = this.providerForDescriptor(descriptor);
     if (
       descriptor === undefined ||
       provider === undefined ||
       this.quickInputService === undefined
     ) {
       this.disposeProviderRun();
-      return;
+      return pick ? Promise.resolve(undefined) : undefined;
     }
 
     if (this.visibleProviderRun?.descriptor === descriptor) {
       this.applyPickerState(this.visibleProviderRun.picker, descriptor, value, options);
-      return;
+      return pick ? this.installPickSession(this.visibleProviderRun) : undefined;
     }
 
     const hadVisibleProviderRun = this.visibleProviderRun !== undefined;
@@ -150,8 +189,11 @@ export class QuickAccessController implements IQuickAccessController {
     const picker = this.quickInputService.createQuickPick({ useSeparators: true });
     const cancellation = new QuickAccessCancellationTokenSource();
     this.applyPickerState(picker, descriptor, value, options, hadVisibleProviderRun);
+    const pickSession = pick ? this.createPickSession(picker) : undefined;
     const unsubscribeHide = picker.onDidHide(() => {
-      if (this.visibleProviderRun?.picker === picker) {
+      const run = this.visibleProviderRun;
+      if (run?.picker === picker) {
+        this.resolvePickSession(run);
         this.hide();
       }
     });
@@ -169,6 +211,8 @@ export class QuickAccessController implements IQuickAccessController {
     try {
       disposable = provider.provide(picker, cancellation.token, options.providerOptions);
     } catch (err) {
+      pickSession?.unsubscribeWillAccept();
+      pickSession?.resolve(undefined);
       unsubscribeHide();
       unsubscribeValue();
       unsubscribeAccept();
@@ -185,9 +229,11 @@ export class QuickAccessController implements IQuickAccessController {
       unsubscribeHide,
       unsubscribeValue,
       unsubscribeAccept,
+      ...(pickSession !== undefined && { pickSession }),
     };
     this.visibleProviderRun = run;
     picker.show();
+    return pickSession?.promise;
   }
 
   private applyPickerState(
@@ -213,6 +259,7 @@ export class QuickAccessController implements IQuickAccessController {
     const run = this.visibleProviderRun;
     if (run === undefined) return;
     this.visibleProviderRun = undefined;
+    this.resolvePickSession(run);
     run.unsubscribeHide();
     run.unsubscribeValue();
     run.unsubscribeAccept();
@@ -237,6 +284,27 @@ export class QuickAccessController implements IQuickAccessController {
     return descriptor;
   }
 
+  private providerForDescriptor(
+    descriptor: QuickAccessProviderDescriptor | undefined,
+  ): IQuickAccessProvider | undefined {
+    if (descriptor === undefined) return undefined;
+    if (descriptor.provider !== undefined) return descriptor.provider;
+
+    let provider = this.providerInstances.get(descriptor);
+    if (provider !== undefined) return provider;
+
+    if (descriptor.factory !== undefined) {
+      provider = descriptor.factory();
+    } else if (descriptor.ctor !== undefined) {
+      provider = new descriptor.ctor();
+    }
+
+    if (provider !== undefined) {
+      this.providerInstances.set(descriptor, provider);
+    }
+    return provider;
+  }
+
   private valueForShow(
     value: string,
     descriptor: QuickAccessProviderDescriptor | undefined,
@@ -246,11 +314,55 @@ export class QuickAccessController implements IQuickAccessController {
     if (value !== descriptor.prefix) return value;
 
     const defaultFilterValue =
-      descriptor.defaultFilterValue ?? descriptor.provider?.defaultFilterValue;
+      descriptor.defaultFilterValue ?? this.providerForDescriptor(descriptor)?.defaultFilterValue;
     if (defaultFilterValue === DefaultQuickAccessFilterValue.LAST) {
-      return this.lastAcceptedValues.get(descriptor.id) ?? value;
+      return this.lastAcceptedValues.get(descriptor) ?? value;
     }
     if (typeof defaultFilterValue === 'string') return `${descriptor.prefix}${defaultFilterValue}`;
     return value;
   }
+
+  private installPickSession(
+    run: VisibleQuickAccessProviderRun,
+  ): Promise<readonly IQuickPickItem[] | undefined> {
+    this.resolvePickSession(run);
+    const session = this.createPickSession(run.picker);
+    run.pickSession = session;
+    return session.promise;
+  }
+
+  private createPickSession(picker: IQuickPick<IQuickPickItem>): VisibleQuickAccessPickSession {
+    let resolveSession!: (items: readonly IQuickPickItem[] | undefined) => void;
+    const promise = new Promise<readonly IQuickPickItem[] | undefined>((resolve) => {
+      resolveSession = resolve;
+    });
+    const session: VisibleQuickAccessPickSession = {
+      promise,
+      unsubscribeWillAccept: () => {},
+      settled: false,
+      resolve: resolveSession,
+    };
+    session.unsubscribeWillAccept = picker.onWillAccept((event) => {
+      event.veto();
+      session.acceptedItems = pickedQuickAccessItems(picker);
+      picker.hide();
+    });
+    return session;
+  }
+
+  private resolvePickSession(run: VisibleQuickAccessProviderRun): void {
+    const session = run.pickSession;
+    if (session === undefined) return;
+    run.pickSession = undefined;
+    if (session.settled) return;
+    session.settled = true;
+    session.unsubscribeWillAccept();
+    session.resolve(session.acceptedItems);
+  }
+}
+
+function pickedQuickAccessItems(picker: IQuickPick<IQuickPickItem>): readonly IQuickPickItem[] {
+  if (picker.canSelectMany) return [...picker.selectedItems];
+  const pickedItems = picker.selectedItems.length > 0 ? picker.selectedItems : picker.activeItems;
+  return [...pickedItems];
 }
