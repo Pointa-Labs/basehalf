@@ -1,4 +1,4 @@
-import type { GitRow } from './gitStatusModel.js';
+import type { GitRow } from '../common/gitStatusModel.js';
 
 export type ScmGroupId = 'merge' | 'staged' | 'changes';
 export type CommitAfter = 'push' | 'sync';

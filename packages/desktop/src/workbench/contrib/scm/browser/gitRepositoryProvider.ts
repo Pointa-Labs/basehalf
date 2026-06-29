@@ -1,5 +1,5 @@
 import type { GitStatusResult } from '../common/git.js';
-import { type GitGroups, classifyStatus } from './gitStatusModel.js';
+import { type GitGroups, classifyStatus } from '../common/gitStatusModel.js';
 import { type SourceControlViewModel, sourceControlViewModel } from './sourceControlViewModel.js';
 
 const EMPTY_GROUPS: GitGroups = Object.freeze({

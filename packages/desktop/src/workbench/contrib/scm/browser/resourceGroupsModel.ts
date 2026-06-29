@@ -1,4 +1,4 @@
-import type { GitGroups, GitRow } from './gitStatusModel.js';
+import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
 import { type ScmGroupId, rowKey } from './types.js';
 
 export interface ResourceRowItem {

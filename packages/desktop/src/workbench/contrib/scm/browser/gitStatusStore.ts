@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import type { GitFileStatus, GitStatusResult } from '../common/git.js';
+import { buildFolderStatus } from '../common/gitStatusModel.js';
 import { gitScmService } from './gitScmService.js';
-import { buildFolderStatus } from './gitStatusModel.js';
 
 /**
  * Shared git status for the whole renderer — the SCM panel, the file-tree /

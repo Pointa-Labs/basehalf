@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { GitGroups, GitRow } from '../src/workbench/contrib/scm/browser/gitStatusModel.js';
 import {
   emptyResourceSelection,
   flattenResourceRows,
@@ -9,6 +8,7 @@ import {
   selectedRowsForResourceAction,
   toggleResourceSelection,
 } from '../src/workbench/contrib/scm/browser/resourceGroupsModel.js';
+import type { GitGroups, GitRow } from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
 const row = (path: string, status = 'M'): GitRow => ({
   path,

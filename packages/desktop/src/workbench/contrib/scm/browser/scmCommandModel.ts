@@ -1,6 +1,6 @@
 import { GitError, GitErrorCodes, type GitStashEntry, gitErrorMessage } from '../common/git.js';
+import type { GitRow } from '../common/gitStatusModel.js';
 import { type GitScmService, entryKindForGitPath } from './gitScmService.js';
-import type { GitRow } from './gitStatusModel.js';
 import type { CommitActionOptions } from './types.js';
 
 type MaybePromise = Promise<void> | void;

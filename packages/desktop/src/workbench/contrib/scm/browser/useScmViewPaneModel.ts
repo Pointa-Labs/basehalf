@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitStashEntry, GitStatusResult } from '../common/git.js';
+import type { GitGroups } from '../common/gitStatusModel.js';
 import {
   type GitRepositoryProviderModel,
   gitRepositoryGroups,
   gitRepositoryProviderModel,
 } from './gitRepositoryProvider.js';
 import { gitScmService } from './gitScmService.js';
-import type { GitGroups } from './gitStatusModel.js';
 import { useGitStatusStore } from './gitStatusStore.js';
 import { useScmViewStore } from './scmViewStore.js';
 import { type ScmCommands, useScmCommands } from './useScmCommands.js';

@@ -8,7 +8,7 @@ import {
 import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
 import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
-import type { GitGroups, GitRow } from './gitStatusModel.js';
+import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
 import {
   type ResourceSelection,
   emptyResourceSelection,

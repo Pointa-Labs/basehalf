@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import type { GitFileStatus } from '../src/workbench/contrib/scm/common/git.js';
 import {
   buildFolderStatus,
   classifyStatus,
   fileDecoration,
   statusTooltip,
   totalChangeCount,
-} from '../src/workbench/contrib/scm/browser/gitStatusModel.js';
-import type { GitFileStatus } from '../src/workbench/contrib/scm/common/git.js';
+} from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
 const PAL = {
   added: 'green',

@@ -4,12 +4,12 @@ import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
 import { color, font, radius, shadow, space, transition } from '../../../browser/style/design.js';
 import { InlineEditInput } from '../../../browser/ui/primitives/InlineEditInput.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
+import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
 import {
   type GitDecoPalette,
   fileDecoration,
   statusTooltip,
-} from '../../scm/browser/gitStatusModel.js';
-import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
+} from '../../scm/common/gitStatusModel.js';
 import { CardBadgeFace } from './CardBadgeFace.js';
 import { CardTitleChip, FolderContents, KindChip } from './badge-node/BadgeCardParts.js';
 import { BadgeDiffPreview, BadgePreview } from './badge-node/BadgePreviews.js';

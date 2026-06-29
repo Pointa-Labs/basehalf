@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
-import type { GitRow } from '../src/workbench/contrib/scm/browser/gitStatusModel.js';
 import {
   applyDiscardPlan,
   commitPlan,
@@ -13,6 +12,7 @@ import {
   scmErrorMessage,
 } from '../src/workbench/contrib/scm/browser/scmCommandModel.js';
 import { GitError, GitErrorCodes } from '../src/workbench/contrib/scm/common/git.js';
+import type { GitRow } from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
 const tracked = (path: string): GitRow => ({
   path,

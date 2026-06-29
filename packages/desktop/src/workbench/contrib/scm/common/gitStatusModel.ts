@@ -1,4 +1,4 @@
-import type { GitFileStatus } from '../common/git.js';
+import type { GitFileStatus } from './git.js';
 
 /**
  * Turn the raw `git.status` file list (each with an index `x` + work-tree `y`

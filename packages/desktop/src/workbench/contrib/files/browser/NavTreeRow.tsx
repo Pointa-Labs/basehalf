@@ -3,12 +3,12 @@ import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/co
 import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
 import { color, font, radius, shadow, space, transition } from '../../../browser/style/design.js';
 import { InlineEditInput } from '../../../browser/ui/primitives/InlineEditInput.js';
+import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
 import {
   type GitDecoPalette,
   fileDecoration,
   statusTooltip,
-} from '../../scm/browser/gitStatusModel.js';
-import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
+} from '../../scm/common/gitStatusModel.js';
 import { ROW_HEIGHT, isAgentHintFile } from '../common/navTreeModel.js';
 
 // File-tree git-status colors (VS Code conventions): added / untracked green,

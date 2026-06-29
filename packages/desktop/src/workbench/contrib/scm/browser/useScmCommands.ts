@@ -6,8 +6,8 @@ import {
   githubPullRequestService,
 } from '../../githubPullRequests/browser/githubPullRequestService.js';
 import type { GitStashEntry, GitStatusResult } from '../common/git.js';
+import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
-import type { GitGroups, GitRow } from './gitStatusModel.js';
 import { runScmAction } from './scmCommandModel.js';
 import type { CommitActionOptions } from './types.js';
 import { useScmCommitCommands } from './useScmCommitCommands.js';

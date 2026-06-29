@@ -3,9 +3,9 @@ import { openContextMenu } from '../../../../platform/contextview/browser/contex
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { CountBadge } from '../../../browser/ui/primitives/CountBadge.js';
+import type { GitRow } from '../common/gitStatusModel.js';
 import { ResourceRow } from './ResourceRow.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
-import type { GitRow } from './gitStatusModel.js';
 import { scm } from './styles.js';
 import { type RowAction, type ScmGroupId, rowKey } from './types.js';
 

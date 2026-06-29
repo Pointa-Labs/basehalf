@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
+import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
 import { ResourceGroup } from './ResourceGroup.js';
-import type { GitGroups, GitRow } from './gitStatusModel.js';
 import { useResourceGroupsController } from './useResourceGroupsController.js';
 
 export const ResourceGroups = ({

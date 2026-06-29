@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { GitGroups } from '../src/workbench/contrib/scm/browser/gitStatusModel.js';
 import { sourceControlViewModel } from '../src/workbench/contrib/scm/browser/sourceControlViewModel.js';
 import type { GitStatusResult } from '../src/workbench/contrib/scm/common/git.js';
+import type { GitGroups } from '../src/workbench/contrib/scm/common/gitStatusModel.js';
 
 const emptyGroups: GitGroups = { merge: [], staged: [], changes: [] };
 

@@ -1,4 +1,4 @@
-import type { GitRow } from './gitStatusModel.js';
+import type { GitRow } from '../common/gitStatusModel.js';
 
 /** A human status label for a row's aria-label (so a screen reader announces
  *  "name, Modified, dir" instead of stopping at the filename). */
