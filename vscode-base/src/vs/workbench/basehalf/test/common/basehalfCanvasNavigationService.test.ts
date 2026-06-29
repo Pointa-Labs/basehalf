@@ -54,7 +54,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.source, 'search');
 		assert.deepStrictEqual(service.state.cardDetail?.selection, { startLineNumber: 4, startColumn: 2, endLineNumber: 4, endColumn: 9 });
 		assert.strictEqual(service.state.cardDetail?.pinned, true);
-		assert.strictEqual(service.state.cardDetail?.projection, 'preview');
+		assert.strictEqual(service.state.cardDetail?.projection, 'rich');
 	});
 
 	test('opens root workspace files over the workspace root canvas', async () => {
@@ -69,7 +69,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace');
 		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
-		assert.strictEqual(service.state.cardDetail?.projection, 'preview');
+		assert.strictEqual(service.state.cardDetail?.projection, 'rich');
 	});
 
 	test('opening another file moves the canvas to that file parent folder', async () => {
@@ -133,7 +133,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.projection, 'source');
 	});
 
-	test('normalizes unsupported preview requests for non-Markdown files to source', async () => {
+	test('normalizes unsupported Markdown-only projection requests for non-Markdown files to source', async () => {
 		const service = createService(new Map([
 			['/workspace/docs/app.ts', aFileStat(URI.file('/workspace/docs/app.ts'), FileType.File)]
 		]));
@@ -145,6 +145,15 @@ suite('BaseHalfCanvasNavigationService', () => {
 
 		assert.strictEqual(result.handled, true);
 		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+
+		const richResult = await service.openResource(URI.file('/workspace/docs/app.ts'), {
+			source: 'api',
+			projection: 'rich'
+		});
+
+		assert.strictEqual(richResult.handled, true);
+		assert.strictEqual(richResult.handled && richResult.target, 'cardDetail');
 		assert.strictEqual(service.state.cardDetail?.projection, 'source');
 	});
 

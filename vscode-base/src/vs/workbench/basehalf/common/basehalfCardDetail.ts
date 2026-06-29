@@ -6,7 +6,7 @@
 import { extname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 
-export type BaseHalfCardDetailProjection = 'preview' | 'source';
+export type BaseHalfCardDetailProjection = 'rich' | 'preview' | 'source';
 
 export const DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION: BaseHalfCardDetailProjection = 'source';
 
@@ -17,12 +17,12 @@ export function isBaseHalfMarkdownResource(resource: URI): boolean {
 }
 
 export function defaultBaseHalfCardDetailProjection(resource: URI): BaseHalfCardDetailProjection {
-	return isBaseHalfMarkdownResource(resource) ? 'preview' : DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION;
+	return isBaseHalfMarkdownResource(resource) ? 'rich' : DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION;
 }
 
 export function normalizeBaseHalfCardDetailProjection(resource: URI, projection: BaseHalfCardDetailProjection | undefined): BaseHalfCardDetailProjection {
 	const candidate = projection ?? defaultBaseHalfCardDetailProjection(resource);
-	if (candidate === 'preview' && !isBaseHalfMarkdownResource(resource)) {
+	if ((candidate === 'rich' || candidate === 'preview') && !isBaseHalfMarkdownResource(resource)) {
 		return DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION;
 	}
 

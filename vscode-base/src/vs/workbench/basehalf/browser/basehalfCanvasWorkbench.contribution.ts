@@ -28,6 +28,7 @@ import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalf
 import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
+import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -53,6 +54,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderSeq = 0;
 	private detailKey: string | undefined;
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
+	private markdownRichDetail: BaseHalfMarkdownRichCardDetail | undefined;
 	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
 	private folderFocusTimer: number | undefined;
 	private lastFolderFocusKey: string | undefined;
@@ -280,6 +282,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!cardDetail) {
 			this.detailKey = undefined;
 			this.sourceDetail = undefined;
+			this.markdownRichDetail = undefined;
 			this.markdownPreviewDetail = undefined;
 			this.detailChromeDisposables.clear();
 			this.detailDisposables.clear();
@@ -303,10 +306,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.detailKey = detailKey;
 		this.sourceDetail = undefined;
+		this.markdownRichDetail = undefined;
 		this.markdownPreviewDetail = undefined;
 		this.detailDisposables.clear();
 
-		if (cardDetail.projection === 'preview') {
+		if (cardDetail.projection === 'rich') {
+			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody));
+			void this.markdownRichDetail.open(cardDetail);
+		} else if (cardDetail.projection === 'preview') {
 			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownPreviewCardDetail, this.detailBody));
 			void this.markdownPreviewDetail.open(cardDetail);
 		} else if (cardDetail.projection === 'source') {
@@ -323,6 +330,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		this.renderProjectionButton(cardDetail, 'rich', 'Rich', 'codicon-edit');
 		this.renderProjectionButton(cardDetail, 'preview', 'Preview', 'codicon-preview');
 		this.renderProjectionButton(cardDetail, 'source', 'Source', 'codicon-code');
 	}

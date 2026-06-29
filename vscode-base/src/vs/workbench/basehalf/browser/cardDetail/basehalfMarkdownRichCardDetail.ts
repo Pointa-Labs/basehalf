@@ -1,0 +1,356 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
+import { mainWindow } from '../../../../base/browser/window.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../../base/common/network.js';
+import { isEqual } from '../../../../base/common/resources.js';
+import { escape } from '../../../../base/common/strings.js';
+import { URI } from '../../../../base/common/uri.js';
+import { generateUuid } from '../../../../base/common/uuid.js';
+import { ITextModel } from '../../../../editor/common/model.js';
+import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
+import { IWebviewService, IOverlayWebview, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
+import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
+import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import {
+	BaseHalfMarkdownRichLiveDocumentRegistry,
+	baseHalfMarkdownRichDocumentKey,
+	IBaseHalfMarkdownRichLiveDocumentHandle
+} from '../../common/basehalfMarkdownRichLiveDocument.js';
+import {
+	BaseHalfMarkdownRichTextModelDisk,
+	IBaseHalfMarkdownRichTextFileService
+} from '../../common/basehalfMarkdownRichTextModel.js';
+import {
+	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+	isBaseHalfMarkdownRichWebviewMessage
+} from '../../common/basehalfMarkdownRichWebviewProtocol.js';
+import { BaseHalfMarkdownRichWebviewBridge } from '../../common/basehalfMarkdownRichWebviewBridge.js';
+import {
+	BaseHalfMarkdownRichSaveRequestedMessage,
+	BaseHalfMarkdownRichWebviewSaveCoordinator
+} from '../../common/basehalfMarkdownRichWebviewSaveCoordinator.js';
+
+const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
+const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/markdown-rich-out');
+const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
+const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
+
+export class BaseHalfMarkdownRichCardDetail extends Disposable {
+	private readonly status: HTMLElement;
+	private readonly webviewHost: HTMLElement;
+	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
+	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number }>();
+
+	private state: IBaseHalfCardDetailState | undefined;
+	private model: ITextModel | undefined;
+	private resourceKey: string | undefined;
+	private documentKey: string | undefined;
+	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
+	private bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
+	private webview: IOverlayWebview | undefined;
+	private dirty = false;
+	private lastSentContent: string | undefined;
+	private writingTextModel = false;
+	private disposed = false;
+
+	constructor(
+		private readonly container: HTMLElement,
+		@ITextModelService private readonly textModelService: ITextModelService,
+		@ITextFileService private readonly textFileService: ITextFileService,
+		@IWebviewService private readonly webviewService: IWebviewService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@ILogService private readonly logService: ILogService
+	) {
+		super();
+
+		clearNode(this.container);
+		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
+		const toolbar = append(root, $('.basehalf-card-detail-markdown-rich-toolbar'));
+		this.status = append(toolbar, $('.basehalf-card-detail-markdown-rich-status'));
+		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		this.status.textContent = 'Loading rich editor';
+
+		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.flush({ forceSerialize: true, forceWrite: false });
+			}
+		}));
+	}
+
+	async open(state: IBaseHalfCardDetailState): Promise<void> {
+		this.state = state;
+		this.resourceKey = state.resource.toString();
+		this.documentKey = baseHalfMarkdownRichDocumentKey(state.workspaceFolder, state.relativePath);
+		this.status.textContent = 'Loading rich editor';
+
+		try {
+			const modelReference = await this.textModelService.createModelReference(state.resource);
+			if (this.disposed || this.resourceKey !== state.resource.toString() || !this.documentKey) {
+				modelReference.dispose();
+				return;
+			}
+			this._register(modelReference);
+			this.model = modelReference.object.textEditorModel;
+			this.lastSentContent = this.model.getValue();
+
+			this.liveDocument = this._register(markdownRichDocuments.acquire(this.documentKey));
+			this.bridge = this._register(new BaseHalfMarkdownRichWebviewBridge(this.documentKey, this.liveDocument.document.doc, {
+				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
+			}));
+
+			this.webview = this._register(this.webviewService.createWebviewOverlay({
+				providedViewType: BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+				title: state.relativePath || state.resource.path,
+				options: {
+					purpose: WebviewContentPurpose.CustomEditor,
+					enableFindWidget: true,
+					retainContextWhenHidden: true,
+					tryRestoreScrollPosition: true
+				},
+				contentOptions: {
+					allowScripts: true,
+					localResourceRoots: [markdownRichMediaRoot]
+				},
+				extension: undefined
+			}));
+			this.webview.setAnchorElement(this.webviewHost, this.container);
+			this.webview.setHtml(this.htmlFor(this.documentKey));
+			this.webview.claim(this, mainWindow, undefined);
+
+			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
+			this._register(this.webview.onMissingCsp(extension => {
+				this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
+			}));
+			this._register(this.webview.onFatalError(error => {
+				this.status.textContent = `Rich editor failed: ${error.message}`;
+				this.logService.error(error.message);
+			}));
+			this._register(this.textFileService.files.onDidChangeDirty(file => {
+				if (this.model && isEqual(file.resource, this.model.uri)) {
+					this.updateStatus();
+				}
+			}));
+			this._register(this.textFileService.files.onDidChangeReadonly(file => {
+				if (this.model && isEqual(file.resource, this.model.uri)) {
+					this.updateEditable();
+					this.updateStatus();
+				}
+			}));
+			this._register(this.model.onDidChangeContent(() => this.handleModelContentChanged()));
+			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
+			this._register(this.editorFlushService.registerDocumentFlusher(this.documentKey, options => this.flush(options)));
+
+			await this.bridge.sendInit(state.resource.toString(), this.lastSentContent, this.isEditable());
+			this.updateStatus();
+		} catch (error) {
+			if (this.disposed) {
+				return;
+			}
+			this.renderError(error);
+		}
+	}
+
+	override dispose(): void {
+		this.disposed = true;
+		for (const pending of this.pendingFlushes.values()) {
+			mainWindow.clearTimeout(pending.timer);
+			pending.resolve(true);
+		}
+		this.pendingFlushes.clear();
+		this.webview?.release(this);
+		super.dispose();
+	}
+
+	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
+		if (!this.dirty || !this.bridge) {
+			return true;
+		}
+
+		const requestId = `flush-${generateUuid()}`;
+		const posted = await this.bridge.sendSave(requestId, {
+			forceSerialize: options.forceSerialize ?? true,
+			forceWrite: options.forceWrite ?? false
+		});
+		if (!posted) {
+			return false;
+		}
+
+		return new Promise<boolean>(resolve => {
+			const timer = mainWindow.setTimeout(() => {
+				this.pendingFlushes.delete(requestId);
+				resolve(false);
+			}, 15000);
+			this.pendingFlushes.set(requestId, { resolve, timer });
+		});
+	}
+
+	private async handleWebviewMessage(message: unknown): Promise<void> {
+		const bridge = this.bridge;
+		const state = this.state;
+		const model = this.model;
+		if (!bridge || !state || !model || !isBaseHalfMarkdownRichWebviewMessage(message) || message.key !== bridge.key) {
+			return;
+		}
+
+		if (await bridge.handleWebviewMessage(message)) {
+			return;
+		}
+
+		switch (message.type) {
+			case 'basehalf.markdownRich.saveRequested':
+				await this.handleSaveRequested(message, model);
+				break;
+			case 'basehalf.markdownRich.dirtyChanged':
+				this.dirty = message.dirty;
+				this.updateStatus();
+				break;
+			case 'basehalf.markdownRich.focusChanged':
+				void this.focusMirrorService.writeFileFocus(state, {
+					projection: 'rich',
+					...message.fields
+				}).catch(error => this.logService.error(error));
+				break;
+			case 'basehalf.markdownRich.error':
+				this.status.textContent = `Rich editor failed: ${message.message}`;
+				this.logService.error(message.stack ?? message.message);
+				break;
+		}
+	}
+
+	private async handleSaveRequested(message: BaseHalfMarkdownRichSaveRequestedMessage, model: ITextModel): Promise<void> {
+		const bridge = this.bridge;
+		if (!bridge) {
+			return;
+		}
+
+		this.status.textContent = 'Rich • Saving';
+		this.writingTextModel = true;
+		try {
+			const outcome = await this.coordinator.handleSaveRequested(
+				message,
+				new BaseHalfMarkdownRichTextModelDisk(model, this.textFileAdapter()),
+				bridge
+			);
+			if (outcome.result === 'saved' || outcome.result === 'noop') {
+				this.lastSentContent = outcome.content ?? model.getValue();
+				this.dirty = false;
+			}
+			const pending = this.pendingFlushes.get(message.requestId);
+			if (pending) {
+				this.pendingFlushes.delete(message.requestId);
+				mainWindow.clearTimeout(pending.timer);
+				pending.resolve(outcome.okToLeave);
+			}
+		} finally {
+			this.writingTextModel = false;
+			this.updateStatus();
+		}
+	}
+
+	private handleModelContentChanged(): void {
+		const model = this.model;
+		if (!model || this.writingTextModel) {
+			return;
+		}
+
+		this.updateStatus();
+		const content = model.getValue();
+		if (this.dirty || content === this.lastSentContent) {
+			return;
+		}
+
+		this.lastSentContent = content;
+		void this.bridge?.sendInit(model.uri.toString(), content, this.isEditable());
+	}
+
+	private updateEditable(): void {
+		void this.bridge?.sendEditable(this.isEditable()).catch(error => this.logService.error(error));
+	}
+
+	private updateStatus(): void {
+		const model = this.model;
+		if (!model) {
+			this.status.textContent = 'No rich editor model';
+			return;
+		}
+
+		if (!this.isEditable()) {
+			this.status.textContent = 'Rich • Readonly';
+			return;
+		}
+
+		if (this.dirty) {
+			this.status.textContent = 'Rich • Unsaved changes';
+			return;
+		}
+
+		this.status.textContent = this.textFileService.isDirty(model.uri) ? 'Rich • Source has unsaved changes' : 'Rich • Saved';
+	}
+
+	private isEditable(): boolean {
+		const model = this.model;
+		if (!model) {
+			return false;
+		}
+		return !this.textFileAdapter().isReadonly(model.uri);
+	}
+
+	private textFileAdapter(): IBaseHalfMarkdownRichTextFileService {
+		return {
+			isDirty: resource => this.textFileService.isDirty(resource),
+			isReadonly: resource => !!this.textFileService.files.get(resource)?.isReadonly(),
+			save: resource => this.textFileService.save(resource)
+		};
+	}
+
+	private renderError(error: unknown): void {
+		clearNode(this.webviewHost);
+		if (error instanceof TooLargeFileOperationError) {
+			this.status.textContent = 'Too large';
+			return;
+		}
+
+		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
+			this.status.textContent = 'Binary file';
+			return;
+		}
+
+		this.status.textContent = error instanceof Error ? error.message : String(error);
+	}
+
+	private htmlFor(key: string): string {
+		const nonce = generateUuid();
+		const script = asWebviewUri(markdownRichScript).toString(true);
+		const styles = asWebviewUri(markdownRichStyles).toString(true);
+		return `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
+</head>
+<body>
+	<div id="root" data-basehalf-key="${escapeAttribute(key)}"></div>
+	<script nonce="${nonce}" type="module" src="${script}"></script>
+</body>
+</html>`;
+	}
+}
+
+function escapeAttribute(value: string): string {
+	return escape(value).replace(/"/g, '&quot;');
+}
