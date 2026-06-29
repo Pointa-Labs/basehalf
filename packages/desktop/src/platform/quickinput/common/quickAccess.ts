@@ -1,4 +1,9 @@
-import type { IQuickPick, IQuickPickItem } from './quickInput.js';
+import type {
+  IQuickNavigateConfiguration,
+  IQuickPick,
+  IQuickPickItem,
+  ItemActivation,
+} from './quickInput.js';
 
 export interface QuickAccessProviderRunOptions {
   readonly from?: string;
@@ -11,6 +16,8 @@ export interface QuickAccessOptions {
   readonly providerOptions?: QuickAccessProviderRunOptions;
   readonly enabledProviderPrefixes?: readonly string[];
   readonly placeholder?: string;
+  readonly quickNavigateConfiguration?: IQuickNavigateConfiguration;
+  readonly itemActivation?: ItemActivation;
 }
 
 export interface QuickAccessControllerState {
@@ -69,6 +76,7 @@ export interface QuickAccessProviderDescriptor {
   readonly id: string;
   readonly prefix: string;
   readonly placeholder?: string;
+  readonly contextKey?: string;
   readonly defaultFilterValue?: string | DefaultQuickAccessFilterValue;
   readonly provider?: IQuickAccessProvider;
   readonly helpEntries?: readonly QuickAccessProviderHelp[];

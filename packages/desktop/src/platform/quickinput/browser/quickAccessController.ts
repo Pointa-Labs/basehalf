@@ -15,7 +15,7 @@ import {
   quickAccessStatesEqual,
   valueSelectionForQuickAccess,
 } from '../common/quickAccessModel.js';
-import type { IQuickPick, IQuickPickItem } from '../common/quickInput.js';
+import { type IQuickPick, type IQuickPickItem, ItemActivation } from '../common/quickInput.js';
 
 interface QuickAccessQuickInputService {
   createQuickPick<T extends IQuickPickItem>(options?: {
@@ -29,6 +29,8 @@ interface VisibleQuickAccessProviderRun {
   readonly cancellation: QuickAccessCancellationTokenSource;
   readonly disposable: QuickAccessProviderDisposable;
   readonly unsubscribeHide: () => void;
+  readonly unsubscribeValue: () => void;
+  readonly unsubscribeAccept: () => void;
 }
 
 /**
@@ -139,19 +141,28 @@ export class QuickAccessController implements IQuickAccessController {
     }
 
     if (this.visibleProviderRun?.descriptor === descriptor) {
-      this.visibleProviderRun.picker.value = value;
-      this.visibleProviderRun.picker.placeholder = options.placeholder ?? descriptor.placeholder;
+      this.applyPickerState(this.visibleProviderRun.picker, descriptor, value, options);
       return;
     }
 
+    const hadVisibleProviderRun = this.visibleProviderRun !== undefined;
     this.disposeProviderRun();
     const picker = this.quickInputService.createQuickPick({ useSeparators: true });
     const cancellation = new QuickAccessCancellationTokenSource();
-    picker.value = value;
-    picker.placeholder = options.placeholder ?? descriptor.placeholder;
+    this.applyPickerState(picker, descriptor, value, options, hadVisibleProviderRun);
     const unsubscribeHide = picker.onDidHide(() => {
       if (this.visibleProviderRun?.picker === picker) {
-        this.disposeProviderRun();
+        this.hide();
+      }
+    });
+    const unsubscribeValue = picker.onDidChangeValue((nextValue) => {
+      this.updateValue(nextValue);
+    });
+    const unsubscribeAccept = picker.onDidAccept((event) => {
+      this.accept(picker.value);
+      const active = picker.activeItems[0];
+      if (active !== undefined) {
+        options.providerOptions?.handleAccept?.(active, event.inBackground);
       }
     });
     let disposable: QuickAccessProviderDisposable;
@@ -159,6 +170,8 @@ export class QuickAccessController implements IQuickAccessController {
       disposable = provider.provide(picker, cancellation.token, options.providerOptions);
     } catch (err) {
       unsubscribeHide();
+      unsubscribeValue();
+      unsubscribeAccept();
       cancellation.cancel();
       if (picker.visible) picker.hide();
       if (!picker.disposed) picker.dispose();
@@ -170,9 +183,30 @@ export class QuickAccessController implements IQuickAccessController {
       cancellation,
       disposable,
       unsubscribeHide,
+      unsubscribeValue,
+      unsubscribeAccept,
     };
     this.visibleProviderRun = run;
     picker.show();
+  }
+
+  private applyPickerState(
+    picker: IQuickPick<IQuickPickItem>,
+    descriptor: QuickAccessProviderDescriptor,
+    value: string,
+    options: QuickAccessOptions,
+    hadVisibleProviderRun = true,
+  ): void {
+    if (picker.value !== value) picker.value = value;
+    picker.filterValue = (nextValue) => nextValue.slice(descriptor.prefix.length);
+    picker.valueSelection = valueSelectionForQuickAccess(value, descriptor.prefix, options);
+    picker.placeholder = options.placeholder ?? descriptor.placeholder;
+    picker.contextKey = descriptor.contextKey;
+    picker.quickNavigate = options.quickNavigateConfiguration;
+    picker.hideInput = options.quickNavigateConfiguration !== undefined && !hadVisibleProviderRun;
+    if (options.itemActivation !== undefined || options.quickNavigateConfiguration !== undefined) {
+      picker.itemActivation = options.itemActivation ?? ItemActivation.SECOND;
+    }
   }
 
   private disposeProviderRun(): void {
@@ -180,6 +214,8 @@ export class QuickAccessController implements IQuickAccessController {
     if (run === undefined) return;
     this.visibleProviderRun = undefined;
     run.unsubscribeHide();
+    run.unsubscribeValue();
+    run.unsubscribeAccept();
     run.cancellation.cancel();
     run.disposable.dispose();
     if (run.picker.visible) run.picker.hide();

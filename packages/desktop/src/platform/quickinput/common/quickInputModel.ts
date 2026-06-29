@@ -64,6 +64,7 @@ export class HeadlessQuickPick<T extends IQuickPickItem> implements IQuickPick<T
   severity: 'ignore' | 'info' | 'warning' | 'error' = 'ignore';
   busy = false;
   enabled = true;
+  contextKey?: string;
   ignoreFocusOut = false;
   hideInput = false;
   hideCountBadge = false;

@@ -8,6 +8,7 @@ import {
   type IQuickAccessProvider,
   QuickAccessRegistry,
 } from '../src/platform/quickinput/common/quickAccess.js';
+import { ItemActivation } from '../src/platform/quickinput/common/quickInput.js';
 import { registerCommandPaletteQuickAccessProviders } from '../src/workbench/browser/quickaccess/quickAccessContributions.js';
 import {
   COMMANDS_QUICK_ACCESS_ID,
@@ -212,21 +213,118 @@ describe('QuickAccessController', () => {
     registry.registerQuickAccessProvider({
       id: 'commands',
       prefix: '>',
+      contextKey: 'inCommandPalette',
       placeholder: 'Commands',
       provider,
     });
     const controller = new QuickAccessController(registry, quickInput);
 
-    controller.show('>git', { providerOptions: { from: 'test' } });
+    controller.show('>git', {
+      providerOptions: { from: 'test' },
+      quickNavigateConfiguration: { keybindings: ['ctrl+p'] },
+      itemActivation: ItemActivation.LAST,
+    });
 
     expect(provider.provide).toHaveBeenCalledTimes(1);
     const [picker, token, options] = vi.mocked(provider.provide).mock.calls[0] ?? [];
     expect(picker?.value).toBe('>git');
+    expect(picker?.filterValue('>git')).toBe('git');
+    expect(picker?.valueSelection).toEqual([1, 4]);
     expect(picker?.placeholder).toBe('Commands');
+    expect(picker?.contextKey).toBe('inCommandPalette');
+    expect(picker?.quickNavigate).toEqual({ keybindings: ['ctrl+p'] });
+    expect(picker?.hideInput).toBe(true);
+    expect(picker?.itemActivation).toBe(ItemActivation.LAST);
     expect(picker?.visible).toBe(true);
     expect(picker?.items).toEqual([{ label: 'Git: Fetch' }]);
     expect(token?.isCancellationRequested).toBe(false);
     expect(options).toEqual({ from: 'test' });
+  });
+
+  it('switches provider runs when a provider-owned picker value changes prefix', () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    const disposeCommands = vi.fn();
+    const disposeTasks = vi.fn();
+    const commandsProvider: IQuickAccessProvider = {
+      provide: vi.fn(() => ({ dispose: disposeCommands })),
+    };
+    const tasksProvider: IQuickAccessProvider = {
+      provide: vi.fn(() => ({ dispose: disposeTasks })),
+    };
+    registry.registerQuickAccessProvider({
+      id: 'commands',
+      prefix: '>',
+      provider: commandsProvider,
+    });
+    registry.registerQuickAccessProvider({
+      id: 'tasks',
+      prefix: '#',
+      provider: tasksProvider,
+    });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    controller.show('>git');
+    const commandsPicker = vi.mocked(commandsProvider.provide).mock.calls[0]?.[0];
+    if (commandsPicker === undefined) throw new Error('commands picker was not provided');
+    commandsPicker.value = '#build';
+
+    expect(controller.getState()).toMatchObject({
+      visible: true,
+      value: '#build',
+      filterValue: 'build',
+      providerId: 'tasks',
+      prefix: '#',
+    });
+    expect(disposeCommands).toHaveBeenCalledTimes(1);
+    expect(tasksProvider.provide).toHaveBeenCalledTimes(1);
+    const tasksPicker = vi.mocked(tasksProvider.provide).mock.calls[0]?.[0];
+    expect(tasksPicker?.value).toBe('#build');
+    expect(tasksPicker?.filterValue('#build')).toBe('build');
+    expect(disposeTasks).not.toHaveBeenCalled();
+  });
+
+  it('remembers LAST defaults when a provider-owned picker accepts', () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    const provider: IQuickAccessProvider = {
+      defaultFilterValue: DefaultQuickAccessFilterValue.LAST,
+      provide: vi.fn(() => ({ dispose: vi.fn() })),
+    };
+    registry.registerQuickAccessProvider({ id: 'commands', prefix: '>', provider });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    controller.show('>git');
+    const picker = vi.mocked(provider.provide).mock.calls[0]?.[0];
+    if (picker === undefined) throw new Error('picker was not provided');
+    picker.accept();
+    controller.hide();
+    controller.show('>');
+
+    expect(controller.getState()).toMatchObject({
+      value: '>git',
+      filterValue: 'git',
+      providerId: 'commands',
+    });
+  });
+
+  it('closes controller state when a provider-owned picker hides itself', () => {
+    const registry = new QuickAccessRegistry();
+    const quickInput = new QuickInputController();
+    const dispose = vi.fn();
+    const provider: IQuickAccessProvider = {
+      provide: vi.fn(() => ({ dispose })),
+    };
+    registry.registerQuickAccessProvider({ id: 'commands', prefix: '>', provider });
+    const controller = new QuickAccessController(registry, quickInput);
+
+    controller.show('>git');
+    const picker = vi.mocked(provider.provide).mock.calls[0]?.[0];
+    if (picker === undefined) throw new Error('picker was not provided');
+    picker.hide();
+
+    expect(controller.getState()).toMatchObject({ visible: false, value: '' });
+    expect(dispose).toHaveBeenCalledTimes(1);
   });
 
   it('cancels and disposes provider runs when quick access hides', () => {

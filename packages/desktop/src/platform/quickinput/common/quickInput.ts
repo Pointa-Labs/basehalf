@@ -177,6 +177,7 @@ export interface IQuickPick<T extends IQuickPickItem = IQuickPickItem> {
   severity: QuickInputValidationSeverity;
   busy: boolean;
   enabled: boolean;
+  contextKey?: string;
   ignoreFocusOut: boolean;
   hideInput: boolean;
   hideCountBadge: boolean;
