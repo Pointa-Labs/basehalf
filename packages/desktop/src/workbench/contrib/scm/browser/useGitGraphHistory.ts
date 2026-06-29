@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitCommit } from '../common/git.js';
-import { GitHistoryProvider } from './gitHistoryProvider.js';
+import { GitHistoryProvider, gitHistoryProvider } from './gitHistoryProvider.js';
 import { loadGitHistoryLocalBranches, loadGitHistoryPage } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
@@ -24,7 +24,10 @@ export function useGitGraphHistory(
   currentBranch: string | null,
   gitService: GitScmService = gitScmService,
 ): GitGraphHistoryState {
-  const historyProvider = useMemo(() => new GitHistoryProvider(gitService), [gitService]);
+  const historyProvider = useMemo(
+    () => (gitService === gitScmService ? gitHistoryProvider : new GitHistoryProvider(gitService)),
+    [gitService],
+  );
   const [localBranches, setLocalBranches] = useState<ReadonlySet<string>>(new Set());
 
   const pageLoader = useCallback(

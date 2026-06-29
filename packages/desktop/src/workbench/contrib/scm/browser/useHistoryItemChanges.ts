@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ScmHistoryItemChange, ScmHistoryProvider } from '../common/history.js';
-import { GitHistoryProvider } from './gitHistoryProvider.js';
-import type { GitScmService } from './gitScmService.js';
+import { GitHistoryProvider, gitHistoryProvider } from './gitHistoryProvider.js';
+import { type GitScmService, gitScmService } from './gitScmService.js';
 
 export interface HistoryItemChangesState {
   readonly files: readonly ScmHistoryItemChange[] | null;
@@ -10,7 +10,10 @@ export interface HistoryItemChangesState {
 }
 
 export function useGitHistoryProvider(gitService: GitScmService): ScmHistoryProvider {
-  return useMemo(() => new GitHistoryProvider(gitService), [gitService]);
+  return useMemo(
+    () => (gitService === gitScmService ? gitHistoryProvider : new GitHistoryProvider(gitService)),
+    [gitService],
+  );
 }
 
 export function useHistoryItemChanges(

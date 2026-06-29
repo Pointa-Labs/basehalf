@@ -5,6 +5,7 @@ import {
   type GitHistoryOptions,
   GitHistoryProvider,
   type GitHistoryRawSource,
+  gitHistoryProvider,
   gitLogArgsForHistoryOptions,
   normalizeGitHistoryItemRefs,
 } from './gitHistoryProvider.js';
@@ -108,7 +109,10 @@ export function useFullGitGraphHistory({
   readonly refreshScmStatus: () => Promise<void> | void;
   readonly onError: (message: string) => void;
 }): FullGitGraphHistoryState {
-  const historyProvider = useMemo(() => new GitHistoryProvider(gitService), [gitService]);
+  const historyProvider = useMemo(
+    () => (gitService === gitScmService ? gitHistoryProvider : new GitHistoryProvider(gitService)),
+    [gitService],
+  );
   const [branches, setBranches] = useState<GitRefInfo[]>([]);
   const [uncommitted, setUncommitted] = useState(0);
   const [stashes, setStashes] = useState<readonly GitStashEntry[]>([]);
