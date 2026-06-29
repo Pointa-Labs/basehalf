@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { GitChannel } from '../src/workbench/contrib/scm/browser/gitChannel.js';
 import { createGitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
+import {
+  GitError,
+  GitErrorCodes,
+  type GitRemoteInfo,
+  type GitStatusResult,
+} from '../src/workbench/contrib/scm/common/git.js';
+import type {
+  PushErrorHandler,
+  PushErrorRepository,
+} from '../src/workbench/contrib/scm/common/pushError.js';
 
-function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitChannel {
+interface FakeGitChannelOptions {
+  readonly pushError?: unknown;
+  readonly status?: GitStatusResult;
+  readonly remotes?: readonly GitRemoteInfo[];
+}
+
+function fakeGitChannel(
+  calls: Array<{ name: string; args: unknown[] }>,
+  options: FakeGitChannelOptions = {},
+): GitChannel {
   return {
     init: async () => calls.push({ name: 'init', args: [] }),
     stage: async (paths) => calls.push({ name: 'stage', args: [paths] }),
@@ -13,14 +32,17 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
     deleteWorkspaceEntry: async (path, kind) =>
       calls.push({ name: 'deleteWorkspaceEntry', args: [path, kind] }),
     commit: async (message, options) => calls.push({ name: 'commit', args: [message, options] }),
-    push: async (options) => calls.push({ name: 'push', args: [options] }),
+    push: async (pushOptions) => {
+      calls.push({ name: 'push', args: [pushOptions] });
+      if (options.pushError !== undefined) throw options.pushError;
+    },
     publish: async (options) => calls.push({ name: 'publish', args: [options] }),
     pull: async (options) => calls.push({ name: 'pull', args: [options] }),
     fetch: async () => calls.push({ name: 'fetch', args: [] }),
     sync: async () => calls.push({ name: 'sync', args: [] }),
     remotes: async () => {
       calls.push({ name: 'remotes', args: [] });
-      return { remotes: [{ name: 'origin', isReadOnly: false }] };
+      return { remotes: options.remotes ?? [defaultRemote] };
     },
     reset: async (args) => calls.push({ name: 'reset', args: [args] }),
     checkout: async (branch, options) => calls.push({ name: 'checkout', args: [branch, options] }),
@@ -56,7 +78,7 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
     tagDelete: async (name) => calls.push({ name: 'tagDelete', args: [name] }),
     status: async () => {
       calls.push({ name: 'status', args: [] });
-      return { isRepo: true, files: [] };
+      return options.status ?? cleanStatus();
     },
     show: async (ref, path) => {
       calls.push({ name: 'show', args: [ref, path] });
@@ -107,6 +129,36 @@ function fakeGitChannel(calls: Array<{ name: string; args: unknown[] }>): GitCha
     stashPop: async (ref) => calls.push({ name: 'stashPop', args: [ref] }),
     stashDrop: async (ref) => calls.push({ name: 'stashDrop', args: [ref] }),
   } as unknown as GitChannel;
+}
+
+const defaultRemote: GitRemoteInfo = { name: 'origin', isReadOnly: false };
+
+const originRemote: GitRemoteInfo = {
+  name: 'origin',
+  fetchUrl: 'https://github.com/acme/repo.git',
+  pushUrl: 'git@github.com:acme/repo.git',
+  isReadOnly: false,
+};
+
+function cleanStatus(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
+  return {
+    isRepo: true,
+    branch: 'topic',
+    detached: false,
+    upstream: 'origin/main',
+    ahead: 1,
+    behind: 0,
+    files: [],
+    ...overrides,
+  };
+}
+
+function pushRejectedError(): GitError {
+  return new GitError({
+    stderr: 'error: failed to push some refs\n',
+    gitErrorCode: GitErrorCodes.PushRejected,
+    gitCommand: 'push',
+  });
 }
 
 describe('gitScmService', () => {
@@ -213,5 +265,92 @@ describe('gitScmService', () => {
       { name: 'stashPop', args: [undefined] },
       { name: 'stashDrop', args: ['stash@{0}'] },
     ]);
+  });
+
+  it('runs push error handlers and resolves when a handler consumes a Git push failure', async () => {
+    const calls: Array<{ name: string; args: unknown[] }> = [];
+    const error = pushRejectedError();
+    const status = cleanStatus({ branch: 'topic', upstream: 'origin/main' });
+    const handled: Array<{
+      repository: PushErrorRepository;
+      remote: GitRemoteInfo;
+      refspec: string;
+      error: GitError;
+    }> = [];
+    const handler: PushErrorHandler = {
+      handlePushError: async (repository, remote, refspec, currentError) => {
+        handled.push({ repository, remote, refspec, error: currentError });
+        return true;
+      },
+    };
+    const service = createGitScmService(fakeGitChannel(calls, { pushError: error }), {
+      pushErrorHandlers: { getPushErrorHandlers: () => [handler] },
+      resolvePushErrorContext: () => ({ root: '/repo', status, remotes: [originRemote] }),
+    });
+
+    await expect(service.push({ force: true })).resolves.toBeUndefined();
+
+    expect(calls).toEqual([{ name: 'push', args: [{ force: true }] }]);
+    expect(handled).toEqual([
+      {
+        repository: { root: '/repo', status },
+        remote: originRemote,
+        refspec: 'HEAD:main',
+        error,
+      },
+    ]);
+  });
+
+  it('rethrows without invoking handlers when upstream or remote context is missing', async () => {
+    const cases = [
+      { status: cleanStatus({ upstream: null }), remotes: [originRemote] },
+      { status: cleanStatus({ upstream: 'origin/main' }), remotes: [] },
+    ];
+
+    for (const pushContext of cases) {
+      const error = pushRejectedError();
+      const handled: string[] = [];
+      const service = createGitScmService(fakeGitChannel([], { pushError: error }), {
+        pushErrorHandlers: {
+          getPushErrorHandlers: () => [
+            {
+              handlePushError: async () => {
+                handled.push('called');
+                return true;
+              },
+            },
+          ],
+        },
+        resolvePushErrorContext: () => ({ root: '/repo', ...pushContext }),
+      });
+
+      await expect(service.push()).rejects.toBe(error);
+      expect(handled).toEqual([]);
+    }
+  });
+
+  it('rethrows the original Git push failure when no handler consumes it', async () => {
+    const error = pushRejectedError();
+    const handled: string[] = [];
+    const service = createGitScmService(fakeGitChannel([], { pushError: error }), {
+      pushErrorHandlers: {
+        getPushErrorHandlers: () => [
+          {
+            handlePushError: async (_repository, _remote, refspec) => {
+              handled.push(refspec);
+              return false;
+            },
+          },
+        ],
+      },
+      resolvePushErrorContext: () => ({
+        root: '/repo',
+        status: cleanStatus({ upstream: 'origin/main' }),
+        remotes: [originRemote],
+      }),
+    });
+
+    await expect(service.push()).rejects.toBe(error);
+    expect(handled).toEqual(['HEAD:main']);
   });
 });

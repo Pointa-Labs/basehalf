@@ -1,3 +1,4 @@
+import { GitError } from '../common/git.js';
 import type {
   GitApplyArgs,
   GitBlameArgs,
@@ -7,7 +8,6 @@ import type {
   GitConflictStagesResult,
   GitCreateBranchArgs,
   GitDiffArgs,
-  GitDiffResult,
   GitFetchArgs,
   GitLogArgs,
   GitLogResult,
@@ -16,18 +16,19 @@ import type {
   GitRebaseResult,
   GitRefsArgs,
   GitRefsResult,
+  GitRemoteInfo,
   GitRemotesResult,
   GitResetArgs,
   GitRevertResult,
   GitSearchHistoryArgs,
-  GitShowResult,
   GitStashArgs,
   GitStashEntry,
-  GitStashListResult,
   GitStashResult,
   GitStatusResult,
 } from '../common/git.js';
+import type { PushErrorHandlerRegistry, PushErrorRepository } from '../common/pushError.js';
 import { type GitChannel, gitChannel } from './gitChannel.js';
+import { pushErrorHandlerRegistry, runPushErrorHandlers } from './pushErrorRegistry.js';
 
 export interface GitScmService {
   init(): Promise<void>;
@@ -79,7 +80,29 @@ export interface GitScmService {
   stashDrop(ref: GitStashEntry['ref']): Promise<void>;
 }
 
-export function createGitScmService(channel: GitChannel): GitScmService {
+export interface GitScmPushErrorContext {
+  readonly root: string | null;
+  readonly status: GitStatusResult | null;
+  readonly remotes: readonly GitRemoteInfo[];
+}
+
+export type GitScmPushErrorContextResolver = () =>
+  | GitScmPushErrorContext
+  | Promise<GitScmPushErrorContext>;
+
+export interface GitScmServiceOptions {
+  readonly pushErrorHandlers?: Pick<PushErrorHandlerRegistry, 'getPushErrorHandlers'>;
+  readonly resolvePushErrorContext?: GitScmPushErrorContextResolver;
+}
+
+export function createGitScmService(
+  channel: GitChannel,
+  options: GitScmServiceOptions = {},
+): GitScmService {
+  const pushHandlers = options.pushErrorHandlers ?? pushErrorHandlerRegistry;
+  const resolvePushErrorContext =
+    options.resolvePushErrorContext ?? createDefaultPushErrorContextResolver(channel);
+
   return {
     init: async () => {
       await channel.init();
@@ -106,7 +129,14 @@ export function createGitScmService(channel: GitChannel): GitScmService {
       await channel.commit(message, { amend: options.amend === true });
     },
     push: async (options = {}) => {
-      await channel.push(options.force === true ? { force: true } : {});
+      try {
+        await channel.push(options.force === true ? { force: true } : {});
+      } catch (err) {
+        if (await handlePushError(pushHandlers, resolvePushErrorContext, err)) {
+          return;
+        }
+        throw err;
+      }
     },
     publish: async (options = {}) => {
       await channel.publish(options.remote !== undefined ? { remote: options.remote } : {});
@@ -185,3 +215,69 @@ export function createGitScmService(channel: GitChannel): GitScmService {
 }
 
 export const gitScmService = createGitScmService(gitChannel);
+
+function createDefaultPushErrorContextResolver(
+  channel: GitChannel,
+): GitScmPushErrorContextResolver {
+  return async () => {
+    const [status, remotes] = await Promise.all([channel.status(), channel.remotes()]);
+    return { root: null, status, remotes: remotes.remotes };
+  };
+}
+
+async function handlePushError(
+  registry: Pick<PushErrorHandlerRegistry, 'getPushErrorHandlers'>,
+  resolveContext: GitScmPushErrorContextResolver,
+  err: unknown,
+): Promise<boolean> {
+  if (!(err instanceof GitError)) return false;
+
+  const handlers = registry.getPushErrorHandlers();
+  if (handlers.length === 0) return false;
+
+  const target = await resolvePushErrorTarget(resolveContext);
+  if (target === null) return false;
+
+  return runPushErrorHandlers(
+    { getPushErrorHandlers: () => handlers },
+    target.repository,
+    target.remote,
+    target.refspec,
+    err,
+  );
+}
+
+async function resolvePushErrorTarget(resolveContext: GitScmPushErrorContextResolver): Promise<{
+  readonly repository: PushErrorRepository;
+  readonly remote: GitRemoteInfo;
+  readonly refspec: string;
+} | null> {
+  let context: GitScmPushErrorContext;
+  try {
+    context = await resolveContext();
+  } catch {
+    return null;
+  }
+
+  const status = context.status;
+  if (status === null) return null;
+
+  const upstream = parseUpstream(status.upstream);
+  if (upstream === null) return null;
+
+  const remote = context.remotes.find((item) => item.name === upstream.remote);
+  if (remote === undefined) return null;
+
+  return {
+    repository: { root: context.root, status },
+    remote,
+    refspec: `HEAD:${upstream.branch}`,
+  };
+}
+
+function parseUpstream(upstream: string | null): { remote: string; branch: string } | null {
+  if (upstream === null) return null;
+  const slash = upstream.indexOf('/');
+  if (slash <= 0 || slash === upstream.length - 1) return null;
+  return { remote: upstream.slice(0, slash), branch: upstream.slice(slash + 1) };
+}
