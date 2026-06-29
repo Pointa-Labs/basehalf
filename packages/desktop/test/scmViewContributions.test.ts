@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { registerScmWorkbenchContributions } from '../src/workbench/contrib/scm/browser/scm.contribution.js';
 import { registerBuiltinScmViewContributions } from '../src/workbench/contrib/scm/browser/scmBuiltinViewContributions.js';
 import {
   type ScmViewContribution,
   ScmViewContributionRegistry,
   scmContributionMenuActions,
+  scmViewContributionRegistry,
   scmVisibleViewContributions,
 } from '../src/workbench/contrib/scm/browser/scmViewContributions.js';
 import type { ScmViewPaneModel } from '../src/workbench/contrib/scm/browser/useScmViewPaneModel.js';
@@ -38,6 +40,39 @@ function contribution(id: string, label = id): ScmViewContribution {
 }
 
 describe('scmViewContributions', () => {
+  it('does not register built-in contributions when SourceControl is imported', async () => {
+    vi.doMock('../src/workbench/contrib/scm/browser/ScmViewPane.js', () => ({
+      ScmViewPane: () => null,
+    }));
+    vi.doMock('../src/workbench/contrib/scm/browser/useScmViewPaneModel.js', () => ({
+      useScmViewPaneModel: () => ({}),
+    }));
+    const before = scmViewContributionRegistry.getScmViewContributions().map((entry) => entry.id);
+
+    try {
+      await import('../src/workbench/contrib/scm/browser/SourceControl.js');
+    } finally {
+      vi.doUnmock('../src/workbench/contrib/scm/browser/ScmViewPane.js');
+      vi.doUnmock('../src/workbench/contrib/scm/browser/useScmViewPaneModel.js');
+    }
+
+    expect(scmViewContributionRegistry.getScmViewContributions().map((entry) => entry.id)).toEqual(
+      before,
+    );
+  });
+
+  it('registers SCM workbench contributions through bootstrap once', () => {
+    registerScmWorkbenchContributions();
+    registerScmWorkbenchContributions();
+
+    expect(
+      scmViewContributionRegistry
+        .getScmViewContributions()
+        .filter((entry) => entry.id === 'github.pullRequests')
+        .map((entry) => entry.id),
+    ).toEqual(['github.pullRequests']);
+  });
+
   it('registers built-in SCM contributions through the registry once', () => {
     const registry = new ScmViewContributionRegistry();
 

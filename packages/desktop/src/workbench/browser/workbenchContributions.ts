@@ -7,6 +7,7 @@ import {
   scheduleGitStatusRefresh,
   useGitStatusStore,
 } from '../contrib/scm/browser/gitStatusStore.js';
+import { registerScmWorkbenchContributions } from '../contrib/scm/browser/scm.contribution.js';
 import { wireUpdateBridge } from '../contrib/update/browser/updateStore.js';
 import { useReadingMode } from '../services/editor/browser/readingModeStore.js';
 import { flushAll } from '../services/editor/common/editorFlush.js';
@@ -31,6 +32,7 @@ export interface WorkbenchContributionsState {
  * workbench parts and hosts.
  */
 export function useWorkbenchContributions(state: WorkbenchContributionsState): void {
+  registerScmWorkbenchContributions();
   useQuickAccessContribution();
   useInitialWorkspaceRefresh(state.refreshWorkspace);
   useWorkspaceWindowRefreshContribution();
