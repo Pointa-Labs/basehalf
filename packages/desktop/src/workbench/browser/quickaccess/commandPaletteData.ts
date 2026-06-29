@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { workspaceService } from '../../../platform/workspaces/browser/workspaceService.js';
 import {
   COMMAND_PALETTE_CONTENT_QUERY_MIN_LENGTH,
   type CommandPaletteContentSearchProviderResult,
@@ -15,6 +14,7 @@ import {
 import { gitScmService } from '../../contrib/scm/browser/gitScmService.js';
 import { badgeService } from '../../services/mirror/browser/badgeService.js';
 import { searchService } from '../../services/search/browser/searchService.js';
+import { workspaceContentService } from '../../services/workspace/browser/workspaceContentService.js';
 import { useCommandPaletteAsyncProvider } from './commandPaletteAsyncProvider.js';
 
 export function useCommandPaletteFiles(
@@ -25,7 +25,7 @@ export function useCommandPaletteFiles(
     () =>
       provideCommandPaletteFiles({
         current,
-        workspace: workspaceService,
+        workspace: workspaceContentService,
         badges: badgeService,
       }),
     [current],
