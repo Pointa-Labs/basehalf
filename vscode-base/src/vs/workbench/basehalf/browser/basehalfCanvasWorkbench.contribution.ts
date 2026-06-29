@@ -24,8 +24,10 @@ import {
 	IBaseHalfCanvasItem
 } from '../common/basehalfCanvasModel.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
-import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
+import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
+import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -41,14 +43,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
+	private readonly detailProjectionActions: HTMLElement;
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
+	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailDisposables = this._register(new DisposableStore());
 
 	private renderSeq = 0;
 	private detailKey: string | undefined;
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
+	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
 	private folderFocusTimer: number | undefined;
 	private lastFolderFocusKey: string | undefined;
 
@@ -86,7 +91,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const detailTitleBlock = append(detailHeader, $('.basehalf-card-detail-title-block'));
 		this.detailTitle = append(detailTitleBlock, $('.basehalf-card-detail-title'));
 		this.detailMeta = append(detailTitleBlock, $('.basehalf-card-detail-meta'));
-		const close = append(detailHeader, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
+		const detailActions = append(detailHeader, $('.basehalf-card-detail-actions'));
+		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
+		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
 		close.title = 'Close';
 		close.setAttribute('aria-label', 'Close');
@@ -273,7 +280,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!cardDetail) {
 			this.detailKey = undefined;
 			this.sourceDetail = undefined;
+			this.markdownPreviewDetail = undefined;
+			this.detailChromeDisposables.clear();
 			this.detailDisposables.clear();
+			clearNode(this.detailProjectionActions);
 			clearNode(this.detailBody);
 			this.detailTitle.textContent = '';
 			this.detailMeta.textContent = '';
@@ -283,21 +293,60 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.detailTitle.textContent = cardDetail.relativePath || basename(cardDetail.resource);
 		this.detailMeta.textContent = this.detailMetaFor(cardDetail.projection, cardDetail.selection);
+		this.renderProjectionActions(cardDetail);
 
 		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
-		if (this.detailKey === detailKey && this.sourceDetail) {
-			this.sourceDetail.applySelection(cardDetail.selection);
+		if (this.detailKey === detailKey) {
+			this.sourceDetail?.applySelection(cardDetail.selection);
 			return;
 		}
 
 		this.detailKey = detailKey;
 		this.sourceDetail = undefined;
+		this.markdownPreviewDetail = undefined;
 		this.detailDisposables.clear();
 
-		if (cardDetail.projection === 'source') {
+		if (cardDetail.projection === 'preview') {
+			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownPreviewCardDetail, this.detailBody));
+			void this.markdownPreviewDetail.open(cardDetail);
+		} else if (cardDetail.projection === 'source') {
 			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfSourceCardDetail, this.detailBody));
 			void this.sourceDetail.open(cardDetail);
 		}
+	}
+
+	private renderProjectionActions(cardDetail: IBaseHalfCardDetailState): void {
+		this.detailChromeDisposables.clear();
+		clearNode(this.detailProjectionActions);
+		this.detailProjectionActions.classList.toggle('visible', isBaseHalfMarkdownResource(cardDetail.resource));
+		if (!isBaseHalfMarkdownResource(cardDetail.resource)) {
+			return;
+		}
+
+		this.renderProjectionButton(cardDetail, 'preview', 'Preview', 'codicon-preview');
+		this.renderProjectionButton(cardDetail, 'source', 'Source', 'codicon-code');
+	}
+
+	private renderProjectionButton(cardDetail: IBaseHalfCardDetailState, projection: BaseHalfCardDetailProjection, title: string, icon: string): void {
+		const button = append(this.detailProjectionActions, $(`button.basehalf-card-detail-projection.codicon.${icon}`)) as HTMLButtonElement;
+		button.type = 'button';
+		button.title = title;
+		button.setAttribute('aria-label', title);
+		button.setAttribute('aria-pressed', String(cardDetail.projection === projection));
+		button.classList.toggle('checked', cardDetail.projection === projection);
+		this.detailChromeDisposables.add(this.addDisposableListener(button, 'click', () => {
+			if (cardDetail.projection === projection) {
+				return;
+			}
+
+			this.canvasNavigationService.openCardDetail(cardDetail.resource, {
+				source: 'api',
+				selection: cardDetail.selection,
+				preserveFocus: cardDetail.preserveFocus,
+				pinned: cardDetail.pinned,
+				projection
+			});
+		}));
 	}
 
 	private detailMetaFor(projection: string, selection: { startLineNumber: number; startColumn: number } | undefined): string {

@@ -255,6 +255,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		const position = editor.getPosition();
 		const firstVisibleLine = editor.getVisibleRanges()[0]?.startLineNumber ?? position?.lineNumber ?? 1;
 		const fields = {
+			projection: state.projection,
 			visible_lines: { start: firstVisibleLine },
 			...(position ? { cursor: { line: position.lineNumber, column: position.column, line_precision: 'exact' as const } } : {})
 		};

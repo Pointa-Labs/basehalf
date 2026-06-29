@@ -30,17 +30,30 @@ suite('BaseHalfFocusMirrorService', () => {
 
 	test('serializes file focus using source coordinates', () => {
 		assert.strictEqual(serializeFileFocus('docs/readme.md', {
+			projection: 'source',
 			visible_lines: { start: 4 },
 			cursor: { line: 4, column: 2, line_precision: 'exact' }
 		}), [
 			'path: "docs/readme.md"',
 			'kind: file',
+			'projection: source',
 			'visible_lines:',
 			'  start: 4',
 			'cursor:',
 			'  line: 4',
 			'  column: 2',
 			'  line_precision: exact',
+			''
+		].join('\n'));
+	});
+
+	test('serializes preview focus without source coordinates', () => {
+		assert.strictEqual(serializeFileFocus('docs/readme.md', {
+			projection: 'preview'
+		}), [
+			'path: "docs/readme.md"',
+			'kind: file',
+			'projection: preview',
 			''
 		].join('\n'));
 	});
@@ -64,6 +77,7 @@ suite('BaseHalfFocusMirrorService', () => {
 		const { service, fileService, mirrorLinkService } = createService();
 
 		await service.writeFileFocus(file('docs/readme.md'), {
+			projection: 'source',
 			visible_lines: { start: 8 },
 			cursor: { line: 9, column: 3, line_precision: 'exact' }
 		});
@@ -74,6 +88,7 @@ suite('BaseHalfFocusMirrorService', () => {
 		assert.strictEqual(fileService.writes[0].content, [
 			'path: "docs/readme.md"',
 			'kind: file',
+			'projection: source',
 			'visible_lines:',
 			'  start: 8',
 			'cursor:',

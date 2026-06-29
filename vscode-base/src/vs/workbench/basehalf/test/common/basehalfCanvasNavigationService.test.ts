@@ -53,7 +53,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.source, 'search');
 		assert.deepStrictEqual(service.state.cardDetail?.selection, { startLineNumber: 4, startColumn: 2, endLineNumber: 4, endColumn: 9 });
 		assert.strictEqual(service.state.cardDetail?.pinned, true);
-		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+		assert.strictEqual(service.state.cardDetail?.projection, 'preview');
 	});
 
 	test('opens root workspace files over the workspace root canvas', async () => {
@@ -68,7 +68,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace');
 		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
-		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+		assert.strictEqual(service.state.cardDetail?.projection, 'preview');
 	});
 
 	test('opening another file moves the canvas to that file parent folder', async () => {
@@ -113,6 +113,33 @@ suite('BaseHalfCanvasNavigationService', () => {
 		const result = await service.openResource(URI.file('/workspace/docs/readme.md'), {
 			source: 'explorer',
 			projection: 'source'
+		});
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+	});
+
+	test('uses source as the default projection for non-Markdown files', async () => {
+		const service = createService(new Map([
+			['/workspace/docs/app.ts', aFileStat(URI.file('/workspace/docs/app.ts'), FileType.File)]
+		]));
+
+		const result = await service.openResource(URI.file('/workspace/docs/app.ts'), { source: 'explorer' });
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
+	});
+
+	test('normalizes unsupported preview requests for non-Markdown files to source', async () => {
+		const service = createService(new Map([
+			['/workspace/docs/app.ts', aFileStat(URI.file('/workspace/docs/app.ts'), FileType.File)]
+		]));
+
+		const result = await service.openResource(URI.file('/workspace/docs/app.ts'), {
+			source: 'api',
+			projection: 'preview'
 		});
 
 		assert.strictEqual(result.handled, true);

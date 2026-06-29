@@ -13,12 +13,14 @@ import { ILogService } from '../../../platform/log/common/log.js';
 import { IBaseHalfMirrorLinkService } from '../../../platform/basehalf/common/basehalfMirrorLink.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState, IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
+import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
 
 export const IBaseHalfFocusMirrorService = createDecorator<IBaseHalfFocusMirrorService>('baseHalfFocusMirrorService');
 
 export type BaseHalfLinePrecision = 'exact' | 'block_start' | 'estimated';
 
 export interface IBaseHalfFileFocusFields {
+	readonly projection?: BaseHalfCardDetailProjection;
 	readonly visible_lines?: { readonly start: number };
 	readonly visible_blocks?: { readonly start: number };
 	readonly cursor?: {
@@ -120,6 +122,10 @@ export function serializeFileFocus(path: string, fields: IBaseHalfFileFocusField
 		`path: ${yamlString(path)}`,
 		'kind: file'
 	];
+
+	if (fields.projection) {
+		lines.push(`projection: ${fields.projection}`);
+	}
 
 	if (fields.visible_lines) {
 		lines.push(
