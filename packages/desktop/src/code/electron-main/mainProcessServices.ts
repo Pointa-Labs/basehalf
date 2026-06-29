@@ -35,7 +35,6 @@ import { FileWorkspaceRegistryBackendProvider } from '../../platform/workspaces/
 import { WorkspaceRegistryMainService } from '../../platform/workspaces/electron-main/workspaceRegistryMainService.js';
 import { WorkspaceSurfacesMainService } from '../../platform/workspaces/electron-main/workspaceSurfacesMainService.js';
 import { WorkspaceMainService } from '../../platform/workspaces/electron-main/workspacesMainService.js';
-import { CanvasListingMainService } from '../../workbench/contrib/basehalfCanvas/electron-main/canvasListingMainService.js';
 import { GithubAuthenticationProvider } from '../../workbench/contrib/githubPullRequests/electron-main/githubAuthenticationProvider.js';
 import { createGithubGitRunner } from '../../workbench/contrib/githubPullRequests/electron-main/githubGitCredentials.js';
 import {
@@ -56,6 +55,7 @@ import { FocusMainService } from '../../workbench/services/mirror/electron-main/
 import { MirrorNodeOperationMainService } from '../../workbench/services/mirror/electron-main/mirrorNodeOperationMainService.js';
 import { WorkbenchSearchBackendProvider } from '../../workbench/services/search/electron-main/searchBackendProvider.js';
 import { SearchMainService } from '../../workbench/services/search/electron-main/searchMainService.js';
+import { CanvasListingMainService } from '../../workbench/services/workspace/electron-main/canvasListingMainService.js';
 import type { BaseHalfApplicationOptions } from './app.js';
 import type { MainChannelRegistryOptions } from './mainChannelRegistry.js';
 

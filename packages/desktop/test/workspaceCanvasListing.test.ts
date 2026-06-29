@@ -6,9 +6,9 @@ import {
   DesktopWorkspaceBackendProvider,
   type WorkspaceBackendProvider,
 } from '../src/platform/workspaces/electron-main/workspaceBackendProvider.js';
-import { CanvasListingMainService } from '../src/workbench/contrib/basehalfCanvas/electron-main/canvasListingMainService.js';
 import type { BadgeFile } from '../src/workbench/services/mirror/common/badge.js';
 import type { CanvasFile } from '../src/workbench/services/mirror/common/canvas.js';
+import { CanvasListingMainService } from '../src/workbench/services/workspace/electron-main/canvasListingMainService.js';
 
 describe('CanvasListingMainService', () => {
   it('lists direct canvas children with root hint filtering and folder previews', async () => {

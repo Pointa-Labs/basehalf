@@ -14,8 +14,8 @@ import type {
   WorkspaceListCanvasResult,
   WorkspaceListFilesEntry,
 } from '../../../../platform/workspaces/common/workspaces.js';
-import type { BadgeFile } from '../../../services/mirror/common/badge.js';
-import type { CanvasEdge, CanvasFile } from '../../../services/mirror/common/canvas.js';
+import type { BadgeFile } from '../../mirror/common/badge.js';
+import type { CanvasEdge, CanvasFile } from '../../mirror/common/canvas.js';
 
 const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
 const FOLDER_PREVIEW_LIMIT = 6;
