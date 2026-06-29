@@ -4,10 +4,6 @@ import {
   type QuickPickOption,
   pick,
 } from '../../../../platform/quickinput/browser/quickInputService.js';
-import {
-  type GithubPullRequestService,
-  githubPullRequestService,
-} from '../../githubPullRequests/browser/githubPullRequestService.js';
 import type { GitFetchArgs, GitRemoteInfo, GitStatusResult } from '../common/git.js';
 import {
   FETCH_ALL_REMOTES_VALUE,
@@ -19,7 +15,6 @@ import type { GitScmService } from './gitScmService.js';
 import { type ScmActionRunner, scmErrorMessage } from './scmCommandModel.js';
 
 export interface ScmRemoteCommands {
-  readonly createPullRequest: () => void;
   readonly publish: () => void;
   readonly pull: () => void;
   readonly push: () => void;
@@ -32,41 +27,12 @@ export interface ScmRemoteCommands {
 export function useScmRemoteCommands({
   act,
   git,
-  githubService = githubPullRequestService,
-  openExternal,
   status,
 }: {
   readonly act: ScmActionRunner;
   readonly git: GitScmService;
-  readonly githubService?: GithubPullRequestService;
-  readonly openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   readonly status: GitStatusResult | null;
 }): ScmRemoteCommands {
-  // Open GitHub's "create PR" page for the current branch. GitHub-specific
-  // remote selection and URL shaping stay behind the GitHub provider service.
-  const createPullRequest = useCallback(
-    (): void =>
-      void (async () => {
-        const branch = status?.branch;
-        if (!branch) {
-          toast.error('A current branch is required to create a pull request.');
-          return;
-        }
-        try {
-          const url = await githubService.createPullRequestUrl(branch);
-          if (url === null) {
-            toast.error('No GitHub remote is configured.');
-            return;
-          }
-          const res = await openExternal(url);
-          if (!res.ok) toast.error(res.error ?? 'Failed to open the browser.');
-        } catch (err) {
-          toast.error(scmErrorMessage(err));
-        }
-      })(),
-    [githubService, openExternal, status?.branch],
-  );
-
   const publish = useCallback(
     (): void =>
       void (async () => {
@@ -120,7 +86,7 @@ export function useScmRemoteCommands({
     runRemoteOperation(scmRemoteOperation('pushForce', status));
   }, [runRemoteOperation, status]);
 
-  return { createPullRequest, publish, pull, push, fetch, sync, pullRebase, pushForce };
+  return { publish, pull, push, fetch, sync, pullRebase, pushForce };
 }
 
 export async function chooseFetchRemote(

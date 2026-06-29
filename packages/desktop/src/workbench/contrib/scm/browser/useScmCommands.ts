@@ -1,10 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
-import {
-  type GithubPullRequestService,
-  githubPullRequestService,
-} from '../../githubPullRequests/browser/githubPullRequestService.js';
 import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { GitStashEntry, GitStatusResult } from '../common/git.js';
 import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
@@ -25,8 +20,6 @@ interface UseScmCommandsArgs {
   readonly refresh: () => Promise<void> | void;
   readonly loadStashes: () => Promise<void> | void;
   readonly gitService?: GitScmService;
-  readonly githubService?: GithubPullRequestService;
-  readonly openExternal?: (url: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface ScmCommands {
@@ -41,7 +34,6 @@ export interface ScmCommands {
   readonly discardAll: () => void;
   readonly commit: (options?: CommitActionOptions) => void;
   readonly createBranchPrompt: () => void;
-  readonly createPullRequest: () => void;
   readonly publish: () => void;
   readonly pull: () => void;
   readonly push: () => void;
@@ -67,8 +59,6 @@ export const useScmCommands = ({
   refresh,
   loadStashes,
   gitService: git = gitScmService,
-  githubService = githubPullRequestService,
-  openExternal = (url) => nativeHostService.openExternal(url),
 }: UseScmCommandsArgs): ScmCommands => {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -101,8 +91,6 @@ export const useScmCommands = ({
   const remoteCommands = useScmRemoteCommands({
     act,
     git,
-    githubService,
-    openExternal,
     status,
   });
   const stashCommands = useScmStashCommands({ act, git });
