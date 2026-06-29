@@ -1,5 +1,6 @@
 import type { SettingsBridge } from '../../platform/configuration/electron-sandbox/configurationBridge.js';
 import type { FileEventBridge } from '../../platform/files/electron-sandbox/fileEventBridge.js';
+import type { WorkspaceFilesBridge } from '../../platform/files/electron-sandbox/workspaceFilesBridge.js';
 import type { NativeHostBridge } from '../../platform/native/electron-sandbox/nativeHostBridge.js';
 import type { TerminalBridge } from '../../platform/terminal/electron-sandbox/terminalBridge.js';
 import type { UpdateBridge } from '../../platform/update/electron-sandbox/updateBridge.js';
@@ -30,6 +31,7 @@ export interface BaseHalfSandboxApi
     SearchBridge,
     SettingsBridge,
     WorkspaceBridge,
+    WorkspaceFilesBridge,
     UpdateBridge,
     FileEventBridge {
   readonly terminal: TerminalBridge;

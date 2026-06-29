@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { workspaceService } from '../src/platform/workspaces/browser/workspaceService.js';
 import {
   registerFlusher,
   unregisterFlusher,
 } from '../src/workbench/services/editor/common/editorFlush.js';
+import { textFileService } from '../src/workbench/services/textfile/browser/textFileService.js';
+import { workspaceFileOperationService } from '../src/workbench/services/workspace/browser/workspaceFileOperationService.js';
 import {
   EDITOR_OVERLAY_PANE_ID,
   useWorkspaceStore,
@@ -162,8 +163,8 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
 
   it('createNote does not open a relative path in a new workspace after write returns', async () => {
     setupOpenFile(async () => true);
-    vi.spyOn(workspaceService, 'readFile').mockRejectedValue(new Error('[PATH_NOT_FOUND] missing'));
-    vi.spyOn(workspaceService, 'writeFile').mockImplementation(async (path) => {
+    vi.spyOn(textFileService, 'read').mockRejectedValue(new Error('[PATH_NOT_FOUND] missing'));
+    vi.spyOn(textFileService, 'write').mockImplementation(async (path) => {
       store.setState({ current: 'other' });
       return { path, bytes: 0 };
     });
@@ -176,7 +177,7 @@ describe('store navigation blocks on an unresolved editor conflict', () => {
 
   it('deleteEntry does not restore an old open file after the workspace changes on failure', async () => {
     setupOpenFile(async () => true);
-    vi.spyOn(workspaceService, 'deleteEntry').mockImplementation(async () => {
+    vi.spyOn(workspaceFileOperationService, 'deleteEntry').mockImplementation(async () => {
       store.setState({ current: 'other' });
       throw new Error('trash failed');
     });

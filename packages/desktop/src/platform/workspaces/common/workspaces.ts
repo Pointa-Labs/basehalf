@@ -21,6 +21,18 @@ import type {
   WorkspaceWriteFileArgs,
   WorkspaceWriteFileResult,
 } from '../../files/common/workspaceFiles.js';
+import {
+  parseWorkspaceFilesCreateFileArgs,
+  parseWorkspaceFilesCreateFolderArgs,
+  parseWorkspaceFilesDeleteEntryArgs,
+  parseWorkspaceFilesImportFileArgs,
+  parseWorkspaceFilesListFilesArgs,
+  parseWorkspaceFilesListSupportedFilesArgs,
+  parseWorkspaceFilesReadFileArgs,
+  parseWorkspaceFilesRenameEntryArgs,
+  parseWorkspaceFilesRenameFileArgs,
+  parseWorkspaceFilesWriteFileArgs,
+} from '../../files/common/workspaceFiles.js';
 
 export type {
   WorkspaceCreateFileArgs,
@@ -367,8 +379,7 @@ export function parseWorkspaceCreateDemoArgs(payload: unknown): WorkspaceCreateD
 }
 
 export function parseWorkspaceListFilesArgs(payload: unknown): WorkspaceListFilesArgs {
-  const raw = payloadRecord('listFiles', payload);
-  return { path: stringProp('listFiles', raw, 'path') };
+  return parseWorkspaceFilesListFilesArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceListCanvasArgs(payload: unknown): WorkspaceListCanvasArgs {
@@ -379,8 +390,7 @@ export function parseWorkspaceListCanvasArgs(payload: unknown): WorkspaceListCan
 export function parseWorkspaceListSupportedFilesArgs(
   payload: unknown,
 ): WorkspaceListSupportedFilesArgs {
-  const raw = payloadRecord('listSupportedFiles', payload);
-  return { folder: nullableStringProp('listSupportedFiles', raw, 'folder') };
+  return parseWorkspaceFilesListSupportedFilesArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceSetViewportArgs(payload: unknown): WorkspaceSetViewportArgs {
@@ -396,61 +406,35 @@ export function parseWorkspaceSetViewportArgs(payload: unknown): WorkspaceSetVie
 }
 
 export function parseWorkspaceReadFileArgs(payload: unknown): WorkspaceReadFileArgs {
-  const raw = payloadRecord('readFile', payload);
-  const args: WorkspaceReadFileArgs = { path: stringProp('readFile', raw, 'path') };
-  const maxChars = optionalFiniteNumberProp('readFile', raw, 'maxChars');
-  return maxChars === undefined ? args : { ...args, maxChars };
+  return parseWorkspaceFilesReadFileArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceWriteFileArgs(payload: unknown): WorkspaceWriteFileArgs {
-  const raw = payloadRecord('writeFile', payload);
-  return {
-    path: stringProp('writeFile', raw, 'path'),
-    content: stringProp('writeFile', raw, 'content'),
-  };
+  return parseWorkspaceFilesWriteFileArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceRenameFileArgs(payload: unknown): WorkspaceRenameFileArgs {
-  const raw = payloadRecord('renameFile', payload);
-  return { from: stringProp('renameFile', raw, 'from'), to: stringProp('renameFile', raw, 'to') };
+  return parseWorkspaceFilesRenameFileArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceImportFileArgs(payload: unknown): WorkspaceImportFileArgs {
-  const raw = payloadRecord('importFile', payload);
-  const to = nullableOptionalStringProp('importFile', raw, 'to');
-  if (to === undefined) return { from: stringProp('importFile', raw, 'from') };
-  return { from: stringProp('importFile', raw, 'from'), to };
+  return parseWorkspaceFilesImportFileArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceCreateFileArgs(payload: unknown): WorkspaceCreateFileArgs {
-  const raw = payloadRecord('createFile', payload);
-  const content = optionalStringProp('createFile', raw, 'content');
-  return {
-    path: stringProp('createFile', raw, 'path'),
-    ...(content !== undefined && { content }),
-  };
+  return parseWorkspaceFilesCreateFileArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceCreateFolderArgs(payload: unknown): WorkspaceCreateFolderArgs {
-  const raw = payloadRecord('createFolder', payload);
-  return { path: stringProp('createFolder', raw, 'path') };
+  return parseWorkspaceFilesCreateFolderArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceDeleteEntryArgs(payload: unknown): WorkspaceDeleteEntryArgs {
-  const raw = payloadRecord('deleteEntry', payload);
-  return {
-    path: stringProp('deleteEntry', raw, 'path'),
-    kind: entryKindProp('deleteEntry', raw, 'kind'),
-  };
+  return parseWorkspaceFilesDeleteEntryArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceRenameEntryArgs(payload: unknown): WorkspaceRenameEntryArgs {
-  const raw = payloadRecord('renameEntry', payload);
-  return {
-    from: stringProp('renameEntry', raw, 'from'),
-    to: stringProp('renameEntry', raw, 'to'),
-    kind: entryKindProp('renameEntry', raw, 'kind'),
-  };
+  return parseWorkspaceFilesRenameEntryArgs(payload, 'workspace');
 }
 
 function payloadRecord(method: string, payload: unknown): Record<string, unknown> {
@@ -493,20 +477,6 @@ function nullableStringProp(
   return value;
 }
 
-function nullableOptionalStringProp(
-  method: string,
-  raw: Record<string, unknown>,
-  key: string,
-): string | null | undefined {
-  const value = raw[key];
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== 'string') {
-    throw new Error(`workspace.${method}: ${key} must be a string or null`);
-  }
-  return value;
-}
-
 function optionalStringProp(
   method: string,
   raw: Record<string, unknown>,
@@ -524,31 +494,6 @@ function finiteNumberProp(method: string, raw: Record<string, unknown>, key: str
   const value = raw[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new Error(`workspace.${method}: ${key} must be a finite number`);
-  }
-  return value;
-}
-
-function optionalFiniteNumberProp(
-  method: string,
-  raw: Record<string, unknown>,
-  key: string,
-): number | undefined {
-  const value = raw[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`workspace.${method}: ${key} must be a non-negative finite number`);
-  }
-  return value;
-}
-
-function entryKindProp(
-  method: string,
-  raw: Record<string, unknown>,
-  key: string,
-): 'file' | 'folder' {
-  const value = raw[key];
-  if (value !== 'file' && value !== 'folder') {
-    throw new Error(`workspace.${method}: ${key} must be "file" or "folder"`);
   }
   return value;
 }

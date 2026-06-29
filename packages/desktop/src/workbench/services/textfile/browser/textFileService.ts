@@ -1,11 +1,11 @@
+import { workspaceFilesService } from '../../../../platform/files/browser/workspaceFilesService.js';
 import type {
   WorkspaceReadFileResult,
   WorkspaceWriteFileResult,
 } from '../../../../platform/files/common/workspaceFiles.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { WorkspaceService as PlatformWorkspaceService } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceFilesService as PlatformWorkspaceFilesService } from '../../../../platform/files/common/workspaceFiles.js';
 
-type TextFileBackend = Pick<PlatformWorkspaceService, 'readFile' | 'writeFile'>;
+type TextFileBackend = Pick<PlatformWorkspaceFilesService, 'readFile' | 'writeFile'>;
 
 export type TextFileReadResult = WorkspaceReadFileResult;
 export type TextFileWriteResult = WorkspaceWriteFileResult;
@@ -22,4 +22,4 @@ export function createTextFileService(backend: TextFileBackend): TextFileService
   };
 }
 
-export const textFileService = createTextFileService(workspaceService);
+export const textFileService = createTextFileService(workspaceFilesService);

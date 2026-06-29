@@ -4,6 +4,7 @@ import {
   type MainChannelRegistryServices,
 } from '../src/code/electron-main/mainChannelRegistry.js';
 import { SETTINGS_IPC_CHANNELS } from '../src/platform/configuration/common/configuration.js';
+import { WORKSPACE_FILES_IPC_CHANNELS } from '../src/platform/files/common/workspaceFiles.js';
 import { NATIVE_HOST_IPC_CHANNELS } from '../src/platform/native/common/native.js';
 import { TERMINAL_IPC_CHANNELS } from '../src/platform/terminal/common/terminal.js';
 import { UPDATE_IPC_CHANNELS } from '../src/platform/update/common/update.js';
@@ -72,6 +73,7 @@ function createServices(): MainChannelRegistryServices {
     watcherEvents: {
       on: vi.fn(),
     },
+    workspaceFiles: {},
     workspace: {},
     workspaceWindowRouter: {},
   } as unknown as MainChannelRegistryServices;
@@ -109,6 +111,7 @@ describe('MainChannelRegistry', () => {
         SETTINGS_IPC_CHANNELS.get,
         TERMINAL_IPC_CHANNELS.spawn,
         UPDATE_IPC_CHANNELS.getState,
+        WORKSPACE_FILES_IPC_CHANNELS.listFiles,
         WORKSPACE_IPC_CHANNELS.list,
         WINDOW_IPC_CHANNELS.workspaceOpen,
       ]),

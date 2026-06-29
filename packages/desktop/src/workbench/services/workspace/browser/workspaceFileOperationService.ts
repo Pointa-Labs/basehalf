@@ -1,3 +1,4 @@
+import { workspaceFilesService } from '../../../../platform/files/browser/workspaceFilesService.js';
 import type {
   WorkspaceCreateFileArgs,
   WorkspaceCreateFileResult,
@@ -7,11 +8,10 @@ import type {
   WorkspaceRenameEntryResult,
   WorkspaceRenameFileResult,
 } from '../../../../platform/files/common/workspaceFiles.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { WorkspaceService as PlatformWorkspaceService } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceFilesService as PlatformWorkspaceFilesService } from '../../../../platform/files/common/workspaceFiles.js';
 
 type WorkspaceFileOperationBackend = Pick<
-  PlatformWorkspaceService,
+  PlatformWorkspaceFilesService,
   'createFile' | 'createFolder' | 'deleteEntry' | 'importFile' | 'renameEntry' | 'renameFile'
 >;
 
@@ -44,4 +44,5 @@ export function createWorkspaceFileOperationService(
   };
 }
 
-export const workspaceFileOperationService = createWorkspaceFileOperationService(workspaceService);
+export const workspaceFileOperationService =
+  createWorkspaceFileOperationService(workspaceFilesService);

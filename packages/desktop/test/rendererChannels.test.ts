@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { BaseHalfSandboxApi } from '../src/code/electron-sandbox/sandboxApi.js';
 import { createSettingsChannel } from '../src/platform/configuration/browser/settingsChannel.js';
 import { createFileEventChannel } from '../src/platform/files/browser/fileEventChannel.js';
+import { createWorkspaceFilesChannel } from '../src/platform/files/browser/workspaceFilesChannel.js';
 import { createNativeHostChannel } from '../src/platform/native/browser/nativeHostChannel.js';
 import { createTerminalChannel } from '../src/platform/terminal/browser/terminalChannel.js';
 import { createUpdateChannel } from '../src/platform/update/browser/updateChannel.js';
@@ -411,6 +412,54 @@ describe('renderer service channels', () => {
       { name: 'listFiles', args: [{ path: 'src' }] },
       { name: 'readFile', args: [{ path: 'a.md' }] },
       { name: 'setViewport', args: [{ viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } }] },
+    ]);
+  });
+
+  it('maps workspace file operations to the preload bridge', async () => {
+    const calls: Array<{ name: string; args: unknown[] }> = [];
+    const bridge = {
+      files: {
+        listFiles: async (args: unknown) => {
+          calls.push({ name: 'listFiles', args: [args] });
+          return { path: 'src', entries: [] };
+        },
+        listSupportedFiles: async (args: unknown) => {
+          calls.push({ name: 'listSupportedFiles', args: [args] });
+          return { files: ['a.md'] };
+        },
+        readFile: async (args: unknown) => {
+          calls.push({ name: 'readFile', args: [args] });
+          return { path: 'a.md', content: 'hello' };
+        },
+        writeFile: async (args: unknown) => {
+          calls.push({ name: 'writeFile', args: [args] });
+          return { path: 'a.md', bytes: 5 };
+        },
+      },
+    } as unknown as BaseHalfSandboxApi;
+    const channel = createWorkspaceFilesChannel(bridge);
+
+    await expect(channel.listFiles({ path: 'src' })).resolves.toEqual({
+      path: 'src',
+      entries: [],
+    });
+    await expect(channel.listSupportedFiles({ folder: null })).resolves.toEqual({
+      files: ['a.md'],
+    });
+    await expect(channel.readFile({ path: 'a.md' })).resolves.toEqual({
+      path: 'a.md',
+      content: 'hello',
+    });
+    await expect(channel.writeFile({ path: 'a.md', content: 'hello' })).resolves.toEqual({
+      path: 'a.md',
+      bytes: 5,
+    });
+
+    expect(calls).toEqual([
+      { name: 'listFiles', args: [{ path: 'src' }] },
+      { name: 'listSupportedFiles', args: [{ folder: null }] },
+      { name: 'readFile', args: [{ path: 'a.md' }] },
+      { name: 'writeFile', args: [{ path: 'a.md', content: 'hello' }] },
     ]);
   });
 

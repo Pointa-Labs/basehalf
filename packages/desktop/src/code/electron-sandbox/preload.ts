@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webFrame, webUtils } from 'electron';
 import { createSettingsBridge } from '../../platform/configuration/electron-sandbox/configurationBridge.js';
 import { createFileEventBridge } from '../../platform/files/electron-sandbox/fileEventBridge.js';
+import { createWorkspaceFilesBridge } from '../../platform/files/electron-sandbox/workspaceFilesBridge.js';
 import { createNativeHostBridge } from '../../platform/native/electron-sandbox/nativeHostBridge.js';
 import { createTerminalBridge } from '../../platform/terminal/electron-sandbox/terminalBridge.js';
 import { createUpdateBridge } from '../../platform/update/electron-sandbox/updateBridge.js';
@@ -32,6 +33,7 @@ const bh: BaseHalfSandboxApi = {
   ...createSearchBridge(ipcRenderer),
   ...createSettingsBridge(ipcRenderer),
   ...createWorkspaceBridge(ipcRenderer),
+  ...createWorkspaceFilesBridge(ipcRenderer),
   ...createUpdateBridge(ipcRenderer),
   ...createFileEventBridge(ipcRenderer),
   terminal: createTerminalBridge(ipcRenderer),

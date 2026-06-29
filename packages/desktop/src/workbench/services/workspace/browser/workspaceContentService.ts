@@ -1,13 +1,13 @@
+import { workspaceFilesService } from '../../../../platform/files/browser/workspaceFilesService.js';
 import type {
   WorkspaceListFilesResult,
   WorkspaceReadFileArgs,
   WorkspaceReadFileResult,
 } from '../../../../platform/files/common/workspaceFiles.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { WorkspaceService as PlatformWorkspaceService } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceFilesService as PlatformWorkspaceFilesService } from '../../../../platform/files/common/workspaceFiles.js';
 
 type WorkspaceContentBackend = Pick<
-  PlatformWorkspaceService,
+  PlatformWorkspaceFilesService,
   'listFiles' | 'listSupportedFiles' | 'readFile'
 >;
 
@@ -30,4 +30,4 @@ export function createWorkspaceContentService(
   };
 }
 
-export const workspaceContentService = createWorkspaceContentService(workspaceService);
+export const workspaceContentService = createWorkspaceContentService(workspaceFilesService);

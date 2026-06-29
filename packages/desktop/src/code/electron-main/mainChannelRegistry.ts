@@ -5,6 +5,8 @@ import {
   WatcherEventForwarderMainService,
   type WatcherEventSource,
 } from '../../platform/files/electron-main/watcherEventForwarderMainService.js';
+import { WorkspaceFilesMainChannel } from '../../platform/files/electron-main/workspaceFilesMainChannel.js';
+import type { WorkspaceFilesMainService } from '../../platform/files/electron-main/workspaceFilesMainService.js';
 import { NativeHostMainChannel } from '../../platform/native/electron-main/nativeHostMainChannel.js';
 import type { NativeHostMainService } from '../../platform/native/electron-main/nativeHostMainService.js';
 import { TerminalMainChannel } from '../../platform/terminal/electron-main/terminalMainChannel.js';
@@ -57,6 +59,7 @@ export interface MainChannelRegistryServices {
   readonly terminal: TerminalMainService;
   readonly updater: UpdateMainService;
   readonly watcherEvents: WatcherEventSource;
+  readonly workspaceFiles: WorkspaceFilesMainService;
   readonly workspace: WorkspaceMainService;
   readonly workspaceWindowRouter: WorkspaceWindowRouterMainService;
 }
@@ -95,6 +98,7 @@ export class MainChannelRegistry {
       events: services.watcherEvents,
       getWorkspaceRoot,
     }).register();
+    new WorkspaceFilesMainChannel(services.workspaceFiles, getWorkspaceRoot).register();
     new WorkspaceMainChannel(services.workspace, getWorkspaceRoot).register();
     new WorkspaceWindowMainChannel(services.workspaceWindowRouter).register();
 

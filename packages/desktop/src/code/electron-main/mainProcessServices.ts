@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { type BrowserWindow, type Display, screen, shell } from 'electron';
 import { SettingsMainService } from '../../platform/configuration/electron-main/configurationMainService.js';
 import { FileSettingsRegistryProvider } from '../../platform/configuration/electron-main/configurationRegistryProvider.js';
+import { WorkspaceFilesMainService } from '../../platform/files/electron-main/workspaceFilesMainService.js';
 import { WorkspaceWatcherMainService } from '../../platform/files/electron-main/workspaceWatcherMainService.js';
 import {
   claimNativeContextMenuSuppression,
@@ -141,6 +142,10 @@ export function createBaseHalfMainServices(
     focus: focusService,
     adhd: adhdService,
   });
+  const workspaceFilesService = new WorkspaceFilesMainService({
+    mirror: mirrorNodeOperations,
+    trash: opts.trash ?? ((path: string) => shell.trashItem(path)),
+  });
   const canvasListingService = new CanvasListingMainService({
     mirror: {
       getBadge: (root, args) => badgeService.get(root, args),
@@ -174,7 +179,7 @@ export function createBaseHalfMainServices(
   const gitBackend = new GitCliBackendProvider({
     git: createGithubGitRunner(configDir, githubAuthenticationProvider),
     deleteWorkspaceEntry: (workspaceRoot, args) =>
-      workspaceService.deleteEntry(workspaceRoot, args),
+      workspaceFilesService.deleteEntry(workspaceRoot, args),
   });
   const gitService = new GitMainService(gitBackend);
   const nativeHostService = new NativeHostMainService();
@@ -310,6 +315,7 @@ export function createBaseHalfMainServices(
         terminal: terminalService,
         updater,
         watcherEvents: watcherService,
+        workspaceFiles: workspaceFilesService,
         workspace: workspaceService,
         workspaceWindowRouter,
       },

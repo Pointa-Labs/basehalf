@@ -1,7 +1,9 @@
+import { workspaceFilesService } from '../../../../platform/files/browser/workspaceFilesService.js';
 import type {
   WorkspaceReadFileArgs,
   WorkspaceReadFileResult,
 } from '../../../../platform/files/common/workspaceFiles.js';
+import type { WorkspaceFilesService as PlatformWorkspaceFilesService } from '../../../../platform/files/common/workspaceFiles.js';
 import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import type {
   WorkspaceService as PlatformWorkspaceService,
@@ -9,10 +11,8 @@ import type {
   WorkspaceListCanvasResult,
 } from '../../../../platform/workspaces/common/workspaces.js';
 
-type WorkspaceCanvasDataBackend = Pick<
-  PlatformWorkspaceService,
-  'listCanvas' | 'listSupportedFiles' | 'readFile' | 'setViewport'
->;
+type WorkspaceCanvasDataBackend = Pick<PlatformWorkspaceService, 'listCanvas' | 'setViewport'> &
+  Pick<PlatformWorkspaceFilesService, 'listSupportedFiles' | 'readFile'>;
 
 export type WorkspaceCanvasViewportState = ViewportState;
 
@@ -37,4 +37,9 @@ export function createWorkspaceCanvasDataService(
   };
 }
 
-export const workspaceCanvasDataService = createWorkspaceCanvasDataService(workspaceService);
+export const workspaceCanvasDataService = createWorkspaceCanvasDataService({
+  listCanvas: (folder) => workspaceService.listCanvas(folder),
+  setViewport: (viewport) => workspaceService.setViewport(viewport),
+  listSupportedFiles: (folder) => workspaceFilesService.listSupportedFiles(folder),
+  readFile: (path, options) => workspaceFilesService.readFile(path, options),
+});

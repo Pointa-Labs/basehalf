@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { droppedPaths, handleExternalDrop } from '../src/workbench/browser/dnd/importDrop.js';
+import { workspaceFileOperationService } from '../src/workbench/services/workspace/browser/workspaceFileOperationService.js';
 import { useWorkspaceStore } from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // Pin the OS drag-drop ROUTING contract (lib/importDrop): folders → add/open
-// as workspace; files → COPY into the open workspace (workspace.importFile);
+// as workspace; files → COPY into the open workspace (files import operation);
 // files with no workspace open → an explanatory error, not a crash. The copy
 // semantics themselves (collision suffix, containment, byte fidelity) are
 // owned by the desktop workspace backend — this mock mirrors that contract.
@@ -27,8 +28,6 @@ const bh = {
   pathKindForFile: async (f: File & { path?: string }): Promise<'file' | 'dir' | null> =>
     f.path !== undefined ? (kinds[f.path] ?? null) : null,
   workspace: {
-    importFile: async (args: unknown): Promise<unknown> =>
-      runWorkspace('workspace.importFile', args),
     add: async (args: unknown): Promise<unknown> => runWorkspace('workspace.add', args),
     list: async (): Promise<unknown> => runWorkspace('workspace.list', {}),
   },
@@ -41,10 +40,6 @@ const bh = {
 async function runWorkspace(name: string, args?: unknown): Promise<unknown> {
   const a = (args ?? {}) as Record<string, unknown>;
   switch (name) {
-    case 'workspace.importFile': {
-      importCalls.push({ from: a.from as string, to: (a.to as string | null) ?? null });
-      return importResult(a.from as string);
-    }
     case 'canvas.setCard': {
       // Card position now lands in the folder's canvas.yaml (canvas.setCard),
       // not the badge — same drop-placement contract, new command.
@@ -81,6 +76,10 @@ beforeEach(() => {
     imported: true,
     supported: true,
   });
+  vi.spyOn(workspaceFileOperationService, 'importFile').mockImplementation(async (from, to) => {
+    importCalls.push({ from, to: to ?? null });
+    return importResult(from);
+  });
   (globalThis as { window?: unknown }).window = { bh };
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: () => null,
@@ -88,6 +87,10 @@ beforeEach(() => {
     removeItem: () => undefined,
   };
   useWorkspaceStore.setState({ current: 'ws', busy: false, error: '', notice: '' });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('handleExternalDrop routing', () => {
