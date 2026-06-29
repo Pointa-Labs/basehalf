@@ -6,11 +6,12 @@
 import './media/basehalfCanvasWorkbench.css';
 
 import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
-import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename } from '../../../base/common/resources.js';
 import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILabelService } from '../../../platform/label/common/label.js';
+import { ILogService } from '../../../platform/log/common/log.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
@@ -24,6 +25,7 @@ import {
 } from '../common/basehalfCanvasModel.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 
 const DEFAULT_CARD_WIDTH = 220;
@@ -47,6 +49,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderSeq = 0;
 	private detailKey: string | undefined;
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
+	private folderFocusTimer: number | undefined;
+	private lastFolderFocusKey: string | undefined;
 
 	constructor(
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -54,9 +58,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IFileService private readonly fileService: IFileService,
 		@ILabelService private readonly labelService: ILabelService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@ILogService private readonly logService: ILogService,
 		@IEditorService editorService: IEditorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
-		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
+		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService
 	) {
 		super();
 
@@ -104,6 +110,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
 				this.canvasNavigationService.closeCardDetail();
+			}
+		}));
+		this._register(this.addDisposableListener(this.root, 'scroll', () => this.scheduleFolderFocusWrite()));
+		this._register(toDisposable(() => {
+			if (this.folderFocusTimer !== undefined) {
+				mainWindow.clearTimeout(this.folderFocusTimer);
+				this.folderFocusTimer = undefined;
 			}
 		}));
 
@@ -185,6 +198,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.renderDetail();
+		this.scheduleFolderFocusWrite(0);
 	}
 
 	private getCurrentFolder(): IBaseHalfCanvasFolderState | undefined {
@@ -263,6 +277,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			clearNode(this.detailBody);
 			this.detailTitle.textContent = '';
 			this.detailMeta.textContent = '';
+			this.scheduleFolderFocusWrite(0);
 			return;
 		}
 
@@ -313,6 +328,43 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			maxY = Math.max(maxY, y + height);
 		}
 		return new Dimension(maxX + 48, maxY + 76);
+	}
+
+	private scheduleFolderFocusWrite(delay = 200): void {
+		if (this.folderFocusTimer !== undefined) {
+			mainWindow.clearTimeout(this.folderFocusTimer);
+		}
+
+		this.folderFocusTimer = mainWindow.setTimeout(() => {
+			this.folderFocusTimer = undefined;
+			this.flushFolderFocusWrite();
+		}, delay);
+	}
+
+	private flushFolderFocusWrite(): void {
+		if (this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+
+		const fields = {
+			viewport_center: {
+				x: this.root.scrollLeft + this.root.clientWidth / 2,
+				y: this.root.scrollTop + this.root.clientHeight / 2
+			},
+			zoom: 1
+		};
+		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}::${JSON.stringify(fields)}`;
+		if (key === this.lastFolderFocusKey) {
+			return;
+		}
+
+		this.lastFolderFocusKey = key;
+		void this.focusMirrorService.writeFolderFocus(folder, fields).catch(error => this.logService.error(error));
 	}
 }
 

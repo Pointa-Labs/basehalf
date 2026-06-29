@@ -12,12 +12,14 @@ import { IEditorOptions } from '../../../../editor/common/config/editorOptions.j
 import { ScrollType } from '../../../../editor/common/editorCommon.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
 import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly toolbar: HTMLElement;
@@ -26,7 +28,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private readonly saveButton: HTMLButtonElement;
 
 	private editor: CodeEditorWidget | undefined;
+	private state: IBaseHalfCardDetailState | undefined;
 	private resourceKey: string | undefined;
+	private focusTimer: number | undefined;
+	private lastFocusKey: string | undefined;
 	private disposed = false;
 	private readonly editorOptions: IEditorOptions = {
 		automaticLayout: false,
@@ -42,7 +47,9 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		private readonly container: HTMLElement,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
-		@ITextFileService private readonly textFileService: ITextFileService
+		@ITextFileService private readonly textFileService: ITextFileService,
+		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@ILogService private readonly logService: ILogService
 	) {
 		super();
 
@@ -81,6 +88,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	}
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
+		this.state = state;
 		this.resourceKey = state.resource.toString();
 		this.status.textContent = 'Loading source';
 		this.saveButton.disabled = true;
@@ -100,8 +108,11 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.editor = editor;
 			editor.setModel(modelReference.object.textEditorModel);
 			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
+			this._register(editor.onDidChangeCursorPosition(() => this.scheduleFocusWrite()));
+			this._register(editor.onDidScrollChange(() => this.scheduleFocusWrite()));
 			this.applySelection(state.selection, ScrollType.Immediate);
 			this.updateStatus();
+			this.flushFocusWrite();
 			mainWindow.requestAnimationFrame(() => this.layout());
 		} catch (error) {
 			if (this.disposed) {
@@ -113,6 +124,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		if (this.focusTimer !== undefined) {
+			mainWindow.clearTimeout(this.focusTimer);
+			this.focusTimer = undefined;
+		}
 		super.dispose();
 	}
 
@@ -126,6 +141,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			selectionRevealType: TextEditorSelectionRevealType.CenterIfOutsideViewport,
 			selectionSource: TextEditorSelectionSource.NAVIGATION
 		}, this.editor, scrollType);
+		this.scheduleFocusWrite(0);
 	}
 
 	async save(): Promise<void> {
@@ -216,5 +232,38 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			width: Math.max(0, this.editorHost.clientWidth),
 			height: Math.max(0, this.editorHost.clientHeight)
 		});
+	}
+
+	private scheduleFocusWrite(delay = 200): void {
+		if (this.focusTimer !== undefined) {
+			mainWindow.clearTimeout(this.focusTimer);
+		}
+
+		this.focusTimer = mainWindow.setTimeout(() => {
+			this.focusTimer = undefined;
+			this.flushFocusWrite();
+		}, delay);
+	}
+
+	private flushFocusWrite(): void {
+		const state = this.state;
+		const editor = this.editor;
+		if (!state || !editor?.hasModel()) {
+			return;
+		}
+
+		const position = editor.getPosition();
+		const firstVisibleLine = editor.getVisibleRanges()[0]?.startLineNumber ?? position?.lineNumber ?? 1;
+		const fields = {
+			visible_lines: { start: firstVisibleLine },
+			...(position ? { cursor: { line: position.lineNumber, column: position.column, line_precision: 'exact' as const } } : {})
+		};
+		const key = JSON.stringify(fields);
+		if (key === this.lastFocusKey) {
+			return;
+		}
+
+		this.lastFocusKey = key;
+		void this.focusMirrorService.writeFileFocus(state, fields).catch(error => this.logService.error(error));
 	}
 }

@@ -40,6 +40,8 @@ import { ipcBrowserViewChannelName } from '../../platform/browserView/common/bro
 import { ipcBrowserViewGroupChannelName } from '../../platform/browserView/common/browserViewGroup.js';
 import { BrowserViewMainService, IBrowserViewMainService } from '../../platform/browserView/electron-main/browserViewMainService.js';
 import { BrowserViewGroupMainService, IBrowserViewGroupMainService } from '../../platform/browserView/electron-main/browserViewGroupMainService.js';
+import { BASEHALF_MIRROR_LINK_CHANNEL } from '../../platform/basehalf/common/basehalfMirrorLink.js';
+import { BaseHalfMirrorLinkMainService } from '../../platform/basehalf/electron-main/basehalfMirrorLinkMainService.js';
 import { NativeParsedArgs } from '../../platform/environment/common/argv.js';
 import { IEnvironmentMainService } from '../../platform/environment/electron-main/environmentMainService.js';
 import { isLaunchedFromCli } from '../../platform/environment/node/argvHelper.js';
@@ -1308,6 +1310,10 @@ export class CodeApplication extends Disposable {
 		const browserViewGroupChannel = ProxyChannel.fromService(accessor.get(IBrowserViewGroupMainService), disposables);
 		mainProcessElectronServer.registerChannel(ipcBrowserViewGroupChannelName, browserViewGroupChannel);
 		sharedProcessClient.then(client => client.registerChannel(ipcBrowserViewGroupChannelName, browserViewGroupChannel));
+
+		// BaseHalf mirror links
+		const baseHalfMirrorLinkChannel = ProxyChannel.fromService(new BaseHalfMirrorLinkMainService(), disposables);
+		mainProcessElectronServer.registerChannel(BASEHALF_MIRROR_LINK_CHANNEL, baseHalfMirrorLinkChannel);
 
 		// Signing
 		const signChannel = ProxyChannel.fromService(accessor.get(ISignService), disposables);
