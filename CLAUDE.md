@@ -18,6 +18,20 @@
 > [docs/decisions.md D18](docs/decisions.md). Internal product decisions for the
 > BaseHalf project itself live in `private-docs/decisions/` (private repo).
 
+Migration baseline: this branch starts from commit
+`41639435d6510d3d87a195f5498e88cd8ea80600` (`feat(editor): code files
+first-class — Monaco code editor + canvas cards`). Treat that commit and earlier
+history as the source of BaseHalf's original product/business logic. The later
+hand-rolled VS Code-like Git/SCM/GitHub/workbench refactor commits are sunk cost
+and should not be preserved for their own sake. The current strategy is to
+develop on a real VS Code base (`vscode-base/`, also reachable through
+`reference/vscode` when present) and port only BaseHalf's own product layer onto
+it. Git, SCM, GitHub auth, quick input, terminal, workbench chrome, and
+source-control UI should prefer VS Code's native implementation; keep only
+BaseHalf-specific integration points such as the `.bh` mirror protocol,
+workspace setup/hints, canvas, focus/ADHD state, badge/reference graph, and
+agent-oriented search/brief logic.
+
 `@basehalf/core` is the **one door**: every operation is `run(command, args)`.
 The desktop app, the watcher, and any future MCP/CLI shell all go through that
 single registry — there is no `bh <cmd>` binary anymore. The command surface is
