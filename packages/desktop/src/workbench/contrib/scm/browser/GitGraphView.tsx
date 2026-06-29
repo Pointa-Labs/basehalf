@@ -1,6 +1,5 @@
 import { type JSX, type MouseEvent, useCallback, useMemo, useState } from 'react';
 import { openContextMenu } from '../../../../platform/contextview/browser/contextMenuService.js';
-import { confirm, prompt } from '../../../../platform/dialogs/browser/dialogService.js';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
@@ -11,12 +10,8 @@ import { FullGraphCommitDetails } from './FullGraphCommitDetails.js';
 import { FullGraphHeader } from './FullGraphHeader.js';
 import { FullGraphHistoryTable } from './FullGraphHistoryTable.js';
 import { RebasePlanner } from './RebasePlanner.js';
-import {
-  type GitGraphActionDeps,
-  fullGraphCommitMenu,
-  fullGraphRefMenu,
-  fullGraphStashMenu,
-} from './gitGraphActions.js';
+import { createGitGraphActionRunner } from './gitGraphActionTypes.js';
+import { fullGraphCommitMenu, fullGraphRefMenu, fullGraphStashMenu } from './gitGraphActions.js';
 import {
   FULL_GRAPH_LANE_GAP,
   FULL_GRAPH_LEFT_OFFSET,
@@ -80,17 +75,13 @@ export const GitGraphView = ({
     onError: toast.error,
   });
 
-  const actionDeps = useMemo<GitGraphActionDeps>(
-    () => ({
-      git,
-      runGit,
-      confirm,
-      prompt,
-      setRebaseBase,
-      writeClipboard: (text) => navigator.clipboard.writeText(text),
-      toastError: toast.error,
-      toastSuccess: toast.success,
-    }),
+  const actionRunner = useMemo(
+    () =>
+      createGitGraphActionRunner({
+        git,
+        runGit,
+        setRebaseBase,
+      }),
     [git, runGit],
   );
 
@@ -138,20 +129,20 @@ export const GitGraphView = ({
         event.clientX,
         event.clientY,
         stashRef !== undefined
-          ? fullGraphStashMenu(stashRef, actionDeps)
-          : fullGraphCommitMenu(commit, actionDeps),
+          ? fullGraphStashMenu(stashRef, actionRunner)
+          : fullGraphCommitMenu(commit, actionRunner),
       );
     },
-    [actionDeps],
+    [actionRunner],
   );
 
   const openRefMenu = useCallback(
     (event: MouseEvent, ref: FullGraphRefModel): void => {
       event.preventDefault();
       event.stopPropagation();
-      openContextMenu(event.clientX, event.clientY, fullGraphRefMenu(ref, actionDeps));
+      openContextMenu(event.clientX, event.clientY, fullGraphRefMenu(ref, actionRunner));
     },
-    [actionDeps],
+    [actionRunner],
   );
 
   return (

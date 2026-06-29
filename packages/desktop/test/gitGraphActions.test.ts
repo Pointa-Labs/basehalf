@@ -3,6 +3,7 @@ import type {
   ContextMenuAction,
   ContextMenuItem,
 } from '../src/workbench/browser/parts/contextmenu/contextMenuStore.js';
+import { DefaultGitGraphActionRunner } from '../src/workbench/contrib/scm/browser/gitGraphActionTypes.js';
 import {
   type GitGraphActionDeps,
   fullGraphCommitMenu,
@@ -42,7 +43,11 @@ function ids(items: readonly ContextMenuItem[]): string[] {
   return items.map((item) => ('separator' in item ? '---' : item.id));
 }
 
-function createDeps(): { deps: GitGraphActionDeps; calls: string[] } {
+function createDeps(): {
+  deps: GitGraphActionDeps;
+  runner: DefaultGitGraphActionRunner;
+  calls: string[];
+} {
   const calls: string[] = [];
   const deps: GitGraphActionDeps = {
     git: {
@@ -90,13 +95,13 @@ function createDeps(): { deps: GitGraphActionDeps; calls: string[] } {
     toastError: (message) => calls.push(`error:${message}`),
     toastSuccess: (message) => calls.push(`success:${message}`),
   };
-  return { deps, calls };
+  return { deps, runner: new DefaultGitGraphActionRunner(deps), calls };
 }
 
 describe('gitGraphActions', () => {
   it('builds the full commit action menu and executes injected command handlers', async () => {
-    const { deps, calls } = createDeps();
-    const menu = fullGraphCommitMenu(commit, deps);
+    const { runner, calls } = createDeps();
+    const menu = fullGraphCommitMenu(commit, runner);
 
     expect(ids(menu)).toEqual([
       'checkout',
@@ -144,7 +149,7 @@ describe('gitGraphActions', () => {
     const local = createDeps();
     const branchMenu = fullGraphRefMenu(
       { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
-      local.deps,
+      local.runner,
     );
     expect(ids(branchMenu)).toEqual(['checkout', '---', 'delete']);
 
@@ -160,7 +165,7 @@ describe('gitGraphActions', () => {
     action(
       fullGraphRefMenu(
         { name: 'origin/main', kind: 'remote', targetRef: 'refs/remotes/origin/main' },
-        remote.deps,
+        remote.runner,
       ),
       'checkout',
     ).run();
@@ -169,7 +174,7 @@ describe('gitGraphActions', () => {
     action(
       fullGraphRefMenu(
         { name: 'origin/main', kind: 'remote', targetRef: 'refs/remotes/origin/main' },
-        remote.deps,
+        remote.runner,
       ),
       'delete',
     ).run();
@@ -189,7 +194,7 @@ describe('gitGraphActions', () => {
         targetRef: 'refs/remotes/origin/main',
         activeRemote: true,
       },
-      createDeps().deps,
+      createDeps().runner,
     );
     expect(ids(activeRemoteMenu)).toEqual(['checkout']);
 
@@ -202,7 +207,7 @@ describe('gitGraphActions', () => {
           targetRef: 'refs/remotes/origin/main',
           trackingLocal: 'main',
         },
-        trackedRemote.deps,
+        trackedRemote.runner,
       ),
       'checkout',
     ).run();
@@ -211,7 +216,7 @@ describe('gitGraphActions', () => {
     const tag = createDeps();
     const tagMenu = fullGraphRefMenu(
       { name: 'v1.0', kind: 'tag', targetRef: 'refs/tags/v1.0' },
-      tag.deps,
+      tag.runner,
     );
     expect(ids(tagMenu)).toEqual(['checkout', '---', 'delete']);
     action(tagMenu, 'delete').run();
@@ -220,11 +225,11 @@ describe('gitGraphActions', () => {
   });
 
   it('uses full ref targets for remote checkout actions to avoid ambiguous refs', () => {
-    const { deps, calls } = createDeps();
+    const { runner, calls } = createDeps();
     action(
       fullGraphRefMenu(
         { name: 'origin/feature', kind: 'remote', targetRef: 'refs/remotes/origin/feature' },
-        deps,
+        runner,
       ),
       'checkout',
     ).run();
@@ -256,7 +261,7 @@ describe('gitGraphActions', () => {
     action(
       fullGraphRefMenu(
         { name: 'feature/scm', kind: 'branch', targetRef: 'refs/heads/feature/scm' },
-        rejectingDeps,
+        new DefaultGitGraphActionRunner(rejectingDeps),
       ),
       'delete',
     ).run();
@@ -274,8 +279,8 @@ describe('gitGraphActions', () => {
   });
 
   it('builds stash menu actions with confirmation for destructive drops', async () => {
-    const { deps, calls } = createDeps();
-    const menu = fullGraphStashMenu('stash@{0}', deps);
+    const { runner, calls } = createDeps();
+    const menu = fullGraphStashMenu('stash@{0}', runner);
 
     expect(ids(menu)).toEqual(['apply', 'pop', '---', 'drop']);
     expect(action(menu, 'drop').danger).toBe(true);
