@@ -13,7 +13,6 @@ export interface WatcherRenameEvent {
   readonly type: 'rename';
   readonly fromRelPath: string;
   readonly toRelPath: string;
-  readonly toAbsPath: string;
   readonly isDir: boolean;
 }
 
@@ -30,7 +29,6 @@ export type WorkspaceFileEvent =
       readonly type: 'rename';
       readonly fromRelPath: string;
       readonly toRelPath: string;
-      readonly toAbsPath: string;
       readonly isDir: boolean;
     };
 
@@ -59,14 +57,12 @@ export function asWorkspaceFileEvent(event: unknown): WorkspaceFileEvent | null 
   if (raw.type === 'rename') {
     return typeof raw.fromRelPath === 'string' &&
       typeof raw.toRelPath === 'string' &&
-      typeof raw.toAbsPath === 'string' &&
       isSafeRelativePath(raw.fromRelPath) &&
       isSafeRelativePath(raw.toRelPath)
       ? {
           type: 'rename',
           fromRelPath: raw.fromRelPath,
           toRelPath: raw.toRelPath,
-          toAbsPath: raw.toAbsPath,
           isDir,
         }
       : null;

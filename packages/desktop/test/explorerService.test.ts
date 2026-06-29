@@ -39,7 +39,6 @@ describe('explorerService', () => {
           type: 'rename',
           fromRelPath: 'src/old.ts',
           toRelPath: 'src/new.ts',
-          toAbsPath: '/repo/src/new.ts',
           isDir: false,
         },
       }),
@@ -130,7 +129,6 @@ describe('explorerService', () => {
       type: 'rename',
       fromRelPath: 'docs',
       toRelPath: 'src/docs',
-      toAbsPath: '/repo/src/docs',
       isDir: true,
     });
 

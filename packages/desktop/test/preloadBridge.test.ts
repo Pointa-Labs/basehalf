@@ -679,7 +679,6 @@ describe('preload bridge modules', () => {
         type: 'rename',
         fromRelPath: 'a.md',
         toRelPath: '/tmp/secret.md',
-        toAbsPath: '/tmp/secret.md',
         isDir: false,
       },
     );

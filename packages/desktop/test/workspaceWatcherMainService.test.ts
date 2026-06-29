@@ -81,7 +81,6 @@ describe('WorkspaceWatcherMainService', () => {
       workspaceRoot: '/repo',
       fromRelPath: 'a.md',
       toRelPath: 'b.md',
-      toAbsPath: '/repo/b.md',
       isDir: false,
     });
   });

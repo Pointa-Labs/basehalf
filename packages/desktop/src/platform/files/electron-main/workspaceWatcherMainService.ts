@@ -266,7 +266,6 @@ export class WorkspaceWatcherMainService {
       type: 'rename',
       fromRelPath: from,
       toRelPath: to,
-      toAbsPath: add.absPath,
       isDir: add.isDir,
     });
   }
