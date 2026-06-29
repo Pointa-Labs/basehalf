@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitCommit, GitLogArgs, GitRefInfo, GitStashEntry } from '../common/git.js';
+import type { ScmHistoryProvider } from '../common/history.js';
 import { FULL_GRAPH_PAGE_SIZE } from './gitGraphViewModel.js';
 import {
   type GitHistoryOptions,
   GitHistoryProvider,
-  type GitHistoryRawSource,
   gitHistoryProvider,
   gitLogArgsForHistoryOptions,
   normalizeGitHistoryItemRefs,
@@ -12,9 +12,10 @@ import {
 import {
   gitHistoryLogArgsForAvailableFilter,
   gitHistoryOptionsForSourceFilter,
+  loadGitHistoryPage,
 } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
-import { historyLogArgsForFilter, loadHistoryGraphPage } from './historyGraphModel.js';
+import { historyLogArgsForFilter } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 import { historyErrorMessage, usePagedGitHistory } from './usePagedGitHistory.js';
 
@@ -81,7 +82,7 @@ export const fullGraphHistoryOptionsForSource = ({
   refs,
   skip,
 }: {
-  readonly source: GitHistoryRawSource;
+  readonly source: Pick<ScmHistoryProvider, 'provideCurrentHistoryItemRefs'>;
   readonly filter: ScmHistoryFilter;
   readonly refs: readonly GitRefInfo[];
   readonly skip: number;
@@ -119,7 +120,7 @@ export function useFullGitGraphHistory({
 
   const pageLoader = useCallback(
     (skip: number) =>
-      loadHistoryGraphPage({
+      loadGitHistoryPage({
         source: historyProvider,
         filter: historyFilter,
         pageSize: FULL_GRAPH_PAGE_SIZE,

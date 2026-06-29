@@ -1,13 +1,26 @@
-import type { GitCommit, GitLogArgs, GitRefInfo } from '../common/git.js';
-import type { ScmCurrentHistoryItemRefs, ScmHistoryItemRef } from '../common/history.js';
-import type { GitHistoryOptions, GitHistoryRawSource } from './gitHistoryProvider.js';
-import { gitLogArgsForHistoryOptions, normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
+import type { GitCommit, GitLogArgs, GitRefInfo, GitRefsArgs } from '../common/git.js';
+import type {
+  ScmCurrentHistoryItemRefs,
+  ScmHistoryItemRef,
+  ScmHistoryProvider,
+} from '../common/history.js';
+import type { GitHistoryOptions } from './gitHistoryProvider.js';
+import {
+  gitCommitFromHistoryItem,
+  gitLogArgsForHistoryOptions,
+  normalizeGitHistoryItemRefs,
+} from './gitHistoryProvider.js';
 import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 
 export interface GitHistoryPage {
   readonly commits: readonly GitCommit[];
   readonly refs: readonly GitRefInfo[];
   readonly done: boolean;
+}
+
+export interface GitHistoryPageSource
+  extends Pick<ScmHistoryProvider, 'provideCurrentHistoryItemRefs' | 'provideHistoryItems'> {
+  provideGitRefs(args?: GitRefsArgs): Promise<readonly GitRefInfo[]>;
 }
 
 export function gitHistoryOptionsForFilter(
@@ -53,7 +66,7 @@ export async function gitHistoryOptionsForSourceFilter({
   pageSize,
   skip,
 }: {
-  readonly source: GitHistoryRawSource;
+  readonly source: Pick<ScmHistoryProvider, 'provideCurrentHistoryItemRefs'>;
   readonly filter: ScmHistoryFilter;
   readonly refs: readonly GitRefInfo[];
   readonly pageSize: number;
@@ -147,15 +160,16 @@ export async function loadGitHistoryPage({
   pageSize,
   skip,
 }: {
-  readonly source: GitHistoryRawSource;
+  readonly source: GitHistoryPageSource;
   readonly filter: ScmHistoryFilter;
   readonly pageSize: number;
   readonly skip: number;
 }): Promise<GitHistoryPage> {
   const refs = await source.provideGitRefs({ includeRemote: true, includeTags: true });
-  const commits = await source.provideGitCommits(
+  const historyItems = await source.provideHistoryItems(
     await gitHistoryOptionsForSourceFilter({ source, filter, refs, pageSize, skip }),
   );
+  const commits = historyItems.map(gitCommitFromHistoryItem);
 
   return {
     commits,
@@ -165,7 +179,7 @@ export async function loadGitHistoryPage({
 }
 
 export async function loadGitHistoryLocalBranches(
-  source: Pick<GitHistoryRawSource, 'provideGitRefs'>,
+  source: Pick<GitHistoryPageSource, 'provideGitRefs'>,
 ): Promise<ReadonlySet<string>> {
   const refs = await source.provideGitRefs({ includeRemote: true });
   return new Set(refs.filter((ref) => ref.type === 'head').map((ref) => ref.name));

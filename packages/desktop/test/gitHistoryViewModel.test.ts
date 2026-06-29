@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { gitCommitToHistoryItem } from '../src/workbench/contrib/scm/browser/gitHistoryProvider.js';
 import {
   gitHistoryLogArgsForAvailableFilter,
   gitHistoryLogArgsForFilter,
@@ -182,7 +183,7 @@ describe('gitHistoryViewModel', () => {
     });
   });
 
-  it('loads Git graph pages and local branch names through the raw Git source', async () => {
+  it('loads Git graph pages and local branch names through the SCM history provider boundary', async () => {
     const refs = [
       ref('refs/heads/main', 'main', 'head'),
       ref('refs/heads/feature/x', 'feature/x', 'head'),
@@ -204,9 +205,9 @@ describe('gitHistoryViewModel', () => {
         refArgs.push(args);
         return refs;
       },
-      provideGitCommits: async (options: unknown) => {
+      provideHistoryItems: async (options: unknown) => {
         commitOptions.push(options);
-        return [commit('a'), commit('b')];
+        return [gitCommitToHistoryItem(commit('a')), gitCommitToHistoryItem(commit('b'))];
       },
     };
 

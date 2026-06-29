@@ -31,6 +31,10 @@ export interface GitHistoryOptions extends ScmHistoryOptions {
   readonly maxParents?: number;
 }
 
+export interface GitScmHistoryItem extends ScmHistoryItem {
+  readonly gitCommit: GitCommit;
+}
+
 export interface GitHistoryRawSource {
   provideCurrentHistoryItemRefs(): Promise<ScmCurrentHistoryItemRefs>;
   provideGitRefs(args?: GitRefsArgs): Promise<readonly GitRefInfo[]>;
@@ -56,6 +60,7 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
     'getScmHistoryItemDetailsProviders'
   >;
   private readonly repository: ScmHistoryRepository;
+  private currentHistoryItemRefs: ScmCurrentHistoryItemRefs = {};
 
   constructor(
     private readonly git: GitHistoryProviderGit,
@@ -64,6 +69,18 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
     this.historyItemDetailsRegistry =
       options.historyItemDetailsRegistry ?? scmHistoryItemDetailsProviderRegistry;
     this.repository = options.repository ?? { root: null };
+  }
+
+  get historyItemRef(): ScmHistoryItemRef | undefined {
+    return this.currentHistoryItemRefs.historyItemRef;
+  }
+
+  get historyItemRemoteRef(): ScmHistoryItemRef | undefined {
+    return this.currentHistoryItemRefs.historyItemRemoteRef;
+  }
+
+  get historyItemBaseRef(): ScmHistoryItemRef | undefined {
+    return this.currentHistoryItemRefs.historyItemBaseRef;
   }
 
   async provideGitRefs(args: GitRefsArgs = {}): Promise<readonly GitRefInfo[]> {
@@ -83,10 +100,16 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
       this.git.status(),
       this.provideGitRefs({ includeRemote: true, includeTags: true }),
     ]);
-    if (!status.isRepo) return {};
+    if (!status.isRepo) {
+      this.currentHistoryItemRefs = {};
+      return this.currentHistoryItemRefs;
+    }
 
     if (status.detached || status.branch === null) {
-      return { historyItemRef: { id: 'HEAD', name: 'HEAD', category: 'other' } };
+      this.currentHistoryItemRefs = {
+        historyItemRef: { id: 'HEAD', name: 'HEAD', category: 'other' },
+      };
+      return this.currentHistoryItemRefs;
     }
 
     const historyItemRef =
@@ -106,11 +129,12 @@ export class GitHistoryProvider implements ScmHistoryProvider, GitHistoryRawSour
       remoteRef: historyItemRemoteRef,
     });
 
-    return {
+    this.currentHistoryItemRefs = {
       historyItemRef: gitRefOrHistoryItemRef(historyItemRef),
       historyItemRemoteRef: gitRefOrHistoryItemRef(historyItemRemoteRef),
       historyItemBaseRef: gitRefOrHistoryItemRef(historyItemBaseRef),
     };
+    return this.currentHistoryItemRefs;
   }
 
   async provideHistoryItemRefs(
@@ -255,7 +279,7 @@ export function gitRefToHistoryItemRef(ref: GitRefInfo): ScmHistoryItemRef {
   };
 }
 
-export function gitCommitToHistoryItem(commit: GitCommit): ScmHistoryItem {
+export function gitCommitToHistoryItem(commit: GitCommit): GitScmHistoryItem {
   const references = [
     ...commit.refs.filter((ref) => !isRemoteHeadRef(ref)).map(gitDecorationRefToHistoryItemRef),
     ...commit.tags.map((tag) => ({
@@ -278,7 +302,48 @@ export function gitCommitToHistoryItem(commit: GitCommit): ScmHistoryItem {
       ...(commit.head ? [{ id: 'HEAD', name: 'HEAD', category: 'other' as const }] : []),
       ...references,
     ],
+    gitCommit: commit,
   };
+}
+
+export function gitCommitFromHistoryItem(item: ScmHistoryItem): GitCommit {
+  if (isGitScmHistoryItem(item)) return item.gitCommit;
+
+  const references = item.references ?? [];
+  const tags = references
+    .filter((ref) => ref.category === 'tag' || ref.id.startsWith('refs/tags/'))
+    .map((ref) => ref.name);
+  const refs = references
+    .filter((ref) => ref.id !== 'HEAD')
+    .filter((ref) => ref.category !== 'tag' && !ref.id.startsWith('refs/tags/'))
+    .map((ref) => ref.id);
+  const timestamp =
+    item.timestamp === undefined || Number.isNaN(item.timestamp)
+      ? ''
+      : new Date(item.timestamp).toISOString();
+
+  return {
+    hash: item.id,
+    shortHash: item.displayId ?? item.id.slice(0, 7),
+    parents: item.parentIds,
+    author: { name: item.author ?? '', email: item.authorEmail ?? '', date: timestamp },
+    committer: { name: item.author ?? '', email: item.authorEmail ?? '', date: timestamp },
+    subject: item.subject,
+    body: bodyFromHistoryItem(item),
+    refs,
+    tags,
+    head: references.some((ref) => ref.id === 'HEAD'),
+  };
+}
+
+function isGitScmHistoryItem(item: ScmHistoryItem): item is GitScmHistoryItem {
+  return 'gitCommit' in item;
+}
+
+function bodyFromHistoryItem(item: ScmHistoryItem): string {
+  if (item.message === item.subject) return '';
+  const prefix = `${item.subject}\n\n`;
+  return item.message.startsWith(prefix) ? item.message.slice(prefix.length) : item.message;
 }
 
 function gitDecorationRefToHistoryItemRef(ref: string): ScmHistoryItemRef {

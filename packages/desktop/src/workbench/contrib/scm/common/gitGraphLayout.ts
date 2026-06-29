@@ -1,4 +1,12 @@
 import type { GitCommit } from './git.js';
+import {
+  SCM_INCOMING_HISTORY_ITEM_ID,
+  SCM_OUTGOING_HISTORY_ITEM_ID,
+  type ScmHistoryItem,
+  type ScmHistoryItemGraphNode,
+  type ScmHistoryItemRef,
+  type ScmHistoryItemViewModel,
+} from './history.js';
 
 /**
  * Git Graph lane layout — the pure algorithm behind the commit-graph gutter.
@@ -38,6 +46,141 @@ export interface GraphLayout {
   readonly rows: readonly GraphRow[];
   /** The widest lane count across all rows — how many columns the gutter needs. */
   readonly width: number;
+}
+
+export const SCM_HISTORY_ITEM_REF_COLOR = '#59a4f9';
+export const SCM_HISTORY_ITEM_REMOTE_REF_COLOR = '#B180D7';
+export const SCM_HISTORY_ITEM_BASE_REF_COLOR = '#EA5C00';
+
+export const SCM_HISTORY_GRAPH_COLORS = [
+  '#FFB000',
+  '#DC267F',
+  '#994F00',
+  '#40B0A6',
+  '#B66DFF',
+] as const;
+
+export interface ScmHistoryGraphOptions {
+  readonly colorMap?: ReadonlyMap<string, string | undefined>;
+  readonly currentHistoryItemRef?: ScmHistoryItemRef;
+  readonly currentHistoryItemRemoteRef?: ScmHistoryItemRef;
+  readonly currentHistoryItemBaseRef?: ScmHistoryItemRef;
+  readonly addIncomingChanges?: boolean;
+  readonly addOutgoingChanges?: boolean;
+  readonly mergeBase?: string;
+}
+
+export function toScmHistoryItemViewModels(
+  historyItems: readonly ScmHistoryItem[],
+  options: ScmHistoryGraphOptions = {},
+): readonly ScmHistoryItemViewModel[] {
+  let colorIndex = -1;
+  const viewModels: ScmHistoryItemViewModel[] = [];
+  const colorMap = options.colorMap ?? new Map<string, string | undefined>();
+
+  for (const historyItem of historyItems) {
+    const kind = historyItem.id === options.currentHistoryItemRef?.revision ? 'HEAD' : 'node';
+    const inputSwimlanes = (viewModels.at(-1)?.outputSwimlanes ?? []).map(cloneGraphNode);
+    const outputSwimlanes: ScmHistoryItemGraphNode[] = [];
+
+    let firstParentAdded = false;
+
+    if (historyItem.parentIds.length > 0) {
+      for (const node of inputSwimlanes) {
+        if (node.id === historyItem.id) {
+          if (!firstParentAdded) {
+            outputSwimlanes.push({
+              id: historyItem.parentIds[0] ?? '',
+              color: labelColorForHistoryItem(historyItem, colorMap) ?? node.color,
+            });
+            firstParentAdded = true;
+          }
+          continue;
+        }
+
+        outputSwimlanes.push(cloneGraphNode(node));
+      }
+    }
+
+    for (let index = firstParentAdded ? 1 : 0; index < historyItem.parentIds.length; index += 1) {
+      let color = index === 0 ? labelColorForHistoryItem(historyItem, colorMap) : undefined;
+      if (index > 0) {
+        const parent = historyItems.find((item) => item.id === historyItem.parentIds[index]);
+        color = parent === undefined ? undefined : labelColorForHistoryItem(parent, colorMap);
+      }
+
+      if (color === undefined) {
+        colorIndex = laneColor(colorIndex + 1, SCM_HISTORY_GRAPH_COLORS.length);
+        color = SCM_HISTORY_GRAPH_COLORS[colorIndex] ?? SCM_HISTORY_GRAPH_COLORS[0];
+      }
+
+      outputSwimlanes.push({ id: historyItem.parentIds[index] ?? '', color });
+    }
+
+    const references = (historyItem.references ?? [])
+      .map((ref) => {
+        let color = colorMap.get(ref.id);
+        if (colorMap.has(ref.id) && color === undefined) {
+          const lane = getScmHistoryItemLaneIndex({ historyItem, inputSwimlanes });
+          color =
+            outputSwimlanes[lane]?.color ??
+            inputSwimlanes[lane]?.color ??
+            SCM_HISTORY_ITEM_REF_COLOR;
+        }
+
+        return { ...ref, ...(color !== undefined && { color }) };
+      })
+      .sort((a, b) =>
+        compareScmHistoryItemRefs(
+          a,
+          b,
+          options.currentHistoryItemRef,
+          options.currentHistoryItemRemoteRef,
+          options.currentHistoryItemBaseRef,
+        ),
+      );
+
+    viewModels.push({
+      historyItem: { ...historyItem, references },
+      inputSwimlanes,
+      outputSwimlanes,
+      kind,
+    });
+  }
+
+  addIncomingOutgoingHistoryItems(viewModels, options);
+
+  return viewModels;
+}
+
+export function getScmHistoryItemLaneIndex({
+  historyItem,
+  inputSwimlanes,
+}: {
+  readonly historyItem: ScmHistoryItem;
+  readonly inputSwimlanes: readonly ScmHistoryItemGraphNode[];
+}): number {
+  const inputIndex = inputSwimlanes.findIndex((node) => node.id === historyItem.id);
+  return inputIndex !== -1 ? inputIndex : inputSwimlanes.length;
+}
+
+export function compareScmHistoryItemRefs(
+  a: ScmHistoryItemRef,
+  b: ScmHistoryItemRef,
+  currentHistoryItemRef?: ScmHistoryItemRef,
+  currentHistoryItemRemoteRef?: ScmHistoryItemRef,
+  currentHistoryItemBaseRef?: ScmHistoryItemRef,
+): number {
+  const order = (ref: ScmHistoryItemRef): number => {
+    if (ref.id === currentHistoryItemRef?.id) return 1;
+    if (ref.id === currentHistoryItemRemoteRef?.id) return 2;
+    if (ref.id === currentHistoryItemBaseRef?.id) return 3;
+    if (ref.color !== undefined) return 4;
+    return 99;
+  };
+
+  const orderDelta = order(a) - order(b);
+  return orderDelta === 0 ? a.name.localeCompare(b.name) : orderDelta;
 }
 
 export function layoutGraph(commits: readonly GitCommit[]): GraphLayout {
@@ -131,4 +274,155 @@ export function layoutGraph(commits: readonly GitCommit[]): GraphLayout {
 /** Stable color index for a lane (the renderer maps this onto its palette). */
 export function laneColor(lane: number, paletteSize: number): number {
   return ((lane % paletteSize) + paletteSize) % paletteSize;
+}
+
+function labelColorForHistoryItem(
+  historyItem: ScmHistoryItem,
+  colorMap: ReadonlyMap<string, string | undefined>,
+): string | undefined {
+  if (historyItem.id === SCM_INCOMING_HISTORY_ITEM_ID) return SCM_HISTORY_ITEM_REMOTE_REF_COLOR;
+  if (historyItem.id === SCM_OUTGOING_HISTORY_ITEM_ID) return SCM_HISTORY_ITEM_REF_COLOR;
+
+  for (const ref of historyItem.references ?? []) {
+    const color = colorMap.get(ref.id);
+    if (color !== undefined) return color;
+  }
+
+  return undefined;
+}
+
+function cloneGraphNode(node: ScmHistoryItemGraphNode): ScmHistoryItemGraphNode {
+  return { id: node.id, color: node.color };
+}
+
+function addIncomingOutgoingHistoryItems(
+  viewModels: ScmHistoryItemViewModel[],
+  {
+    currentHistoryItemRef,
+    currentHistoryItemRemoteRef,
+    addIncomingChanges,
+    addOutgoingChanges,
+    mergeBase,
+  }: ScmHistoryGraphOptions,
+): void {
+  if (
+    currentHistoryItemRef?.revision === undefined ||
+    currentHistoryItemRef.revision === currentHistoryItemRemoteRef?.revision ||
+    mergeBase === undefined
+  ) {
+    return;
+  }
+
+  if (
+    addIncomingChanges === true &&
+    currentHistoryItemRemoteRef?.revision !== undefined &&
+    currentHistoryItemRemoteRef.revision !== mergeBase
+  ) {
+    addIncomingChangesHistoryItem(viewModels, currentHistoryItemRemoteRef, mergeBase);
+  }
+
+  if (addOutgoingChanges === true && currentHistoryItemRef.revision !== mergeBase) {
+    addOutgoingChangesHistoryItem(viewModels, currentHistoryItemRef);
+  }
+}
+
+function addIncomingChangesHistoryItem(
+  viewModels: ScmHistoryItemViewModel[],
+  currentHistoryItemRemoteRef: ScmHistoryItemRef,
+  mergeBase: string,
+): void {
+  const beforeIndex = findLastIndex(viewModels, (viewModel) =>
+    viewModel.outputSwimlanes.some((node) => node.id === mergeBase),
+  );
+  const afterIndex = viewModels.findIndex((viewModel) => viewModel.historyItem.id === mergeBase);
+  if (beforeIndex === -1 || afterIndex === -1) return;
+
+  const beforeViewModel = viewModels[beforeIndex];
+  if (beforeViewModel === undefined) return;
+  if (
+    beforeViewModel.historyItem.parentIds.length === 2 &&
+    beforeViewModel.historyItem.parentIds.includes(mergeBase)
+  ) {
+    return;
+  }
+
+  viewModels[beforeIndex] = {
+    ...beforeViewModel,
+    inputSwimlanes: beforeViewModel.inputSwimlanes.map((node) =>
+      node.id === mergeBase && node.color === SCM_HISTORY_ITEM_REMOTE_REF_COLOR
+        ? { ...node, id: SCM_INCOMING_HISTORY_ITEM_ID }
+        : node,
+    ),
+    outputSwimlanes: beforeViewModel.outputSwimlanes.map((node) =>
+      node.id === mergeBase && node.color === SCM_HISTORY_ITEM_REMOTE_REF_COLOR
+        ? { ...node, id: SCM_INCOMING_HISTORY_ITEM_ID }
+        : node,
+    ),
+  };
+
+  const afterViewModel = viewModels[afterIndex];
+  if (afterViewModel === undefined) return;
+
+  viewModels.splice(afterIndex, 0, {
+    historyItem: {
+      id: SCM_INCOMING_HISTORY_ITEM_ID,
+      displayId: '0'.repeat(viewModels[0]?.historyItem.displayId?.length ?? 0),
+      parentIds: [mergeBase],
+      author: currentHistoryItemRemoteRef.name,
+      subject: 'Incoming Changes',
+      message: '',
+    },
+    kind: 'incoming-changes',
+    inputSwimlanes: viewModels[beforeIndex]?.outputSwimlanes.map(cloneGraphNode) ?? [],
+    outputSwimlanes: afterViewModel.inputSwimlanes.map(cloneGraphNode),
+  });
+}
+
+function addOutgoingChangesHistoryItem(
+  viewModels: ScmHistoryItemViewModel[],
+  currentHistoryItemRef: ScmHistoryItemRef,
+): void {
+  const currentIndex = viewModels.findIndex(
+    (viewModel) =>
+      viewModel.kind === 'HEAD' && viewModel.historyItem.id === currentHistoryItemRef.revision,
+  );
+  if (currentIndex === -1 || currentHistoryItemRef.revision === undefined) return;
+
+  const currentViewModel = viewModels[currentIndex];
+  if (currentViewModel === undefined) return;
+
+  const inputSwimlanes = currentViewModel.inputSwimlanes.map(cloneGraphNode);
+  const displayId = viewModels[0]?.historyItem.displayId;
+  viewModels.splice(currentIndex, 0, {
+    historyItem: {
+      id: SCM_OUTGOING_HISTORY_ITEM_ID,
+      ...(displayId !== undefined && { displayId: '0'.repeat(displayId.length) }),
+      parentIds: [currentHistoryItemRef.revision],
+      author: currentHistoryItemRef.name,
+      subject: 'Outgoing Changes',
+      message: '',
+    },
+    kind: 'outgoing-changes',
+    inputSwimlanes,
+    outputSwimlanes: [
+      ...inputSwimlanes,
+      { id: currentHistoryItemRef.revision, color: SCM_HISTORY_ITEM_REF_COLOR },
+    ],
+  });
+
+  viewModels[currentIndex + 1] = {
+    ...currentViewModel,
+    inputSwimlanes: [
+      ...currentViewModel.inputSwimlanes,
+      { id: currentHistoryItemRef.revision, color: SCM_HISTORY_ITEM_REF_COLOR },
+    ],
+  };
+}
+
+function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item !== undefined && predicate(item)) return index;
+  }
+  return -1;
 }

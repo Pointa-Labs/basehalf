@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { GitCommit } from '../src/workbench/contrib/scm/common/git.js';
 import {
   type GraphRow,
+  SCM_HISTORY_GRAPH_COLORS,
+  SCM_HISTORY_ITEM_REF_COLOR,
   laneColor,
   layoutGraph,
+  toScmHistoryItemViewModels,
 } from '../src/workbench/contrib/scm/common/gitGraphLayout.js';
+import type { ScmHistoryItem } from '../src/workbench/contrib/scm/common/history.js';
 
 // Minimal commit builder — only hash + parents matter to the layout.
 const c = (hash: string, parents: string[] = []): GitCommit => ({
@@ -25,6 +29,18 @@ const byHash = (rows: readonly GraphRow[], hash: string): GraphRow => {
   if (!r) throw new Error(`no row for ${hash}`);
   return r;
 };
+
+const h = (
+  id: string,
+  parentIds: readonly string[] = [],
+  refs: ScmHistoryItem['references'] = [],
+): ScmHistoryItem => ({
+  id,
+  parentIds,
+  subject: id,
+  message: id,
+  references: refs,
+});
 
 describe('layoutGraph', () => {
   it('lays a linear history in a single lane', () => {
@@ -100,5 +116,77 @@ describe('laneColor', () => {
     expect(laneColor(0, 6)).toBe(0);
     expect(laneColor(7, 6)).toBe(1);
     expect(laneColor(-1, 6)).toBe(5); // defensive: never negative
+  });
+});
+
+describe('toScmHistoryItemViewModels', () => {
+  it('builds VS Code-style swimlanes for a linear history', () => {
+    const viewModels = toScmHistoryItemViewModels([h('a', ['b']), h('b', ['c']), h('c')]);
+
+    expect(viewModels).toMatchObject([
+      { historyItem: { id: 'a' }, inputSwimlanes: [], outputSwimlanes: [{ id: 'b' }] },
+      {
+        historyItem: { id: 'b' },
+        inputSwimlanes: [{ id: 'b', color: SCM_HISTORY_GRAPH_COLORS[0] }],
+        outputSwimlanes: [{ id: 'c', color: SCM_HISTORY_GRAPH_COLORS[0] }],
+      },
+      {
+        historyItem: { id: 'c' },
+        inputSwimlanes: [{ id: 'c', color: SCM_HISTORY_GRAPH_COLORS[0] }],
+        outputSwimlanes: [],
+      },
+    ]);
+  });
+
+  it('fans merge parents into separate SCM history swimlanes', () => {
+    const viewModels = toScmHistoryItemViewModels([
+      h('a', ['b', 'c']),
+      h('c', ['d']),
+      h('b', ['d']),
+      h('d'),
+    ]);
+
+    expect(viewModels[0]?.outputSwimlanes).toEqual([
+      { id: 'b', color: SCM_HISTORY_GRAPH_COLORS[0] },
+      { id: 'c', color: SCM_HISTORY_GRAPH_COLORS[1] },
+    ]);
+    expect(viewModels[1]?.inputSwimlanes).toEqual([
+      { id: 'b', color: SCM_HISTORY_GRAPH_COLORS[0] },
+      { id: 'c', color: SCM_HISTORY_GRAPH_COLORS[1] },
+    ]);
+    expect(viewModels[1]?.outputSwimlanes).toEqual([
+      { id: 'b', color: SCM_HISTORY_GRAPH_COLORS[0] },
+      { id: 'd', color: SCM_HISTORY_GRAPH_COLORS[1] },
+    ]);
+  });
+
+  it('marks HEAD and orders current, remote, and base references first', () => {
+    const current = { id: 'refs/heads/main', name: 'main', revision: 'a' };
+    const remote = { id: 'refs/remotes/origin/main', name: 'origin/main', revision: 'b' };
+    const base = { id: 'refs/remotes/origin/release', name: 'origin/release', revision: 'c' };
+    const viewModels = toScmHistoryItemViewModels(
+      [
+        h(
+          'a',
+          ['b'],
+          [base, { id: 'refs/tags/v1.0', name: 'v1.0', category: 'tag' }, remote, current],
+        ),
+      ],
+      {
+        colorMap: new Map([[current.id, SCM_HISTORY_ITEM_REF_COLOR]]),
+        currentHistoryItemRef: current,
+        currentHistoryItemRemoteRef: remote,
+        currentHistoryItemBaseRef: base,
+      },
+    );
+
+    expect(viewModels[0]?.kind).toBe('HEAD');
+    expect(viewModels[0]?.historyItem.references?.map((ref) => ref.id)).toEqual([
+      current.id,
+      remote.id,
+      base.id,
+      'refs/tags/v1.0',
+    ]);
+    expect(viewModels[0]?.outputSwimlanes[0]?.color).toBe(SCM_HISTORY_ITEM_REF_COLOR);
   });
 });

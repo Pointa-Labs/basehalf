@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GitCommit } from '../common/git.js';
 import { GitHistoryProvider, gitHistoryProvider } from './gitHistoryProvider.js';
-import { loadGitHistoryLocalBranches } from './gitHistoryViewModel.js';
+import { loadGitHistoryLocalBranches, loadGitHistoryPage } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
-import { loadHistoryGraphPage } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 import { historyErrorMessage, usePagedGitHistory } from './usePagedGitHistory.js';
 
@@ -33,7 +32,7 @@ export function useGitGraphHistory(
 
   const pageLoader = useCallback(
     (skip: number) =>
-      loadHistoryGraphPage({
+      loadGitHistoryPage({
         source: historyProvider,
         filter,
         pageSize,

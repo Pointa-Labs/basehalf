@@ -14,6 +14,8 @@ export interface ScmHistoryItemRef {
   readonly revision?: string;
   readonly category?: 'branch' | 'remote' | 'tag' | 'other';
   readonly description?: string;
+  readonly color?: string;
+  readonly icon?: string;
 }
 
 export interface ScmHistoryItemStatistics {
@@ -47,7 +49,32 @@ export interface ScmCurrentHistoryItemRefs {
   readonly historyItemBaseRef?: ScmHistoryItemRef;
 }
 
+export interface ScmHistoryItemRefsChangeEvent {
+  readonly added: readonly ScmHistoryItemRef[];
+  readonly removed: readonly ScmHistoryItemRef[];
+  readonly modified: readonly ScmHistoryItemRef[];
+  readonly silent: boolean;
+}
+
+export interface ScmHistoryItemGraphNode {
+  readonly id: string;
+  readonly color: string;
+}
+
+export type ScmHistoryItemViewModelKind = 'HEAD' | 'node' | 'incoming-changes' | 'outgoing-changes';
+
+export interface ScmHistoryItemViewModel {
+  readonly historyItem: ScmHistoryItem;
+  readonly inputSwimlanes: readonly ScmHistoryItemGraphNode[];
+  readonly outputSwimlanes: readonly ScmHistoryItemGraphNode[];
+  readonly kind: ScmHistoryItemViewModelKind;
+}
+
 export interface ScmHistoryProvider {
+  readonly historyItemRef?: ScmHistoryItemRef;
+  readonly historyItemRemoteRef?: ScmHistoryItemRef;
+  readonly historyItemBaseRef?: ScmHistoryItemRef;
+  readonly historyItemRefChanges?: ScmHistoryItemRefsChangeEvent;
   provideCurrentHistoryItemRefs(): Promise<ScmCurrentHistoryItemRefs>;
   provideHistoryItemRefs(
     historyItemRefs?: readonly string[],
