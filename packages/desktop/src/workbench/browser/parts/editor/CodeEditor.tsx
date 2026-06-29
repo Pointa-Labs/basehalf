@@ -1,6 +1,5 @@
 import * as monaco from 'monaco-editor';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
 import {
   type CodeEditorPrompt,
   GUTTER_DIFF_MAX_CHARS,
@@ -25,6 +24,7 @@ import {
   unregisterFlusher,
 } from '../../../services/editor/common/editorFlush.js';
 import { computeLineChanges } from '../../../services/editor/common/lineDiff.js';
+import { workbenchFileChangeService } from '../../../services/files/browser/fileChangeService.js';
 import { makeFileFocusPusher } from '../../../services/mirror/browser/focusPush.js';
 import {
   type TextFileReadResult,
@@ -200,7 +200,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
   // stays in-memory until the user chooses what to do.
   useEffect(() => {
     let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = fileEventService.onDidChangeFiles((event) => {
+    const unsub = workbenchFileChangeService.onDidChangeFiles((event) => {
       if (event.type === 'rename') {
         if (event.fromRelPath === file && pendingDeleteTimer) {
           clearTimeout(pendingDeleteTimer);

@@ -1,5 +1,4 @@
 import { useEffect } from 'react';
-import { fileEventService } from '../../platform/files/browser/fileEventService.js';
 import { nativeHostService } from '../../platform/native/browser/nativeHostService.js';
 import { quickInputService } from '../../platform/quickinput/browser/quickInputService.js';
 import { openSettings } from '../contrib/preferences/browser/Settings.js';
@@ -11,6 +10,7 @@ import { registerScmWorkbenchContributions } from '../contrib/scm/browser/scm.co
 import { wireUpdateBridge } from '../contrib/update/browser/updateStore.js';
 import { useReadingMode } from '../services/editor/browser/readingModeStore.js';
 import { flushAll } from '../services/editor/common/editorFlush.js';
+import { workbenchFileChangeService } from '../services/files/browser/fileChangeService.js';
 import { useWorkspaceStore } from '../services/workspace/browser/workspaceStore.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './actions/workbenchActions.js';
 import { useLayoutStore } from './layout/layoutStore.js';
@@ -77,7 +77,7 @@ function useWorkspaceWindowRefreshContribution(): void {
 
 function useFileRenameContribution(): void {
   useEffect(() => {
-    const unsub = fileEventService.onDidChangeFiles((event) => {
+    const unsub = workbenchFileChangeService.onDidChangeFiles((event) => {
       if (event.type !== 'rename') return;
       useWorkspaceStore.getState().renameTab(event.fromRelPath, event.toRelPath);
     });
@@ -92,7 +92,7 @@ function useGitStatusContribution(current: string | null): void {
       return;
     }
     void useGitStatusStore.getState().refresh();
-    const unsub = fileEventService.onDidChangeFiles(() => scheduleGitStatusRefresh());
+    const unsub = workbenchFileChangeService.onDidChangeFiles(() => scheduleGitStatusRefresh());
     return unsub;
   }, [current]);
 }

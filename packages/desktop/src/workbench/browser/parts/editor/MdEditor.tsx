@@ -2,7 +2,6 @@ import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
 import { useCreateBlockNote } from '@blocknote/react';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
 import { AUTOSAVE_MS, debounceWithFlush } from '../../../common/editor/mdEditorModel.js';
 import { makeAdhdHighlightExtension } from '../../../services/editor/browser/adhdHighlight.js';
 import { bhSchema } from '../../../services/editor/browser/blocknoteSchema.js';
@@ -41,6 +40,7 @@ import {
   buildLoadProjection,
   spliceSave,
 } from '../../../services/editor/common/mdSegment.js';
+import { workbenchFileChangeService } from '../../../services/files/browser/fileChangeService.js';
 import {
   type FocusFields,
   makeFileFocusPusher,
@@ -539,7 +539,7 @@ export const MdEditor = ({
   // (unlink+add) doesn't flash it.
   useEffect(() => {
     let pendingDeleteTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsub = fileEventService.onDidChangeFiles((event) => {
+    const unsub = workbenchFileChangeService.onDidChangeFiles((event) => {
       // Only the OWNER reacts to disk events — it reloads into the shared doc, which
       // syncs every other view via Yjs. (A non-owner reacting too would double-handle.)
       if (!isOwnerRef.current) return;

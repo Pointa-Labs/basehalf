@@ -1,4 +1,7 @@
-import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
+import {
+  type WorkbenchFileChangeService,
+  workbenchFileChangeService,
+} from '../../../services/files/browser/fileChangeService.js';
 import {
   type WorkspaceContentService,
   workspaceContentService,
@@ -9,7 +12,6 @@ import {
 } from '../../../services/workspace/common/workspaceFileEvents.js';
 import type { ExplorerDataProvider, ExplorerFileOperation } from '../common/explorer.js';
 
-type FileEventSource = Pick<typeof fileEventService, 'onDidChangeFiles'>;
 type WorkspaceFileOperationSource = {
   readonly onDidRunOperation: (
     listener: (event: WorkspaceFileOperationEvent) => void,
@@ -18,7 +20,7 @@ type WorkspaceFileOperationSource = {
 
 export interface WorkspaceExplorerDataProviderOptions {
   readonly workspace: Pick<WorkspaceContentService, 'listFiles'>;
-  readonly fileEvents: FileEventSource;
+  readonly fileEvents: Pick<WorkbenchFileChangeService, 'onDidChangeFiles'>;
   readonly operations: WorkspaceFileOperationSource;
 }
 
@@ -56,6 +58,6 @@ export function createWorkspaceExplorerDataProvider(
 
 export const workspaceExplorerDataProvider = createWorkspaceExplorerDataProvider({
   workspace: workspaceContentService,
-  fileEvents: fileEventService,
+  fileEvents: workbenchFileChangeService,
   operations: { onDidRunOperation: subscribeWorkspaceFileOperations },
 });
