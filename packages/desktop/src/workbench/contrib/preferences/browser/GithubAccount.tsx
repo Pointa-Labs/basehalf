@@ -4,8 +4,8 @@ import { color, font, radius, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
 import { authenticationService } from '../../../services/authentication/browser/authenticationService.js';
 import {
-  type AuthenticationSession,
   GITHUB_AUTH_PROVIDER_ID,
+  type PublicAuthenticationSession,
 } from '../../../services/authentication/common/authentication.js';
 import { githubErrorMessage } from '../../githubPullRequests/browser/githubPullRequestService.js';
 import { sectionLabelStyle } from './primitives.js';
@@ -28,7 +28,7 @@ const githubAccountErrorMessage = (err: unknown): string => {
  * stored session.
  */
 export const GithubAccount = (): JSX.Element => {
-  const [session, setSession] = useState<AuthenticationSession | null | undefined>(undefined);
+  const [session, setSession] = useState<PublicAuthenticationSession | null | undefined>(undefined);
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const requestSeq = useRef(0);

@@ -8,7 +8,9 @@ export interface AuthenticationProvider {
   readonly id: string;
   readonly label: string;
   readonly supportsMultipleAccounts?: boolean;
-  onDidChangeSessions?(listener: (event: AuthenticationSessionsChangeEvent) => void): () => void;
+  onDidChangeSessions?(
+    listener: (event: AuthenticationSessionsChangeEvent<AuthenticationSession>) => void,
+  ): () => void;
   getSessions(scopes?: readonly string[]): Promise<readonly AuthenticationSession[]>;
   createSession(secret: string, scopes?: readonly string[]): Promise<AuthenticationSession | null>;
   removeSession(sessionId: string): Promise<void>;
@@ -19,7 +21,9 @@ interface RegisteredAuthenticationProvider {
   readonly disposeSessionListener: (() => void) | undefined;
 }
 
-type AuthenticationListener = (event: AuthenticationProviderSessionsChangeEvent) => void;
+type AuthenticationListener = (
+  event: AuthenticationProviderSessionsChangeEvent<AuthenticationSession>,
+) => void;
 
 /**
  * Main-process authentication registry, matching VS Code's provider/session
@@ -110,7 +114,7 @@ export class AuthenticationMainService {
 
   private fireLegacyProviderChange(
     provider: AuthenticationProvider,
-    event: AuthenticationSessionsChangeEvent | null,
+    event: AuthenticationSessionsChangeEvent<AuthenticationSession> | null,
   ): void {
     if (event === null) return;
     this.fire({
@@ -120,7 +124,7 @@ export class AuthenticationMainService {
     });
   }
 
-  private fire(event: AuthenticationProviderSessionsChangeEvent): void {
+  private fire(event: AuthenticationProviderSessionsChangeEvent<AuthenticationSession>): void {
     for (const listener of this.listeners) listener(event);
   }
 }
@@ -158,8 +162,8 @@ function sanitizeSession(session: AuthenticationSession): AuthenticationSession 
 }
 
 function sanitizeSessionsChangeEvent(
-  event: AuthenticationSessionsChangeEvent,
-): AuthenticationSessionsChangeEvent {
+  event: AuthenticationSessionsChangeEvent<AuthenticationSession>,
+): AuthenticationSessionsChangeEvent<AuthenticationSession> {
   const sanitized: {
     added?: readonly AuthenticationSession[];
     removed?: readonly AuthenticationSession[];
@@ -174,7 +178,7 @@ function sanitizeSessionsChangeEvent(
 function sessionChangeEvent(
   before: readonly AuthenticationSession[],
   after: readonly AuthenticationSession[],
-): AuthenticationSessionsChangeEvent | null {
+): AuthenticationSessionsChangeEvent<AuthenticationSession> | null {
   const beforeById = new Map(before.map((session) => [session.id, session]));
   const afterById = new Map(after.map((session) => [session.id, session]));
   const added = after.filter((session) => !beforeById.has(session.id));

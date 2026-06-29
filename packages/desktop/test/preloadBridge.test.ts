@@ -152,7 +152,6 @@ describe('preload bridge modules', () => {
     const ipc = fakeIpc();
     const session = {
       id: 'github',
-      accessToken: 'tok',
       providerId: 'github',
       account: { id: 'ada', label: 'ada' },
       scopes: ['repo'],

@@ -3,24 +3,31 @@ export interface AuthenticationSessionAccount {
   readonly label: string;
 }
 
-export interface AuthenticationSession {
+export interface PublicAuthenticationSession {
   readonly id: string;
-  readonly accessToken: string;
   readonly providerId: string;
   readonly account: AuthenticationSessionAccount;
   readonly scopes: readonly string[];
 }
 
-export interface AuthenticationSessionsChangeEvent {
-  readonly added?: readonly AuthenticationSession[];
-  readonly removed?: readonly AuthenticationSession[];
-  readonly changed?: readonly AuthenticationSession[];
+export interface AuthenticationSession extends PublicAuthenticationSession {
+  readonly accessToken: string;
 }
 
-export interface AuthenticationProviderSessionsChangeEvent {
+export interface AuthenticationSessionsChangeEvent<
+  TSession extends PublicAuthenticationSession = PublicAuthenticationSession,
+> {
+  readonly added?: readonly TSession[];
+  readonly removed?: readonly TSession[];
+  readonly changed?: readonly TSession[];
+}
+
+export interface AuthenticationProviderSessionsChangeEvent<
+  TSession extends PublicAuthenticationSession = PublicAuthenticationSession,
+> {
   readonly providerId: string;
   readonly label: string;
-  readonly event: AuthenticationSessionsChangeEvent;
+  readonly event: AuthenticationSessionsChangeEvent<TSession>;
 }
 
 export const GITHUB_AUTH_PROVIDER_ID = 'github';
@@ -41,12 +48,12 @@ export interface AuthenticationChannelBridge {
   getSessions(
     providerId: string,
     scopes?: readonly string[],
-  ): Promise<readonly AuthenticationSession[]>;
+  ): Promise<readonly PublicAuthenticationSession[]>;
   createSession(
     providerId: string,
     secret: string,
     scopes?: readonly string[],
-  ): Promise<AuthenticationSession | null>;
+  ): Promise<PublicAuthenticationSession | null>;
   removeSession(providerId: string, sessionId: string): Promise<void>;
   onDidChangeSessions(
     listener: (event: AuthenticationProviderSessionsChangeEvent) => void,
@@ -160,9 +167,9 @@ function toAuthenticationSessionsChangeEvent(
   if (added === null || removed === null || changed === null) return null;
 
   const out: {
-    added?: readonly AuthenticationSession[];
-    removed?: readonly AuthenticationSession[];
-    changed?: readonly AuthenticationSession[];
+    added?: readonly PublicAuthenticationSession[];
+    removed?: readonly PublicAuthenticationSession[];
+    changed?: readonly PublicAuthenticationSession[];
   } = {};
   if (added !== undefined) out.added = added;
   if (removed !== undefined) out.removed = removed;
@@ -172,25 +179,24 @@ function toAuthenticationSessionsChangeEvent(
 
 function toSessionListOrUndefined(
   value: unknown,
-): readonly AuthenticationSession[] | undefined | null {
+): readonly PublicAuthenticationSession[] | undefined | null {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) return null;
-  const sessions: AuthenticationSession[] = [];
+  const sessions: PublicAuthenticationSession[] = [];
   for (const item of value) {
-    const session = toAuthenticationSession(item);
+    const session = toPublicAuthenticationSession(item);
     if (session === null) return null;
     sessions.push(session);
   }
   return sessions;
 }
 
-function toAuthenticationSession(value: unknown): AuthenticationSession | null {
+function toPublicAuthenticationSession(value: unknown): PublicAuthenticationSession | null {
   if (typeof value !== 'object' || value === null) return null;
   const session = value as Record<string, unknown>;
   const account = session.account as Record<string, unknown> | undefined;
   if (
     typeof session.id === 'string' &&
-    typeof session.accessToken === 'string' &&
     typeof session.providerId === 'string' &&
     typeof account === 'object' &&
     account !== null &&
@@ -201,7 +207,6 @@ function toAuthenticationSession(value: unknown): AuthenticationSession | null {
   ) {
     return {
       id: session.id,
-      accessToken: session.accessToken,
       providerId: session.providerId,
       account: { id: account.id, label: account.label },
       scopes: [...session.scopes],

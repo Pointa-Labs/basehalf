@@ -29,7 +29,9 @@ export class GithubAuthenticationProvider implements AuthenticationProvider {
   readonly label = 'GitHub';
   readonly supportsMultipleAccounts = false;
   private readonly api: GithubApiClient;
-  private readonly listeners = new Set<(event: AuthenticationSessionsChangeEvent) => void>();
+  private readonly listeners = new Set<
+    (event: AuthenticationSessionsChangeEvent<AuthenticationSession>) => void
+  >();
   private currentSession: AuthenticationSession | null = null;
   private verifiedToken: string | null = null;
 
@@ -37,7 +39,9 @@ export class GithubAuthenticationProvider implements AuthenticationProvider {
     this.api = new GithubApiClient(opts.http ?? defaultGithubHttp);
   }
 
-  onDidChangeSessions(listener: (event: AuthenticationSessionsChangeEvent) => void): () => void {
+  onDidChangeSessions(
+    listener: (event: AuthenticationSessionsChangeEvent<AuthenticationSession>) => void,
+  ): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
@@ -192,7 +196,7 @@ export class GithubAuthenticationProvider implements AuthenticationProvider {
     ]);
   }
 
-  private fire(event: AuthenticationSessionsChangeEvent): void {
+  private fire(event: AuthenticationSessionsChangeEvent<AuthenticationSession>): void {
     for (const listener of this.listeners) listener(event);
   }
 }

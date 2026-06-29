@@ -7,7 +7,7 @@ import {
   shouldLoadPullRequests,
 } from '../src/workbench/contrib/githubPullRequests/browser/pullRequestsSectionModel.js';
 import type { GithubRemoteRepository } from '../src/workbench/contrib/githubPullRequests/common/githubPullRequests.js';
-import type { AuthenticationSession } from '../src/workbench/services/authentication/common/authentication.js';
+import type { PublicAuthenticationSession } from '../src/workbench/services/authentication/common/authentication.js';
 
 const repo: GithubRemoteRepository = {
   remoteName: 'origin',
@@ -45,9 +45,8 @@ describe('pullRequestsSectionModel', () => {
   });
 
   it('maps authentication sessions into the section login state', () => {
-    const session: AuthenticationSession = {
+    const session: PublicAuthenticationSession = {
       id: 'github',
-      accessToken: 'tok',
       providerId: 'github',
       account: { id: 'ada', label: 'ada' },
       scopes: ['repo'],

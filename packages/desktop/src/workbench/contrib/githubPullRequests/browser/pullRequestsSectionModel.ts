@@ -1,4 +1,4 @@
-import type { AuthenticationSession } from '../../../services/authentication/common/authentication.js';
+import type { PublicAuthenticationSession } from '../../../services/authentication/common/authentication.js';
 import type { GhPullRequest, GithubRemoteRepository } from '../common/githubPullRequests.js';
 import { type GithubPullRequestService, githubErrorMessage } from './githubPullRequestService.js';
 
@@ -18,7 +18,7 @@ export async function resolvePullRequestRepository(
 }
 
 export function loginFromAuthenticationSessions(
-  sessions: readonly AuthenticationSession[],
+  sessions: readonly PublicAuthenticationSession[],
 ): string | null {
   return sessions[0]?.account.label ?? null;
 }

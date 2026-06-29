@@ -3,6 +3,7 @@ import {
   AUTHENTICATION_IPC_CHANNELS,
   type AuthenticationProviderSessionsChangeEvent,
   type AuthenticationSession,
+  type PublicAuthenticationSession,
   asAuthenticationProviderSessionsChangeEvent,
 } from '../src/workbench/services/authentication/common/authentication.js';
 import { AuthenticationMainChannel } from '../src/workbench/services/authentication/electron-main/authenticationMainChannel.js';
@@ -45,8 +46,15 @@ const session = (accessToken: string): AuthenticationSession => ({
   scopes: ['repo'],
 });
 
+const publicSession = (): PublicAuthenticationSession => ({
+  id: 'github',
+  providerId: 'github',
+  account: { id: 'ada', label: 'ada' },
+  scopes: ['repo'],
+});
+
 describe('AuthenticationMainChannel', () => {
-  it('parses provider session events into VS Code authentication session objects', () => {
+  it('parses provider session events into public authentication session objects', () => {
     const parsed = asAuthenticationProviderSessionsChangeEvent({
       providerId: 'github',
       label: 'GitHub',
@@ -72,7 +80,6 @@ describe('AuthenticationMainChannel', () => {
         added: [
           {
             id: 'github',
-            accessToken: 'tok',
             providerId: 'github',
             account: { id: 'ada', label: 'ada' },
             scopes: ['repo'],
@@ -82,7 +89,7 @@ describe('AuthenticationMainChannel', () => {
         changed: [],
       },
     });
-    expect(parsed?.event.added?.[0]?.accessToken).toBe('tok');
+    expect('accessToken' in (parsed?.event.added?.[0] ?? {})).toBe(false);
   });
 
   it('registers session IPC handlers and forwards provider session changes', async () => {
@@ -111,7 +118,7 @@ describe('AuthenticationMainChannel', () => {
 
     await expect(
       ipc.handlers.get(AUTHENTICATION_IPC_CHANNELS.getSessions)?.({}, 'github'),
-    ).resolves.toEqual([session('')]);
+    ).resolves.toEqual([publicSession()]);
     await expect(
       ipc.handlers.get(AUTHENTICATION_IPC_CHANNELS.createSession)?.(
         {},
@@ -120,7 +127,7 @@ describe('AuthenticationMainChannel', () => {
           secret: 'tok',
         },
       ),
-    ).resolves.toEqual(session(''));
+    ).resolves.toEqual(publicSession());
     await ipc.handlers.get(AUTHENTICATION_IPC_CHANNELS.removeSession)?.(
       {},
       {
@@ -156,7 +163,7 @@ describe('AuthenticationMainChannel', () => {
         event: {
           providerId: 'github',
           label: 'GitHub',
-          event: { added: [session('')], removed: [], changed: [] },
+          event: { added: [publicSession()], removed: [], changed: [] },
         },
       },
     ]);

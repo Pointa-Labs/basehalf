@@ -4,6 +4,7 @@ import {
   type AuthenticationProviderSessionsChangeEvent,
   type AuthenticationSession,
   type AuthenticationSessionsChangeEvent,
+  type PublicAuthenticationSession,
   asAuthenticationCreateSessionPayload,
   asAuthenticationGetSessionsPayload,
   asAuthenticationRemoveSessionPayload,
@@ -48,8 +49,8 @@ export class AuthenticationMainChannel {
 }
 
 function redactProviderSessionsChangeEvent(
-  event: AuthenticationProviderSessionsChangeEvent,
-): AuthenticationProviderSessionsChangeEvent {
+  event: AuthenticationProviderSessionsChangeEvent<AuthenticationSession>,
+): AuthenticationProviderSessionsChangeEvent<PublicAuthenticationSession> {
   return {
     providerId: event.providerId,
     label: event.label,
@@ -58,12 +59,12 @@ function redactProviderSessionsChangeEvent(
 }
 
 function redactSessionsChangeEvent(
-  event: AuthenticationSessionsChangeEvent,
-): AuthenticationSessionsChangeEvent {
+  event: AuthenticationSessionsChangeEvent<AuthenticationSession>,
+): AuthenticationSessionsChangeEvent<PublicAuthenticationSession> {
   const out: {
-    added?: readonly AuthenticationSession[];
-    removed?: readonly AuthenticationSession[];
-    changed?: readonly AuthenticationSession[];
+    added?: readonly PublicAuthenticationSession[];
+    removed?: readonly PublicAuthenticationSession[];
+    changed?: readonly PublicAuthenticationSession[];
   } = {};
   if (event.added !== undefined) out.added = redactSessions(event.added);
   if (event.removed !== undefined) out.removed = redactSessions(event.removed);
@@ -73,10 +74,18 @@ function redactSessionsChangeEvent(
 
 function redactSessions(
   sessions: readonly AuthenticationSession[],
-): readonly AuthenticationSession[] {
+): readonly PublicAuthenticationSession[] {
   return sessions.map(redactSession);
 }
 
-function redactSession(session: AuthenticationSession): AuthenticationSession {
-  return { ...session, accessToken: '' };
+function redactSession(session: AuthenticationSession): PublicAuthenticationSession {
+  return {
+    id: session.id,
+    providerId: session.providerId,
+    account: {
+      id: session.account.id,
+      label: session.account.label,
+    },
+    scopes: [...session.scopes],
+  };
 }
