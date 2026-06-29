@@ -1,8 +1,6 @@
 import * as monaco from 'monaco-editor';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
-import type { WorkspaceReadFileResult } from '../../../../platform/workspaces/common/workspaces.js';
 import {
   type CodeEditorPrompt,
   GUTTER_DIFF_MAX_CHARS,
@@ -28,6 +26,10 @@ import {
 } from '../../../services/editor/common/editorFlush.js';
 import { computeLineChanges } from '../../../services/editor/common/lineDiff.js';
 import { makeFileFocusPusher } from '../../../services/mirror/browser/focusPush.js';
+import {
+  type TextFileReadResult,
+  textFileService,
+} from '../../../services/textfile/browser/textFileService.js';
 import { font, space } from '../../style/design.js';
 import {
   BinaryFileFallback,
@@ -121,7 +123,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
       }
       if (!opts?.force) {
         try {
-          const disk = await workspaceService.readFile(file);
+          const disk = await textFileService.read(file);
           if (didDiskContentChange(disk.content, lastSavedRef.current)) {
             setPrompt('conflict');
             return false;
@@ -131,7 +133,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
         }
       }
       try {
-        await workspaceService.writeFile(file, value);
+        await textFileService.write(file, value);
         lastSavedRef.current = value;
         dirtyRef.current = false;
         setDirty(false);
@@ -148,7 +150,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
   // Replace the buffer with the current disk contents (the conflict "Reload").
   const reloadFromDisk = useCallback(async (): Promise<void> => {
     try {
-      const disk = await workspaceService.readFile(file);
+      const disk = await textFileService.read(file);
       const text = disk.content ?? '';
       lastSavedRef.current = text;
       editorRef.current?.setValue(text);
@@ -211,7 +213,7 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
         void (async () => {
           let text = '';
           try {
-            const disk = await workspaceService.readFile(file);
+            const disk = await textFileService.read(file);
             text = disk.content ?? '';
           } catch {
             return;
@@ -249,9 +251,9 @@ export const CodeEditor = ({ file, paneId }: { file: string; paneId: string }): 
     let gutterTimer: ReturnType<typeof setTimeout> | undefined;
     let unsubGit: () => void = () => undefined;
     void (async () => {
-      let res: WorkspaceReadFileResult;
+      let res: TextFileReadResult;
       try {
-        res = await workspaceService.readFile(file);
+        res = await textFileService.read(file);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));

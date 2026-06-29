@@ -7,9 +7,12 @@ import type {
 
 type TextFileBackend = Pick<PlatformWorkspaceService, 'readFile' | 'writeFile'>;
 
+export type TextFileReadResult = WorkspaceReadFileResult;
+export type TextFileWriteResult = WorkspaceWriteFileResult;
+
 export interface TextFileService {
-  read(path: string): Promise<WorkspaceReadFileResult>;
-  write(path: string, content: string): Promise<WorkspaceWriteFileResult>;
+  read(path: string): Promise<TextFileReadResult>;
+  write(path: string, content: string): Promise<TextFileWriteResult>;
 }
 
 export function createTextFileService(backend: TextFileBackend): TextFileService {

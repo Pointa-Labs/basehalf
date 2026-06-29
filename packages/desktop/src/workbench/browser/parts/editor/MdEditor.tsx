@@ -3,7 +3,6 @@ import '@blocknote/mantine/style.css';
 import { useCreateBlockNote } from '@blocknote/react';
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fileEventService } from '../../../../platform/files/browser/fileEventService.js';
-import { workspaceService } from '../../../../platform/workspaces/browser/workspaceService.js';
 import { AUTOSAVE_MS, debounceWithFlush } from '../../../common/editor/mdEditorModel.js';
 import { makeAdhdHighlightExtension } from '../../../services/editor/browser/adhdHighlight.js';
 import { bhSchema } from '../../../services/editor/browser/blocknoteSchema.js';
@@ -46,6 +45,7 @@ import {
   type FocusFields,
   makeFileFocusPusher,
 } from '../../../services/mirror/browser/focusPush.js';
+import { textFileService } from '../../../services/textfile/browser/textFileService.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import { color } from '../../style/design.js';
 import { MdEditorBanners } from './MdEditorBanners.js';
@@ -200,7 +200,7 @@ export const MdEditor = ({
     if (loadKey === 0) return;
     void (async () => {
       try {
-        const result = await workspaceService.readFile(file);
+        const result = await textFileService.read(file);
         await applyContent(result.content);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -259,7 +259,7 @@ export const MdEditor = ({
       // what we last synced, raise the conflict instead of overwriting it.
       if (!forceWrite) {
         try {
-          const disk = (await workspaceService.readFile(file)).content;
+          const disk = (await textFileService.read(file)).content;
           if (disk !== shared.lastDisk) {
             reloadPromptRef.current = true;
             setReloadPrompt(true);
@@ -271,7 +271,7 @@ export const MdEditor = ({
         }
       }
       try {
-        await workspaceService.writeFile(file, md);
+        await textFileService.write(file, md);
         // Only AFTER a successful write: mark the shared baseline to the EXACT bytes
         // written (so the watcher echo compares equal + a new owner inherits the
         // right baseline) and clear pending. The reuse index is keyed by block id
@@ -338,7 +338,7 @@ export const MdEditor = ({
     if (claimSeed(self)) {
       void (async () => {
         try {
-          const { content } = await workspaceService.readFile(file);
+          const { content } = await textFileService.read(file);
           await applyContent(content);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
@@ -555,7 +555,7 @@ export const MdEditor = ({
         void (async () => {
           let disk = '';
           try {
-            disk = (await workspaceService.readFile(file)).content;
+            disk = (await textFileService.read(file)).content;
           } catch {
             return;
           }
