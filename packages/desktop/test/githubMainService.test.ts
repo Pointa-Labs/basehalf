@@ -149,6 +149,119 @@ describe('GithubMainService repository / createPullRequestUrl', () => {
   });
 });
 
+describe('GithubMainService remote source API', () => {
+  it('lists authenticated GitHub repositories as remote sources', async () => {
+    const { http, calls } = makeFakeHttp(() => ({
+      body: JSON.stringify([
+        {
+          full_name: 'o/r',
+          description: 'Repo description',
+          stargazers_count: 3,
+          clone_url: 'https://github.com/o/r.git',
+          ssh_url: 'git@github.com:o/r.git',
+        },
+      ]),
+    }));
+    const service = serviceWithRemotes('', { http, token: 'tok' });
+
+    await expect(service.listRemoteSources()).resolves.toEqual([
+      {
+        name: 'o/r',
+        description: '3 stars',
+        detail: 'Repo description',
+        icon: 'github',
+        url: ['https://github.com/o/r.git', 'git@github.com:o/r.git'],
+      },
+    ]);
+
+    expect(calls[0]?.url).toBe(
+      'https://api.github.com/user/repos?sort=updated&per_page=100&page=1',
+    );
+    expect(calls[0]?.headers?.Authorization).toBe('Bearer tok');
+  });
+
+  it('looks up GitHub URL queries directly and searches text queries', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      if (req.url === 'https://api.github.com/repos/o/r') {
+        return {
+          body: JSON.stringify({
+            full_name: 'o/r',
+            description: null,
+            stargazers_count: 0,
+            clone_url: 'https://github.com/o/r.git',
+          }),
+        };
+      }
+
+      return {
+        body: JSON.stringify({
+          items: [
+            {
+              full_name: 'basehalf/app',
+              description: 'BaseHalf',
+              stargazers_count: 10,
+              clone_url: 'https://github.com/basehalf/app.git',
+            },
+          ],
+        }),
+      };
+    });
+    const service = serviceWithRemotes('', { http, token: 'tok' });
+
+    await expect(service.listRemoteSources('https://github.com/o/r.git')).resolves.toEqual([
+      {
+        name: 'o/r',
+        icon: 'github',
+        url: 'https://github.com/o/r.git',
+      },
+    ]);
+    await expect(service.listRemoteSources('basehalf')).resolves.toEqual([
+      {
+        name: 'basehalf/app',
+        description: '10 stars',
+        detail: 'BaseHalf',
+        icon: 'github',
+        url: 'https://github.com/basehalf/app.git',
+      },
+    ]);
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://api.github.com/repos/o/r',
+      'https://api.github.com/search/repositories?q=basehalf%20fork%3Atrue&sort=stars',
+    ]);
+  });
+
+  it('lists branches for a remote source with the default branch first', async () => {
+    const { http, calls } = makeFakeHttp((req) => {
+      if (req.url.includes('/branches')) {
+        return { body: JSON.stringify([{ name: 'topic' }, { name: 'main' }]) };
+      }
+      return { body: JSON.stringify({ default_branch: 'main' }) };
+    });
+    const service = serviceWithRemotes('', { http, token: 'tok' });
+
+    await expect(service.listRemoteBranches('git@github.com:o/r.git')).resolves.toEqual([
+      { name: 'main', isDefault: true },
+      { name: 'topic' },
+    ]);
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://api.github.com/repos/o/r/branches?per_page=100&page=1',
+      'https://api.github.com/repos/o/r',
+    ]);
+  });
+
+  it('rejects invalid branch URLs before touching credentials or the network', async () => {
+    const { http, calls } = makeFakeHttp(() => ({}));
+    const service = serviceWithRemotes('', { http, token: 'tok' });
+
+    await expect(service.listRemoteBranches('https://gitlab.com/o/r.git')).rejects.toThrow(
+      /not github\.com/,
+    );
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('GithubMainService pull request API', () => {
   it('calls the pulls endpoint with auth + parses the response', async () => {
     const { http, calls } = makeFakeHttp(() => ({

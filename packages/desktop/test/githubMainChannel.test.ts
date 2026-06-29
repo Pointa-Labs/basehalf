@@ -25,6 +25,8 @@ describe('GithubMainChannel', () => {
     const service = {
       repository: vi.fn(async () => null),
       createPullRequestUrl: vi.fn(async () => 'https://github.com/o/r/compare/topic?expand=1'),
+      listRemoteSources: vi.fn(async () => []),
+      listRemoteBranches: vi.fn(async () => []),
       listPullRequests: vi.fn(async () => []),
       pullRequestFiles: vi.fn(async () => []),
       reviewPullRequest: vi.fn(async () => undefined),
@@ -35,6 +37,8 @@ describe('GithubMainChannel', () => {
     expect([...ipc.handlers.keys()]).toEqual([
       GITHUB_IPC_CHANNELS.repository,
       GITHUB_IPC_CHANNELS.createPullRequestUrl,
+      GITHUB_IPC_CHANNELS.listRemoteSources,
+      GITHUB_IPC_CHANNELS.listRemoteBranches,
       GITHUB_IPC_CHANNELS.listPullRequests,
       GITHUB_IPC_CHANNELS.pullRequestFiles,
       GITHUB_IPC_CHANNELS.reviewPullRequest,
@@ -45,6 +49,15 @@ describe('GithubMainChannel', () => {
     await expect(
       ipc.handlers.get(GITHUB_IPC_CHANNELS.createPullRequestUrl)?.(event, 'topic'),
     ).resolves.toBe('https://github.com/o/r/compare/topic?expand=1');
+    await expect(
+      ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteSources)?.(event, 'basehalf'),
+    ).resolves.toEqual([]);
+    await expect(
+      ipc.handlers.get(GITHUB_IPC_CHANNELS.listRemoteBranches)?.(
+        event,
+        'https://github.com/o/r.git',
+      ),
+    ).resolves.toEqual([]);
     await expect(
       ipc.handlers.get(GITHUB_IPC_CHANNELS.listPullRequests)?.(event, 'https://github.com/o/r.git'),
     ).resolves.toEqual([]);
@@ -62,6 +75,8 @@ describe('GithubMainChannel', () => {
 
     expect(service.repository).toHaveBeenCalledWith('/repo');
     expect(service.createPullRequestUrl).toHaveBeenCalledWith('/repo', 'topic');
+    expect(service.listRemoteSources).toHaveBeenCalledWith('basehalf');
+    expect(service.listRemoteBranches).toHaveBeenCalledWith('https://github.com/o/r.git');
     expect(service.listPullRequests).toHaveBeenCalledWith('/repo', 'https://github.com/o/r.git');
     expect(service.pullRequestFiles).toHaveBeenCalledWith('/repo', {
       remoteUrl: 'https://github.com/o/r.git',

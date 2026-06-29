@@ -33,6 +33,12 @@ export class GithubMainChannel {
     this.ipc.handle(GITHUB_IPC_CHANNELS.createPullRequestUrl, (event, branch) =>
       this.github.createPullRequestUrl(this.getWorkspaceRoot(event.sender), branch),
     );
+    this.ipc.handle(GITHUB_IPC_CHANNELS.listRemoteSources, (_event, query) =>
+      this.github.listRemoteSources(query),
+    );
+    this.ipc.handle(GITHUB_IPC_CHANNELS.listRemoteBranches, (_event, remoteUrl) =>
+      this.github.listRemoteBranches(remoteUrl),
+    );
     this.ipc.handle(GITHUB_IPC_CHANNELS.listPullRequests, (event, remoteUrl) =>
       this.github.listPullRequests(this.getWorkspaceRoot(event.sender), remoteUrl),
     );

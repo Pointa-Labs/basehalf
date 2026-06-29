@@ -2,6 +2,7 @@ import {
   type AuthenticationSession,
   GITHUB_AUTH_PROVIDER_ID,
 } from '../../../services/authentication/common/authentication.js';
+import type { RemoteSource, RemoteSourceBranch } from '../../scm/common/remoteSources.js';
 import type {
   GhPrFile,
   GhPullRequest,
@@ -50,6 +51,45 @@ export interface GithubMainServiceOptions {
   readonly http?: GithubHttpRunner;
 }
 
+interface GithubRemoteSourceResponse {
+  readonly full_name: string;
+  readonly description: string | null;
+  readonly stargazers_count?: number;
+  readonly clone_url?: string;
+  readonly ssh_url?: string;
+  readonly html_url?: string;
+}
+
+function asRemoteSource(raw: GithubRemoteSourceResponse): RemoteSource {
+  const cloneUrls = [raw.clone_url, raw.ssh_url].filter(
+    (url): url is string => typeof url === 'string' && url.trim() !== '',
+  );
+  const urls =
+    cloneUrls.length > 0
+      ? cloneUrls
+      : [raw.html_url].filter((url): url is string => typeof url === 'string' && url.trim() !== '');
+  const firstUrl = urls[0];
+  if (firstUrl === undefined) {
+    throw new Error('GitHub returned a repository without a clone URL.');
+  }
+
+  const stars = raw.stargazers_count ?? 0;
+  return {
+    name: raw.full_name,
+    ...(stars > 0 && { description: `${stars} stars` }),
+    ...(raw.description !== null && raw.description.trim() !== '' && { detail: raw.description }),
+    icon: 'github',
+    url: urls.length === 1 ? firstUrl : urls,
+  };
+}
+
+function parseOptionalQuery(query: unknown): string | undefined {
+  if (query === undefined || query === null) return undefined;
+  if (typeof query !== 'string') throw new Error('Invalid GitHub remote source query.');
+  const trimmed = query.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
 export class GithubMainService {
   private readonly api: GithubApiClient;
 
@@ -77,6 +117,47 @@ export class GithubMainService {
       trimmedBranch,
       head !== undefined ? { owner: head.owner, repo: head.repo } : undefined,
     );
+  }
+
+  async listRemoteSources(query?: unknown): Promise<readonly RemoteSource[]> {
+    const trimmedQuery = parseOptionalQuery(query);
+    const token = await this.requireToken();
+
+    if (trimmedQuery === undefined) {
+      return this.listUserRemoteSources(token);
+    }
+
+    const repo = parseGithubRepo(trimmedQuery);
+    if (repo !== null) {
+      const res = await this.api.request(token, 'GET', `/repos/${repo.owner}/${repo.repo}`);
+      return [asRemoteSource(JSON.parse(res.body) as GithubRemoteSourceResponse)];
+    }
+
+    const q = encodeURIComponent(`${trimmedQuery} fork:true`);
+    const res = await this.api.request(token, 'GET', `/search/repositories?q=${q}&sort=stars`);
+    const raw = JSON.parse(res.body) as { items?: GithubRemoteSourceResponse[] };
+    if (!Array.isArray(raw.items)) throw new Error('GitHub returned an unexpected response.');
+    return raw.items.map(asRemoteSource);
+  }
+
+  async listRemoteBranches(remoteUrl: unknown): Promise<readonly RemoteSourceBranch[]> {
+    if (typeof remoteUrl !== 'string') throw new Error('Invalid GitHub remote URL.');
+    const { owner, repo } = repoOf(remoteUrl);
+    const token = await this.requireToken();
+    const rawBranches = await this.api.arrayPages<{ name?: string }>(
+      token,
+      `/repos/${owner}/${repo}/branches`,
+    );
+    const repoRes = await this.api.request(token, 'GET', `/repos/${owner}/${repo}`);
+    const defaultBranch = (JSON.parse(repoRes.body) as { default_branch?: string }).default_branch;
+
+    return rawBranches
+      .filter((branch): branch is { name: string } => typeof branch.name === 'string')
+      .map((branch) => ({
+        name: branch.name,
+        ...(branch.name === defaultBranch && { isDefault: true }),
+      }))
+      .sort((a, b) => (a.name === defaultBranch ? -1 : b.name === defaultBranch ? 1 : 0));
   }
 
   async listPullRequests(
@@ -189,5 +270,13 @@ export class GithubMainService {
         .map(githubRepositoryFromRemote)
         .filter((repo): repo is GithubRemoteRepository => repo !== null),
     );
+  }
+
+  private async listUserRemoteSources(token: string): Promise<readonly RemoteSource[]> {
+    const raw = await this.api.arrayPages<GithubRemoteSourceResponse>(
+      token,
+      '/user/repos?sort=updated',
+    );
+    return raw.map(asRemoteSource);
   }
 }

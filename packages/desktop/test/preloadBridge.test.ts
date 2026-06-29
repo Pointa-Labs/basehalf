@@ -129,6 +129,9 @@ describe('preload bridge modules', () => {
     ipc.invoke.mockImplementation(async (channel: string) => {
       if (channel === GITHUB_IPC_CHANNELS.createPullRequestUrl)
         return 'https://github.com/o/r/compare/topic?expand=1';
+      if (channel === GITHUB_IPC_CHANNELS.listRemoteSources)
+        return [{ name: 'o/r', url: 'https://github.com/o/r.git' }];
+      if (channel === GITHUB_IPC_CHANNELS.listRemoteBranches) return [{ name: 'main' }];
       if (channel === GITHUB_IPC_CHANNELS.listPullRequests) return [];
       return null;
     });
@@ -139,9 +142,20 @@ describe('preload bridge modules', () => {
       'https://github.com/o/r/compare/topic?expand=1',
     );
     await expect(bridge.listPullRequests('https://github.com/o/r.git')).resolves.toEqual([]);
+    await expect(bridge.listRemoteSources('o')).resolves.toEqual([
+      { name: 'o/r', url: 'https://github.com/o/r.git' },
+    ]);
+    await expect(bridge.listRemoteBranches('https://github.com/o/r.git')).resolves.toEqual([
+      { name: 'main' },
+    ]);
 
     expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.repository);
     expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.createPullRequestUrl, 'topic');
+    expect(ipc.invoke).toHaveBeenCalledWith(GITHUB_IPC_CHANNELS.listRemoteSources, 'o');
+    expect(ipc.invoke).toHaveBeenCalledWith(
+      GITHUB_IPC_CHANNELS.listRemoteBranches,
+      'https://github.com/o/r.git',
+    );
     expect(ipc.invoke).toHaveBeenCalledWith(
       GITHUB_IPC_CHANNELS.listPullRequests,
       'https://github.com/o/r.git',

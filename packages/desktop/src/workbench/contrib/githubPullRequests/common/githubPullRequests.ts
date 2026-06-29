@@ -1,3 +1,5 @@
+import type { RemoteSource, RemoteSourceBranch } from '../../scm/common/remoteSources.js';
+
 export interface GithubRepo {
   readonly owner: string;
   readonly repo: string;
@@ -43,6 +45,8 @@ export interface GithubReviewArgs {
 export const GITHUB_IPC_CHANNELS = {
   repository: 'github:repository',
   createPullRequestUrl: 'github:create-pull-request-url',
+  listRemoteSources: 'github:list-remote-sources',
+  listRemoteBranches: 'github:list-remote-branches',
   listPullRequests: 'github:list-pull-requests',
   pullRequestFiles: 'github:pull-request-files',
   reviewPullRequest: 'github:review-pull-request',
@@ -53,6 +57,8 @@ export type GithubIpcChannel = (typeof GITHUB_IPC_CHANNELS)[keyof typeof GITHUB_
 export interface GithubChannelBridge {
   repository(): Promise<GithubRemoteRepository | null>;
   createPullRequestUrl(branch: string): Promise<string | null>;
+  listRemoteSources(query?: string): Promise<readonly RemoteSource[]>;
+  listRemoteBranches(remoteUrl: string): Promise<readonly RemoteSourceBranch[]>;
   listPullRequests(remoteUrl: string): Promise<readonly GhPullRequest[]>;
   pullRequestFiles(remoteUrl: string, number: number): Promise<readonly GhPrFile[]>;
   reviewPullRequest(args: GithubReviewArgs): Promise<void>;

@@ -20,6 +20,14 @@ export function createGithubBridge(ipcRenderer: IpcRendererLike): GithubBridgeCo
         ipcRenderer.invoke(GITHUB_IPC_CHANNELS.createPullRequestUrl, branch) as Promise<
           string | null
         >,
+      listRemoteSources: (query) =>
+        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listRemoteSources, query) as Promise<
+          Awaited<ReturnType<GithubChannelBridge['listRemoteSources']>>
+        >,
+      listRemoteBranches: (remoteUrl) =>
+        ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listRemoteBranches, remoteUrl) as Promise<
+          Awaited<ReturnType<GithubChannelBridge['listRemoteBranches']>>
+        >,
       listPullRequests: (remoteUrl) =>
         ipcRenderer.invoke(GITHUB_IPC_CHANNELS.listPullRequests, remoteUrl) as Promise<
           Awaited<ReturnType<GithubChannelBridge['listPullRequests']>>

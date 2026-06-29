@@ -6,6 +6,7 @@ import {
   type ScmViewContribution,
   type ScmViewContributionRegistryLike,
   registerScmViewContribution,
+  scmViewContributionRegistry,
 } from '../../scm/browser/scmViewContributions.js';
 import { choosePublishRemote } from '../../scm/browser/useScmRemoteCommands.js';
 import type { GitStatusResult } from '../../scm/common/git.js';
@@ -15,6 +16,7 @@ import {
   githubErrorMessage,
   githubPullRequestService,
 } from './githubPullRequestService.js';
+import { registerGithubRemoteSourceProvider } from './githubRemoteSourceProvider.js';
 
 export interface CreateGithubPullRequestOptions {
   readonly status: GitStatusResult | null;
@@ -76,5 +78,12 @@ export const githubPullRequestsScmContribution: ScmViewContribution = {
 export function registerGithubPullRequestsScmContribution(
   registry?: ScmViewContributionRegistryLike,
 ): () => void {
-  return registerScmViewContribution(githubPullRequestsScmContribution, registry);
+  const scmRegistry = registry ?? scmViewContributionRegistry;
+  const disposables = [
+    registerScmViewContribution(githubPullRequestsScmContribution, scmRegistry),
+    ...(scmRegistry === scmViewContributionRegistry ? [registerGithubRemoteSourceProvider()] : []),
+  ];
+  return () => {
+    for (const dispose of [...disposables].reverse()) dispose();
+  };
 }
