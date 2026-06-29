@@ -959,14 +959,14 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 			});
 			await refreshIfSeparator(value, explorerService);
 
-			if (isFolder) {
-				await explorerService.select(resourceToCreate, true);
-				baseHalfCanvasNavigationService.openFolderCanvas(resourceToCreate, { source: 'fileCommand' });
-			} else {
-				const result = baseHalfCanvasNavigationService.openCardDetail(resourceToCreate, {
-					source: 'fileCommand',
-					pinned: true
-				});
+				if (isFolder) {
+					await explorerService.select(resourceToCreate, true);
+					await baseHalfCanvasNavigationService.openFolderCanvas(resourceToCreate, { source: 'fileCommand' });
+				} else {
+					const result = await baseHalfCanvasNavigationService.openCardDetail(resourceToCreate, {
+						source: 'fileCommand',
+						pinned: true
+					});
 				if (!result.handled) {
 					await editorService.openEditor({ resource: resourceToCreate, options: { pinned: true } });
 				}

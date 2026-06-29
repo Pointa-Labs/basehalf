@@ -12,6 +12,7 @@ import { UriIdentityService } from '../../../../platform/uriIdentity/common/uriI
 import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { TestWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
 import { BaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigationService.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfCanvasNavigationService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -23,7 +24,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 			['/workspace/docs', aFileStat(URI.file('/workspace/docs'), FileType.Directory)]
 		]));
 
-		service.openCardDetail(URI.file('/workspace/docs/readme.md'), { source: 'api' });
+		await service.openCardDetail(URI.file('/workspace/docs/readme.md'), { source: 'api' });
 		const result = await service.openResource(URI.file('/workspace/docs'), { source: 'explorer' });
 
 		assert.strictEqual(result.handled, true);
@@ -177,14 +178,44 @@ suite('BaseHalfCanvasNavigationService', () => {
 		const disposable = service.onDidChangeState(state => events.push(state));
 
 		await service.openResource(URI.file('/workspace/readme.md'), { source: 'api' });
-		service.closeCardDetail();
+		assert.strictEqual(await service.closeCardDetail(), true);
 
 		disposable.dispose();
 		assert.strictEqual(events.length, 2);
 		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
-	function createService(files: Map<string, IFileStat>, workspaceFolders: URI[] = [workspaceFolder]): BaseHalfCanvasNavigationService {
+	test('blocks file switches, folder opens, and closes when the current card detail cannot flush', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map([
+			['/workspace/readme.md', aFileStat(URI.file('/workspace/readme.md'), FileType.File)],
+			['/workspace/docs', aFileStat(URI.file('/workspace/docs'), FileType.Directory)],
+			['/workspace/docs/guide.md', aFileStat(URI.file('/workspace/docs/guide.md'), FileType.File)]
+		]), [workspaceFolder], flushService);
+
+		await service.openResource(URI.file('/workspace/readme.md'), { source: 'api' });
+		const before = service.state;
+		const blocker = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => false);
+
+		assert.deepStrictEqual(await service.openResource(URI.file('/workspace/docs/guide.md'), { source: 'api' }), { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(service.state, before);
+		assert.deepStrictEqual(await service.openResource(URI.file('/workspace/docs'), { source: 'api' }), { handled: false, reason: 'blockedByDirtyEditor' });
+		assert.strictEqual(service.state, before);
+		assert.strictEqual(await service.closeCardDetail(), false);
+		assert.strictEqual(service.state, before);
+
+		blocker.dispose();
+		const result = await service.openResource(URI.file('/workspace/docs/guide.md'), { source: 'api' });
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
+	});
+
+	function createService(
+		files: Map<string, IFileStat>,
+		workspaceFolders: URI[] = [workspaceFolder],
+		editorFlushService = new BaseHalfEditorFlushService()
+	): BaseHalfCanvasNavigationService {
 		const fileService = {
 			onDidFilesChange: Event.None,
 			onDidRunOperation: Event.None,
@@ -212,7 +243,8 @@ suite('BaseHalfCanvasNavigationService', () => {
 					...TestWorkspace,
 					folders: workspaceFolders.map((uri, index) => ({ uri, name: uri.path.split('/').pop() ?? 'workspace', index }))
 				}) as IWorkspace
-			} as Partial<IWorkspaceContextService> as IWorkspaceContextService
+			} as Partial<IWorkspaceContextService> as IWorkspaceContextService,
+			editorFlushService
 		));
 	}
 

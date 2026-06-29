@@ -19,6 +19,7 @@ import {
 	IBaseHalfOpenResourceOptions
 } from './basehalfCanvasNavigation.js';
 import { normalizeBaseHalfCardDetailProjection } from './basehalfCardDetail.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from './basehalfEditorFlush.js';
 
 export class BaseHalfCanvasNavigationService extends Disposable implements IBaseHalfCanvasNavigationService {
 	declare readonly _serviceBrand: undefined;
@@ -38,7 +39,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 	constructor(
 		@IFileService private readonly fileService: IFileService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
-		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService
+		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
 	) {
 		super();
 	}
@@ -67,10 +69,13 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return { handled: false, reason: 'unsupportedResource' };
 	}
 
-	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): BaseHalfNavigationResult {
+	async openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
 		const workspaceResource = this.toWorkspaceResource(resource);
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
+		}
+		if (!await this.flushActiveCardDetail()) {
+			return { handled: false, reason: 'blockedByDirtyEditor' };
 		}
 
 		const canvasFolder: IBaseHalfCanvasFolderState = {
@@ -84,10 +89,13 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return { handled: true, target: 'canvasFolder', state: canvasFolder };
 	}
 
-	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): BaseHalfNavigationResult {
+	async openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
 		const workspaceResource = this.toWorkspaceResource(resource);
 		if (!workspaceResource) {
 			return { handled: false, reason: 'outsideWorkspace' };
+		}
+		if (!await this.flushActiveCardDetail()) {
+			return { handled: false, reason: 'blockedByDirtyEditor' };
 		}
 
 		const canvasFolder = this.toParentCanvasFolder(resource, options);
@@ -110,15 +118,26 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return { handled: true, target: 'cardDetail', state: cardDetail };
 	}
 
-	closeCardDetail(): void {
+	async closeCardDetail(): Promise<boolean> {
 		if (!this._state.cardDetail) {
-			return;
+			return true;
+		}
+		if (!await this.flushActiveCardDetail()) {
+			return false;
 		}
 
 		this.updateState({
 			canvasFolder: this._state.canvasFolder,
 			cardDetail: undefined
 		});
+		return true;
+	}
+
+	private async flushActiveCardDetail(): Promise<boolean> {
+		if (!this._state.cardDetail) {
+			return true;
+		}
+		return this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID);
 	}
 
 	private updateState(state: IBaseHalfCanvasNavigationState): void {

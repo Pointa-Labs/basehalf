@@ -97,7 +97,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		close.type = 'button';
 		close.title = 'Close';
 		close.setAttribute('aria-label', 'Close');
-		this._register(this.addDisposableListener(close, 'click', () => this.canvasNavigationService.closeCardDetail()));
+		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
 
 		this.editorContainer.prepend(this.root);
@@ -111,12 +111,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 		this._register(editorService.onDidVisibleEditorsChange(() => this.updateCanvasLayer(editorService)));
 		this._register(editorService.onDidActiveEditorChange(() => {
-			this.canvasNavigationService.closeCardDetail();
+			void this.canvasNavigationService.closeCardDetail();
 			this.updateCanvasLayer(editorService);
 		}));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
-				this.canvasNavigationService.closeCardDetail();
+				void this.canvasNavigationService.closeCardDetail();
 			}
 		}));
 		this._register(this.addDisposableListener(this.root, 'scroll', () => this.scheduleFolderFocusWrite()));
@@ -339,7 +339,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 
-			this.canvasNavigationService.openCardDetail(cardDetail.resource, {
+			void this.canvasNavigationService.openCardDetail(cardDetail.resource, {
 				source: 'api',
 				selection: cardDetail.selection,
 				preserveFocus: cardDetail.preserveFocus,

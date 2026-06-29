@@ -1,0 +1,106 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+
+suite('BaseHalfEditorFlushService', () => {
+	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('flushes a registered pane and unregisters it with disposal', async () => {
+		const service = new BaseHalfEditorFlushService();
+		const calls: unknown[] = [];
+		const disposable = disposables.add(service.registerPaneFlusher('pane', async options => {
+			calls.push(options);
+			return true;
+		}));
+
+		assert.strictEqual(await service.flushPane('pane', { forceSerialize: true }), true);
+		assert.deepStrictEqual(calls, [{ forceSerialize: true }]);
+
+		disposable.dispose();
+		assert.strictEqual(await service.flushPane('pane'), true);
+		assert.deepStrictEqual(calls.length, 1);
+	});
+
+	test('only the latest pane flusher owns a pane id', async () => {
+		const service = new BaseHalfEditorFlushService();
+		let firstCalls = 0;
+		let secondCalls = 0;
+		const first = service.registerPaneFlusher('pane', async () => {
+			firstCalls++;
+			return true;
+		});
+		const second = disposables.add(service.registerPaneFlusher('pane', async () => {
+			secondCalls++;
+			return true;
+		}));
+
+		first.dispose();
+		assert.strictEqual(await service.flushPane('pane'), true);
+		assert.strictEqual(firstCalls, 0);
+		assert.strictEqual(secondCalls, 1);
+
+		second.dispose();
+		assert.strictEqual(await service.flushPane('pane'), true);
+		assert.strictEqual(secondCalls, 1);
+	});
+
+	test('flushes every mounted view for a document and reports blockers', async () => {
+		const service = new BaseHalfEditorFlushService();
+		let ownerCalls = 0;
+		let siblingCalls = 0;
+		disposables.add(service.registerDocumentFlusher('doc', async () => {
+			ownerCalls++;
+			return true;
+		}));
+		disposables.add(service.registerDocumentFlusher('doc', async () => {
+			siblingCalls++;
+			return false;
+		}));
+
+		assert.strictEqual(await service.flushDocument('doc'), false);
+		assert.strictEqual(ownerCalls, 1);
+		assert.strictEqual(siblingCalls, 1);
+		assert.strictEqual(await service.flushDocument('missing'), true);
+	});
+
+	test('flushAll runs unique flushers once across pane and document registries', async () => {
+		const service = new BaseHalfEditorFlushService();
+		let sharedCalls = 0;
+		let docOnlyCalls = 0;
+		const shared: BaseHalfEditorFlushFn = async options => {
+			assert.deepStrictEqual(options, { forceWrite: true });
+			sharedCalls++;
+			return true;
+		};
+		disposables.add(service.registerPaneFlusher('pane', shared));
+		disposables.add(service.registerDocumentFlusher('doc', shared));
+		disposables.add(service.registerDocumentFlusher('doc', async options => {
+			assert.deepStrictEqual(options, { forceWrite: true });
+			docOnlyCalls++;
+			return true;
+		}));
+
+		assert.strictEqual(await service.flushAll({ forceWrite: true }), true);
+		assert.strictEqual(sharedCalls, 1);
+		assert.strictEqual(docOnlyCalls, 1);
+	});
+
+	test('treats rejected flushers as torn-down non-blocking editors', async () => {
+		const service = new BaseHalfEditorFlushService();
+		disposables.add(service.registerPaneFlusher('pane', async () => {
+			throw new Error('disposed');
+		}));
+		disposables.add(service.registerDocumentFlusher('doc', async () => {
+			throw new Error('disposed');
+		}));
+
+		assert.strictEqual(await service.flushPane('pane'), true);
+		assert.strictEqual(await service.flushDocument('doc'), true);
+		assert.strictEqual(await service.flushAll(), true);
+	});
+});

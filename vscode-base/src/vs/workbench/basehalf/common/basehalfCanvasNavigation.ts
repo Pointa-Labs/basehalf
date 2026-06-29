@@ -54,7 +54,7 @@ export interface IBaseHalfCanvasNavigationState {
 export type BaseHalfNavigationResult =
 	| { readonly handled: true; readonly target: 'canvasFolder'; readonly state: IBaseHalfCanvasFolderState }
 	| { readonly handled: true; readonly target: 'cardDetail'; readonly state: IBaseHalfCardDetailState }
-	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' };
+	| { readonly handled: false; readonly reason: 'outsideWorkspace' | 'missingOrUnreadable' | 'unsupportedResource' | 'blockedByDirtyEditor' };
 
 export interface IBaseHalfCanvasNavigationService {
 	readonly _serviceBrand: undefined;
@@ -63,7 +63,7 @@ export interface IBaseHalfCanvasNavigationService {
 	readonly state: IBaseHalfCanvasNavigationState;
 
 	openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
-	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): BaseHalfNavigationResult;
-	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): BaseHalfNavigationResult;
-	closeCardDetail(): void;
+	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
+	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
+	closeCardDetail(): Promise<boolean>;
 }
