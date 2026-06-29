@@ -140,6 +140,22 @@
 	font-size: 12px;
 }
 
+.monaco-workbench .basehalf-canvas-warning {
+	position: absolute;
+	top: 58px;
+	right: 18px;
+	max-width: min(360px, calc(100% - 36px));
+	padding: 5px 8px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-inputValidation-warningForeground);
+	background-color: var(--vscode-inputValidation-warningBackground);
+	border: 1px solid var(--vscode-inputValidation-warningBorder);
+	border-radius: 4px;
+	font-size: 12px;
+}
+
 .monaco-workbench .basehalf-card-detail {
 	position: absolute;
 	inset: 0;

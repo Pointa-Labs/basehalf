@@ -1,0 +1,205 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { parse } from 'yaml';
+import { URI } from '../../../base/common/uri.js';
+import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
+import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
+import {
+	IBaseHalfCanvasCard,
+	IBaseHalfCanvasEdge,
+	IBaseHalfCanvasFile,
+	IBaseHalfCanvasSize
+} from './basehalfCanvasModel.js';
+import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
+
+export const IBaseHalfCanvasMirrorService = createDecorator<IBaseHalfCanvasMirrorService>('baseHalfCanvasMirrorService');
+
+const CANVAS_YAML_MAX_BYTES = 512 * 1024;
+const CANVAS_ANCHORS = new Set(['north', 'east', 'south', 'west']);
+
+export class BaseHalfCanvasMirrorCorrupt extends Error {
+	override readonly name = 'BaseHalfCanvasMirrorCorrupt';
+
+	constructor(
+		readonly resource: URI,
+		readonly reason: string,
+		options?: { cause?: unknown }
+	) {
+		super(`Corrupt canvas.yaml at ${resource.toString()}: ${reason}`, options);
+	}
+}
+
+export interface IBaseHalfCanvasMirrorService {
+	readonly _serviceBrand: undefined;
+
+	readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null>;
+	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
+}
+
+export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService {
+	declare readonly _serviceBrand: undefined;
+
+	constructor(
+		@IFileService private readonly fileService: IFileService
+	) { }
+
+	async readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null> {
+		const resource = this.canvasResource(folder);
+		let raw: string;
+		try {
+			raw = (await this.fileService.readFile(resource, {
+				limits: { size: CANVAS_YAML_MAX_BYTES }
+			})).value.toString();
+		} catch (error) {
+			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+				return null;
+			}
+
+			throw error;
+		}
+
+		let parsed: unknown;
+		try {
+			parsed = parse(raw) ?? null;
+		} catch (cause) {
+			throw new BaseHalfCanvasMirrorCorrupt(resource, 'YAML parse failed', { cause });
+		}
+
+		if (parsed === null) {
+			return null;
+		}
+
+		return normalizeCanvasFile(parsed, resource, folder.relativePath);
+	}
+
+	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
+		const segments = folder.relativePath ? folder.relativePath.split('/').filter(Boolean) : [];
+		return URI.joinPath(folder.workspaceFolder, '.bh', 'mirror', ...segments, 'canvas.yaml');
+	}
+}
+
+function normalizeCanvasFile(value: unknown, resource: URI, expectedPath: string): IBaseHalfCanvasFile {
+	const record = asRecord(value, resource, 'canvas root must be an object');
+	const path = stringField(record, 'path', resource);
+	if (path !== expectedPath) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `path must be "${expectedPath}"`);
+	}
+
+	const size = optionalSize(record.size, resource);
+	const cards = arrayField(record, 'cards', resource).map((card, index) => normalizeCanvasCard(card, resource, index));
+	const edges = arrayField(record, 'edges', resource).map((edge, index) => normalizeCanvasEdge(edge, resource, index));
+
+	return {
+		path,
+		...(size ? { size } : {}),
+		cards,
+		edges
+	};
+}
+
+function normalizeCanvasCard(value: unknown, resource: URI, index: number): IBaseHalfCanvasCard {
+	const record = asRecord(value, resource, `cards[${index}] must be an object`);
+	const kind = stringField(record, 'kind', resource);
+	if (kind !== 'file' && kind !== 'folder') {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `cards[${index}].kind must be file or folder`);
+	}
+
+	return {
+		path: stringField(record, 'path', resource),
+		kind,
+		x: numberField(record, 'x', resource),
+		y: numberField(record, 'y', resource),
+		width: positiveNumberField(record, 'width', resource),
+		height: positiveNumberField(record, 'height', resource)
+	};
+}
+
+function normalizeCanvasEdge(value: unknown, resource: URI, index: number): IBaseHalfCanvasEdge {
+	const record = asRecord(value, resource, `edges[${index}] must be an object`);
+	const fromAnchor = anchorField(record, 'from_anchor', resource, index);
+	const toAnchor = anchorField(record, 'to_anchor', resource, index);
+	const label = typeof record.label === 'string' && record.label.length > 0 ? record.label : undefined;
+
+	return {
+		from: stringField(record, 'from', resource),
+		from_anchor: fromAnchor,
+		to: stringField(record, 'to', resource),
+		to_anchor: toAnchor,
+		...(label ? { label } : {})
+	};
+}
+
+function optionalSize(value: unknown, resource: URI): IBaseHalfCanvasSize | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, resource, 'size must be an object');
+	return {
+		width: positiveNumberField(record, 'width', resource),
+		height: positiveNumberField(record, 'height', resource)
+	};
+}
+
+function asRecord(value: unknown, resource: URI, reason: string): Record<string, unknown> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, reason);
+	}
+
+	return value as Record<string, unknown>;
+}
+
+function arrayField(record: Record<string, unknown>, key: string, resource: URI): readonly unknown[] {
+	const value = record[key];
+	if (value === undefined) {
+		return [];
+	}
+
+	if (!Array.isArray(value)) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be an array`);
+	}
+
+	return value;
+}
+
+function stringField(record: Record<string, unknown>, key: string, resource: URI): string {
+	const value = record[key];
+	if (typeof value !== 'string') {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be a string`);
+	}
+
+	return value;
+}
+
+function numberField(record: Record<string, unknown>, key: string, resource: URI): number {
+	const value = record[key];
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be a finite number`);
+	}
+
+	return value;
+}
+
+function positiveNumberField(record: Record<string, unknown>, key: string, resource: URI): number {
+	const value = numberField(record, key, resource);
+	if (value <= 0) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `${key} must be positive`);
+	}
+
+	return value;
+}
+
+function anchorField(record: Record<string, unknown>, key: string, resource: URI, edgeIndex: number): IBaseHalfCanvasEdge['from_anchor'] {
+	const value = stringField(record, key, resource);
+	if (!CANVAS_ANCHORS.has(value)) {
+		throw new BaseHalfCanvasMirrorCorrupt(resource, `edges[${edgeIndex}].${key} must be a canvas anchor`);
+	}
+
+	return value as IBaseHalfCanvasEdge['from_anchor'];
+}
+
+registerSingleton(IBaseHalfCanvasMirrorService, BaseHalfCanvasMirrorService, InstantiationType.Delayed);

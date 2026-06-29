@@ -16,7 +16,13 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
-import { baseHalfCanvasModelFromStat, baseHalfCanvasPosition, IBaseHalfCanvasItem } from '../common/basehalfCanvasModel.js';
+import {
+	baseHalfCanvasModelFromStat,
+	baseHalfCanvasPosition,
+	IBaseHalfCanvasFile,
+	IBaseHalfCanvasItem
+} from '../common/basehalfCanvasModel.js';
+import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
 
 const MAX_DETAIL_PREVIEW_BYTES = 256 * 1024;
@@ -45,6 +51,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IFileService private readonly fileService: IFileService,
 		@ILabelService private readonly labelService: ILabelService,
 		@IEditorService editorService: IEditorService,
+		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super();
@@ -134,9 +141,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		let canvas: IBaseHalfCanvasFile | null = null;
+		let canvasWarning: string | undefined;
+		try {
+			canvas = await this.canvasMirrorService.readCanvas(folder);
+		} catch (error) {
+			canvasWarning = error instanceof BaseHalfCanvasMirrorCorrupt ? 'Corrupt canvas.yaml' : 'Unable to read canvas.yaml';
+		}
+
 		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
-			folderRelativePath: folder.relativePath
+			folderRelativePath: folder.relativePath,
+			canvas
 		});
 		const items = model.items;
 		clearNode(this.cards);
@@ -153,6 +169,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const size = this.canvasSize(items);
 			this.cards.style.width = `${size.width}px`;
 			this.cards.style.height = `${size.height}px`;
+		}
+		if (canvasWarning) {
+			this.renderCanvasWarning(canvasWarning);
 		}
 
 		this.renderDetail();
@@ -205,6 +224,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderTruncated(heldBack: number): void {
 		const truncated = append(this.cards, $('.basehalf-canvas-truncated'));
 		truncated.textContent = `+${heldBack} more`;
+	}
+
+	private renderCanvasWarning(message: string): void {
+		const warning = append(this.cards, $('.basehalf-canvas-warning'));
+		warning.textContent = message;
 	}
 
 	private renderEmpty(message: string): void {
