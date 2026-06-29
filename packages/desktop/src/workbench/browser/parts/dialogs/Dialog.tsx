@@ -33,8 +33,9 @@ export {
 import {
   type IQuickPick,
   type IQuickPickItem,
+  type IQuickPickSeparator,
   QuickPickFocus,
-  isQuickPickItem,
+  isQuickPickSeparator,
   quickInputService,
 } from '../../../../platform/quickinput/browser/quickInputService.js';
 import {
@@ -207,6 +208,28 @@ export const DialogHost = (): JSX.Element | null => {
   );
 };
 
+type QuickPickHostRow =
+  | {
+      readonly kind: 'separator';
+      readonly separator: IQuickPickSeparator;
+      readonly visualIndex: number;
+    }
+  | {
+      readonly kind: 'item';
+      readonly item: IQuickPickItem;
+      readonly visualIndex: number;
+    };
+
+export function quickPickHostRows(
+  items: readonly (IQuickPickItem | IQuickPickSeparator)[],
+): readonly QuickPickHostRow[] {
+  return items.map((item, visualIndex) =>
+    isQuickPickSeparator(item)
+      ? { kind: 'separator', separator: item, visualIndex }
+      : { kind: 'item', item, visualIndex },
+  );
+}
+
 const ConfirmBody = ({
   dialog,
   onResolve,
@@ -364,9 +387,13 @@ const QuickPickBody = ({
     };
   }, [picker]);
 
-  const rows = picker.items.filter(isQuickPickItem);
+  const rows = quickPickHostRows(picker.items);
   const activeItem = picker.activeItems[0];
-  const activeIdx = activeItem === undefined ? null : rows.indexOf(activeItem);
+  const activeRow =
+    activeItem === undefined
+      ? undefined
+      : rows.find((row) => row.kind === 'item' && row.item === activeItem);
+  const activeIdx = activeRow?.visualIndex ?? null;
   const activeOptionId =
     activeIdx !== null && activeIdx >= 0 ? `bh-pick-option-${activeIdx}` : undefined;
   const selectedItems = useMemo(() => new Set(picker.selectedItems), [picker.selectedItems]);
@@ -484,13 +511,47 @@ const QuickPickBody = ({
             {emptyText}
           </div>
         ) : (
-          rows.map((item, idx) => {
+          rows.map((row) => {
+            if (row.kind === 'separator') {
+              const label = row.separator.label ?? row.separator.description ?? '';
+              return (
+                <div
+                  key={row.separator.id ?? `separator-${row.visualIndex}-${label}`}
+                  role="separator"
+                  aria-label={row.separator.ariaLabel ?? row.separator.label}
+                  data-bh-pick-separator="true"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: space[2],
+                    padding: `${space[2]}px ${space[2]}px ${space[1]}px`,
+                    borderTop: row.visualIndex === 0 ? 'none' : `1px solid ${color.borderStrong}`,
+                    color: color.textTertiary,
+                    fontSize: font.size.caption,
+                    fontWeight: font.weight.medium,
+                    cursor: 'default',
+                    userSelect: 'none',
+                  }}
+                >
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {label}
+                  </span>
+                </div>
+              );
+            }
+            const item = row.item;
             const checked = selectedItems.has(item);
             const active = item === activeItem;
             return (
               <div
-                key={item.id ?? `${item.label}-${idx}`}
-                id={`bh-pick-option-${idx}`}
+                key={item.id ?? `${item.label}-${row.visualIndex}`}
+                id={`bh-pick-option-${row.visualIndex}`}
                 role={picker.canSelectMany ? 'checkbox' : 'option'}
                 aria-checked={picker.canSelectMany ? checked : undefined}
                 aria-selected={picker.canSelectMany ? undefined : active}
