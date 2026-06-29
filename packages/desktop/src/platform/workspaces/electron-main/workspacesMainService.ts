@@ -1,26 +1,4 @@
 import type {
-  WorkspaceCreateFileArgs,
-  WorkspaceCreateFileResult,
-  WorkspaceCreateFolderArgs,
-  WorkspaceCreateFolderResult,
-  WorkspaceDeleteEntryArgs,
-  WorkspaceDeleteEntryResult,
-  WorkspaceImportFileArgs,
-  WorkspaceImportFileResult,
-  WorkspaceListFilesArgs,
-  WorkspaceListFilesResult,
-  WorkspaceListSupportedFilesArgs,
-  WorkspaceListSupportedFilesResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
-  WorkspaceRenameEntryArgs,
-  WorkspaceRenameEntryResult,
-  WorkspaceRenameFileArgs,
-  WorkspaceRenameFileResult,
-  WorkspaceWriteFileArgs,
-  WorkspaceWriteFileResult,
-} from '../../files/common/workspaceFiles.js';
-import type {
   WorkspaceAddArgs,
   WorkspaceAddResult,
   WorkspaceCreateDemoArgs,
@@ -101,25 +79,11 @@ export class WorkspaceMainService {
     return this.backend.createDemo(workspaceRoot, args);
   }
 
-  listFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListFilesArgs,
-  ): Promise<WorkspaceListFilesResult> {
-    return this.backend.listFiles(workspaceRoot, args);
-  }
-
   listCanvas(
     workspaceRoot: string | null,
     args: WorkspaceListCanvasArgs,
   ): Promise<WorkspaceListCanvasResult> {
     return this.backend.listCanvas(workspaceRoot, args);
-  }
-
-  listSupportedFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListSupportedFilesArgs,
-  ): Promise<WorkspaceListSupportedFilesResult> {
-    return this.backend.listSupportedFiles(workspaceRoot, args);
   }
 
   getViewport(workspaceRoot: string | null): Promise<WorkspaceGetViewportResult> {
@@ -131,61 +95,5 @@ export class WorkspaceMainService {
     args: WorkspaceSetViewportArgs,
   ): Promise<WorkspaceSetViewportResult> {
     return this.backend.setViewport(workspaceRoot, args);
-  }
-
-  readFile(
-    workspaceRoot: string | null,
-    args: WorkspaceReadFileArgs,
-  ): Promise<WorkspaceReadFileResult> {
-    return this.backend.readFile(workspaceRoot, args);
-  }
-
-  writeFile(
-    workspaceRoot: string | null,
-    args: WorkspaceWriteFileArgs,
-  ): Promise<WorkspaceWriteFileResult> {
-    return this.backend.writeFile(workspaceRoot, args);
-  }
-
-  renameFile(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameFileArgs,
-  ): Promise<WorkspaceRenameFileResult> {
-    return this.backend.renameFile(workspaceRoot, args);
-  }
-
-  importFile(
-    workspaceRoot: string | null,
-    args: WorkspaceImportFileArgs,
-  ): Promise<WorkspaceImportFileResult> {
-    return this.backend.importFile(workspaceRoot, args);
-  }
-
-  createFile(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFileArgs,
-  ): Promise<WorkspaceCreateFileResult> {
-    return this.backend.createFile(workspaceRoot, args);
-  }
-
-  createFolder(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFolderArgs,
-  ): Promise<WorkspaceCreateFolderResult> {
-    return this.backend.createFolder(workspaceRoot, args);
-  }
-
-  deleteEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceDeleteEntryArgs,
-  ): Promise<WorkspaceDeleteEntryResult> {
-    return this.backend.deleteEntry(workspaceRoot, args);
-  }
-
-  renameEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameEntryArgs,
-  ): Promise<WorkspaceRenameEntryResult> {
-    return this.backend.renameEntry(workspaceRoot, args);
   }
 }

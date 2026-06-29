@@ -43,7 +43,7 @@ describe('SearchMainService', () => {
     const root = await mkdtemp(join(tmpdir(), 'basehalf-search-'));
     try {
       await mkdir(join(root, 'notes'));
-      const workspace = {
+      const files = {
         listFiles: vi.fn(async (_workspaceRoot: string | null, args: { path: string }) => {
           if (args.path === root) {
             return {
@@ -87,7 +87,7 @@ describe('SearchMainService', () => {
             : null,
         ),
       };
-      const backend = new WorkbenchSearchBackendProvider({ workspace, badges });
+      const backend = new WorkbenchSearchBackendProvider({ files, badges });
 
       await expect(backend.query(root, { query: 'needle' })).resolves.toMatchObject({
         query: 'needle',

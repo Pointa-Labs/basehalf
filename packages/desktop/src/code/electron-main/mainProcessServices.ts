@@ -169,7 +169,7 @@ export function createBaseHalfMainServices(
   );
   const searchService = new SearchMainService(
     new WorkbenchSearchBackendProvider({
-      workspace: workspaceService,
+      files: workspaceFilesService,
       badges: badgeService,
     }),
   );

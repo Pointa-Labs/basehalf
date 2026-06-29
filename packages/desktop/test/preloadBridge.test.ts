@@ -548,23 +548,10 @@ describe('preload bridge modules', () => {
       if (channel === WORKSPACE_IPC_CHANNELS.current) return { current: workspace };
       if (channel === WORKSPACE_IPC_CHANNELS.touch) return { touched: true };
       if (channel === WORKSPACE_IPC_CHANNELS.remove) return { removed: 'demo' };
-      if (channel === WORKSPACE_IPC_CHANNELS.listFiles) return { path: 'src', entries: [] };
       if (channel === WORKSPACE_IPC_CHANNELS.listCanvas)
         return { folder: null, children: [], edges: [] };
-      if (channel === WORKSPACE_IPC_CHANNELS.listSupportedFiles) return { files: ['a.md'] };
       if (channel === WORKSPACE_IPC_CHANNELS.getViewport)
         return { offsetX: 1, offsetY: 2, scale: 0.5 };
-      if (channel === WORKSPACE_IPC_CHANNELS.readFile) return { path: 'a.md', content: 'hello' };
-      if (channel === WORKSPACE_IPC_CHANNELS.writeFile) return { path: 'a.md', bytes: 5 };
-      if (channel === WORKSPACE_IPC_CHANNELS.renameFile)
-        return { from: 'a.md', to: 'b.md', renamed: true };
-      if (channel === WORKSPACE_IPC_CHANNELS.importFile)
-        return { path: 'assets/a.png', name: 'a.png', imported: true, supported: true };
-      if (channel === WORKSPACE_IPC_CHANNELS.createFile) return { path: 'new.md' };
-      if (channel === WORKSPACE_IPC_CHANNELS.createFolder) return { path: 'notes' };
-      if (channel === WORKSPACE_IPC_CHANNELS.deleteEntry) return { deleted: true };
-      if (channel === WORKSPACE_IPC_CHANNELS.renameEntry)
-        return { from: 'old', to: 'new', renamed: true };
       return { workspace };
     });
     const bridge = createWorkspaceBridge(ipc).workspace;
@@ -580,19 +567,9 @@ describe('preload bridge modules', () => {
     await bridge.rename({ from: 'demo', to: 'renamed' });
     await bridge.repath({ name: 'demo', path: '/new', setup: true });
     await bridge.createDemo({ path: '/demo' });
-    await bridge.listFiles({ path: 'src' });
     await bridge.listCanvas({ folder: null });
-    await bridge.listSupportedFiles({ folder: null });
     await bridge.getViewport();
     await bridge.setViewport({ viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } });
-    await bridge.readFile({ path: 'a.md', maxChars: 10 });
-    await bridge.writeFile({ path: 'a.md', content: 'hello' });
-    await bridge.renameFile({ from: 'a.md', to: 'b.md' });
-    await bridge.importFile({ from: '/tmp/a.png', to: 'assets' });
-    await bridge.createFile({ path: 'new.md', content: '' });
-    await bridge.createFolder({ path: 'notes' });
-    await bridge.deleteEntry({ path: 'new', kind: 'folder' });
-    await bridge.renameEntry({ from: 'old', to: 'new', kind: 'folder' });
 
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.startWatcher);
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.list);
@@ -615,46 +592,10 @@ describe('preload bridge modules', () => {
       setup: true,
     });
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.createDemo, { path: '/demo' });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.listFiles, { path: 'src' });
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.listCanvas, { folder: null });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.listSupportedFiles, {
-      folder: null,
-    });
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.getViewport);
     expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.setViewport, {
       viewport: { offsetX: 1, offsetY: 2, scale: 0.5 },
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.readFile, {
-      path: 'a.md',
-      maxChars: 10,
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.writeFile, {
-      path: 'a.md',
-      content: 'hello',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.renameFile, {
-      from: 'a.md',
-      to: 'b.md',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.importFile, {
-      from: '/tmp/a.png',
-      to: 'assets',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.createFile, {
-      path: 'new.md',
-      content: '',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.createFolder, {
-      path: 'notes',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.deleteEntry, {
-      path: 'new',
-      kind: 'folder',
-    });
-    expect(ipc.invoke).toHaveBeenCalledWith(WORKSPACE_IPC_CHANNELS.renameEntry, {
-      from: 'old',
-      to: 'new',
-      kind: 'folder',
     });
   });
 

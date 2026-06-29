@@ -1,6 +1,6 @@
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { WorkspaceMainService } from '../../../../platform/workspaces/electron-main/workspacesMainService.js';
+import type { WorkspaceFilesMainService } from '../../../../platform/files/electron-main/workspaceFilesMainService.js';
 import type { BadgeMainService } from '../../mirror/electron-main/badgeMainService.js';
 import type {
   SearchBriefArgs,
@@ -17,7 +17,7 @@ export interface SearchBackendProvider {
 }
 
 export interface WorkbenchSearchBackendProviderOptions {
-  readonly workspace: Pick<WorkspaceMainService, 'listFiles' | 'readFile'>;
+  readonly files: Pick<WorkspaceFilesMainService, 'listFiles' | 'readFile'>;
   readonly badges: Pick<BadgeMainService, 'list' | 'get'>;
 }
 
@@ -103,11 +103,9 @@ export class WorkbenchSearchBackendProvider implements SearchBackendProvider {
         break;
       }
 
-      let listing: Awaited<
-        ReturnType<WorkbenchSearchBackendProviderOptions['workspace']['listFiles']>
-      >;
+      let listing: Awaited<ReturnType<WorkbenchSearchBackendProviderOptions['files']['listFiles']>>;
       try {
-        listing = await this.opts.workspace.listFiles(workspaceRoot, { path: frame.abs });
+        listing = await this.opts.files.listFiles(workspaceRoot, { path: frame.abs });
       } catch (err) {
         if (frame.rel === '') throw err;
         continue;
@@ -128,11 +126,9 @@ export class WorkbenchSearchBackendProvider implements SearchBackendProvider {
           break outer;
         }
 
-        let file: Awaited<
-          ReturnType<WorkbenchSearchBackendProviderOptions['workspace']['readFile']>
-        >;
+        let file: Awaited<ReturnType<WorkbenchSearchBackendProviderOptions['files']['readFile']>>;
         try {
-          file = await this.opts.workspace.readFile(workspaceRoot, {
+          file = await this.opts.files.readFile(workspaceRoot, {
             path: childRel,
             maxChars: PER_FILE_MAX_CHARS,
           });

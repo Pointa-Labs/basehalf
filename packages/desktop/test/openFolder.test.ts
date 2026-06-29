@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { workspaceFilesService } from '../src/platform/files/browser/workspaceFilesService.js';
 import { useWorkspaceStore } from '../src/workbench/services/workspace/browser/workspaceStore.js';
 
 // Pin the multi-window "Open Folder" semantics (pickAndAdd / addDroppedPaths /
@@ -54,7 +55,6 @@ const bh = {
       runCalls.push('watcher.start');
     },
     list: async (): Promise<unknown> => runWorkspace('workspace.list', {}),
-    listFiles: async (args: unknown): Promise<unknown> => runWorkspace('workspace.listFiles', args),
     ensureSetup: async (): Promise<unknown> => runWorkspace('workspace.ensureSetup', {}),
     add: async (args: unknown): Promise<unknown> => runWorkspace('workspace.add', args),
     remove: async (args: unknown): Promise<unknown> => runWorkspace('workspace.remove', args),
@@ -99,8 +99,6 @@ async function runWorkspace(name: string, args?: unknown): Promise<unknown> {
     }
     case 'workspace.list':
       return { current: currentName, workspaces: [...registry] };
-    case 'workspace.listFiles':
-      return { files: [] };
     default:
       return {}; // watcher.start, focus.pruneDangling, badge.pruneDangling, …
   }
@@ -114,12 +112,20 @@ beforeEach(() => {
   openCalls = [];
   reopenCalls = [];
   (globalThis as { window?: unknown }).window = { bh };
+  vi.spyOn(workspaceFilesService, 'listFiles').mockImplementation(async (path) => {
+    runCalls.push('files.listFiles');
+    return { path, entries: [] };
+  });
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: () => null,
     setItem: () => undefined,
     removeItem: () => undefined,
   };
   useWorkspaceStore.setState({ workspaces: [], current: null, busy: false, error: '' });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('refresh', () => {
@@ -130,10 +136,10 @@ describe('refresh', () => {
     await useWorkspaceStore.getState().refresh();
 
     expect(useWorkspaceStore.getState().currentReachable).toBe(true);
-    expect(runCalls).toContain('workspace.listFiles');
+    expect(runCalls).toContain('files.listFiles');
     expect(runCalls).toContain('workspace.ensureSetup');
     expect(runCalls.indexOf('workspace.ensureSetup')).toBeGreaterThan(
-      runCalls.indexOf('workspace.listFiles'),
+      runCalls.indexOf('files.listFiles'),
     );
   });
 });

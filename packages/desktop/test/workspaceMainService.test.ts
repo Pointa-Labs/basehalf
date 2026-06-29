@@ -24,13 +24,15 @@ describe('WorkspaceMainService', () => {
         calls.push({ name: 'use', args });
         return { current: workspace };
       },
-      async readFile(...args: [string | null, { path: string; maxChars: number }]) {
-        calls.push({ name: 'readFile', args });
-        return { path: 'a.md', content: 'hello' };
+      async listCanvas(...args: [string | null, { folder: string | null }]) {
+        calls.push({ name: 'listCanvas', args });
+        return { folder: args[1].folder, children: [], edges: [] };
       },
-      async renameEntry(...args: [string | null, { from: string; to: string; kind: 'folder' }]) {
-        calls.push({ name: 'renameEntry', args });
-        return { from: 'old', to: 'new', renamed: true };
+      async setViewport(
+        ...args: [string | null, { viewport: { offsetX: number; offsetY: number; scale: number } }]
+      ) {
+        calls.push({ name: 'setViewport', args });
+        return {};
       },
     } as unknown as WorkspaceBackendProvider;
     const service = new WorkspaceMainService(backend);
@@ -40,20 +42,24 @@ describe('WorkspaceMainService', () => {
     await expect(service.use('/repo', { name: 'demo' })).resolves.toMatchObject({
       current: workspace,
     });
-    await expect(service.readFile('/repo', { path: 'a.md', maxChars: 10 })).resolves.toEqual({
-      path: 'a.md',
-      content: 'hello',
+    await expect(service.listCanvas('/repo', { folder: null })).resolves.toEqual({
+      folder: null,
+      children: [],
+      edges: [],
     });
     await expect(
-      service.renameEntry('/repo', { from: 'old', to: 'new', kind: 'folder' }),
-    ).resolves.toEqual({ from: 'old', to: 'new', renamed: true });
+      service.setViewport('/repo', { viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } }),
+    ).resolves.toEqual({});
 
     expect(calls).toEqual([
       { name: 'startWatcher', args: ['/repo'] },
       { name: 'list', args: ['/repo'] },
       { name: 'use', args: ['/repo', { name: 'demo' }] },
-      { name: 'readFile', args: ['/repo', { path: 'a.md', maxChars: 10 }] },
-      { name: 'renameEntry', args: ['/repo', { from: 'old', to: 'new', kind: 'folder' }] },
+      { name: 'listCanvas', args: ['/repo', { folder: null }] },
+      {
+        name: 'setViewport',
+        args: ['/repo', { viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } }],
+      },
     ]);
   });
 

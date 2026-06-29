@@ -1,3 +1,4 @@
+import { workspaceFilesService } from '../../files/browser/workspaceFilesService.js';
 import type { WorkspaceService as WorkspaceServiceContract } from '../common/workspaces.js';
 import { type WorkspaceChannel, workspaceChannel } from './workspaceChannel.js';
 
@@ -10,7 +11,7 @@ export function createWorkspaceService(channel: WorkspaceChannel): WorkspaceServ
     },
     listWorkspaces: () => channel.list(),
     probePath: async (path) => {
-      await channel.listFiles({ path });
+      await workspaceFilesService.listFiles(path);
     },
     ensureSetup: () => channel.ensureSetup(),
     addWorkspace: (path, options = {}) => channel.add({ path, ...options }),
@@ -20,20 +21,7 @@ export function createWorkspaceService(channel: WorkspaceChannel): WorkspaceServ
     },
     relocateWorkspace: (name, path, options = {}) => channel.repath({ name, path, ...options }),
     renameWorkspace: (from, to) => channel.rename({ from, to }),
-    listFiles: (path) => channel.listFiles({ path }),
     listCanvas: (folder) => channel.listCanvas({ folder }),
-    listSupportedFiles: async (folder) => {
-      const result = await channel.listSupportedFiles({ folder });
-      return result.files;
-    },
-    readFile: (path, options = {}) => channel.readFile({ path, ...options }),
-    writeFile: (path, content) => channel.writeFile({ path, content }),
-    renameFile: (from, to) => channel.renameFile({ from, to }),
-    importFile: (from, to = null) => channel.importFile({ from, to }),
-    createFile: (path, options = {}) => channel.createFile({ path, ...options }),
-    createFolder: (path) => channel.createFolder({ path }),
-    renameEntry: (from, to, kind) => channel.renameEntry({ from, to, kind }),
-    deleteEntry: (path, kind) => channel.deleteEntry({ path, kind }),
     setViewport: async (viewport) => {
       await channel.setViewport({ viewport });
     },

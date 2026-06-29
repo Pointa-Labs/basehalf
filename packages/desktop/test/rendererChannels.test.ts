@@ -383,14 +383,6 @@ describe('renderer service channels', () => {
           calls.push({ name: 'list', args: [] });
           return { current: 'demo', workspaces: [] };
         },
-        listFiles: async (args: unknown) => {
-          calls.push({ name: 'listFiles', args: [args] });
-          return { path: 'src', entries: [] };
-        },
-        readFile: async (args: unknown) => {
-          calls.push({ name: 'readFile', args: [args] });
-          return { path: 'a.md', content: 'hello' };
-        },
         setViewport: async (args: unknown) => {
           calls.push({ name: 'setViewport', args: [args] });
           return {};
@@ -400,17 +392,10 @@ describe('renderer service channels', () => {
     const channel = createWorkspaceChannel(bridge);
 
     await expect(channel.list()).resolves.toEqual({ current: 'demo', workspaces: [] });
-    await expect(channel.listFiles({ path: 'src' })).resolves.toEqual({ path: 'src', entries: [] });
-    await expect(channel.readFile({ path: 'a.md' })).resolves.toEqual({
-      path: 'a.md',
-      content: 'hello',
-    });
     await channel.setViewport({ viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } });
 
     expect(calls).toEqual([
       { name: 'list', args: [] },
-      { name: 'listFiles', args: [{ path: 'src' }] },
-      { name: 'readFile', args: [{ path: 'a.md' }] },
       { name: 'setViewport', args: [{ viewport: { offsetX: 1, offsetY: 2, scale: 0.5 } }] },
     ]);
   });

@@ -1,63 +1,3 @@
-import type {
-  WorkspaceCreateFileArgs,
-  WorkspaceCreateFileResult,
-  WorkspaceCreateFolderArgs,
-  WorkspaceCreateFolderResult,
-  WorkspaceDeleteEntryArgs,
-  WorkspaceDeleteEntryResult,
-  WorkspaceImportFileArgs,
-  WorkspaceImportFileResult,
-  WorkspaceListFilesArgs,
-  WorkspaceListFilesEntry,
-  WorkspaceListFilesResult,
-  WorkspaceListSupportedFilesArgs,
-  WorkspaceListSupportedFilesResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
-  WorkspaceRenameEntryArgs,
-  WorkspaceRenameEntryResult,
-  WorkspaceRenameFileArgs,
-  WorkspaceRenameFileResult,
-  WorkspaceWriteFileArgs,
-  WorkspaceWriteFileResult,
-} from '../../files/common/workspaceFiles.js';
-import {
-  parseWorkspaceFilesCreateFileArgs,
-  parseWorkspaceFilesCreateFolderArgs,
-  parseWorkspaceFilesDeleteEntryArgs,
-  parseWorkspaceFilesImportFileArgs,
-  parseWorkspaceFilesListFilesArgs,
-  parseWorkspaceFilesListSupportedFilesArgs,
-  parseWorkspaceFilesReadFileArgs,
-  parseWorkspaceFilesRenameEntryArgs,
-  parseWorkspaceFilesRenameFileArgs,
-  parseWorkspaceFilesWriteFileArgs,
-} from '../../files/common/workspaceFiles.js';
-
-export type {
-  WorkspaceCreateFileArgs,
-  WorkspaceCreateFileResult,
-  WorkspaceCreateFolderArgs,
-  WorkspaceCreateFolderResult,
-  WorkspaceDeleteEntryArgs,
-  WorkspaceDeleteEntryResult,
-  WorkspaceImportFileArgs,
-  WorkspaceImportFileResult,
-  WorkspaceListFilesArgs,
-  WorkspaceListFilesEntry,
-  WorkspaceListFilesResult,
-  WorkspaceListSupportedFilesArgs,
-  WorkspaceListSupportedFilesResult,
-  WorkspaceReadFileArgs,
-  WorkspaceReadFileResult,
-  WorkspaceRenameEntryArgs,
-  WorkspaceRenameEntryResult,
-  WorkspaceRenameFileArgs,
-  WorkspaceRenameFileResult,
-  WorkspaceWriteFileArgs,
-  WorkspaceWriteFileResult,
-} from '../../files/common/workspaceFiles.js';
-
 export interface ViewportState {
   readonly offsetX: number;
   readonly offsetY: number;
@@ -240,19 +180,9 @@ export const WORKSPACE_IPC_CHANNELS = {
   rename: 'workspace:rename',
   repath: 'workspace:repath',
   createDemo: 'workspace:create-demo',
-  listFiles: 'workspace:list-files',
   listCanvas: 'workspace:list-canvas',
-  listSupportedFiles: 'workspace:list-supported-files',
   getViewport: 'workspace:get-viewport',
   setViewport: 'workspace:set-viewport',
-  readFile: 'workspace:read-file',
-  writeFile: 'workspace:write-file',
-  renameFile: 'workspace:rename-file',
-  importFile: 'workspace:import-file',
-  createFile: 'workspace:create-file',
-  createFolder: 'workspace:create-folder',
-  deleteEntry: 'workspace:delete-entry',
-  renameEntry: 'workspace:rename-entry',
 } as const;
 
 export type WorkspaceIpcChannel =
@@ -270,21 +200,9 @@ export interface WorkspaceChannelBridge {
   rename(args: WorkspaceRenameArgs): Promise<WorkspaceRenameResult>;
   repath(args: WorkspaceRepathArgs): Promise<WorkspaceRepathResult>;
   createDemo(args: WorkspaceCreateDemoArgs): Promise<WorkspaceCreateDemoResult>;
-  listFiles(args: WorkspaceListFilesArgs): Promise<WorkspaceListFilesResult>;
   listCanvas(args: WorkspaceListCanvasArgs): Promise<WorkspaceListCanvasResult>;
-  listSupportedFiles(
-    args: WorkspaceListSupportedFilesArgs,
-  ): Promise<WorkspaceListSupportedFilesResult>;
   getViewport(): Promise<WorkspaceGetViewportResult>;
   setViewport(args: WorkspaceSetViewportArgs): Promise<WorkspaceSetViewportResult>;
-  readFile(args: WorkspaceReadFileArgs): Promise<WorkspaceReadFileResult>;
-  writeFile(args: WorkspaceWriteFileArgs): Promise<WorkspaceWriteFileResult>;
-  renameFile(args: WorkspaceRenameFileArgs): Promise<WorkspaceRenameFileResult>;
-  importFile(args: WorkspaceImportFileArgs): Promise<WorkspaceImportFileResult>;
-  createFile(args: WorkspaceCreateFileArgs): Promise<WorkspaceCreateFileResult>;
-  createFolder(args: WorkspaceCreateFolderArgs): Promise<WorkspaceCreateFolderResult>;
-  deleteEntry(args: WorkspaceDeleteEntryArgs): Promise<WorkspaceDeleteEntryResult>;
-  renameEntry(args: WorkspaceRenameEntryArgs): Promise<WorkspaceRenameEntryResult>;
 }
 
 export interface WorkspaceService {
@@ -304,27 +222,7 @@ export interface WorkspaceService {
     options?: { readonly setup?: boolean },
   ): Promise<WorkspaceRepathResult>;
   renameWorkspace(from: string, to: string): Promise<WorkspaceRenameResult>;
-  listFiles(path: string): Promise<WorkspaceListFilesResult>;
   listCanvas(folder: string | null): Promise<WorkspaceListCanvasResult>;
-  listSupportedFiles(folder: string | null): Promise<readonly string[]>;
-  readFile(
-    path: string,
-    options?: Omit<WorkspaceReadFileArgs, 'path'>,
-  ): Promise<WorkspaceReadFileResult>;
-  writeFile(path: string, content: string): Promise<WorkspaceWriteFileResult>;
-  renameFile(from: string, to: string): Promise<WorkspaceRenameFileResult>;
-  importFile(from: string, to?: string | null): Promise<WorkspaceImportFileResult>;
-  createFile(
-    path: string,
-    options?: Omit<WorkspaceCreateFileArgs, 'path'>,
-  ): Promise<WorkspaceCreateFileResult>;
-  createFolder(path: string): Promise<WorkspaceCreateFolderResult>;
-  renameEntry(
-    from: string,
-    to: string,
-    kind: 'file' | 'folder',
-  ): Promise<WorkspaceRenameEntryResult>;
-  deleteEntry(path: string, kind: 'file' | 'folder'): Promise<WorkspaceDeleteEntryResult>;
   setViewport(viewport: WorkspaceSetViewportArgs['viewport']): Promise<void>;
 }
 
@@ -378,19 +276,9 @@ export function parseWorkspaceCreateDemoArgs(payload: unknown): WorkspaceCreateD
   };
 }
 
-export function parseWorkspaceListFilesArgs(payload: unknown): WorkspaceListFilesArgs {
-  return parseWorkspaceFilesListFilesArgs(payload, 'workspace');
-}
-
 export function parseWorkspaceListCanvasArgs(payload: unknown): WorkspaceListCanvasArgs {
   const raw = payloadRecord('listCanvas', payload);
   return { folder: nullableStringProp('listCanvas', raw, 'folder') };
-}
-
-export function parseWorkspaceListSupportedFilesArgs(
-  payload: unknown,
-): WorkspaceListSupportedFilesArgs {
-  return parseWorkspaceFilesListSupportedFilesArgs(payload, 'workspace');
 }
 
 export function parseWorkspaceSetViewportArgs(payload: unknown): WorkspaceSetViewportArgs {
@@ -403,38 +291,6 @@ export function parseWorkspaceSetViewportArgs(payload: unknown): WorkspaceSetVie
       scale: finiteNumberProp('setViewport', viewport, 'scale'),
     },
   };
-}
-
-export function parseWorkspaceReadFileArgs(payload: unknown): WorkspaceReadFileArgs {
-  return parseWorkspaceFilesReadFileArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceWriteFileArgs(payload: unknown): WorkspaceWriteFileArgs {
-  return parseWorkspaceFilesWriteFileArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceRenameFileArgs(payload: unknown): WorkspaceRenameFileArgs {
-  return parseWorkspaceFilesRenameFileArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceImportFileArgs(payload: unknown): WorkspaceImportFileArgs {
-  return parseWorkspaceFilesImportFileArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceCreateFileArgs(payload: unknown): WorkspaceCreateFileArgs {
-  return parseWorkspaceFilesCreateFileArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceCreateFolderArgs(payload: unknown): WorkspaceCreateFolderArgs {
-  return parseWorkspaceFilesCreateFolderArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceDeleteEntryArgs(payload: unknown): WorkspaceDeleteEntryArgs {
-  return parseWorkspaceFilesDeleteEntryArgs(payload, 'workspace');
-}
-
-export function parseWorkspaceRenameEntryArgs(payload: unknown): WorkspaceRenameEntryArgs {
-  return parseWorkspaceFilesRenameEntryArgs(payload, 'workspace');
 }
 
 function payloadRecord(method: string, payload: unknown): Record<string, unknown> {

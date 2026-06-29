@@ -87,55 +87,15 @@ export interface WorkspaceBackendProvider {
     workspaceRoot: string | null,
     args: WorkspaceCreateDemoArgs,
   ): Promise<WorkspaceCreateDemoResult>;
-  listFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListFilesArgs,
-  ): Promise<WorkspaceListFilesResult>;
   listCanvas(
     workspaceRoot: string | null,
     args: WorkspaceListCanvasArgs,
   ): Promise<WorkspaceListCanvasResult>;
-  listSupportedFiles(
-    workspaceRoot: string | null,
-    args: WorkspaceListSupportedFilesArgs,
-  ): Promise<WorkspaceListSupportedFilesResult>;
   getViewport(workspaceRoot: string | null): Promise<WorkspaceGetViewportResult>;
   setViewport(
     workspaceRoot: string | null,
     args: WorkspaceSetViewportArgs,
   ): Promise<WorkspaceSetViewportResult>;
-  readFile(
-    workspaceRoot: string | null,
-    args: WorkspaceReadFileArgs,
-  ): Promise<WorkspaceReadFileResult>;
-  writeFile(
-    workspaceRoot: string | null,
-    args: WorkspaceWriteFileArgs,
-  ): Promise<WorkspaceWriteFileResult>;
-  renameFile(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameFileArgs,
-  ): Promise<WorkspaceRenameFileResult>;
-  importFile(
-    workspaceRoot: string | null,
-    args: WorkspaceImportFileArgs,
-  ): Promise<WorkspaceImportFileResult>;
-  createFile(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFileArgs,
-  ): Promise<WorkspaceCreateFileResult>;
-  createFolder(
-    workspaceRoot: string | null,
-    args: WorkspaceCreateFolderArgs,
-  ): Promise<WorkspaceCreateFolderResult>;
-  deleteEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceDeleteEntryArgs,
-  ): Promise<WorkspaceDeleteEntryResult>;
-  renameEntry(
-    workspaceRoot: string | null,
-    args: WorkspaceRenameEntryArgs,
-  ): Promise<WorkspaceRenameEntryResult>;
 }
 
 export interface DesktopWorkspaceBackendProviderOptions {
@@ -512,7 +472,7 @@ export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider
     args: WorkspaceDeleteEntryArgs,
   ): Promise<WorkspaceDeleteEntryResult> {
     if (this.opts.entryMirror === undefined) {
-      return this.requireFallback('deleteEntry').deleteEntry(workspaceRoot, args);
+      throw new Error('DesktopWorkspaceBackendProvider: deleteEntry is not configured.');
     }
     const root = requireWorkspaceRoot(workspaceRoot);
     const res = await deleteWorkspaceEntry(root, args, this.opts.trash);
@@ -525,7 +485,7 @@ export class DesktopWorkspaceBackendProvider implements WorkspaceBackendProvider
     args: WorkspaceRenameEntryArgs,
   ): Promise<WorkspaceRenameEntryResult> {
     if (this.opts.entryMirror === undefined) {
-      return this.requireFallback('renameEntry').renameEntry(workspaceRoot, args);
+      throw new Error('DesktopWorkspaceBackendProvider: renameEntry is not configured.');
     }
     const root = requireWorkspaceRoot(workspaceRoot);
     const moved = await renameWorkspaceFile(root, { from: args.from, to: args.to }, args.kind);

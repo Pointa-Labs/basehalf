@@ -3,23 +3,13 @@ import {
   WORKSPACE_IPC_CHANNELS,
   parseWorkspaceAddArgs,
   parseWorkspaceCreateDemoArgs,
-  parseWorkspaceCreateFileArgs,
-  parseWorkspaceCreateFolderArgs,
-  parseWorkspaceDeleteEntryArgs,
-  parseWorkspaceImportFileArgs,
   parseWorkspaceListCanvasArgs,
-  parseWorkspaceListFilesArgs,
-  parseWorkspaceListSupportedFilesArgs,
-  parseWorkspaceReadFileArgs,
   parseWorkspaceRemoveArgs,
   parseWorkspaceRenameArgs,
-  parseWorkspaceRenameEntryArgs,
-  parseWorkspaceRenameFileArgs,
   parseWorkspaceRepathArgs,
   parseWorkspaceSetViewportArgs,
   parseWorkspaceTouchArgs,
   parseWorkspaceUseArgs,
-  parseWorkspaceWriteFileArgs,
 } from '../common/workspaces.js';
 import type { WorkspaceMainService } from './workspacesMainService.js';
 
@@ -74,47 +64,14 @@ export class WorkspaceMainChannel {
     this.ipc.handle(WORKSPACE_IPC_CHANNELS.createDemo, (event, payload) =>
       this.workspace.createDemo(this.root(event), parseWorkspaceCreateDemoArgs(payload)),
     );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.listFiles, (event, payload) =>
-      this.workspace.listFiles(this.root(event), parseWorkspaceListFilesArgs(payload)),
-    );
     this.ipc.handle(WORKSPACE_IPC_CHANNELS.listCanvas, (event, payload) =>
       this.workspace.listCanvas(this.root(event), parseWorkspaceListCanvasArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.listSupportedFiles, (event, payload) =>
-      this.workspace.listSupportedFiles(
-        this.root(event),
-        parseWorkspaceListSupportedFilesArgs(payload),
-      ),
     );
     this.ipc.handle(WORKSPACE_IPC_CHANNELS.getViewport, (event) =>
       this.workspace.getViewport(this.root(event)),
     );
     this.ipc.handle(WORKSPACE_IPC_CHANNELS.setViewport, (event, payload) =>
       this.workspace.setViewport(this.root(event), parseWorkspaceSetViewportArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.readFile, (event, payload) =>
-      this.workspace.readFile(this.root(event), parseWorkspaceReadFileArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.writeFile, (event, payload) =>
-      this.workspace.writeFile(this.root(event), parseWorkspaceWriteFileArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.renameFile, (event, payload) =>
-      this.workspace.renameFile(this.root(event), parseWorkspaceRenameFileArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.importFile, (event, payload) =>
-      this.workspace.importFile(this.root(event), parseWorkspaceImportFileArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.createFile, (event, payload) =>
-      this.workspace.createFile(this.root(event), parseWorkspaceCreateFileArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.createFolder, (event, payload) =>
-      this.workspace.createFolder(this.root(event), parseWorkspaceCreateFolderArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.deleteEntry, (event, payload) =>
-      this.workspace.deleteEntry(this.root(event), parseWorkspaceDeleteEntryArgs(payload)),
-    );
-    this.ipc.handle(WORKSPACE_IPC_CHANNELS.renameEntry, (event, payload) =>
-      this.workspace.renameEntry(this.root(event), parseWorkspaceRenameEntryArgs(payload)),
     );
   }
 
