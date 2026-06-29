@@ -13,6 +13,8 @@ import { flushAll } from '../services/editor/common/editorFlush.js';
 import { useWorkspaceStore } from '../services/workspace/browser/workspaceStore.js';
 import { removeActiveWorkspace, renameActiveWorkspace } from './actions/workbenchActions.js';
 import { useLayoutStore } from './layout/layoutStore.js';
+import { createCommandsQuickAccessContextSnapshot } from './quickaccess/commandPaletteWorkbenchContext.js';
+import { CommandsQuickAccessProvider } from './quickaccess/commandsQuickAccess.js';
 import { registerCommandPaletteQuickAccessProviders } from './quickaccess/quickAccessContributions.js';
 import { selectRegion } from './workbenchRegion.js';
 
@@ -46,7 +48,9 @@ export function useWorkbenchContributions(state: WorkbenchContributionsState): v
 
 function useQuickAccessContribution(): void {
   useEffect(() => {
-    registerCommandPaletteQuickAccessProviders();
+    registerCommandPaletteQuickAccessProviders(undefined, {
+      commandsProvider: new CommandsQuickAccessProvider(createCommandsQuickAccessContextSnapshot),
+    });
   }, []);
 }
 

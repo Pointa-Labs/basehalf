@@ -29,7 +29,47 @@ export interface CommandPaletteWorkbenchContext
 
 // Mac uses ⌘ / ⇧; everything else uses Ctrl / Shift to match what
 // Workbench contributions actually listen for.
-const MOD = navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
+const MOD = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘' : 'Ctrl+';
+
+export function createCommandsQuickAccessContextSnapshot(): BuildCommandPaletteActionsBaseArgs {
+  const workspaceState = useWorkspaceStore.getState();
+  const current = workspaceState.current;
+  const recentFiles = current === null ? [] : historyService.recentFilesFor(current);
+  const gitStatus = useGitStatusStore.getState().status;
+
+  return {
+    workspaces: workspaceState.workspaces,
+    current,
+    files: [],
+    filesWorkspace: current,
+    recentFiles,
+    git: {
+      repo: gitStatus?.isRepo ?? false,
+      workspace: current,
+      branches: [],
+      commits: [],
+    },
+    modifierLabel: MOD,
+    tildifyPath,
+    useWorkspace: (name: string) => void useWorkspaceStore.getState().use(name),
+    openFile: (file, opts) => useWorkspaceStore.getState().openInPanel(file, opts),
+    pickAndAdd: () => void useWorkspaceStore.getState().pickAndAdd(),
+    createDemo: () => void createDemoAtDefault(),
+    newNote: () => void useWorkspaceStore.getState().newNote(),
+    promptForNewNote: () => void promptForNewNote(),
+    openSettings,
+    showSourceControl,
+    openGitGraph: () => useWorkspaceStore.getState().openGitGraph(),
+    promptCreateBranch: () =>
+      prompt({
+        title: 'Create Branch',
+        label: 'Branch name',
+        placeholder: 'feature/x',
+      }),
+    runGit: (fn: () => Promise<unknown>) => void runGit(fn),
+    gitService: gitScmService,
+  };
+}
 
 export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchContext {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
@@ -40,11 +80,7 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
   const recentFiles = useWorkspaceStore((s) =>
     s.current === null ? [] : historyService.recentFilesFor(s.current),
   );
-  const checkoutBranch = useCallback((branch: GitRefInfo, refs: readonly GitRefInfo[]): void => {
-    void checkoutBranchWithRecovery(createBranchGitAdapter(gitScmService), branch, refs, () =>
-      useGitStatusStore.getState().refresh(),
-    ).catch((err) => toast.error(scmErrorMessage(err)));
-  }, []);
+  const checkoutBranch = useCallback(checkoutBranchWithRecoveryToast, []);
 
   return useMemo(
     () => ({
@@ -75,6 +111,12 @@ export function useCommandPaletteWorkbenchContext(): CommandPaletteWorkbenchCont
     }),
     [workspaces, current, recentFiles, use, openInPanel, pickAndAdd, checkoutBranch],
   );
+}
+
+function checkoutBranchWithRecoveryToast(branch: GitRefInfo, refs: readonly GitRefInfo[]): void {
+  void checkoutBranchWithRecovery(createBranchGitAdapter(gitScmService), branch, refs, () =>
+    useGitStatusStore.getState().refresh(),
+  ).catch((err) => toast.error(scmErrorMessage(err)));
 }
 
 function showSourceControl(section: 'changes' | 'graph'): void {
