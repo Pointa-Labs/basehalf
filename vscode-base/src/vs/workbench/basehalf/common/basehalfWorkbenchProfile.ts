@@ -408,6 +408,10 @@ export function isBaseHalfAgentExtensionSlot(slotId: string): boolean {
 	return AGENT_EXTENSION_SLOT_IDS.has(slotId);
 }
 
+export function shouldBaseHalfHideViewContainer(id: string): boolean {
+	return HIDDEN_VIEW_CONTAINER_IDS.has(id);
+}
+
 export function getIncompleteBaseHalfModuleTracks(): readonly IBaseHalfMigrationModuleTrack[] {
 	return BASEHALF_MIGRATION_MODULE_TRACKS.filter(track => {
 		const gates = new Set(track.completionGates);
@@ -434,6 +438,9 @@ const PRIMARY_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_PRIMARY_VIEW_CONTAIN
 const PRIMARY_VIEW_IDS = new Set<string>(BASEHALF_PRIMARY_VIEWS.map(surface => surface.id));
 const REMAPPED_SURFACE_IDS = new Set<string>(BASEHALF_REMAPPED_SURFACES.map(surface => surface.id));
 const HIDDEN_SURFACE_IDS = new Set<string>(BASEHALF_HIDDEN_SURFACES.map(surface => surface.id));
+const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(
+	BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'viewContainer').map(surface => surface.id)
+);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
 );

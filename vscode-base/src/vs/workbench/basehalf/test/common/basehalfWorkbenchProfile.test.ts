@@ -16,7 +16,8 @@ import {
 	getIncompleteBaseHalfModuleTracks,
 	isBaseHalfAgentExtensionSlot,
 	isBaseHalfAllowedBuiltInExtension,
-	isBaseHalfPrimaryViewContainer
+	isBaseHalfPrimaryViewContainer,
+	shouldBaseHalfHideViewContainer
 } from '../../common/basehalfWorkbenchProfile.js';
 
 suite('BaseHalfWorkbenchProfile', () => {
@@ -48,6 +49,17 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.chat'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
+	});
+
+	test('selects only hidden view containers for runtime deregistration', () => {
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extensions'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.debug'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extension.test'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.remote'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat.view.copilot'), false);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('terminal'), false);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.scm'), false);
 	});
 
 	test('keeps visible, remapped, and hidden surface ids disjoint', () => {

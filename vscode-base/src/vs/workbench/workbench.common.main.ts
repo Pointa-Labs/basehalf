@@ -475,4 +475,7 @@ import './contrib/editTelemetry/browser/editTelemetry.contribution.js';
 // Opener
 import './contrib/opener/browser/opener.contribution.js';
 
+// BaseHalf product profile
+import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
+
 //#endregion
