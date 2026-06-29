@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { layoutGraph } from '../src/workbench/contrib/scm/browser/gitGraphLayout.js';
 import {
   FULL_GRAPH_ROW_HEIGHT,
   fullGraphCommitMatches,
@@ -12,6 +11,7 @@ import {
   fullGraphPaths,
 } from '../src/workbench/contrib/scm/browser/gitGraphViewModel.js';
 import type { GitCommit, GitStashEntry } from '../src/workbench/contrib/scm/common/git.js';
+import { layoutGraph } from '../src/workbench/contrib/scm/common/gitGraphLayout.js';
 
 const commit = (
   hash: string,

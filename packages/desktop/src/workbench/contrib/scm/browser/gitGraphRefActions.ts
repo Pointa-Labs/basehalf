@@ -1,7 +1,7 @@
 import type { ContextMenuItem } from '../../../../platform/contextview/common/contextMenu.js';
 import { GitErrorCodes, ensureGitError } from '../common/git.js';
+import type { FullGraphRefModel } from '../common/gitGraphRefIndex.js';
 import type { GitGraphActionDeps } from './gitGraphActionTypes.js';
-import type { FullGraphRefModel } from './gitGraphRefIndex.js';
 
 export type FullGraphRefMenuCommand = 'checkout' | 'delete-branch' | 'delete-tag';
 

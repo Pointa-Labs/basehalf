@@ -1,5 +1,5 @@
 import type { GitCommit, GitStashEntry } from '../common/git.js';
-import type { GraphRow } from './gitGraphLayout.js';
+import type { GraphRow } from '../common/gitGraphLayout.js';
 
 export const FULL_GRAPH_ROW_HEIGHT = 24;
 export const FULL_GRAPH_LANE_GAP = 14;

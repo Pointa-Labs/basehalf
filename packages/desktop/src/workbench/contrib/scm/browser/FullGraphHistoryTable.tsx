@@ -1,14 +1,14 @@
 import type { JSX, MouseEvent } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import type { GitCommit, GitStashEntry } from '../common/git.js';
-import { FullGraphCommitRow } from './FullGraphCommitRow.js';
-import { FullGraphGraphSvg } from './FullGraphGraphSvg.js';
-import type { GraphRow } from './gitGraphLayout.js';
+import type { GraphRow } from '../common/gitGraphLayout.js';
 import {
   type FullGraphRefIndex,
   type FullGraphRefModel,
   fullGraphRefsForCommit,
-} from './gitGraphRefIndex.js';
+} from '../common/gitGraphRefIndex.js';
+import { FullGraphCommitRow } from './FullGraphCommitRow.js';
+import { FullGraphGraphSvg } from './FullGraphGraphSvg.js';
 import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphDateMode,

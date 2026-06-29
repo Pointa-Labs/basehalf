@@ -5,6 +5,8 @@ import { toast } from '../../../../platform/notification/browser/notificationSer
 import { useLayoutStore } from '../../../browser/layout/layoutStore.js';
 import { useWorkspaceStore } from '../../../services/workspace/browser/workspaceStore.js';
 import type { GitCommit } from '../common/git.js';
+import { layoutGraph } from '../common/gitGraphLayout.js';
+import { type FullGraphRefModel, fullGraphRefIndex } from '../common/gitGraphRefIndex.js';
 import { FullGraphCommitDetails } from './FullGraphCommitDetails.js';
 import { FullGraphHeader } from './FullGraphHeader.js';
 import { FullGraphHistoryTable } from './FullGraphHistoryTable.js';
@@ -15,8 +17,6 @@ import {
   fullGraphRefMenu,
   fullGraphStashMenu,
 } from './gitGraphActions.js';
-import { layoutGraph } from './gitGraphLayout.js';
-import { type FullGraphRefModel, fullGraphRefIndex } from './gitGraphRefIndex.js';
 import {
   FULL_GRAPH_LANE_GAP,
   FULL_GRAPH_LEFT_OFFSET,

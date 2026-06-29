@@ -2,9 +2,9 @@ import { type JSX, useState } from 'react';
 import { color, font, space, transition } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import type { GitCommit } from '../common/git.js';
+import type { GraphRow } from '../common/gitGraphLayout.js';
 import { HistoryGraphGutter } from './HistoryGraphGutter.js';
 import { HistoryItemDetails } from './HistoryItemDetails.js';
-import type { GraphRow } from './gitGraphLayout.js';
 import {
   HISTORY_REF_COLORS,
   type HistoryRefTone,

@@ -1,4 +1,4 @@
-import type { GitCommit } from '../common/git.js';
+import type { GitCommit } from './git.js';
 
 /**
  * Git Graph lane layout — the pure algorithm behind the commit-graph gutter.

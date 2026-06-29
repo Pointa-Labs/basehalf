@@ -1,6 +1,6 @@
 import type { JSX } from 'react';
 import { color } from '../../../browser/style/design.js';
-import type { GraphRow } from './gitGraphLayout.js';
+import type { GraphRow } from '../common/gitGraphLayout.js';
 import {
   CIRCLE_RADIUS,
   CIRCLE_STROKE_WIDTH,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 import {
   fullGraphDisplayRef,
   fullGraphLocalBranches,
@@ -7,8 +8,7 @@ import {
   fullGraphRefKind,
   fullGraphRefsForCommit,
   fullGraphTrackingLocalBranches,
-} from '../src/workbench/contrib/scm/browser/gitGraphRefIndex.js';
-import type { GitCommit, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
+} from '../src/workbench/contrib/scm/common/gitGraphRefIndex.js';
 
 const commit = (
   hash: string,

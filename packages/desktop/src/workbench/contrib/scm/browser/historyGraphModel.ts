@@ -1,6 +1,6 @@
 import { color } from '../../../browser/style/design.js';
 import type { GitLogArgs, GitRefInfo } from '../common/git.js';
-import { laneColor } from './gitGraphLayout.js';
+import { laneColor } from '../common/gitGraphLayout.js';
 import { normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
 import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 

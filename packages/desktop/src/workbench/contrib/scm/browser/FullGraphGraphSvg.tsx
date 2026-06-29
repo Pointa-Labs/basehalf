@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { color, space } from '../../../browser/style/design.js';
 import type { GitStashEntry } from '../common/git.js';
-import type { GraphRow } from './gitGraphLayout.js';
+import type { GraphRow } from '../common/gitGraphLayout.js';
 import {
   FULL_GRAPH_ROW_HEIGHT,
   type FullGraphPath,

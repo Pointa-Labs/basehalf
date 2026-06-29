@@ -1,8 +1,8 @@
 import type { JSX } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
+import { layoutGraph } from '../common/gitGraphLayout.js';
 import { HistoryItemRow } from './HistoryItemRow.js';
-import { layoutGraph } from './gitGraphLayout.js';
 import { useGitStatusStore } from './gitStatusStore.js';
 import { historyGraphWidth } from './historyGraphModel.js';
 import { useScmViewStore } from './scmViewStore.js';

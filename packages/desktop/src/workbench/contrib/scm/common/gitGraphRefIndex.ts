@@ -1,4 +1,4 @@
-import type { GitCommit, GitRefInfo } from '../common/git.js';
+import type { GitCommit, GitRefInfo } from './git.js';
 
 export type FullGraphRefKind = 'branch' | 'remote' | 'tag';
 
