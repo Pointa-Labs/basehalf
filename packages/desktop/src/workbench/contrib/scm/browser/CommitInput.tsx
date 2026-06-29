@@ -1,20 +1,20 @@
 import { type JSX, useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { color, font, space } from '../../../browser/style/design.js';
-import { CommitActionButton } from './CommitActionButton.js';
 import {
   commitInputHeight,
   commitInputPlaceholder,
   nextCommitHistoryState,
   recordCommitMessage,
   validateCommitInput,
-} from './commitInputModel.js';
+} from '../common/commitInputModel.js';
+import type { CommitActionOptions } from '../common/commitTypes.js';
+import { CommitActionButton } from './CommitActionButton.js';
 import type {
   SourceControlActionButtonModel,
   SourceControlPrimaryAction,
 } from './sourceControlActionButtonModel.js';
 import { scm } from './styles.js';
-import type { CommitActionOptions } from './types.js';
 
 // Platform-correct commit shortcut for the placeholder (the handler accepts
 // both Cmd/Ctrl, so the hint should name the right one rather than always Cmd).

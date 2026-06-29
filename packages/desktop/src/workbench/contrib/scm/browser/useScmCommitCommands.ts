@@ -1,9 +1,9 @@
 import { useCallback } from 'react';
 import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { GitStatusResult } from '../common/git.js';
 import type { GitScmService } from './gitScmService.js';
 import { type ScmActionRunner, commitPlan } from './scmCommandModel.js';
-import type { CommitActionOptions } from './types.js';
 import { choosePublishRemote, isPublishBranchState } from './useScmRemoteCommands.js';
 
 export interface ScmCommitCommands {

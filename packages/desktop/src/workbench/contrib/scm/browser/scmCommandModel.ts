@@ -1,7 +1,7 @@
+import type { CommitActionOptions } from '../common/commitTypes.js';
 import { GitError, GitErrorCodes, type GitStashEntry, gitErrorMessage } from '../common/git.js';
 import type { GitRow } from '../common/gitStatusModel.js';
 import { type GitScmService, entryKindForGitPath } from './gitScmService.js';
-import type { CommitActionOptions } from './types.js';
 
 type MaybePromise = Promise<void> | void;
 export type ScmActionRunner = (action: () => Promise<unknown>) => Promise<void>;

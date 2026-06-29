@@ -5,7 +5,7 @@ import {
   nextCommitHistoryState,
   recordCommitMessage,
   validateCommitInput,
-} from '../src/workbench/contrib/scm/browser/commitInputModel.js';
+} from '../src/workbench/contrib/scm/common/commitInputModel.js';
 
 describe('commitInputModel', () => {
   it('formats the VS Code-style commit placeholder', () => {

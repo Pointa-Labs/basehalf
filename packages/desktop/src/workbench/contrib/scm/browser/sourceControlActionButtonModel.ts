@@ -1,5 +1,5 @@
+import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { SourceControlViewModel } from './sourceControlViewModel.js';
-import type { CommitActionOptions } from './types.js';
 
 export type SourceControlPrimaryAction = 'commit' | 'publish' | 'sync';
 

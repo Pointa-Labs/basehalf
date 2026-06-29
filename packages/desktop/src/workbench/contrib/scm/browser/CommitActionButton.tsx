@@ -2,9 +2,9 @@ import type { JSX } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import { Menu } from '../../../browser/ui/primitives/Menu.js';
+import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { SourceControlActionButtonModel } from './sourceControlActionButtonModel.js';
 import { scm } from './styles.js';
-import type { CommitActionOptions } from './types.js';
 
 export const CommitActionButton = ({
   model,

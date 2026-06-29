@@ -5,11 +5,11 @@ import {
   type GithubPullRequestService,
   githubPullRequestService,
 } from '../../githubPullRequests/browser/githubPullRequestService.js';
+import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { GitStashEntry, GitStatusResult } from '../common/git.js';
 import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { runScmAction } from './scmCommandModel.js';
-import type { CommitActionOptions } from './types.js';
 import { useScmCommitCommands } from './useScmCommitCommands.js';
 import { useScmGraphCommands } from './useScmGraphCommands.js';
 import { useScmRemoteCommands } from './useScmRemoteCommands.js';

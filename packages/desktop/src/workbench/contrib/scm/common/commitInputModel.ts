@@ -1,4 +1,4 @@
-import type { CommitActionOptions } from './types.js';
+import type { CommitActionOptions } from './commitTypes.js';
 
 export const COMMIT_MESSAGE_HISTORY_LIMIT = 100;
 
