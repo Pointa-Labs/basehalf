@@ -58,6 +58,29 @@ suite('BaseHalfFocusMirrorService', () => {
 		].join('\n'));
 	});
 
+	test('serializes file focus with source and rendered block coordinates', () => {
+		assert.strictEqual(serializeFileFocus('docs/readme.md', {
+			projection: 'source',
+			visible_lines: { start: 12 },
+			visible_blocks: { start: 4 },
+			cursor: { line: 14, column: 6, line_precision: 'block_start', block: 5 }
+		}), [
+			'path: "docs/readme.md"',
+			'kind: file',
+			'projection: source',
+			'visible_lines:',
+			'  start: 12',
+			'visible_blocks:',
+			'  start: 4',
+			'cursor:',
+			'  line: 14',
+			'  column: 6',
+			'  line_precision: block_start',
+			'  block: 5',
+			''
+		].join('\n'));
+	});
+
 	test('serializes folder focus with viewport center and zoom', () => {
 		assert.strictEqual(serializeFolderFocus('', {
 			viewport_center: { x: 320.12344, y: 240.98765 },
