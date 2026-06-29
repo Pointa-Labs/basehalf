@@ -1,7 +1,6 @@
-import type { JSX, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, type JSX, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { color, space } from '../../../browser/style/design.js';
 import { Button } from '../../../browser/ui/primitives/Button.js';
-import { PullRequestsSection } from '../../githubPullRequests/browser/PullRequestsSection.js';
 import {
   type SourceControlPrimaryAction,
   sourceControlActionButtonModel,
@@ -12,6 +11,7 @@ import { GraphSection } from './GraphSection.js';
 import { RepoHeader } from './RepoHeader.js';
 import { ResourceGroups } from './ResourceGroups.js';
 import { StashSection } from './StashSection.js';
+import { type ScmViewContribution, scmContributionMenuActions } from './scmViewContributions.js';
 import type { ScmViewPaneModel } from './useScmViewPaneModel.js';
 
 const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
@@ -34,7 +34,13 @@ const handleTreeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
  * SCM workbench view pane, analogous to VS Code's `scmViewPane`: it renders the
  * provider/input/resource-group model and delegates Git behavior to commands.
  */
-export function ScmViewPane({ model }: { readonly model: ScmViewPaneModel }): JSX.Element {
+export function ScmViewPane({
+  contributions = [],
+  model,
+}: {
+  readonly contributions?: readonly ScmViewContribution[];
+  readonly model: ScmViewPaneModel;
+}): JSX.Element {
   const { commands, groups, provider, refresh, status, statusError } = model;
   const { busy, error } = commands;
 
@@ -81,7 +87,7 @@ export function ScmViewPane({ model }: { readonly model: ScmViewPaneModel }): JS
           { label: 'Push', onClick: commands.push },
           { label: 'Push (Force)', onClick: commands.pushForce },
           { label: 'Fetch', onClick: commands.fetch },
-          { label: 'Create Pull Request…', onClick: commands.createPullRequest },
+          ...scmContributionMenuActions(contributions, model),
           { label: 'Undo Last Commit', onClick: commands.undoLastCommit },
           { label: 'Stash', onClick: commands.stash },
           { label: 'Pop Stash', onClick: () => commands.popStash() },
@@ -129,7 +135,12 @@ export function ScmViewPane({ model }: { readonly model: ScmViewPaneModel }): JS
           commands={commands}
         />
 
-        <PullRequestsSection />
+        {contributions.map((contribution) => {
+          const section = contribution.renderSection?.(model);
+          return section === undefined || section === null ? null : (
+            <Fragment key={contribution.id}>{section}</Fragment>
+          );
+        })}
       </div>
     </div>
   );
