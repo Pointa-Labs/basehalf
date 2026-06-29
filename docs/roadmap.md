@@ -119,7 +119,7 @@ New v0.x follow-ups surfaced while building the code/text viewer:
   formats (Office/iWork docs, archives, fonts, media we don't decode inline) hand
   off to "open in default app"; **everything else routes to the read-only text
   viewer** — so there is no allowlist to keep growing and no dead-end. The
-  capped byte-sniff in `workspace.readFile` (NUL **or** invalid-UTF-8 →
+  capped byte-sniff in the desktop workspace files service (NUL **or** invalid-UTF-8 →
   `binary` flag, surrogate-pair-safe) is the safety net: a binary optimistically
   routed in renders a clean "binary file" message **with an open-in-app button**,
   never mojibake. The capped read is now **bounded** (`readFileBytesCappedNoFollow`):

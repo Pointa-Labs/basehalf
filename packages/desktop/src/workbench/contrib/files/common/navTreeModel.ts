@@ -23,7 +23,7 @@ export const ROW_HEIGHT = 22; // matches the editor's compact tree-row height
 export const isVisibleNavEntry = (entry: WorkspaceListFilesEntry): boolean =>
   !HIDDEN_NAMES.has(entry.name);
 
-// Same ordering workspace.listFiles returns (dirs first, then name), so an
+// Same ordering the workspace files service returns (dirs first, then name), so an
 // optimistic rename re-sorts the row to the position the watcher reload will
 // place it — no jump when the reload lands.
 export const sortNavEntries = (

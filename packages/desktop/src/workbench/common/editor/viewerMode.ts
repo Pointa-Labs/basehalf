@@ -6,7 +6,7 @@
  * the OS "open in default app" path; EVERYTHING ELSE — known code/text, unknown
  * extensions, AND extension-less names like `VERSION` / `TODO` / `CODEOWNERS` —
  * optimistically opens in the editable code editor (Monaco). Its binary
- * content-sniff (`workspace.readFile` flags a NUL byte / invalid UTF-8) is the
+ * content-sniff (the workspace files service flags a NUL byte / invalid UTF-8) is the
  * safety net: a binary that slips through renders a "binary file — open in the
  * right app" message, never mojibake. (`.md` / `.markdown` go to the rich
  * Markdown editor instead; plain `.txt` is code-edited here, not rich-edited.)
