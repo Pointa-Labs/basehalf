@@ -1,4 +1,20 @@
 import {
+  type ClosingPane,
+  type ClosingTab,
+  type TermTab,
+  type TerminalModelState,
+  activeTab,
+  clearActivity,
+  findSplit,
+  freshTab,
+  mintTerminalId,
+  paneIdsForClosingEntry,
+  prunePaneRecord,
+  reinsertPaneLeaf,
+  replaceTab,
+  updateActiveTab,
+} from './terminalGroupState.js';
+import {
   type FocusDir,
   type SplitDir,
   type TermNode,
@@ -17,6 +33,15 @@ import {
   splitLeaf,
 } from './terminalTree.js';
 
+export {
+  type ClosingEntry,
+  type ClosingPane,
+  type ClosingTab,
+  type TerminalModelState,
+  type TermTab,
+  freshTab,
+} from './terminalGroupState.js';
+
 /**
  * Terminal group/tab domain model.
  *
@@ -25,62 +50,7 @@ import {
  * mutations live here, while the Zustand store stays a renderer adapter.
  */
 
-/** One tab: a name override plus its own pane split-tree (one pty per leaf). */
-export interface TermTab {
-  id: string;
-  /** Split tree of panes; every leaf id is a pane(=pty) id. */
-  tree: TermNode;
-  /** The focused pane within this tab. */
-  activePaneId: string;
-  /** When set, this pane fills the tab area (⌘⇧↵ zoom); the tree is preserved. */
-  zoomedPaneId: string | null;
-  /** A user-set tab name (double-click / context-menu rename). When set it
-   * overrides the live program title; empty/undefined → live title. */
-  titleOverride?: string;
-}
-
-/** A soft-closed tab — the whole tab, kept MOUNTED (hidden) so its panes keep
- * running and can be restored intact until a grace timer (or dismiss). */
-export interface ClosingTab {
-  key: string;
-  kind: 'tab';
-  tab: TermTab;
-  index: number;
-}
-
-/** A soft-closed pane inside a surviving tab — kept MOUNTED (hidden) so its pty
- * keeps running. `treeSnapshot` is the tab's tree BEFORE the close, so undo can
- * restore the pane on its original side. */
-export interface ClosingPane {
-  key: string;
-  kind: 'pane';
-  tabId: string;
-  paneId: string;
-  treeSnapshot: TermNode;
-}
-
-export type ClosingEntry = ClosingTab | ClosingPane;
-
-export interface TerminalModelState {
-  tabs: TermTab[];
-  activeTabId: string;
-  titles: Record<string, string>;
-  dims: Record<string, { cols: number; rows: number }>;
-  resizeTick: number;
-  activity: Record<string, boolean>;
-  closing: ClosingEntry[];
-  drag: { tabId: string } | null;
-  paneDrag: { paneId: string } | null;
-}
-
-let seq = 0;
-const mint = (prefix: string): string => `${prefix}${++seq}`;
-
-export const freshTab = (): TermTab => {
-  const id = mint('tab');
-  const paneId = mint('p');
-  return { id, tree: leaf(paneId), activePaneId: paneId, zoomedPaneId: null };
-};
+const mint = mintTerminalId;
 
 // Fraction of the WHOLE tab area a divider moves per ⌘⌃arrow press, scaled by the
 // split's own size so nested and root splits move by the same visual amount.
@@ -455,78 +425,4 @@ export function markActivityState(
   if (!owner) return s;
   if (owner.id === s.activeTabId || s.activity[owner.id]) return s;
   return { activity: { ...s.activity, [owner.id]: true } };
-}
-
-const activeTab = (s: TerminalModelState): TermTab | undefined =>
-  s.tabs.find((t) => t.id === s.activeTabId);
-
-const replaceTab = (tabs: TermTab[], tabId: string, next: TermTab): TermTab[] =>
-  tabs.map((t) => (t.id === tabId ? next : t));
-
-function updateActiveTab(
-  s: TerminalModelState,
-  fn: (tab: TermTab) => TermTab,
-): Partial<TerminalModelState> {
-  const tab = activeTab(s);
-  if (!tab) return s;
-  const next = fn(tab);
-  return next === tab ? s : { tabs: replaceTab(s.tabs, tab.id, next) };
-}
-
-/** Drop a tab's activity flag (it became active → its output is now seen).
- * Returns the SAME object when nothing changes, so it never forces a render. */
-function clearActivity(act: Record<string, boolean>, tabId: string): Record<string, boolean> {
-  if (!act[tabId]) return act;
-  const { [tabId]: _drop, ...rest } = act;
-  return rest;
-}
-
-function paneIdsForClosingEntry(entry: ClosingEntry): string[] {
-  return entry.kind === 'tab' ? orderedLeafIds(entry.tab.tree) : [entry.paneId];
-}
-
-function prunePaneRecord<T>(
-  record: Record<string, T>,
-  paneIds: readonly string[],
-): Record<string, T> {
-  let next = record;
-  for (const paneId of paneIds) {
-    if (!Object.prototype.hasOwnProperty.call(next, paneId)) continue;
-    if (next === record) next = { ...record };
-    delete next[paneId];
-  }
-  return next;
-}
-
-function findSplit(root: TermNode, id: string): Extract<TermNode, { type: 'split' }> | null {
-  if (root.type === 'leaf') return null;
-  if (root.id === id) return root;
-  return findSplit(root.a, id) ?? findSplit(root.b, id);
-}
-
-function locateLeaf(
-  root: TermNode,
-  leafId: string,
-): { split: Extract<TermNode, { type: 'split' }>; side: 'a' | 'b' } | null {
-  if (root.type === 'leaf') return null;
-  if (root.a.type === 'leaf' && root.a.id === leafId) return { split: root, side: 'a' };
-  if (root.b.type === 'leaf' && root.b.id === leafId) return { split: root, side: 'b' };
-  return locateLeaf(root.a, leafId) ?? locateLeaf(root.b, leafId);
-}
-
-/** Re-insert a soft-closed pane's leaf into the tab's CURRENT tree, restoring its
- * old spot when a former sibling still exists (else beside the first pane). Never
- * replaces the whole tree, so panes split during the undo grace survive. */
-function reinsertPaneLeaf(current: TermNode, snapshot: TermNode, paneId: string): TermNode {
-  const splitId = mint('s');
-  const loc = locateLeaf(snapshot, paneId);
-  if (loc) {
-    const wasA = loc.side === 'a';
-    const side: FocusDir =
-      loc.split.dir === 'row' ? (wasA ? 'left' : 'right') : wasA ? 'up' : 'down';
-    const sibling = wasA ? loc.split.b : loc.split.a;
-    const anchor = orderedLeafIds(sibling).find((id) => findLeaf(current, id));
-    if (anchor) return insertBeside(current, anchor, side, paneId, splitId);
-  }
-  return insertBeside(current, firstLeaf(current).id, 'right', paneId, splitId);
 }
