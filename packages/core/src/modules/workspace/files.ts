@@ -45,13 +45,13 @@ import type {
 } from './types.js';
 
 /**
- * The hardened user-file I/O door: read/write/listFiles. bh's only sanctioned
- * surface into user content — other modules (search, the editor, viewers)
- * drive it via ctx.run rather than touching node:fs. Every path here anchors on
- * the call's BOUND workspace root (`requireWorkspaceRoot(ctx)`, injected by the
- * host per call) and refuses when none is bound, then routes the FS touch
- * through the kernel's realpath-containment + O_NOFOLLOW family so a planted
- * symlink can't escape.
+ * Legacy core's hardened user-file I/O surface: read/write/listFiles. Current
+ * desktop flows use platform/workspaces + platform/files services instead, but
+ * core tests and transition modules still rely on this containment boundary.
+ * Every path here anchors on the call's BOUND workspace root
+ * (`requireWorkspaceRoot(ctx)`, injected by the host per call) and refuses when
+ * none is bound, then routes the FS touch through the kernel's
+ * realpath-containment + O_NOFOLLOW family so a planted symlink can't escape.
  */
 
 /**
@@ -60,9 +60,9 @@ import type {
  * then alphabetical. The renderer drives recursion by calling again with a
  * child dir's path when the user expands it.
  *
- * Filtering (hidden files like .git / .bh / .DS_Store) is the renderer's
- * job — keeping core unopinionated about display lets the same data feed
- * different UIs (CLI, MCP, alternative shells).
+ * Filtering (hidden files like .git / .bh / .DS_Store) is the caller's job —
+ * keeping legacy core unopinionated about display lets transition callers
+ * decide their own presentation rules.
  */
 export const listFiles: Handler<WorkspaceListFilesArgs, WorkspaceListFilesResult> = async (
   args,
