@@ -14,13 +14,13 @@
  */
 
 import { nativeHostService } from '../../../platform/native/browser/nativeHostService.js';
-import { workspaceService } from '../../../platform/workspaces/browser/workspaceService.js';
 import {
   DEFAULT_FILE_CARD_HEIGHT,
   DEFAULT_FILE_CARD_WIDTH,
 } from '../../contrib/basehalfCanvas/browser/badge-node/badgeNodeModel.js';
 import { emitBadgeChange } from '../../services/mirror/browser/badgeBus.js';
 import { canvasMirrorService } from '../../services/mirror/browser/canvasMirrorService.js';
+import { workspaceFileOperationService } from '../../services/workspace/browser/workspaceFileOperationService.js';
 import { useWorkspaceStore } from '../../services/workspace/browser/workspaceStore.js';
 
 export interface DroppedPathEntry {
@@ -103,7 +103,7 @@ async function importFiles(
   const failures: string[] = [];
   for (const from of files) {
     try {
-      const r = await workspaceService.importFile(from, opts.folderScope ?? null);
+      const r = await workspaceFileOperationService.importFile(from, opts.folderScope ?? null);
       (r.imported ? copied : existing).push(r);
     } catch (err) {
       failures.push(err instanceof Error ? err.message : String(err));
