@@ -1,4 +1,3 @@
-import type { WorkspaceEntry } from '../../../../platform/workspaces/common/workspaces.js';
 import type {
   WorkspaceEditorOverlayActions,
   WorkspaceFileActions,
@@ -9,6 +8,7 @@ import type {
   GitDiffEditorInput,
   PullRequestEditorInput,
 } from './workspaceModel.js';
+import type { WorkspaceEntry } from './workspaceTypes.js';
 
 export interface WorkspaceState
   extends WorkspaceRegistryActions,

@@ -6,8 +6,8 @@ import {
   useViewport,
 } from '@xyflow/react';
 import { useEffect, useRef } from 'react';
-import type { ViewportState } from '../../../../../platform/workspaces/common/workspaces.js';
 import { useLayoutStore } from '../../../../browser/layout/layoutStore.js';
+import type { ViewportState } from '../../../../services/workspace/common/workspaceTypes.js';
 
 export const CanvasViewportTracker = ({
   onViewport,

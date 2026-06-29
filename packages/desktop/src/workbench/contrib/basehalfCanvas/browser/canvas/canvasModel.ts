@@ -1,10 +1,10 @@
 import type { Edge, Node, Viewport } from '@xyflow/react';
+import type { BadgeKind } from '../../../../services/mirror/common/badge.js';
+import type { CanvasEdge } from '../../../../services/mirror/common/canvas.js';
 import type {
   CanvasChildBadge,
   ViewportState,
-} from '../../../../../platform/workspaces/common/workspaces.js';
-import type { BadgeKind } from '../../../../services/mirror/common/badge.js';
-import type { CanvasEdge } from '../../../../services/mirror/common/canvas.js';
+} from '../../../../services/workspace/common/workspaceTypes.js';
 import {
   type BadgeNodeData,
   CARD_MIN_HEIGHT,

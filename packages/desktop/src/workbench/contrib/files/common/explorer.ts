@@ -2,7 +2,7 @@ import type {
   FileEventSubscription,
   WorkspaceFileEvent,
 } from '../../../../platform/files/common/files.js';
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 
 export type ExplorerEntryKind = 'file' | 'folder';
 

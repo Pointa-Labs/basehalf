@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 import {
   type ExplorerTreeRow,
   type VisibleNavTreeItem,

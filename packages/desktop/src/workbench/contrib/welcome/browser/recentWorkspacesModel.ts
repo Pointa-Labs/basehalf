@@ -1,4 +1,4 @@
-import type { WorkspaceEntry } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceEntry } from '../../../services/workspace/common/workspaceTypes.js';
 
 /**
  * Order workspaces most-recently-opened first — the shared ordering for every

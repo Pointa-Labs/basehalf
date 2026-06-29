@@ -1,8 +1,8 @@
 import { type CSSProperties, type JSX, type KeyboardEvent, type MouseEvent, useState } from 'react';
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
 import { FileGlyph, badgeType } from '../../../browser/labels/FileGlyph.js';
 import { color, font, radius, shadow, space, transition } from '../../../browser/style/design.js';
 import { InlineEditInput } from '../../../browser/ui/primitives/InlineEditInput.js';
+import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 import { useGitStatusStore } from '../../scm/browser/gitStatusStore.js';
 import {
   type GitDecoPalette,

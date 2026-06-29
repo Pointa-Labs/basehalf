@@ -1,7 +1,7 @@
 import { type JSX, useMemo, useState } from 'react';
-import type { WorkspaceEntry } from '../../../../platform/workspaces/common/workspaces.js';
 import { tildifyPath } from '../../../browser/actions/workbenchActions.js';
 import { color, font, space } from '../../../browser/style/design.js';
+import type { WorkspaceEntry } from '../../../services/workspace/common/workspaceTypes.js';
 import { welcomeCopy } from './copy.js';
 
 /** Cap the welcome list so the card never grows unbounded — ⌘K is the full list. */

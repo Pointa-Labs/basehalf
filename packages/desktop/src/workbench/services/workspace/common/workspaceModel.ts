@@ -1,5 +1,5 @@
-import type { WorkspaceEntry } from '../../../../platform/workspaces/common/workspaces.js';
 import { renamePanelTab } from '../../editor/common/panelTabModel.js';
+import type { WorkspaceEntry } from './workspaceTypes.js';
 
 export type CanvasSelection =
   | { kind: 'file'; files: readonly string[]; source: 'canvas' }

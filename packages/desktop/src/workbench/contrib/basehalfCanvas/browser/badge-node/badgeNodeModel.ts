@@ -1,5 +1,5 @@
-import type { CanvasFolderPreview } from '../../../../../platform/workspaces/common/workspaces.js';
 import type { BadgeType } from '../../../../browser/labels/FileGlyph.js';
+import type { CanvasFolderPreview } from '../../../../services/workspace/common/workspaceTypes.js';
 
 // A tile reads (and renders) at most this many characters: enough that a taller
 // card reveals more real content as you resize it, bounded so a multi-MB file

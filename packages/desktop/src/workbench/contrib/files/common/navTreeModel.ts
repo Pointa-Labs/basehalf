@@ -1,4 +1,4 @@
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 
 // SR-v0 §4.5 default blacklist for the Explorer/NavTree. Hide tooling cruft +
 // our own .bh/ control dir. Plain dotfiles (.env, .gitignore) stay visible.

@@ -1,4 +1,4 @@
-import type { WorkspaceListFilesEntry } from '../../../../platform/workspaces/common/workspaces.js';
+import type { WorkspaceListFilesEntry } from '../../../services/workspace/common/workspaceTypes.js';
 import type {
   ExplorerDataProvider,
   ExplorerFileOperation,

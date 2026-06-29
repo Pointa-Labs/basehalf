@@ -1,8 +1,8 @@
 import type { JSX } from 'react';
-import type { CanvasFolderPreview } from '../../../../../platform/workspaces/common/workspaces.js';
 import { FileGlyph, badgeType } from '../../../../browser/labels/FileGlyph.js';
 import type { BadgeType } from '../../../../browser/labels/FileGlyph.js';
 import { color, font, radius, space } from '../../../../browser/style/design.js';
+import type { CanvasFolderPreview } from '../../../../services/workspace/common/workspaceTypes.js';
 import {
   MINI_LABEL_CARD_HEIGHT_FRACTION,
   MINI_LABEL_MIN_FLOW_PX,
