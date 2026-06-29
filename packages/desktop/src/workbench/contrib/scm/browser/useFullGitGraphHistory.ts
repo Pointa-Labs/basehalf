@@ -11,11 +11,10 @@ import {
 } from './gitHistoryProvider.js';
 import {
   gitHistoryLogArgsForAvailableFilter,
-  gitHistoryLogArgsForFilter,
   gitHistoryOptionsForSourceFilter,
-  loadGitHistoryPage,
 } from './gitHistoryViewModel.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
+import { historyLogArgsForFilter, loadHistoryGraphPage } from './historyGraphModel.js';
 import type { ScmHistoryFilter } from './scmViewStore.js';
 import { historyErrorMessage, usePagedGitHistory } from './usePagedGitHistory.js';
 
@@ -38,13 +37,14 @@ export interface FullGitGraphHistoryState {
 
 export function fullGraphLogArgs(filter: FullGraphHistoryFilter, skip: number): GitLogArgs {
   if (filter.kind === 'refs') {
+    const refs = filter.refs.filter((ref) => ref === 'HEAD' || ref.startsWith('refs/'));
     return gitLogArgsForHistoryOptions({
-      historyItemRefs: filter.refs,
+      historyItemRefs: refs.length > 0 ? refs : ['HEAD'],
       limit: FULL_GRAPH_PAGE_SIZE,
       skip,
     });
   }
-  return gitHistoryLogArgsForFilter(filter, FULL_GRAPH_PAGE_SIZE, skip);
+  return historyLogArgsForFilter(filter, null, FULL_GRAPH_PAGE_SIZE, skip);
 }
 
 export const fullGraphAvailableLogArgs = (
@@ -119,7 +119,7 @@ export function useFullGitGraphHistory({
 
   const pageLoader = useCallback(
     (skip: number) =>
-      loadGitHistoryPage({
+      loadHistoryGraphPage({
         source: historyProvider,
         filter: historyFilter,
         pageSize: FULL_GRAPH_PAGE_SIZE,

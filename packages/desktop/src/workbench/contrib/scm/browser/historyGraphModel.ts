@@ -1,7 +1,12 @@
 import { color } from '../../../browser/style/design.js';
-import type { GitLogArgs, GitRefInfo } from '../common/git.js';
+import type { GitCommit, GitLogArgs, GitRefInfo } from '../common/git.js';
 import { laneColor } from '../common/gitGraphLayout.js';
-import { normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
+import type {
+  ScmCurrentHistoryItemRefs,
+  ScmHistoryItemRef,
+  ScmHistoryProvider,
+} from '../common/history.js';
+import { type GitHistoryOptions, normalizeGitHistoryItemRefs } from './gitHistoryProvider.js';
 import { type ScmHistoryFilter, scmHistoryFilterRefs } from './scmViewStore.js';
 
 // VS Code SCM History renderer constants:
@@ -22,6 +27,18 @@ export const HISTORY_REF_COLORS = {
 } as const;
 
 export type HistoryRefTone = 'head' | 'local' | 'remote' | 'tag';
+
+const HEAD_HISTORY_ITEM_REF: ScmHistoryItemRef = { id: 'HEAD', name: 'HEAD' };
+
+export interface HistoryGraphPage {
+  readonly commits: readonly GitCommit[];
+  readonly done: boolean;
+}
+
+export interface HistoryGraphPageSource
+  extends Pick<ScmHistoryProvider, 'provideCurrentHistoryItemRefs' | 'provideHistoryItemRefs'> {
+  provideGitCommits(options: GitHistoryOptions): Promise<readonly GitCommit[]>;
+}
 
 export const historyLaneX = (lane: number): number => SWIMLANE_WIDTH * (lane + 1);
 
@@ -56,8 +73,9 @@ export const historyLogArgsForFilter = (
   if (filter.kind === 'all') return { ...page, ref: 'HEAD' };
   const filterRefs = scmHistoryFilterRefs(filter);
   if (filterRefs !== undefined) {
-    if (filterRefs.length > 1) return { ...page, refNames: filterRefs };
-    return { ...page, ref: filterRefs[0] ?? 'HEAD' };
+    const refs = safeDirectHistoryRefs(filterRefs);
+    if (refs.length > 1) return { ...page, refNames: refs };
+    return { ...page, ref: refs[0] ?? 'HEAD' };
   }
   return { ...page, ref: 'HEAD' };
 };
@@ -116,11 +134,132 @@ function availableHistoryFilterRefs(
         ? ref.id === selectedRef
         : ref.id === selectedRef || ref.commit === selectedRef,
     );
-    return match === undefined ? [selectedRef] : [historyRefToProviderRef(match)];
+    return match === undefined ? [] : [historyRefToProviderRef(match)];
   });
 
   if (availableRefs.length === 0) return { kind: 'auto' };
   return { kind: 'refs', refs: [...new Set(availableRefs)] };
+}
+
+export function historyGraphOptionsForRefs(
+  refs: readonly ScmHistoryItemRef[],
+  pageSize: number,
+  skip: number,
+): GitHistoryOptions {
+  const historyItemRefs = refs.map(historyGraphItemRefToProviderRef);
+  return {
+    historyItemRefs: historyItemRefs.length > 0 ? historyItemRefs : ['HEAD'],
+    limit: pageSize,
+    skip,
+  };
+}
+
+export function historyGraphItemRefToProviderRef(ref: ScmHistoryItemRef): string {
+  return ref.revision !== undefined && ref.revision !== ref.name ? ref.revision : ref.id;
+}
+
+export async function resolveHistoryGraphRefs(
+  provider: Pick<ScmHistoryProvider, 'provideCurrentHistoryItemRefs' | 'provideHistoryItemRefs'>,
+  filter: ScmHistoryFilter,
+): Promise<readonly ScmHistoryItemRef[]> {
+  if (filter.kind === 'all') return provider.provideHistoryItemRefs();
+
+  const filterRefs = scmHistoryFilterRefs(filter);
+  if (filterRefs !== undefined) {
+    const refs = selectedHistoryGraphRefs(
+      await provider.provideHistoryItemRefs([...filterRefs]),
+      filterRefs,
+    );
+    return refs.length === 0
+      ? currentHistoryItemRefsToArray(await provider.provideCurrentHistoryItemRefs())
+      : refs;
+  }
+
+  return currentHistoryItemRefsToArray(await provider.provideCurrentHistoryItemRefs());
+}
+
+export async function historyGraphOptionsForFilter({
+  provider,
+  filter,
+  pageSize,
+  skip,
+}: {
+  readonly provider: Pick<
+    ScmHistoryProvider,
+    'provideCurrentHistoryItemRefs' | 'provideHistoryItemRefs'
+  >;
+  readonly filter: ScmHistoryFilter;
+  readonly pageSize: number;
+  readonly skip: number;
+}): Promise<GitHistoryOptions> {
+  return historyGraphOptionsForRefs(
+    await resolveHistoryGraphRefs(provider, filter),
+    pageSize,
+    skip,
+  );
+}
+
+export async function loadHistoryGraphPage({
+  source,
+  filter,
+  pageSize,
+  skip,
+}: {
+  readonly source: HistoryGraphPageSource;
+  readonly filter: ScmHistoryFilter;
+  readonly pageSize: number;
+  readonly skip: number;
+}): Promise<HistoryGraphPage> {
+  const commits = await source.provideGitCommits(
+    await historyGraphOptionsForFilter({ provider: source, filter, pageSize, skip }),
+  );
+
+  return {
+    commits,
+    done: commits.length < pageSize,
+  };
+}
+
+function selectedHistoryGraphRefs(
+  refs: readonly ScmHistoryItemRef[],
+  selectedRefs: readonly string[],
+): readonly ScmHistoryItemRef[] {
+  return refs.filter((ref) =>
+    selectedRefs.some((selectedRef) =>
+      selectedRef.startsWith('refs/')
+        ? ref.id === selectedRef
+        : ref.id === selectedRef || ref.name === selectedRef || ref.revision === selectedRef,
+    ),
+  );
+}
+
+function currentHistoryItemRefsToArray(
+  refs: ScmCurrentHistoryItemRefs,
+): readonly ScmHistoryItemRef[] {
+  const out = [refs.historyItemRef, refs.historyItemRemoteRef, refs.historyItemBaseRef].filter(
+    (ref): ref is ScmHistoryItemRef => ref !== undefined,
+  );
+  if (out.length === 0) return [HEAD_HISTORY_ITEM_REF];
+
+  const seen = new Set<string>();
+  return out.filter((ref) => {
+    const key = historyGraphItemRefToProviderRef(ref);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function safeDirectHistoryRefs(refs: readonly string[]): readonly string[] {
+  const seen = new Set<string>();
+  return refs
+    .map((ref) => ref.trim())
+    .filter((ref) => ref === 'HEAD' || ref.startsWith('refs/'))
+    .filter((ref) => {
+      if (seen.has(ref)) return false;
+      seen.add(ref);
+      return true;
+    });
 }
 
 /** Compact relative time from an ISO date, matching the terse VS Code tree style. */

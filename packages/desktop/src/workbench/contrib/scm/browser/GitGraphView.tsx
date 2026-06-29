@@ -26,14 +26,14 @@ import { useScmViewStore } from './scmViewStore.js';
 import { useFullGitGraphHistory } from './useFullGitGraphHistory.js';
 
 /**
- * GitGraphView — a full-page commit graph modeled 1:1 on the Git Graph VS Code
- * extension (mhutchie/vscode-git-graph): a table with Graph / Description / Date
- * / Author / Commit columns, the DAG drawn as smooth bezier curves (grounded in
- * Git Graph's web/graph.ts: `C x1,y1+d x2,y2-d x2,y2`, d = rowHeight·0.8, r=4
- * vertices, HEAD stroked), ref labels as pills, and a commit-details panel.
+ * GitGraphView — a full-page commit graph whose provider/action boundaries
+ * follow VS Code's Source Control Graph (`ISCMHistoryProvider`,
+ * `SCMHistoryViewPane`, Git extension history provider). The table/DAG remains
+ * BaseHalf's richer full-graph surface: Graph / Description / Date / Author /
+ * Commit columns, smooth bezier curves, ref labels, and a commit-details panel.
  *
  * Opens as a full-canvas overlay (workspace.openGitGraph). Lane data comes from
- * the shared, unit-tested layoutGraph; commits from git.log({all}).
+ * the shared, unit-tested layoutGraph; commits come through the history provider.
  */
 
 export const GitGraphView = ({

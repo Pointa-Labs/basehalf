@@ -45,6 +45,11 @@ describe('useFullGitGraphHistory provider helpers', () => {
       maxCount: FULL_GRAPH_PAGE_SIZE,
       skip: 80,
     });
+    expect(fullGraphLogArgs({ kind: 'ref', ref: '798' }, 80)).toEqual({
+      ref: 'HEAD',
+      maxCount: FULL_GRAPH_PAGE_SIZE,
+      skip: 80,
+    });
     expect(
       fullGraphLogArgs(
         { kind: 'refs', refs: ['refs/heads/feature/scm', 'refs/remotes/origin/main'] },
@@ -55,6 +60,13 @@ describe('useFullGitGraphHistory provider helpers', () => {
       maxCount: FULL_GRAPH_PAGE_SIZE,
       skip: 80,
     });
+    expect(fullGraphLogArgs({ kind: 'refs', refs: ['798', 'refs/heads/feature/scm'] }, 80)).toEqual(
+      {
+        ref: 'refs/heads/feature/scm',
+        maxCount: FULL_GRAPH_PAGE_SIZE,
+        skip: 80,
+      },
+    );
   });
 
   it('preserves provider load errors for the full graph view', () => {
