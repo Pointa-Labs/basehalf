@@ -1,8 +1,15 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import type { CommitActionOptions } from '../common/commitTypes.js';
 import type { GitStashEntry, GitStatusResult } from '../common/git.js';
 import type { GitGroups, GitRow } from '../common/gitStatusModel.js';
+import { createBranchGitAdapter } from './branchGitAdapter.js';
+import {
+  runCreateBranchFromCommand,
+  runDeleteBranchCommand,
+  runMergeBranchCommand,
+  runRenameBranchCommand,
+} from './branchQuickPickCommands.js';
 import { type GitScmService, gitScmService } from './gitScmService.js';
 import { runScmAction } from './scmCommandModel.js';
 import { useScmCommitCommands } from './useScmCommitCommands.js';
@@ -34,6 +41,11 @@ export interface ScmCommands {
   readonly discardAll: () => void;
   readonly commit: (options?: CommitActionOptions) => void;
   readonly createBranchPrompt: () => void;
+  readonly createBranchFromPrompt: () => void;
+  readonly mergeBranchPrompt: () => void;
+  readonly rebaseBranchPrompt: () => void;
+  readonly renameBranchPrompt: () => void;
+  readonly deleteBranchPrompt: () => void;
   readonly publish: () => void;
   readonly pull: () => void;
   readonly push: () => void;
@@ -95,6 +107,26 @@ export const useScmCommands = ({
   });
   const stashCommands = useScmStashCommands({ act, git });
   const graphCommands = useScmGraphCommands({ git });
+  const branchGit = useMemo(() => createBranchGitAdapter(git), [git]);
+  const afterBranchCommand = useCallback(async (): Promise<void> => {
+    await refresh();
+    await loadStashes();
+  }, [loadStashes, refresh]);
+  const createBranchFromPrompt = useCallback((): void => {
+    void runCreateBranchFromCommand({ git: branchGit, onAfter: afterBranchCommand });
+  }, [afterBranchCommand, branchGit]);
+  const mergeBranchPrompt = useCallback((): void => {
+    void runMergeBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
+  }, [afterBranchCommand, branchGit]);
+  const rebaseBranchPrompt = useCallback((): void => {
+    toast.error('Rebase Branch is not available yet.');
+  }, []);
+  const renameBranchPrompt = useCallback((): void => {
+    void runRenameBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
+  }, [afterBranchCommand, branchGit]);
+  const deleteBranchPrompt = useCallback((): void => {
+    void runDeleteBranchCommand({ git: branchGit, onAfter: afterBranchCommand });
+  }, [afterBranchCommand, branchGit]);
 
   return {
     busy,
@@ -104,5 +136,10 @@ export const useScmCommands = ({
     ...remoteCommands,
     ...stashCommands,
     ...graphCommands,
+    createBranchFromPrompt,
+    mergeBranchPrompt,
+    rebaseBranchPrompt,
+    renameBranchPrompt,
+    deleteBranchPrompt,
   };
 };

@@ -1,6 +1,11 @@
 import type { MenuAction, MenuItem } from '../../../browser/ui/primitives/Menu.js';
 import type { GitStatusResult } from '../common/git.js';
 import type { SourceControlViewModel } from '../common/sourceControlViewModel.js';
+import {
+  SCM_BRANCH_MENU_ACTION_DESCRIPTORS,
+  type ScmBranchMenuActionDescriptor,
+  type ScmBranchMenuActionId,
+} from './scmCommandModel.js';
 import type { ScmCommands } from './useScmCommands.js';
 
 export interface ScmHeaderIconAction {
@@ -24,15 +29,20 @@ interface ScmHeaderActionArgs {
   readonly view: SourceControlViewModel;
   readonly commands: Pick<
     ScmCommands,
+    | 'createBranchFromPrompt'
     | 'createBranchPrompt'
+    | 'deleteBranchPrompt'
     | 'discardAll'
     | 'fetch'
+    | 'mergeBranchPrompt'
     | 'popStash'
     | 'publish'
     | 'pull'
     | 'pullRebase'
     | 'push'
     | 'pushForce'
+    | 'rebaseBranchPrompt'
+    | 'renameBranchPrompt'
     | 'stash'
     | 'sync'
     | 'undoLastCommit'
@@ -52,6 +62,61 @@ const groupedMenuItems = (groups: readonly (readonly MenuItem[])[]): MenuItem[] 
   }
   return items;
 };
+
+const scmBranchMenuGroups = [
+  '1_merge',
+  '2_branch',
+  '3_modify',
+] as const satisfies readonly ScmBranchMenuActionDescriptor['group'][];
+
+type ScmBranchMenuHandlers = Record<ScmBranchMenuActionId, () => void>;
+
+interface ScmBranchMenuActionsArgs {
+  readonly status: GitStatusResult;
+  readonly busy: boolean;
+  readonly commands: Pick<
+    ScmCommands,
+    | 'createBranchFromPrompt'
+    | 'createBranchPrompt'
+    | 'deleteBranchPrompt'
+    | 'mergeBranchPrompt'
+    | 'rebaseBranchPrompt'
+    | 'renameBranchPrompt'
+  >;
+}
+
+export function scmBranchMenuActions({
+  status,
+  busy,
+  commands,
+}: ScmBranchMenuActionsArgs): MenuItem[] {
+  const hasCurrentBranch = status.detached !== true && status.branch !== null;
+  const handlers: ScmBranchMenuHandlers = {
+    merge: commands.mergeBranchPrompt,
+    rebase: commands.rebaseBranchPrompt,
+    createBranch: commands.createBranchPrompt,
+    createBranchFrom: commands.createBranchFromPrompt,
+    renameBranch: commands.renameBranchPrompt,
+    deleteBranch: commands.deleteBranchPrompt,
+  };
+
+  const actionFor = (descriptor: ScmBranchMenuActionDescriptor): MenuAction => ({
+    label: descriptor.label,
+    onClick: handlers[descriptor.id],
+    disabled:
+      busy || descriptor.id === 'rebase' || (descriptor.id === 'renameBranch' && !hasCurrentBranch),
+    ...(descriptor.danger === true && { danger: true }),
+  });
+
+  return groupedMenuItems(
+    scmBranchMenuGroups.map((group) =>
+      [...SCM_BRANCH_MENU_ACTION_DESCRIPTORS]
+        .filter((descriptor) => descriptor.group === group)
+        .sort((a, b) => a.order - b.order)
+        .map(actionFor),
+    ),
+  );
+}
 
 export function scmHeaderActionModel({
   status,
@@ -99,11 +164,9 @@ export function scmHeaderActionModel({
         { label: 'Push', onClick: commands.push },
         { label: 'Push (Force)', onClick: commands.pushForce },
         { label: 'Fetch', onClick: commands.fetch },
-      ],
-      [
-        { label: 'Create Branch…', onClick: commands.createBranchPrompt },
         { label: 'Publish Branch', onClick: commands.publish, disabled: !view.canPublish },
       ],
+      scmBranchMenuActions({ status, busy, commands }),
       contributionActions,
       [{ label: 'Undo Last Commit', onClick: commands.undoLastCommit }],
       [

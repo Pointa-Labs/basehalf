@@ -1,14 +1,15 @@
-import { prompt } from '../../../../platform/dialogs/browser/dialogService.js';
+import { confirm, prompt } from '../../../../platform/dialogs/browser/dialogService.js';
 import { toast } from '../../../../platform/notification/browser/notificationService.js';
 import {
   pick,
   pickWithInputValue,
 } from '../../../../platform/quickinput/browser/quickInputService.js';
-import type { GitRefInfo } from '../common/git.js';
+import { GitErrorCodes, type GitRefInfo, ensureGitError } from '../common/git.js';
 import type { BranchGitAdapter } from './branchGitAdapter.js';
 import {
   type BranchQuickPickCommand,
   CHECKOUT_RECOVERY_OPTIONS,
+  branchOption,
   checkoutTargetForRef,
   createBranchFromPickOptions,
   createBranchNameValidator,
@@ -30,6 +31,39 @@ interface CheckoutBranchCommandArgs {
 export async function runCheckoutBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
   try {
     await openBranchQuickPick(args);
+  } catch (err) {
+    toast.error(msg(err));
+  }
+}
+
+export async function runCreateBranchFromCommand(args: CheckoutBranchCommandArgs): Promise<void> {
+  try {
+    const { refs } = await args.git.listRefs();
+    await createBranchFrom(args.git, refs, args.onAfter);
+  } catch (err) {
+    toast.error(msg(err));
+  }
+}
+
+export async function runMergeBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
+  try {
+    await mergeBranch(args);
+  } catch (err) {
+    toast.error(msg(err));
+  }
+}
+
+export async function runRenameBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
+  try {
+    await renameCurrentBranch(args);
+  } catch (err) {
+    toast.error(msg(err));
+  }
+}
+
+export async function runDeleteBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
+  try {
+    await deleteBranch(args);
   } catch (err) {
     toast.error(msg(err));
   }
@@ -99,6 +133,92 @@ async function runBranchQuickPickCommand(
   await checkoutDetached(git, refs, onAfter);
 }
 
+async function mergeBranch({ git, onAfter }: CheckoutBranchCommandArgs): Promise<void> {
+  const { refs } = await git.listRefs();
+  const candidates = refs.filter(
+    (ref) =>
+      (ref.type === 'head' || ref.type === 'remoteHead' || ref.type === 'tag') &&
+      !(ref.type === 'head' && ref.current),
+  );
+  const choice = await pick({
+    title: 'Merge',
+    placeholder: 'Select a branch or tag to merge from',
+    emptyText: 'No branches or tags found.',
+    options: candidates.map(branchOption),
+  });
+  if (choice === null) return;
+  const branch = candidates.find((ref) => ref.id === choice);
+  if (branch === undefined) return;
+
+  const result = await git.merge(branch.name);
+  await onAfter();
+  if (result.conflicts) {
+    toast.info(`Merged ${branch.name} with conflicts.`);
+  } else if (result.merged) {
+    toast.info(`Merged ${branch.name}.`);
+  } else {
+    toast.info(`Already up to date with ${branch.name}.`);
+  }
+}
+
+async function renameCurrentBranch({ git, onAfter }: CheckoutBranchCommandArgs): Promise<void> {
+  const { current, refs } = await git.listRefs();
+  const currentBranch = currentLocalBranch(refs, current);
+  if (currentBranch === null) {
+    toast.error('A current branch is required to rename.');
+    return;
+  }
+
+  const validate = createBranchNameValidator(refs);
+  const validateRename = (value: string): string | null => {
+    const name = sanitizeBranchNameInput(value);
+    return name === currentBranch ? null : validate(value);
+  };
+  const rawName = await prompt({
+    title: 'Rename Branch',
+    label: 'New branch name',
+    placeholder: 'feature/name',
+    defaultValue: currentBranch,
+    validate: validateRename,
+  });
+  const name = rawName == null ? undefined : sanitizeBranchNameInput(rawName);
+  if (!name || name === currentBranch) return;
+  const invalid = validateRename(rawName ?? '');
+  if (invalid !== null) {
+    toast.error(invalid);
+    return;
+  }
+
+  await git.renameCurrent(name);
+  await onAfter();
+  toast.info(`Renamed branch to ${name}.`);
+}
+
+async function deleteBranch({ git, onAfter }: CheckoutBranchCommandArgs): Promise<void> {
+  const { refs } = await git.listRefs();
+  const candidates = refs.filter((ref) => ref.type === 'head' && !ref.current);
+  const choice = await pick({
+    title: 'Delete Branch',
+    placeholder: 'Select a branch to delete',
+    emptyText: 'No local branches to delete.',
+    options: candidates.map(branchOption),
+  });
+  if (choice === null) return;
+  const branch = candidates.find((ref) => ref.id === choice);
+  if (branch === undefined) return;
+  const ok = await confirm({
+    title: `Delete branch ${branch.name}?`,
+    confirmText: 'Delete Branch',
+    destructive: true,
+  });
+  if (!ok) return;
+
+  const deleted = await deleteBranchWithRecovery(git, branch.name);
+  if (!deleted) return;
+  await onAfter();
+  toast.info(`Deleted branch ${branch.name}.`);
+}
+
 async function recoverCheckout(
   git: BranchGitAdapter,
   target: { readonly branch: string; readonly track?: boolean; readonly detached?: boolean },
@@ -152,6 +272,33 @@ async function createBranch(
   await git.createBranch(name);
   await onAfter();
   toast.info(`Created and checked out ${name}.`);
+}
+
+function currentLocalBranch(refs: readonly GitRefInfo[], current: string | null): string | null {
+  const currentRef = refs.find((ref) => ref.type === 'head' && ref.current);
+  if (currentRef !== undefined) return currentRef.name;
+  if (current === null) return null;
+  return refs.some((ref) => ref.type === 'head' && ref.name === current) ? current : null;
+}
+
+async function deleteBranchWithRecovery(git: BranchGitAdapter, name: string): Promise<boolean> {
+  try {
+    await git.deleteBranch(name);
+    return true;
+  } catch (err) {
+    const gitError = ensureGitError(err);
+    if (gitError.gitErrorCode !== GitErrorCodes.BranchNotFullyMerged) {
+      throw gitError;
+    }
+    const ok = await confirm({
+      title: `Branch ${name} is not fully merged. Force delete?`,
+      confirmText: 'Force Delete',
+      destructive: true,
+    });
+    if (!ok) return false;
+    await git.deleteBranch(name, { force: true });
+    return true;
+  }
 }
 
 async function createBranchFrom(

@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { prompt } from '../src/platform/dialogs/browser/dialogService.js';
+import { confirm, prompt } from '../src/platform/dialogs/browser/dialogService.js';
 import { toast } from '../src/platform/notification/browser/notificationService.js';
 import { pick, pickWithInputValue } from '../src/platform/quickinput/browser/quickInputService.js';
 import type { BranchGitAdapter } from '../src/workbench/contrib/scm/browser/branchGitAdapter.js';
-import { runCheckoutBranchCommand } from '../src/workbench/contrib/scm/browser/branchQuickPickCommands.js';
-import type { GitCreateBranchArgs, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
+import {
+  runCheckoutBranchCommand,
+  runDeleteBranchCommand,
+  runMergeBranchCommand,
+  runRenameBranchCommand,
+} from '../src/workbench/contrib/scm/browser/branchQuickPickCommands.js';
+import {
+  type GitCreateBranchArgs,
+  GitError,
+  GitErrorCodes,
+  type GitRefInfo,
+} from '../src/workbench/contrib/scm/common/git.js';
 
 vi.mock('../src/platform/dialogs/browser/dialogService.js', () => ({
   confirm: vi.fn(),
@@ -45,9 +55,16 @@ function adapterFor(refs: readonly GitRefInfo[], calls: string[] = []): BranchGi
     createBranch: async (name, options?: Omit<GitCreateBranchArgs, 'name'>) => {
       calls.push(`create:${name}:${JSON.stringify(options ?? {})}`);
     },
-    deleteBranch: vi.fn(),
-    renameCurrent: vi.fn(),
-    merge: vi.fn(),
+    deleteBranch: async (name, options) => {
+      calls.push(`delete:${name}:${JSON.stringify(options ?? {})}`);
+    },
+    renameCurrent: async (to) => {
+      calls.push(`rename:${to}`);
+    },
+    merge: async (branch) => {
+      calls.push(`merge:${branch}`);
+      return { merged: true, conflicts: false, stdout: '', stderr: '' };
+    },
     stash: vi.fn(),
     stashPop: vi.fn(),
   };
@@ -62,6 +79,7 @@ const refs = [
 
 describe('branchQuickPickCommands', () => {
   beforeEach(() => {
+    vi.mocked(confirm).mockReset();
     vi.mocked(pick).mockReset();
     vi.mocked(pickWithInputValue).mockReset();
     vi.mocked(prompt).mockReset();
@@ -113,6 +131,30 @@ describe('branchQuickPickCommands', () => {
 
     expect(calls).toEqual(['checkout:origin/topic:{"track":true}', 'after']);
     expect(toast.info).toHaveBeenCalledWith('Checked out origin/topic.');
+  });
+
+  it('merges a selected branch or tag through the branch submenu command', async () => {
+    const calls: string[] = [];
+    const adapter = adapterFor(refs, calls);
+
+    vi.mocked(pick).mockResolvedValueOnce('refs/remotes/origin/topic');
+
+    await runMergeBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    const pickOptions = vi.mocked(pick).mock.calls[0]?.[0];
+    expect(pickOptions?.title).toBe('Merge');
+    expect(pickOptions?.options.map((option) => option.value)).toEqual([
+      'refs/heads/feature/scm',
+      'refs/remotes/origin/topic',
+      'refs/tags/v1.0',
+    ]);
+    expect(calls).toEqual(['merge:origin/topic', 'after']);
+    expect(toast.info).toHaveBeenCalledWith('Merged origin/topic.');
   });
 
   it('creates a branch from the command, validates local duplicates, and refreshes', async () => {
@@ -178,6 +220,89 @@ describe('branchQuickPickCommands', () => {
     expect(promptOptions).not.toHaveProperty('defaultValue');
     expect(calls).toEqual(['create:topic-copy:{"ref":"origin/topic"}', 'after']);
     expect(toast.info).toHaveBeenCalledWith('Created and checked out topic-copy.');
+  });
+
+  it('renames the current branch from the branch submenu command', async () => {
+    const calls: string[] = [];
+    const adapter = adapterFor(refs, calls);
+
+    vi.mocked(prompt).mockResolvedValueOnce(' feature/renamed ');
+
+    await runRenameBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    const promptOptions = vi.mocked(prompt).mock.calls[0]?.[0];
+    expect(promptOptions).toMatchObject({
+      title: 'Rename Branch',
+      defaultValue: 'main',
+    });
+    expect(promptOptions?.validate?.('main')).toBeNull();
+    expect(promptOptions?.validate?.('feature/scm')).toBe('Branch "feature/scm" already exists.');
+    expect(calls).toEqual(['rename:feature/renamed', 'after']);
+    expect(toast.info).toHaveBeenCalledWith('Renamed branch to feature/renamed.');
+  });
+
+  it('deletes a local non-current branch from the branch submenu command', async () => {
+    const calls: string[] = [];
+    const adapter = adapterFor(refs, calls);
+
+    vi.mocked(pick).mockResolvedValueOnce('refs/heads/feature/scm');
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+
+    await runDeleteBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    const pickOptions = vi.mocked(pick).mock.calls[0]?.[0];
+    expect(pickOptions?.title).toBe('Delete Branch');
+    expect(pickOptions?.options.map((option) => option.value)).toEqual(['refs/heads/feature/scm']);
+    expect(confirm).toHaveBeenCalledWith({
+      title: 'Delete branch feature/scm?',
+      confirmText: 'Delete Branch',
+      destructive: true,
+    });
+    expect(calls).toEqual(['delete:feature/scm:{}', 'after']);
+    expect(toast.info).toHaveBeenCalledWith('Deleted branch feature/scm.');
+  });
+
+  it('offers force delete when git reports the branch is not fully merged', async () => {
+    const calls: string[] = [];
+    const adapter: BranchGitAdapter = {
+      ...adapterFor(refs, calls),
+      deleteBranch: async (name, options) => {
+        calls.push(`delete:${name}:${JSON.stringify(options ?? {})}`);
+        if (options?.force !== true) {
+          throw new GitError({
+            message: 'branch is not fully merged',
+            gitErrorCode: GitErrorCodes.BranchNotFullyMerged,
+          });
+        }
+      },
+    };
+
+    vi.mocked(pick).mockResolvedValueOnce('refs/heads/feature/scm');
+    vi.mocked(confirm).mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+
+    await runDeleteBranchCommand({
+      git: adapter,
+      onAfter: () => {
+        calls.push('after');
+      },
+    });
+
+    expect(confirm).toHaveBeenNthCalledWith(2, {
+      title: 'Branch feature/scm is not fully merged. Force delete?',
+      confirmText: 'Force Delete',
+      destructive: true,
+    });
+    expect(calls).toEqual(['delete:feature/scm:{}', 'delete:feature/scm:{"force":true}', 'after']);
   });
 
   it('offers HEAD as a create-branch-from source', async () => {

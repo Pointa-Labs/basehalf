@@ -5,6 +5,7 @@ import {
 } from '../src/workbench/contrib/scm/browser/branchQuickPickModel.js';
 import type { GitScmService } from '../src/workbench/contrib/scm/browser/gitScmService.js';
 import {
+  SCM_BRANCH_MENU_ACTION_DESCRIPTORS,
   applyDiscardPlan,
   discardAllPrompt,
   discardManyPrompt,
@@ -49,6 +50,27 @@ const ref = (name: string): GitRefInfo => ({
 });
 
 describe('scmCommandModel', () => {
+  it('models the VS Code git.branch submenu command descriptors', () => {
+    expect(
+      SCM_BRANCH_MENU_ACTION_DESCRIPTORS.map(
+        (descriptor) =>
+          `${descriptor.group}@${descriptor.order}:${descriptor.command}:${descriptor.label}`,
+      ),
+    ).toEqual([
+      '1_merge@1:git.merge:Merge…',
+      '1_merge@2:git.rebase:Rebase Branch…',
+      '2_branch@1:git.branch:Create Branch…',
+      '2_branch@2:git.branchFrom:Create Branch From…',
+      '3_modify@1:git.renameBranch:Rename Branch…',
+      '3_modify@2:git.deleteBranch:Delete Branch…',
+    ]);
+    expect(
+      SCM_BRANCH_MENU_ACTION_DESCRIPTORS.find((item) => item.id === 'deleteBranch'),
+    ).toMatchObject({
+      danger: true,
+    });
+  });
+
   it('runs SCM actions with VS Code-style refresh and transient error reporting', async () => {
     const calls: string[] = [];
     await runScmAction(

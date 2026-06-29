@@ -6,6 +6,71 @@ import type { GitScmService } from './gitScmService.js';
 type MaybePromise = Promise<void> | void;
 export type ScmActionRunner = (action: () => Promise<unknown>) => Promise<void>;
 
+export type ScmBranchMenuActionId =
+  | 'merge'
+  | 'rebase'
+  | 'createBranch'
+  | 'createBranchFrom'
+  | 'renameBranch'
+  | 'deleteBranch';
+
+export type ScmBranchMenuGroup = '1_merge' | '2_branch' | '3_modify';
+
+export interface ScmBranchMenuActionDescriptor {
+  readonly id: ScmBranchMenuActionId;
+  readonly command: `git.${string}`;
+  readonly label: string;
+  readonly group: ScmBranchMenuGroup;
+  readonly order: number;
+  readonly danger?: boolean;
+}
+
+export const SCM_BRANCH_MENU_ACTION_DESCRIPTORS = [
+  {
+    id: 'merge',
+    command: 'git.merge',
+    label: 'Merge…',
+    group: '1_merge',
+    order: 1,
+  },
+  {
+    id: 'rebase',
+    command: 'git.rebase',
+    label: 'Rebase Branch…',
+    group: '1_merge',
+    order: 2,
+  },
+  {
+    id: 'createBranch',
+    command: 'git.branch',
+    label: 'Create Branch…',
+    group: '2_branch',
+    order: 1,
+  },
+  {
+    id: 'createBranchFrom',
+    command: 'git.branchFrom',
+    label: 'Create Branch From…',
+    group: '2_branch',
+    order: 2,
+  },
+  {
+    id: 'renameBranch',
+    command: 'git.renameBranch',
+    label: 'Rename Branch…',
+    group: '3_modify',
+    order: 1,
+  },
+  {
+    id: 'deleteBranch',
+    command: 'git.deleteBranch',
+    label: 'Delete Branch…',
+    group: '3_modify',
+    order: 2,
+    danger: true,
+  },
+] as const satisfies readonly ScmBranchMenuActionDescriptor[];
+
 export interface ScmActionEffects {
   readonly setBusy: (busy: boolean) => void;
   readonly setError: (message: string) => void;
