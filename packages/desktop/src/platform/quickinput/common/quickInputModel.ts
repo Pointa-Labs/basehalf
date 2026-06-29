@@ -1,8 +1,10 @@
 import {
+  type IQuickInputButton,
   type IQuickPick,
   type IQuickPickDidAcceptEvent,
   type IQuickPickItem,
   type IQuickPickItemButtonEvent,
+  type IQuickPickSeparator,
   type IQuickPickSeparatorButtonEvent,
   type IQuickPickWillAcceptEvent,
   ItemActivation,
@@ -258,6 +260,20 @@ export class HeadlessQuickPick<T extends IQuickPickItem> implements IQuickPick<T
     return () => {
       this.triggerSeparatorButtonListeners.delete(listener);
     };
+  }
+
+  triggerItemButton(button: IQuickInputButton, item: T): void {
+    this.assertNotDisposed();
+    if (!this.itemsValue.includes(item)) return;
+    if (item.buttons?.includes(button) !== true) return;
+    for (const listener of this.triggerItemButtonListeners) listener({ button, item });
+  }
+
+  triggerSeparatorButton(button: IQuickInputButton, separator: IQuickPickSeparator): void {
+    this.assertNotDisposed();
+    if (!this.itemsValue.includes(separator)) return;
+    if (separator.buttons?.includes(button) !== true) return;
+    for (const listener of this.triggerSeparatorButtonListeners) listener({ button, separator });
   }
 
   onDidHide(listener: () => void): () => void {

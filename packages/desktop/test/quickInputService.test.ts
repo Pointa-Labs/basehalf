@@ -159,6 +159,35 @@ describe('quickInputService', () => {
     expect(onAccept).toHaveBeenCalledWith({ inBackground: true });
   });
 
+  it('fires quick pick item and separator button events from current row buttons', () => {
+    const picker = quickInputService.createQuickPick<IQuickPickItem>({ useSeparators: true });
+    const itemButton = { iconClass: 'codicon-git-branch', tooltip: 'Open Branch' };
+    const separatorButton = { iconClass: 'codicon-clear-all', tooltip: 'Clear Group' };
+    const otherButton = { iconClass: 'codicon-close', tooltip: 'Other' };
+    const separator = {
+      type: 'separator' as const,
+      label: 'Branches',
+      buttons: [separatorButton],
+    };
+    const item = { id: 'main', label: 'main', buttons: [itemButton] };
+    const onItemButton = vi.fn();
+    const onSeparatorButton = vi.fn();
+
+    picker.items = [separator, item];
+    picker.onDidTriggerItemButton(onItemButton);
+    picker.onDidTriggerSeparatorButton(onSeparatorButton);
+
+    picker.triggerItemButton(otherButton, item);
+    picker.triggerSeparatorButton(otherButton, separator);
+    picker.triggerItemButton(itemButton, item);
+    picker.triggerSeparatorButton(separatorButton, separator);
+
+    expect(onItemButton).toHaveBeenCalledTimes(1);
+    expect(onItemButton).toHaveBeenCalledWith({ button: itemButton, item });
+    expect(onSeparatorButton).toHaveBeenCalledTimes(1);
+    expect(onSeparatorButton).toHaveBeenCalledWith({ button: separatorButton, separator });
+  });
+
   it('resolves single picks through the host quick pick model', async () => {
     const choice = quickInputService.pick({
       title: 'Switch Branch',

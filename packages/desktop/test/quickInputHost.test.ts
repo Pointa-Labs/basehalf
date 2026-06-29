@@ -41,12 +41,20 @@ describe('quick input host separators', () => {
   });
 
   it('renders separator rows while keeping the active descendant on a real item', () => {
-    const createBranch = { id: 'create', label: 'Create Branch...' };
+    const createBranch = {
+      id: 'create',
+      label: 'Create Branch...',
+      buttons: [{ iconClass: 'codicon-git-branch-create', tooltip: 'Create Branch' }],
+    };
     const main = { id: 'main', label: 'main', description: 'current' };
     picker = quickInputService.createQuickPick({ renderInHost: true, useSeparators: true });
     picker.title = 'Switch Branch';
     picker.items = [
-      { type: 'separator', label: 'Commands' },
+      {
+        type: 'separator',
+        label: 'Commands',
+        buttons: [{ iconClass: 'codicon-clear-all', tooltip: 'Clear Commands' }],
+      },
       createBranch,
       { type: 'separator', label: 'Branches' },
       main,
@@ -59,6 +67,11 @@ describe('quick input host separators', () => {
     expect(html).toContain('data-bh-pick-separator="true"');
     expect(html).toContain('Commands');
     expect(html).toContain('Branches');
+    expect(html).toContain('data-bh-pick-separator-button="true"');
+    expect(html).toContain('aria-label="Clear Commands"');
+    expect(html).toContain('codicon-git-branch-create');
+    expect(html).toContain('data-bh-pick-item-button="true"');
+    expect(html).toContain('aria-label="Create Branch"');
     expect(html).toContain('aria-activedescendant="bh-pick-option-3"');
     expect(html).toContain('id="bh-pick-option-1"');
     expect(html).toContain('id="bh-pick-option-3"');

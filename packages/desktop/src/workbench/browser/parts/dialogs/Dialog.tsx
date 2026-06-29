@@ -31,6 +31,7 @@ export {
   type PickValueResult,
 } from '../../../../platform/dialogs/browser/dialogService.js';
 import {
+  type IQuickInputButton,
   type IQuickPick,
   type IQuickPickItem,
   type IQuickPickSeparator,
@@ -47,6 +48,7 @@ import {
   toggleQuickPickSelectedValue,
 } from '../../../../platform/quickinput/common/quickPickModel.js';
 import { color, font, motion, radius, shadow, space, transition } from '../../style/design.js';
+import { Codicon } from '../../ui/Codicon.js';
 import { isImeComposing } from '../../ui/imeGuard.js';
 import { Button } from '../../ui/primitives/Button.js';
 
@@ -229,6 +231,102 @@ export function quickPickHostRows(
       : { kind: 'item', item, visualIndex },
   );
 }
+
+const quickPickButtonGroupStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 1,
+  flexShrink: 0,
+};
+
+const quickPickButtonStyle: CSSProperties = {
+  width: 22,
+  height: 22,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 0,
+  border: 'none',
+  borderRadius: radius.sm,
+  background: 'transparent',
+  color: color.textTertiary,
+  cursor: 'pointer',
+};
+
+const quickInputButtonLabel = (button: IQuickInputButton, index: number): string =>
+  button.tooltip ?? button.iconClass ?? `Action ${index + 1}`;
+
+const quickInputButtonCodiconName = (button: IQuickInputButton): string | undefined => {
+  const iconClass = button.iconClass?.trim();
+  if (!iconClass) return undefined;
+  const codiconClass = iconClass.split(/\s+/).find((part) => part.startsWith('codicon-'));
+  return codiconClass?.slice('codicon-'.length);
+};
+
+const QuickPickButtons = ({
+  buttons,
+  kind,
+  push,
+  onTrigger,
+}: {
+  buttons: readonly IQuickInputButton[] | undefined;
+  kind: 'item' | 'separator';
+  push: boolean;
+  onTrigger: (button: IQuickInputButton) => void;
+}): JSX.Element | null => {
+  if (buttons === undefined || buttons.length === 0) return null;
+  return (
+    <span
+      data-bh-pick-button-group={kind}
+      style={{
+        ...quickPickButtonGroupStyle,
+        marginLeft: push ? 'auto' : 0,
+      }}
+    >
+      {buttons.map((button, index) => {
+        const label = quickInputButtonLabel(button, index);
+        const codiconName = quickInputButtonCodiconName(button);
+        return (
+          <button
+            key={`${button.iconClass ?? ''}:${button.tooltip ?? ''}:${index}`}
+            type="button"
+            title={label}
+            aria-label={label}
+            tabIndex={-1}
+            data-bh-pick-item-button={kind === 'item' ? 'true' : undefined}
+            data-bh-pick-separator-button={kind === 'separator' ? 'true' : undefined}
+            style={quickPickButtonStyle}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onTrigger(button);
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = color.divider;
+              e.currentTarget.style.color = color.textPrimary;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = color.textTertiary;
+            }}
+          >
+            {codiconName !== undefined ? (
+              <Codicon name={codiconName} size={14} />
+            ) : (
+              <span className={button.iconClass} aria-hidden="true">
+                {button.iconClass === undefined ? '·' : ''}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </span>
+  );
+};
 
 const ConfirmBody = ({
   dialog,
@@ -542,6 +640,12 @@ const QuickPickBody = ({
                   >
                     {label}
                   </span>
+                  <QuickPickButtons
+                    buttons={row.separator.buttons}
+                    kind="separator"
+                    push={true}
+                    onTrigger={(button) => picker.triggerSeparatorButton(button, row.separator)}
+                  />
                 </div>
               );
             }
@@ -627,6 +731,12 @@ const QuickPickBody = ({
                     {item.detail}
                   </span>
                 )}
+                <QuickPickButtons
+                  buttons={item.buttons}
+                  kind="item"
+                  push={item.detail === undefined}
+                  onTrigger={(button) => picker.triggerItemButton(button, item)}
+                />
               </div>
             );
           })

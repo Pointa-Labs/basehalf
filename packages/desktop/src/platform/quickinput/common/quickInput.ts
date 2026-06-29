@@ -205,6 +205,8 @@ export interface IQuickPick<T extends IQuickPickItem = IQuickPickItem> {
   onDidTriggerSeparatorButton(
     listener: (event: IQuickPickSeparatorButtonEvent) => void,
   ): () => void;
+  triggerItemButton(button: IQuickInputButton, item: T): void;
+  triggerSeparatorButton(button: IQuickInputButton, separator: IQuickPickSeparator): void;
   onDidHide(listener: () => void): () => void;
   onDidFocus(listener: () => void): () => void;
 }
