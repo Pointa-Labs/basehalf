@@ -169,7 +169,7 @@ import { IgnoredExtensionsManagementService, IIgnoredExtensionsManagementService
 import { ExtensionStorageService, IExtensionStorageService } from '../platform/extensionManagement/common/extensionStorage.js';
 import { IUserDataSyncLogService } from '../platform/userDataSync/common/userDataSync.js';
 import { UserDataSyncLogService } from '../platform/userDataSync/common/userDataSyncLog.js';
-import { AllowedExtensionsService } from '../platform/extensionManagement/common/allowedExtensionsService.js';
+import { BaseHalfAllowedExtensionsService } from './basehalf/common/basehalfAllowedExtensionsService.js';
 import { IAllowedMcpServersService, IMcpGalleryService } from '../platform/mcp/common/mcpManagement.js';
 import { McpGalleryService } from '../platform/mcp/common/mcpGalleryService.js';
 import { AllowedMcpServersService } from '../platform/mcp/common/allowedMcpServersService.js';
@@ -177,7 +177,7 @@ import { IWebWorkerService } from '../platform/webWorker/browser/webWorkerServic
 import { WebWorkerService } from '../platform/webWorker/browser/webWorkerServiceImpl.js';
 
 registerSingleton(IUserDataSyncLogService, UserDataSyncLogService, InstantiationType.Delayed);
-registerSingleton(IAllowedExtensionsService, AllowedExtensionsService, InstantiationType.Delayed);
+registerSingleton(IAllowedExtensionsService, BaseHalfAllowedExtensionsService, InstantiationType.Delayed);
 registerSingleton(IIgnoredExtensionsManagementService, IgnoredExtensionsManagementService, InstantiationType.Delayed);
 registerSingleton(IGlobalExtensionEnablementService, GlobalExtensionEnablementService, InstantiationType.Delayed);
 registerSingleton(IExtensionStorageService, ExtensionStorageService, InstantiationType.Delayed);

@@ -404,6 +404,10 @@ export function isBaseHalfAllowedBuiltInExtension(extensionId: string): boolean 
 	return ALLOWED_BUILT_IN_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
 }
 
+export function isBaseHalfAllowedProductExtension(extensionId: string): boolean {
+	return isBaseHalfAllowedBuiltInExtension(extensionId);
+}
+
 export function isBaseHalfAgentExtensionSlot(slotId: string): boolean {
 	return AGENT_EXTENSION_SLOT_IDS.has(slotId);
 }
