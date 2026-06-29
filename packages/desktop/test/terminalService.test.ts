@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTerminalService } from '../src/workbench/contrib/terminal/browser/terminalService.js';
+import { createTerminalService } from '../src/workbench/services/terminal/browser/terminalService.js';
 
 describe('terminalService', () => {
   it('maps terminal session operations to the preload bridge', async () => {
