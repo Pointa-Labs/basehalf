@@ -1,5 +1,6 @@
 import type {
   RemoteSource,
+  RemoteSourceAction,
   RemoteSourceBranch,
   RemoteSourceProvider,
   RemoteSourcesByProvider,
@@ -12,6 +13,7 @@ export interface RemoteSourceProviderRegistryLike {
   getRemoteSourceProviders(): readonly RemoteSourceProvider[];
   getRemoteSources(providerId: string, query?: string): Promise<readonly RemoteSource[]>;
   getRemoteBranches(providerId: string, remoteUrl: string): Promise<readonly RemoteSourceBranch[]>;
+  getRemoteSourceActions(remoteUrl: string): Promise<readonly RemoteSourceAction[]>;
   getRemoteSourcesByProvider(query?: string): Promise<readonly RemoteSourcesByProvider[]>;
 }
 
@@ -51,6 +53,15 @@ export class RemoteSourceProviderRegistry implements RemoteSourceProviderRegistr
     remoteUrl: string,
   ): Promise<readonly RemoteSourceBranch[]> {
     return (await this.requireProvider(providerId).getBranches?.(remoteUrl)) ?? [];
+  }
+
+  async getRemoteSourceActions(remoteUrl: string): Promise<readonly RemoteSourceAction[]> {
+    const actionGroups = await Promise.all(
+      this.getRemoteSourceProviders().map(
+        async (provider) => (await provider.getRemoteSourceActions?.(remoteUrl)) ?? [],
+      ),
+    );
+    return actionGroups.flat();
   }
 
   async getRemoteSourcesByProvider(query?: string): Promise<readonly RemoteSourcesByProvider[]> {

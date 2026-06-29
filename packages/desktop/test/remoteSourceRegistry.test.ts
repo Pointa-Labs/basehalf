@@ -3,12 +3,16 @@ import {
   RemoteSourceProviderRegistry,
   registerRemoteSourceProvider,
 } from '../src/workbench/contrib/scm/browser/remoteSourceRegistry.js';
-import type { RemoteSourceProvider } from '../src/workbench/contrib/scm/common/remoteSources.js';
+import type {
+  RemoteSourceAction,
+  RemoteSourceProvider,
+} from '../src/workbench/contrib/scm/common/remoteSources.js';
 
 function provider(
   id: string,
   sources: readonly string[],
   branches: readonly string[] = [],
+  actions?: readonly RemoteSourceAction[],
 ): RemoteSourceProvider {
   return {
     id,
@@ -20,6 +24,7 @@ function provider(
         url: `https://github.com/${name}.git`,
       })),
     getBranches: async () => branches.map((name) => ({ name })),
+    ...(actions === undefined ? {} : { getRemoteSourceActions: async () => actions }),
   };
 }
 
@@ -56,6 +61,37 @@ describe('RemoteSourceProviderRegistry', () => {
     disposeGithub();
 
     expect(registry.getRemoteSourceProviders().map((entry) => entry.id)).toEqual(['example']);
+  });
+
+  it('aggregates remote source actions by URL from registered providers', async () => {
+    const registry = new RemoteSourceProviderRegistry();
+    const calls: string[] = [];
+    registerRemoteSourceProvider(
+      {
+        id: 'github',
+        name: 'GitHub',
+        getRemoteSources: async () => [],
+        getRemoteSourceActions: (remoteUrl) => {
+          calls.push(remoteUrl);
+          return [
+            {
+              label: 'Open on GitHub',
+              icon: 'github',
+              run: () => undefined,
+            },
+          ];
+        },
+      },
+      registry,
+    );
+    registerRemoteSourceProvider(provider('example', ['x/y']), registry);
+
+    const actions = await registry.getRemoteSourceActions('git@github.com:o/r.git');
+
+    expect(actions.map(({ label, icon }) => ({ label, icon }))).toEqual([
+      { label: 'Open on GitHub', icon: 'github' },
+    ]);
+    expect(calls).toEqual(['git@github.com:o/r.git']);
   });
 
   it('rejects duplicate ids and supports explicit unregister', () => {

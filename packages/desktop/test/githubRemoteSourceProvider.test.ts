@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   GithubRemoteSourceProvider,
   githubRemoteSourceBranchUrl,
+  registerGithubRemoteSourceProvider,
 } from '../src/workbench/contrib/githubPullRequests/browser/githubRemoteSourceProvider.js';
+import { RemoteSourceProviderRegistry } from '../src/workbench/contrib/scm/browser/remoteSourceRegistry.js';
 
 describe('GithubRemoteSourceProvider', () => {
   it('exposes GitHub remote sources and branches through the GitHub channel', async () => {
@@ -58,6 +60,32 @@ describe('GithubRemoteSourceProvider', () => {
       'https://github.com/o/r/tree/feature/a%20b%231',
       'https://vscode.dev/github/o/r/tree/feature/a%20b%231',
     ]);
+  });
+
+  it('registers GitHub remote source actions with the SCM remote source registry', async () => {
+    const opened: string[] = [];
+    const registry = new RemoteSourceProviderRegistry();
+    const provider = new GithubRemoteSourceProvider(
+      {
+        listRemoteSources: async () => [],
+        listRemoteBranches: async () => [],
+      },
+      (url) => opened.push(url),
+    );
+
+    const dispose = registerGithubRemoteSourceProvider(registry, provider);
+
+    const actions = await registry.getRemoteSourceActions('git@github.com:o/r.git');
+    expect(actions.map(({ label, icon }) => ({ label, icon }))).toEqual([
+      { label: 'Open on GitHub', icon: 'github' },
+      { label: 'Checkout on vscode.dev', icon: 'globe' },
+    ]);
+
+    actions[0]?.run('main');
+    expect(opened).toEqual(['https://github.com/o/r/tree/main']);
+
+    dispose();
+    await expect(registry.getRemoteSourceActions('git@github.com:o/r.git')).resolves.toEqual([]);
   });
 
   it('does not offer GitHub remote source actions for non-GitHub remotes', () => {

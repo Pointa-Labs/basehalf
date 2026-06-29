@@ -3,17 +3,13 @@ import {
   type RemoteSourceProviderRegistryLike,
   registerRemoteSourceProvider,
 } from '../../scm/browser/remoteSourceRegistry.js';
-import type { RemoteSourceProvider } from '../../scm/common/remoteSources.js';
+import type { RemoteSourceAction, RemoteSourceProvider } from '../../scm/common/remoteSources.js';
 import { type GithubChannel, githubChannel } from './githubChannel.js';
 
 type GithubRemoteSourceChannel = Pick<GithubChannel, 'listRemoteSources' | 'listRemoteBranches'>;
 type OpenExternal = (url: string) => unknown;
 
-export interface GithubRemoteSourceAction {
-  readonly label: string;
-  readonly icon: string;
-  readonly run: (branch: string) => void;
-}
+export type GithubRemoteSourceAction = RemoteSourceAction;
 
 function parseGithubRemoteUrl(remoteUrl: string): { owner: string; repo: string } | null {
   const trimmed = remoteUrl.trim();
@@ -76,7 +72,7 @@ export class GithubRemoteSourceProvider implements RemoteSourceProvider {
     return this.channel.listRemoteBranches(remoteUrl);
   }
 
-  getRemoteSourceActions(remoteUrl: string): readonly GithubRemoteSourceAction[] {
+  getRemoteSourceActions(remoteUrl: string): readonly RemoteSourceAction[] {
     if (githubRemoteSourceBranchUrl(remoteUrl, 'main') === null) return [];
 
     return [
