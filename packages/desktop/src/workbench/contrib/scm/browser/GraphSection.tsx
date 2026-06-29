@@ -3,62 +3,65 @@ import { Disclosure } from '../../../browser/ui/primitives/Disclosure.js';
 import { GitGraph } from './GitGraph.js';
 import { GraphRefPicker } from './GraphRefPicker.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
+import { type GraphHeaderButtonAction, graphHeaderActions } from './graphHeaderActionModel.js';
 import type { ScmCommands } from './useScmCommands.js';
 
 export const GraphSection = ({
   open,
   onToggle,
   busy,
-  canPublish,
-  canPull,
+  onRefresh,
   commands,
 }: {
   open: boolean;
   onToggle: () => void;
   busy: boolean;
-  canPublish: boolean;
-  canPull: boolean;
-  commands: Pick<
-    ScmCommands,
-    'openFullGraph' | 'revealHead' | 'fetch' | 'pull' | 'push' | 'publish' | 'sync'
-  >;
+  onRefresh: () => void;
+  commands: Pick<ScmCommands, 'openFullGraph' | 'revealHead'>;
 }): JSX.Element => (
   <Disclosure
     title="Graph"
     open={open}
     onToggle={onToggle}
-    actions={
-      <>
-        <GraphRefPicker disabled={busy} />
-        <IconBtn
-          title="Open Git Graph"
-          onClick={commands.openFullGraph}
-          disabled={busy}
-          glyph="screen-full"
+    actions={graphHeaderActions({ busy }).map((action) =>
+      action.kind === 'refPicker' ? (
+        <GraphRefPicker key={action.id} disabled={action.disabled} />
+      ) : (
+        <GraphHeaderButton
+          key={action.id}
+          action={action}
+          commands={commands}
+          onRefresh={onRefresh}
         />
-        <IconBtn
-          title="Go to Current History Item"
-          onClick={commands.revealHead}
-          disabled={busy}
-          glyph="target"
-        />
-        <IconBtn title="Fetch" onClick={commands.fetch} disabled={busy} glyph="cloud-download" />
-        <IconBtn
-          title={canPull ? 'Pull' : 'Pull (No Upstream Branch)'}
-          onClick={commands.pull}
-          disabled={busy || !canPull}
-          glyph="arrow-down"
-        />
-        <IconBtn title="Push" onClick={commands.push} disabled={busy} glyph="arrow-up" />
-        <IconBtn
-          title={canPublish ? 'Publish Branch' : 'Sync Changes'}
-          onClick={canPublish ? commands.publish : commands.sync}
-          disabled={busy}
-          glyph={canPublish ? 'cloud-upload' : 'sync'}
-        />
-      </>
-    }
+      ),
+    )}
   >
     {open && <GitGraph />}
   </Disclosure>
 );
+
+function GraphHeaderButton({
+  action,
+  commands,
+  onRefresh,
+}: {
+  readonly action: GraphHeaderButtonAction;
+  readonly commands: Pick<ScmCommands, 'openFullGraph' | 'revealHead'>;
+  readonly onRefresh: () => void;
+}): JSX.Element {
+  const onClick =
+    action.id === 'revealCurrent'
+      ? commands.revealHead
+      : action.id === 'refresh'
+        ? onRefresh
+        : commands.openFullGraph;
+
+  return (
+    <IconBtn
+      title={action.title}
+      onClick={onClick}
+      disabled={action.disabled}
+      glyph={action.glyph}
+    />
+  );
+}

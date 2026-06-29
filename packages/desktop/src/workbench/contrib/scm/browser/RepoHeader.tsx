@@ -1,38 +1,23 @@
 import type { JSX } from 'react';
 import { color, font, space } from '../../../browser/style/design.js';
-import { Menu, type MenuAction } from '../../../browser/ui/primitives/Menu.js';
+import { Menu } from '../../../browser/ui/primitives/Menu.js';
 import type { GitStatusResult } from '../common/git.js';
 import { BranchQuickPick } from './BranchQuickPick.js';
 import { ScmIconButton as IconBtn } from './ScmIconButton.js';
+import type { ScmHeaderActionModel } from './scmHeaderActions.js';
 import { scm } from './styles.js';
 
 export const RepoHeader = ({
   status,
   busy,
-  onPublish,
-  onSync,
   onAfterBranch,
-  menuActions,
+  actions,
 }: {
   status: GitStatusResult;
   busy: boolean;
-  onPublish: () => void;
-  onSync: () => void;
   onAfterBranch: () => void | Promise<void>;
-  menuActions: MenuAction[];
+  actions: ScmHeaderActionModel;
 }): JSX.Element => {
-  // The remote action follows VS Code: a branch without upstream publishes;
-  // otherwise it syncs and carries the ahead/behind counts.
-  const counts =
-    status.ahead > 0 || status.behind > 0
-      ? `${status.ahead > 0 ? `↑${status.ahead}` : ''}${status.behind > 0 ? `↓${status.behind}` : ''}`
-      : '';
-  const canPublish = status.detached !== true && status.branch !== null && status.upstream === null;
-  const syncTitle = canPublish
-    ? 'Publish Branch'
-    : counts !== ''
-      ? `Sync Changes ${counts}`
-      : 'Sync Changes (Pull, Push)';
   return (
     <div
       style={{
@@ -50,15 +35,19 @@ export const RepoHeader = ({
         minWidth: 0,
       }}
     >
-      <BranchQuickPick status={status} disabled={busy} onAfter={onAfterBranch} />
+      <BranchQuickPick
+        status={status}
+        busyReason={busy ? 'operation' : undefined}
+        onAfter={onAfterBranch}
+      />
       <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
         <IconBtn
-          title={syncTitle}
-          onClick={canPublish ? onPublish : onSync}
-          disabled={busy}
-          glyph={canPublish ? 'cloud-upload' : 'sync'}
+          title={actions.remoteAction.title}
+          onClick={actions.remoteAction.onClick}
+          disabled={actions.remoteAction.disabled}
+          glyph={actions.remoteAction.glyph}
         />
-        {!canPublish && counts !== '' && (
+        {actions.remoteAction.id === 'sync' && actions.remoteCounts !== '' && (
           <span
             style={{
               color: color.textTertiary,
@@ -67,10 +56,21 @@ export const RepoHeader = ({
               marginRight: space[1],
             }}
           >
-            {counts}
+            {actions.remoteCounts}
           </span>
         )}
-        <Menu actions={menuActions} title="More Actions…" align="right" disabled={busy} />
+        <IconBtn
+          title={actions.refreshAction.title}
+          onClick={actions.refreshAction.onClick}
+          disabled={actions.refreshAction.disabled}
+          glyph={actions.refreshAction.glyph}
+        />
+        <Menu
+          actions={actions.overflowActions}
+          title="More Actions…"
+          align="right"
+          disabled={busy}
+        />
       </span>
     </div>
   );

@@ -32,8 +32,14 @@ export interface MenuAction {
   readonly disabled?: boolean;
 }
 
+export interface MenuSeparator {
+  readonly separator: true;
+}
+
+export type MenuItem = MenuAction | MenuSeparator;
+
 interface MenuProps {
-  readonly actions: readonly MenuAction[];
+  readonly actions: readonly MenuItem[];
   readonly title?: string;
   /** Test hook for the Playwright driver — becomes `data-testid` on the trigger. */
   readonly testId?: string;
@@ -45,6 +51,45 @@ interface MenuProps {
 }
 
 const overflowGlyph = <Codicon name="ellipsis" size={16} style={{ flexShrink: 0 }} />;
+
+const isSeparator = (item: MenuItem): item is MenuSeparator => 'separator' in item;
+
+const normalizeMenuItems = (items: readonly MenuItem[]): MenuItem[] => {
+  const normalized: MenuItem[] = [];
+  for (const item of items) {
+    if (isSeparator(item)) {
+      const previous = normalized[normalized.length - 1];
+      if (previous === undefined || isSeparator(previous)) continue;
+      normalized.push(item);
+      continue;
+    }
+    normalized.push(item);
+  }
+  const last = normalized[normalized.length - 1];
+  if (last !== undefined && isSeparator(last)) normalized.pop();
+  return normalized;
+};
+
+const nearestLabel = (
+  items: readonly MenuItem[],
+  separatorIndex: number,
+  direction: 1 | -1,
+): string => {
+  for (
+    let index = separatorIndex + direction;
+    index >= 0 && index < items.length;
+    index += direction
+  ) {
+    const item = items[index];
+    if (item !== undefined && !isSeparator(item)) return item.label;
+  }
+  return direction === -1 ? 'start' : 'end';
+};
+
+const menuItemKey = (items: readonly MenuItem[], item: MenuItem, index: number): string =>
+  isSeparator(item)
+    ? `separator-${nearestLabel(items, index, -1)}-${nearestLabel(items, index, 1)}`
+    : `action-${item.label}`;
 
 export const Menu = ({
   actions,
@@ -60,10 +105,13 @@ export const Menu = ({
   const { open, toggle, close, triggerRef, floatingRef, coords } = usePopover({ align, disabled });
   const [hover, setHover] = useState(false);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const items = useMemo(() => normalizeMenuItems(actions), [actions]);
   const enabledIndexes = useMemo(
     () =>
-      actions.map((action, index) => (action.disabled ? -1 : index)).filter((index) => index >= 0),
-    [actions],
+      items
+        .map((item, index) => (isSeparator(item) || item.disabled ? -1 : index))
+        .filter((index) => index >= 0),
+    [items],
   );
 
   useEffect(() => {
@@ -134,71 +182,83 @@ export const Menu = ({
           role="menu"
           style={{ minWidth: 168 }}
         >
-          {actions.map((action, index) => (
-            <button
-              key={action.label}
-              ref={(node) => {
-                itemRefs.current[index] = node;
-              }}
-              type="button"
-              role="menuitem"
-              disabled={action.disabled}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  focusMenuItem(1);
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  focusMenuItem(-1);
-                } else if (e.key === 'Home') {
-                  e.preventDefault();
-                  focusMenuItem('first');
-                } else if (e.key === 'End') {
-                  e.preventDefault();
-                  focusMenuItem('last');
-                } else if (e.key === 'Tab') {
-                  e.preventDefault();
-                  focusMenuItem(e.shiftKey ? -1 : 1);
-                }
-              }}
-              onClick={() => {
-                close({ restoreFocus: true });
-                action.onClick();
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                width: '100%',
-                textAlign: 'left',
-                border: 'none',
-                background: 'transparent',
-                color: action.disabled
-                  ? color.textGhost
-                  : action.danger
-                    ? color.danger
-                    : color.textPrimary,
-                padding: `${space[1.5]}px ${space[2]}px`,
-                fontSize: font.size.ui,
-                fontFamily: font.sans,
-                borderRadius: radius.sm,
-                cursor: action.disabled ? 'not-allowed' : 'pointer',
-                outline: 'none',
-                whiteSpace: 'nowrap',
-                transition: transition(['background']),
-              }}
-              onMouseEnter={(e) => {
-                if (!action.disabled)
-                  e.currentTarget.style.background = action.danger
-                    ? color.dangerSoft
-                    : color.accentSofter;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-              }}
-            >
-              {action.label}
-            </button>
-          ))}
+          {items.map((item, index) =>
+            isSeparator(item) ? (
+              <div
+                key={menuItemKey(items, item, index)}
+                role="separator"
+                style={{
+                  height: 1,
+                  margin: `${space[1]}px ${space[1]}px`,
+                  background: color.divider,
+                }}
+              />
+            ) : (
+              <button
+                key={menuItemKey(items, item, index)}
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    focusMenuItem(1);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    focusMenuItem(-1);
+                  } else if (e.key === 'Home') {
+                    e.preventDefault();
+                    focusMenuItem('first');
+                  } else if (e.key === 'End') {
+                    e.preventDefault();
+                    focusMenuItem('last');
+                  } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    focusMenuItem(e.shiftKey ? -1 : 1);
+                  }
+                }}
+                onClick={() => {
+                  close({ restoreFocus: true });
+                  item.onClick();
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: '100%',
+                  textAlign: 'left',
+                  border: 'none',
+                  background: 'transparent',
+                  color: item.disabled
+                    ? color.textGhost
+                    : item.danger
+                      ? color.danger
+                      : color.textPrimary,
+                  padding: `${space[1.5]}px ${space[2]}px`,
+                  fontSize: font.size.ui,
+                  fontFamily: font.sans,
+                  borderRadius: radius.sm,
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                  outline: 'none',
+                  whiteSpace: 'nowrap',
+                  transition: transition(['background']),
+                }}
+                onMouseEnter={(e) => {
+                  if (!item.disabled)
+                    e.currentTarget.style.background = item.danger
+                      ? color.dangerSoft
+                      : color.accentSofter;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                {item.label}
+              </button>
+            ),
+          )}
         </PopoverSurface>
       )}
     </div>

@@ -3,6 +3,7 @@ import {
   branchOption,
   canDeleteBranch,
   checkoutTargetForRef,
+  createBranchCheckoutCommandModel,
   createBranchFromPickOptions,
   createCheckoutPickOptions,
   createDetachedCheckoutPickOptions,
@@ -33,6 +34,48 @@ const remote = (name: string, props: Partial<GitRefInfo> = {}): GitRefInfo => ({
 });
 
 describe('branchQuickPickModel', () => {
+  it('models the checkout branch command as a VS Code-style command entry', () => {
+    expect(createBranchCheckoutCommandModel({ branch: 'main', detached: false })).toEqual({
+      label: 'main',
+      icon: 'git-branch',
+      iconSpin: false,
+      tooltip: 'main, Checkout Branch/Tag...',
+      ariaLabel: 'Checkout Branch/Tag',
+      disabled: false,
+    });
+    expect(createBranchCheckoutCommandModel({ branch: null, detached: true })).toMatchObject({
+      label: 'detached',
+      icon: 'git-commit',
+      tooltip: 'detached, Checkout Branch/Tag...',
+      disabled: false,
+    });
+  });
+
+  it('models checkout command busy states for shared header and status bar entries', () => {
+    expect(
+      createBranchCheckoutCommandModel({ branch: 'main', detached: false }, 'checkout'),
+    ).toEqual({
+      label: 'main',
+      icon: 'loading',
+      iconSpin: true,
+      tooltip: 'main, Checking Out Branch/Tag...',
+      ariaLabel: 'Checkout Branch/Tag',
+      disabled: true,
+    });
+    expect(
+      createBranchCheckoutCommandModel({ branch: 'main', detached: false }, 'sync'),
+    ).toMatchObject({
+      tooltip: 'main, Synchronizing Changes...',
+      disabled: true,
+    });
+    expect(
+      createBranchCheckoutCommandModel({ branch: 'main', detached: false }, 'operation'),
+    ).toMatchObject({
+      tooltip: 'main, Git operation in progress...',
+      disabled: true,
+    });
+  });
+
   it('filters refs case-insensitively and keeps empty filters as identity', () => {
     const refs = [branch('main'), branch('feature/Auth'), branch('release')];
 

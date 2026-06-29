@@ -20,33 +20,36 @@ import {
 
 const msg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-export async function openBranchQuickPick({
-  git,
-  onAfter,
-}: {
+interface CheckoutBranchCommandArgs {
   readonly git: BranchGitAdapter;
   readonly onAfter: () => void | Promise<void>;
-}): Promise<void> {
+}
+
+export async function runCheckoutBranchCommand(args: CheckoutBranchCommandArgs): Promise<void> {
   try {
-    const { refs } = await git.listRefs();
-
-    const choice = await pickWithInputValue({
-      title: 'Switch Branch',
-      placeholder: 'Select a branch or tag to checkout',
-      emptyText: 'No branches or tags found.',
-      options: createCheckoutPickOptions(refs),
-      sortOptions: orderCheckoutPickOptions,
-    });
-    if (choice === null) return;
-
-    if (isBranchQuickPickCommand(choice.value)) {
-      await runBranchQuickPickCommand(choice.value, choice.inputValue.trim(), git, refs, onAfter);
-    } else {
-      const branch = refs.find((b) => b.id === choice.value);
-      if (branch !== undefined) await checkoutBranchWithRecovery(git, branch, refs, onAfter);
-    }
+    await openBranchQuickPick(args);
   } catch (err) {
     toast.error(msg(err));
+  }
+}
+
+async function openBranchQuickPick({ git, onAfter }: CheckoutBranchCommandArgs): Promise<void> {
+  const { refs } = await git.listRefs();
+
+  const choice = await pickWithInputValue({
+    title: 'Checkout Branch/Tag',
+    placeholder: 'Select a branch or tag to checkout',
+    emptyText: 'No branches or tags found.',
+    options: createCheckoutPickOptions(refs),
+    sortOptions: orderCheckoutPickOptions,
+  });
+  if (choice === null) return;
+
+  if (isBranchQuickPickCommand(choice.value)) {
+    await runBranchQuickPickCommand(choice.value, choice.inputValue.trim(), git, refs, onAfter);
+  } else {
+    const branch = refs.find((b) => b.id === choice.value);
+    if (branch !== undefined) await checkoutBranchWithRecovery(git, branch, refs, onAfter);
   }
 }
 

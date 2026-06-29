@@ -11,6 +11,7 @@ import { GraphSection } from './GraphSection.js';
 import { RepoHeader } from './RepoHeader.js';
 import { ResourceGroups } from './ResourceGroups.js';
 import { StashSection } from './StashSection.js';
+import { scmHeaderActionModel } from './scmHeaderActions.js';
 import {
   type ScmViewContribution,
   scmContributionMenuActions,
@@ -74,6 +75,14 @@ export function ScmViewPane({
     contributions ?? scmViewContributionRegistry.getScmViewContributions(),
     model,
   );
+  const headerActions = scmHeaderActionModel({
+    status,
+    busy,
+    view,
+    commands,
+    refresh,
+    contributionActions: scmContributionMenuActions(visibleContributions, model),
+  });
   const runPrimaryAction = (action: SourceControlPrimaryAction): void => {
     if (action === 'publish') commands.publish();
     else if (action === 'sync') commands.sync();
@@ -82,28 +91,7 @@ export function ScmViewPane({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      <RepoHeader
-        status={status}
-        busy={busy}
-        onPublish={commands.publish}
-        onSync={commands.sync}
-        onAfterBranch={refresh}
-        menuActions={[
-          { label: 'Create Branch…', onClick: commands.createBranchPrompt },
-          { label: 'Publish Branch', onClick: commands.publish, disabled: !view.canPublish },
-          { label: 'Pull', onClick: commands.pull, disabled: !view.canPull },
-          { label: 'Pull (Rebase)', onClick: commands.pullRebase, disabled: !view.canPull },
-          { label: 'Push', onClick: commands.push },
-          { label: 'Push (Force)', onClick: commands.pushForce },
-          { label: 'Fetch', onClick: commands.fetch },
-          ...scmContributionMenuActions(visibleContributions, model),
-          { label: 'Undo Last Commit', onClick: commands.undoLastCommit },
-          { label: 'Stash', onClick: commands.stash },
-          { label: 'Pop Stash', onClick: () => commands.popStash() },
-          { label: 'Discard All Changes', onClick: commands.discardAll, danger: true },
-          { label: 'Refresh', onClick: () => void refresh() },
-        ]}
-      />
+      <RepoHeader status={status} busy={busy} onAfterBranch={refresh} actions={headerActions} />
 
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} onKeyDown={handleTreeKeyDown}>
         <CommitInput
@@ -139,8 +127,7 @@ export function ScmViewPane({
           open={model.graphOpen}
           onToggle={() => model.setGraphOpen(!model.graphOpen)}
           busy={busy}
-          canPublish={view.canPublish}
-          canPull={view.canPull}
+          onRefresh={() => void refresh()}
           commands={commands}
         />
 

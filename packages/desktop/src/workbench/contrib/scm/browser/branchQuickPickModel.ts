@@ -1,5 +1,5 @@
 import type { QuickPickOption } from '../../../../platform/quickinput/common/quickInput.js';
-import type { GitRefInfo } from '../common/git.js';
+import type { GitRefInfo, GitStatusResult } from '../common/git.js';
 export {
   type CheckoutTarget,
   checkoutTargetForRef,
@@ -10,6 +10,16 @@ export {
 
 export type BranchQuickPickMode = 'switch' | 'merge';
 export type BranchQuickPickCommand = 'cmd:create' | 'cmd:createFrom' | 'cmd:checkoutDetached';
+export type BranchCheckoutBusyReason = 'checkout' | 'commit' | 'sync' | 'operation';
+
+export interface BranchCheckoutCommandModel {
+  readonly label: string;
+  readonly icon: string;
+  readonly iconSpin: boolean;
+  readonly tooltip: string;
+  readonly ariaLabel: string;
+  readonly disabled: boolean;
+}
 
 const CHECKOUT_BLOCKED_RE =
   /would be overwritten by checkout|local changes to the following files would be overwritten|untracked working tree files would be overwritten|please commit your changes or stash/i;
@@ -64,6 +74,37 @@ export const HEAD_REF_OPTION = {
 
 export const isCheckoutBlockedError = (message: string): boolean =>
   CHECKOUT_BLOCKED_RE.test(message);
+
+export const createBranchCheckoutCommandModel = (
+  status: Pick<GitStatusResult, 'branch' | 'detached'>,
+  busyReason?: BranchCheckoutBusyReason,
+): BranchCheckoutCommandModel => {
+  const label = status.detached ? 'detached' : (status.branch ?? '-');
+  const action = checkoutTooltipAction(busyReason);
+  return {
+    label,
+    icon: busyReason === 'checkout' ? 'loading' : status.detached ? 'git-commit' : 'git-branch',
+    iconSpin: busyReason === 'checkout',
+    tooltip: `${label}, ${action}`,
+    ariaLabel: 'Checkout Branch/Tag',
+    disabled: busyReason !== undefined,
+  };
+};
+
+function checkoutTooltipAction(reason?: BranchCheckoutBusyReason): string {
+  switch (reason) {
+    case 'checkout':
+      return 'Checking Out Branch/Tag...';
+    case 'commit':
+      return 'Committing Changes...';
+    case 'sync':
+      return 'Synchronizing Changes...';
+    case 'operation':
+      return 'Git operation in progress...';
+    default:
+      return 'Checkout Branch/Tag...';
+  }
+}
 
 export const filterBranches = (
   branches: readonly GitRefInfo[],

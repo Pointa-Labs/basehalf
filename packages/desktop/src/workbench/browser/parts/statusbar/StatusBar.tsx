@@ -76,7 +76,7 @@ export const StatusBar = (): JSX.Element => {
         <>
           <BranchQuickPick
             status={status}
-            disabled={syncing}
+            busyReason={syncing ? 'sync' : undefined}
             onAfter={refresh}
             variant="statusBar"
           />

@@ -3,11 +3,15 @@ import { color, font, radius, space, transition } from '../../../browser/style/d
 import { Codicon } from '../../../browser/ui/Codicon.js';
 import type { GitStatusResult } from '../common/git.js';
 import { type BranchGitAdapter, defaultBranchGitAdapter } from './branchGitAdapter.js';
-import { openBranchQuickPick } from './branchQuickPickCommands.js';
+import { runCheckoutBranchCommand } from './branchQuickPickCommands.js';
+import {
+  type BranchCheckoutBusyReason,
+  createBranchCheckoutCommandModel,
+} from './branchQuickPickModel.js';
 
 interface BranchQuickPickProps {
   readonly status: GitStatusResult;
-  readonly disabled: boolean;
+  readonly busyReason?: BranchCheckoutBusyReason;
   readonly adapter?: BranchGitAdapter;
   /** Re-read git.status after a switch / merge / create (HEAD or tree changed). */
   readonly onAfter: () => void | Promise<void>;
@@ -16,7 +20,7 @@ interface BranchQuickPickProps {
 
 export const BranchQuickPick = ({
   status,
-  disabled,
+  busyReason,
   adapter,
   onAfter,
   variant = 'scm',
@@ -24,30 +28,33 @@ export const BranchQuickPick = ({
   const git = adapter ?? defaultBranchGitAdapter;
   const [picking, setPicking] = useState(false);
   const [hover, setHover] = useState(false);
-  const label = status.detached ? 'detached' : (status.branch ?? '-');
+  const model = createBranchCheckoutCommandModel(status, picking ? 'checkout' : busyReason);
 
   const runPicker = (): void => {
-    if (disabled || picking) return;
+    if (model.disabled) return;
     setPicking(true);
-    void openBranchQuickPick({ git, onAfter }).finally(() => setPicking(false));
+    void runCheckoutBranchCommand({ git, onAfter }).finally(() => setPicking(false));
   };
 
   return (
     <button
       type="button"
       onClick={runPicker}
-      disabled={disabled || picking}
-      title={status.upstream ?? 'Switch Branch'}
-      aria-label="Switch Branch"
+      disabled={model.disabled}
+      title={model.tooltip}
+      aria-label={model.ariaLabel}
       data-testid={variant === 'statusBar' ? 'statusbar-branch' : 'scm-branch'}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={triggerStyle(variant, picking || hover, disabled)}
+      style={triggerStyle(variant, picking || (!model.disabled && hover), model.disabled)}
     >
       <Codicon
-        name="git-branch"
+        name={model.icon}
         size={variant === 'statusBar' ? 14 : 16}
-        style={{ flexShrink: 0 }}
+        style={{
+          flexShrink: 0,
+          animation: model.iconSpin ? 'bh-spin 0.8s linear infinite' : undefined,
+        }}
       />
       <span
         style={{
@@ -58,9 +65,8 @@ export const BranchQuickPick = ({
           maxWidth: variant === 'statusBar' ? 200 : undefined,
         }}
       >
-        {label}
+        {model.label}
       </span>
-      {variant === 'scm' && <Codicon name="chevron-down" size={12} color={color.textGhost} />}
     </button>
   );
 };

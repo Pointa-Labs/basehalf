@@ -3,7 +3,7 @@ import { prompt } from '../src/platform/dialogs/browser/dialogService.js';
 import { toast } from '../src/platform/notification/browser/notificationService.js';
 import { pick, pickWithInputValue } from '../src/platform/quickinput/browser/quickInputService.js';
 import type { BranchGitAdapter } from '../src/workbench/contrib/scm/browser/branchGitAdapter.js';
-import { openBranchQuickPick } from '../src/workbench/contrib/scm/browser/branchQuickPickCommands.js';
+import { runCheckoutBranchCommand } from '../src/workbench/contrib/scm/browser/branchQuickPickCommands.js';
 import type { GitCreateBranchArgs, GitRefInfo } from '../src/workbench/contrib/scm/common/git.js';
 
 vi.mock('../src/platform/dialogs/browser/dialogService.js', () => ({
@@ -73,12 +73,14 @@ describe('branchQuickPickCommands', () => {
     const adapter = adapterFor(refs);
     vi.mocked(pickWithInputValue).mockResolvedValueOnce(null);
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: vi.fn(),
     });
 
-    const options = vi.mocked(pickWithInputValue).mock.calls[0]?.[0].options ?? [];
+    const pickOptions = vi.mocked(pickWithInputValue).mock.calls[0]?.[0];
+    const options = pickOptions?.options ?? [];
+    expect(pickOptions?.title).toBe('Checkout Branch/Tag');
     expect(options.map((option) => option.label)).toEqual([
       'Create Branch...',
       'Create Branch From...',
@@ -102,7 +104,7 @@ describe('branchQuickPickCommands', () => {
       inputValue: '',
     });
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -120,7 +122,7 @@ describe('branchQuickPickCommands', () => {
     vi.mocked(pickWithInputValue).mockResolvedValueOnce({ value: 'cmd:create', inputValue: '' });
     vi.mocked(prompt).mockResolvedValueOnce(' feature/new ');
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -143,7 +145,7 @@ describe('branchQuickPickCommands', () => {
       inputValue: 'feature/from-input',
     });
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -165,7 +167,7 @@ describe('branchQuickPickCommands', () => {
     vi.mocked(pick).mockResolvedValueOnce('refs/remotes/origin/topic');
     vi.mocked(prompt).mockResolvedValueOnce(' topic-copy ');
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -188,7 +190,7 @@ describe('branchQuickPickCommands', () => {
     });
     vi.mocked(pick).mockResolvedValueOnce('HEAD');
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -216,7 +218,7 @@ describe('branchQuickPickCommands', () => {
     });
     vi.mocked(pick).mockResolvedValueOnce('refs/remotes/origin/topic');
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
@@ -252,7 +254,7 @@ describe('branchQuickPickCommands', () => {
       .mockResolvedValueOnce('refs/remotes/origin/topic')
       .mockResolvedValueOnce('force');
 
-    await openBranchQuickPick({
+    await runCheckoutBranchCommand({
       git: adapter,
       onAfter: () => {
         calls.push('after');
