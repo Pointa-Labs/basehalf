@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useState } from 'react';
-import { fileUrl } from '../../../../platform/files/browser/fileUrl.js';
+import { fileUrl } from '../../../../platform/files/common/fileUrl.js';
 import { nativeHostService } from '../../../../platform/native/browser/nativeHostService.js';
 import { color, font, radius, shadow, space } from '../../style/design.js';
 import { Button } from '../../ui/primitives/Button.js';

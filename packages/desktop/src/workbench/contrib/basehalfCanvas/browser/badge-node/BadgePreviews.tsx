@@ -1,5 +1,5 @@
 import { type CSSProperties, type JSX, useEffect, useState } from 'react';
-import { fileUrl } from '../../../../../platform/files/browser/fileUrl.js';
+import { fileUrl } from '../../../../../platform/files/common/fileUrl.js';
 import { workspaceService } from '../../../../../platform/workspaces/browser/workspaceService.js';
 import type { BadgeType } from '../../../../browser/labels/FileGlyph.js';
 import { color, font, radius, space } from '../../../../browser/style/design.js';
