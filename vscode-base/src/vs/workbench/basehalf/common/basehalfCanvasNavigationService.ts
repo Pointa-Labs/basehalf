@@ -18,6 +18,7 @@ import {
 	IBaseHalfCardDetailState,
 	IBaseHalfOpenResourceOptions
 } from './basehalfCanvasNavigation.js';
+import { DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION } from './basehalfCardDetail.js';
 
 export class BaseHalfCanvasNavigationService extends Disposable implements IBaseHalfCanvasNavigationService {
 	declare readonly _serviceBrand: undefined;
@@ -99,7 +100,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			source: options.source,
 			selection: options.selection,
 			preserveFocus: options.preserveFocus,
-			pinned: options.pinned
+			pinned: options.pinned,
+			projection: options.projection ?? DEFAULT_BASEHALF_CARD_DETAIL_PROJECTION
 		};
 		this.updateState({
 			canvasFolder,

@@ -53,6 +53,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail?.source, 'search');
 		assert.deepStrictEqual(service.state.cardDetail?.selection, { startLineNumber: 4, startColumn: 2, endLineNumber: 4, endColumn: 9 });
 		assert.strictEqual(service.state.cardDetail?.pinned, true);
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
 	});
 
 	test('opens root workspace files over the workspace root canvas', async () => {
@@ -67,6 +68,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.canvasFolder?.resource.fsPath, '/workspace');
 		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
 	});
 
 	test('opening another file moves the canvas to that file parent folder', async () => {
@@ -101,6 +103,21 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
 		assert.strictEqual(service.state.cardDetail?.workspaceFolder.fsPath, '/workspace/packages/app');
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
+	});
+
+	test('preserves an explicitly requested source projection on card detail', async () => {
+		const service = createService(new Map([
+			['/workspace/docs/readme.md', aFileStat(URI.file('/workspace/docs/readme.md'), FileType.File)]
+		]));
+
+		const result = await service.openResource(URI.file('/workspace/docs/readme.md'), {
+			source: 'explorer',
+			projection: 'source'
+		});
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(result.handled && result.target, 'cardDetail');
+		assert.strictEqual(service.state.cardDetail?.projection, 'source');
 	});
 
 	test('reports outside workspace resources for fallback instead of mutating state', async () => {

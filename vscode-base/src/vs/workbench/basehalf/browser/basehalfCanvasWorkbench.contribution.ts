@@ -8,8 +8,8 @@ import './media/basehalfCanvasWorkbench.css';
 import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { basename } from '../../../base/common/resources.js';
-import { URI } from '../../../base/common/uri.js';
-import { IFileService, IFileStat, TooLargeFileOperationError } from '../../../platform/files/common/files.js';
+import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
+import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILabelService } from '../../../platform/label/common/label.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
@@ -24,8 +24,8 @@ import {
 } from '../common/basehalfCanvasModel.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
+import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 
-const MAX_DETAIL_PREVIEW_BYTES = 256 * 1024;
 const DEFAULT_CARD_WIDTH = 220;
 const DEFAULT_CARD_HEIGHT = 112;
 
@@ -42,15 +42,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
+	private readonly detailDisposables = this._register(new DisposableStore());
 
 	private renderSeq = 0;
-	private detailSeq = 0;
+	private detailKey: string | undefined;
+	private sourceDetail: BaseHalfSourceCardDetail | undefined;
 
 	constructor(
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly fileService: IFileService,
 		@ILabelService private readonly labelService: ILabelService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IEditorService editorService: IEditorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService
@@ -254,6 +257,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const cardDetail = this.canvasNavigationService.state.cardDetail;
 		this.detail.classList.toggle('visible', !!cardDetail);
 		if (!cardDetail) {
+			this.detailKey = undefined;
+			this.sourceDetail = undefined;
+			this.detailDisposables.clear();
 			clearNode(this.detailBody);
 			this.detailTitle.textContent = '';
 			this.detailMeta.textContent = '';
@@ -261,64 +267,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.detailTitle.textContent = cardDetail.relativePath || basename(cardDetail.resource);
-		this.detailMeta.textContent = this.detailMetaFor(cardDetail.selection);
-		void this.loadDetail(cardDetail.resource);
-	}
+		this.detailMeta.textContent = this.detailMetaFor(cardDetail.projection, cardDetail.selection);
 
-	private async loadDetail(resource: URI): Promise<void> {
-		const seq = ++this.detailSeq;
-		clearNode(this.detailBody);
-		const loading = append(this.detailBody, $('.basehalf-card-detail-status'));
-		loading.textContent = 'Loading';
+		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
+		if (this.detailKey === detailKey && this.sourceDetail) {
+			this.sourceDetail.applySelection(cardDetail.selection);
+			return;
+		}
 
-		try {
-			const stat = await this.fileService.stat(resource);
-			if (stat.size > MAX_DETAIL_PREVIEW_BYTES) {
-				if (seq === this.detailSeq) {
-					this.renderDetailStatus('Too large');
-				}
-				return;
-			}
+		this.detailKey = detailKey;
+		this.sourceDetail = undefined;
+		this.detailDisposables.clear();
 
-			const content = await this.fileService.readFile(resource, { limits: { size: MAX_DETAIL_PREVIEW_BYTES } });
-			const text = content.value.toString();
-			if (seq !== this.detailSeq) {
-				return;
-			}
-
-			if (text.includes('\u0000')) {
-				this.renderDetailStatus('Binary file');
-				return;
-			}
-
-			clearNode(this.detailBody);
-			const pre = append(this.detailBody, $('pre.basehalf-card-detail-preview'));
-			pre.textContent = text || '';
-		} catch (error) {
-			if (seq !== this.detailSeq) {
-				return;
-			}
-
-			if (error instanceof TooLargeFileOperationError) {
-				this.renderDetailStatus('Too large');
-			} else {
-				this.renderDetailStatus(error instanceof Error ? error.message : String(error));
-			}
+		if (cardDetail.projection === 'source') {
+			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfSourceCardDetail, this.detailBody));
+			void this.sourceDetail.open(cardDetail);
 		}
 	}
 
-	private renderDetailStatus(message: string): void {
-		clearNode(this.detailBody);
-		const status = append(this.detailBody, $('.basehalf-card-detail-status'));
-		status.textContent = message;
-	}
-
-	private detailMetaFor(selection: { startLineNumber: number; startColumn: number } | undefined): string {
+	private detailMetaFor(projection: string, selection: { startLineNumber: number; startColumn: number } | undefined): string {
+		const parts = [projection];
 		if (!selection) {
-			return '';
+			return parts.join(' • ');
 		}
 
-		return `L${selection.startLineNumber}:${selection.startColumn}`;
+		parts.push(`L${selection.startLineNumber}:${selection.startColumn}`);
+		return parts.join(' • ');
 	}
 
 	private canvasSize(items: readonly IBaseHalfCanvasItem[]): Dimension {

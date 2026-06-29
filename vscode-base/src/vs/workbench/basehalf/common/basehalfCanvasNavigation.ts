@@ -7,6 +7,7 @@ import { Event } from '../../../base/common/event.js';
 import { URI } from '../../../base/common/uri.js';
 import { ITextEditorSelection } from '../../../platform/editor/common/editor.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
+import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
 
 export const IBaseHalfCanvasNavigationService = createDecorator<IBaseHalfCanvasNavigationService>('baseHalfCanvasNavigationService');
 
@@ -24,6 +25,7 @@ export interface IBaseHalfOpenResourceOptions {
 	readonly selection?: ITextEditorSelection;
 	readonly preserveFocus?: boolean;
 	readonly pinned?: boolean;
+	readonly projection?: BaseHalfCardDetailProjection;
 }
 
 export interface IBaseHalfWorkspaceResource {
@@ -41,6 +43,7 @@ export interface IBaseHalfCardDetailState extends IBaseHalfWorkspaceResource {
 	readonly selection?: ITextEditorSelection;
 	readonly preserveFocus?: boolean;
 	readonly pinned?: boolean;
+	readonly projection: BaseHalfCardDetailProjection;
 }
 
 export interface IBaseHalfCanvasNavigationState {
