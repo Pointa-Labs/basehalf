@@ -4,38 +4,119 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../platform/configuration/common/configurationRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
+import { EditorsOrder } from '../../common/editor.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { Extensions as ViewExtensions, IViewContainersRegistry, ViewContainer } from '../../common/views.js';
-import { BASEHALF_PRODUCT_PROFILE_ID, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
+import { ViewContainerLocation } from '../../common/views.js';
+import { IEditorService } from '../../services/editor/common/editorService.js';
+import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import { IViewsService } from '../../services/views/common/viewsService.js';
+import { BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
+
+Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
+	overrides: BASEHALF_CONFIGURATION_DEFAULTS,
+	source: { id: BASEHALF_PRODUCT_PROFILE_ID, displayName: 'BaseHalf' },
+	preventExperimentOverride: true
+}]);
 
 class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalfWorkbenchProfile';
 
 	constructor(
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IEditorService private readonly editorService: IEditorService,
+		@ILifecycleService private readonly lifecycleService: ILifecycleService,
+		@IStorageService private readonly storageService: IStorageService,
+		@IViewsService private readonly viewsService: IViewsService
 	) {
 		super();
 
-		const viewContainersRegistry = Registry.as<IViewContainersRegistry>(ViewExtensions.ViewContainersRegistry);
-		this.enforceHiddenViewContainers(viewContainersRegistry);
-		this._register(viewContainersRegistry.onDidRegister(({ viewContainer }) => this.enforceHiddenViewContainer(viewContainersRegistry, viewContainer)));
+		this.clearCompetingStartupStorage();
+		this.applyLeftSidebarProfile();
+		this.closeRestoredCompetingSurfaces();
 	}
 
-	private enforceHiddenViewContainers(viewContainersRegistry: IViewContainersRegistry): void {
-		for (const viewContainer of [...viewContainersRegistry.all]) {
-			this.enforceHiddenViewContainer(viewContainersRegistry, viewContainer);
+	private clearCompetingStartupStorage(): void {
+		for (const key of BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR) {
+			if (this.storageService.get(key, StorageScope.PROFILE) !== undefined) {
+				this.storageService.remove(key, StorageScope.PROFILE);
+				this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] cleared VS Code startup storage: ${key}`);
+			}
+		}
+
+		for (const key of BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR) {
+			if (this.storageService.get(key, StorageScope.WORKSPACE) !== undefined) {
+				this.storageService.remove(key, StorageScope.WORKSPACE);
+				this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] cleared VS Code workspace startup storage: ${key}`);
+			}
 		}
 	}
 
-	private enforceHiddenViewContainer(viewContainersRegistry: IViewContainersRegistry, viewContainer: ViewContainer): void {
-		if (!shouldBaseHalfHideViewContainer(viewContainer.id)) {
+	private applyLeftSidebarProfile(): void {
+		this.storeJsonIfChanged(
+			BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
+			StorageScope.PROFILE,
+			StorageTarget.USER,
+			BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS,
+			'activity pinned view containers'
+		);
+
+		this.storeJsonIfChanged(
+			BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY,
+			StorageScope.WORKSPACE,
+			StorageTarget.MACHINE,
+			BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE,
+			'activity view container workspace state'
+		);
+	}
+
+	private storeJsonIfChanged(key: string, scope: StorageScope, target: StorageTarget, value: unknown, label: string): void {
+		const serialized = JSON.stringify(value);
+		if (this.storageService.get(key, scope) === serialized) {
 			return;
 		}
 
-		viewContainersRegistry.deregisterViewContainer(viewContainer);
-		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] hidden view container deregistered: ${viewContainer.id}`);
+		this.storageService.store(key, serialized, scope, target);
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] applied BaseHalf ${label}: ${key}`);
+	}
+
+	private async closeRestoredCompetingSurfaces(): Promise<void> {
+		await this.lifecycleService.when(LifecyclePhase.Restored);
+		await this.closeRestoredHiddenViewContainers();
+		await this.closeRestoredStartupEditors();
+	}
+
+	private async closeRestoredHiddenViewContainers(): Promise<void> {
+		for (const viewContainer of BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS) {
+			if (!shouldBaseHalfHideViewContainer(viewContainer.id) || !this.viewsService.isViewContainerVisible(viewContainer.id)) {
+				continue;
+			}
+
+			this.viewsService.closeViewContainer(viewContainer.id);
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view container: ${viewContainer.id}`);
+		}
+
+		const primaryViewContainer = BASEHALF_PRIMARY_VIEW_CONTAINERS[0];
+		if (primaryViewContainer && !this.viewsService.getVisibleViewContainer(ViewContainerLocation.Sidebar)?.id) {
+			await this.viewsService.openViewContainer(primaryViewContainer.id, false);
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] restored BaseHalf primary view container: ${primaryViewContainer.id}`);
+		}
+	}
+
+	private async closeRestoredStartupEditors(): Promise<void> {
+		const editorsToClose = this.editorService
+			.getEditors(EditorsOrder.SEQUENTIAL)
+			.filter(identifier => shouldBaseHalfCloseStartupEditor(identifier.editor.typeId));
+
+		if (!editorsToClose.length) {
+			return;
+		}
+
+		await this.editorService.closeEditors(editorsToClose, { preserveFocus: true });
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored VS Code startup editors: ${editorsToClose.map(identifier => identifier.editor.typeId).join(', ')}`);
 	}
 }
 

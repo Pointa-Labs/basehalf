@@ -10,6 +10,9 @@ import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extens
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../services/search/common/search.js';
 
 export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
+export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.activity.pinnedViewlets2';
+export const BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY = 'workbench.activity.viewletsWorkspaceState';
+export const BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY = 'workbench.sidebar.activeviewletid';
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
@@ -162,6 +165,64 @@ export const BASEHALF_HIDDEN_SURFACES = [
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
 export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
+
+export const BASEHALF_CONFIGURATION_DEFAULTS = {
+	'workbench.startupEditor': 'none',
+	'workbench.welcome.enabled': false,
+	'workbench.welcomePage.walkthroughs.openOnInstall': false,
+	'workbench.welcomePage.experimentalOnboarding': false,
+	'chat.disableAIFeatures': true,
+	'chat.agent.enabled': false,
+	'chat.agentsControl.enabled': 'hidden',
+	'chat.unifiedAgentsBar.enabled': false,
+	'chat.agentSessionProjection.enabled': false,
+	'chat.viewSessions.enabled': false,
+	'chat.agentsHandoffTip.mode': 'hidden',
+	'chat.titleBar.signIn.enabled': false,
+	'chat.titleBar.openInAgentsWindow.enabled': false,
+	'chat.agentHost.enabled': false,
+	'chat.agentHost.claudeAgent.enabled': false,
+	'chat.agentHost.codexAgent.enabled': false,
+	'chat.agents.claude.preferAgentHost': false,
+	'chat.editor.claude.preferAgentHost': false,
+	'security.workspace.trust.startupPrompt': 'never',
+	'security.workspace.trust.banner': 'never'
+} as const;
+
+export const BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR = [
+	'workbench.welcomePage.restorableWalkthroughs'
+] as const;
+
+export const BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR = [
+	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY
+] as const;
+
+export const BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS = [
+	'workbench.editors.gettingStartedInput',
+	'workbench.editors.agentSessionsWelcome',
+	'workbench.editors.workspaceTrust',
+	'workbench.editors.workspaceTrustRequiredEditor'
+] as const;
+
+export const BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS = [
+	...BASEHALF_PRIMARY_VIEW_CONTAINERS.map((surface, order) => ({
+		id: surface.id,
+		pinned: true,
+		visible: true,
+		order
+	})),
+	...BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'viewContainer').map((surface, index) => ({
+		id: surface.id,
+		pinned: false,
+		visible: false,
+		order: BASEHALF_PRIMARY_VIEW_CONTAINERS.length + index
+	}))
+] as const;
+
+export const BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.map(surface => ({
+	id: surface.id,
+	visible: surface.visible
+})) as readonly { readonly id: string; readonly visible: boolean }[];
 
 export interface IBaseHalfAllowedExtensionFamily {
 	readonly family: BaseHalfExtensionFamily;
@@ -416,6 +477,10 @@ export function shouldBaseHalfHideViewContainer(id: string): boolean {
 	return HIDDEN_VIEW_CONTAINER_IDS.has(id);
 }
 
+export function shouldBaseHalfCloseStartupEditor(typeId: string): boolean {
+	return CLOSED_STARTUP_EDITOR_TYPE_IDS.has(typeId);
+}
+
 export function getIncompleteBaseHalfModuleTracks(): readonly IBaseHalfMigrationModuleTrack[] {
 	return BASEHALF_MIGRATION_MODULE_TRACKS.filter(track => {
 		const gates = new Set(track.completionGates);
@@ -445,6 +510,7 @@ const HIDDEN_SURFACE_IDS = new Set<string>(BASEHALF_HIDDEN_SURFACES.map(surface 
 const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(
 	BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'viewContainer').map(surface => surface.id)
 );
+const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
 );

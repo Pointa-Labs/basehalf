@@ -5,18 +5,28 @@
 
 import assert from 'assert';
 import {
+	BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
+	BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY,
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES,
+	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY,
+	BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
+	BASEHALF_CONFIGURATION_DEFAULTS,
 	BASEHALF_HIDDEN_SURFACES,
+	BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS,
+	BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE,
 	BASEHALF_MIGRATION_MODULE_TRACKS,
 	BASEHALF_PRIMARY_VIEW_CONTAINERS,
 	BASEHALF_PRODUCT_PROFILE_ID,
+	BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR,
 	BASEHALF_REMAPPED_SURFACES,
 	BASEHALF_REQUIRED_MODULE_COMPLETION_GATES,
+	BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR,
 	getBaseHalfSurfaceDisposition,
 	getIncompleteBaseHalfModuleTracks,
 	isBaseHalfAgentExtensionSlot,
 	isBaseHalfAllowedBuiltInExtension,
 	isBaseHalfPrimaryViewContainer,
+	shouldBaseHalfCloseStartupEditor,
 	shouldBaseHalfHideViewContainer
 } from '../../common/basehalfWorkbenchProfile.js';
 
@@ -51,7 +61,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
 	});
 
-	test('selects only hidden view containers for runtime deregistration', () => {
+	test('selects hidden view containers without deregistering VS Code registries', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extensions'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.debug'), true);
@@ -60,6 +70,68 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat.view.copilot'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('terminal'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.scm'), false);
+	});
+
+	test('declares VS Code activity-bar storage that keeps only BaseHalf sidebar containers pinned', () => {
+		assert.strictEqual(BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, 'workbench.activity.pinnedViewlets2');
+		assert.strictEqual(BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, 'workbench.activity.viewletsWorkspaceState');
+		assert.strictEqual(BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY, 'workbench.sidebar.activeviewletid');
+
+		assert.deepStrictEqual(
+			BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.filter(surface => surface.pinned).map(surface => surface.id),
+			[
+				'workbench.view.explorer',
+				'workbench.view.scm',
+				'workbench.view.search'
+			]
+		);
+		assert.ok(BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.some(surface => surface.id === 'workbench.view.extensions' && !surface.pinned && !surface.visible));
+		assert.ok(BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.some(surface => surface.id === 'workbench.view.debug' && !surface.pinned && !surface.visible));
+		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'workbench.view.search' && surface.visible));
+		assert.ok(BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE.some(surface => surface.id === 'workbench.view.remote' && !surface.visible));
+	});
+
+	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.startupEditor'], 'none');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcome.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.walkthroughs.openOnInstall'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.experimentalOnboarding'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.disableAIFeatures'], true);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agent.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentsControl.enabled'], 'hidden');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.viewSessions.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentsHandoffTip.mode'], 'hidden');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.titleBar.signIn.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.titleBar.openInAgentsWindow.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.claudeAgent.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.codexAgent.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agents.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.editor.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.startupPrompt'], 'never');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.banner'], 'never');
+	});
+
+	test('clears restorable VS Code welcome state that bypasses startupEditor', () => {
+		assert.deepStrictEqual(BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, ['workbench.welcomePage.restorableWalkthroughs']);
+		assert.deepStrictEqual(BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, ['workbench.sidebar.activeviewletid']);
+	});
+
+	test('closes restored VS Code startup editors that would cover the BaseHalf canvas', () => {
+		assert.deepStrictEqual(
+			BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
+			[
+				'workbench.editors.gettingStartedInput',
+				'workbench.editors.agentSessionsWelcome',
+				'workbench.editors.workspaceTrust',
+				'workbench.editors.workspaceTrustRequiredEditor'
+			]
+		);
+
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput'), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcome'), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.textResourceEditor'), false);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.input.searchEditor'), false);
 	});
 
 	test('keeps visible, remapped, and hidden surface ids disjoint', () => {

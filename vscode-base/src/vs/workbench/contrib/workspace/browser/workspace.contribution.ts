@@ -688,12 +688,12 @@ export class WorkspaceTrustUXHandler extends Disposable implements IWorkbenchCon
 	}
 
 	private updateStatusbarEntry(trusted: boolean): void {
-		if (trusted && this.statusbarEntryAccessor.value) {
+		if ((trusted || this.bannerSetting === 'never') && this.statusbarEntryAccessor.value) {
 			this.statusbarEntryAccessor.clear();
 			return;
 		}
 
-		if (!trusted && !this.statusbarEntryAccessor.value) {
+		if (!trusted && this.bannerSetting !== 'never' && !this.statusbarEntryAccessor.value) {
 			const entry = this.getRestrictedModeStatusbarEntry();
 			this.statusbarEntryAccessor.value = this.statusbarService.addEntry(entry, this.entryId, StatusbarAlignment.LEFT, { location: { id: 'status.host', priority: Number.POSITIVE_INFINITY }, alignment: StatusbarAlignment.RIGHT });
 		}
