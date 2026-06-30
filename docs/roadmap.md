@@ -111,6 +111,10 @@ Done means:
   connected through VS Code-shaped command/auth/progress/notification flows.
 - GitHub auth opens the expected VS Code authentication path, including device
   flow/browser flow behavior.
+- Browser callback auth requires a BaseHalf-owned GitHub OAuth app/client
+  secret and callback scheme. Without that configured, the expected source
+  behavior is the VS Code OSS no-secret fallback: device code first, then PAT
+  where the client is unsupported.
 - No BaseHalf-specific popover or toast replaces a VS Code-native flow unless a
   deliberate product decision says so.
 - GitGraph is either sourced from a VS Code-compatible extension/provider path
@@ -192,6 +196,9 @@ Done means:
 - Blocked extensions fail with a clear product-level reason.
 - GitHub/Microsoft auth and SecretStorage use VS Code-compatible flows and do
   not rely on BaseHalf-specific settings detours.
+- GitHub auth credentials are product-owned, not copied from Microsoft's VS
+  Code release secrets; development builds can inject the BaseHalf OAuth app
+  through `BASEHALF_GITHUB_CLIENT_ID` / `BASEHALF_GITHUB_CLIENT_SECRET`.
 
 ### 9. Theming, Layout, And Interaction Fidelity
 

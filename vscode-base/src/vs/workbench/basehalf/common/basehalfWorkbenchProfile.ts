@@ -492,11 +492,13 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 			'extensions/git/src',
 			'extensions/github/src',
 			'extensions/github-authentication/src',
+			'extensions/github-authentication/src/config.ts',
+			'product.json',
 			'src/vs/workbench/contrib/scm/browser/scm.contribution.ts',
 			'src/vs/workbench/contrib/git/browser/git.contributions.ts'
 		],
 		baselineSources: ['apps/desktop/src/scm', 'apps/desktop/src/git', 'apps/desktop/src/github'],
-		keep: ['BaseHalf placement and visual polish around the Git panel'],
+		keep: ['BaseHalf placement and visual polish around the Git panel', 'BaseHalf GitHub OAuth product identity and callback scheme'],
 		deleteOrHide: ['hand-rolled Git CLI UI state machine', 'custom Publish/auth popovers that duplicate VS Code quick input/auth']
 	}),
 	moduleTrack({
@@ -545,10 +547,11 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 			'src/vs/workbench/services/authentication/browser/authenticationService.ts',
 			'src/vs/workbench/services/secrets/electron-browser/secretStorageService.ts',
 			'src/vs/platform/extensionManagement/common/allowedExtensionsService.ts',
-			'extensions/github-authentication/src'
+			'extensions/github-authentication/src',
+			'extensions/github-authentication/src/config.ts'
 		],
 		baselineSources: ['apps/desktop/src/github', 'apps/desktop/src/settings'],
-		keep: ['BaseHalf product allowlist decisions', 'workspace-safe auth UX'],
+		keep: ['BaseHalf product allowlist decisions', 'workspace-safe auth UX', 'BaseHalf-owned OAuth client configuration for browser callback auth'],
 		deleteOrHide: ['full marketplace surface', 'settings-only GitHub sign-in dead ends']
 	}),
 	moduleTrack({

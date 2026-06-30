@@ -5,8 +5,9 @@
 
 import * as assert from 'assert';
 import { ExtensionHost, GitHubTarget, IFlowQuery, getFlows } from '../flows';
-import { Config } from '../config';
+import { Config, readBaseHalfGitHubAuthConfig } from '../config';
 import * as vscode from 'vscode';
+import { isSupportedClient } from '../common/env';
 
 const enum Flows {
 	UrlHandlerFlow = 'url handler',
@@ -20,6 +21,54 @@ suite('getFlows', () => {
 	suiteSetup(() => {
 		lastClientSecret = Config.gitHubClientSecret;
 		Config.gitHubClientSecret = 'asdf';
+	});
+
+	test('recognizes the BaseHalf desktop callback scheme as a supported client', () => {
+		assert.strictEqual(isSupportedClient(vscode.Uri.parse('basehalf://vscode.github-authentication/did-authenticate')), true);
+		assert.strictEqual(isSupportedClient(vscode.Uri.parse('code-oss://vscode.github-authentication/did-authenticate')), false);
+	});
+
+	test('falls back to no-secret flows when no GitHub OAuth client secret is configured', () => {
+		withClientSecret(undefined, () => {
+			const supportedClientFlows = getFlows({
+				extensionHost: ExtensionHost.Local,
+				isSupportedClient: true,
+				target: GitHubTarget.DotCom
+			});
+
+			assert.deepStrictEqual(
+				supportedClientFlows.map(flow => flow.label),
+				[Flows.DeviceCodeFlow]
+			);
+
+			const unsupportedClientFlows = getFlows({
+				extensionHost: ExtensionHost.Local,
+				isSupportedClient: false,
+				target: GitHubTarget.DotCom
+			});
+
+			assert.deepStrictEqual(
+				unsupportedClientFlows.map(flow => flow.label),
+				[Flows.DeviceCodeFlow, Flows.PatFlow]
+			);
+		});
+	});
+
+	test('loads BaseHalf GitHub OAuth config only from an explicit BaseHalf client pair', () => {
+		assert.deepStrictEqual(readBaseHalfGitHubAuthConfig(undefined), {});
+		assert.deepStrictEqual(readBaseHalfGitHubAuthConfig({}), {});
+		assert.deepStrictEqual(
+			readBaseHalfGitHubAuthConfig({ BASEHALF_GITHUB_CLIENT_SECRET: 'secret-without-client' }),
+			{}
+		);
+		assert.deepStrictEqual(
+			readBaseHalfGitHubAuthConfig({ BASEHALF_GITHUB_CLIENT_ID: 'basehalf-client' }),
+			{ gitHubClientId: 'basehalf-client' }
+		);
+		assert.deepStrictEqual(
+			readBaseHalfGitHubAuthConfig({ BASEHALF_GITHUB_CLIENT_ID: 'basehalf-client', BASEHALF_GITHUB_CLIENT_SECRET: 'basehalf-secret' }),
+			{ gitHubClientId: 'basehalf-client', gitHubClientSecret: 'basehalf-secret' }
+		);
 	});
 
 	suiteTeardown(() => {
@@ -259,3 +308,13 @@ suite('getFlows', () => {
 		});
 	});
 });
+
+function withClientSecret<T>(secret: string | undefined, fn: () => T): T {
+	const previous = Config.gitHubClientSecret;
+	Config.gitHubClientSecret = secret;
+	try {
+		return fn();
+	} finally {
+		Config.gitHubClientSecret = previous;
+	}
+}
