@@ -15,6 +15,7 @@ import { IBaseHalfMirrorLinkService } from '../../../platform/basehalf/common/ba
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState, IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
+import { createKeyedMutex } from './basehalfKeyedMutex.js';
 
 export const IBaseHalfFocusMirrorService = createDecorator<IBaseHalfFocusMirrorService>('baseHalfFocusMirrorService');
 
@@ -68,7 +69,7 @@ export class BaseHalfFocusMirrorCorrupt extends Error {
 export class BaseHalfFocusMirrorService implements IBaseHalfFocusMirrorService {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly pendingByWorkspace = new Map<string, Promise<void>>();
+	private readonly mutex = createKeyedMutex();
 	private readonly lastContentByResource = new ResourceMap<string>();
 
 	constructor(
@@ -124,35 +125,41 @@ export class BaseHalfFocusMirrorService implements IBaseHalfFocusMirrorService {
 
 	private writeFocus(node: IBaseHalfWorkspaceResource, content: string): Promise<void> {
 		const workspaceKey = node.workspaceFolder.toString();
-		const previous = this.pendingByWorkspace.get(workspaceKey) ?? Promise.resolve();
-		const next = previous
-			.catch(() => undefined)
-			.then(async () => {
-				const focusResource = this.focusResource(node);
-				if (this.lastContentByResource.get(focusResource) !== content) {
-					await this.fileService.createFolder(this.uriIdentityService.extUri.dirname(focusResource));
-					await this.fileService.writeFile(focusResource, VSBuffer.fromString(content));
-					this.lastContentByResource.set(focusResource, content);
-				}
-
-				await this.mirrorLinkService.setCurrentFocusSymlink(
-					this.currentFocusResource(node.workspaceFolder).fsPath,
-					this.currentFocusTarget(node.relativePath)
-				);
-			});
-
-		this.pendingByWorkspace.set(workspaceKey, next);
-		const cleanup = () => {
-			if (this.pendingByWorkspace.get(workspaceKey) === next) {
-				this.pendingByWorkspace.delete(workspaceKey);
+		return this.mutex.runExclusive(workspaceKey, async () => {
+			const focusResource = this.focusResource(node);
+			if (await this.shouldWriteFocusContent(focusResource, content)) {
+				await this.fileService.createFolder(this.uriIdentityService.extUri.dirname(focusResource));
+				await this.fileService.writeFile(focusResource, VSBuffer.fromString(content));
+				this.lastContentByResource.set(focusResource, content);
 			}
-		};
-		void next.then(cleanup, cleanup);
 
-		return next.catch(error => {
+			await this.mirrorLinkService.setCurrentFocusSymlink(
+				this.currentFocusResource(node.workspaceFolder).fsPath,
+				this.currentFocusTarget(node.relativePath)
+			);
+		}).catch(error => {
 			this.logService.error(error);
 			throw error;
 		});
+	}
+
+	private async shouldWriteFocusContent(resource: URI, content: string): Promise<boolean> {
+		if (this.lastContentByResource.get(resource) !== content) {
+			return true;
+		}
+
+		try {
+			const current = (await this.fileService.readFile(resource, {
+				limits: { size: FOCUS_YAML_MAX_BYTES }
+			})).value.toString();
+			return current !== content;
+		} catch (error) {
+			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+				return true;
+			}
+
+			throw error;
+		}
 	}
 }
 

@@ -421,9 +421,6 @@ function MarkdownRichEditor(): JSX.Element {
 		if (!state.key || !state.ready) {
 			return;
 		}
-		if (state.conflictDisk !== undefined && !forceWrite) {
-			return;
-		}
 		if (!state.dirty && !forceSerialize && !forceWrite) {
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',

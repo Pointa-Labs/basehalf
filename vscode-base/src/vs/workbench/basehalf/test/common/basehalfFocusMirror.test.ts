@@ -196,6 +196,31 @@ suite('BaseHalfFocusMirrorService', () => {
 		assert.strictEqual(mirrorLinkService.links[1].target, 'mirror/docs/focus.yaml');
 	});
 
+	test('rewrites focus.yaml when external edits invalidate the cached same-content write', async () => {
+		const { service, fileService, mirrorLinkService } = createService();
+		const fields = {
+			viewport_center: { x: 100, y: 200 },
+			zoom: 1
+		};
+
+		await service.writeFolderFocus(folder('docs'), fields);
+		fileService.files.set('/work/.bh/mirror/docs/focus.yaml', 'path: [unterminated');
+		await service.writeFolderFocus(folder('docs'), fields);
+
+		assert.strictEqual(fileService.writes.length, 2);
+		assert.strictEqual(fileService.files.get('/work/.bh/mirror/docs/focus.yaml'), [
+			'path: "docs"',
+			'kind: folder',
+			'viewport_center:',
+			'  x: 100',
+			'  y: 200',
+			'zoom: 1',
+			''
+		].join('\n'));
+		assert.strictEqual(mirrorLinkService.links.length, 2);
+		assert.strictEqual(mirrorLinkService.links[1].target, 'mirror/docs/focus.yaml');
+	});
+
 	function file(relativePath: string): IBaseHalfCardDetailState {
 		const resource = URI.joinPath(workspaceFolder, ...relativePath.split('/'));
 		return {
@@ -255,6 +280,7 @@ class TestFileService {
 
 	async writeFile(resource: URI, buffer: VSBuffer): Promise<IFileStat> {
 		this.writes.push({ resource, content: buffer.toString() });
+		this.files.set(resource.fsPath, buffer.toString());
 		return stat(resource);
 	}
 }
