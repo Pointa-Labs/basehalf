@@ -103,6 +103,16 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		super.dispose();
 	}
 
+	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
+		if (!selection || !this.state) {
+			return;
+		}
+
+		this.state = { ...this.state, selection };
+		this.revealSelection();
+		this.flushFocusWrite();
+	}
+
 	private scheduleRender(delay = 80): void {
 		if (this.renderTimer !== undefined) {
 			mainWindow.clearTimeout(this.renderTimer);
@@ -242,7 +252,17 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			return;
 		}
 
-		const fields = { projection: state.projection };
+		const fields = state.selection
+			? {
+				projection: state.projection,
+				visible_lines: { start: state.selection.startLineNumber },
+				cursor: {
+					line: state.selection.startLineNumber,
+					column: state.selection.startColumn,
+					line_precision: 'exact' as const
+				}
+			}
+			: { projection: state.projection };
 		const key = JSON.stringify(fields);
 		if (key === this.lastFocusKey) {
 			return;

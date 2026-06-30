@@ -12,7 +12,7 @@ import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTranspor
 suite('BaseHalfMarkdownRichWebviewBridge', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('sends init, editable, save, and save result host messages', async () => {
+	test('sends init, editable, reveal, save, and save result host messages', async () => {
 		const host = new YDoc();
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
@@ -24,6 +24,12 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			endColumn: 6
 		}), true);
 		assert.strictEqual(await bridge.sendEditable(false), true);
+		assert.strictEqual(await bridge.sendRevealSelection({
+			startLineNumber: 8,
+			startColumn: 1,
+			endLineNumber: 9,
+			endColumn: 5
+		}), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
@@ -54,6 +60,16 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.setEditable',
 				key: 'workspace\u0000doc.md',
 				editable: false
+			},
+			{
+				type: 'basehalf.markdownRich.revealSelection',
+				key: 'workspace\u0000doc.md',
+				selection: {
+					startLineNumber: 8,
+					startColumn: 1,
+					endLineNumber: 9,
+					endColumn: 5
+				}
 			},
 			{
 				type: 'basehalf.markdownRich.save',

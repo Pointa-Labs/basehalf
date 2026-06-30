@@ -57,6 +57,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	sendRevealSelection(selection: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.revealSelection',
+			key: this.key,
+			selection
+		});
+	}
+
 	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.save',

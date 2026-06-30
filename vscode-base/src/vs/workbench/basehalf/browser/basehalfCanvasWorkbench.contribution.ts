@@ -568,6 +568,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
 		if (this.detailKey === detailKey) {
 			this.sourceDetail?.applySelection(cardDetail.selection);
+			this.markdownRichDetail?.applySelection(cardDetail.selection);
+			this.markdownPreviewDetail?.applySelection(cardDetail.selection);
 			return;
 		}
 

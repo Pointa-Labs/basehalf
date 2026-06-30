@@ -72,6 +72,11 @@ type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.revealSelection';
+		readonly key: string;
+		readonly selection: IBaseHalfMarkdownRichTextSelection;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.save';
 		readonly key: string;
 		readonly requestId: string;
@@ -600,6 +605,9 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.setEditable':
 					state.editable = message.editable;
 					setVersion(value => value + 1);
+					break;
+				case 'basehalf.markdownRich.revealSelection':
+					revealSelection(message.selection);
 					break;
 				case 'basehalf.markdownRich.save':
 					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite);

@@ -177,6 +177,16 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		super.dispose();
 	}
 
+	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
+		if (!selection || !this.state) {
+			return;
+		}
+
+		this.state = { ...this.state, selection };
+		void this.bridge?.sendRevealSelection(selection);
+		this.writeSelectionFocus(this.state);
+	}
+
 	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
 		if (!this.dirty || !this.bridge) {
 			return true;

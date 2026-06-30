@@ -93,6 +93,10 @@ try {
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
 	await assertFocusLine('README.md', 3);
+	await quickOpen(page, '%needle-basehalf-second');
+	await assertCardDetail(page, 'README.md');
+	await assertNoEditorTabFor(page, 'README.md');
+	await assertFocusLine('README.md', 5);
 
 	await quickOpen(page, 'docs');
 	await page.locator('.basehalf-canvas-title', { hasText: 'docs' }).waitFor({ state: 'visible', timeout: 20_000 });
@@ -108,6 +112,7 @@ try {
 			'quick-open-card-detail',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
+			'quick-text-search-repeated-selection-focus',
 			'folder-quick-open-canvas'
 		]
 	};
@@ -193,7 +198,7 @@ function shouldLogConsoleMessage(message) {
 function createFixtureWorkspace(workspace) {
 	fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
-	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n', 'utf8');
+	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n\nneedle-basehalf-second\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 }

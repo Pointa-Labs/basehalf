@@ -36,6 +36,11 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.revealSelection';
+		readonly key: string;
+		readonly selection: IBaseHalfMarkdownRichTextSelection;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.save';
 		readonly key: string;
 		readonly requestId: string;
@@ -119,6 +124,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
 			return typeof candidate.editable === 'boolean';
+		case 'basehalf.markdownRich.revealSelection':
+			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.save':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
