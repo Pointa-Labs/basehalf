@@ -5,6 +5,7 @@
 
 import * as vscode from 'vscode';
 import { GitHubAuthenticationProvider, UriEventHandler } from './github';
+import { applyBaseHalfGitHubAuthConfig, readBaseHalfGitHubAuthConfig } from './config';
 
 const settingNotSent = '"github-enterprise.uri" not set';
 const settingInvalid = '"github-enterprise.uri" invalid';
@@ -60,7 +61,9 @@ function initGHES(context: vscode.ExtensionContext, uriHandler: UriEventHandler)
 	return githubEnterpriseAuthProvider;
 }
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
+	await configureBaseHalfGitHubAuthenticationFromProduct();
+
 	const uriHandler = new UriEventHandler();
 	context.subscriptions.push(uriHandler);
 	context.subscriptions.push(vscode.window.registerUriHandler(uriHandler));
@@ -100,4 +103,25 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}
 	}));
+}
+
+async function configureBaseHalfGitHubAuthenticationFromProduct(): Promise<void> {
+	const product = await readProductConfiguration();
+	applyBaseHalfGitHubAuthConfig(readBaseHalfGitHubAuthConfig(
+		typeof process !== 'undefined' ? process.env : undefined,
+		product
+	));
+}
+
+async function readProductConfiguration(): Promise<unknown> {
+	if (!vscode.env.appRoot) {
+		return undefined;
+	}
+
+	try {
+		const productBytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(vscode.Uri.file(vscode.env.appRoot), 'product.json'));
+		return JSON.parse(new TextDecoder().decode(productBytes));
+	} catch {
+		return undefined;
+	}
 }

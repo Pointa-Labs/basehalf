@@ -54,7 +54,7 @@ suite('getFlows', () => {
 		});
 	});
 
-	test('loads BaseHalf GitHub OAuth config only from an explicit BaseHalf client pair', () => {
+	test('loads BaseHalf GitHub OAuth config from explicit environment or product config', () => {
 		assert.deepStrictEqual(readBaseHalfGitHubAuthConfig(undefined), {});
 		assert.deepStrictEqual(readBaseHalfGitHubAuthConfig({}), {});
 		assert.deepStrictEqual(
@@ -68,6 +68,27 @@ suite('getFlows', () => {
 		assert.deepStrictEqual(
 			readBaseHalfGitHubAuthConfig({ BASEHALF_GITHUB_CLIENT_ID: 'basehalf-client', BASEHALF_GITHUB_CLIENT_SECRET: 'basehalf-secret' }),
 			{ gitHubClientId: 'basehalf-client', gitHubClientSecret: 'basehalf-secret' }
+		);
+		assert.deepStrictEqual(
+			readBaseHalfGitHubAuthConfig({}, {
+				basehalfGitHubAuthentication: {
+					clientId: 'product-client',
+					clientSecret: 'product-secret'
+				}
+			}),
+			{ gitHubClientId: 'product-client', gitHubClientSecret: 'product-secret' }
+		);
+		assert.deepStrictEqual(
+			readBaseHalfGitHubAuthConfig({
+				BASEHALF_GITHUB_CLIENT_ID: 'env-client',
+				BASEHALF_GITHUB_CLIENT_SECRET: 'env-secret'
+			}, {
+				basehalfGitHubAuthentication: {
+					clientId: 'product-client',
+					clientSecret: 'product-secret'
+				}
+			}),
+			{ gitHubClientId: 'env-client', gitHubClientSecret: 'env-secret' }
 		);
 	});
 
