@@ -92,8 +92,39 @@
 	min-height: calc(100% - 45px);
 }
 
+.monaco-workbench .basehalf-canvas-edges {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	overflow: visible;
+	pointer-events: none;
+	color: color-mix(in srgb, var(--vscode-icon-foreground) 42%, transparent);
+}
+
+.monaco-workbench .basehalf-canvas-edge-path {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.5px;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.monaco-workbench .basehalf-canvas-edge-arrow path {
+	fill: currentColor;
+}
+
+.monaco-workbench .basehalf-canvas-edge-label {
+	fill: var(--vscode-descriptionForeground);
+	stroke: var(--vscode-editor-background);
+	stroke-width: 4px;
+	paint-order: stroke;
+	font-size: 11px;
+	font-weight: 500;
+}
+
 .monaco-workbench .basehalf-canvas-card {
 	position: absolute;
+	z-index: 1;
 	display: grid;
 	grid-template-columns: 22px minmax(0, 1fr);
 	grid-template-rows: 1fr auto;

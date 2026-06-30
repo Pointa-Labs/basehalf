@@ -18,10 +18,13 @@ import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase 
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
+	baseHalfCanvasEdgeLayouts,
+	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
-	baseHalfCanvasPosition,
+	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
-	IBaseHalfCanvasItem
+	IBaseHalfCanvasItem,
+	IBaseHalfCanvasSize
 } from '../common/basehalfCanvasModel.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
@@ -30,9 +33,6 @@ import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorServic
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
-
-const DEFAULT_CARD_WIDTH = 220;
-const DEFAULT_CARD_HEIGHT = 112;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -192,15 +192,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (items.length === 0) {
 			this.renderEmpty('No files');
 		} else {
+			const size = this.canvasSize(items, model.size);
+			const layoutResult = this.renderEdges(model.edges, items, size);
 			for (let i = 0; i < items.length; i++) {
 				this.renderCard(items[i], i, items.length);
 			}
 			if (model.truncated > 0) {
 				this.renderTruncated(model.truncated);
 			}
-			const size = this.canvasSize(items);
 			this.cards.style.width = `${size.width}px`;
 			this.cards.style.height = `${size.height}px`;
+			if (model.droppedEdges + layoutResult.dropped > 0) {
+				this.renderCanvasWarning(`${model.droppedEdges + layoutResult.dropped} hidden connection${model.droppedEdges + layoutResult.dropped === 1 ? '' : 's'}`);
+			}
 		}
 		if (canvasWarning) {
 			this.renderCanvasWarning(canvasWarning);
@@ -234,11 +238,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {
-		const fallbackPosition = baseHalfCanvasPosition(index, total);
-		const x = item.card?.x ?? fallbackPosition.x;
-		const y = item.card?.y ?? fallbackPosition.y;
-		const width = item.card?.width ?? DEFAULT_CARD_WIDTH;
-		const height = item.card?.height ?? DEFAULT_CARD_HEIGHT;
+		const { x, y, width, height } = baseHalfCanvasItemBounds(item, index, total);
 		const card = append(this.cards, $('button.basehalf-canvas-card')) as HTMLButtonElement;
 		card.type = 'button';
 		card.style.transform = `translate(${x}px, ${y}px)`;
@@ -256,6 +256,56 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.cardListeners.add(this.addDisposableListener(card, 'click', () => {
 			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 		}));
+	}
+
+	private renderEdges(edges: readonly IBaseHalfCanvasEdge[], items: readonly IBaseHalfCanvasItem[], size: Dimension): { dropped: number } {
+		const layoutResult = baseHalfCanvasEdgeLayouts(edges, items);
+		if (layoutResult.edges.length === 0) {
+			return { dropped: layoutResult.dropped };
+		}
+
+		const markerId = `basehalf-canvas-edge-arrow-${this.renderSeq}`;
+		const svg = append(this.cards, $.SVG('svg.basehalf-canvas-edges')) as SVGSVGElement;
+		svg.setAttribute('width', `${size.width}`);
+		svg.setAttribute('height', `${size.height}`);
+		svg.setAttribute('viewBox', `0 0 ${size.width} ${size.height}`);
+		svg.setAttribute('aria-hidden', 'true');
+
+		const defs = $.SVG('defs');
+		const marker = $.SVG('marker.basehalf-canvas-edge-arrow');
+		marker.setAttribute('id', markerId);
+		marker.setAttribute('viewBox', '0 0 10 10');
+		marker.setAttribute('refX', '9');
+		marker.setAttribute('refY', '5');
+		marker.setAttribute('markerWidth', '6');
+		marker.setAttribute('markerHeight', '6');
+		marker.setAttribute('orient', 'auto-start-reverse');
+		const arrow = $.SVG('path');
+		arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+		marker.appendChild(arrow);
+		defs.appendChild(marker);
+		svg.appendChild(defs);
+
+		for (const edge of layoutResult.edges) {
+			const path = $.SVG('path.basehalf-canvas-edge-path');
+			path.setAttribute('d', edge.path);
+			path.setAttribute('marker-end', `url(#${markerId})`);
+			const title = $.SVG('title');
+			title.textContent = edge.label?.text ? `${edge.edge.from} to ${edge.edge.to}: ${edge.label.text}` : `${edge.edge.from} to ${edge.edge.to}`;
+			path.appendChild(title);
+			svg.appendChild(path);
+
+			if (edge.label) {
+				const text = $.SVG('text.basehalf-canvas-edge-label');
+				text.setAttribute('x', `${edge.label.x}`);
+				text.setAttribute('y', `${edge.label.y - 8}`);
+				text.setAttribute('text-anchor', 'middle');
+				text.textContent = edge.label.text;
+				svg.appendChild(text);
+			}
+		}
+
+		return { dropped: layoutResult.dropped };
 	}
 
 	private renderTruncated(heldBack: number): void {
@@ -367,20 +417,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return parts.join(' • ');
 	}
 
-	private canvasSize(items: readonly IBaseHalfCanvasItem[]): Dimension {
+	private canvasSize(items: readonly IBaseHalfCanvasItem[], savedSize: IBaseHalfCanvasSize | undefined): Dimension {
 		if (items.length === 0) {
-			return new Dimension(800, 480);
+			return new Dimension(savedSize?.width ?? 800, savedSize?.height ?? 480);
 		}
 
-		let maxX = 0;
-		let maxY = 0;
+		let maxX = savedSize?.width ?? 0;
+		let maxY = savedSize?.height ?? 0;
 		for (let index = 0; index < items.length; index++) {
-			const fallback = baseHalfCanvasPosition(index, items.length);
 			const item = items[index];
-			const x = item.card?.x ?? fallback.x;
-			const y = item.card?.y ?? fallback.y;
-			const width = item.card?.width ?? DEFAULT_CARD_WIDTH;
-			const height = item.card?.height ?? DEFAULT_CARD_HEIGHT;
+			const { x, y, width, height } = baseHalfCanvasItemBounds(item, index, items.length);
 			maxX = Math.max(maxX, x + width);
 			maxY = Math.max(maxY, y + height);
 		}

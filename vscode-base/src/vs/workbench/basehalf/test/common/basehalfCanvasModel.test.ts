@@ -8,7 +8,11 @@ import { URI } from '../../../../base/common/uri.js';
 import { FileType, IFileStat } from '../../../../platform/files/common/files.js';
 import {
 	BASEHALF_CANVAS_CHILD_LIMIT,
+	baseHalfCanvasAnchorPoint,
+	baseHalfCanvasEdgeLayouts,
+	baseHalfCanvasEdgePath,
 	baseHalfCanvasItemsFromStat,
+	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasPosition,
 	isBaseHalfCanvasEntry
@@ -61,6 +65,8 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(model.size, { width: 1200, height: 800 });
+		assert.deepStrictEqual(model.edges, []);
+		assert.strictEqual(model.droppedEdges, 0);
 		assert.deepStrictEqual(
 			model.items.find(item => item.path === 'docs')?.card,
 			{ path: 'docs', kind: 'folder', x: 320, y: 180, width: 260, height: 140 }
@@ -88,6 +94,92 @@ suite('BaseHalfCanvasModel', () => {
 			model.items[0]?.card,
 			{ path: 'docs/chapter-01.md', kind: 'file', x: 10, y: 20, width: 260, height: 140 }
 		);
+	});
+
+	test('keeps only visible canvas edges and reports hidden ones', () => {
+		const root = folder('/workspace', [
+			file('/workspace/a.md'),
+			file('/workspace/b.md')
+		]);
+
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [],
+				edges: [
+					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+					{ from: 'a.md', from_anchor: 'south', to: 'missing.md', to_anchor: 'north' }
+				]
+			}
+		});
+
+		assert.deepStrictEqual(model.edges, [
+			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' }
+		]);
+		assert.strictEqual(model.droppedEdges, 1);
+	});
+
+	test('computes card bounds from saved geometry or the stable grid fallback', () => {
+		const root = folder('/workspace', [
+			file('/workspace/a.md'),
+			file('/workspace/b.md')
+		]);
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [{ path: 'a.md', kind: 'file', x: 12, y: 24, width: 280, height: 160 }],
+				edges: []
+			}
+		});
+
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[0], 0, model.items.length), { x: 12, y: 24, width: 280, height: 160 });
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 308, y: 84, width: 220, height: 112 });
+	});
+
+	test('computes anchor points and routed edge paths', () => {
+		const bounds = { x: 10, y: 20, width: 200, height: 100 };
+
+		assert.deepStrictEqual(baseHalfCanvasAnchorPoint(bounds, 'north'), { x: 110, y: 20 });
+		assert.deepStrictEqual(baseHalfCanvasAnchorPoint(bounds, 'east'), { x: 210, y: 70 });
+		assert.deepStrictEqual(baseHalfCanvasAnchorPoint(bounds, 'south'), { x: 110, y: 120 });
+		assert.deepStrictEqual(baseHalfCanvasAnchorPoint(bounds, 'west'), { x: 10, y: 70 });
+		assert.strictEqual(
+			baseHalfCanvasEdgePath({ x: 210, y: 70 }, 'east', { x: 320, y: 70 }, 'west'),
+			'M 210 70 C 265 70 265 70 320 70'
+		);
+	});
+
+	test('lays out edge paths and labels for visible endpoints', () => {
+		const root = folder('/workspace', [
+			file('/workspace/a.md'),
+			file('/workspace/b.md')
+		]);
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [
+					{ path: 'a.md', kind: 'file', x: 10, y: 20, width: 200, height: 100 },
+					{ path: 'b.md', kind: 'file', x: 320, y: 20, width: 200, height: 100 }
+				],
+				edges: [
+					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' }
+				]
+			}
+		});
+
+		assert.deepStrictEqual(baseHalfCanvasEdgeLayouts(model.edges, model.items), {
+			dropped: 0,
+			edges: [{
+				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+				from: { x: 210, y: 70 },
+				to: { x: 320, y: 70 },
+				path: 'M 210 70 C 265 70 265 70 320 70',
+				label: { text: 'next', x: 265, y: 70 }
+			}]
+		});
 	});
 
 	test('caps very large folders and reports how many canvas entries were held back', () => {
