@@ -5,6 +5,8 @@
 
 import { VIEWLET_ID as FILES_VIEW_CONTAINER_ID, VIEW_ID as FILES_VIEW_ID } from '../../contrib/files/common/files.js';
 import { REPOSITORIES_VIEW_PANE_ID, HISTORY_VIEW_PANE_ID, VIEWLET_ID as SCM_VIEW_CONTAINER_ID, VIEW_PANE_ID as SCM_VIEW_ID } from '../../contrib/scm/common/scm.js';
+import { DEBUG_PANEL_ID, REPL_VIEW_ID } from '../../contrib/debug/common/debug.js';
+import { Testing } from '../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../services/search/common/search.js';
@@ -13,6 +15,7 @@ export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
 export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.activity.pinnedViewlets2';
 export const BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY = 'workbench.activity.viewletsWorkspaceState';
 export const BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY = 'workbench.sidebar.activeviewletid';
+export const BASEHALF_ACTIVE_PANEL_STORAGE_KEY = 'workbench.panelpart.activepanelid';
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
@@ -104,11 +107,53 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		reason: 'Terminal creation commands should create Agent Area shell/TUI sessions instead of reopening the stock terminal panel.'
 	},
 	{
+		id: 'workbench.action.terminal.newWithProfile',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/contrib/terminal/browser/terminalActions.ts',
+		reason: 'Profile-based terminal creation remains VS Code-compatible but renders as an Agent Area session.'
+	},
+	{
+		id: 'workbench.action.terminal.newWithCwd',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/contrib/terminal/browser/terminalActions.ts',
+		reason: 'CWD-specific terminal creation should create an Agent Area terminal session.'
+	},
+	{
+		id: 'workbench.action.terminal.split',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/contrib/terminal/browser/terminalActions.ts',
+		reason: 'Split terminal commands create or reveal Agent Area sessions instead of surfacing the stock terminal panel.'
+	},
+	{
 		id: 'workbench.action.terminal.toggleTerminal',
 		kind: 'command',
 		area: 'agent-area',
 		source: 'src/vs/workbench/contrib/terminal/common/terminal.ts',
 		reason: 'Terminal focus/toggle commands should target the Agent Area terminal session type.'
+	},
+	{
+		id: 'workbench.action.terminal.focus',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/contrib/terminal/browser/terminalActions.ts',
+		reason: 'Terminal focus should reveal the BaseHalf Agent Area terminal renderer, not the stock terminal panel.'
+	},
+	{
+		id: 'workbench.action.terminal.kill',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/contrib/terminal/browser/terminalActions.ts',
+		reason: 'Terminal kill should update Agent Area session lifecycle without reopening the stock terminal panel.'
+	},
+	{
+		id: 'workbench.action.togglePanel',
+		kind: 'command',
+		area: 'agent-area',
+		source: 'src/vs/workbench/browser/parts/panel/panelActions.ts',
+		reason: 'The stock panel shell should not become BaseHalf\'s right-side surface; terminal sessions live in Agent Area.'
 	},
 	{
 		id: 'workbench.action.files.openFile',
@@ -282,11 +327,39 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		reason: 'Agent UI is owned by BaseHalf Agent Area, not the stock chat view.'
 	},
 	{
+		id: DEBUG_PANEL_ID,
+		kind: 'viewContainer',
+		area: 'debug',
+		source: 'src/vs/workbench/contrib/debug/common/debug.ts',
+		reason: 'Debug Console is a stock VS Code panel surface and must not cover the BaseHalf canvas.'
+	},
+	{
+		id: REPL_VIEW_ID,
+		kind: 'view',
+		area: 'debug',
+		source: 'src/vs/workbench/contrib/debug/common/debug.ts',
+		reason: 'Debug Console view is hidden with the rest of the stock Run and Debug product surface.'
+	},
+	{
 		id: 'workbench.view.debug',
 		kind: 'viewContainer',
 		area: 'debug',
 		source: 'src/vs/workbench/contrib/debug/common/debug.ts',
 		reason: 'Run and Debug is not part of the initial BaseHalf left sidebar product surface.'
+	},
+	{
+		id: Testing.ResultsPanelId,
+		kind: 'viewContainer',
+		area: 'testing',
+		source: 'src/vs/workbench/contrib/testing/common/constants.ts',
+		reason: 'Test Results is a stock VS Code panel surface and must not cover the BaseHalf canvas.'
+	},
+	{
+		id: Testing.ResultsViewId,
+		kind: 'view',
+		area: 'testing',
+		source: 'src/vs/workbench/contrib/testing/common/constants.ts',
+		reason: 'Test Results view is hidden with the rest of the stock Testing product surface.'
 	},
 	{
 		id: 'workbench.view.extension.test',
@@ -325,7 +398,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'chat.agentHost.codexAgent.enabled': false,
 	'chat.agents.claude.preferAgentHost': false,
 	'chat.editor.claude.preferAgentHost': false,
+	'debug.internalConsoleOptions': 'neverOpen',
 	'search.useReplacePreview': false,
+	'testing.automaticallyOpenPeekView': 'never',
+	'testing.automaticallyOpenTestResults': 'neverOpen',
+	'testing.countBadge': 'off',
 	'security.workspace.trust.startupPrompt': 'never',
 	'security.workspace.trust.banner': 'never'
 } as const;
@@ -335,7 +412,8 @@ export const BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR = [
 ] as const;
 
 export const BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR = [
-	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY
+	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY,
+	BASEHALF_ACTIVE_PANEL_STORAGE_KEY
 ] as const;
 
 export const BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS = [
@@ -371,6 +449,10 @@ export const BASEHALF_HIDDEN_VIEW_CONTAINER_IDS = BASEHALF_HIDDEN_SURFACES
 
 export const BASEHALF_HIDDEN_VIEW_IDS = BASEHALF_HIDDEN_SURFACES
 	.filter(surface => surface.kind === 'view')
+	.map(surface => surface.id) as readonly string[];
+
+export const BASEHALF_REMAPPED_VIEW_CONTAINER_IDS = BASEHALF_REMAPPED_SURFACES
+	.filter(surface => surface.kind === 'viewContainer')
 	.map(surface => surface.id) as readonly string[];
 
 export interface IBaseHalfAllowedExtensionFamily {
@@ -645,6 +727,10 @@ export function shouldBaseHalfHideViewContainer(id: string): boolean {
 	return HIDDEN_VIEW_CONTAINER_IDS.has(id);
 }
 
+export function shouldBaseHalfCloseRemappedViewContainer(id: string): boolean {
+	return REMAPPED_VIEW_CONTAINER_IDS.has(id);
+}
+
 export function shouldBaseHalfHideView(id: string): boolean {
 	return HIDDEN_VIEW_IDS.has(id);
 }
@@ -681,6 +767,7 @@ const REMAPPED_SURFACE_IDS = new Set<string>(BASEHALF_REMAPPED_SURFACES.map(surf
 const HIDDEN_SURFACE_IDS = new Set<string>(BASEHALF_HIDDEN_SURFACES.map(surface => surface.id));
 const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_CONTAINER_IDS);
 const HIDDEN_VIEW_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_IDS);
+const REMAPPED_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_REMAPPED_VIEW_CONTAINER_IDS);
 const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))

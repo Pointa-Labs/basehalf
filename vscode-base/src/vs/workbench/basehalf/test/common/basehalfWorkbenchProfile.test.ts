@@ -8,6 +8,7 @@ import {
 	BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
 	BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY,
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES,
+	BASEHALF_ACTIVE_PANEL_STORAGE_KEY,
 	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY,
 	BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 	BASEHALF_CONFIGURATION_DEFAULTS,
@@ -21,6 +22,7 @@ import {
 	BASEHALF_PRODUCT_PROFILE_ID,
 	BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR,
 	BASEHALF_REMAPPED_SURFACES,
+	BASEHALF_REMAPPED_VIEW_CONTAINER_IDS,
 	BASEHALF_REQUIRED_MODULE_COMPLETION_GATES,
 	BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR,
 	getBaseHalfSurfaceDisposition,
@@ -30,6 +32,7 @@ import {
 	isBaseHalfAllowedExternalExtension,
 	isBaseHalfPrimaryViewContainer,
 	isBaseHalfRequiredBuiltInExtension,
+	shouldBaseHalfCloseRemappedViewContainer,
 	shouldBaseHalfCloseStartupEditor,
 	shouldBaseHalfHideView,
 	shouldBaseHalfHideViewContainer
@@ -60,6 +63,12 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.scm.repositories'), 'primary');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('terminal'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.new'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.newWithProfile'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.newWithCwd'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.split'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.focus'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.kill'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.togglePanel'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openAndPassFocus'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openToSide'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openWith'), 'remapped');
@@ -79,6 +88,8 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openInEditor'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openNewEditorFromView'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.chat'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.repl'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.testResults'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
 	});
@@ -106,9 +117,28 @@ suite('BaseHalfWorkbenchProfile', () => {
 		);
 	});
 
+	test('declares stock Terminal panel entry points remapped into Agent Area', () => {
+		assert.deepStrictEqual(
+			BASEHALF_REMAPPED_SURFACES.filter(surface => surface.area === 'agent-area').map(surface => surface.id),
+			[
+				'terminal',
+				'workbench.action.terminal.new',
+				'workbench.action.terminal.newWithProfile',
+				'workbench.action.terminal.newWithCwd',
+				'workbench.action.terminal.split',
+				'workbench.action.terminal.toggleTerminal',
+				'workbench.action.terminal.focus',
+				'workbench.action.terminal.kill',
+				'workbench.action.togglePanel'
+			]
+		);
+	});
+
 	test('selects hidden views and view containers without deregistering VS Code registries', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extensions'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.repl'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.testResults'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.debug'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extension.test'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.remote'), true);
@@ -121,21 +151,33 @@ suite('BaseHalfWorkbenchProfile', () => {
 			[
 				'workbench.view.extensions',
 				'workbench.panel.chat',
+				'workbench.panel.repl',
 				'workbench.view.debug',
+				'workbench.panel.testResults',
 				'workbench.view.extension.test',
 				'workbench.view.remote'
 			]
 		);
-		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'workbench.panel.chat.view.copilot']);
+		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'workbench.panel.chat.view.copilot', 'workbench.panel.repl.view', 'workbench.panel.testResults.view']);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.explorer.openEditorsView'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.chat.view.copilot'), true);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.repl.view'), true);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.testResults.view'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.files.explorer'), false);
+	});
+
+	test('closes remapped stock view containers that should render inside BaseHalf surfaces', () => {
+		assert.deepStrictEqual(BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, ['terminal']);
+		assert.strictEqual(shouldBaseHalfCloseRemappedViewContainer('terminal'), true);
+		assert.strictEqual(shouldBaseHalfCloseRemappedViewContainer('workbench.view.explorer'), false);
+		assert.strictEqual(shouldBaseHalfCloseRemappedViewContainer('workbench.panel.repl'), false);
 	});
 
 	test('declares VS Code activity-bar storage that keeps only BaseHalf sidebar containers pinned', () => {
 		assert.strictEqual(BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, 'workbench.activity.pinnedViewlets2');
 		assert.strictEqual(BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, 'workbench.activity.viewletsWorkspaceState');
 		assert.strictEqual(BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY, 'workbench.sidebar.activeviewletid');
+		assert.strictEqual(BASEHALF_ACTIVE_PANEL_STORAGE_KEY, 'workbench.panelpart.activepanelid');
 
 		assert.deepStrictEqual(
 			BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS.filter(surface => surface.pinned).map(surface => surface.id),
@@ -168,14 +210,18 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.codexAgent.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agents.claude.preferAgentHost'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.editor.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['debug.internalConsoleOptions'], 'neverOpen');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['search.useReplacePreview'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenPeekView'], 'never');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenTestResults'], 'neverOpen');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.countBadge'], 'off');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.startupPrompt'], 'never');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.banner'], 'never');
 	});
 
 	test('clears restorable VS Code welcome state that bypasses startupEditor', () => {
 		assert.deepStrictEqual(BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, ['workbench.welcomePage.restorableWalkthroughs']);
-		assert.deepStrictEqual(BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, ['workbench.sidebar.activeviewletid']);
+		assert.deepStrictEqual(BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, ['workbench.sidebar.activeviewletid', 'workbench.panelpart.activepanelid']);
 	});
 
 	test('closes restored VS Code startup editors that would cover the BaseHalf canvas', () => {
