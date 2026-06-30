@@ -129,6 +129,10 @@ Done means:
 - GitGraph is either sourced from a VS Code-compatible extension/provider path
   or clearly mapped onto VS Code SCM/repository state.
 
+Current boundary note:
+[git-scm-github-gitgraph.md](git-scm-github-gitgraph.md) maps GitGraph onto VS
+Code's SCM history provider and Source Control Graph view.
+
 ### 4. Search, QuickInput, And Command Palette
 
 Goal: Reuse VS Code QuickInput/Search UX while preserving BaseHalf navigation.

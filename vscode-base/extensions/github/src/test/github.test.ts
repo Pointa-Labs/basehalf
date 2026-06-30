@@ -5,8 +5,12 @@
 
 import 'mocha';
 import * as assert from 'assert';
-import { workspace, extensions, Uri, commands } from 'vscode';
+import { workspace, extensions, Uri, commands, EventEmitter } from 'vscode';
+import type { LogOutputChannel } from 'vscode';
 import { findPullRequestTemplates, pickPullRequestTemplate } from '../pushErrorHandler.js';
+import { registerGitHubRemoteSourcePublisher, registerGitHubSourceControlHistoryItemDetailsProvider } from '../extension.js';
+import type { OctokitService } from '../auth.js';
+import type { API as GitAPI, RemoteSourcePublisher, Repository, SourceControlHistoryItemDetailsProvider } from '../typings/git.d.ts';
 
 suite('github smoke test', function () {
 	const cwd = workspace.workspaceFolders![0].uri;
@@ -61,5 +65,56 @@ suite('github smoke test', function () {
 		await commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
 
 		assert.ok(await pick === undefined);
+	});
+
+	test('registers GitHub as a Git remote source publisher', () => {
+		let registeredPublisher: RemoteSourcePublisher | undefined;
+		let disposed = false;
+		const gitAPI = {
+			registerRemoteSourcePublisher(publisher: RemoteSourcePublisher) {
+				registeredPublisher = publisher;
+				return { dispose: () => { disposed = true; } };
+			}
+		} as unknown as GitAPI;
+
+		const disposable = registerGitHubRemoteSourcePublisher(gitAPI);
+
+		assert.strictEqual(registeredPublisher?.name, 'GitHub');
+		assert.strictEqual(registeredPublisher?.icon, 'github');
+		assert.strictEqual(typeof registeredPublisher?.publishRepository, 'function');
+
+		disposable.dispose();
+		assert.strictEqual(disposed, true);
+	});
+
+	test('registers GitHub details for the VS Code Source Control Graph provider path', () => {
+		let registeredProvider: SourceControlHistoryItemDetailsProvider | undefined;
+		let disposed = false;
+		const onDidCloseRepository = new EventEmitter<Repository>();
+		const onDidChangeSessions = new EventEmitter<void>();
+		const gitAPI = {
+			onDidCloseRepository: onDidCloseRepository.event,
+			registerSourceControlHistoryItemDetailsProvider(provider: SourceControlHistoryItemDetailsProvider) {
+				registeredProvider = provider;
+				return { dispose: () => { disposed = true; } };
+			}
+		} as unknown as GitAPI;
+		const octokitService = { onDidChangeSessions: onDidChangeSessions.event } as unknown as OctokitService;
+		const logger = {
+			trace: () => undefined,
+			info: () => undefined,
+			warn: () => undefined
+		} as unknown as LogOutputChannel;
+
+		const disposable = registerGitHubSourceControlHistoryItemDetailsProvider(gitAPI, octokitService, logger);
+
+		assert.strictEqual(typeof registeredProvider?.provideAvatar, 'function');
+		assert.strictEqual(typeof registeredProvider?.provideHoverCommands, 'function');
+		assert.strictEqual(typeof registeredProvider?.provideMessageLinks, 'function');
+
+		disposable.dispose();
+		onDidCloseRepository.dispose();
+		onDidChangeSessions.dispose();
+		assert.strictEqual(disposed, true);
 	});
 });

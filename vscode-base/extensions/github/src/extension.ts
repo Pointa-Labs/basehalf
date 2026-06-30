@@ -88,6 +88,17 @@ function setGitHubContext(gitAPI: API, disposables: DisposableStore) {
 	}
 }
 
+export function registerGitHubRemoteSourcePublisher(gitAPI: API): Disposable {
+	return gitAPI.registerRemoteSourcePublisher(new GithubRemoteSourcePublisher(gitAPI));
+}
+
+export function registerGitHubSourceControlHistoryItemDetailsProvider(gitAPI: API, octokitService: OctokitService, logger: LogOutputChannel): Disposable {
+	const provider = new GitHubSourceControlHistoryItemDetailsProvider(gitAPI, octokitService, logger);
+	const registration = gitAPI.registerSourceControlHistoryItemDetailsProvider(provider);
+
+	return Disposable.from(registration, provider);
+}
+
 function initializeGitExtension(context: ExtensionContext, octokitService: OctokitService, telemetryReporter: TelemetryReporter, logger: LogOutputChannel): Disposable {
 	const disposables = new DisposableStore();
 
@@ -104,8 +115,8 @@ function initializeGitExtension(context: ExtensionContext, octokitService: Octok
 						disposables.add(new GithubCredentialProviderManager(gitAPI));
 						disposables.add(new GitHubBranchProtectionProviderManager(gitAPI, context.globalState, octokitService, logger, telemetryReporter));
 						disposables.add(gitAPI.registerPushErrorHandler(new GithubPushErrorHandler(telemetryReporter)));
-						disposables.add(gitAPI.registerRemoteSourcePublisher(new GithubRemoteSourcePublisher(gitAPI)));
-						disposables.add(gitAPI.registerSourceControlHistoryItemDetailsProvider(new GitHubSourceControlHistoryItemDetailsProvider(gitAPI, octokitService, logger)));
+						disposables.add(registerGitHubRemoteSourcePublisher(gitAPI));
+						disposables.add(registerGitHubSourceControlHistoryItemDetailsProvider(gitAPI, octokitService, logger));
 						disposables.add(new GitHubCanonicalUriProvider(gitAPI));
 						disposables.add(new VscodeDevShareProvider(gitAPI));
 						setGitHubContext(gitAPI, disposables);

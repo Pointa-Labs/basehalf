@@ -71,6 +71,30 @@ suite('getFlows', () => {
 		);
 	});
 
+	test('keeps BaseHalf desktop OAuth client pair on supported VS Code auth flows', () => {
+		const config = readBaseHalfGitHubAuthConfig({
+			BASEHALF_GITHUB_CLIENT_ID: 'basehalf-client',
+			BASEHALF_GITHUB_CLIENT_SECRET: 'basehalf-secret'
+		});
+
+		withClientConfig(config.gitHubClientId!, config.gitHubClientSecret!, () => {
+			const flows = getFlows({
+				extensionHost: ExtensionHost.Local,
+				isSupportedClient: true,
+				target: GitHubTarget.DotCom
+			});
+
+			assert.deepStrictEqual(
+				flows.map(flow => flow.label),
+				[
+					Flows.LocalServerFlow,
+					Flows.UrlHandlerFlow,
+					Flows.DeviceCodeFlow
+				]
+			);
+		});
+	});
+
 	suiteTeardown(() => {
 		Config.gitHubClientSecret = lastClientSecret;
 	});
@@ -316,5 +340,18 @@ function withClientSecret<T>(secret: string | undefined, fn: () => T): T {
 		return fn();
 	} finally {
 		Config.gitHubClientSecret = previous;
+	}
+}
+
+function withClientConfig<T>(clientId: string, clientSecret: string | undefined, fn: () => T): T {
+	const previousClientId = Config.gitHubClientId;
+	const previousClientSecret = Config.gitHubClientSecret;
+	Config.gitHubClientId = clientId;
+	Config.gitHubClientSecret = clientSecret;
+	try {
+		return fn();
+	} finally {
+		Config.gitHubClientId = previousClientId;
+		Config.gitHubClientSecret = previousClientSecret;
 	}
 }

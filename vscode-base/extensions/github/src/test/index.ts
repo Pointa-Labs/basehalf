@@ -29,4 +29,5 @@ if (process.env.BUILD_ARTIFACTSTAGINGDIRECTORY || process.env.GITHUB_WORKSPACE) 
 
 testRunner.configure(options);
 
+export const run = testRunner.run;
 export default testRunner;
