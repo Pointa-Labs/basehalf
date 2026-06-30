@@ -294,7 +294,17 @@ function createFixtureWorkspace(workspace) {
 	fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror'), { recursive: true });
-	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n\nneedle-basehalf-second\n', 'utf8');
+	fs.writeFileSync(path.join(workspace, 'README.md'), [
+		'# Smoke README',
+		'',
+		'- **Smoke nested item** starts here',
+		'  nested-menu-anchor continuation',
+		'',
+		'needle-basehalf-routing',
+		'',
+		'needle-basehalf-second',
+		''
+	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
@@ -835,7 +845,7 @@ async function assertMarkdownRichStatusInHeader(page) {
 
 async function assertMarkdownRichBlockMenuPortal(page) {
 	const frame = await activeMarkdownRichFrame(page);
-	const content = frame.locator('.bn-block-content').first();
+	const content = frame.locator('.bn-block-content', { hasText: 'nested-menu-anchor continuation' }).first();
 	await content.waitFor({ state: 'visible', timeout: 20_000 });
 	await content.hover({ position: { x: 8, y: 8 } });
 
@@ -845,7 +855,9 @@ async function assertMarkdownRichBlockMenuPortal(page) {
 	const geometry = await frame.evaluate(() => {
 		const menu = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal .bn-side-menu');
 		const portal = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal');
-		const content = document.querySelector<HTMLElement>('.bn-block-content');
+		const content = Array.from(document.querySelectorAll<HTMLElement>('.bn-block-content'))
+			.find(element => element.textContent?.includes('nested-menu-anchor continuation')) ?? null;
+		const rootGroup = document.querySelector<HTMLElement>('.bn-editor > .bn-block-group');
 		const rect = (element: HTMLElement | null) => {
 			if (!element) {
 				return undefined;
@@ -860,17 +872,24 @@ async function assertMarkdownRichBlockMenuPortal(page) {
 		return {
 			menu: rect(menu),
 			portal: rect(portal),
-			content: rect(content)
+			content: rect(content),
+			rootGroup: rect(rootGroup)
 		};
 	});
 
-	if (!geometry.menu || !geometry.portal || !geometry.content) {
+	if (!geometry.menu || !geometry.portal || !geometry.content || !geometry.rootGroup) {
 		throw new Error(`Markdown rich block menu portal geometry missing: ${JSON.stringify(geometry)}`);
 	}
 
 	const tolerance = 1;
 	if (geometry.menu.right < geometry.portal.left - tolerance || geometry.menu.left > geometry.content.left + tolerance) {
 		throw new Error(`Markdown rich block menu is not anchored in the left block gutter: ${JSON.stringify(geometry)}`);
+	}
+	if (geometry.content.left <= geometry.rootGroup.left + 8) {
+		throw new Error(`Markdown rich smoke fixture did not create a nested continuation block: ${JSON.stringify(geometry)}`);
+	}
+	if (geometry.menu.right > geometry.rootGroup.left + tolerance) {
+		throw new Error(`Markdown rich nested block menu should use the root gutter anchor: ${JSON.stringify(geometry)}`);
 	}
 }
 

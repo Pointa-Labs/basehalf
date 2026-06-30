@@ -8,8 +8,16 @@ import '@blocknote/mantine/style.css';
 import './editor.css';
 
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
+import { SideMenuExtension } from '@blocknote/core/extensions';
 import { BlockNoteView } from '@blocknote/mantine';
-import { useCreateBlockNote } from '@blocknote/react';
+import {
+	GenericPopover,
+	SideMenu,
+	useBlockNoteEditor,
+	useCreateBlockNote,
+	useExtensionState,
+	type GenericPopoverReference,
+} from '@blocknote/react';
 import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
 import { createRoot } from 'react-dom/client';
 import {
@@ -308,6 +316,45 @@ function clearSelectionReveal(editorElement: HTMLElement | undefined): void {
 	for (const element of Array.from(editorElement?.querySelectorAll<HTMLElement>('.basehalf-markdown-rich-selection-reveal') ?? [])) {
 		element.classList.remove('basehalf-markdown-rich-selection-reveal');
 	}
+}
+
+// BlockNote's default React side menu anchors to the hovered block DOM node;
+// for nested continuation blocks that places the handle over the indent guide.
+function BaseHalfSideMenuController({ portalElement }: { readonly portalElement: HTMLElement | null }): JSX.Element {
+	const editor = useBlockNoteEditor();
+	const state = useExtensionState(SideMenuExtension, {
+		editor,
+		selector: state => state !== undefined ? {
+			show: state.show,
+			referencePos: state.referencePos,
+			blockId: state.block.id,
+		} : undefined,
+	});
+	const reference = useMemo<GenericPopoverReference | undefined>(() => {
+		if (!state?.show) {
+			return undefined;
+		}
+		return {
+			element: undefined,
+			getBoundingClientRect: () => state.referencePos,
+		};
+	}, [state?.referencePos, state?.show]);
+
+	return (
+		<GenericPopover
+			reference={reference}
+			portalElement={portalElement ?? undefined}
+			useFloatingOptions={{
+				open: state?.show,
+				placement: 'left-start',
+			}}
+			useDismissProps={{ enabled: false }}
+			focusManagerProps={{ disabled: true }}
+			elementProps={{ style: { zIndex: 20 } }}
+		>
+			{state?.blockId && <SideMenu />}
+		</GenericPopover>
+	);
 }
 
 function MarkdownRichEditor(): JSX.Element {
@@ -954,8 +1001,11 @@ function MarkdownRichEditor(): JSX.Element {
 						editor={editor}
 						editable={canEdit}
 						theme="dark"
+						sideMenu={false}
 						portalElements={portalElements}
-					/>
+					>
+						<BaseHalfSideMenuController portalElement={portalElement} />
+					</BlockNoteView>
 				</div>
 			</div>
 		</div>
