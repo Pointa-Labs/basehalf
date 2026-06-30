@@ -124,6 +124,9 @@ try {
 	await step('explorer-folder-row-canvas', () => assertCanvasFolder(page, 'docs'));
 	await step('explorer-file-row-card-open', () => openExplorerRow(page, 'guide.md'));
 	await step('explorer-file-row-card-detail', () => assertCardDetail(page, 'guide.md'));
+	await step('detail-breadcrumb-folder-navigation', () => assertDetailBreadcrumbOpensFolder(page, 'docs'));
+	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
+	await step('canvas-breadcrumb-root-navigation', () => assertCanvasBreadcrumbOpensRoot(page));
 	await step('explorer-file-row-no-editor-tab', () => assertNoEditorTabFor(page, 'guide.md'));
 
 	await step('folder-quick-open', () => quickOpen(page, 'docs'));
@@ -151,6 +154,9 @@ try {
 			'quick-text-search-repeated-selection-focus',
 			'quick-text-search-side-card-detail-no-tab',
 			'explorer-folder-row-canvas',
+			'detail-breadcrumb-folder-navigation',
+			'canvas-zoom-controls',
+			'canvas-breadcrumb-root-navigation',
 			'explorer-file-row-card-detail-no-tab',
 			'folder-quick-open-canvas'
 		]
@@ -614,6 +620,28 @@ async function assertCardDetail(page, title) {
 
 async function assertCanvasFolder(page, title) {
 	await page.locator('.basehalf-canvas-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+async function assertDetailBreadcrumbOpensFolder(page, relativePath) {
+	await page.locator(`.basehalf-card-detail-title .basehalf-breadcrumb[data-relative-path="${relativePath}"]`).click();
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
+	await assertCanvasFolder(page, relativePath);
+}
+
+async function assertCanvasZoomControls(page) {
+	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1.1', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value', { hasText: '110%' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertCanvasBreadcrumbOpensRoot(page) {
+	const rootCrumb = page.locator('.basehalf-canvas-title .basehalf-breadcrumb[data-relative-path=""]').first();
+	const rootLabel = ((await rootCrumb.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+	await rootCrumb.click();
+	await assertCanvasFolder(page, rootLabel);
 }
 
 async function assertNoEditorTabFor(page, name) {

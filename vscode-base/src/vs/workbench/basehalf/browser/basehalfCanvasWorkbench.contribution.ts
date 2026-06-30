@@ -7,7 +7,7 @@ import './media/basehalfCanvasWorkbench.css';
 
 import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
-import { basename } from '../../../base/common/resources.js';
+import { basename, joinPath } from '../../../base/common/resources.js';
 import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILabelService } from '../../../platform/label/common/label.js';
@@ -43,6 +43,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly root: HTMLElement;
 	private readonly title: HTMLElement;
 	private readonly subtitle: HTMLElement;
+	private readonly zoomOut: HTMLButtonElement;
+	private readonly zoomReset: HTMLButtonElement;
+	private readonly zoomIn: HTMLButtonElement;
+	private readonly zoomValue: HTMLElement;
+	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
@@ -51,6 +56,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
+	private readonly breadcrumbListeners = this._register(new DisposableStore());
+	private readonly detailBreadcrumbListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailDisposables = this._register(new DisposableStore());
 
@@ -105,7 +112,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const chrome = append(this.root, $('.basehalf-canvas-chrome'));
 		this.title = append(chrome, $('.basehalf-canvas-title'));
 		this.subtitle = append(chrome, $('.basehalf-canvas-subtitle'));
-		this.cards = append(this.root, $('.basehalf-canvas-cards'));
+		const zoomControls = append(chrome, $('.basehalf-canvas-zoom-controls'));
+		this.zoomOut = this.createZoomButton(zoomControls, 'Zoom Out', 'codicon-remove', () => this.zoomBy(-1));
+		this.zoomValue = append(zoomControls, $('.basehalf-canvas-zoom-value'));
+		this.zoomReset = this.createZoomButton(zoomControls, 'Reset Zoom', 'codicon-debug-restart', () => this.setCanvasZoom(1));
+		this.zoomIn = this.createZoomButton(zoomControls, 'Zoom In', 'codicon-add', () => this.zoomBy(1));
+		this.surface = append(this.root, $('.basehalf-canvas-surface'));
+		this.cards = append(this.surface, $('.basehalf-canvas-cards'));
 
 		this.detail = append(this.root, $('.basehalf-card-detail'));
 		const detailHeader = append(this.detail, $('.basehalf-card-detail-header'));
@@ -135,8 +148,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
 				void this.canvasNavigationService.closeCardDetail();
+				return;
 			}
+			this.onCanvasKeyDown(event);
 		}));
+		this._register(this.addDisposableListener(this.root, 'wheel', event => this.onCanvasWheel(event)));
 		this._register(this.addDisposableListener(this.root, 'scroll', () => this.scheduleFolderFocusWrite()));
 		this._register(toDisposable(() => {
 			if (this.folderFocusTimer !== undefined) {
@@ -147,6 +163,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 
 		this.updateCanvasLayer();
+		this.applyCanvasZoom();
 		void this.render();
 	}
 
@@ -172,7 +189,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
-			this.title.textContent = 'BaseHalf';
+			this.renderBreadcrumbs(this.title, this.breadcrumbListeners);
 			this.subtitle.textContent = '';
 			clearNode(this.cards);
 			this.renderEmpty('No folder');
@@ -180,7 +197,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		this.title.textContent = folder.relativePath || basename(folder.resource) || this.labelService.getUriLabel(folder.resource);
+		this.renderBreadcrumbs(this.title, this.breadcrumbListeners, folder, this.canvasNavigationService.state.cardDetail);
 		this.subtitle.textContent = folder.relativePath ? this.labelService.getUriLabel(folder.workspaceFolder) : '';
 
 		let stat: IFileStat;
@@ -259,6 +276,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			this.cards.style.width = `${size.width}px`;
 			this.cards.style.height = `${size.height}px`;
+			this.updateCanvasExtent(size);
 			if (model.droppedEdges + layoutResult.dropped > 0) {
 				this.renderCanvasWarning(`${model.droppedEdges + layoutResult.dropped} hidden connection${model.droppedEdges + layoutResult.dropped === 1 ? '' : 's'}`);
 			}
@@ -372,8 +390,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		const dx = event.clientX - drag.startClientX;
-		const dy = event.clientY - drag.startClientY;
+		const dx = (event.clientX - drag.startClientX) / this.canvasZoom;
+		const dy = (event.clientY - drag.startClientY) / this.canvasZoom;
 		if (!drag.moved && Math.hypot(dx, dy) < 4) {
 			return;
 		}
@@ -549,8 +567,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		clearNode(this.cards);
 		const empty = append(this.cards, $('.basehalf-canvas-empty'));
 		empty.textContent = message;
-		this.cards.style.width = '100%';
-		this.cards.style.height = '100%';
+		this.updateCanvasExtent(new Dimension(Math.max(800, this.root.clientWidth), Math.max(480, this.root.clientHeight)));
 	}
 
 	private renderDetail(): void {
@@ -562,16 +579,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.markdownRichDetail = undefined;
 			this.markdownPreviewDetail = undefined;
 			this.detailChromeDisposables.clear();
+			this.detailBreadcrumbListeners.clear();
 			this.detailDisposables.clear();
 			clearNode(this.detailProjectionActions);
 			clearNode(this.detailBody);
-			this.detailTitle.textContent = '';
+			clearNode(this.detailTitle);
 			this.detailMeta.textContent = '';
 			this.scheduleFolderFocusWrite(0);
 			return;
 		}
 
-		this.detailTitle.textContent = cardDetail.relativePath || basename(cardDetail.resource);
+		this.renderBreadcrumbs(this.detailTitle, this.detailBreadcrumbListeners, this.getCurrentFolder(), cardDetail);
 		this.detailMeta.textContent = this.detailMetaFor(cardDetail.projection, cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
 
@@ -662,6 +680,192 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return new Dimension(maxX + 48, maxY + 76);
 	}
 
+	private updateCanvasExtent(size: Dimension): void {
+		this.cards.style.width = `${size.width}px`;
+		this.cards.style.height = `${size.height}px`;
+		this.surface.style.width = `${Math.max(size.width * this.canvasZoom, this.root.clientWidth)}px`;
+		this.surface.style.height = `${Math.max(size.height * this.canvasZoom, Math.max(480, this.root.clientHeight - 45))}px`;
+	}
+
+	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
+		const button = append(container, $(`button.basehalf-canvas-zoom-button.codicon.${icon}`)) as HTMLButtonElement;
+		button.type = 'button';
+		button.title = title;
+		button.setAttribute('aria-label', title);
+		this._register(this.addDisposableListener(button, 'click', () => action()));
+		return button;
+	}
+
+	private zoomBy(direction: -1 | 1): void {
+		this.setCanvasZoom(this.canvasZoom + direction * BASEHALF_CANVAS_ZOOM_STEP);
+	}
+
+	private onCanvasKeyDown(event: KeyboardEvent): void {
+		if (!(event.metaKey || event.ctrlKey)) {
+			return;
+		}
+
+		if (event.key === '=' || event.key === '+') {
+			event.preventDefault();
+			this.zoomBy(1);
+		} else if (event.key === '-') {
+			event.preventDefault();
+			this.zoomBy(-1);
+		} else if (event.key === '0') {
+			event.preventDefault();
+			this.setCanvasZoom(1);
+		}
+	}
+
+	private onCanvasWheel(event: WheelEvent): void {
+		if (!(event.metaKey || event.ctrlKey)) {
+			return;
+		}
+
+		event.preventDefault();
+		const delta = event.deltaY > 0 ? -1 : 1;
+		this.setCanvasZoom(this.canvasZoom + delta * BASEHALF_CANVAS_ZOOM_STEP, {
+			clientX: event.clientX,
+			clientY: event.clientY
+		});
+	}
+
+	private setCanvasZoom(value: number, anchor?: { readonly clientX: number; readonly clientY: number }): void {
+		const nextZoom = normalizeCanvasZoom(value);
+		if (nextZoom === this.canvasZoom) {
+			return;
+		}
+
+		const anchorPoint = anchor ? this.canvasPointFromClient(anchor.clientX, anchor.clientY) : this.viewportCenterCanvasPoint();
+		const anchorClientX = anchor ? anchor.clientX - this.root.getBoundingClientRect().left : this.root.clientWidth / 2;
+		const anchorClientY = anchor ? anchor.clientY - this.root.getBoundingClientRect().top : this.root.clientHeight / 2;
+		this.canvasZoom = nextZoom;
+		this.applyCanvasZoom();
+		this.root.scrollLeft = Math.max(0, anchorPoint.x * nextZoom - anchorClientX);
+		this.root.scrollTop = Math.max(0, anchorPoint.y * nextZoom - anchorClientY);
+		this.scheduleFolderFocusWrite(0);
+	}
+
+	private applyCanvasZoom(): void {
+		const zoom = normalizeCanvasZoom(this.canvasZoom);
+		this.canvasZoom = zoom;
+		this.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
+		this.root.dataset.zoom = String(zoom);
+		this.cards.style.transform = `scale(${zoom})`;
+		this.cards.style.transformOrigin = '0 0';
+		this.zoomValue.textContent = `${Math.round(zoom * 100)}%`;
+		this.zoomOut.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
+		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
+		this.zoomReset.disabled = zoom === 1;
+		const width = parseFloat(this.cards.style.width);
+		const height = parseFloat(this.cards.style.height);
+		if (Number.isFinite(width) && Number.isFinite(height)) {
+			this.updateCanvasExtent(new Dimension(width, height));
+		}
+	}
+
+	private canvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
+		const rect = this.root.getBoundingClientRect();
+		return {
+			x: (this.root.scrollLeft + clientX - rect.left) / this.canvasZoom,
+			y: (this.root.scrollTop + clientY - rect.top) / this.canvasZoom
+		};
+	}
+
+	private viewportCenterCanvasPoint(): { x: number; y: number } {
+		return {
+			x: (this.root.scrollLeft + this.root.clientWidth / 2) / this.canvasZoom,
+			y: (this.root.scrollTop + this.root.clientHeight / 2) / this.canvasZoom
+		};
+	}
+
+	private renderBreadcrumbs(
+		container: HTMLElement,
+		listeners: DisposableStore,
+		folder?: IBaseHalfCanvasFolderState,
+		cardDetail?: IBaseHalfCardDetailState
+	): void {
+		listeners.clear();
+		clearNode(container);
+
+		if (!folder) {
+			const fallback = append(container, $('span.basehalf-breadcrumb-label.active'));
+			fallback.textContent = 'BaseHalf';
+			return;
+		}
+
+		const workspaceLabel = basename(folder.workspaceFolder) || this.labelService.getUriLabel(folder.workspaceFolder);
+		this.renderBreadcrumbButton(container, listeners, workspaceLabel, folder.workspaceFolder, '', 'folder', !folder.relativePath && !cardDetail);
+
+		const pathParts = (cardDetail?.relativePath ?? folder.relativePath).split('/').filter(Boolean);
+		const folderPartCount = cardDetail ? Math.max(0, pathParts.length - 1) : pathParts.length;
+		for (let index = 0; index < folderPartCount; index++) {
+			const parts = pathParts.slice(0, index + 1);
+			const relativePath = parts.join('/');
+			this.renderBreadcrumbSeparator(container);
+			this.renderBreadcrumbButton(
+				container,
+				listeners,
+				pathParts[index],
+				joinPath(folder.workspaceFolder, ...parts),
+				relativePath,
+				'folder',
+				relativePath === folder.relativePath && !cardDetail
+			);
+		}
+
+		if (cardDetail) {
+			this.renderBreadcrumbSeparator(container);
+			this.renderBreadcrumbButton(
+				container,
+				listeners,
+				pathParts[pathParts.length - 1] ?? basename(cardDetail.resource),
+				cardDetail.resource,
+				cardDetail.relativePath,
+				'file',
+				true,
+				cardDetail
+			);
+		}
+	}
+
+	private renderBreadcrumbSeparator(container: HTMLElement): void {
+		append(container, $('span.basehalf-breadcrumb-separator.codicon.codicon-chevron-right'));
+	}
+
+	private renderBreadcrumbButton(
+		container: HTMLElement,
+		listeners: DisposableStore,
+		label: string,
+		resource: IBaseHalfCanvasFolderState['resource'],
+		relativePath: string,
+		kind: 'folder' | 'file',
+		active: boolean,
+		cardDetail?: IBaseHalfCardDetailState
+	): void {
+		const button = append(container, $('button.basehalf-breadcrumb')) as HTMLButtonElement;
+		button.type = 'button';
+		button.textContent = label;
+		button.dataset.relativePath = relativePath;
+		button.dataset.kind = kind;
+		button.classList.toggle('active', active);
+		button.title = kind === 'folder' ? `Open ${label}` : label;
+		button.setAttribute('aria-current', active ? 'page' : 'false');
+		listeners.add(this.addDisposableListener(button, 'click', () => {
+			if (kind === 'folder') {
+				void this.canvasNavigationService.openFolderCanvas(resource, { source: 'api' });
+			} else {
+				void this.canvasNavigationService.openCardDetail(resource, {
+					source: 'api',
+					selection: cardDetail?.selection,
+					preserveFocus: cardDetail?.preserveFocus,
+					pinned: cardDetail?.pinned,
+					projection: cardDetail?.projection
+				});
+			}
+		}));
+	}
+
 	private scheduleFolderFocusWrite(delay = 200): void {
 		if (this.folderFocusTimer !== undefined) {
 			mainWindow.clearTimeout(this.folderFocusTimer);
@@ -692,24 +896,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 			if (!fields) {
 				this.canvasZoom = 1;
+				this.applyCanvasZoom();
 				this.scheduleFolderFocusWrite(0);
 				return;
 			}
 
 			this.canvasZoom = fields.zoom;
+			this.applyCanvasZoom();
 			mainWindow.requestAnimationFrame(() => {
 				if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
 					return;
 				}
 
-				this.root.scrollLeft = Math.max(0, fields.viewport_center.x - this.root.clientWidth / 2);
-				this.root.scrollTop = Math.max(0, fields.viewport_center.y - this.root.clientHeight / 2);
+				this.root.scrollLeft = Math.max(0, fields.viewport_center.x * this.canvasZoom - this.root.clientWidth / 2);
+				this.root.scrollTop = Math.max(0, fields.viewport_center.y * this.canvasZoom - this.root.clientHeight / 2);
 				this.scheduleFolderFocusWrite(0);
 			});
 		}).catch(error => {
 			this.logService.warn(error);
 			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
 				this.canvasZoom = 1;
+				this.applyCanvasZoom();
 				this.scheduleFolderFocusWrite(0);
 			}
 		});
@@ -727,8 +934,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const fields = {
 			viewport_center: {
-				x: this.root.scrollLeft + this.root.clientWidth / 2,
-				y: this.root.scrollTop + this.root.clientHeight / 2
+				x: roundCanvasPosition((this.root.scrollLeft + this.root.clientWidth / 2) / this.canvasZoom),
+				y: roundCanvasPosition((this.root.scrollTop + this.root.clientHeight / 2) / this.canvasZoom)
 			},
 			zoom: this.canvasZoom
 		};
@@ -744,6 +951,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
 
+const BASEHALF_CANVAS_MIN_ZOOM = 0.25;
+const BASEHALF_CANVAS_MAX_ZOOM = 2;
+const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
+
 function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
+}
+
+function normalizeCanvasZoom(value: number): number {
+	if (!Number.isFinite(value)) {
+		return 1;
+	}
+	return Number(Math.min(BASEHALF_CANVAS_MAX_ZOOM, Math.max(BASEHALF_CANVAS_MIN_ZOOM, value)).toFixed(2));
 }

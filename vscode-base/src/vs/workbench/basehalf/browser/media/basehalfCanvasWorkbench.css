@@ -63,7 +63,7 @@
 	top: 0;
 	z-index: 2;
 	display: flex;
-	align-items: baseline;
+	align-items: center;
 	gap: 10px;
 	min-height: 44px;
 	padding: 12px 18px 8px;
@@ -72,6 +72,9 @@
 }
 
 .monaco-workbench .basehalf-canvas-title {
+	display: flex;
+	align-items: center;
+	min-width: 0;
 	font-size: 13px;
 	font-weight: 600;
 	color: var(--vscode-foreground);
@@ -79,6 +82,7 @@
 
 .monaco-workbench .basehalf-canvas-subtitle {
 	min-width: 0;
+	flex: 1;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -86,10 +90,91 @@
 	color: var(--vscode-descriptionForeground);
 }
 
-.monaco-workbench .basehalf-canvas-cards {
+.monaco-workbench .basehalf-breadcrumb {
+	max-width: min(220px, 32vw);
+	height: 24px;
+	padding: 0 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-breadcrumb:hover,
+.monaco-workbench .basehalf-breadcrumb:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-breadcrumb.active {
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-breadcrumb-separator {
+	flex: none;
+	padding: 0 2px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 14px;
+}
+
+.monaco-workbench .basehalf-breadcrumb-label {
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-controls {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-button:hover:not(:disabled),
+.monaco-workbench .basehalf-canvas-zoom-button:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-zoom-button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-zoom-value {
+	width: 44px;
+	text-align: center;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+
+.monaco-workbench .basehalf-canvas-surface {
 	position: relative;
 	min-width: 100%;
 	min-height: calc(100% - 45px);
+}
+
+.monaco-workbench .basehalf-canvas-cards {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
 }
 
 .monaco-workbench .basehalf-canvas-edges {
@@ -257,9 +342,9 @@
 }
 
 .monaco-workbench .basehalf-card-detail-title {
+	display: flex;
+	align-items: center;
 	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 	font-size: 13px;
 	font-weight: 600;
 }
