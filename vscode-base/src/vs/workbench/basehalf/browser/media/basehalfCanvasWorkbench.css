@@ -49,6 +49,10 @@
 	color: var(--vscode-foreground);
 }
 
+.monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open {
+	overflow: hidden;
+}
+
 .monaco-workbench .basehalf-canvas-workbench::before {
 	content: '';
 	position: fixed;

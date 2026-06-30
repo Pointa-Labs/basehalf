@@ -82,6 +82,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private folderFocusTimer: number | undefined;
 	private lastFolderFocusKey: string | undefined;
 	private restoredFolderFocusKey: string | undefined;
+	private canvasScrollBeforeDetail: { readonly left: number; readonly top: number } | undefined;
 	private canvasZoom = 1;
 	private disposed = false;
 
@@ -574,6 +575,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderDetail(): void {
 		const cardDetail = this.canvasNavigationService.state.cardDetail;
 		this.detail.classList.toggle('visible', !!cardDetail);
+		this.syncDetailScrollLock(!!cardDetail);
 		if (!cardDetail) {
 			this.detailKey = undefined;
 			this.sourceDetail = undefined;
@@ -617,6 +619,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} else if (cardDetail.projection === 'source') {
 			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfSourceCardDetail, this.detailBody));
 			void this.sourceDetail.open(cardDetail);
+		}
+	}
+
+	private syncDetailScrollLock(detailVisible: boolean): void {
+		this.root.classList.toggle('basehalf-card-detail-open', detailVisible);
+		if (detailVisible) {
+			if (!this.canvasScrollBeforeDetail) {
+				this.canvasScrollBeforeDetail = {
+					left: this.root.scrollLeft,
+					top: this.root.scrollTop
+				};
+			}
+			this.root.scrollLeft = 0;
+			this.root.scrollTop = 0;
+			return;
+		}
+
+		const scroll = this.canvasScrollBeforeDetail;
+		this.canvasScrollBeforeDetail = undefined;
+		if (scroll) {
+			this.root.scrollLeft = scroll.left;
+			this.root.scrollTop = scroll.top;
 		}
 	}
 

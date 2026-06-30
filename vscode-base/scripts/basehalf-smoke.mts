@@ -97,8 +97,10 @@ try {
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
+	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
@@ -147,6 +149,7 @@ try {
 			'source-control-git-provider',
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
+			'card-detail-covers-scrolled-canvas',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
@@ -284,9 +287,19 @@ async function step(name, run) {
 function createFixtureWorkspace(workspace) {
 	fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
+	fs.mkdirSync(path.join(workspace, '.bh', 'mirror'), { recursive: true });
 	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n\nneedle-basehalf-second\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
+	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'canvas.yaml'), [
+		'path: ""',
+		'size:',
+		'  width: 1400',
+		'  height: 1800',
+		'cards: []',
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
 	initializeGitWorkspace(workspace);
 	configureGitAuthor(workspace);
 	commitFixtureChanges(workspace, 'initial smoke fixture');
@@ -663,6 +676,70 @@ async function assertNoEditorTabFor(page, name) {
 	}
 
 	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
+}
+
+async function scrollCanvasWorkbenchForCardDetail(page) {
+	const result = await page.evaluate(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		if (!(root instanceof HTMLElement)) {
+			throw new Error('Missing BaseHalf canvas workbench');
+		}
+
+		root.scrollTop = Math.min(320, Math.max(0, root.scrollHeight - root.clientHeight));
+		root.scrollLeft = Math.min(120, Math.max(0, root.scrollWidth - root.clientWidth));
+		return {
+			top: root.scrollTop,
+			left: root.scrollLeft,
+			scrollHeight: root.scrollHeight,
+			clientHeight: root.clientHeight
+		};
+	});
+
+	if (result.top < 100) {
+		throw new Error(`Expected scrollable canvas before card detail, got top=${result.top}, scrollHeight=${result.scrollHeight}, clientHeight=${result.clientHeight}`);
+	}
+}
+
+async function assertCardDetailCoversCanvasViewport(page) {
+	const geometry = await page.evaluate(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		const detail = document.querySelector('.basehalf-card-detail.visible');
+		if (!(root instanceof HTMLElement) || !(detail instanceof HTMLElement)) {
+			throw new Error('Missing visible BaseHalf card detail');
+		}
+
+		const rootRect = root.getBoundingClientRect();
+		const detailRect = detail.getBoundingClientRect();
+		const bottomProbe = document.elementFromPoint(rootRect.left + rootRect.width / 2, rootRect.bottom - 24);
+		return {
+			rootTop: rootRect.top,
+			rootLeft: rootRect.left,
+			rootBottom: rootRect.bottom,
+			rootRight: rootRect.right,
+			detailTop: detailRect.top,
+			detailLeft: detailRect.left,
+			detailBottom: detailRect.bottom,
+			detailRight: detailRect.right,
+			scrollTop: root.scrollTop,
+			scrollLeft: root.scrollLeft,
+			locked: root.classList.contains('basehalf-card-detail-open'),
+			bottomProbeIsCanvas: !!bottomProbe?.closest('.basehalf-canvas-card, .basehalf-canvas-surface')
+		};
+	});
+
+	const tolerance = 1;
+	if (!geometry.locked || geometry.scrollTop !== 0 || geometry.scrollLeft !== 0) {
+		throw new Error(`Card detail did not lock canvas scroll: ${JSON.stringify(geometry)}`);
+	}
+	if (Math.abs(geometry.detailTop - geometry.rootTop) > tolerance
+		|| Math.abs(geometry.detailLeft - geometry.rootLeft) > tolerance
+		|| Math.abs(geometry.detailBottom - geometry.rootBottom) > tolerance
+		|| Math.abs(geometry.detailRight - geometry.rootRight) > tolerance) {
+		throw new Error(`Card detail does not cover canvas viewport: ${JSON.stringify(geometry)}`);
+	}
+	if (geometry.bottomProbeIsCanvas) {
+		throw new Error(`Card detail leaves canvas visible at the bottom: ${JSON.stringify(geometry)}`);
+	}
 }
 
 async function assertMarkdownRichEditorEditsAndSaves(page) {
