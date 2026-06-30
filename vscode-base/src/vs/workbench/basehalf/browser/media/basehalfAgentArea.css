@@ -60,6 +60,8 @@
 .monaco-workbench .basehalf-agent-choice,
 .monaco-workbench .basehalf-agent-area-icon,
 .monaco-workbench .basehalf-agent-tab-select,
+.monaco-workbench .basehalf-agent-tab-restart,
+.monaco-workbench .basehalf-agent-tab-kill,
 .monaco-workbench .basehalf-agent-tab-close {
 	border: 0;
 	color: inherit;
@@ -90,6 +92,8 @@
 .monaco-workbench .basehalf-agent-choice:focus-visible,
 .monaco-workbench .basehalf-agent-area-icon:focus-visible,
 .monaco-workbench .basehalf-agent-tab-select:focus-visible,
+.monaco-workbench .basehalf-agent-tab-restart:focus-visible,
+.monaco-workbench .basehalf-agent-tab-kill:focus-visible,
 .monaco-workbench .basehalf-agent-tab-close:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
@@ -124,10 +128,10 @@
 
 .monaco-workbench .basehalf-agent-tab {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 24px;
+	grid-template-columns: minmax(0, 1fr) 24px 24px 24px;
 	align-items: center;
-	min-width: 116px;
-	max-width: 180px;
+	min-width: 164px;
+	max-width: 232px;
 	height: 33px;
 	border-right: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
 	color: var(--vscode-descriptionForeground);
@@ -172,6 +176,8 @@
 	font-size: 10px;
 }
 
+.monaco-workbench .basehalf-agent-tab-restart,
+.monaco-workbench .basehalf-agent-tab-kill,
 .monaco-workbench .basehalf-agent-tab-close {
 	width: 24px;
 	height: 24px;
@@ -180,6 +186,8 @@
 	cursor: pointer;
 }
 
+.monaco-workbench .basehalf-agent-tab-restart:disabled,
+.monaco-workbench .basehalf-agent-tab-kill:disabled,
 .monaco-workbench .basehalf-agent-tab-close:disabled {
 	opacity: 0.45;
 	cursor: default;

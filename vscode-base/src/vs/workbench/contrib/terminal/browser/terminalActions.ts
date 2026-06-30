@@ -298,14 +298,12 @@ export function registerTerminalActions() {
 	registerTerminalAction({
 		id: TerminalCommandId.NewInActiveWorkspace,
 		title: localize2('workbench.action.terminal.newInActiveWorkspace', 'Create New Terminal (In Active Workspace)'),
-		run: async (c) => {
+		run: async (c, accessor) => {
 			if (c.service.isProcessSupportRegistered) {
-				const instance = await c.service.createTerminal({ location: c.configService.defaultLocation });
-				if (!instance) {
-					return;
-				}
-				c.service.setActiveInstance(instance);
-				await focusActiveTerminal(instance, c);
+				await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+					source: TerminalCommandId.NewInActiveWorkspace,
+					rawTerminalOptions: { location: c.configService.defaultLocation }
+				});
 			}
 		}
 	});
@@ -418,9 +416,9 @@ export function registerTerminalActions() {
 			weight: KeybindingWeight.WorkbenchContrib + 1
 		},
 		precondition: sharedWhenClause.terminalAvailable,
-		run: async (c) => {
+		run: async (c, accessor) => {
 			c.groupService.activeGroup?.focusPreviousPane();
-			await c.groupService.showPanel(true);
+			await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.FocusPreviousPane);
 		}
 	});
 
@@ -439,9 +437,9 @@ export function registerTerminalActions() {
 			weight: KeybindingWeight.WorkbenchContrib + 1
 		},
 		precondition: sharedWhenClause.terminalAvailable,
-		run: async (c) => {
+		run: async (c, accessor) => {
 			c.groupService.activeGroup?.focusNextPane();
-			await c.groupService.showPanel(true);
+			await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.FocusNextPane);
 		}
 	});
 
@@ -504,13 +502,13 @@ export function registerTerminalActions() {
 			weight: KeybindingWeight.WorkbenchContrib
 		},
 		precondition: sharedWhenClause.terminalAvailable,
-		run: async (c) => {
+		run: async (c, accessor) => {
 			const instance = c.service.activeInstance || await c.service.createTerminal({ location: TerminalLocation.Panel });
 			if (!instance) {
 				return;
 			}
 			c.service.setActiveInstance(instance);
-			await focusActiveTerminal(instance, c);
+			await focusActiveTerminal(instance, c, accessor, TerminalCommandId.Focus);
 		}
 	});
 
@@ -538,9 +536,9 @@ export function registerTerminalActions() {
 			when: ContextKeyExpr.and(TerminalContextKeys.focus, TerminalContextKeys.editorFocus.negate()),
 			weight: KeybindingWeight.WorkbenchContrib
 		},
-		run: async (c) => {
+		run: async (c, accessor) => {
 			c.groupService.setActiveGroupToNext();
-			await c.groupService.showPanel(true);
+			await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.FocusNext);
 		}
 	});
 
@@ -556,9 +554,9 @@ export function registerTerminalActions() {
 			when: ContextKeyExpr.and(TerminalContextKeys.focus, TerminalContextKeys.editorFocus.negate()),
 			weight: KeybindingWeight.WorkbenchContrib
 		},
-		run: async (c) => {
+		run: async (c, accessor) => {
 			c.groupService.setActiveGroupToPrevious();
-			await c.groupService.showPanel(true);
+			await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.FocusPrevious);
 		}
 	});
 
@@ -581,7 +579,7 @@ export function registerTerminalActions() {
 				text = editor.getModel().getValueInRange(selection, endOfLinePreference);
 			}
 			instance.sendText(text, true, true);
-			await c.service.revealActiveTerminal(true);
+			await revealTerminalInAgentArea(instance, accessor, true, TerminalCommandId.RunSelectedText);
 		}
 	});
 
@@ -609,7 +607,7 @@ export function registerTerminalActions() {
 
 			// TODO: Convert this to ctrl+c, ctrl+v for pwsh?
 			await instance.sendPath(uri, true);
-			return c.groupService.showPanel();
+			await revealTerminalInAgentArea(instance, accessor, false, TerminalCommandId.RunActiveFile);
 		}
 	});
 
@@ -864,7 +862,7 @@ export function registerTerminalActions() {
 					config: { attachPersistentProcess: selected.term }
 				});
 				c.service.setActiveInstance(instance);
-				await focusActiveTerminal(instance, c);
+				await focusActiveTerminal(instance, c, accessor, TerminalCommandId.AttachToSession);
 			}
 		}
 	});
@@ -1001,14 +999,12 @@ export function registerTerminalActions() {
 				}
 			}]
 		},
-		run: async (c, _, args) => {
+		run: async (c, accessor, args) => {
 			const cwd = args ? toOptionalString((<{ cwd?: string }>args).cwd) : undefined;
-			const instance = await c.service.createTerminal({ cwd });
-			if (!instance) {
-				return;
-			}
-			c.service.setActiveInstance(instance);
-			await focusActiveTerminal(instance, c);
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.NewWithCwd,
+				rawTerminalOptions: { cwd }
+			});
 		}
 	});
 
@@ -1079,7 +1075,7 @@ export function registerTerminalActions() {
 				return;
 			}
 			const instance = await c.service.createTerminal({ location: { parentTerminal: activeInstance }, config: options?.config, cwd });
-			await focusActiveTerminal(instance, c);
+			await focusActiveTerminal(instance, c, accessor, TerminalCommandId.Split);
 		}
 	});
 
@@ -1102,8 +1098,8 @@ export function registerTerminalActions() {
 				const promises: Promise<void>[] = [];
 				for (const t of instances) {
 					promises.push((async () => {
-						await c.service.createTerminal({ location: { parentTerminal: t } });
-						await c.groupService.showPanel(true);
+						const instance = await c.service.createTerminal({ location: { parentTerminal: t } });
+						await focusActiveTerminal(instance, c, accessor, TerminalCommandId.SplitActiveTab);
 					})());
 				}
 				await Promise.all(promises);
@@ -1185,10 +1181,10 @@ export function registerTerminalActions() {
 	registerActiveInstanceAction({
 		id: TerminalCommandId.SplitInActiveWorkspace,
 		title: localize2('workbench.action.terminal.splitInActiveWorkspace', 'Split Terminal (In Active Workspace)'),
-		run: async (instance, c) => {
+		run: async (instance, c, accessor) => {
 			const newInstance = await c.service.createTerminal({ location: { parentTerminal: instance } });
-			if (newInstance?.target !== TerminalLocation.Editor) {
-				await c.groupService.showPanel(true);
+			if (newInstance) {
+				await focusActiveTerminal(newInstance, c, accessor, TerminalCommandId.SplitInActiveWorkspace);
 			}
 		}
 	});
@@ -1272,28 +1268,26 @@ export function registerTerminalActions() {
 		}
 	});
 
-	async function killInstance(c: ITerminalServicesCollection, instance: ITerminalInstance | undefined): Promise<void> {
+	async function killInstance(c: ITerminalServicesCollection, accessor: ServicesAccessor, instance: ITerminalInstance | undefined): Promise<void> {
 		if (!instance) {
 			return;
 		}
 		await c.service.safeDisposeTerminal(instance);
-		if (c.groupService.instances.length > 0) {
-			await c.groupService.showPanel(true);
-		}
+		await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.Kill);
 	}
 	registerTerminalAction({
 		id: TerminalCommandId.Kill,
 		title: localize2('workbench.action.terminal.kill', 'Kill the Active Terminal Instance'),
 		precondition: ContextKeyExpr.or(sharedWhenClause.terminalAvailable, TerminalContextKeys.isOpen),
 		icon: killTerminalIcon,
-		run: async (c) => killInstance(c, c.groupService.activeInstance)
+		run: async (c, accessor) => killInstance(c, accessor, c.groupService.activeInstance)
 	});
 	registerTerminalAction({
 		id: TerminalCommandId.KillViewOrEditor,
 		title: terminalStrings.kill,
 		f1: false, // This is an internal command used for context menus
 		precondition: ContextKeyExpr.or(sharedWhenClause.terminalAvailable, TerminalContextKeys.isOpen),
-		run: async (c) => killInstance(c, c.service.activeInstance)
+		run: async (c, accessor) => killInstance(c, accessor, c.service.activeInstance)
 	});
 
 	registerTerminalAction({
@@ -1430,7 +1424,8 @@ export function registerTerminalActions() {
 			const indexMatches = terminalIndexRe.exec(item);
 			if (indexMatches) {
 				c.groupService.setActiveGroupByIndex(Number(indexMatches[1]) - 1);
-				return c.groupService.showPanel(true);
+				await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.SwitchTerminal);
+				return;
 			}
 
 			const quickSelectProfiles = c.profileService.availableProfiles;
@@ -1444,6 +1439,7 @@ export function registerTerminalActions() {
 						config: profile
 					});
 					c.service.setActiveInstance(instance);
+					await focusActiveTerminal(instance, c, accessor, TerminalCommandId.SwitchTerminal);
 				} else {
 					console.warn(`No profile with name "${profileSelection}"`);
 				}
@@ -1782,18 +1778,23 @@ export function shrinkWorkspaceFolderCwdPairs(pairs: WorkspaceFolderCwdPair[]): 
 	return selectedPairsInOrder;
 }
 
-async function focusActiveTerminal(instance: ITerminalInstance | undefined, c: ITerminalServicesCollection): Promise<void> {
+async function focusActiveTerminal(instance: ITerminalInstance | undefined, c: ITerminalServicesCollection, accessor: ServicesAccessor, source: string): Promise<void> {
 	const target = instance
 		?? c.service.activeInstance
 		?? c.editorService.activeInstance
 		?? c.groupService.activeInstance;
 	if (!target) {
-		if (c.groupService.instances.length > 0) {
-			await c.groupService.showPanel(true);
-		}
 		return;
 	}
-	await c.service.focusInstance(target);
+	await revealTerminalInAgentArea(target, accessor, false, source);
+}
+
+async function revealTerminalInAgentArea(instance: ITerminalInstance, accessor: ServicesAccessor, preserveFocus: boolean, source: string): Promise<void> {
+	await accessor.get(IBaseHalfAgentAreaService).revealTerminalSession(instance, {
+		label: instance.title,
+		source,
+		preserveFocus
+	});
 }
 
 async function renameWithQuickPick(c: ITerminalServicesCollection, accessor: ServicesAccessor, resource?: unknown) {

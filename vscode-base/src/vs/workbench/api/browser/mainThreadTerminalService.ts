@@ -194,11 +194,9 @@ export class MainThreadTerminalService extends Disposable implements MainThreadT
 	public async $show(id: ExtHostTerminalIdentifier, preserveFocus: boolean): Promise<void> {
 		const terminalInstance = await this._getTerminalInstance(id);
 		if (terminalInstance) {
-			this._terminalService.setActiveInstance(terminalInstance);
-			await this._baseHalfAgentAreaService.adoptTerminalSession(terminalInstance, {
+			await this._baseHalfAgentAreaService.revealTerminalSession(terminalInstance, {
 				label: terminalInstance.title,
 				source: 'vscode.window.Terminal.show',
-				reveal: true,
 				preserveFocus
 			});
 		}

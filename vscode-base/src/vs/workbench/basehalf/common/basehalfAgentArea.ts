@@ -15,10 +15,12 @@ export const BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID = 'basehalf.agentArea.
 export const BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID = 'basehalf.agentArea.newClaudeTui';
 export const BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID = 'basehalf.agentArea.newCodexExtension';
 export const BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID = 'basehalf.agentArea.newClaudeExtension';
+export const BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID = 'basehalf.agentArea.restartActive';
+export const BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID = 'basehalf.agentArea.killActive';
 export const BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID = 'basehalf.internal.terminal.toggleView';
 
 export type BaseHalfAgentSessionKind = 'terminal' | 'tui-codex' | 'tui-claude' | 'extension-codex' | 'extension-claude';
-export type BaseHalfAgentSessionState = 'starting' | 'ready' | 'unavailable' | 'failed' | 'disposed';
+export type BaseHalfAgentSessionState = 'starting' | 'ready' | 'exited' | 'unavailable' | 'failed' | 'disposed';
 
 export interface IBaseHalfAgentSessionChoice {
 	readonly kind: BaseHalfAgentSessionKind;
@@ -27,6 +29,7 @@ export interface IBaseHalfAgentSessionChoice {
 	readonly commandId: string;
 	readonly terminalCommand?: string;
 	readonly requiresExtensionSlot?: string;
+	readonly extensionId?: string;
 }
 
 export const BASEHALF_AGENT_SESSION_CHOICES = [
@@ -49,14 +52,16 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 		label: 'Codex Extension',
 		description: 'Host the curated VS Code Codex extension experience inside the Agent Area.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID,
-		requiresExtensionSlot: 'basehalf.agentArea.extension.codex'
+		requiresExtensionSlot: 'basehalf.agentArea.extension.codex',
+		extensionId: 'openai.chatgpt'
 	},
 	{
 		kind: 'extension-claude',
 		label: 'Claude Code Extension',
 		description: 'Host the curated VS Code Claude Code extension experience inside the Agent Area.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
-		requiresExtensionSlot: 'basehalf.agentArea.extension.claude'
+		requiresExtensionSlot: 'basehalf.agentArea.extension.claude',
+		extensionId: 'anthropic.claude-code'
 	},
 	{
 		kind: 'terminal',
@@ -119,10 +124,13 @@ export interface IBaseHalfAgentAreaService {
 	toggle(preserveFocus?: boolean): Promise<void>;
 	createTerminalSession(options?: IBaseHalfCreateAgentTerminalOptions): Promise<IBaseHalfAgentAreaSession>;
 	adoptTerminalSession(terminal: unknown, options?: IBaseHalfAdoptAgentTerminalOptions): Promise<IBaseHalfAgentAreaSession>;
+	revealTerminalSession(terminal: unknown, options?: IBaseHalfAdoptAgentTerminalOptions): Promise<IBaseHalfAgentAreaSession | undefined>;
 	hideTerminalSession(terminal: unknown): void;
 	createSession(kind: BaseHalfAgentSessionKind): Promise<IBaseHalfAgentAreaSession>;
 	registerExtensionAgentProvider(kind: BaseHalfExtensionAgentSessionKind, provider: IBaseHalfExtensionAgentProvider): IDisposable;
 	focusSession(id: string): Promise<void>;
+	restartSession(id: string): Promise<void>;
+	killSession(id: string): Promise<void>;
 	closeSession(id: string): Promise<void>;
 }
 
