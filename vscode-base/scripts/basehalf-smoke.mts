@@ -82,6 +82,8 @@ try {
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 
 	await assertOpenEditorsHidden(page);
+	await assertAgentAreaChoices(page);
+
 	await quickOpen(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
@@ -100,6 +102,7 @@ try {
 		checks: [
 			'canvas-visible',
 			'open-editors-hidden',
+			'agent-area-mounted-connected-choices',
 			'quick-open-card-detail',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
@@ -219,6 +222,20 @@ async function assertOpenEditorsHidden(page) {
 	const headers = await page.locator('.pane-header h3.title').evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(text => text === 'Open Editors'));
 	if (headers.length) {
 		throw new Error('Open Editors view is visible in Explorer');
+	}
+}
+
+async function assertAgentAreaChoices(page) {
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'attached', timeout: 15_000 });
+	const choices = await page.locator('.basehalf-agent-choice').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
+	const expected = ['Codex', 'Claude Code', 'Terminal'];
+	if (choices.join('|') !== expected.join('|')) {
+		throw new Error(`Unexpected Agent Area choices: ${choices.join(', ')}`);
+	}
+	for (const hidden of ['Codex Extension', 'Claude Code Extension']) {
+		if (choices.includes(hidden)) {
+			throw new Error(`Disconnected Agent Area choice is visible: ${hidden}`);
+		}
 	}
 }
 
