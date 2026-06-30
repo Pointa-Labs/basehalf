@@ -893,6 +893,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	return (
 		<div className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}>
+			<div className="basehalf-markdown-rich-portal" />
 			{state.conflictDisk !== undefined && (
 				<div className="basehalf-markdown-rich-banner warning">
 					<span>This file changed outside the rich editor.</span>
@@ -942,6 +943,10 @@ function MarkdownRichEditor(): JSX.Element {
 						editor={editor}
 						editable={canEdit}
 						theme="dark"
+						portalElements={{
+							default: '.basehalf-markdown-rich-portal',
+							sideMenu: '.basehalf-markdown-rich-portal',
+						}}
 					/>
 				</div>
 			</div>

@@ -20,6 +20,17 @@ body,
 	color: var(--vscode-editor-foreground);
 }
 
+.basehalf-markdown-rich-portal {
+	position: absolute;
+	inset: 0;
+	z-index: 30;
+	pointer-events: none;
+}
+
+.basehalf-markdown-rich-portal > * {
+	pointer-events: auto;
+}
+
 .basehalf-markdown-rich-banner {
 	display: flex;
 	align-items: center;
@@ -89,6 +100,44 @@ body,
 
 .basehalf-markdown-rich .bn-editor {
 	padding: 0;
+}
+
+.basehalf-markdown-rich .bn-block-outer {
+	line-height: 1.5;
+	transition: none;
+}
+
+.basehalf-markdown-rich .bn-block-content {
+	color: inherit;
+	font-family: inherit;
+	line-height: inherit;
+	transition: none;
+}
+
+.basehalf-markdown-rich .bn-block-content::before {
+	transition: none;
+}
+
+.basehalf-markdown-rich .bn-block-group .bn-block-group {
+	margin-left: 18px;
+}
+
+.basehalf-markdown-rich
+	.bn-block-group
+	.bn-block-group
+	> .bn-block-outer:not([data-prev-depth-changed])::before {
+	left: -12px;
+	border-left-color: color-mix(in srgb, var(--vscode-editor-foreground) 34%, transparent);
+}
+
+.basehalf-markdown-rich .bn-block-content[data-content-type="numberedListItem"]::before {
+	min-width: 22px;
+	padding-right: 4px;
+}
+
+.basehalf-markdown-rich .bn-block-content[data-content-type="bulletListItem"]::before {
+	min-width: 18px;
+	padding-right: 4px;
 }
 
 .basehalf-adhd-block {
