@@ -166,14 +166,15 @@ suite('BaseHalfWorkbenchProfile', () => {
 			BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 			[
 				'workbench.editors.gettingStartedInput',
-				'workbench.editors.agentSessionsWelcome',
+				'workbench.editors.agentSessionsWelcomeInput',
 				'workbench.editors.workspaceTrust',
 				'workbench.editors.workspaceTrustRequiredEditor'
 			]
 		);
 
 		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.gettingStartedInput'), true);
-		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcome'), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcomeInput'), true);
+		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.agentSessionsWelcome'), false);
 		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.editors.textResourceEditor'), false);
 		assert.strictEqual(shouldBaseHalfCloseStartupEditor('workbench.input.searchEditor'), false);
 	});

@@ -269,7 +269,7 @@ export const BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR = [
 
 export const BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS = [
 	'workbench.editors.gettingStartedInput',
-	'workbench.editors.agentSessionsWelcome',
+	'workbench.editors.agentSessionsWelcomeInput',
 	'workbench.editors.workspaceTrust',
 	'workbench.editors.workspaceTrustRequiredEditor'
 ] as const;
