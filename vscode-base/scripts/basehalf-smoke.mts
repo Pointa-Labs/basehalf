@@ -99,6 +99,7 @@ try {
 
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
 	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
@@ -111,11 +112,11 @@ try {
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
 	await step('quick-text-search-readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('quick-text-search-readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
-	await step('quick-text-search-readme-focus-line-3', () => assertFocusLine('README.md', 3));
+	await step('quick-text-search-readme-focus-routing-line', () => assertFocusLine('README.md', lineNumberForText('README.md', 'needle-basehalf-routing')));
 	await step('quick-text-search-readme-second', () => quickOpen(page, '%needle-basehalf-second'));
 	await step('quick-text-search-readme-second-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('quick-text-search-readme-second-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
-	await step('quick-text-search-readme-focus-line-5', () => assertFocusLine('README.md', 5));
+	await step('quick-text-search-readme-focus-second-line', () => assertFocusLine('README.md', lineNumberForText('README.md', 'needle-basehalf-second')));
 	await step('quick-text-search-app-side', () => quickOpen(page, '%needleSymbol', 'Alt+Enter'));
 	await step('quick-text-search-app-card-detail', () => assertCardDetail(page, 'app.ts'));
 	await step('quick-text-search-app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
@@ -147,6 +148,7 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'quick-open-card-detail',
+			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
 			'source-card-detail-flush-on-navigation',
 			'quick-text-search-card-detail-no-tab',
@@ -333,7 +335,12 @@ async function quickOpen(page, value, acceptKey = 'Enter') {
 	await waitForQuickInputResult(page);
 	if (await quickInput.isVisible().catch(() => false)) {
 		await page.keyboard.press(acceptKey);
-		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		try {
+			await quickInput.waitFor({ state: 'hidden', timeout: 5_000 });
+		} catch {
+			await page.keyboard.press('Escape');
+			await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		}
 	}
 }
 
@@ -658,6 +665,39 @@ async function assertNoEditorTabFor(page, name) {
 	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
 }
 
+async function assertMarkdownRichEditorEditsAndSaves(page) {
+	const marker = `rich editor smoke ${Date.now()}`;
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	const editable = frame.locator('.bn-editor [contenteditable="true"], .bn-editor[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+	await editable.waitFor({ state: 'visible', timeout: 20_000 });
+	await editable.click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
+	await page.keyboard.press('Enter');
+	await page.keyboard.insertText(marker);
+
+	await page.locator('.basehalf-card-detail-markdown-rich-status', { hasText: /Unsaved changes|Saving|Saved/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'rich Markdown editor to persist edits', 15_000);
+}
+
+async function activeMarkdownRichFrame(page) {
+	const started = Date.now();
+	let lastFrameUrls = [];
+	while (Date.now() - started < 20_000) {
+		const frames = page.frames();
+		lastFrameUrls = frames.map(frame => frame.url()).filter(Boolean);
+		for (const frame of frames) {
+			const editorCount = await frame.locator('.basehalf-markdown-rich.ready .bn-editor').count().catch(() => 0);
+			if (editorCount > 0) {
+				return frame;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+
+	throw new Error(`Markdown rich editor webview was not ready. Frames: ${lastFrameUrls.join(', ')}`);
+}
+
 async function assertSourceCardFlushesBeforeNavigation(page) {
 	const marker = 'export const sourceFlushSmoke = true;';
 	const appPath = path.join(workspacePath, 'src', 'app.ts');
@@ -681,6 +721,16 @@ async function assertFocusLine(relativePath, line) {
 			&& content.includes('cursor:')
 			&& content.includes(`  line: ${line}`);
 	}, `focus.yaml for ${relativePath} to point at line ${line}`);
+}
+
+function lineNumberForText(relativePath, needle) {
+	const filePath = path.join(workspacePath, ...relativePath.split('/'));
+	const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+	const index = lines.findIndex(line => line.includes(needle));
+	if (index < 0) {
+		throw new Error(`Did not find ${needle} in ${relativePath}`);
+	}
+	return index + 1;
 }
 
 async function waitUntil(predicate, description, timeoutMs = 10_000) {

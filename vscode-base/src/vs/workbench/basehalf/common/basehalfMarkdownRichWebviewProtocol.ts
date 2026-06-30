@@ -16,6 +16,8 @@ export interface IBaseHalfMarkdownRichTextSelection {
 	readonly endColumn?: number;
 }
 
+export type BaseHalfMarkdownRichWorkbenchCommand = 'quickOpen' | 'showCommands';
+
 export type BaseHalfMarkdownRichHostMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.init';
@@ -90,6 +92,11 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.focusChanged';
 		readonly key: string;
 		readonly fields: IBaseHalfMarkdownFocusFields;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.workbenchCommand';
+		readonly key: string;
+		readonly command: BaseHalfMarkdownRichWorkbenchCommand;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.adhdCommand';
@@ -170,6 +177,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
 		case 'basehalf.markdownRich.focusChanged':
 			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
+		case 'basehalf.markdownRich.workbenchCommand':
+			return candidate.command === 'quickOpen' || candidate.command === 'showCommands';
 		case 'basehalf.markdownRich.adhdCommand':
 			return isBaseHalfMarkdownRichAdhdCommand(candidate.command);
 		case 'basehalf.markdownRich.error':

@@ -114,6 +114,16 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			fields: { visible_blocks: { start: 2 }, cursor: { line: 4, column: 1, line_precision: 'exact', block: 2 } }
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.workbenchCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'quickOpen'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.workbenchCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'showCommands'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',
 			key: 'workspace\u0000doc.md',
 			command: { command: 'addKeyword', keyword: 'Cost' }
@@ -145,6 +155,11 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.dirtyChanged',
 			key: 'workspace\u0000doc.md',
 			dirty: 'yes'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.workbenchCommand',
+			key: 'workspace\u0000doc.md',
+			command: 'unknown'
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',

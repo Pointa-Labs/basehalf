@@ -128,6 +128,11 @@ type BaseHalfMarkdownRichWebviewMessage =
 		readonly fields: ReturnType<typeof buildBaseHalfMarkdownFocusFields>;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.workbenchCommand';
+		readonly key: string;
+		readonly command: 'quickOpen' | 'showCommands';
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.adhdCommand';
 		readonly key: string;
 		readonly command: IBaseHalfAdhdCommand;
@@ -817,6 +822,25 @@ function MarkdownRichEditor(): JSX.Element {
 			window.removeEventListener('blur', close);
 		};
 	}, [contextMenu]);
+
+	useEffect(() => {
+		const onKeyDown = (event: KeyboardEvent) => {
+			const state = session.current;
+			if (!state.key || event.key.toLowerCase() !== 'p' || (!event.metaKey && !event.ctrlKey) || event.altKey) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.workbenchCommand',
+				key: state.key,
+				command: event.shiftKey ? 'showCommands' : 'quickOpen',
+			});
+		};
+		window.addEventListener('keydown', onKeyDown, true);
+		return () => window.removeEventListener('keydown', onKeyDown, true);
+	}, [vscode]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {

@@ -13,10 +13,11 @@ import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
-import { IWebviewService, IOverlayWebview, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
+import { IWebviewService, IWebviewElement, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
@@ -32,6 +33,7 @@ import {
 } from '../../common/basehalfMarkdownRichTextModel.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+	BaseHalfMarkdownRichWorkbenchCommand,
 	isBaseHalfMarkdownRichWebviewMessage
 } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
 import { BaseHalfMarkdownRichWebviewBridge } from '../../common/basehalfMarkdownRichWebviewBridge.js';
@@ -59,7 +61,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private documentKey: string | undefined;
 	private liveDocument: IBaseHalfMarkdownRichLiveDocumentHandle | undefined;
 	private bridge: BaseHalfMarkdownRichWebviewBridge | undefined;
-	private webview: IOverlayWebview | undefined;
+	private webview: IWebviewElement | undefined;
 	private dirty = false;
 	private lastSentContent: string | undefined;
 	private writingTextModel = false;
@@ -73,6 +75,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
+		@ICommandService private readonly commandService: ICommandService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -114,7 +117,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
 
-			this.webview = this._register(this.webviewService.createWebviewOverlay({
+			this.webview = this._register(this.webviewService.createWebviewElement({
 				providedViewType: BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
 				title: state.relativePath || state.resource.path,
 				options: {
@@ -125,13 +128,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				},
 				contentOptions: {
 					allowScripts: true,
+					forwardUntrustedKeypressEvents: true,
 					localResourceRoots: [markdownRichMediaRoot]
 				},
 				extension: undefined
 			}));
-			this.webview.setAnchorElement(this.webviewHost, this.container);
+			this.webview.mountTo(this.webviewHost, mainWindow);
 			this.webview.setHtml(this.htmlFor(this.documentKey));
-			this.webview.claim(this, mainWindow, undefined);
 
 			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
 			this._register(this.webview.onMissingCsp(extension => {
@@ -173,7 +176,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			pending.resolve(true);
 		}
 		this.pendingFlushes.clear();
-		this.webview?.release(this);
 		super.dispose();
 	}
 
@@ -242,6 +244,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 					...message.fields
 				}).catch(error => this.logService.error(error));
 				break;
+			case 'basehalf.markdownRich.workbenchCommand':
+				await this.handleWorkbenchCommand(message.command);
+				break;
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);
 				break;
@@ -260,6 +265,17 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			const message = adhdErrorMessage(error);
 			this.logService.error(error);
 			await this.bridge?.sendAdhdState({ error: message });
+		}
+	}
+
+	private async handleWorkbenchCommand(command: BaseHalfMarkdownRichWorkbenchCommand): Promise<void> {
+		switch (command) {
+			case 'quickOpen':
+				await this.commandService.executeCommand('workbench.action.quickOpen');
+				break;
+			case 'showCommands':
+				await this.commandService.executeCommand('workbench.action.showCommands');
+				break;
 		}
 	}
 
