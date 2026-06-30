@@ -4,7 +4,6 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { getFontSnippets } from '../../../../base/browser/fonts.js';
-import { KeyCode, KeyMod } from '../../../../base/common/keyCodes.js';
 import { Schemas } from '../../../../base/common/network.js';
 import { URI } from '../../../../base/common/uri.js';
 import * as nls from '../../../../nls.js';
@@ -20,7 +19,7 @@ import { ViewPaneContainer } from '../../../browser/parts/views/viewPaneContaine
 import { WorkbenchPhase, registerWorkbenchContribution2 } from '../../../common/contributions.js';
 import { EditorExtensions, IEditorFactoryRegistry } from '../../../common/editor.js';
 import { IViewContainersRegistry, IViewsRegistry, Extensions as ViewContainerExtensions, ViewContainerLocation, WindowEnablement } from '../../../common/views.js';
-import { ITerminalProfileService, TERMINAL_VIEW_ID, TerminalCommandId } from '../common/terminal.js';
+import { ITerminalProfileService, TERMINAL_VIEW_ID } from '../common/terminal.js';
 import { TerminalEditingService } from './terminalEditingService.js';
 import { registerColors } from '../common/terminalColorRegistry.js';
 import { registerTerminalConfiguration } from '../common/terminalConfiguration.js';
@@ -47,6 +46,7 @@ import { TerminalProfileService } from './terminalProfileService.js';
 import { TerminalService } from './terminalService.js';
 import { TerminalViewPane } from './terminalView.js';
 import { AgentHostTerminalService, IAgentHostTerminalService } from './agentHostTerminalService.js';
+import { BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID } from '../../../basehalf/common/basehalfAgentArea.js';
 
 // Register services
 registerSingleton(ITerminalLogService, TerminalLogService, InstantiationType.Delayed);
@@ -122,12 +122,8 @@ Registry.as<IViewsRegistry>(ViewContainerExtensions.ViewsRegistry).registerViews
 	ctorDescriptor: new SyncDescriptor(TerminalViewPane),
 	windowEnablement: WindowEnablement.Both,
 	openCommandActionDescriptor: {
-		id: TerminalCommandId.Toggle,
+		id: BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
 		mnemonicTitle: nls.localize({ key: 'miToggleIntegratedTerminal', comment: ['&& denotes a mnemonic'] }, "&&Terminal"),
-		keybindings: {
-			primary: KeyMod.CtrlCmd | KeyCode.Backquote,
-			mac: { primary: KeyMod.WinCtrl | KeyCode.Backquote }
-		},
 		order: 3
 	}
 }], VIEW_CONTAINER);

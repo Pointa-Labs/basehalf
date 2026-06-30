@@ -1,0 +1,255 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.monaco-workbench .part.editor.basehalf-agent-area-host {
+	--basehalf-agent-area-width: min(420px, max(320px, 32vw));
+}
+
+.monaco-workbench .part.editor.basehalf-agent-area-host.basehalf-agent-area-visible > .basehalf-canvas-workbench {
+	right: var(--basehalf-agent-area-width);
+}
+
+.monaco-workbench .basehalf-agent-area {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 4;
+	display: none;
+	width: var(--basehalf-agent-area-width);
+	min-width: 0;
+	color: var(--vscode-sideBar-foreground);
+	background-color: var(--vscode-sideBar-background);
+	border-left: 1px solid var(--vscode-sideBar-border, var(--vscode-editorWidget-border));
+}
+
+.monaco-workbench .basehalf-agent-area.visible {
+	display: flex;
+	flex-direction: column;
+}
+
+.monaco-workbench .basehalf-agent-area-header {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) 28px;
+	align-items: center;
+	gap: 8px;
+	min-height: 38px;
+	padding: 5px 7px 5px 12px;
+	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+}
+
+.monaco-workbench .basehalf-agent-area-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-sideBarTitle-foreground);
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-agent-area-choices {
+	display: flex;
+	min-width: 0;
+	gap: 2px;
+	justify-content: flex-end;
+}
+
+.monaco-workbench .basehalf-agent-choice,
+.monaco-workbench .basehalf-agent-area-icon,
+.monaco-workbench .basehalf-agent-tab-select,
+.monaco-workbench .basehalf-agent-tab-close {
+	border: 0;
+	color: inherit;
+	background: transparent;
+	font: inherit;
+}
+
+.monaco-workbench .basehalf-agent-choice,
+.monaco-workbench .basehalf-agent-area-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	min-width: 28px;
+	height: 28px;
+	padding: 0 6px;
+	border-radius: 4px;
+	color: var(--vscode-icon-foreground);
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-agent-choice:hover,
+.monaco-workbench .basehalf-agent-area-icon:hover,
+.monaco-workbench .basehalf-agent-tab:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-agent-choice:focus-visible,
+.monaco-workbench .basehalf-agent-area-icon:focus-visible,
+.monaco-workbench .basehalf-agent-tab-select:focus-visible,
+.monaco-workbench .basehalf-agent-tab-close:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-agent-choice-label {
+	display: none;
+	max-width: 88px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 11px;
+}
+
+.monaco-workbench .basehalf-agent-area:hover .basehalf-agent-choice-label,
+.monaco-workbench .basehalf-agent-area:focus-within .basehalf-agent-choice-label {
+	display: inline;
+}
+
+.monaco-workbench .basehalf-agent-area-tabs {
+	display: flex;
+	flex: 0 0 auto;
+	min-height: 34px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+}
+
+.monaco-workbench .basehalf-agent-area-tabs.empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-agent-tab {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 24px;
+	align-items: center;
+	min-width: 116px;
+	max-width: 180px;
+	height: 33px;
+	border-right: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-agent-tab.active {
+	color: var(--vscode-sideBar-foreground);
+	background-color: var(--vscode-list-activeSelectionBackground);
+}
+
+.monaco-workbench .basehalf-agent-tab.unavailable {
+	color: var(--vscode-inputValidation-warningForeground, var(--vscode-descriptionForeground));
+}
+
+.monaco-workbench .basehalf-agent-tab-select {
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	height: 100%;
+	padding: 0 4px 0 8px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-agent-tab-label,
+.monaco-workbench .basehalf-agent-tab-state {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-agent-tab-label {
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.monaco-workbench .basehalf-agent-tab-state {
+	max-width: 68px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+}
+
+.monaco-workbench .basehalf-agent-tab-close {
+	width: 24px;
+	height: 24px;
+	border-radius: 4px;
+	color: var(--vscode-icon-foreground);
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-agent-tab-close:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-agent-area-body {
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-agent-area-empty {
+	display: none;
+	padding: 16px 14px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+}
+
+.monaco-workbench .basehalf-agent-area-empty.visible {
+	display: block;
+}
+
+.monaco-workbench .basehalf-agent-area-session {
+	position: absolute;
+	inset: 0;
+	display: none;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-agent-area-session.active {
+	display: block;
+}
+
+.monaco-workbench .basehalf-agent-area-session .terminal-wrapper {
+	width: 100%;
+	height: 100%;
+}
+
+.monaco-workbench .basehalf-agent-extension-state {
+	display: grid;
+	grid-template-columns: 24px minmax(0, 1fr);
+	grid-template-rows: auto auto;
+	gap: 8px 10px;
+	align-items: start;
+	padding: 18px 14px;
+	color: var(--vscode-sideBar-foreground);
+}
+
+.monaco-workbench .basehalf-agent-extension-state > .codicon {
+	grid-row: 1 / 3;
+	margin-top: 2px;
+	color: var(--vscode-icon-foreground);
+	font-size: 18px;
+}
+
+.monaco-workbench .basehalf-agent-extension-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-agent-extension-message {
+	min-width: 0;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 17px;
+}

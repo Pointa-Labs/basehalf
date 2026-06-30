@@ -29,7 +29,7 @@ import { ICommandService } from '../../../../platform/commands/common/commands.j
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr } from '../../../../platform/contextkey/common/contextkey.js';
 import { FileKind } from '../../../../platform/files/common/files.js';
-import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILabelService } from '../../../../platform/label/common/label.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
@@ -60,10 +60,11 @@ import { isAuxiliaryWindow } from '../../../../base/browser/window.js';
 import { InstanceContext } from './terminalContextMenu.js';
 import { getColorClass, getIconId, getUriClasses } from './terminalIcon.js';
 import { killTerminalIcon, newTerminalIcon } from './terminalIcons.js';
-import { ITerminalQuickPickItem } from './terminalProfileQuickpick.js';
+import { ITerminalQuickPickItem, TerminalProfileQuickpick } from './terminalProfileQuickpick.js';
 import { TerminalTabList } from './terminalTabsList.js';
 import { ResourceContextKey } from '../../../common/contextkeys.js';
 import { SeparatorSelectOption } from '../../../../base/browser/ui/selectBox/selectBox.js';
+import { IBaseHalfAgentAreaService } from '../../../basehalf/common/basehalfAgentArea.js';
 
 export const switchTerminalShowTabsTitle = localize('showTerminalTabs', "Show Tabs");
 
@@ -1222,12 +1223,16 @@ export function registerTerminalActions() {
 		},
 		run: async (c, accessor, args) => {
 			let eventOrOptions = isObject(args) ? args as MouseEvent | ICreateTerminalOptions : undefined;
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 			const workspaceContextService = accessor.get(IWorkspaceContextService);
 			const commandService = accessor.get(ICommandService);
 			const editorGroupsService = accessor.get(IEditorGroupsService);
 			const folders = workspaceContextService.getWorkspace().folders;
 			if (eventOrOptions && isMouseEvent(eventOrOptions) && (eventOrOptions.altKey || eventOrOptions.ctrlKey)) {
-				await c.service.createTerminal({ location: { splitActiveTerminal: true } });
+				await agentAreaService.createTerminalSession({
+					source: TerminalCommandId.New,
+					rawTerminalOptions: { location: { splitActiveTerminal: true } }
+				});
 				return;
 			}
 
@@ -1238,11 +1243,13 @@ export function registerTerminalActions() {
 					eventOrOptions.location = { viewColumn: editorGroupToColumn(editorGroupsService, editorGroupsService.activeGroup) };
 				}
 
-				let instance: ITerminalInstance | undefined;
 				if (folders.length <= 1) {
 					// Allow terminal service to handle the path when there is only a
 					// single root
-					instance = await c.service.createTerminal(eventOrOptions);
+					await agentAreaService.createTerminalSession({
+						source: TerminalCommandId.New,
+						rawTerminalOptions: eventOrOptions
+					});
 				} else {
 					const cwd = (await pickTerminalCwd(accessor))?.cwd;
 					if (!cwd) {
@@ -1250,15 +1257,16 @@ export function registerTerminalActions() {
 						return;
 					}
 					eventOrOptions.cwd = cwd;
-					instance = await c.service.createTerminal(eventOrOptions);
+					await agentAreaService.createTerminalSession({
+						source: TerminalCommandId.New,
+						rawTerminalOptions: eventOrOptions
+					});
 				}
-				c.service.setActiveInstance(instance);
-				await focusActiveTerminal(instance, c);
 			} else {
 				if (c.profileService.contributedProfiles.length > 0) {
-					commandService.executeCommand(TerminalCommandId.NewWithProfile);
+					await commandService.executeCommand(TerminalCommandId.NewWithProfile);
 				} else {
-					commandService.executeCommand(TerminalCommandId.Toggle);
+					await agentAreaService.createTerminalSession({ source: TerminalCommandId.New });
 				}
 			}
 		}
@@ -1525,6 +1533,23 @@ function convertOptionsOrProfileToOptions(optionsOrProfile?: ICreateTerminalOpti
 	return optionsOrProfile;
 }
 
+function terminalConfigLabel(config: unknown): string | undefined {
+	if (!isObject(config)) {
+		return undefined;
+	}
+	const candidate = config as Record<string, unknown>;
+	if (isString(candidate.profileName)) {
+		return candidate.profileName;
+	}
+	if (isString(candidate.name)) {
+		return candidate.name;
+	}
+	if (isString(candidate.title)) {
+		return candidate.title;
+	}
+	return undefined;
+}
+
 let newWithProfileAction: IDisposable;
 
 export function refreshTerminalActions(detectedProfiles: ITerminalProfile[]): IDisposable {
@@ -1575,10 +1600,11 @@ export function refreshTerminalActions(detectedProfiles: ITerminalProfile[]): ID
 			const c = getTerminalServices(accessor);
 			const workspaceContextService = accessor.get(IWorkspaceContextService);
 			const commandService = accessor.get(ICommandService);
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+			const instantiationService = accessor.get(IInstantiationService);
 
 			let event: MouseEvent | PointerEvent | KeyboardEvent | undefined;
 			let options: ICreateTerminalOptions | undefined;
-			let instance: ITerminalInstance | undefined;
 			let cwd: string | URI | undefined;
 
 			if (isObject(eventOrOptionsOrProfile) && eventOrOptionsOrProfile && hasKey(eventOrOptionsOrProfile, { profileName: true })) {
@@ -1607,7 +1633,11 @@ export function refreshTerminalActions(detectedProfiles: ITerminalProfile[]): ID
 			if (event && (event.altKey || event.ctrlKey)) {
 				const parentTerminal = c.service.activeInstance;
 				if (parentTerminal) {
-					await c.service.createTerminal({ location: { parentTerminal }, config: options?.config });
+					await agentAreaService.createTerminalSession({
+						label: terminalConfigLabel(options?.config),
+						source: TerminalCommandId.NewWithProfile,
+						rawTerminalOptions: { location: { parentTerminal }, config: options?.config }
+					});
 					return;
 				}
 			}
@@ -1628,14 +1658,45 @@ export function refreshTerminalActions(detectedProfiles: ITerminalProfile[]): ID
 
 			if (options) {
 				options.cwd = cwd;
-				instance = await c.service.createTerminal(options);
+				await agentAreaService.createTerminalSession({
+					label: terminalConfigLabel(options.config),
+					source: TerminalCommandId.NewWithProfile,
+					rawTerminalOptions: options
+				});
 			} else {
-				instance = await c.service.showProfileQuickPick('createInstance', cwd);
-			}
+				const result = await instantiationService.createInstance(TerminalProfileQuickpick).showAndGetResult('createInstance');
+				if (!result || isString(result)) {
+					return;
+				}
 
-			if (instance) {
-				c.service.setActiveInstance(instance);
-				await focusActiveTerminal(instance, c);
+				const activeInstance = c.service.activeInstance;
+				const location = !!(result.keyMods?.alt && activeInstance) ? { splitActiveTerminal: true } : c.configService.defaultLocation;
+				if (result.config && hasKey(result.config, { id: true })) {
+					await c.service.createContributedTerminalProfile(result.config.extensionIdentifier, result.config.id, {
+						icon: result.config.options?.icon,
+						color: result.config.options?.color,
+						location,
+						titleTemplate: result.config.titleTemplate
+					});
+					const terminal = c.service.activeInstance;
+					if (terminal) {
+						await agentAreaService.adoptTerminalSession(terminal, {
+							label: result.config.title,
+							source: TerminalCommandId.NewWithProfile
+						});
+					}
+					return;
+				}
+
+				await agentAreaService.createTerminalSession({
+					label: terminalConfigLabel(result.config),
+					source: TerminalCommandId.NewWithProfile,
+					rawTerminalOptions: {
+						location,
+						config: result.config,
+						cwd
+					}
+				});
 			}
 		}
 	});
