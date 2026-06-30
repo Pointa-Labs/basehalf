@@ -314,13 +314,15 @@ export function registerTerminalActions() {
 	registerTerminalAction({
 		id: TerminalCommandId.CreateTerminalEditor,
 		title: localize2('workbench.action.terminal.createTerminalEditor', 'Create New Terminal in Editor Area'),
-		run: async (c, _, args) => {
+		run: async (_c, accessor, args) => {
 			function isCreateTerminalOptions(obj: unknown): obj is ICreateTerminalOptions {
 				return isObject(obj) && 'location' in obj;
 			}
 			const options = isCreateTerminalOptions(args) ? args : { location: { viewColumn: ACTIVE_GROUP } };
-			const instance = await c.service.createTerminal(options);
-			await instance.focusWhenReady();
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.CreateTerminalEditor,
+				rawTerminalOptions: options
+			});
 		}
 	});
 
@@ -328,27 +330,31 @@ export function registerTerminalActions() {
 		id: TerminalCommandId.CreateTerminalEditorSameGroup,
 		title: localize2('workbench.action.terminal.createTerminalEditor', 'Create New Terminal in Editor Area'),
 		f1: false,
-		run: async (c, accessor, args) => {
+		run: async (_c, accessor, _args) => {
 			// Force the editor into the same editor group if it's locked. This command is only ever
 			// called when a terminal is the active editor
 			const editorGroupsService = accessor.get(IEditorGroupsService);
-			const instance = await c.service.createTerminal({
-				location: {
-					viewColumn: editorGroupToColumn(editorGroupsService, editorGroupsService.activeGroup),
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.CreateTerminalEditorSameGroup,
+				rawTerminalOptions: {
+					location: {
+						viewColumn: editorGroupToColumn(editorGroupsService, editorGroupsService.activeGroup),
+					}
 				}
 			});
-			await instance.focusWhenReady();
 		}
 	});
 
 	registerTerminalAction({
 		id: TerminalCommandId.CreateTerminalEditorSide,
 		title: localize2('workbench.action.terminal.createTerminalEditorSide', 'Create New Terminal in Editor Area to the Side'),
-		run: async (c) => {
-			const instance = await c.service.createTerminal({
-				location: { viewColumn: SIDE_GROUP }
+		run: async (_c, accessor) => {
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.CreateTerminalEditorSide,
+				rawTerminalOptions: {
+					location: { viewColumn: SIDE_GROUP }
+				}
 			});
-			await instance.focusWhenReady();
 		}
 	});
 
@@ -361,14 +367,16 @@ export function registerTerminalActions() {
 			mac: { primary: KeyMod.WinCtrl | KeyMod.Shift | KeyMod.Alt | KeyCode.Backquote },
 			weight: KeybindingWeight.WorkbenchContrib
 		},
-		run: async (c) => {
-			const instance = await c.service.createTerminal({
-				location: {
-					viewColumn: AUX_WINDOW_GROUP,
-					auxiliary: { compact: true },
-				},
+		run: async (_c, accessor) => {
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.NewInNewWindow,
+				rawTerminalOptions: {
+					location: {
+						viewColumn: AUX_WINDOW_GROUP,
+						auxiliary: { compact: true },
+					}
+				}
 			});
-			await instance.focusWhenReady();
 		}
 	});
 
@@ -503,12 +511,15 @@ export function registerTerminalActions() {
 		},
 		precondition: sharedWhenClause.terminalAvailable,
 		run: async (c, accessor) => {
-			const instance = c.service.activeInstance || await c.service.createTerminal({ location: TerminalLocation.Panel });
-			if (!instance) {
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+			const instance = c.service.activeInstance
+				?? asBaseHalfTerminalInstance(agentAreaService.activeTerminal);
+			if (instance) {
+				await focusActiveTerminal(instance, c, accessor, TerminalCommandId.Focus);
 				return;
 			}
-			c.service.setActiveInstance(instance);
-			await focusActiveTerminal(instance, c, accessor, TerminalCommandId.Focus);
+
+			await agentAreaService.createTerminalSession({ source: TerminalCommandId.Focus });
 		}
 	});
 
@@ -858,11 +869,13 @@ export function registerTerminalActions() {
 			}
 			const selected = await quickInputService.pick<IRemoteTerminalPick>(items, { canPickMany: false });
 			if (selected) {
-				const instance = await c.service.createTerminal({
-					config: { attachPersistentProcess: selected.term }
+				await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+					label: selected.term.title,
+					source: TerminalCommandId.AttachToSession,
+					rawTerminalOptions: {
+						config: { attachPersistentProcess: selected.term }
+					}
 				});
-				c.service.setActiveInstance(instance);
-				await focusActiveTerminal(instance, c, accessor, TerminalCommandId.AttachToSession);
 			}
 		}
 	});
@@ -1066,7 +1079,9 @@ export function registerTerminalActions() {
 			const commandService = accessor.get(ICommandService);
 			const workspaceContextService = accessor.get(IWorkspaceContextService);
 			const options = convertOptionsOrProfileToOptions(optionsOrProfile);
-			const activeInstance = (await c.service.getInstanceHost(options?.location)).activeInstance;
+			const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
+			const activeInstance = asBaseHalfTerminalInstance(agentAreaService.activeTerminal)
+				?? (await c.service.getInstanceHost(options?.location)).activeInstance;
 			if (!activeInstance) {
 				return;
 			}
@@ -1074,8 +1089,14 @@ export function registerTerminalActions() {
 			if (cwd === undefined) {
 				return;
 			}
-			const instance = await c.service.createTerminal({ location: { parentTerminal: activeInstance }, config: options?.config, cwd });
-			await focusActiveTerminal(instance, c, accessor, TerminalCommandId.Split);
+			await agentAreaService.createTerminalSession({
+				label: terminalConfigLabel(options?.config),
+				source: TerminalCommandId.Split,
+				rawTerminalOptions: {
+					config: options?.config,
+					cwd
+				}
+			});
 		}
 	});
 
@@ -1098,8 +1119,16 @@ export function registerTerminalActions() {
 				const promises: Promise<void>[] = [];
 				for (const t of instances) {
 					promises.push((async () => {
-						const instance = await c.service.createTerminal({ location: { parentTerminal: t } });
-						await focusActiveTerminal(instance, c, accessor, TerminalCommandId.SplitActiveTab);
+						const commandService = accessor.get(ICommandService);
+						const workspaceContextService = accessor.get(IWorkspaceContextService);
+						const cwd = await getCwdForSplit(t, workspaceContextService.getWorkspace().folders, commandService, c.configService);
+						if (cwd === undefined) {
+							return;
+						}
+						await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+							source: TerminalCommandId.SplitActiveTab,
+							rawTerminalOptions: { cwd }
+						});
 					})());
 				}
 				await Promise.all(promises);
@@ -1178,14 +1207,25 @@ export function registerTerminalActions() {
 		}
 	});
 
-	registerActiveInstanceAction({
+	registerTerminalAction({
 		id: TerminalCommandId.SplitInActiveWorkspace,
 		title: localize2('workbench.action.terminal.splitInActiveWorkspace', 'Split Terminal (In Active Workspace)'),
-		run: async (instance, c, accessor) => {
-			const newInstance = await c.service.createTerminal({ location: { parentTerminal: instance } });
-			if (newInstance) {
-				await focusActiveTerminal(newInstance, c, accessor, TerminalCommandId.SplitInActiveWorkspace);
+		run: async (c, accessor) => {
+			const instance = asBaseHalfTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal)
+				?? c.service.activeInstance;
+			if (!instance) {
+				return;
 			}
+			const commandService = accessor.get(ICommandService);
+			const workspaceContextService = accessor.get(IWorkspaceContextService);
+			const cwd = await getCwdForSplit(instance, workspaceContextService.getWorkspace().folders, commandService, c.configService);
+			if (cwd === undefined) {
+				return;
+			}
+			await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+				source: TerminalCommandId.SplitInActiveWorkspace,
+				rawTerminalOptions: { cwd }
+			});
 		}
 	});
 
@@ -1269,10 +1309,11 @@ export function registerTerminalActions() {
 	});
 
 	async function killInstance(c: ITerminalServicesCollection, accessor: ServicesAccessor, instance: ITerminalInstance | undefined): Promise<void> {
-		if (!instance) {
+		const target = instance ?? asBaseHalfTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal);
+		if (!target) {
 			return;
 		}
-		await c.service.safeDisposeTerminal(instance);
+		await c.service.safeDisposeTerminal(target);
 		await focusActiveTerminal(undefined, c, accessor, TerminalCommandId.Kill);
 	}
 	registerTerminalAction({
@@ -1435,11 +1476,13 @@ export function registerTerminalActions() {
 			if (quickSelectProfiles) {
 				const profile = quickSelectProfiles.find(profile => profile.profileName === profileSelection);
 				if (profile) {
-					const instance = await c.service.createTerminal({
-						config: profile
+					await accessor.get(IBaseHalfAgentAreaService).createTerminalSession({
+						label: profile.profileName,
+						source: TerminalCommandId.SwitchTerminal,
+						rawTerminalOptions: {
+							config: profile
+						}
 					});
-					c.service.setActiveInstance(instance);
-					await focusActiveTerminal(instance, c, accessor, TerminalCommandId.SwitchTerminal);
 				} else {
 					console.warn(`No profile with name "${profileSelection}"`);
 				}
@@ -1779,7 +1822,9 @@ export function shrinkWorkspaceFolderCwdPairs(pairs: WorkspaceFolderCwdPair[]): 
 }
 
 async function focusActiveTerminal(instance: ITerminalInstance | undefined, c: ITerminalServicesCollection, accessor: ServicesAccessor, source: string): Promise<void> {
+	const agentAreaService = accessor.get(IBaseHalfAgentAreaService);
 	const target = instance
+		?? asBaseHalfTerminalInstance(agentAreaService.activeTerminal)
 		?? c.service.activeInstance
 		?? c.editorService.activeInstance
 		?? c.groupService.activeInstance;
@@ -1795,6 +1840,15 @@ async function revealTerminalInAgentArea(instance: ITerminalInstance, accessor: 
 		source,
 		preserveFocus
 	});
+}
+
+function asBaseHalfTerminalInstance(candidate: unknown): ITerminalInstance | undefined {
+	return isObject(candidate)
+		&& typeof (candidate as Partial<ITerminalInstance>).attachToElement === 'function'
+		&& typeof (candidate as Partial<ITerminalInstance>).setVisible === 'function'
+		&& typeof (candidate as Partial<ITerminalInstance>).focusWhenReady === 'function'
+		? candidate as ITerminalInstance
+		: undefined;
 }
 
 async function renameWithQuickPick(c: ITerminalServicesCollection, accessor: ServicesAccessor, resource?: unknown) {

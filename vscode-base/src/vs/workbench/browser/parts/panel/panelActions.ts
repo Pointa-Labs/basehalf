@@ -21,6 +21,7 @@ import { INotificationService } from '../../../../platform/notification/common/n
 import { ICommandActionTitle } from '../../../../platform/action/common/action.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
 import { SwitchCompositeViewAction } from '../compositeBarActions.js';
+import { IBaseHalfAgentAreaService } from '../../../basehalf/common/basehalfAgentArea.js';
 
 const maximizeIcon = registerIcon('panel-maximize', Codicon.screenFull, localize('maximizeIcon', 'Icon to maximize a panel.'));
 const closeIcon = registerIcon('panel-close', Codicon.close, localize('closeIcon', 'Icon to close a panel.'));
@@ -65,7 +66,10 @@ export class TogglePanelAction extends Action2 {
 
 	override async run(accessor: ServicesAccessor): Promise<void> {
 		const layoutService = accessor.get(IWorkbenchLayoutService);
-		layoutService.setPartHidden(layoutService.isVisible(Parts.PANEL_PART), Parts.PANEL_PART);
+		await accessor.get(IBaseHalfAgentAreaService).toggle();
+		if (layoutService.isVisible(Parts.PANEL_PART)) {
+			layoutService.setPartHidden(true, Parts.PANEL_PART);
+		}
 	}
 }
 

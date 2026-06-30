@@ -118,6 +118,7 @@ export interface IBaseHalfAgentAreaService {
 	readonly visible: boolean;
 	readonly sessions: readonly IBaseHalfAgentAreaSession[];
 	readonly activeSessionId: string | undefined;
+	readonly activeTerminal: unknown | undefined;
 
 	show(preserveFocus?: boolean): Promise<void>;
 	hide(): void;

@@ -90,6 +90,7 @@ try {
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
+	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
 	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
@@ -515,6 +516,15 @@ async function assertAgentAreaTerminalCommand(page) {
 	}, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	await assertStockTerminalPanelHidden(page);
+}
+
+async function assertTogglePanelRemapsToAgentArea(page) {
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
+	await assertStockTerminalPanelHidden(page);
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'hidden', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
 }
 

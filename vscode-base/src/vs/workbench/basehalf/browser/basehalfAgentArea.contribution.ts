@@ -141,6 +141,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		return this._activeSessionId;
 	}
 
+	get activeTerminal(): ITerminalInstance | undefined {
+		return this.runtimeSessions.find(session => session.id === this._activeSessionId)?.terminal;
+	}
+
 	async show(preserveFocus = false): Promise<void> {
 		if (!this._visible) {
 			this._visible = true;
