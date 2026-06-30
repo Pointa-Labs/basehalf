@@ -6,6 +6,7 @@
 import { $, append, clearNode, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
 import { isEqual } from '../../../../base/common/resources.js';
+import { URI } from '../../../../base/common/uri.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { CodeEditorWidget } from '../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
 import { IEditorOptions } from '../../../../editor/common/config/editorOptions.js';
@@ -20,8 +21,11 @@ import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/br
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
+	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
+
 	private readonly toolbar: HTMLElement;
 	private readonly status: HTMLElement;
 	private readonly editorHost: HTMLElement;
@@ -48,6 +52,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@ILogService private readonly logService: ILogService
 	) {
@@ -110,6 +115,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this._register(editor.onDidChangeModelContent(() => this.updateStatus()));
 			this._register(editor.onDidChangeCursorPosition(() => this.scheduleFocusWrite()));
 			this._register(editor.onDidScrollChange(() => this.scheduleFocusWrite()));
+			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
+			this._register(this.editorFlushService.registerDocumentFlusher(this.resourceKey, options => this.flush(options)));
 			this.applySelection(state.selection, ScrollType.Immediate);
 			this.updateStatus();
 			this.flushFocusWrite();
@@ -145,21 +152,68 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	}
 
 	async save(): Promise<void> {
+		await this.flush({ forceSerialize: true });
+	}
+
+	private async flush(_options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
 		const resource = this.editor?.getModel()?.uri;
-		if (!resource || this.isReadonly()) {
+		if (!resource) {
 			this.updateStatus();
-			return;
+			return true;
+		}
+
+		if (!this.textFileService.isDirty(resource)) {
+			this.updateStatus();
+			return true;
+		}
+
+		if (this.isReadonly()) {
+			this.updateStatus();
+			return false;
 		}
 
 		this.status.textContent = this.textFileService.isDirty(resource) ? 'Saving' : 'Saved';
 		this.saveButton.disabled = true;
 		try {
-			await this.textFileService.save(resource);
+			const savedResource = await this.textFileService.save(resource, { ignoreErrorHandler: true });
+			if (!savedResource && this.textFileService.isDirty(resource)) {
+				this.updateStatus();
+				return false;
+			}
+			const clean = await this.waitForClean(resource);
 			this.updateStatus();
+			return clean;
 		} catch (error) {
 			this.status.textContent = error instanceof Error ? `Save failed: ${error.message}` : `Save failed: ${String(error)}`;
 			this.saveButton.disabled = false;
+			return false;
 		}
+	}
+
+	private async waitForClean(resource: URI): Promise<boolean> {
+		if (!this.textFileService.isDirty(resource)) {
+			return true;
+		}
+
+		return new Promise<boolean>(resolve => {
+			let settled = false;
+			const timer = mainWindow.setTimeout(() => settle(!this.textFileService.isDirty(resource)), BaseHalfSourceCardDetail.SAVE_SETTLE_TIMEOUT);
+			const disposable = this.textFileService.files.onDidChangeDirty(model => {
+				if (isEqual(model.resource, resource) && !model.isDirty()) {
+					settle(true);
+				}
+			});
+
+			const settle = (value: boolean) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				mainWindow.clearTimeout(timer);
+				disposable.dispose();
+				resolve(value);
+			};
+		});
 	}
 
 	private updateStatus(): void {

@@ -15,6 +15,7 @@ import { ILogService } from '../../../platform/log/common/log.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
+import { SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
@@ -83,7 +84,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@ILabelService private readonly labelService: ILabelService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
-		@IEditorService editorService: IEditorService,
+		@IEditorService private readonly editorService: IEditorService,
 		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
@@ -129,11 +130,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.render();
 			}
 		}));
-		this._register(editorService.onDidVisibleEditorsChange(() => this.updateCanvasLayer(editorService)));
-		this._register(editorService.onDidActiveEditorChange(() => {
-			void this.canvasNavigationService.closeCardDetail();
-			this.updateCanvasLayer(editorService);
-		}));
+		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
+		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
 				void this.canvasNavigationService.closeCardDetail();
@@ -148,7 +146,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.clearSuppressedCardClick();
 		}));
 
-		this.updateCanvasLayer(editorService);
+		this.updateCanvasLayer();
 		void this.render();
 	}
 
@@ -299,8 +297,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
-	private updateCanvasLayer(editorService: IEditorService): void {
-		this.editorContainer.classList.toggle('basehalf-canvas-on-top', editorService.visibleEditors.length === 0);
+	private reconcileActiveEditor(): void {
+		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		if (cardDetail) {
+			const duplicateEditors = this.editorService.findEditors(cardDetail.resource, { supportSideBySide: SideBySideEditor.ANY });
+			if (duplicateEditors.length > 0) {
+				void this.editorService.closeEditors(duplicateEditors, { preserveFocus: true })
+					.finally(() => this.updateCanvasLayer());
+			}
+		}
+		this.updateCanvasLayer();
+	}
+
+	private updateCanvasLayer(): void {
+		this.editorContainer.classList.toggle('basehalf-canvas-on-top', this.editorService.visibleEditors.length === 0);
 	}
 
 	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {

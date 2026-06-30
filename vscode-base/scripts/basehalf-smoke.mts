@@ -97,6 +97,9 @@ try {
 	await quickOpen(page, 'src/app.ts', 'Alt+Enter');
 	await assertCardDetail(page, 'app.ts');
 	await assertNoEditorTabFor(page, 'app.ts');
+	await assertSourceCardFlushesBeforeNavigation(page);
+	await assertCardDetail(page, 'README.md');
+	await assertNoEditorTabFor(page, 'README.md');
 
 	await quickOpen(page, '%needle-basehalf-routing');
 	await assertCardDetail(page, 'README.md');
@@ -125,6 +128,7 @@ try {
 			'source-control-git-provider',
 			'quick-open-card-detail',
 			'quick-open-side-card-detail-no-tab',
+			'source-card-detail-flush-on-navigation',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
 			'quick-text-search-repeated-selection-focus',
@@ -348,10 +352,29 @@ async function assertCardDetail(page, title) {
 }
 
 async function assertNoEditorTabFor(page, name) {
-	const tabs = await page.locator('.monaco-workbench .part.editor .tabs-container .tab').evaluateAll(rows => rows.map(row => row.textContent?.replace(/\s+/g, ' ').trim()));
-	if (tabs.some(tab => tab && tab.includes(name))) {
-		throw new Error(`Unexpected VS Code editor tab for ${name}: ${tabs.join(', ')}`);
+	let lastTabs = [];
+	const started = Date.now();
+	while (Date.now() - started < 5_000) {
+		lastTabs = await page.locator('.monaco-workbench .part.editor .tabs-container .tab').evaluateAll(rows => rows.map(row => row.textContent?.replace(/\s+/g, ' ').trim()));
+		if (!lastTabs.some(tab => tab && tab.includes(name))) {
+			return;
+		}
+		await page.waitForTimeout(100);
 	}
+
+	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
+}
+
+async function assertSourceCardFlushesBeforeNavigation(page) {
+	const marker = 'export const sourceFlushSmoke = true;';
+	const appPath = path.join(workspacePath, 'src', 'app.ts');
+	await page.locator('.basehalf-card-detail-source-editor .monaco-editor').click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
+	await page.keyboard.insertText(`\n${marker}\n`);
+	await page.locator('.basehalf-card-detail-source-status', { hasText: /Unsaved changes/ }).waitFor({ state: 'visible', timeout: 10_000 });
+
+	await quickOpen(page, 'README.md');
+	await waitUntil(() => fs.readFileSync(appPath, 'utf8').includes(marker), 'source card detail to flush before navigation');
 }
 
 async function assertFocusLine(relativePath, line) {

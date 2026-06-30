@@ -37,6 +37,7 @@ import { SearchModelLocation, RenderableMatch, ISearchTreeFileMatch, ISearchTree
 import { searchComparer } from '../searchCompare.js';
 import { IMatch } from '../../../../../base/common/filters.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../../basehalf/common/basehalfEditorFlush.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
 import { INotebookService } from '../../../notebook/common/notebookService.js';
 
@@ -63,6 +64,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 	private queryBuilder: QueryBuilder;
 	private searchModel: SearchModelImpl;
 	private baseHalfPreviewState: IBaseHalfCanvasNavigationState | undefined;
+	private previewGeneration = 0;
 	private currentAsyncSearch: Promise<ISearchComplete> = Promise.resolve({
 		results: [],
 		messages: []
@@ -93,6 +95,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		@IViewsService private readonly _viewsService: IViewsService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@INotebookService private readonly _notebookService: INotebookService,
+		@IBaseHalfEditorFlushService private readonly _baseHalfEditorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfCanvasNavigationService private readonly _baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(TEXT_SEARCH_QUICK_ACCESS_PREFIX, { canAcceptInBackground: true, shouldSkipTrimPickFilter: true });
@@ -132,8 +135,13 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 				// we must remember our curret view state to be able to restore (will automatically track if there is already stored state)
 				this.editorViewState.set();
 				const itemMatch = item.match;
+				const previewGeneration = ++this.previewGeneration;
 				this.editorSequencer.queue(async () => {
 					const didPreviewInBaseHalf = await this.previewBaseHalfMatch(itemMatch);
+					if (previewGeneration !== this.previewGeneration) {
+						return;
+					}
+					picker.focusOnInput();
 					if (!didPreviewInBaseHalf) {
 						await this.editorViewState.openTransientEditor({
 							resource: itemMatch.parent().resource,
@@ -146,6 +154,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 
 		disposables.add(Event.debounce(picker.onDidChangeActive, (last, event) => event, DEBOUNCE_DELAY, true)(onDidChangeActive));
 		disposables.add(Event.once(picker.onWillHide)(({ reason }) => {
+			this.previewGeneration++;
 			// Restore view state upon cancellation if we changed it
 			// but only when the picker was closed via explicit user
 			// gesture and not e.g. when focus was lost because that
@@ -163,8 +172,26 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 			this.searchModel.searchResult.toggleHighlights(false);
 		}));
 
-		disposables.add(super.provide(picker, token, runOptions));
-		disposables.add(picker.onDidAccept(() => this.searchModel.searchResult.toggleHighlights(false)));
+		void (async () => {
+			picker.busy = true;
+			try {
+				const didFlush = await this._baseHalfEditorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, { forceSerialize: true });
+				if (token.isCancellationRequested) {
+					return;
+				}
+				if (!didFlush) {
+					picker.hide();
+					return;
+				}
+
+				disposables.add(super.provide(picker, token, runOptions));
+				disposables.add(picker.onDidAccept(() => this.searchModel.searchResult.toggleHighlights(false)));
+			} finally {
+				if (!token.isCancellationRequested) {
+					picker.busy = false;
+				}
+			}
+		})();
 		return disposables;
 	}
 
@@ -344,6 +371,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 	}
 
 	private async handleAccept(iFileInstanceMatch: ISearchTreeFileMatch, options: { keyMods?: IKeyMods; selection?: ITextEditorSelection; preserveFocus?: boolean; range?: IRange; forcePinned?: boolean; forceOpenSideBySide?: boolean }): Promise<void> {
+		this.previewGeneration++;
 		const editorOptions = {
 			preserveFocus: options.preserveFocus,
 			pinned: options.keyMods?.ctrlCmd || options.forcePinned || this.configuration.openEditorPinned,
@@ -352,6 +380,8 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 
 		// from https://github.com/microsoft/vscode/blob/f40dabca07a1622b2a0ae3ee741cfc94ab964bef/src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts#L1037
 		const targetGroup = options.keyMods?.alt || (this.configuration.openEditorPinned && options.keyMods?.ctrlCmd) || options.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP;
+
+		await this.editorViewState.restore();
 
 		const result = await tryOpenBaseHalfResource(this._baseHalfCanvasNavigationService, iFileInstanceMatch.resource, {
 			source: 'quickAccess',
@@ -362,6 +392,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 			forceVSCodeEditor: iFileInstanceMatch.resource.scheme !== Schemas.untitled && this._notebookService.getContributedNotebookTypes(iFileInstanceMatch.resource).length > 0
 		});
 		if (result.handled) {
+			this.baseHalfPreviewState = undefined;
 			return;
 		}
 		if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {

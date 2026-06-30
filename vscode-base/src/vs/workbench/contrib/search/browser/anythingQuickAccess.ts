@@ -59,6 +59,7 @@ import { IChatWidgetService, IQuickChatService } from '../../chat/browser/chat.j
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ICustomEditorLabelService } from '../../../services/editor/common/customEditorLabelService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../basehalf/common/basehalfEditorFlush.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 import { INotebookService } from '../../notebook/common/notebookService.js';
 
@@ -146,6 +147,7 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		@ICustomEditorLabelService private readonly customEditorLabelService: ICustomEditorLabelService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
 		@INotebookService private readonly notebookService: INotebookService,
+		@IBaseHalfEditorFlushService private readonly baseHalfEditorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(AnythingQuickAccessProvider.PREFIX, {
@@ -255,8 +257,25 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 			}
 		}));
 
-		// Start picker
-		disposables.add(super.provide(picker, token, runOptions));
+		void (async () => {
+			picker.busy = true;
+			try {
+				const didFlush = await this.baseHalfEditorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, { forceSerialize: true });
+				if (token.isCancellationRequested) {
+					return;
+				}
+				if (!didFlush) {
+					picker.hide();
+					return;
+				}
+
+				disposables.add(super.provide(picker, token, runOptions));
+			} finally {
+				if (!token.isCancellationRequested) {
+					picker.busy = false;
+				}
+			}
+		})();
 
 		return disposables;
 	}
@@ -1144,6 +1163,8 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 					}
 				};
 			}
+
+			await this.pickState.editorViewState.restore();
 
 			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, resourceEditorInput.resource, {
 				source: 'quickAccess',

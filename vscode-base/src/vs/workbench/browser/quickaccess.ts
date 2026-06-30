@@ -103,26 +103,26 @@ export class PickerEditorState extends Disposable {
 	}
 
 	async restore(): Promise<void> {
-		if (this.editorViewState) {
-			for (const editor of this.openedTransientEditors) {
-				if (editor.isDirty()) {
-					continue;
-				}
-
-				for (const group of this.editorGroupsService.groups) {
-					if (group.isTransient(editor)) {
-						await group.closeEditor(editor, { preserveFocus: true });
-					}
-				}
+		for (const editor of this.openedTransientEditors) {
+			if (editor.isDirty()) {
+				continue;
 			}
 
+			for (const group of this.editorGroupsService.groups) {
+				if (group.isTransient(editor)) {
+					await group.closeEditor(editor, { preserveFocus: true });
+				}
+			}
+		}
+
+		if (this.editorViewState) {
 			await this.editorViewState.group.openEditor(this.editorViewState.editor, {
 				viewState: this.editorViewState.state,
 				preserveFocus: true // important to not close the picker as a result
 			});
-
-			this.reset();
 		}
+
+		this.reset();
 	}
 
 	reset() {
