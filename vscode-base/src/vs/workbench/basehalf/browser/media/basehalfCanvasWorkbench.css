@@ -240,6 +240,15 @@
 	cursor: grabbing;
 }
 
+.monaco-workbench .basehalf-canvas-workbench.edge-reconnecting,
+.monaco-workbench .basehalf-canvas-workbench.edge-reconnecting * {
+	cursor: grabbing !important;
+}
+
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card {
+	cursor: crosshair;
+}
+
 .monaco-workbench .basehalf-canvas-edge-arrow path {
 	fill: currentColor;
 }
@@ -733,6 +742,8 @@
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle {
+	--bh-connect-scale: 1;
+
 	position: absolute;
 	z-index: 24;
 	width: 15px;
@@ -742,12 +753,18 @@
 	border-radius: 50%;
 	background: var(--bh-card-surface);
 	opacity: 0;
-	pointer-events: auto;
+	pointer-events: none;
+	cursor: crosshair;
 	transition: opacity 80ms ease, transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.active {
 	opacity: 1;
+	--bh-connect-scale: 1.15;
+}
+
+.monaco-workbench .basehalf-canvas-workbench:not(.connecting) .basehalf-canvas-card-connect-handle.active {
+	pointer-events: auto;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.active,
@@ -761,30 +778,31 @@
 .monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.south .basehalf-canvas-card-connect-handle.south,
 .monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.west .basehalf-canvas-card-connect-handle.west {
 	opacity: 1;
+	--bh-connect-scale: 1.15;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.north {
 	top: 0;
 	left: 50%;
-	transform: translate(-50%, -50%);
+	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.east {
 	top: 50%;
 	right: 0;
-	transform: translate(50%, -50%);
+	transform: translate(50%, -50%) scale(var(--bh-connect-scale));
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.south {
 	bottom: 0;
 	left: 50%;
-	transform: translate(-50%, 50%);
+	transform: translate(-50%, 50%) scale(var(--bh-connect-scale));
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.west {
 	top: 50%;
 	left: 0;
-	transform: translate(-50%, -50%);
+	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
 }
 
 .monaco-workbench .basehalf-canvas-card-resize-handle {

@@ -162,6 +162,7 @@ interface IBaseHalfMarkdownRichTextSelection {
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 const AUTOSAVE_MS = 400;
 const FOCUS_DEBOUNCE_MS = 180;
+const SIDE_MENU_GUTTER_GAP = 8;
 
 interface PassthroughProps {
 	raw?: string;
@@ -318,8 +319,14 @@ function clearSelectionReveal(editorElement: HTMLElement | undefined): void {
 	}
 }
 
+function shiftedRect(rect: DOMRect, x: number): DOMRect {
+	return new DOMRect(rect.x + x, rect.y, rect.width, rect.height);
+}
+
 // BlockNote's default React side menu anchors to the hovered block DOM node;
 // for nested continuation blocks that places the handle over the indent guide.
+// Use BlockNote core's root-gutter reference and leave a small gap so the drag
+// handle does not visually merge with list/blockquote guide lines.
 function BaseHalfSideMenuController({ portalElement }: { readonly portalElement: HTMLElement | null }): JSX.Element {
 	const editor = useBlockNoteEditor();
 	const state = useExtensionState(SideMenuExtension, {
@@ -336,7 +343,7 @@ function BaseHalfSideMenuController({ portalElement }: { readonly portalElement:
 		}
 		return {
 			element: undefined,
-			getBoundingClientRect: () => state.referencePos,
+			getBoundingClientRect: () => shiftedRect(state.referencePos, -SIDE_MENU_GUTTER_GAP),
 		};
 	}, [state?.referencePos, state?.show]);
 
@@ -951,7 +958,12 @@ function MarkdownRichEditor(): JSX.Element {
 
 	return (
 		<div className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}>
-			<div ref={setPortalElement} className="basehalf-markdown-rich-portal" />
+			<div
+				ref={setPortalElement}
+				className="basehalf-markdown-rich-portal bn-root bn-mantine dark"
+				data-color-scheme="dark"
+				data-mantine-color-scheme="dark"
+			/>
 			{state.conflictDisk !== undefined && (
 				<div className="basehalf-markdown-rich-banner warning">
 					<span>This file changed outside the rich editor.</span>

@@ -86,6 +86,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBreadcrumbListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailDisposables = this._register(new DisposableStore());
+	private readonly connectionDragListeners = this._register(new DisposableStore());
+	private readonly edgeReconnectListeners = this._register(new DisposableStore());
 
 	private renderSeq = 0;
 	private detailKey: string | undefined;
@@ -126,6 +128,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		readonly endpoint: BaseHalfCanvasEdgeEndpoint;
 		readonly startClientX: number;
 		readonly startClientY: number;
+		readonly hitPath: SVGPathElement;
 		readonly staticPath: SVGPathElement;
 		readonly previewPath: SVGPathElement;
 		readonly sourceBounds: IBaseHalfCanvasBounds;
@@ -218,6 +221,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
+				if (this.cancelActiveConnectionGesture()) {
+					event.preventDefault();
+					event.stopPropagation();
+					return;
+				}
 				void this.canvasNavigationService.closeCardDetail();
 				return;
 			}
@@ -254,10 +262,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		super.dispose();
 	}
 
-	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void) {
-		node.addEventListener(type, listener as EventListener);
+	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
+	private addDisposableListener<K extends keyof WindowEventMap>(node: Window, type: K, listener: (event: WindowEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
+	private addDisposableListener(node: EventTarget, type: string, listener: (event: Event) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions) {
+		node.addEventListener(type, listener as EventListener, useCaptureOrOptions);
 		return {
-			dispose: () => node.removeEventListener(type, listener as EventListener)
+			dispose: () => node.removeEventListener(type, listener as EventListener, useCaptureOrOptions)
 		};
 	}
 
@@ -794,6 +804,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderConnectionHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
 		const handle = append(card, $(`span.basehalf-canvas-card-connect-handle.${anchor}`));
+		handle.dataset.anchor = anchor;
 		handle.setAttribute('aria-hidden', 'true');
 		handle.title = `Connect from ${anchor}`;
 		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onConnectionPointerDown(event, handle, item, bounds, anchor)));
@@ -815,13 +826,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
 			return;
 		}
-		const sourceAnchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
-		if (sourceAnchor) {
-			const handle = card.querySelector<HTMLElement>(`.basehalf-canvas-card-connect-handle.${sourceAnchor}`);
-			if (handle) {
-				this.onConnectionPointerDown(event, handle, item, bounds, sourceAnchor);
+		const activeAnchor = anchorFromDataset(card.dataset.sourceAffordance);
+		if (activeAnchor) {
+			const handle = card.querySelector<HTMLElement>(`.basehalf-canvas-card-connect-handle.${activeAnchor}.active`);
+			if (handle && clientPointInRect(handle.getBoundingClientRect(), event.clientX, event.clientY, 4)) {
+				this.onConnectionPointerDown(event, handle, item, bounds, activeAnchor);
+				return;
 			}
-			return;
 		}
 		if (event.button !== 0 || this.activeCardDrag || this.activeResizeDrag || this.canvasNavigationService.state.cardDetail) {
 			return;
@@ -1014,12 +1025,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private onConnectionPointerDown(event: PointerEvent, handle: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
-		if (event.button !== 0 || this.activeConnectionDrag || this.canvasNavigationService.state.cardDetail) {
+		if (event.button !== 0 || this.activeConnectionDrag || this.canvasNavigationService.state.cardDetail || !handle.classList.contains('active')) {
 			return;
 		}
 
 		event.preventDefault();
 		event.stopPropagation();
+		this.clearAllSourceAffordances();
 		const { svg, path } = this.createConnectionDraftSvg();
 		this.activeConnectionDrag = {
 			pointerId: event.pointerId,
@@ -1034,6 +1046,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		handle.setPointerCapture(event.pointerId);
 		handle.classList.add('active');
 		this.root.classList.add('connecting');
+		this.connectionDragListeners.clear();
+		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointermove', event => this.onConnectionPointerMove(event), true));
+		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointerup', event => this.onConnectionPointerUp(event), true));
+		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointercancel', event => this.onConnectionPointerCancel(event), true));
+		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'keydown', event => {
+			if (event.key !== 'Escape') {
+				return;
+			}
+			if (this.cancelActiveConnectionGesture()) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
+		}, true));
 		this.updateConnectionDraft(event);
 	}
 
@@ -1137,6 +1162,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private clearConnectionDrag(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeConnectionDrag']>): void {
+		this.connectionDragListeners.clear();
 		if (drag.handle.hasPointerCapture(drag.pointerId)) {
 			drag.handle.releasePointerCapture(drag.pointerId);
 		}
@@ -1150,13 +1176,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private markConnectionTarget(target: BaseHalfCanvasConnectionTarget | undefined): void {
 		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.connection-target'))) {
 			card.classList.remove('connection-target', 'north', 'east', 'south', 'west');
+			card.dataset.targetAffordance = '';
 		}
 		if (!target) {
 			return;
 		}
 
 		const card = this.cards.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${cssStringEscape(target.item.path)}"]`);
-		card?.classList.add('connection-target', target.anchor);
+		if (card) {
+			card.classList.add('connection-target', target.anchor);
+			card.dataset.targetAffordance = target.anchor;
+		}
 	}
 
 	private connectionTargetForPoint(clientX: number, clientY: number, sourcePath: string): BaseHalfCanvasConnectionTarget | undefined {
@@ -1274,6 +1304,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		for (const handle of Array.from(card.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle.active'))) {
 			handle.classList.remove('active');
 		}
+	}
+
+	private clearAllSourceAffordances(): void {
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
+			this.clearSourceAffordance(card);
+		}
+	}
+
+	private cancelActiveConnectionGesture(): boolean {
+		const connection = this.activeConnectionDrag;
+		if (connection) {
+			this.clearConnectionDrag(connection);
+			return true;
+		}
+
+		const reconnect = this.activeEdgeReconnect;
+		if (reconnect) {
+			this.clearEdgeReconnect(reconnect);
+			return true;
+		}
+
+		return false;
 	}
 
 	private scheduleBadgeDescriptionWrite(item: IBaseHalfCanvasItem, value: string): void {
@@ -1531,6 +1583,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			endpoint: nearestPathRatio(hitPath, event.clientX, event.clientY) < 0.5 ? 'source' : 'target',
 			startClientX: event.clientX,
 			startClientY: event.clientY,
+			hitPath,
 			staticPath,
 			previewPath: path,
 			sourceBounds,
@@ -1538,6 +1591,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			started: false
 		};
 		hitPath.setPointerCapture(event.pointerId);
+		this.root.classList.add('edge-reconnecting');
+		this.edgeReconnectListeners.clear();
+		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointermove', event => this.onEdgePointerMove(event), true));
+		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointerup', event => this.onEdgePointerUp(event), true));
+		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointercancel', event => this.onEdgePointerCancel(event), true));
+		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'keydown', event => {
+			if (event.key !== 'Escape') {
+				return;
+			}
+			if (this.cancelActiveConnectionGesture()) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
+		}, true));
 	}
 
 	private onEdgePointerMove(event: PointerEvent): void {
@@ -1643,9 +1710,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private clearEdgeReconnect(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeEdgeReconnect']>): void {
+		this.edgeReconnectListeners.clear();
+		if (drag.hitPath.hasPointerCapture(drag.pointerId)) {
+			drag.hitPath.releasePointerCapture(drag.pointerId);
+		}
 		drag.previewPath.ownerSVGElement?.remove();
 		drag.staticPath.classList.remove('reconnecting');
 		this.activeEdgeReconnect = undefined;
+		this.root.classList.remove('edge-reconnecting');
 		this.markConnectionTarget(undefined);
 	}
 
@@ -2222,6 +2294,17 @@ function sourceAnchorForPointer(rect: DOMRect, clientX: number, clientY: number)
 	];
 	const nearest = distances.reduce((best, next) => next.distance < best.distance ? next : best);
 	return nearest.distance <= CANVAS_CONNECTION_EDGE_THRESHOLD ? nearest.anchor : undefined;
+}
+
+function anchorFromDataset(value: string | undefined): BaseHalfCanvasAnchor | undefined {
+	return value === 'north' || value === 'east' || value === 'south' || value === 'west' ? value : undefined;
+}
+
+function clientPointInRect(rect: DOMRect, clientX: number, clientY: number, tolerance = 0): boolean {
+	return clientX >= rect.left - tolerance
+		&& clientX <= rect.right + tolerance
+		&& clientY >= rect.top - tolerance
+		&& clientY <= rect.bottom + tolerance;
 }
 
 function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {

@@ -104,6 +104,7 @@ try {
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-status-in-header', () => assertMarkdownRichStatusInHeader(page));
 	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
+	await step('readme-rich-slash-menu-themed-portal', () => assertMarkdownRichSlashMenuThemedPortal(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
@@ -156,6 +157,7 @@ try {
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-header',
 			'markdown-rich-block-menu-portal',
+			'markdown-rich-slash-menu-themed-portal',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
@@ -722,6 +724,10 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	if (handleCount !== 4) {
 		throw new Error(`Expected four card connection handles, got ${handleCount}`);
 	}
+	const activeReadmeHandles = await readme.locator('.basehalf-canvas-card-connect-handle.active').count();
+	if (activeReadmeHandles !== 0) {
+		throw new Error(`Expected card connection handles to stay hidden until a side is approached, got ${activeReadmeHandles} active`);
+	}
 
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
@@ -751,14 +757,33 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		throw new Error('Missing card connection geometry');
 	}
 
-	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
-	await page.mouse.down();
-	await page.mouse.move(geometry.target.x + 2, geometry.target.y + geometry.target.height / 2, { steps: 8 });
-	await page.mouse.up();
-
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
 	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
+	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
+	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"] .basehalf-canvas-card-connect-handle.east')?.classList.contains('active') === true, null, { timeout: 10_000 });
+	await page.mouse.down();
+	await page.locator('.basehalf-canvas-connection-draft').waitFor({ state: 'visible', timeout: 10_000 });
+	await page.mouse.move(geometry.from.x + geometry.from.width + 180, geometry.from.y + geometry.from.height + 240, { steps: 8 });
+	await page.mouse.up();
+	await page.waitForTimeout(150);
+	const afterCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
+	if (afterCancelCanvas !== beforeCancelCanvas) {
+		throw new Error('Expected blank connection release to cancel without changing canvas.yaml');
+	}
+	const draftCountAfterCancel = await page.locator('.basehalf-canvas-connection-draft').count();
+	if (draftCountAfterCancel !== 0) {
+		throw new Error(`Expected connection draft to be removed after cancel, got ${draftCountAfterCancel}`);
+	}
+
+	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"] .basehalf-canvas-card-connect-handle.east')?.classList.contains('active') === true, null, { timeout: 10_000 });
+	await page.mouse.down();
+	await page.mouse.move(geometry.target.x + 2, geometry.target.y + geometry.target.height / 2, { steps: 8 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="src"]')?.getAttribute('data-target-affordance') === 'west', null, { timeout: 10_000 });
+	await page.mouse.up();
+
 	await waitUntil(() => {
 		const canvas = fs.readFileSync(canvasPath, 'utf8');
 		return canvas.includes('from: "docs"')
@@ -882,14 +907,68 @@ async function assertMarkdownRichBlockMenuPortal(page) {
 	}
 
 	const tolerance = 1;
+	const guideGap = 6;
 	if (geometry.menu.right < geometry.portal.left - tolerance || geometry.menu.left > geometry.content.left + tolerance) {
 		throw new Error(`Markdown rich block menu is not anchored in the left block gutter: ${JSON.stringify(geometry)}`);
 	}
 	if (geometry.content.left <= geometry.rootGroup.left + 8) {
 		throw new Error(`Markdown rich smoke fixture did not create a nested continuation block: ${JSON.stringify(geometry)}`);
 	}
-	if (geometry.menu.right > geometry.rootGroup.left + tolerance) {
-		throw new Error(`Markdown rich nested block menu should use the root gutter anchor: ${JSON.stringify(geometry)}`);
+	if (geometry.menu.right > geometry.rootGroup.left - guideGap + tolerance) {
+		throw new Error(`Markdown rich nested block menu should leave a gap before the root indent guide: ${JSON.stringify(geometry)}`);
+	}
+}
+
+async function assertMarkdownRichSlashMenuThemedPortal(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const editable = frame.locator('.bn-editor [contenteditable="true"], .bn-editor[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+	await editable.waitFor({ state: 'visible', timeout: 20_000 });
+	await editable.click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
+	await page.keyboard.press('Enter');
+	await page.keyboard.insertText('/');
+
+	const slashMenu = frame.locator('.basehalf-markdown-rich-portal .bn-suggestion-menu').first();
+	await slashMenu.waitFor({ state: 'visible', timeout: 10_000 });
+
+	const diagnostic = await frame.evaluate(() => {
+		const menu = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal .bn-suggestion-menu');
+		const portal = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal');
+		const firstItem = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal .bn-suggestion-menu-item');
+		const rect = menu?.getBoundingClientRect();
+		const probe = rect ? document.elementFromPoint(rect.left + 12, rect.top + 12) as HTMLElement | null : null;
+		const menuStyle = menu ? getComputedStyle(menu) : undefined;
+		const itemStyle = firstItem ? getComputedStyle(firstItem) : undefined;
+		return {
+			portalClass: portal?.className ?? '',
+			portalColorScheme: portal?.getAttribute('data-color-scheme') ?? '',
+			portalMantineColorScheme: portal?.getAttribute('data-mantine-color-scheme') ?? '',
+			menuText: menu?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+			menuBackground: menuStyle?.backgroundColor ?? '',
+			menuColor: menuStyle?.color ?? '',
+			menuBoxShadow: menuStyle?.boxShadow ?? '',
+			itemHeight: itemStyle?.height ?? '',
+			probeInsideMenu: !!probe?.closest('.bn-suggestion-menu')
+		};
+	});
+
+	await page.keyboard.press('Escape');
+	await page.keyboard.press('Backspace');
+
+	if (!diagnostic.portalClass.includes('bn-root') || !diagnostic.portalClass.includes('bn-mantine')) {
+		throw new Error(`Markdown rich slash menu portal is outside the BlockNote/Mantine theme scope: ${JSON.stringify(diagnostic)}`);
+	}
+	if (diagnostic.portalColorScheme !== 'dark' || diagnostic.portalMantineColorScheme !== 'dark') {
+		throw new Error(`Markdown rich slash menu portal did not inherit the dark theme: ${JSON.stringify(diagnostic)}`);
+	}
+	if (!diagnostic.menuText.includes('Heading 1') || !diagnostic.menuText.includes('Paragraph')) {
+		throw new Error(`Markdown rich slash menu items are missing: ${JSON.stringify(diagnostic)}`);
+	}
+	if (isTransparentCssColor(diagnostic.menuBackground) || isTransparentCssColor(diagnostic.menuColor) || diagnostic.menuBoxShadow === 'none') {
+		throw new Error(`Markdown rich slash menu is mounted but unthemed: ${JSON.stringify(diagnostic)}`);
+	}
+	if (!diagnostic.probeInsideMenu) {
+		throw new Error(`Markdown rich slash menu is not the top interactive surface: ${JSON.stringify(diagnostic)}`);
 	}
 }
 
@@ -958,6 +1037,18 @@ function lineNumberForText(relativePath, needle) {
 		throw new Error(`Did not find ${needle} in ${relativePath}`);
 	}
 	return index + 1;
+}
+
+function isTransparentCssColor(value) {
+	if (!value || value === 'transparent') {
+		return true;
+	}
+	const match = /^rgba?\(([^)]+)\)$/.exec(value);
+	if (!match) {
+		return false;
+	}
+	const parts = match[1].split(',').map(part => Number(part.trim()));
+	return parts.length === 4 && parts[3] === 0;
 }
 
 async function waitUntil(predicate, description, timeoutMs = 10_000) {
