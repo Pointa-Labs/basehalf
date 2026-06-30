@@ -53,7 +53,7 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	},
 	{
 		kind: 'extension-claude',
-		label: 'Claude Extension',
+		label: 'Claude Code Extension',
 		description: 'Host the curated VS Code Claude Code extension experience inside the Agent Area.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
 		requiresExtensionSlot: 'basehalf.agentArea.extension.claude'
@@ -66,7 +66,7 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	}
 ] as const satisfies readonly IBaseHalfAgentSessionChoice[];
 
-export const BASEHALF_VISIBLE_AGENT_SESSION_CHOICES: readonly IBaseHalfAgentSessionChoice[] = BASEHALF_AGENT_SESSION_CHOICES.filter((choice: IBaseHalfAgentSessionChoice) => !choice.requiresExtensionSlot);
+export const BASEHALF_VISIBLE_AGENT_SESSION_CHOICES: readonly IBaseHalfAgentSessionChoice[] = BASEHALF_AGENT_SESSION_CHOICES;
 
 export interface IBaseHalfAgentAreaSession {
 	readonly id: string;

@@ -124,7 +124,7 @@ try {
 			'canvas-visible',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
-			'agent-area-mounted-connected-choices',
+			'agent-area-five-choices-command-unavailable-state',
 			'source-control-git-provider',
 			'quick-open-card-detail',
 			'quick-open-side-card-detail-no-tab',
@@ -272,8 +272,30 @@ async function quickOpen(page, value, acceptKey = 'Enter') {
 	const quickInput = page.locator('.quick-input-widget input');
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
-	await page.waitForTimeout(1_500);
+	await waitForQuickInputResult(page);
 	await page.keyboard.press(acceptKey);
+	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+async function runCommand(page, value) {
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	const quickInput = page.locator('.quick-input-widget input');
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	await quickInput.fill(`>${value}`);
+	await page.locator('.quick-input-list-row', { hasText: value }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Enter');
+	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+async function waitForQuickInputResult(page) {
+	await page.locator('.quick-input-list-row').first().waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForFunction(() => {
+		const rows = Array.from(document.querySelectorAll('.quick-input-list-row'));
+		return rows.some(row => {
+			const text = row.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+			return text && text !== 'No matching results';
+		});
+	}, null, { timeout: 15_000 });
 }
 
 async function assertOpenEditorsHidden(page) {
@@ -311,15 +333,17 @@ async function assertCompetingViewContainersHidden(page) {
 async function assertAgentAreaChoices(page) {
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'attached', timeout: 15_000 });
 	const choices = await page.locator('.basehalf-agent-choice').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
-	const expected = ['Codex', 'Claude Code', 'Terminal'];
+	const expected = ['Codex', 'Claude Code', 'Codex Extension', 'Claude Code Extension', 'Terminal'];
 	if (choices.join('|') !== expected.join('|')) {
 		throw new Error(`Unexpected Agent Area choices: ${choices.join(', ')}`);
 	}
-	for (const hidden of ['Codex Extension', 'Claude Code Extension']) {
-		if (choices.includes(hidden)) {
-			throw new Error(`Disconnected Agent Area choice is visible: ${hidden}`);
-		}
-	}
+
+	await runCommand(page, 'New Codex Extension Session');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-extension-state', { hasText: /not registered/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
+	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 }
 
 async function assertSourceControlPanel(page) {

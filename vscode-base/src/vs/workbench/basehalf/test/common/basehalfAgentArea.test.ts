@@ -60,17 +60,18 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(claude.requiresExtensionSlot), true);
 	});
 
-	test('only exposes connected Agent Area session choices in the product UI', () => {
+	test('exposes all five first-class Agent Area session choices in the product UI', () => {
 		assert.deepStrictEqual(
 			BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.map(choice => choice.kind),
 			[
 				'tui-codex',
 				'tui-claude',
+				'extension-codex',
+				'extension-claude',
 				'terminal'
 			]
 		);
-		assert.strictEqual(BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.some(choice => choice.kind === 'extension-codex'), false);
-		assert.strictEqual(BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.some(choice => choice.kind === 'extension-claude'), false);
+		assert.strictEqual(BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.length, 5);
 	});
 
 	test('takes over the VS Code terminal toggle command without losing the stock view open command', () => {
