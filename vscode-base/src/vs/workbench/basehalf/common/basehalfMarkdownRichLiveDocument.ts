@@ -5,7 +5,7 @@
 
 import { IDisposable } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
-import { Doc as YDoc, type XmlFragment } from 'yjs';
+import { Doc as YDoc, type XmlFragment } from './vendor/yjs.bundle.js';
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 const DOCUMENT_KEY_SEPARATOR = String.fromCharCode(0);

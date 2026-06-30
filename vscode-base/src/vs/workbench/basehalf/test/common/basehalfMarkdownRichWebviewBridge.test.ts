@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
-import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from 'yjs';
+import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from '../../common/vendor/yjs.bundle.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { BaseHalfMarkdownRichHostMessage } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
 import { BaseHalfMarkdownRichWebviewBridge, IBaseHalfMarkdownRichWebviewTransport } from '../../common/basehalfMarkdownRichWebviewBridge.js';

@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
-import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from 'yjs';
+import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from './vendor/yjs.bundle.js';
 import {
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage,

@@ -120,6 +120,7 @@ src/vs/sessions/test/e2e/common.cjs
 src/vs/sessions/test/e2e/extensions/sessions-e2e-mock/extension.js
 src/vs/sessions/test/e2e/generate.cjs
 src/vs/sessions/test/e2e/test.cjs
+src/vs/workbench/basehalf/common/vendor/yjs.bundle.js
 src/vs/workbench/contrib/webview/browser/pre/service-worker.js
 src/vs/workbench/services/keybinding/test/node/linux_de_ch.js
 src/vs/workbench/services/keybinding/test/node/linux_en_uk.js
