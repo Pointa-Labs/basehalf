@@ -36,6 +36,7 @@ import { SearchModelLocation, RenderableMatch, ISearchTreeFileMatch, ISearchTree
 import { searchComparer } from '../searchCompare.js';
 import { IMatch } from '../../../../../base/common/filters.js';
 import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
 
 export const TEXT_SEARCH_QUICK_ACCESS_PREFIX = '%';
 
@@ -341,16 +342,15 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		// from https://github.com/microsoft/vscode/blob/f40dabca07a1622b2a0ae3ee741cfc94ab964bef/src/vs/workbench/contrib/search/browser/anythingQuickAccess.ts#L1037
 		const targetGroup = options.keyMods?.alt || (this.configuration.openEditorPinned && options.keyMods?.ctrlCmd) || options.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP;
 
-		if (targetGroup !== SIDE_GROUP) {
-			const result = await this._baseHalfCanvasNavigationService.openResource(iFileInstanceMatch.resource, {
-				source: 'quickAccess',
-				preserveFocus: editorOptions.preserveFocus,
-				pinned: editorOptions.pinned,
-				selection: editorOptions.selection
-			});
-			if (result.handled) {
-				return;
-			}
+		const result = await tryOpenBaseHalfResource(this._baseHalfCanvasNavigationService, iFileInstanceMatch.resource, {
+			source: 'quickAccess',
+			preserveFocus: editorOptions.preserveFocus,
+			pinned: editorOptions.pinned,
+			selection: editorOptions.selection,
+			sideBySide: targetGroup === SIDE_GROUP
+		});
+		if (result.handled) {
+			return;
 		}
 
 		await this._editorService.openEditor({

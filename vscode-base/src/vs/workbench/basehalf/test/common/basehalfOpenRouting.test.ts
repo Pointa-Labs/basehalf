@@ -1,0 +1,119 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import * as assert from 'assert';
+import { Event } from '../../../../base/common/event.js';
+import { URI } from '../../../../base/common/uri.js';
+import {
+	BaseHalfNavigationResult,
+	IBaseHalfCanvasNavigationService,
+	IBaseHalfCanvasNavigationState,
+	IBaseHalfOpenResourceOptions
+} from '../../common/basehalfCanvasNavigation.js';
+import {
+	getBaseHalfOpenRoutingDecision,
+	tryOpenBaseHalfResource
+} from '../../common/basehalfOpenRouting.js';
+
+suite('BaseHalfOpenRouting', () => {
+	test('routes normal workspace opens into BaseHalf navigation options', async () => {
+		const service = new TestCanvasNavigationService({
+			handled: true,
+			target: 'cardDetail',
+			state: {
+				resource: URI.file('/workspace/readme.md'),
+				workspaceFolder: URI.file('/workspace'),
+				relativePath: 'readme.md',
+				source: 'quickAccess',
+				selection: { startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 },
+				preserveFocus: true,
+				pinned: true,
+				projection: 'rich'
+			}
+		});
+
+		const result = await tryOpenBaseHalfResource(service, URI.file('/workspace/readme.md'), {
+			source: 'quickAccess',
+			selection: { startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 },
+			preserveFocus: true,
+			pinned: true,
+			projection: 'rich'
+		});
+
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(service.opened.length, 1);
+		assert.strictEqual(service.opened[0].resource.fsPath, '/workspace/readme.md');
+		assert.deepStrictEqual(service.opened[0].options, {
+			source: 'quickAccess',
+			selection: { startLineNumber: 3, startColumn: 2, endLineNumber: 3, endColumn: 8 },
+			preserveFocus: true,
+			pinned: true,
+			projection: 'rich'
+		});
+	});
+
+	test('leaves side-by-side opens to the VS Code editor path', async () => {
+		const service = new TestCanvasNavigationService({ handled: false, reason: 'outsideWorkspace' });
+		const result = await tryOpenBaseHalfResource(service, URI.file('/workspace/readme.md'), {
+			source: 'explorer',
+			sideBySide: true
+		});
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'sideBySide' });
+		assert.strictEqual(service.opened.length, 0);
+	});
+
+	test('leaves explicit VS Code editor opens to the VS Code editor path', () => {
+		assert.deepStrictEqual(getBaseHalfOpenRoutingDecision({
+			source: 'fileCommand',
+			forceVSCodeEditor: true
+		}), {
+			route: 'vscode',
+			reason: 'forcedVSCodeEditor'
+		});
+	});
+
+	test('returns navigation fallback reasons without hiding them', async () => {
+		const service = new TestCanvasNavigationService({ handled: false, reason: 'missingOrUnreadable' });
+
+		const result = await tryOpenBaseHalfResource(service, URI.file('/workspace/missing.md'), {
+			source: 'search'
+		});
+
+		assert.deepStrictEqual(result, { handled: false, reason: 'missingOrUnreadable' });
+		assert.strictEqual(service.opened.length, 1);
+	});
+});
+
+class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
+	declare readonly _serviceBrand: undefined;
+
+	readonly onDidChangeState = Event.None;
+	readonly state: IBaseHalfCanvasNavigationState = {
+		canvasFolder: undefined,
+		cardDetail: undefined
+	};
+
+	readonly opened: Array<{ resource: URI; options: IBaseHalfOpenResourceOptions }> = [];
+
+	constructor(private readonly result: BaseHalfNavigationResult) { }
+
+	async openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
+		this.opened.push({ resource, options });
+		return this.result;
+	}
+
+	async openFolderCanvas(): Promise<BaseHalfNavigationResult> {
+		throw new Error('Unexpected openFolderCanvas call');
+	}
+
+	async openCardDetail(): Promise<BaseHalfNavigationResult> {
+		throw new Error('Unexpected openCardDetail call');
+	}
+
+	async closeCardDetail(): Promise<boolean> {
+		throw new Error('Unexpected closeCardDetail call');
+	}
+}

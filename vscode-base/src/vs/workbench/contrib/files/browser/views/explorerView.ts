@@ -57,6 +57,7 @@ import { AbstractTreePart } from '../../../../../base/browser/ui/tree/abstractTr
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
 import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
 
 
 function hasExpandedRootChild(tree: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>, treeInput: ExplorerItem[]): boolean {
@@ -549,7 +550,7 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 			if (!shiftDown) {
 				if (element.isDirectory || this.explorerService.isEditable(undefined)) {
 					if (element.isDirectory && !this.explorerService.isEditable(undefined)) {
-						await this.baseHalfCanvasNavigationService.openResource(element.resource, {
+						await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, element.resource, {
 							source: 'explorer',
 							preserveFocus: e.editorOptions.preserveFocus,
 							pinned: e.editorOptions.pinned
@@ -562,15 +563,14 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 				this.telemetryService.publicLog2<WorkbenchActionExecutedEvent, WorkbenchActionExecutedClassification>('workbenchActionExecuted', { id: 'workbench.files.openFile', from: 'explorer' });
 				try {
 					this.delegate?.willOpenElement(e.browserEvent);
-					if (!e.sideBySide) {
-						const result = await this.baseHalfCanvasNavigationService.openResource(element.resource, {
-							source: 'explorer',
-							preserveFocus: e.editorOptions.preserveFocus,
-							pinned: e.editorOptions.pinned
-						});
-						if (result.handled) {
-							return;
-						}
+					const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, element.resource, {
+						source: 'explorer',
+						preserveFocus: e.editorOptions.preserveFocus,
+						pinned: e.editorOptions.pinned,
+						sideBySide: e.sideBySide
+					});
+					if (result.handled) {
+						return;
 					}
 					await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);
 				} finally {

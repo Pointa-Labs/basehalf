@@ -59,6 +59,7 @@ import { IChatWidgetService, IQuickChatService } from '../../chat/browser/chat.j
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ICustomEditorLabelService } from '../../../services/editor/common/customEditorLabelService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 interface IAnythingQuickPickItem extends IPickerQuickAccessItem, IQuickPickItemWithResource { }
 
@@ -1144,16 +1145,15 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 				};
 			}
 
-			if (targetGroup !== SIDE_GROUP) {
-				const result = await this.baseHalfCanvasNavigationService.openResource(resourceEditorInput.resource, {
-					source: 'quickAccess',
-					preserveFocus: editorOptions.preserveFocus,
-					pinned: editorOptions.pinned,
-					selection: editorOptions.selection
-				});
-				if (result.handled) {
-					return;
-				}
+			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, resourceEditorInput.resource, {
+				source: 'quickAccess',
+				preserveFocus: editorOptions.preserveFocus,
+				pinned: editorOptions.pinned,
+				selection: editorOptions.selection,
+				sideBySide: targetGroup === SIDE_GROUP
+			});
+			if (result.handled) {
+				return;
 			}
 
 			await this.editorService.openEditor(resourceEditorInput, targetGroup);

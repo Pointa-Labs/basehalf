@@ -26,6 +26,8 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { ThemeIcon } from '../../../../base/common/themables.js';
 import { IChatWidgetService } from '../../chat/browser/chat.js';
 import { ISymbolVariableEntry } from '../../chat/common/attachments/chatVariableEntries.js';
+import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export interface ISymbolQuickPickItem extends IPickerQuickAccessItem, IQuickPickItemWithResource {
 	score?: number;
@@ -67,7 +69,8 @@ export class SymbolsQuickAccessProvider extends PickerQuickAccessProvider<ISymbo
 		@IEditorService private readonly editorService: IEditorService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
-		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService
+		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(SymbolsQuickAccessProvider.PREFIX, {
 			canAcceptInBackground: true,
@@ -265,14 +268,28 @@ export class SymbolsQuickAccessProvider extends PickerQuickAccessProvider<ISymbo
 
 		// Otherwise open as editor
 		else {
+			const editorOptions = {
+				preserveFocus: options?.preserveFocus,
+				pinned: options.keyMods.ctrlCmd || options.forcePinned || this.configuration.openEditorPinned,
+				selection: symbolToOpen.location.range ? Range.collapseToStart(symbolToOpen.location.range) : undefined
+			};
+			const targetGroup = options.keyMods.alt || (this.configuration.openEditorPinned && options.keyMods.ctrlCmd) || options?.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP;
+
+			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, symbolToOpen.location.uri, {
+				source: 'quickAccess',
+				preserveFocus: editorOptions.preserveFocus,
+				pinned: editorOptions.pinned,
+				selection: editorOptions.selection,
+				sideBySide: targetGroup === SIDE_GROUP
+			});
+			if (result.handled) {
+				return;
+			}
+
 			await this.editorService.openEditor({
 				resource: symbolToOpen.location.uri,
-				options: {
-					preserveFocus: options?.preserveFocus,
-					pinned: options.keyMods.ctrlCmd || options.forcePinned || this.configuration.openEditorPinned,
-					selection: symbolToOpen.location.range ? Range.collapseToStart(symbolToOpen.location.range) : undefined
-				}
-			}, options.keyMods.alt || (this.configuration.openEditorPinned && options.keyMods.ctrlCmd) || options?.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP);
+				options: editorOptions
+			}, targetGroup);
 		}
 	}
 

@@ -62,6 +62,7 @@ import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export const NEW_FILE_COMMAND_ID = 'explorer.newFile';
 export const NEW_FILE_LABEL = nls.localize2('newFile', "New File...");
@@ -959,14 +960,14 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 			});
 			await refreshIfSeparator(value, explorerService);
 
-				if (isFolder) {
-					await explorerService.select(resourceToCreate, true);
-					await baseHalfCanvasNavigationService.openFolderCanvas(resourceToCreate, { source: 'fileCommand' });
-				} else {
-					const result = await baseHalfCanvasNavigationService.openCardDetail(resourceToCreate, {
-						source: 'fileCommand',
-						pinned: true
-					});
+			if (isFolder) {
+				await explorerService.select(resourceToCreate, true);
+				await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resourceToCreate, { source: 'fileCommand' });
+			} else {
+				const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resourceToCreate, {
+					source: 'fileCommand',
+					pinned: true
+				});
 				if (!result.handled) {
 					await editorService.openEditor({ resource: resourceToCreate, options: { pinned: true } });
 				}
@@ -1282,7 +1283,7 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 			if (targets.length === 1) {
 				const item = explorerService.findClosest(firstTarget);
 				if (item && !item.isDirectory) {
-					const result = await baseHalfCanvasNavigationService.openResource(item.resource, {
+					const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, item.resource, {
 						source: 'fileCommand',
 						pinned: true,
 						preserveFocus: true
@@ -1344,7 +1345,7 @@ export const openFilePreserveFocusHandler = async (accessor: ServicesAccessor) =
 	const files = stats.filter(s => !s.isDirectory);
 
 	if (files.length === 1) {
-		const result = await baseHalfCanvasNavigationService.openResource(files[0].resource, {
+		const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, files[0].resource, {
 			source: 'explorerCommand',
 			preserveFocus: true
 		});
