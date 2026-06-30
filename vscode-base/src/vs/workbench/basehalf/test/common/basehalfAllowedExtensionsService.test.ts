@@ -36,13 +36,22 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.notStrictEqual(testObject.isAllowed({ id: 'ms-python.python', publisherDisplayName: 'Microsoft' }), true);
 	});
 
-	test('keeps VS Code allowed extensions configuration as an additional restriction', () => {
+	test('keeps required Git/GitHub built-in extensions available even when VS Code allowed extensions configuration is narrower', () => {
 		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, { 'vscode.git': false, 'vscode.github': true });
 		const testObject = createService();
 
-		assert.notStrictEqual(testObject.isAllowed({ id: 'vscode.git', publisherDisplayName: 'vscode' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git', publisherDisplayName: 'vscode' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git-base', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github', publisherDisplayName: 'vscode' }), true);
-		assert.notStrictEqual(testObject.isAllowed({ id: 'vscode.github-authentication', publisherDisplayName: 'vscode' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github-authentication', publisherDisplayName: 'vscode' }), true);
+	});
+
+	test('keeps VS Code allowed extensions configuration as an additional restriction for optional agent extensions', () => {
+		configurationService.setUserConfiguration(AllowedExtensionsConfigKey, { 'openai.chatgpt': false, 'anthropic.claude-code': true });
+		const testObject = createService();
+
+		assert.notStrictEqual(testObject.isAllowed({ id: 'openai.chatgpt', publisherDisplayName: 'OpenAI' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'anthropic.claude-code', publisherDisplayName: 'Anthropic' }), true);
 	});
 
 	test('applies product allowlist to local extension objects too', () => {

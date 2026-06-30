@@ -10,7 +10,7 @@ import { AllowedExtensionsService } from '../../../platform/extensionManagement/
 import { IGalleryExtension, IAllowedExtensionsService } from '../../../platform/extensionManagement/common/extensionManagement.js';
 import { ExtensionType, IExtension, TargetPlatform } from '../../../platform/extensions/common/extensions.js';
 import { IProductService } from '../../../platform/product/common/productService.js';
-import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedProductExtension } from './basehalfWorkbenchProfile.js';
+import { BASEHALF_PRODUCT_PROFILE_ID, isBaseHalfAllowedProductExtension, isBaseHalfRequiredBuiltInExtension } from './basehalfWorkbenchProfile.js';
 
 type BaseHalfAllowedExtensionTarget =
 	| IGalleryExtension
@@ -29,11 +29,17 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 	override isAllowed(extension: IGalleryExtension | IExtension): true | IMarkdownString;
 	override isAllowed(extension: { id: string; publisherDisplayName: string | undefined; version?: string; prerelease?: boolean; targetPlatform?: TargetPlatform }): true | IMarkdownString;
 	override isAllowed(extension: BaseHalfAllowedExtensionTarget): true | IMarkdownString {
-		if (!isBaseHalfAllowedProductExtension(getExtensionId(extension))) {
+		const extensionId = getExtensionId(extension);
+
+		if (!isBaseHalfAllowedProductExtension(extensionId)) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
 				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated Git, GitHub, GitHub Authentication, Codex, and Claude Code extensions."
 			));
+		}
+
+		if (isBaseHalfRequiredBuiltInExtension(extensionId)) {
+			return true;
 		}
 
 		return super.isAllowed(extension);

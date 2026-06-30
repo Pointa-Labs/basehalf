@@ -625,6 +625,10 @@ export function isBaseHalfAllowedBuiltInExtension(extensionId: string): boolean 
 	return ALLOWED_BUILT_IN_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
 }
 
+export function isBaseHalfRequiredBuiltInExtension(extensionId: string): boolean {
+	return REQUIRED_BUILT_IN_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
+}
+
 export function isBaseHalfAllowedExternalExtension(extensionId: string): boolean {
 	return ALLOWED_EXTERNAL_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
 }
@@ -680,6 +684,11 @@ const HIDDEN_VIEW_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_IDS);
 const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
+);
+const REQUIRED_BUILT_IN_EXTENSION_IDS = new Set<string>(
+	BASEHALF_ALLOWED_EXTENSION_FAMILIES
+		.filter(family => family.family === 'git' || family.family === 'github' || family.family === 'github-authentication')
+		.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
 );
 const ALLOWED_EXTERNAL_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.externalExtensionIds.map(normalizeExtensionId))

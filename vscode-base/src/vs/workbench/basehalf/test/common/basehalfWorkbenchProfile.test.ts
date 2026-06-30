@@ -29,6 +29,7 @@ import {
 	isBaseHalfAllowedBuiltInExtension,
 	isBaseHalfAllowedExternalExtension,
 	isBaseHalfPrimaryViewContainer,
+	isBaseHalfRequiredBuiltInExtension,
 	shouldBaseHalfCloseStartupEditor,
 	shouldBaseHalfHideView,
 	shouldBaseHalfHideViewContainer
@@ -217,6 +218,13 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('ms-python.python'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('basehalf.basehalf'), false);
+
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git'), true);
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.git-base'), true);
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.github'), true);
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('vscode.github-authentication'), true);
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('openai.chatgpt'), false);
+		assert.strictEqual(isBaseHalfRequiredBuiltInExtension('anthropic.claude-code'), false);
 
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('openai.chatgpt'), true);
 		assert.strictEqual(isBaseHalfAllowedExternalExtension('ANTHROPIC.CLAUDE-CODE'), true);

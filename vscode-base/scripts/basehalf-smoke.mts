@@ -91,6 +91,10 @@ try {
 	await assertAgentAreaChoices(page);
 	await assertAgentAreaTerminalCommand(page);
 	await assertSourceControlPanel(page);
+	commitFixtureChanges(workspacePath, 'smoke changes');
+	await runCommand(page, 'Git: Refresh');
+	await assertSourceControlPublishBranchAction(page);
+	await assertGitBranchCheckoutQuickPick(page);
 
 	await quickOpen(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
@@ -130,6 +134,8 @@ try {
 			'agent-area-five-choices-command-unavailable-state',
 			'agent-area-terminal-command-no-stock-panel',
 			'source-control-git-provider',
+			'source-control-publish-branch-action',
+			'git-branch-checkout-quickpick',
 			'quick-open-card-detail',
 			'quick-open-side-card-detail-no-tab',
 			'source-card-detail-flush-on-navigation',
@@ -247,6 +253,11 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	initializeGitWorkspace(workspace);
+	configureGitAuthor(workspace);
+	commitFixtureChanges(workspace, 'initial smoke fixture');
+	execFileSync('git', ['branch', 'branch-picker-target'], { cwd: workspace, stdio: 'ignore' });
+	fs.appendFileSync(path.join(workspace, 'README.md'), '\nscm dirty change\n', 'utf8');
+	fs.appendFileSync(path.join(workspace, 'src', 'app.ts'), '\nexport const smokeDirtyChange = true;\n', 'utf8');
 }
 
 function initializeGitWorkspace(workspace) {
@@ -256,6 +267,16 @@ function initializeGitWorkspace(workspace) {
 		execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
 		execFileSync('git', ['checkout', '-B', 'main'], { cwd: workspace, stdio: 'ignore' });
 	}
+}
+
+function configureGitAuthor(workspace) {
+	execFileSync('git', ['config', 'user.email', 'basehalf-smoke@example.invalid'], { cwd: workspace, stdio: 'ignore' });
+	execFileSync('git', ['config', 'user.name', 'BaseHalf Smoke'], { cwd: workspace, stdio: 'ignore' });
+}
+
+function commitFixtureChanges(workspace, message) {
+	execFileSync('git', ['add', '.'], { cwd: workspace, stdio: 'ignore' });
+	execFileSync('git', ['commit', '-m', message], { cwd: workspace, stdio: 'ignore' });
 }
 
 function getDevElectronPath() {
@@ -471,6 +492,39 @@ async function assertSourceControlPanel(page) {
 		const text = element.textContent?.replace(/\s+/g, ' ') ?? '';
 		throw new Error(`Source Control Changes view did not show expected Git state: ${text}`);
 	});
+}
+
+async function assertSourceControlPublishBranchAction(page) {
+	await runCommand(page, 'Source Control: Focus on Changes View');
+	await page.waitForFunction(() => {
+		const buttons = Array.from(document.querySelectorAll('.pane .monaco-button'));
+		return buttons.some(button => (button.textContent || '').replace(/\s+/g, ' ').includes('Publish Branch'));
+	}, null, { timeout: 20_000 });
+}
+
+async function assertGitBranchCheckoutQuickPick(page) {
+	await page.locator('.part.statusbar .statusbar-item', { hasText: 'main' }).first().click();
+	const quickInput = page.locator('.quick-input-widget input');
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	await quickInput.fill('branch-picker-target');
+	await waitForQuickInputResult(page);
+
+	const firstRow = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
+	await firstRow.waitFor({ state: 'visible', timeout: 15_000 });
+	const firstRowText = ((await firstRow.getAttribute('aria-label')) ?? (await firstRow.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+	if (!firstRowText.includes('branch-picker-target')) {
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		throw new Error(`Git branch picker did not offer branch-picker-target first: ${firstRowText}`);
+	}
+
+	await page.keyboard.press('Enter');
+	await quickInput.waitFor({ state: 'hidden', timeout: 20_000 });
+	await page.waitForFunction(() => {
+		const shell = document.querySelector('.monaco-workbench');
+		const text = (shell?.textContent || '').replace(/\s+/g, ' ');
+		return text.includes('branch-picker-target');
+	}, null, { timeout: 20_000 });
 }
 
 async function assertCardDetail(page, title) {
