@@ -5,6 +5,7 @@
 
 import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from './vendor/yjs.bundle.js';
+import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage,
@@ -77,6 +78,15 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			...(options.content !== undefined ? { content: options.content } : {}),
 			...(options.disk !== undefined ? { disk: options.disk } : {}),
 			...(options.message !== undefined ? { message: options.message } : {})
+		});
+	}
+
+	sendAdhdState(options: { readonly adhd?: IBaseHalfAdhdFile | null; readonly error?: string }): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.adhdState',
+			key: this.key,
+			...(options.adhd !== undefined ? { adhd: options.adhd } : {}),
+			...(options.error !== undefined ? { error: options.error } : {})
 		});
 	}
 

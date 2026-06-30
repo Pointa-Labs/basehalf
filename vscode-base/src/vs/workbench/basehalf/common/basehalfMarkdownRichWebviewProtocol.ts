@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IBaseHalfMarkdownFocusFields } from './basehalfMarkdownFocus.js';
+import { IBaseHalfAdhdCommand, IBaseHalfAdhdFile, isBaseHalfAdhdFile } from './basehalfAdhd.js';
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
@@ -41,6 +42,12 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly content?: string;
 		readonly disk?: string;
 		readonly message?: string;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.adhdState';
+		readonly key: string;
+		readonly adhd?: IBaseHalfAdhdFile | null;
+		readonly error?: string;
 	};
 
 export type BaseHalfMarkdownRichWebviewMessage =
@@ -70,6 +77,11 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.focusChanged';
 		readonly key: string;
 		readonly fields: IBaseHalfMarkdownFocusFields;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.adhdCommand';
+		readonly key: string;
+		readonly command: IBaseHalfAdhdCommand;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.error';
@@ -113,6 +125,9 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& (candidate.content === undefined || typeof candidate.content === 'string')
 				&& (candidate.disk === undefined || typeof candidate.disk === 'string')
 				&& (candidate.message === undefined || typeof candidate.message === 'string');
+		case 'basehalf.markdownRich.adhdState':
+			return (candidate.adhd === undefined || candidate.adhd === null || isBaseHalfAdhdFile(candidate.adhd))
+				&& (candidate.error === undefined || typeof candidate.error === 'string');
 		default:
 			return false;
 	}
@@ -139,6 +154,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
 		case 'basehalf.markdownRich.focusChanged':
 			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
+		case 'basehalf.markdownRich.adhdCommand':
+			return isBaseHalfMarkdownRichAdhdCommand(candidate.command);
 		case 'basehalf.markdownRich.error':
 			return typeof candidate.message === 'string'
 				&& (candidate.stack === undefined || typeof candidate.stack === 'string');
@@ -207,6 +224,23 @@ function isBaseHalfMarkdownRichCursor(value: unknown): value is NonNullable<IBas
 		&& isPositiveInteger(cursor.column)
 		&& (cursor.line_precision === 'exact' || cursor.line_precision === 'block_start' || cursor.line_precision === 'estimated')
 		&& (cursor.block === undefined || isPositiveInteger(cursor.block));
+}
+
+function isBaseHalfMarkdownRichAdhdCommand(value: unknown): value is IBaseHalfAdhdCommand {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const command = value as Partial<IBaseHalfAdhdCommand>;
+	if (command.command === 'addKeyword' || command.command === 'removeKeyword') {
+		return typeof command.keyword === 'string' && command.keyword.trim().length > 0;
+	}
+
+	if (command.command === 'markRead' || command.command === 'markUnread') {
+		return isPositiveInteger(command.start) && isPositiveInteger(command.end) && command.end >= command.start;
+	}
+
+	return false;
 }
 
 function isPositiveInteger(value: unknown): value is number {

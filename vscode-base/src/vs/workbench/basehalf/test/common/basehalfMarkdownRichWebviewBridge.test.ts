@@ -21,6 +21,15 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendEditable(false), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
+		assert.strictEqual(await bridge.sendAdhdState({
+			adhd: {
+				path: 'doc.md',
+				kind: 'file',
+				highlight_keywords: ['Cost'],
+				read_paragraphs: [[1, 2]]
+			}
+		}), true);
+		assert.strictEqual(await bridge.sendAdhdState({ error: 'ADHD metadata issue' }), true);
 
 		assert.deepStrictEqual(transport.messages.map(entry => entry.message), [
 			{
@@ -49,6 +58,21 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				result: 'blockedByConflict',
 				disk: 'Disk changed\n',
 				message: 'Disk changed'
+			},
+			{
+				type: 'basehalf.markdownRich.adhdState',
+				key: 'workspace\u0000doc.md',
+				adhd: {
+					path: 'doc.md',
+					kind: 'file',
+					highlight_keywords: ['Cost'],
+					read_paragraphs: [[1, 2]]
+				}
+			},
+			{
+				type: 'basehalf.markdownRich.adhdState',
+				key: 'workspace\u0000doc.md',
+				error: 'ADHD metadata issue'
 			}
 		]);
 	});

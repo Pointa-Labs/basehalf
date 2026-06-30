@@ -40,6 +40,21 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			disk: 'External edits\n',
 			message: 'External edits'
 		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.adhdState',
+			key: 'workspace\u0000doc.md',
+			adhd: {
+				path: 'doc.md',
+				kind: 'file',
+				highlight_keywords: ['Cost'],
+				read_paragraphs: [[1, 2]]
+			}
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.adhdState',
+			key: 'workspace\u0000doc.md',
+			error: 'ADHD metadata issue'
+		}), true);
 
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: '' }), false);
@@ -47,6 +62,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.adhdState', key: 'workspace\u0000doc.md', adhd: { path: 'doc.md', kind: 'folder' } }), false);
 	});
 
 	test('recognizes valid webview messages and validates byte payloads', () => {
@@ -78,6 +94,16 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			fields: { visible_blocks: { start: 2 }, cursor: { line: 4, column: 1, line_precision: 'exact', block: 2 } }
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.adhdCommand',
+			key: 'workspace\u0000doc.md',
+			command: { command: 'addKeyword', keyword: 'Cost' }
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.adhdCommand',
+			key: 'workspace\u0000doc.md',
+			command: { command: 'markRead', start: 1, end: 2 }
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.error',
 			key: 'workspace\u0000doc.md',
 			message: 'render failed'
@@ -99,6 +125,16 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			type: 'basehalf.markdownRich.dirtyChanged',
 			key: 'workspace\u0000doc.md',
 			dirty: 'yes'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.adhdCommand',
+			key: 'workspace\u0000doc.md',
+			command: { command: 'addKeyword', keyword: '' }
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.adhdCommand',
+			key: 'workspace\u0000doc.md',
+			command: { command: 'markUnread', start: 3, end: 2 }
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.error',

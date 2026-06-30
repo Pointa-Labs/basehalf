@@ -39,6 +39,8 @@ import {
 	BaseHalfMarkdownRichSaveRequestedMessage,
 	BaseHalfMarkdownRichWebviewSaveCoordinator
 } from '../../common/basehalfMarkdownRichWebviewSaveCoordinator.js';
+import { IBaseHalfAdhdCommand } from '../../common/basehalfAdhd.js';
+import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/markdown-rich-out');
@@ -70,6 +72,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -153,7 +156,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(this.documentKey, options => this.flush(options)));
 
-			await this.bridge.sendInit(state.resource.toString(), this.lastSentContent, this.isEditable());
+			await this.sendDocumentState(state);
 			this.updateStatus();
 		} catch (error) {
 			if (this.disposed) {
@@ -205,6 +208,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 
+		if (message.type === 'basehalf.markdownRich.ready') {
+			await bridge.handleWebviewMessage(message);
+			await this.sendDocumentState(state);
+			return;
+		}
+
 		if (await bridge.handleWebviewMessage(message)) {
 			return;
 		}
@@ -223,10 +232,54 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 					...message.fields
 				}).catch(error => this.logService.error(error));
 				break;
+			case 'basehalf.markdownRich.adhdCommand':
+				await this.handleAdhdCommand(state, message.command);
+				break;
 			case 'basehalf.markdownRich.error':
 				this.status.textContent = `Rich editor failed: ${message.message}`;
 				this.logService.error(message.stack ?? message.message);
 				break;
+		}
+	}
+
+	private async handleAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand): Promise<void> {
+		try {
+			const adhd = await this.runAdhdCommand(state, command);
+			await this.bridge?.sendAdhdState({ adhd });
+		} catch (error) {
+			const message = adhdErrorMessage(error);
+			this.logService.error(error);
+			await this.bridge?.sendAdhdState({ error: message });
+		}
+	}
+
+	private runAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand) {
+		switch (command.command) {
+			case 'addKeyword':
+				return this.adhdMirrorService.addKeyword(state, command.keyword);
+			case 'removeKeyword':
+				return this.adhdMirrorService.removeKeyword(state, command.keyword);
+			case 'markRead':
+				return this.adhdMirrorService.markRead(state, command.start, command.end);
+			case 'markUnread':
+				return this.adhdMirrorService.markUnread(state, command.start, command.end);
+		}
+	}
+
+	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
+		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
+		await this.bridge?.sendInit(state.resource.toString(), content, this.isEditable());
+		await this.sendAdhdState(state);
+	}
+
+	private async sendAdhdState(state: IBaseHalfCardDetailState): Promise<void> {
+		try {
+			const adhd = await this.adhdMirrorService.readAdhd(state);
+			await this.bridge?.sendAdhdState({ adhd });
+		} catch (error) {
+			const message = adhdErrorMessage(error);
+			this.logService.warn(message);
+			await this.bridge?.sendAdhdState({ error: message });
 		}
 	}
 
@@ -344,7 +397,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
 </head>
 <body>
-	<div id="root" data-basehalf-key="${escapeAttribute(key)}"></div>
+	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}"></div>
 	<script nonce="${nonce}" type="module" src="${script}"></script>
 </body>
 </html>`;
@@ -353,4 +406,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 function escapeAttribute(value: string): string {
 	return escape(value).replace(/"/g, '&quot;');
+}
+
+function adhdErrorMessage(error: unknown): string {
+	if (error instanceof BaseHalfAdhdMirrorCorrupt) {
+		return `ADHD metadata issue: ${error.reason}`;
+	}
+	return error instanceof Error ? `ADHD metadata issue: ${error.message}` : `ADHD metadata issue: ${String(error)}`;
 }

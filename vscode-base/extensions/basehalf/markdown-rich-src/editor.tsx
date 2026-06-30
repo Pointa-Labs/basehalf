@@ -22,9 +22,15 @@ import {
 } from 'react';
 import {
 	buildBaseHalfMarkdownFocusFields,
+	baseHalfMarkdownBlockReadSpan,
+	baseHalfMarkdownLinesToBlockIds,
 	countBaseHalfMarkdownNewlines,
 	type IBaseHalfMarkdownFocusBlock,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownFocus.js';
+import {
+	type IBaseHalfAdhdCommand,
+	type IBaseHalfAdhdFile,
+} from '../../../src/vs/workbench/basehalf/common/basehalfAdhd.js';
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
 	buildBaseHalfMarkdownLoadProjection,
@@ -33,6 +39,10 @@ import {
 	type IBaseHalfMarkdownEditorApi,
 	type IBaseHalfMarkdownReuseEntry,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownProjection.js';
+import {
+	makeBaseHalfAdhdDecorationExtension,
+	pushBaseHalfAdhdDecorations,
+} from './adhdDecorations.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfMarkdownRichWebviewMessage, transfer?: readonly ArrayBuffer[]): void;
@@ -75,6 +85,12 @@ type BaseHalfMarkdownRichHostMessage =
 		readonly content?: string;
 		readonly disk?: string;
 		readonly message?: string;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.adhdState';
+		readonly key: string;
+		readonly adhd?: IBaseHalfAdhdFile | null;
+		readonly error?: string;
 	};
 
 type BaseHalfMarkdownRichWebviewMessage =
@@ -104,6 +120,11 @@ type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.focusChanged';
 		readonly key: string;
 		readonly fields: ReturnType<typeof buildBaseHalfMarkdownFocusFields>;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.adhdCommand';
+		readonly key: string;
+		readonly command: IBaseHalfAdhdCommand;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.error';
@@ -172,6 +193,9 @@ interface SessionState {
 	resource: string;
 	frontmatter: string;
 	byId: Map<string, IBaseHalfMarkdownReuseEntry>;
+	adhd: IBaseHalfAdhdFile | null;
+	adhdError: string | undefined;
+	readBlockIds: Set<string>;
 	lastDisk: string;
 	editable: boolean;
 	ready: boolean;
@@ -182,12 +206,28 @@ interface SessionState {
 	writeError: string | undefined;
 }
 
+interface ContextMenuItem {
+	readonly id: string;
+	readonly label: string;
+	readonly enabled?: boolean;
+	readonly run: () => void;
+}
+
+interface ContextMenuState {
+	readonly x: number;
+	readonly y: number;
+	readonly items: readonly ContextMenuItem[];
+}
+
 function createSessionState(key = ''): SessionState {
 	return {
 		key,
 		resource: '',
 		frontmatter: '',
 		byId: new Map(),
+		adhd: null,
+		adhdError: undefined,
+		readBlockIds: new Set(),
 		lastDisk: '',
 		editable: false,
 		ready: false,
@@ -248,17 +288,20 @@ function findBlockElement(editorElement: HTMLElement | undefined, id: string): H
 
 function MarkdownRichEditor(): JSX.Element {
 	const vscode = useMemo(() => acquireVsCodeApi(), []);
-	const initialKey = useMemo(() => document.getElementById('root')?.dataset.basehalfKey ?? '', []);
+	const initialKey = useMemo(() => decodeHtmlKey(document.getElementById('root')?.dataset.basehalfKey ?? ''), []);
 	const ydoc = useMemo(() => new YDoc(), []);
 	const fragment = useMemo(() => ydoc.getXmlFragment(BLOCKNOTE_FRAGMENT_NAME), [ydoc]);
 	const session = useRef(createSessionState(initialKey));
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const saveTimer = useRef<number | undefined>(undefined);
 	const focusTimer = useRef<number | undefined>(undefined);
+	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
+	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const [version, setVersion] = useState(0);
 
 	const editor = useCreateBlockNote({
 		schema,
+		extensions: [adhdExtension],
 		collaboration: {
 			fragment: fragment as XmlFragment,
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
@@ -282,6 +325,16 @@ function MarkdownRichEditor(): JSX.Element {
 		setVersion(value => value + 1);
 	}, [vscode]);
 
+	const projectAdhdReadBlocks = useCallback((adhd: IBaseHalfAdhdFile | null): Set<string> => {
+		const state = session.current;
+		if (!adhd || !state.ready) {
+			return new Set();
+		}
+		const blocks = editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[];
+		const frontmatterLines = countBaseHalfMarkdownNewlines(state.frontmatter);
+		return new Set(baseHalfMarkdownLinesToBlockIds(blocks, state.byId, frontmatterLines, adhd.read_paragraphs ?? []));
+	}, [editor]);
+
 	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string) => {
 		const state = session.current;
 		state.loading = true;
@@ -300,10 +353,11 @@ function MarkdownRichEditor(): JSX.Element {
 		state.byId = byId;
 		state.lastDisk = content;
 		state.ready = true;
+		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
 		state.loading = false;
 		notifyDirty(false);
 		setVersion(value => value + 1);
-	}, [editor, editorApi, notifyDirty]);
+	}, [editor, editorApi, notifyDirty, projectAdhdReadBlocks]);
 
 	const reportError = useCallback((error: unknown) => {
 		const state = session.current;
@@ -318,6 +372,28 @@ function MarkdownRichEditor(): JSX.Element {
 			});
 		}
 		setVersion(value => value + 1);
+	}, [vscode]);
+
+	const applyAdhdState = useCallback((adhd: IBaseHalfAdhdFile | null | undefined, error: string | undefined) => {
+		const state = session.current;
+		if (adhd !== undefined) {
+			state.adhd = adhd;
+			state.readBlockIds = projectAdhdReadBlocks(adhd);
+		}
+		state.adhdError = error;
+		setVersion(value => value + 1);
+	}, [projectAdhdReadBlocks]);
+
+	const postAdhdCommand = useCallback((command: IBaseHalfAdhdCommand) => {
+		const state = session.current;
+		if (!state.key || !state.ready) {
+			return;
+		}
+		vscode.postMessage({
+			type: 'basehalf.markdownRich.adhdCommand',
+			key: state.key,
+			command,
+		});
 	}, [vscode]);
 
 	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean) => {
@@ -481,6 +557,9 @@ function MarkdownRichEditor(): JSX.Element {
 					}
 					break;
 				}
+				case 'basehalf.markdownRich.adhdState':
+					applyAdhdState(message.adhd, message.error);
+					break;
 			}
 		};
 		window.addEventListener('message', onMessage);
@@ -488,7 +567,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyContent, notifyDirty, reportError, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, notifyDirty, reportError, serializeAndRequestSave, vscode, ydoc]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
@@ -509,6 +588,162 @@ function MarkdownRichEditor(): JSX.Element {
 			scroll?.removeEventListener('scroll', scheduleFocus);
 		};
 	}, [editor, notifyDirty, scheduleFocus, scheduleSave]);
+
+	useEffect(() => {
+		const state = session.current;
+		pushBaseHalfAdhdDecorations(editor, {
+			enabled: state.ready && state.adhdError === undefined,
+			readBlockIds: [...state.readBlockIds],
+			keywords: state.adhd?.highlight_keywords ?? [],
+		});
+	}, [editor, version]);
+
+	useEffect(() => () => {
+		pushBaseHalfAdhdDecorations(editor, { enabled: false, readBlockIds: [], keywords: [] });
+	}, [editor]);
+
+	useEffect(() => {
+		const dom = editor.prosemirrorView?.dom;
+		if (!dom) {
+			return;
+		}
+
+		const onContextMenu = (event: MouseEvent): void => {
+			const state = session.current;
+			if (!state.ready || state.adhdError !== undefined) {
+				return;
+			}
+
+			const view = editor.prosemirrorView;
+			const selection = view?.state.selection;
+			const selected = (selection && !selection.empty
+				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
+				: window.getSelection()?.toString() ?? '').trim();
+			if (selected.length === 0) {
+				return;
+			}
+
+			const existing = (state.adhd?.highlight_keywords ?? []).find(keyword => keyword.toLowerCase() === selected.toLowerCase());
+			const clipboardText = selection && view
+				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
+				: selected;
+			const items: ContextMenuItem[] = [
+				existing
+					? {
+						id: 'remove-highlight',
+						label: `Remove "${existing}" from highlights`,
+						run: () => postAdhdCommand({ command: 'removeKeyword', keyword: existing }),
+					}
+					: {
+						id: 'add-highlight',
+						label: `Highlight "${selected}"`,
+						run: () => postAdhdCommand({ command: 'addKeyword', keyword: selected }),
+					},
+				{
+					id: 'copy',
+					label: 'Copy',
+					run: () => void navigator.clipboard.writeText(clipboardText),
+				},
+			];
+
+			if (view && state.editable && state.conflictDisk === undefined && state.writeError === undefined) {
+				items.push(
+					{
+						id: 'cut',
+						label: 'Cut',
+						run: () => {
+							void navigator.clipboard.writeText(clipboardText);
+							view.dispatch(view.state.tr.deleteSelection());
+							view.focus();
+						},
+					},
+					{
+						id: 'paste',
+						label: 'Paste',
+						run: () => {
+							void navigator.clipboard.readText().then(text => {
+								if (text) {
+									view.dispatch(view.state.tr.insertText(text));
+								}
+								view.focus();
+							});
+						},
+					},
+				);
+			}
+
+			event.preventDefault();
+			setContextMenu({
+				x: event.clientX,
+				y: event.clientY,
+				items,
+			});
+		};
+
+		dom.addEventListener('contextmenu', onContextMenu);
+		return () => dom.removeEventListener('contextmenu', onContextMenu);
+	}, [editor, postAdhdCommand]);
+
+	useEffect(() => {
+		const dom = editor.prosemirrorView?.dom;
+		if (!dom) {
+			return;
+		}
+
+		const onMouseDown = (event: MouseEvent): void => {
+			const checkbox = (event.target as HTMLElement | null)?.closest?.('.basehalf-adhd-check') as HTMLElement | null;
+			const blockId = checkbox?.getAttribute('data-basehalf-adhd-block-id');
+			if (!blockId) {
+				return;
+			}
+
+			const state = session.current;
+			if (!state.ready || state.adhdError !== undefined) {
+				return;
+			}
+
+			const span = baseHalfMarkdownBlockReadSpan(
+				editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+				blockId,
+				state.byId,
+				countBaseHalfMarkdownNewlines(state.frontmatter)
+			);
+			if (!span) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			postAdhdCommand({
+				command: state.readBlockIds.has(blockId) ? 'markUnread' : 'markRead',
+				start: span.start,
+				end: span.end,
+			});
+		};
+
+		dom.addEventListener('mousedown', onMouseDown, true);
+		return () => dom.removeEventListener('mousedown', onMouseDown, true);
+	}, [editor, postAdhdCommand]);
+
+	useEffect(() => {
+		if (!contextMenu) {
+			return;
+		}
+		const close = () => setContextMenu(undefined);
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape') {
+				close();
+			}
+		};
+		window.addEventListener('mousedown', close);
+		window.addEventListener('keydown', onKeyDown);
+		window.addEventListener('blur', close);
+		return () => {
+			window.removeEventListener('mousedown', close);
+			window.removeEventListener('keydown', onKeyDown);
+			window.removeEventListener('blur', close);
+		};
+	}, [contextMenu]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -572,6 +807,35 @@ function MarkdownRichEditor(): JSX.Element {
 					<button type="button" className="secondary" onClick={discardLocal}>Discard local</button>
 				</div>
 			)}
+			{state.adhdError !== undefined && (
+				<div className="basehalf-markdown-rich-banner error">
+					<span>{state.adhdError}</span>
+				</div>
+			)}
+			{contextMenu !== undefined && (
+				<div
+					className="basehalf-markdown-rich-context-menu"
+					style={{
+						left: Math.max(4, Math.min(contextMenu.x, window.innerWidth - 280)),
+						top: Math.max(4, Math.min(contextMenu.y, window.innerHeight - 40 - contextMenu.items.length * 28)),
+					}}
+					onMouseDown={event => event.stopPropagation()}
+				>
+					{contextMenu.items.map(item => (
+						<button
+							key={item.id}
+							type="button"
+							disabled={item.enabled === false}
+							onClick={() => {
+								setContextMenu(undefined);
+								item.run();
+							}}
+						>
+							{item.label}
+						</button>
+					))}
+				</div>
+			)}
 			<div ref={scrollRef} className="basehalf-markdown-rich-scroll">
 				<div className="basehalf-markdown-rich-page">
 					<BlockNoteView
@@ -591,3 +855,11 @@ if (!root) {
 }
 
 createRoot(root).render(<MarkdownRichEditor />);
+
+function decodeHtmlKey(value: string): string {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+}

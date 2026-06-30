@@ -15,6 +15,7 @@ body,
 	height: 100%;
 	display: flex;
 	flex-direction: column;
+	position: relative;
 	background: var(--vscode-editor-background);
 	color: var(--vscode-editor-foreground);
 }
@@ -88,6 +89,105 @@ body,
 
 .basehalf-markdown-rich .bn-editor {
 	padding: 0;
+}
+
+.basehalf-adhd-block {
+	position: relative;
+	padding-right: 24px;
+}
+
+.basehalf-adhd-unread {
+	color: var(--vscode-editor-foreground);
+	transition: color 120ms ease;
+}
+
+.basehalf-adhd-read {
+	color: var(--vscode-disabledForeground);
+	transition: color 120ms ease;
+}
+
+.basehalf-adhd-keyword {
+	color: var(--vscode-editorWarning-foreground);
+	background: color-mix(in srgb, var(--vscode-editorWarning-foreground) 22%, transparent);
+	border-radius: 2px;
+}
+
+.basehalf-adhd-check {
+	position: absolute;
+	top: 0.28em;
+	right: 0;
+	box-sizing: border-box;
+	width: 15px;
+	height: 15px;
+	border: 1px solid var(--vscode-checkbox-border);
+	border-radius: 3px;
+	background: var(--vscode-checkbox-background);
+	cursor: pointer;
+	user-select: none;
+}
+
+.basehalf-adhd-check:hover {
+	border-color: var(--vscode-focusBorder);
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
+.basehalf-adhd-check-checked {
+	border-color: var(--vscode-checkbox-selectBorder, var(--vscode-focusBorder));
+	background: var(--vscode-button-background);
+}
+
+.basehalf-adhd-check-checked::after {
+	content: "";
+	position: absolute;
+	left: 4px;
+	top: 1px;
+	width: 4px;
+	height: 8px;
+	border: solid var(--vscode-button-foreground);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+.basehalf-markdown-rich-context-menu {
+	position: fixed;
+	z-index: 20;
+	min-width: 220px;
+	max-width: 320px;
+	padding: 4px 0;
+	color: var(--vscode-menu-foreground);
+	background: var(--vscode-menu-background);
+	border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+	box-shadow: 0 4px 18px rgb(0 0 0 / 35%);
+	font-size: 12px;
+	line-height: 20px;
+}
+
+.basehalf-markdown-rich-context-menu button {
+	display: block;
+	width: 100%;
+	min-height: 26px;
+	padding: 3px 24px 3px 12px;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	text-align: left;
+	font: inherit;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	cursor: pointer;
+}
+
+.basehalf-markdown-rich-context-menu button:hover:not(:disabled),
+.basehalf-markdown-rich-context-menu button:focus-visible {
+	color: var(--vscode-menu-selectionForeground);
+	background: var(--vscode-menu-selectionBackground);
+	outline: none;
+}
+
+.basehalf-markdown-rich-context-menu button:disabled {
+	opacity: 0.5;
+	cursor: default;
 }
 
 .basehalf-raw-passthrough {

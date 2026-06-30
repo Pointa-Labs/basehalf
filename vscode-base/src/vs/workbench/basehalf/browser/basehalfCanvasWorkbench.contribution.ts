@@ -74,6 +74,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private lastFolderFocusKey: string | undefined;
 	private restoredFolderFocusKey: string | undefined;
 	private canvasZoom = 1;
+	private disposed = false;
 
 	constructor(
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -151,6 +152,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		void this.render();
 	}
 
+	override dispose(): void {
+		this.disposed = true;
+		this.renderSeq++;
+		super.dispose();
+	}
+
 	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement, type: K, listener: (event: HTMLElementEventMap[K]) => void) {
 		node.addEventListener(type, listener);
 		return {
@@ -159,6 +166,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private async render(): Promise<void> {
+		if (this.disposed) {
+			return;
+		}
+
 		const seq = ++this.renderSeq;
 		const folder = this.getCurrentFolder();
 
@@ -178,7 +189,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		try {
 			stat = await this.fileService.resolve(folder.resource);
 		} catch (error) {
-			if (seq !== this.renderSeq) {
+			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
 			clearNode(this.cards);
@@ -187,7 +198,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		if (seq !== this.renderSeq) {
+		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
 
@@ -197,6 +208,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			canvas = await this.canvasMirrorService.readCanvas(folder);
 		} catch (error) {
 			canvasWarning = error instanceof BaseHalfCanvasMirrorCorrupt ? 'Corrupt canvas.yaml' : 'Unable to read canvas.yaml';
+		}
+		if (!this.isRenderCurrent(seq)) {
+			return;
 		}
 
 		let model = baseHalfCanvasModelFromStat(stat, {
@@ -212,7 +226,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				relativePath: item.path,
 				kind: item.kind
 			})));
-			if (seq !== this.renderSeq) {
+			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
 
@@ -260,6 +274,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.renderDetail();
 		this.restoreOrWriteFolderFocus(folder, seq);
+	}
+
+	private isRenderCurrent(seq: number): boolean {
+		return !this.disposed && seq === this.renderSeq;
 	}
 
 	private getCurrentFolder(): IBaseHalfCanvasFolderState | undefined {

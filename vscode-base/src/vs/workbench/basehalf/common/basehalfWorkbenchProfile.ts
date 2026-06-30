@@ -465,10 +465,12 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 		vscodeSources: [
 			'src/vs/platform/files',
 			'src/vs/workbench/services/files',
-			'src/vs/workbench/services/workingCopy'
+			'src/vs/workbench/services/workingCopy',
+			'src/vs/workbench/contrib/customEditor/browser/customEditor.contribution.ts',
+			'src/vs/workbench/contrib/webview/browser/webview.ts'
 		],
-		baselineSources: ['packages/core/src/badges', 'packages/core/src/canvas', 'packages/core/src/focus', 'packages/core/src/adhd'],
-		keep: ['.bh/mirror YAML model', 'current_focus symlink contract', 'mutexed read-modify-write behavior'],
+		baselineSources: ['packages/core/src/badges', 'packages/core/src/canvas', 'packages/core/src/focus', 'packages/core/src/adhd', 'packages/desktop/src/renderer/src/components/AdhdControls.tsx'],
+		keep: ['.bh/mirror YAML model', 'current_focus symlink contract', 'mutexed read-modify-write behavior', 'ADHD keyword and read-paragraph interactions in the rich editor'],
 		deleteOrHide: ['old CLI/inbound/proposals/focus.md machinery']
 	}),
 	moduleTrack({
