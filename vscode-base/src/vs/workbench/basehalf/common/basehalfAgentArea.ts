@@ -85,6 +85,8 @@ export interface IBaseHalfCreateAgentTerminalOptions {
 export interface IBaseHalfAdoptAgentTerminalOptions {
 	readonly label?: string;
 	readonly source?: string;
+	readonly reveal?: boolean;
+	readonly preserveFocus?: boolean;
 }
 
 export type BaseHalfExtensionAgentSessionKind = Extract<BaseHalfAgentSessionKind, 'extension-codex' | 'extension-claude'>;
@@ -115,6 +117,7 @@ export interface IBaseHalfAgentAreaService {
 	toggle(preserveFocus?: boolean): Promise<void>;
 	createTerminalSession(options?: IBaseHalfCreateAgentTerminalOptions): Promise<IBaseHalfAgentAreaSession>;
 	adoptTerminalSession(terminal: unknown, options?: IBaseHalfAdoptAgentTerminalOptions): Promise<IBaseHalfAgentAreaSession>;
+	hideTerminalSession(terminal: unknown): void;
 	createSession(kind: BaseHalfAgentSessionKind): Promise<IBaseHalfAgentAreaSession>;
 	registerExtensionAgentProvider(kind: BaseHalfExtensionAgentSessionKind, provider: IBaseHalfExtensionAgentProvider): IDisposable;
 	focusSession(id: string): Promise<void>;

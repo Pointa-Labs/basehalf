@@ -30,6 +30,8 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.git', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github', publisherDisplayName: 'vscode' }), true);
 		assert.strictEqual(testObject.isAllowed({ id: 'vscode.github-authentication', publisherDisplayName: 'vscode' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'openai.chatgpt', publisherDisplayName: 'OpenAI' }), true);
+		assert.strictEqual(testObject.isAllowed({ id: 'anthropic.claude-code', publisherDisplayName: 'Anthropic' }), true);
 		assert.notStrictEqual(testObject.isAllowed({ id: 'github.copilot', publisherDisplayName: 'GitHub' }), true);
 		assert.notStrictEqual(testObject.isAllowed({ id: 'ms-python.python', publisherDisplayName: 'Microsoft' }), true);
 	});
@@ -47,6 +49,8 @@ suite('BaseHalfAllowedExtensionsService', () => {
 		const testObject = createService();
 
 		assert.strictEqual(testObject.isAllowed(aLocalExtension('vscode.git', ExtensionType.System)), true);
+		assert.strictEqual(testObject.isAllowed(aLocalExtension('openai.chatgpt', ExtensionType.User)), true);
+		assert.strictEqual(testObject.isAllowed(aLocalExtension('anthropic.claude-code', ExtensionType.User)), true);
 		assert.notStrictEqual(testObject.isAllowed(aLocalExtension('github.copilot', ExtensionType.User)), true);
 	});
 

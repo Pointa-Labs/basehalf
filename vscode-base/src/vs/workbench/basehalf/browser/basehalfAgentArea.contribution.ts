@@ -210,18 +210,46 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			throw new Error('BaseHalf Agent Area can only adopt a VS Code terminal instance.');
 		}
 
+		const existing = this.runtimeSessions.find(session => session.terminal === terminal);
+		if (existing) {
+			if (options.label && options.label !== existing.label) {
+				existing.label = options.label;
+				this.fireSessionsChanged();
+			}
+			if (options.reveal !== false) {
+				this._activeSessionId = existing.id;
+				this.fireSessionsChanged();
+				await this.show(options.preserveFocus);
+			}
+			return this.snapshotSession(existing);
+		}
+
 		const choice = baseHalfAgentSessionChoiceForKind('terminal');
 		const label = options.label ?? terminal.title ?? choice.label;
-		const session = this.createRuntimeSession(choice.kind, label, choice.description);
-		await this.show(true);
+		const shouldReveal = options.reveal !== false;
+		const session = this.createRuntimeSession(choice.kind, label, choice.description, shouldReveal);
+		if (shouldReveal) {
+			await this.show(options.preserveFocus);
+		}
 
 		try {
-			await this.attachTerminalToSession(session, terminal);
+			await this.attachTerminalToSession(session, terminal, undefined, shouldReveal && options.preserveFocus !== true);
 		} catch (error) {
 			this.markSessionFailed(session, error);
 		}
 
 		return this.snapshotSession(session);
+	}
+
+	hideTerminalSession(terminal: unknown): void {
+		if (!this.isTerminalInstance(terminal)) {
+			return;
+		}
+
+		const session = this.runtimeSessions.find(session => session.terminal === terminal);
+		if (session?.id === this._activeSessionId) {
+			this.hide();
+		}
 	}
 
 	async createSession(kind: BaseHalfAgentSessionKind): Promise<IBaseHalfAgentAreaSession> {
@@ -310,7 +338,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			&& typeof (candidate as Partial<ITerminalInstance>).focusWhenReady === 'function';
 	}
 
-	private async attachTerminalToSession(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance, command?: string): Promise<void> {
+	private async attachTerminalToSession(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance, command?: string, focus = true): Promise<void> {
 		session.terminal = terminal;
 		session.disposables.add(terminal.onDisposed(() => this.removeRuntimeSession(session.id, false)));
 		session.disposables.add(terminal.onTitleChanged(instance => {
@@ -329,7 +357,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (command) {
 			await terminal.sendText(command, true);
 		}
-		await this.focusActiveSession();
+		if (focus) {
+			await this.focusActiveSession();
+		}
 	}
 
 	private applyExtensionAgentProviderResult(session: IBaseHalfRuntimeAgentSession, result: IBaseHalfExtensionAgentProviderResult): void {
@@ -345,7 +375,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 	}
 
-	private createRuntimeSession(kind: BaseHalfAgentSessionKind, label: string, description: string): IBaseHalfRuntimeAgentSession {
+	private createRuntimeSession(kind: BaseHalfAgentSessionKind, label: string, description: string, activate = true): IBaseHalfRuntimeAgentSession {
 		const session: IBaseHalfRuntimeAgentSession = {
 			id: `basehalf-agent-${BaseHalfAgentAreaService.nextSessionId++}`,
 			kind,
@@ -359,7 +389,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.host.setAttribute('aria-label', label);
 		session.disposables.add(toDisposable(() => session.host.remove()));
 		this.runtimeSessions.push(session);
-		this._activeSessionId = session.id;
+		if (activate) {
+			this._activeSessionId = session.id;
+		}
 		this.fireSessionsChanged();
 		this.updateActiveSessionVisibility();
 		return session;

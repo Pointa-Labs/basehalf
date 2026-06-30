@@ -25,6 +25,7 @@ import {
 	getIncompleteBaseHalfModuleTracks,
 	isBaseHalfAgentExtensionSlot,
 	isBaseHalfAllowedBuiltInExtension,
+	isBaseHalfAllowedExternalExtension,
 	isBaseHalfPrimaryViewContainer,
 	shouldBaseHalfCloseStartupEditor,
 	shouldBaseHalfHideViewContainer
@@ -173,13 +174,18 @@ suite('BaseHalfWorkbenchProfile', () => {
 		}
 	});
 
-	test('allows only the curated built-in extension families without wildcard marketplace exposure', () => {
+	test('allows only the curated extension families without wildcard marketplace exposure', () => {
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.git'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('VSCODE.GITHUB-AUTHENTICATION'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('vscode.github'), true);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('github.copilot'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('ms-python.python'), false);
 		assert.strictEqual(isBaseHalfAllowedBuiltInExtension('basehalf.basehalf'), false);
+
+		assert.strictEqual(isBaseHalfAllowedExternalExtension('openai.chatgpt'), true);
+		assert.strictEqual(isBaseHalfAllowedExternalExtension('ANTHROPIC.CLAUDE-CODE'), true);
+		assert.strictEqual(isBaseHalfAllowedExternalExtension('github.copilot'), false);
+		assert.strictEqual(isBaseHalfAllowedExternalExtension('ms-vscode.remote-server'), false);
 
 		assert.strictEqual(isBaseHalfAgentExtensionSlot('basehalf.agentArea.extension.codex'), true);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot('basehalf.agentArea.extension.claude'), true);

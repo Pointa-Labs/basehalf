@@ -290,6 +290,7 @@ export const BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_LEF
 export interface IBaseHalfAllowedExtensionFamily {
 	readonly family: BaseHalfExtensionFamily;
 	readonly builtInExtensionIds: readonly string[];
+	readonly externalExtensionIds: readonly string[];
 	readonly externalSlotIds: readonly string[];
 	readonly source: string;
 	readonly reason: string;
@@ -299,6 +300,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'git',
 		builtInExtensionIds: ['vscode.git', 'vscode.git-base'],
+		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/git/package.json; extensions/git-base/package.json',
 		reason: 'VS Code Git is the source of truth for SCM operations and Git panel behavior.'
@@ -306,6 +308,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'github',
 		builtInExtensionIds: ['vscode.github'],
+		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/github/package.json',
 		reason: 'VS Code GitHub extension supplies GitHub remote/publish integration.'
@@ -313,6 +316,7 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'github-authentication',
 		builtInExtensionIds: ['vscode.github-authentication'],
+		externalExtensionIds: [],
 		externalSlotIds: [],
 		source: 'extensions/github-authentication/package.json',
 		reason: 'VS Code GitHub authentication supplies browser/device auth and token storage.'
@@ -320,16 +324,18 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 	{
 		family: 'codex',
 		builtInExtensionIds: [],
+		externalExtensionIds: ['openai.chatgpt'],
 		externalSlotIds: ['basehalf.agentArea.extension.codex'],
-		source: 'BaseHalf Agent Area extension-host module',
-		reason: 'Codex extension sessions are allowed only through the Agent Area extension-agent slot.'
+		source: 'VS Code Marketplace extension id openai.chatgpt; BaseHalf Agent Area extension-host slot',
+		reason: 'Codex extension sessions are allowed only through the curated Agent Area extension-agent path.'
 	},
 	{
 		family: 'claude',
 		builtInExtensionIds: [],
+		externalExtensionIds: ['anthropic.claude-code'],
 		externalSlotIds: ['basehalf.agentArea.extension.claude'],
-		source: 'BaseHalf Agent Area extension-host module',
-		reason: 'Claude Code extension sessions are allowed only through the Agent Area extension-agent slot.'
+		source: 'VS Code Marketplace extension id anthropic.claude-code; BaseHalf Agent Area extension-host slot',
+		reason: 'Claude Code extension sessions are allowed only through the curated Agent Area extension-agent path.'
 	}
 ] as const satisfies readonly IBaseHalfAllowedExtensionFamily[];
 
@@ -530,8 +536,12 @@ export function isBaseHalfAllowedBuiltInExtension(extensionId: string): boolean 
 	return ALLOWED_BUILT_IN_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
 }
 
+export function isBaseHalfAllowedExternalExtension(extensionId: string): boolean {
+	return ALLOWED_EXTERNAL_EXTENSION_IDS.has(normalizeExtensionId(extensionId));
+}
+
 export function isBaseHalfAllowedProductExtension(extensionId: string): boolean {
-	return isBaseHalfAllowedBuiltInExtension(extensionId);
+	return isBaseHalfAllowedBuiltInExtension(extensionId) || isBaseHalfAllowedExternalExtension(extensionId);
 }
 
 export function isBaseHalfAgentExtensionSlot(slotId: string): boolean {
@@ -578,6 +588,9 @@ const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(
 const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))
+);
+const ALLOWED_EXTERNAL_EXTENSION_IDS = new Set<string>(
+	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.externalExtensionIds.map(normalizeExtensionId))
 );
 const AGENT_EXTENSION_SLOT_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.externalSlotIds)

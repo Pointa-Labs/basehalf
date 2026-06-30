@@ -11,7 +11,7 @@ import { IInstantiationService } from '../../../platform/instantiation/common/in
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IProcessProperty, IProcessReadyWindowsPty, IShellLaunchConfig, IShellLaunchConfigDto, ITerminalOutputMatch, ITerminalOutputMatcher, ProcessPropertyType, TerminalExitReason, TerminalLocation, type IProcessPropertyMap } from '../../../platform/terminal/common/terminal.js';
 import { TerminalDataBufferer } from '../../../platform/terminal/common/terminalDataBuffering.js';
-import { ITerminalEditorService, ITerminalExternalLinkProvider, ITerminalGroupService, ITerminalInstance, ITerminalLink, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
+import { ITerminalExternalLinkProvider, ITerminalInstance, ITerminalLink, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
 import { TerminalProcessExtHostProxy } from '../../contrib/terminal/browser/terminalProcessExtHostProxy.js';
 import { IEnvironmentVariableService } from '../../contrib/terminal/common/environmentVariable.js';
 import { deserializeEnvironmentDescriptionMap, deserializeEnvironmentVariableCollection, serializeEnvironmentVariableCollection } from '../../../platform/terminal/common/environmentVariableShared.js';
@@ -27,6 +27,7 @@ import { TerminalCapability } from '../../../platform/terminal/common/capabiliti
 import { ITerminalCompletionService } from '../../contrib/terminalContrib/suggest/browser/terminalCompletionService.js';
 import { IWorkbenchEnvironmentService } from '../../services/environment/common/environmentService.js';
 import { hasKey } from '../../../base/common/types.js';
+import { IBaseHalfAgentAreaService } from '../../basehalf/common/basehalfAgentArea.js';
 
 interface TerminalProcessProxyEntry extends IDisposable {
 	readonly proxy: ITerminalProcessExtHostProxy;
@@ -70,11 +71,10 @@ export class MainThreadTerminalService extends Disposable implements MainThreadT
 		@ILogService private readonly _logService: ILogService,
 		@ITerminalProfileResolverService private readonly _terminalProfileResolverService: ITerminalProfileResolverService,
 		@IRemoteAgentService remoteAgentService: IRemoteAgentService,
-		@ITerminalGroupService private readonly _terminalGroupService: ITerminalGroupService,
-		@ITerminalEditorService private readonly _terminalEditorService: ITerminalEditorService,
 		@ITerminalProfileService private readonly _terminalProfileService: ITerminalProfileService,
 		@ITerminalCompletionService private readonly _terminalCompletionService: ITerminalCompletionService,
 		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
+		@IBaseHalfAgentAreaService private readonly _baseHalfAgentAreaService: IBaseHalfAgentAreaService,
 	) {
 		super();
 		this._proxy = _extHostContext.getProxy(ExtHostContext.ExtHostTerminalService);
@@ -171,6 +171,13 @@ export class MainThreadTerminalService extends Disposable implements MainThreadT
 		});
 		this._extHostTerminals.set(extHostTerminalId, terminal);
 		const terminalInstance = await terminal;
+		if (!launchConfig.hideFromUser) {
+			await this._baseHalfAgentAreaService.adoptTerminalSession(terminalInstance, {
+				label: launchConfig.name,
+				source: 'vscode.window.createTerminal',
+				reveal: false
+			});
+		}
 		this._register(terminalInstance.onDisposed(() => {
 			this._extHostTerminals.delete(extHostTerminalId);
 		}));
@@ -188,19 +195,20 @@ export class MainThreadTerminalService extends Disposable implements MainThreadT
 		const terminalInstance = await this._getTerminalInstance(id);
 		if (terminalInstance) {
 			this._terminalService.setActiveInstance(terminalInstance);
-			if (terminalInstance.target === TerminalLocation.Editor) {
-				await this._terminalEditorService.revealActiveEditor(preserveFocus);
-			} else {
-				await this._terminalGroupService.showPanel(!preserveFocus);
-			}
+			await this._baseHalfAgentAreaService.adoptTerminalSession(terminalInstance, {
+				label: terminalInstance.title,
+				source: 'vscode.window.Terminal.show',
+				reveal: true,
+				preserveFocus
+			});
 		}
 	}
 
 	public async $hide(id: ExtHostTerminalIdentifier): Promise<void> {
 		const instanceToHide = await this._getTerminalInstance(id);
 		const activeInstance = this._terminalService.activeInstance;
-		if (activeInstance && activeInstance.instanceId === instanceToHide?.instanceId && activeInstance.target !== TerminalLocation.Editor) {
-			this._terminalGroupService.hidePanel();
+		if (activeInstance && activeInstance.instanceId === instanceToHide?.instanceId) {
+			this._baseHalfAgentAreaService.hideTerminalSession(activeInstance);
 		}
 	}
 
