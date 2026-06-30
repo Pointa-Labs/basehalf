@@ -68,6 +68,9 @@ the product.
 Done means:
 
 - BaseHalf product profile is the default for this branch.
+- Product identity is BaseHalf-owned: app names, data folders, URL protocol,
+  macOS bundle id, Windows identifiers, Linux executable/icon names, and
+  GitHub auth callback scheme are not left as Code OSS defaults.
 - Activity bar/sidebar/editor/auxiliary layout matches BaseHalf direction.
 - VS Code-native Agent/Chat/Copilot/Sessions product surfaces are hidden unless
   explicitly remapped into Agent Area.
@@ -75,6 +78,12 @@ Done means:
   policy is ready.
 - Startup does not black-screen, flicker into stock VS Code, or show confusing
   empty editor branding.
+
+Current status: product identity is renamed to BaseHalf in
+`vscode-base/product.json` and the VS Code-base dev package is renamed to
+`basehalf-vscode-dev`; dev Electron prelaunch verifies the product-specific
+executable/app bundle, and the BaseHalf smoke runner fails fast if the runtime
+or development identity drifts back to Code OSS.
 
 ### 2. Files, Explorer, Canvas, And Card Detail
 
@@ -229,8 +238,9 @@ Done means:
   the old Electron shell.
 
 Current status: `npm run basehalf:smoke` and
-`npm run basehalf:smoke-no-compile` exist in `vscode-base/` and cover canvas
-startup, hidden Open Editors, Quick Open, Quick Text Search, and folder routing.
+`npm run basehalf:smoke-no-compile` exist in `vscode-base/` and cover product
+identity, canvas startup, hidden Open Editors, Source Control's VS Code Git
+provider, Quick Open, Quick Text Search, and folder routing.
 
 ## Current Execution Order
 

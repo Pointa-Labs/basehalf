@@ -13,7 +13,10 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(__dirname);
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf8'));
+
+assertProductIdentity();
 
 const opts = parseArgs(process.argv.slice(2));
 const runRoot = opts.output ?? fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-smoke-'));
@@ -114,6 +117,7 @@ try {
 		ok: true,
 		workspace: workspacePath,
 		checks: [
+			'product-identity-basehalf',
 			'canvas-visible',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
@@ -189,9 +193,30 @@ function printHelpAndExit() {
 Options:
   --output <path>     Store smoke logs/user-data/crashes in this directory.
   --keep              Keep the generated temporary directory after the run.
-  --verbose           Echo renderer console logs and pass --verbose to Code - OSS.
+  --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);
+}
+
+function assertProductIdentity() {
+	const expected = {
+		nameShort: 'BaseHalf',
+		nameLong: 'BaseHalf',
+		applicationName: 'basehalf',
+		dataFolderName: '.basehalf',
+		urlProtocol: 'basehalf',
+		darwinBundleIdentifier: 'com.pointalabs.basehalf'
+	};
+
+	for (const [key, value] of Object.entries(expected)) {
+		if (product[key] !== value) {
+			throw new Error(`BaseHalf product identity mismatch: product.${key} is ${JSON.stringify(product[key])}, expected ${JSON.stringify(value)}.`);
+		}
+	}
+
+	if (packageJson.name !== 'basehalf-vscode-dev') {
+		throw new Error(`BaseHalf dev package identity mismatch: package.name is ${JSON.stringify(packageJson.name)}, expected "basehalf-vscode-dev".`);
+	}
 }
 
 function shouldLogConsoleMessage(message) {
