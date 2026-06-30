@@ -39,6 +39,8 @@
 }
 
 .monaco-workbench .basehalf-canvas-workbench {
+	--basehalf-canvas-chrome-height: 32px;
+
 	position: absolute;
 	inset: 0;
 	z-index: 0;
@@ -64,19 +66,21 @@
 	z-index: 2;
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	min-height: 44px;
-	padding: 12px 18px 8px;
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
-	border-bottom: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 60%, transparent);
+	gap: 6px;
+	min-height: var(--basehalf-canvas-chrome-height);
+	box-sizing: border-box;
+	padding: 3px 10px 3px 12px;
+	background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
+	border-bottom: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 50%, transparent);
 }
 
 .monaco-workbench .basehalf-canvas-title {
 	display: flex;
 	align-items: center;
 	min-width: 0;
-	font-size: 13px;
+	font-size: 12px;
 	font-weight: 600;
+	line-height: 22px;
 	color: var(--vscode-foreground);
 }
 
@@ -86,14 +90,14 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 12px;
+	font-size: 11px;
 	color: var(--vscode-descriptionForeground);
 }
 
 .monaco-workbench .basehalf-breadcrumb {
-	max-width: min(220px, 32vw);
-	height: 24px;
-	padding: 0 4px;
+	max-width: min(190px, 32vw);
+	height: 22px;
+	padding: 0 3px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -120,7 +124,7 @@
 	flex: none;
 	padding: 0 2px;
 	color: var(--vscode-descriptionForeground);
-	font-size: 14px;
+	font-size: 12px;
 }
 
 .monaco-workbench .basehalf-breadcrumb-label {
@@ -135,8 +139,8 @@
 }
 
 .monaco-workbench .basehalf-canvas-zoom-button {
-	width: 24px;
-	height: 24px;
+	width: 22px;
+	height: 22px;
 	padding: 0;
 	color: var(--vscode-icon-foreground);
 	background: transparent;
@@ -157,7 +161,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-zoom-value {
-	width: 44px;
+	width: 38px;
 	text-align: center;
 	color: var(--vscode-descriptionForeground);
 	font-size: 11px;
@@ -167,7 +171,7 @@
 .monaco-workbench .basehalf-canvas-surface {
 	position: relative;
 	min-width: 100%;
-	min-height: calc(100% - 45px);
+	min-height: calc(100% - var(--basehalf-canvas-chrome-height));
 }
 
 .monaco-workbench .basehalf-canvas-cards {

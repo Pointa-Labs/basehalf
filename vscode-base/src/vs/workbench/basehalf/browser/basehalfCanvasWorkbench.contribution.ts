@@ -41,6 +41,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
 
 	private readonly root: HTMLElement;
+	private readonly chrome: HTMLElement;
 	private readonly title: HTMLElement;
 	private readonly subtitle: HTMLElement;
 	private readonly zoomOut: HTMLButtonElement;
@@ -109,10 +110,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.root = $('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
 
-		const chrome = append(this.root, $('.basehalf-canvas-chrome'));
-		this.title = append(chrome, $('.basehalf-canvas-title'));
-		this.subtitle = append(chrome, $('.basehalf-canvas-subtitle'));
-		const zoomControls = append(chrome, $('.basehalf-canvas-zoom-controls'));
+		this.chrome = append(this.root, $('.basehalf-canvas-chrome'));
+		this.title = append(this.chrome, $('.basehalf-canvas-title'));
+		this.subtitle = append(this.chrome, $('.basehalf-canvas-subtitle'));
+		const zoomControls = append(this.chrome, $('.basehalf-canvas-zoom-controls'));
 		this.zoomOut = this.createZoomButton(zoomControls, 'Zoom Out', 'codicon-remove', () => this.zoomBy(-1));
 		this.zoomValue = append(zoomControls, $('.basehalf-canvas-zoom-value'));
 		this.zoomReset = this.createZoomButton(zoomControls, 'Reset Zoom', 'codicon-debug-restart', () => this.setCanvasZoom(1));
@@ -684,7 +685,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.cards.style.width = `${size.width}px`;
 		this.cards.style.height = `${size.height}px`;
 		this.surface.style.width = `${Math.max(size.width * this.canvasZoom, this.root.clientWidth)}px`;
-		this.surface.style.height = `${Math.max(size.height * this.canvasZoom, Math.max(480, this.root.clientHeight - 45))}px`;
+		this.surface.style.height = `${Math.max(size.height * this.canvasZoom, Math.max(480, this.root.clientHeight - this.chrome.offsetHeight))}px`;
 	}
 
 	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
