@@ -216,6 +216,11 @@ that point instead of relying on this guide.
   Agent/Chat/Copilot/Sessions UI as a product area. Reuse only the services/APIs
   needed for extension compatibility, and route user-visible agent UI into
   BaseHalf's Agent Area.
+- **BaseHalf Electron smoke.** For VS Code-base UI/routing changes, use
+  `npm run basehalf:smoke` from `vscode-base/` for a compile + Electron smoke,
+  or `npm run basehalf:smoke-no-compile` after `out/` is already current. The
+  smoke covers canvas startup, hidden Open Editors, Quick Open, Quick Text
+  Search, and folder routing.
 - **Legacy core is reference material.** Existing core modules may remain for
   package history and tests. When editing one, keep behavior stable, but move
   desktop-facing orchestration toward cohesive VS Code-style services/adapters.

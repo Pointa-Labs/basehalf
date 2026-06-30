@@ -56,6 +56,8 @@
     "mixin-telemetry-docs": "node build/npm/mixin-telemetry-docs.ts",
     "smoketest": "node build/lib/preLaunch.ts && cd test/smoke && npm run compile && node test/index.js",
     "smoketest-no-compile": "cd test/smoke && node test/index.js",
+    "basehalf:smoke": "node build/lib/preLaunch.ts && npm run compile && node --experimental-strip-types scripts/basehalf-smoke.mts",
+    "basehalf:smoke-no-compile": "node --experimental-strip-types scripts/basehalf-smoke.mts",
     "download-builtin-extensions": "node build/lib/builtInExtensions.ts",
     "download-builtin-extensions-cg": "node build/lib/builtInExtensionsCG.ts",
     "monaco-compile-check": "tsgo --project src/tsconfig.monaco.json --noEmit",
