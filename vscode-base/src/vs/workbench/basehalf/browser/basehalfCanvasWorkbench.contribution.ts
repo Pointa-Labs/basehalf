@@ -58,6 +58,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
 	private folderFocusTimer: number | undefined;
 	private lastFolderFocusKey: string | undefined;
+	private restoredFolderFocusKey: string | undefined;
+	private canvasZoom = 1;
 
 	constructor(
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -211,7 +213,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.renderDetail();
-		this.scheduleFolderFocusWrite(0);
+		this.restoreOrWriteFolderFocus(folder, seq);
 	}
 
 	private getCurrentFolder(): IBaseHalfCanvasFolderState | undefined {
@@ -265,14 +267,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const markerId = `basehalf-canvas-edge-arrow-${this.renderSeq}`;
-		const svg = append(this.cards, $.SVG('svg.basehalf-canvas-edges')) as SVGSVGElement;
+		const svg = append(this.cards, $.SVG('svg')) as SVGSVGElement;
+		svg.classList.add('basehalf-canvas-edges');
 		svg.setAttribute('width', `${size.width}`);
 		svg.setAttribute('height', `${size.height}`);
 		svg.setAttribute('viewBox', `0 0 ${size.width} ${size.height}`);
 		svg.setAttribute('aria-hidden', 'true');
 
 		const defs = $.SVG('defs');
-		const marker = $.SVG('marker.basehalf-canvas-edge-arrow');
+		const marker = $.SVG('marker');
+		marker.classList.add('basehalf-canvas-edge-arrow');
 		marker.setAttribute('id', markerId);
 		marker.setAttribute('viewBox', '0 0 10 10');
 		marker.setAttribute('refX', '9');
@@ -287,7 +291,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		svg.appendChild(defs);
 
 		for (const edge of layoutResult.edges) {
-			const path = $.SVG('path.basehalf-canvas-edge-path');
+			const path = $.SVG('path');
+			path.classList.add('basehalf-canvas-edge-path');
 			path.setAttribute('d', edge.path);
 			path.setAttribute('marker-end', `url(#${markerId})`);
 			const title = $.SVG('title');
@@ -296,7 +301,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			svg.appendChild(path);
 
 			if (edge.label) {
-				const text = $.SVG('text.basehalf-canvas-edge-label');
+				const text = $.SVG('text');
+				text.classList.add('basehalf-canvas-edge-label');
 				text.setAttribute('x', `${edge.label.x}`);
 				text.setAttribute('y', `${edge.label.y - 8}`);
 				text.setAttribute('text-anchor', 'middle');
@@ -444,6 +450,48 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}, delay);
 	}
 
+	private restoreOrWriteFolderFocus(folder: IBaseHalfCanvasFolderState, seq: number): void {
+		if (this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}`;
+		if (this.restoredFolderFocusKey === key) {
+			this.scheduleFolderFocusWrite(0);
+			return;
+		}
+
+		this.restoredFolderFocusKey = key;
+		void this.focusMirrorService.readFolderFocus(folder).then(fields => {
+			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
+				return;
+			}
+
+			if (!fields) {
+				this.canvasZoom = 1;
+				this.scheduleFolderFocusWrite(0);
+				return;
+			}
+
+			this.canvasZoom = fields.zoom;
+			mainWindow.requestAnimationFrame(() => {
+				if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
+					return;
+				}
+
+				this.root.scrollLeft = Math.max(0, fields.viewport_center.x - this.root.clientWidth / 2);
+				this.root.scrollTop = Math.max(0, fields.viewport_center.y - this.root.clientHeight / 2);
+				this.scheduleFolderFocusWrite(0);
+			});
+		}).catch(error => {
+			this.logService.warn(error);
+			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
+				this.canvasZoom = 1;
+				this.scheduleFolderFocusWrite(0);
+			}
+		});
+	}
+
 	private flushFolderFocusWrite(): void {
 		if (this.canvasNavigationService.state.cardDetail) {
 			return;
@@ -459,7 +507,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				x: this.root.scrollLeft + this.root.clientWidth / 2,
 				y: this.root.scrollTop + this.root.clientHeight / 2
 			},
-			zoom: 1
+			zoom: this.canvasZoom
 		};
 		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}::${JSON.stringify(fields)}`;
 		if (key === this.lastFolderFocusKey) {

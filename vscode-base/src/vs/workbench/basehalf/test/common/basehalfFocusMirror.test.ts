@@ -7,11 +7,11 @@ import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { extUri } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
-import { IFileService, IFileStat } from '../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { IBaseHalfMirrorLinkService } from '../../../../platform/basehalf/common/basehalfMirrorLink.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
-import { BaseHalfFocusMirrorService, serializeFileFocus, serializeFolderFocus } from '../../common/basehalfFocusMirrorService.js';
+import { BaseHalfFocusMirrorCorrupt, BaseHalfFocusMirrorService, serializeFileFocus, serializeFolderFocus } from '../../common/basehalfFocusMirrorService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 
 suite('BaseHalfFocusMirrorService', () => {
@@ -96,6 +96,58 @@ suite('BaseHalfFocusMirrorService', () => {
 		].join('\n'));
 	});
 
+	test('returns null when folder focus.yaml is absent', async () => {
+		const { service } = createService();
+
+		assert.strictEqual(await service.readFolderFocus(folder('docs')), null);
+	});
+
+	test('reads and normalizes folder focus viewport and zoom', async () => {
+		const { service, fileService } = createService();
+		fileService.files.set('/work/.bh/mirror/docs/focus.yaml', [
+			'path: docs',
+			'kind: folder',
+			'viewport_center:',
+			'  x: 800.5',
+			'  y: 420.25',
+			'zoom: 1.2',
+			''
+		].join('\n'));
+
+		assert.deepStrictEqual(await service.readFolderFocus(folder('docs')), {
+			viewport_center: { x: 800.5, y: 420.25 },
+			zoom: 1.2
+		});
+	});
+
+	test('throws a typed corrupt error for invalid folder focus YAML', async () => {
+		const { service, fileService } = createService();
+		fileService.files.set('/work/.bh/mirror/docs/focus.yaml', 'path: [unterminated');
+
+		await assert.rejects(
+			() => service.readFolderFocus(folder('docs')),
+			error => error instanceof BaseHalfFocusMirrorCorrupt
+		);
+	});
+
+	test('throws a typed corrupt error when stored folder focus targets another path', async () => {
+		const { service, fileService } = createService();
+		fileService.files.set('/work/.bh/mirror/docs/focus.yaml', [
+			'path: other',
+			'kind: folder',
+			'viewport_center:',
+			'  x: 1',
+			'  y: 2',
+			'zoom: 1',
+			''
+		].join('\n'));
+
+		await assert.rejects(
+			() => service.readFolderFocus(folder('docs')),
+			error => error instanceof BaseHalfFocusMirrorCorrupt && error.reason === 'path must be "docs"'
+		);
+	});
+
 	test('writes file focus.yaml and points current_focus.yaml at it', async () => {
 		const { service, fileService, mirrorLinkService } = createService();
 
@@ -172,7 +224,7 @@ suite('BaseHalfFocusMirrorService', () => {
 		const fileService = new TestFileService();
 		const mirrorLinkService = new TestMirrorLinkService();
 		const service = new BaseHalfFocusMirrorService(
-			fileService as Partial<IFileService> as IFileService,
+			fileService as unknown as IFileService,
 			{ extUri } as Partial<IUriIdentityService> as IUriIdentityService,
 			mirrorLinkService,
 			{ error: () => undefined } as Partial<ILogService> as ILogService
@@ -183,8 +235,18 @@ suite('BaseHalfFocusMirrorService', () => {
 });
 
 class TestFileService {
+	readonly files = new Map<string, string>();
 	readonly createdFolders: URI[] = [];
 	readonly writes: { resource: URI; content: string }[] = [];
+
+	async readFile(resource: URI): Promise<{ value: VSBuffer }> {
+		const content = this.files.get(resource.fsPath);
+		if (content === undefined) {
+			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+		}
+
+		return { value: VSBuffer.fromString(content) };
+	}
 
 	async createFolder(resource: URI): Promise<IFileStat> {
 		this.createdFolders.push(resource);
