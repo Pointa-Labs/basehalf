@@ -18,7 +18,6 @@ type BaseHalfNavigationFallbackReason = Extract<BaseHalfNavigationResult, { read
 
 export type BaseHalfOpenRoutingFallbackReason =
 	| BaseHalfNavigationFallbackReason
-	| 'sideBySide'
 	| 'forcedVSCodeEditor';
 
 export type BaseHalfOpenRoutingResult =
@@ -37,14 +36,11 @@ export interface IBaseHalfOpenRoutingOptions {
 
 export type BaseHalfOpenRoutingDecision =
 	| { readonly route: 'basehalf'; readonly options: IBaseHalfOpenResourceOptions }
-	| { readonly route: 'vscode'; readonly reason: 'sideBySide' | 'forcedVSCodeEditor' };
+	| { readonly route: 'vscode'; readonly reason: 'forcedVSCodeEditor' };
 
 export function getBaseHalfOpenRoutingDecision(options: IBaseHalfOpenRoutingOptions): BaseHalfOpenRoutingDecision {
 	if (options.forceVSCodeEditor) {
 		return { route: 'vscode', reason: 'forcedVSCodeEditor' };
-	}
-	if (options.sideBySide) {
-		return { route: 'vscode', reason: 'sideBySide' };
 	}
 
 	return {

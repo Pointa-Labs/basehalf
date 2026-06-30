@@ -1119,13 +1119,11 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 
 		const targetGroup = options.keyMods?.alt || (this.configuration.openEditorPinned && options.keyMods?.ctrlCmd) || options.forceOpenSideBySide ? SIDE_GROUP : ACTIVE_GROUP;
 
-		// Restore any view state if the target is the side group
-		if (targetGroup === SIDE_GROUP) {
-			await this.pickState.editorViewState.restore();
-		}
-
 		// Open editor (typed)
 		if (isEditorInput(resourceOrEditor)) {
+			if (targetGroup === SIDE_GROUP) {
+				await this.pickState.editorViewState.restore();
+			}
 			await this.editorService.openEditor(resourceOrEditor, editorOptions, targetGroup);
 		}
 
@@ -1162,6 +1160,9 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 				return;
 			}
 
+			if (targetGroup === SIDE_GROUP) {
+				await this.pickState.editorViewState.restore();
+			}
 			await this.editorService.openEditor(resourceEditorInput, targetGroup);
 		}
 	}

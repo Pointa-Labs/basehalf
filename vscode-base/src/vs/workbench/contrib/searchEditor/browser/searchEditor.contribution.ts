@@ -12,7 +12,7 @@ import { ToggleCaseSensitiveKeybinding, ToggleRegexKeybinding, ToggleWholeWordKe
 import { localize, localize2 } from '../../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../../platform/actions/common/actions.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
-import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 import { SyncDescriptor } from '../../../../platform/instantiation/common/descriptors.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -22,15 +22,14 @@ import { IWorkbenchContribution, WorkbenchPhase, registerWorkbenchContribution2 
 import { IEditorSerializer, IEditorFactoryRegistry, EditorExtensions, DEFAULT_EDITOR_ASSOCIATION } from '../../../common/editor.js';
 import { ActiveEditorContext } from '../../../common/contextkeys.js';
 import { IViewsService } from '../../../services/views/common/viewsService.js';
-import { getSearchView } from '../../search/browser/searchActionsBase.js';
-import { searchNewEditorIcon, searchRefreshIcon } from '../../search/browser/searchIcons.js';
+import { openSearchView } from '../../search/browser/searchActionsBase.js';
+import { searchRefreshIcon } from '../../search/browser/searchIcons.js';
 import * as SearchConstants from '../../search/common/constants.js';
 import * as SearchEditorConstants from './constants.js';
 import { SearchEditor } from './searchEditor.js';
-import { createEditorFromSearchResult, modifySearchEditorContextLinesCommand, openNewSearchEditor, openSearchEditor, selectAllSearchEditorMatchesCommand, toggleSearchEditorCaseSensitiveCommand, toggleSearchEditorContextLinesCommand, toggleSearchEditorRegexCommand, toggleSearchEditorWholeWordCommand } from './searchEditorActions.js';
+import { modifySearchEditorContextLinesCommand, selectAllSearchEditorMatchesCommand, toggleSearchEditorCaseSensitiveCommand, toggleSearchEditorContextLinesCommand, toggleSearchEditorRegexCommand, toggleSearchEditorWholeWordCommand } from './searchEditorActions.js';
 import { getOrMakeSearchEditorInput, SearchEditorInput, SEARCH_EDITOR_EXT } from './searchEditorInput.js';
 import { IEditorService } from '../../../services/editor/common/editorService.js';
-import { VIEW_ID } from '../../../services/search/common/search.js';
 import { searchConfigurationNode } from '../../search/common/search.js';
 import { RegisteredEditorPriority, IEditorResolverService } from '../../../services/editor/common/editorResolverService.js';
 import { IWorkingCopyEditorHandler, IWorkingCopyEditorService } from '../../../services/workingCopy/common/workingCopyEditorService.js';
@@ -237,23 +236,6 @@ export type LegacySearchEditorArgs = Partial<{
 	location: 'reuse' | 'new';
 }>;
 
-const translateLegacyConfig = (legacyConfig: LegacySearchEditorArgs & OpenSearchEditorArgs = {}): OpenSearchEditorArgs => {
-	const config: OpenSearchEditorArgs = {};
-	const overrides: { [K in keyof LegacySearchEditorArgs]: keyof OpenSearchEditorArgs } = {
-		includes: 'filesToInclude',
-		excludes: 'filesToExclude',
-		wholeWord: 'matchWholeWord',
-		caseSensitive: 'isCaseSensitive',
-		regexp: 'isRegexp',
-		useIgnores: 'useExcludeSettingsAndIgnoreFiles',
-	};
-	Object.entries(legacyConfig).forEach(([key, value]) => {
-		// eslint-disable-next-line local/code-no-any-casts
-		(config as any)[(overrides as any)[key] ?? key] = value;
-	});
-	return config;
-};
-
 export type OpenSearchEditorArgs = Partial<SearchEditorConstants.SearchConfiguration & { triggerSearch: boolean; focusResults: boolean; location: 'reuse' | 'new' }>;
 const openArgMetadata = {
 	description: 'Open a new search editor. Arguments passed can include variables like ${relativeFileDirname}.',
@@ -307,12 +289,12 @@ registerAction2(class extends Action2 {
 			id: SearchEditorConstants.OpenNewEditorCommandId,
 			title: localize2('search.openNewSearchEditor', 'New Search Editor'),
 			category,
-			f1: true,
+			f1: false,
 			metadata: openArgMetadata
 		});
 	}
-	async run(accessor: ServicesAccessor, args: LegacySearchEditorArgs | OpenSearchEditorArgs) {
-		await accessor.get(IInstantiationService).invokeFunction(openNewSearchEditor, translateLegacyConfig({ location: 'new', ...args }));
+	async run(accessor: ServicesAccessor) {
+		await openSearchView(accessor.get(IViewsService), true);
 	}
 });
 
@@ -322,12 +304,12 @@ registerAction2(class extends Action2 {
 			id: SearchEditorConstants.OpenEditorCommandId,
 			title: localize2('search.openSearchEditor', 'Open Search Editor'),
 			category,
-			f1: true,
+			f1: false,
 			metadata: openArgMetadata
 		});
 	}
-	async run(accessor: ServicesAccessor, args: LegacySearchEditorArgs | OpenSearchEditorArgs) {
-		await accessor.get(IInstantiationService).invokeFunction(openNewSearchEditor, translateLegacyConfig({ location: 'reuse', ...args }));
+	async run(accessor: ServicesAccessor) {
+		await openSearchView(accessor.get(IViewsService), true);
 	}
 });
 
@@ -337,12 +319,12 @@ registerAction2(class extends Action2 {
 			id: OpenNewEditorToSideCommandId,
 			title: localize2('search.openNewEditorToSide', 'Open New Search Editor to the Side'),
 			category,
-			f1: true,
+			f1: false,
 			metadata: openArgMetadata
 		});
 	}
-	async run(accessor: ServicesAccessor, args: LegacySearchEditorArgs | OpenSearchEditorArgs) {
-		await accessor.get(IInstantiationService).invokeFunction(openNewSearchEditor, translateLegacyConfig(args), true);
+	async run(accessor: ServicesAccessor) {
+		await openSearchView(accessor.get(IViewsService), true);
 	}
 });
 
@@ -352,24 +334,11 @@ registerAction2(class extends Action2 {
 			id: OpenInEditorCommandId,
 			title: localize2('search.openResultsInEditor', 'Open Results in Editor'),
 			category,
-			f1: true,
-			keybinding: {
-				primary: KeyMod.Alt | KeyCode.Enter,
-				when: ContextKeyExpr.and(SearchConstants.SearchContext.HasSearchResults, SearchConstants.SearchContext.SearchViewFocusedKey),
-				weight: KeybindingWeight.WorkbenchContrib,
-				mac: {
-					primary: KeyMod.CtrlCmd | KeyCode.Enter
-				}
-			},
+			f1: false,
 		});
 	}
 	async run(accessor: ServicesAccessor) {
-		const viewsService = accessor.get(IViewsService);
-		const instantiationService = accessor.get(IInstantiationService);
-		const searchView = getSearchView(viewsService);
-		if (searchView) {
-			await instantiationService.invokeFunction(createEditorFromSearchResult, searchView.searchResult, searchView.searchIncludePattern.getValue(), searchView.searchExcludePattern.getValue(), searchView.searchIncludePattern.onlySearchInOpenEditors());
-		}
+		await openSearchView(accessor.get(IViewsService), true);
 	}
 });
 
@@ -601,18 +570,11 @@ registerAction2(class OpenSearchEditorAction extends Action2 {
 		super({
 			id: 'search.action.openNewEditorFromView',
 			title: localize('search.openNewEditor', "Open New Search Editor"),
-			category,
-			icon: searchNewEditorIcon,
-			menu: [{
-				id: MenuId.ViewTitle,
-				group: 'navigation',
-				order: 2,
-				when: ContextKeyExpr.equals('view', VIEW_ID),
-			}]
+			category
 		});
 	}
-	run(accessor: ServicesAccessor, ...args: unknown[]) {
-		return openSearchEditor(accessor);
+	run(accessor: ServicesAccessor) {
+		return openSearchView(accessor.get(IViewsService), true);
 	}
 });
 //#endregion

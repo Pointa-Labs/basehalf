@@ -93,10 +93,24 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		const editorService = accessor.get(IEditorService);
 		const fileService = accessor.get(IFileService);
 		const explorerService = accessor.get(IExplorerService);
+		const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 		const resources = getMultiSelectedResources(resource, accessor.get(IListService), editorService, accessor.get(IEditorGroupsService), explorerService);
 
 		// Set side input
 		if (resources.length) {
+			const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0], {
+				source: 'explorerCommand',
+				preserveFocus: false,
+				pinned: true,
+				sideBySide: true
+			});
+			if (result.handled) {
+				return;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				return;
+			}
+
 			const untitledResources = resources.filter(resource => resource.scheme === Schemas.untitled);
 			const fileResources = resources.filter(resource => resource.scheme !== Schemas.untitled);
 
@@ -369,6 +383,19 @@ CommandsRegistry.registerCommand({
 		const listService = accessor.get(IListService);
 		const uri = getResourceForCommand(resource, editorService, listService);
 		if (uri) {
+			const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
+			const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, uri, {
+				source: 'fileCommand',
+				preserveFocus: false,
+				pinned: true
+			});
+			if (result.handled) {
+				return undefined;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				return undefined;
+			}
+
 			return editorService.openEditor({ resource: uri, options: { override: EditorResolution.PICK, source: EditorOpenSource.USER } });
 		}
 
@@ -702,16 +729,7 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		]
 	},
 	handler: async (accessor, args?: { languageId?: string; viewType?: string }) => {
-		const editorService = accessor.get(IEditorService);
-
-		await editorService.openEditor({
-			resource: undefined,
-			options: {
-				override: args?.viewType,
-				pinned: true
-			},
-			languageId: args?.languageId,
-		});
+		await accessor.get(ICommandService).executeCommand(NEW_FILE_COMMAND_ID, args);
 	}
 });
 
@@ -736,8 +754,7 @@ CommandsRegistry.registerCommand({
 		const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
 		const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, saveUri, {
 			source: 'fileCommand',
-			pinned: true,
-			forceVSCodeEditor: !!(args?.viewType || args?.languageId)
+			pinned: true
 		});
 		if (shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 			await editorService.openEditor({

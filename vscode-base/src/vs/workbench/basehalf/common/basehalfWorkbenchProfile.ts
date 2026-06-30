@@ -125,6 +125,20 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		reason: 'Explorer keyboard activation should enter BaseHalf folder canvas or card detail instead of default tab-first editor focus.'
 	},
 	{
+		id: 'explorer.openToSide',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
+		reason: 'VS Code split-editor activation is normalized into BaseHalf card detail because canvas/card detail owns file opening.'
+	},
+	{
+		id: 'explorer.openWith',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
+		reason: 'Open With is an editor-resolver affordance; workspace resources should first enter BaseHalf card detail.'
+	},
+	{
 		id: 'explorer.newFile',
 		kind: 'command',
 		area: 'canvas',
@@ -160,11 +174,32 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		reason: 'Explorer preserve-focus activation should still use BaseHalf card detail for single workspace files.'
 	},
 	{
+		id: 'workbench.action.files.newUntitledFile',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
+		reason: 'BaseHalf is folder-first, so untitled-file creation is remapped to the save-backed New File flow.'
+	},
+	{
 		id: 'search.action.openResult',
 		kind: 'command',
 		area: 'canvas',
 		source: 'src/vs/workbench/contrib/search/browser/searchActionsNav.ts',
 		reason: 'Search result activation should open the matching file as BaseHalf card detail while preserving the result selection.'
+	},
+	{
+		id: 'search.action.openResultToSide',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/search/browser/searchActionsNav.ts',
+		reason: 'Search split-open activation is normalized into BaseHalf card detail with the same match selection.'
+	},
+	{
+		id: 'addCursorsAtSearchResults',
+		kind: 'command',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/search/browser/searchActionsNav.ts',
+		reason: 'Search multi-cursor activation should not create VS Code editor tabs; BaseHalf opens the source projection instead.'
 	},
 	{
 		id: 'workbench.action.quickOpen',
@@ -196,6 +231,41 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		area: 'canvas',
 		source: 'src/vs/workbench/contrib/files/browser/views/openEditorsView.ts',
 		reason: 'Open Editors exposes VS Code editor-tab state; BaseHalf keeps canvas/card detail as the primary file-open surface.'
+	},
+	{
+		id: 'search.action.openNewEditor',
+		kind: 'command',
+		area: 'search',
+		source: 'src/vs/workbench/contrib/searchEditor/browser/searchEditor.contribution.ts',
+		reason: 'Search Editor is a VS Code editor-tab surface; BaseHalf keeps search results in the Search side view.'
+	},
+	{
+		id: 'search.action.openEditor',
+		kind: 'command',
+		area: 'search',
+		source: 'src/vs/workbench/contrib/searchEditor/browser/searchEditor.contribution.ts',
+		reason: 'Search Editor reuse would cover the canvas with an editor tab.'
+	},
+	{
+		id: 'search.action.openNewEditorToSide',
+		kind: 'command',
+		area: 'search',
+		source: 'src/vs/workbench/contrib/searchEditor/browser/searchEditor.contribution.ts',
+		reason: 'Search Editor split-open is not a BaseHalf product surface.'
+	},
+	{
+		id: 'search.action.openInEditor',
+		kind: 'command',
+		area: 'search',
+		source: 'src/vs/workbench/contrib/searchEditor/browser/searchEditor.contribution.ts',
+		reason: 'Copying search results into an editor tab conflicts with the canvas-first search model.'
+	},
+	{
+		id: 'search.action.openNewEditorFromView',
+		kind: 'command',
+		area: 'search',
+		source: 'src/vs/workbench/contrib/searchEditor/browser/searchEditor.contribution.ts',
+		reason: 'The Search view title action for Search Editor is hidden; the Search side view remains the result surface.'
 	},
 	{
 		id: 'workbench.panel.chat',
@@ -255,6 +325,7 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'chat.agentHost.codexAgent.enabled': false,
 	'chat.agents.claude.preferAgentHost': false,
 	'chat.editor.claude.preferAgentHost': false,
+	'search.useReplacePreview': false,
 	'security.workspace.trust.startupPrompt': 'never',
 	'security.workspace.trust.banner': 'never'
 } as const;

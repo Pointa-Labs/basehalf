@@ -55,15 +55,27 @@ suite('BaseHalfOpenRouting', () => {
 		});
 	});
 
-	test('leaves side-by-side opens to the VS Code editor path', async () => {
-		const service = new TestCanvasNavigationService({ handled: false, reason: 'outsideWorkspace' });
+	test('normalizes side-by-side opens into BaseHalf navigation', async () => {
+		const service = new TestCanvasNavigationService({
+			handled: true,
+			target: 'cardDetail',
+			state: {
+				resource: URI.file('/workspace/readme.md'),
+				workspaceFolder: URI.file('/workspace'),
+				relativePath: 'readme.md',
+				source: 'explorer',
+				projection: 'rich'
+			}
+		});
 		const result = await tryOpenBaseHalfResource(service, URI.file('/workspace/readme.md'), {
 			source: 'explorer',
 			sideBySide: true
 		});
 
-		assert.deepStrictEqual(result, { handled: false, reason: 'sideBySide' });
-		assert.strictEqual(service.opened.length, 0);
+		assert.strictEqual(result.handled, true);
+		assert.strictEqual(service.opened.length, 1);
+		assert.strictEqual(service.opened[0].options.source, 'explorer');
+		assert.strictEqual('sideBySide' in service.opened[0].options, false);
 	});
 
 	test('leaves explicit VS Code editor opens to the VS Code editor path', () => {
@@ -99,7 +111,6 @@ suite('BaseHalfOpenRouting', () => {
 				projection: 'source'
 			}
 		}), false);
-		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'sideBySide' }), true);
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'forcedVSCodeEditor' }), true);
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'missingOrUnreadable' }), true);
 		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'blockedByDirtyEditor' }), false);

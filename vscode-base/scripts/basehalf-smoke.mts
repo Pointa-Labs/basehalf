@@ -89,6 +89,10 @@ try {
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
 
+	await quickOpen(page, 'src/app.ts', 'Alt+Enter');
+	await assertCardDetail(page, 'app.ts');
+	await assertNoEditorTabFor(page, 'app.ts');
+
 	await quickOpen(page, '%needle-basehalf-routing');
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
@@ -97,6 +101,9 @@ try {
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
 	await assertFocusLine('README.md', 5);
+	await quickOpen(page, '%needleSymbol', 'Alt+Enter');
+	await assertCardDetail(page, 'app.ts');
+	await assertNoEditorTabFor(page, 'app.ts');
 
 	await quickOpen(page, 'docs');
 	await page.locator('.basehalf-canvas-title', { hasText: 'docs' }).waitFor({ state: 'visible', timeout: 20_000 });
@@ -110,9 +117,11 @@ try {
 			'competing-view-containers-hidden',
 			'agent-area-mounted-connected-choices',
 			'quick-open-card-detail',
+			'quick-open-side-card-detail-no-tab',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
 			'quick-text-search-repeated-selection-focus',
+			'quick-text-search-side-card-detail-no-tab',
 			'folder-quick-open-canvas'
 		]
 	};
@@ -216,13 +225,13 @@ function getDevElectronPath() {
 	}
 }
 
-async function quickOpen(page, value) {
+async function quickOpen(page, value, acceptKey = 'Enter') {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
 	const quickInput = page.locator('.quick-input-widget input');
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
 	await page.waitForTimeout(1_500);
-	await page.keyboard.press('Enter');
+	await page.keyboard.press(acceptKey);
 }
 
 async function assertOpenEditorsHidden(page) {

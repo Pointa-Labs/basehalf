@@ -63,10 +63,8 @@ import { renderSearchMessage } from './searchMessage.js';
 import { FileMatchRenderer, FolderMatchRenderer, MatchRenderer, SearchAccessibilityProvider, SearchDelegate, TextSearchResultRenderer } from './searchResultsView.js';
 import { SearchWidget } from './searchWidget.js';
 import * as Constants from '../common/constants.js';
-import { IReplaceService } from './replace.js';
 import { getOutOfWorkspaceEditorResources, SearchStateKey, SearchUIState } from '../common/search.js';
 import { ISearchHistoryService, ISearchHistoryValues, SearchHistoryService } from '../common/searchHistoryService.js';
-import { createEditorFromSearchResult } from '../../searchEditor/browser/searchEditorActions.js';
 import { ACTIVE_GROUP, IEditorService, SIDE_GROUP } from '../../../services/editor/common/editorService.js';
 import { IPreferencesService, ISettingsEditorOptions } from '../../../services/preferences/common/preferences.js';
 import { ITextQueryBuilderOptions, QueryBuilder } from '../../../services/search/common/queryBuilder.js';
@@ -225,7 +223,6 @@ export class SearchView extends ViewPane {
 		@IWorkspaceContextService private readonly contextService: IWorkspaceContextService,
 		@ISearchViewModelWorkbenchService private readonly searchViewModelWorkbenchService: ISearchViewModelWorkbenchService,
 		@IContextKeyService contextKeyService: IContextKeyService,
-		@IReplaceService private readonly replaceService: IReplaceService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IPreferencesService private readonly preferencesService: IPreferencesService,
 		@IThemeService themeService: IThemeService,
@@ -2085,17 +2082,6 @@ export class SearchView extends ViewPane {
 				dom.append(messageEl, $('span', undefined, searchingInOpenMessage, '(', disableOpenEditorsButton.element, ')'));
 			}
 
-			dom.append(messageEl, ' - ');
-
-			const openInEditorTooltip = this.keybindingService.appendKeybinding(
-				nls.localize('openInEditor.tooltip', "Copy current search results to an editor"),
-				Constants.SearchCommandIds.OpenInEditorCommandId);
-			const openInEditorButton = this.messageDisposables.add(new SearchLinkButton(
-				nls.localize('openInEditor.message', "Open in editor"),
-				() => this.instantiationService.invokeFunction(createEditorFromSearchResult, this.searchResult, this.searchIncludePattern.getValue(), this.searchExcludePattern.getValue(), this.searchIncludePattern.onlySearchInOpenEditors()), this.hoverService,
-				openInEditorTooltip));
-			dom.append(messageEl, openInEditorButton.element);
-
 			if (this.shouldShowAIResults()) {
 				dom.append(messageEl, ' - ');
 				this.appendSearchWithAIButton(messageEl);
@@ -2231,12 +2217,8 @@ export class SearchView extends ViewPane {
 	}
 
 	private onFocus(lineMatch: ISearchTreeMatch, preserveFocus?: boolean, sideBySide?: boolean, pinned?: boolean): Promise<any> {
-		const useReplacePreview = this.configurationService.getValue<ISearchConfiguration>().search?.useReplacePreview;
-
 		const resource = isSearchTreeMatch(lineMatch) ? lineMatch.parent().resource : (<ISearchTreeFileMatch>lineMatch).resource;
-		return (useReplacePreview && this.viewModel.isReplaceActive() && !!this.viewModel.replaceString && !(this.shouldOpenInNotebookEditor(lineMatch, resource))) ?
-			this.replaceService.openReplacePreview(lineMatch, preserveFocus, sideBySide, pinned) :
-			this.open(lineMatch, preserveFocus, sideBySide, pinned, resource);
+		return this.open(lineMatch, preserveFocus, sideBySide, pinned, resource);
 	}
 
 	async open(element: FileMatchOrMatch, preserveFocus?: boolean, sideBySide?: boolean, pinned?: boolean, resourceInput?: URI): Promise<void> {
@@ -2253,9 +2235,9 @@ export class SearchView extends ViewPane {
 		};
 
 		try {
-			const shouldOpenInVSCodeEditor = sideBySide || (isSearchTreeMatch(element)
+			const shouldOpenInVSCodeEditor = isSearchTreeMatch(element)
 				? this.shouldOpenInNotebookEditor(element, resource)
-				: resource.scheme !== network.Schemas.untitled && this.notebookService.getContributedNotebookTypes(resource).length > 0);
+				: resource.scheme !== network.Schemas.untitled && this.notebookService.getContributedNotebookTypes(resource).length > 0;
 
 			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, resource, {
 				source: 'search',
@@ -2323,6 +2305,40 @@ export class SearchView extends ViewPane {
 
 	openEditorWithMultiCursor(element: FileMatchOrMatch): Promise<void> {
 		const resource = isSearchTreeMatch(element) ? element.parent().resource : (<ISearchTreeFileMatch>element).resource;
+		const shouldOpenInVSCodeEditor = isSearchTreeMatch(element)
+			? this.shouldOpenInNotebookEditor(element, resource)
+			: resource.scheme !== network.Schemas.untitled && this.notebookService.getContributedNotebookTypes(resource).length > 0;
+		if (shouldOpenInVSCodeEditor) {
+			return this.openEditorWithMultiCursorInVSCode(element, resource);
+		}
+
+		let fileMatch = null;
+		if (isSearchTreeFileMatch(element)) {
+			fileMatch = element;
+		}
+		else if (isSearchTreeMatch(element)) {
+			fileMatch = element.parent();
+		}
+		const firstMatch = fileMatch?.matches()[0];
+		const firstSelection = firstMatch ? new Selection(firstMatch.range().startLineNumber, firstMatch.range().startColumn, firstMatch.range().endLineNumber, firstMatch.range().endColumn) : undefined;
+
+		return tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, resource, {
+			source: 'search',
+			preserveFocus: false,
+			pinned: true,
+			projection: 'source',
+			selection: firstSelection
+		}).then(result => {
+			if (result.handled || !shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				this.viewModel.searchResult.getRangeHighlightDecorations().removeHighlightRange();
+				return undefined;
+			}
+
+			return this.openEditorWithMultiCursorInVSCode(element, resource);
+		}, errors.onUnexpectedError);
+	}
+
+	private openEditorWithMultiCursorInVSCode(element: FileMatchOrMatch, resource: URI): Promise<void> {
 		return this.editorService.openEditor({
 			resource: resource,
 			options: {

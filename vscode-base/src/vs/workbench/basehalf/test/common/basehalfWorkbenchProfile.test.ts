@@ -60,13 +60,23 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('terminal'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.terminal.new'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openAndPassFocus'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openToSide'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.openWith'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('explorer.upload'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('filesExplorer.paste'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.files.newUntitledFile'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openResult'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openResultToSide'), 'remapped');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('addCursorsAtSearchResults'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickOpen'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickTextSearch'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.extensions'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.explorer.openEditorsView'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openNewEditor'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openEditor'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openNewEditorToSide'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openInEditor'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('search.action.openNewEditorFromView'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.chat'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
@@ -78,12 +88,17 @@ suite('BaseHalfWorkbenchProfile', () => {
 			[
 				'workbench.action.files.openFile',
 				'explorer.openAndPassFocus',
+				'explorer.openToSide',
+				'explorer.openWith',
 				'explorer.newFile',
 				'explorer.newFolder',
 				'explorer.upload',
 				'filesExplorer.paste',
 				'filesExplorer.openFilePreserveFocus',
+				'workbench.action.files.newUntitledFile',
 				'search.action.openResult',
+				'search.action.openResultToSide',
+				'addCursorsAtSearchResults',
 				'workbench.action.quickOpen',
 				'workbench.action.quickTextSearch'
 			]
@@ -152,6 +167,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agentHost.codexAgent.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.agents.claude.preferAgentHost'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['chat.editor.claude.preferAgentHost'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['search.useReplacePreview'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.startupPrompt'], 'never');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.banner'], 'never');
 	});
