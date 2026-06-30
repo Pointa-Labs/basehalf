@@ -101,6 +101,7 @@ try {
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
+	await step('readme-rich-status-in-header', () => assertMarkdownRichStatusInHeader(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
@@ -150,6 +151,7 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'card-detail-covers-scrolled-canvas',
+			'markdown-rich-status-in-header',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
@@ -742,6 +744,15 @@ async function assertCardDetailCoversCanvasViewport(page) {
 	}
 }
 
+async function assertMarkdownRichStatusInHeader(page) {
+	const toolbarCount = await page.locator('.basehalf-card-detail-markdown-rich-toolbar').count();
+	const bodyStatusCount = await page.locator('.basehalf-card-detail-markdown-rich-status').count();
+	if (toolbarCount !== 0 || bodyStatusCount !== 0) {
+		throw new Error(`Markdown rich status should live in the detail header, toolbarCount=${toolbarCount}, bodyStatusCount=${bodyStatusCount}`);
+	}
+	await page.locator('.basehalf-card-detail-meta', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
 async function assertMarkdownRichEditorEditsAndSaves(page) {
 	const marker = `rich editor smoke ${Date.now()}`;
 	const readmePath = path.join(workspacePath, 'README.md');
@@ -753,7 +764,6 @@ async function assertMarkdownRichEditorEditsAndSaves(page) {
 	await page.keyboard.press('Enter');
 	await page.keyboard.insertText(marker);
 
-	await page.locator('.basehalf-card-detail-markdown-rich-status', { hasText: /Unsaved changes|Saving|Saved/ }).waitFor({ state: 'visible', timeout: 10_000 });
 	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'rich Markdown editor to persist edits', 15_000);
 }
 

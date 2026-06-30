@@ -69,6 +69,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	constructor(
 		private readonly container: HTMLElement,
+		status: HTMLElement,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
@@ -82,10 +83,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 		clearNode(this.container);
 		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
-		const toolbar = append(root, $('.basehalf-card-detail-markdown-rich-toolbar'));
-		this.status = append(toolbar, $('.basehalf-card-detail-markdown-rich-status'));
+		this.status = status;
 		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
-		this.status.textContent = 'Loading rich editor';
+		this.setStatus('Loading');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -100,7 +100,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		this.state = state;
 		this.resourceKey = state.resource.toString();
 		this.documentKey = baseHalfMarkdownRichDocumentKey(state.workspaceFolder, state.relativePath);
-		this.status.textContent = 'Loading rich editor';
+		this.setStatus('Loading');
 
 		try {
 			const modelReference = await this.textModelService.createModelReference(state.resource);
@@ -141,7 +141,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
 			}));
 			this._register(this.webview.onFatalError(error => {
-				this.status.textContent = `Rich editor failed: ${error.message}`;
+				this.setStatus(`Failed: ${error.message}`);
 				this.logService.error(error.message);
 			}));
 			this._register(this.textFileService.files.onDidChangeDirty(file => {
@@ -180,13 +180,19 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
-		if (!selection || !this.state) {
+		if (!this.state) {
 			return;
 		}
 
 		this.state = { ...this.state, selection };
+		if (!selection) {
+			this.updateStatus();
+			return;
+		}
+
 		void this.bridge?.sendRevealSelection(selection);
 		this.writeSelectionFocus(this.state);
+		this.updateStatus();
 	}
 
 	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
@@ -251,7 +257,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				await this.handleAdhdCommand(state, message.command);
 				break;
 			case 'basehalf.markdownRich.error':
-				this.status.textContent = `Rich editor failed: ${message.message}`;
+				this.setStatus(`Failed: ${message.message}`);
 				this.logService.error(message.stack ?? message.message);
 				break;
 		}
@@ -332,7 +338,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 
-		this.status.textContent = 'Rich • Saving';
+		this.setStatus('Saving');
 		this.writingTextModel = true;
 		try {
 			const outcome = await this.coordinator.handleSaveRequested(
@@ -379,21 +385,30 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private updateStatus(): void {
 		const model = this.model;
 		if (!model) {
-			this.status.textContent = 'No rich editor model';
+			this.setStatus('No editor model');
 			return;
 		}
 
 		if (!this.isEditable()) {
-			this.status.textContent = 'Rich • Readonly';
+			this.setStatus('Readonly');
 			return;
 		}
 
 		if (this.dirty) {
-			this.status.textContent = 'Rich • Unsaved changes';
+			this.setStatus('Unsaved changes');
 			return;
 		}
 
-		this.status.textContent = this.textFileService.isDirty(model.uri) ? 'Rich • Source has unsaved changes' : 'Rich • Saved';
+		this.setStatus(this.textFileService.isDirty(model.uri) ? 'Source has unsaved changes' : 'Saved');
+	}
+
+	private setStatus(status: string): void {
+		const parts = ['Rich', status];
+		const selection = this.state?.selection;
+		if (selection) {
+			parts.push(`L${selection.startLineNumber}:${selection.startColumn}`);
+		}
+		this.status.textContent = parts.join(' • ');
 	}
 
 	private isEditable(): boolean {
@@ -415,16 +430,16 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private renderError(error: unknown): void {
 		clearNode(this.webviewHost);
 		if (error instanceof TooLargeFileOperationError) {
-			this.status.textContent = 'Too large';
+			this.setStatus('Too large');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
-			this.status.textContent = 'Binary file';
+			this.setStatus('Binary file');
 			return;
 		}
 
-		this.status.textContent = error instanceof Error ? error.message : String(error);
+		this.setStatus(error instanceof Error ? error.message : String(error));
 	}
 
 	private htmlFor(key: string): string {

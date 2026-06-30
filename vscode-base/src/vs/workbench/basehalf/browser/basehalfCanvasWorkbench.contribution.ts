@@ -611,7 +611,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailDisposables.clear();
 
 		if (cardDetail.projection === 'rich') {
-			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody));
+			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody, this.detailMeta));
 			void this.markdownRichDetail.open(cardDetail);
 		} else if (cardDetail.projection === 'preview') {
 			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownPreviewCardDetail, this.detailBody));
