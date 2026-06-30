@@ -3,12 +3,15 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../base/common/buffer.js';
+import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
+import { createKeyedMutex } from './basehalfKeyedMutex.js';
 
 export const IBaseHalfBadgeMirrorService = createDecorator<IBaseHalfBadgeMirrorService>('baseHalfBadgeMirrorService');
 
@@ -46,6 +49,7 @@ export interface IBaseHalfBadgeMirrorService {
 
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult>;
+	upsertReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
 	badgeResource(node: IBaseHalfWorkspaceResource): URI;
 }
 
@@ -63,6 +67,7 @@ export class BaseHalfBadgeMirrorCorrupt extends Error {
 
 export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 	declare readonly _serviceBrand: undefined;
+	private readonly mutex = createKeyedMutex();
 
 	constructor(
 		@IFileService private readonly fileService: IFileService
@@ -122,9 +127,94 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 		return { badges, problems };
 	}
 
+	async upsertReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void> {
+		if (source.relativePath === target.relativePath) {
+			return;
+		}
+
+		await this.updateBadge(source, badge => ({
+			...badge,
+			references: uniqueStrings([...badge.references, target.relativePath])
+		}));
+		await this.updateBadge(target, badge => ({
+			...badge,
+			referenced_by: uniqueStrings([...badge.referenced_by, source.relativePath])
+		}));
+	}
+
 	badgeResource(node: IBaseHalfWorkspaceResource): URI {
 		return URI.joinPath(node.workspaceFolder, '.bh', 'mirror', ...mirrorPathSegments(node.relativePath), 'badge.yaml');
 	}
+
+	private updateBadge(node: IBaseHalfBadgeNode, update: (badge: IBaseHalfBadgeFile) => IBaseHalfBadgeFile): Promise<IBaseHalfBadgeFile> {
+		const resource = this.badgeResource(node);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readBadge(node);
+			const next = update(existing ?? emptyBadge(node));
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeBadgeFile(next)));
+			return next;
+		});
+	}
+}
+
+function emptyBadge(node: IBaseHalfBadgeNode): IBaseHalfBadgeFile {
+	return {
+		path: node.relativePath,
+		kind: node.kind,
+		references: [],
+		referenced_by: []
+	};
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+	const out: string[] = [];
+	for (const value of values) {
+		if (!out.includes(value)) {
+			out.push(value);
+		}
+	}
+	return out;
+}
+
+function serializeBadgeFile(badge: IBaseHalfBadgeFile): string {
+	const lines = [
+		`path: ${yamlString(badge.path)}`,
+		`kind: ${badge.kind}`
+	];
+
+	if (badge.description) {
+		lines.push(`description: ${yamlString(badge.description)}`);
+	}
+
+	lines.push('references:');
+	if (badge.references.length === 0) {
+		lines[lines.length - 1] = 'references: []';
+	} else {
+		for (const reference of badge.references) {
+			lines.push(`  - ${yamlString(reference)}`);
+		}
+	}
+
+	lines.push('referenced_by:');
+	if (badge.referenced_by.length === 0) {
+		lines[lines.length - 1] = 'referenced_by: []';
+	} else {
+		for (const reference of badge.referenced_by) {
+			lines.push(`  - ${yamlString(reference)}`);
+		}
+	}
+
+	if (badge.orphan) {
+		lines.push('orphan: true');
+	}
+
+	lines.push('');
+	return lines.join('\n');
+}
+
+function yamlString(value: string): string {
+	return JSON.stringify(value);
 }
 
 function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string, expectedKind: BaseHalfBadgeKind): IBaseHalfBadgeFile {

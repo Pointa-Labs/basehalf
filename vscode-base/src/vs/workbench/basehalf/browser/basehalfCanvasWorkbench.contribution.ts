@@ -19,7 +19,10 @@ import { SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
+	BaseHalfCanvasAnchor,
 	baseHalfCanvasEdgeLayouts,
+	baseHalfCanvasEdgePath,
+	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	IBaseHalfCanvasBounds,
@@ -36,6 +39,11 @@ import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorServic
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
+
+type BaseHalfCanvasCardPreview = { readonly kind: 'folder' | 'text' | 'media' | 'empty' | 'unavailable'; readonly text: string };
+type BaseHalfCanvasConnectionTarget = { readonly item: IBaseHalfCanvasItem; readonly anchor: BaseHalfCanvasAnchor };
+const CANVAS_CARD_ANCHORS: readonly BaseHalfCanvasAnchor[] = ['north', 'east', 'south', 'west'];
+const TEXT_PREVIEW_MAX_BYTES = 8192;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -66,7 +74,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private detailKey: string | undefined;
 	private activeCardDrag: {
 		readonly pointerId: number;
-		readonly card: HTMLButtonElement;
+		readonly card: HTMLElement;
 		readonly item: IBaseHalfCanvasItem;
 		readonly origin: IBaseHalfCanvasBounds;
 		readonly startClientX: number;
@@ -74,8 +82,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		latest: IBaseHalfCanvasBounds;
 		moved: boolean;
 	} | undefined;
+	private activeConnectionDrag: {
+		readonly pointerId: number;
+		readonly source: IBaseHalfCanvasItem;
+		readonly sourceBounds: IBaseHalfCanvasBounds;
+		readonly sourceAnchor: BaseHalfCanvasAnchor;
+		readonly handle: HTMLElement;
+		readonly svg: SVGSVGElement;
+		readonly path: SVGPathElement;
+		target?: BaseHalfCanvasConnectionTarget;
+	} | undefined;
 	private suppressNextCardClickForPath: string | undefined;
 	private suppressNextCardClickTimer: number | undefined;
+	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
+	private renderedBoundsByPath = new Map<string, IBaseHalfCanvasBounds>();
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
 	private markdownRichDetail: BaseHalfMarkdownRichCardDetail | undefined;
 	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
@@ -263,6 +283,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		const items = model.items;
+		const previews = await this.readCardPreviews(items);
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
+
+		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
+		this.renderedBoundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 		clearNode(this.cards);
 		this.cardListeners.clear();
 		if (items.length === 0) {
@@ -271,7 +298,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const size = this.canvasSize(items, model.size);
 			const layoutResult = this.renderEdges(model.edges, items, size);
 			for (let i = 0; i < items.length; i++) {
-				this.renderCard(items[i], i, items.length);
+				this.renderCard(items[i], i, items.length, previews.get(items[i].path));
 			}
 			if (model.truncated > 0) {
 				this.renderTruncated(model.truncated);
@@ -296,6 +323,43 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private isRenderCurrent(seq: number): boolean {
 		return !this.disposed && seq === this.renderSeq;
+	}
+
+	private async readCardPreviews(items: readonly IBaseHalfCanvasItem[]): Promise<ReadonlyMap<string, BaseHalfCanvasCardPreview>> {
+		const entries = await Promise.all(items.map(async item => [item.path, await this.readCardPreview(item)] as const));
+		return new Map(entries);
+	}
+
+	private async readCardPreview(item: IBaseHalfCanvasItem): Promise<BaseHalfCanvasCardPreview> {
+		if (item.kind === 'folder') {
+			const children = (item.stat.children ?? [])
+				.filter(child => child.isDirectory || child.isFile)
+				.slice(0, 6)
+				.map(child => `${child.isDirectory ? 'dir' : 'file'} ${basename(child.resource)}`);
+			if (children.length === 0) {
+				return { kind: 'empty', text: 'Empty folder' };
+			}
+			return { kind: 'folder', text: children.join('\n') };
+		}
+
+		const media = mediaPreviewLabel(item.name);
+		if (media) {
+			return { kind: 'media', text: media };
+		}
+
+		try {
+			const raw = (await this.fileService.readFile(item.stat.resource, {
+				limits: { size: TEXT_PREVIEW_MAX_BYTES }
+			})).value.toString();
+			if (raw.includes('\u0000')) {
+				return { kind: 'media', text: 'Binary file' };
+			}
+
+			const text = cleanCardPreviewText(item.name, raw);
+			return text ? { kind: 'text', text } : { kind: 'empty', text: 'Empty file' };
+		} catch {
+			return { kind: 'unavailable', text: 'Preview unavailable' };
+		}
 	}
 
 	private getCurrentFolder(): IBaseHalfCanvasFolderState | undefined {
@@ -333,26 +397,52 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.classList.toggle('basehalf-canvas-on-top', this.editorService.visibleEditors.length === 0);
 	}
 
-	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {
+	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number, preview: BaseHalfCanvasCardPreview | undefined): void {
 		const bounds = baseHalfCanvasItemBounds(item, index, total);
-		const card = append(this.cards, $('button.basehalf-canvas-card')) as HTMLButtonElement;
-		card.type = 'button';
+		const card = append(this.cards, $('.basehalf-canvas-card'));
+		card.tabIndex = 0;
+		card.setAttribute('role', 'button');
+		card.dataset.basehalfCardPath = item.path;
 		this.applyCardBounds(card, bounds);
 		card.setAttribute('aria-label', item.name);
 
-		const icon = append(card, $('.basehalf-canvas-card-icon.codicon'));
+		const header = append(card, $('.basehalf-canvas-card-header'));
+		const icon = append(header, $('.basehalf-canvas-card-icon.codicon'));
 		icon.classList.add(item.kind === 'folder' ? 'codicon-folder' : 'codicon-file');
-		const label = append(card, $('.basehalf-canvas-card-label'));
+		const title = append(header, $('.basehalf-canvas-card-title'));
+		const label = append(title, $('.basehalf-canvas-card-label'));
 		label.textContent = item.name;
-		const description = append(card, $('.basehalf-canvas-card-description'));
-		description.textContent = item.badge?.description ?? '';
+		if (item.path.includes('/')) {
+			const path = append(title, $('.basehalf-canvas-card-path'));
+			path.textContent = item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1));
+		}
+
+		const badge = append(card, $('.basehalf-canvas-card-badge'));
+		const badgeLabel = append(badge, $('.basehalf-canvas-card-badge-label.codicon.codicon-tag'));
+		badgeLabel.textContent = ' Badge';
+		const description = append(badge, $('.basehalf-canvas-card-badge-description'));
+		description.textContent = item.badge?.description || 'No badge description';
+		description.classList.toggle('empty', !item.badge?.description);
+
+		const previewNode = append(card, $('.basehalf-canvas-card-preview'));
+		previewNode.classList.add(`kind-${preview?.kind ?? 'unavailable'}`);
+		previewNode.textContent = preview?.text ?? 'Preview unavailable';
+
 		const meta = append(card, $('.basehalf-canvas-card-meta'));
-		meta.textContent = this.cardMetaLabel(item);
+		this.renderMetaPills(meta, item);
+		for (const anchor of CANVAS_CARD_ANCHORS) {
+			this.renderConnectionHandle(card, item, bounds, anchor);
+		}
 		if (item.badge?.description) {
 			card.title = `${item.name}\n${item.badge.description}`;
 		}
 
 		this.cardListeners.add(this.addDisposableListener(card, 'click', event => {
+			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle')) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
 			if (this.suppressNextCardClickForPath === item.path) {
 				event.preventDefault();
 				event.stopPropagation();
@@ -362,13 +452,45 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 		}));
+		this.cardListeners.add(this.addDisposableListener(card, 'keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
+			}
+		}));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointerdown', event => this.onCardPointerDown(event, card, item, bounds)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointermove', event => this.onCardPointerMove(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointerup', event => this.onCardPointerUp(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointercancel', event => this.onCardPointerCancel(event)));
 	}
 
-	private onCardPointerDown(event: PointerEvent, card: HTMLButtonElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
+	private renderMetaPills(container: HTMLElement, item: IBaseHalfCanvasItem): void {
+		const kind = append(container, $('.basehalf-canvas-card-pill.kind'));
+		kind.textContent = item.kind;
+
+		const references = item.badge?.references.length ?? 0;
+		const referencedBy = item.badge?.referenced_by.length ?? 0;
+		const refs = append(container, $('.basehalf-canvas-card-pill'));
+		refs.textContent = `refs ${references}`;
+		const inbound = append(container, $('.basehalf-canvas-card-pill'));
+		inbound.textContent = `in ${referencedBy}`;
+
+		if (item.badge?.orphan) {
+			const orphan = append(container, $('.basehalf-canvas-card-pill.warning'));
+			orphan.textContent = 'orphan';
+		}
+	}
+
+	private renderConnectionHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
+		const handle = append(card, $(`span.basehalf-canvas-card-connect-handle.${anchor}`));
+		handle.setAttribute('aria-hidden', 'true');
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onConnectionPointerDown(event, handle, item, bounds, anchor)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointermove', event => this.onConnectionPointerMove(event)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointerup', event => this.onConnectionPointerUp(event)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointercancel', event => this.onConnectionPointerCancel(event)));
+	}
+
+	private onCardPointerDown(event: PointerEvent, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
 		if (event.button !== 0 || this.activeCardDrag || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
@@ -460,26 +582,173 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
+	private onConnectionPointerDown(event: PointerEvent, handle: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
+		if (event.button !== 0 || this.activeConnectionDrag || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const { svg, path } = this.createConnectionDraftSvg();
+		this.activeConnectionDrag = {
+			pointerId: event.pointerId,
+			source: item,
+			sourceBounds: bounds,
+			sourceAnchor: anchor,
+			handle,
+			svg,
+			path
+		};
+		this.suppressNextCardClick(item.path);
+		handle.setPointerCapture(event.pointerId);
+		handle.classList.add('active');
+		this.root.classList.add('connecting');
+		this.updateConnectionDraft(event);
+	}
+
+	private onConnectionPointerMove(event: PointerEvent): void {
+		if (!this.activeConnectionDrag || this.activeConnectionDrag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.updateConnectionDraft(event);
+	}
+
+	private onConnectionPointerUp(event: PointerEvent): void {
+		const drag = this.activeConnectionDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.updateConnectionDraft(event);
+		void this.finishConnectionDrag(drag);
+	}
+
+	private onConnectionPointerCancel(event: PointerEvent): void {
+		const drag = this.activeConnectionDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		this.clearConnectionDrag(drag);
+	}
+
+	private createConnectionDraftSvg(): { readonly svg: SVGSVGElement; readonly path: SVGPathElement } {
+		const width = Number.parseFloat(this.cards.style.width) || this.cards.scrollWidth || this.root.clientWidth;
+		const height = Number.parseFloat(this.cards.style.height) || this.cards.scrollHeight || this.root.clientHeight;
+		const svg = append(this.cards, $.SVG('svg')) as SVGSVGElement;
+		svg.classList.add('basehalf-canvas-connection-draft');
+		svg.setAttribute('width', `${width}`);
+		svg.setAttribute('height', `${height}`);
+		svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+		svg.setAttribute('aria-hidden', 'true');
+		const path = $.SVG('path') as SVGPathElement;
+		path.classList.add('basehalf-canvas-connection-draft-path');
+		svg.appendChild(path);
+		return { svg, path };
+	}
+
+	private updateConnectionDraft(event: PointerEvent): void {
+		const drag = this.activeConnectionDrag;
+		if (!drag) {
+			return;
+		}
+
+		const from = baseHalfCanvasAnchorPoint(drag.sourceBounds, drag.sourceAnchor);
+		const target = this.connectionTargetForPoint(event.clientX, event.clientY, drag.source.path);
+		drag.target = target;
+		const targetBounds = target ? this.renderedBoundsByPath.get(target.item.path) : undefined;
+		const to = target && targetBounds ? baseHalfCanvasAnchorPoint(targetBounds, target.anchor) : this.canvasPointFromClient(event.clientX, event.clientY);
+		const toAnchor = target?.anchor ?? oppositeAnchor(drag.sourceAnchor);
+		drag.path.setAttribute('d', baseHalfCanvasEdgePath(from, drag.sourceAnchor, to, toAnchor));
+		this.markConnectionTarget(target);
+	}
+
+	private async finishConnectionDrag(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeConnectionDrag']>): Promise<void> {
+		const target = drag.target;
+		this.clearConnectionDrag(drag);
+		const folder = this.getCurrentFolder();
+		if (!folder || !target || target.item.path === drag.source.path) {
+			return;
+		}
+
+		const edge: IBaseHalfCanvasEdge = {
+			from: drag.source.path,
+			from_anchor: drag.sourceAnchor,
+			to: target.item.path,
+			to_anchor: target.anchor
+		};
+
+		try {
+			await this.canvasMirrorService.upsertCanvasEdge(folder, edge);
+			await this.badgeMirrorService.upsertReference({
+				resource: drag.source.stat.resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath: drag.source.path,
+				kind: drag.source.kind
+			}, {
+				resource: target.item.stat.resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath: target.item.path,
+				kind: target.item.kind
+			});
+			await this.render();
+		} catch (error) {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private clearConnectionDrag(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeConnectionDrag']>): void {
+		if (drag.handle.hasPointerCapture(drag.pointerId)) {
+			drag.handle.releasePointerCapture(drag.pointerId);
+		}
+		drag.handle.classList.remove('active');
+		drag.svg.remove();
+		this.activeConnectionDrag = undefined;
+		this.root.classList.remove('connecting');
+		this.markConnectionTarget(undefined);
+	}
+
+	private markConnectionTarget(target: BaseHalfCanvasConnectionTarget | undefined): void {
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.connection-target'))) {
+			card.classList.remove('connection-target', 'north', 'east', 'south', 'west');
+		}
+		if (!target) {
+			return;
+		}
+
+		const card = this.cards.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${cssStringEscape(target.item.path)}"]`);
+		card?.classList.add('connection-target', target.anchor);
+	}
+
+	private connectionTargetForPoint(clientX: number, clientY: number, sourcePath: string): BaseHalfCanvasConnectionTarget | undefined {
+		const element = mainWindow.document.elementFromPoint(clientX, clientY);
+		const card = element instanceof HTMLElement ? element.closest<HTMLElement>('.basehalf-canvas-card') : undefined;
+		const path = card?.dataset.basehalfCardPath;
+		if (!card || !path || path === sourcePath) {
+			return undefined;
+		}
+
+		const item = this.renderedItemsByPath.get(path);
+		if (!item) {
+			return undefined;
+		}
+
+		return {
+			item,
+			anchor: targetAnchorForPoint(card.getBoundingClientRect(), clientX, clientY)
+		};
+	}
+
 	private applyCardBounds(card: HTMLElement, bounds: IBaseHalfCanvasBounds): void {
 		card.style.transform = `translate(${bounds.x}px, ${bounds.y}px)`;
 		card.style.width = `${bounds.width}px`;
 		card.style.height = `${bounds.height}px`;
-	}
-
-	private cardMetaLabel(item: IBaseHalfCanvasItem): string {
-		const parts: string[] = [item.kind];
-		const references = item.badge?.references.length ?? 0;
-		const referencedBy = item.badge?.referenced_by.length ?? 0;
-		if (references > 0) {
-			parts.push(`refs ${references}`);
-		}
-		if (referencedBy > 0) {
-			parts.push(`in ${referencedBy}`);
-		}
-		if (item.badge?.orphan) {
-			parts.push('orphan');
-		}
-		return parts.join(' · ');
 	}
 
 	private suppressNextCardClick(path: string): void {
@@ -989,4 +1258,70 @@ function normalizeCanvasZoom(value: number): number {
 		return 1;
 	}
 	return Number(Math.min(BASEHALF_CANVAS_MAX_ZOOM, Math.max(BASEHALF_CANVAS_MIN_ZOOM, value)).toFixed(2));
+}
+
+function mediaPreviewLabel(name: string): string | undefined {
+	const lower = name.toLowerCase();
+	if (/\.(png|jpg|jpeg|gif|webp|svg|avif)$/.test(lower)) {
+		return 'Image file';
+	}
+	if (/\.pdf$/.test(lower)) {
+		return 'PDF document';
+	}
+	if (/\.(mp4|mov|webm|mkv)$/.test(lower)) {
+		return 'Video file';
+	}
+	if (/\.(mp3|wav|m4a|flac|ogg)$/.test(lower)) {
+		return 'Audio file';
+	}
+	return undefined;
+}
+
+function cleanCardPreviewText(name: string, raw: string): string {
+	let text = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
+	if (/\.mdx?$/i.test(name)) {
+		text = text
+			.replace(/```[\s\S]*?```/g, ' ')
+			.replace(/^\s{0,3}#{1,6}\s+/gm, '')
+			.replace(/^\s{0,3}>\s?/gm, '')
+			.replace(/[*_`~]/g, '')
+			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+	}
+
+	const lines = text
+		.split('\n')
+		.map(line => line.trim())
+		.filter(Boolean)
+		.slice(0, 8);
+	const preview = lines.join('\n');
+	return preview.length > 520 ? `${preview.slice(0, 517)}...` : preview;
+}
+
+function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor {
+	const x = clientX - rect.left;
+	const y = clientY - rect.top;
+	const distances: Array<{ readonly anchor: BaseHalfCanvasAnchor; readonly distance: number }> = [
+		{ anchor: 'north', distance: Math.abs(y) },
+		{ anchor: 'east', distance: Math.abs(rect.width - x) },
+		{ anchor: 'south', distance: Math.abs(rect.height - y) },
+		{ anchor: 'west', distance: Math.abs(x) }
+	];
+	return distances.reduce((best, next) => next.distance < best.distance ? next : best).anchor;
+}
+
+function oppositeAnchor(anchor: BaseHalfCanvasAnchor): BaseHalfCanvasAnchor {
+	switch (anchor) {
+		case 'north':
+			return 'south';
+		case 'east':
+			return 'west';
+		case 'south':
+			return 'north';
+		case 'west':
+			return 'east';
+	}
+}
+
+function cssStringEscape(value: string): string {
+	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }

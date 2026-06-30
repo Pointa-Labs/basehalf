@@ -97,6 +97,7 @@ try {
 	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
+	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
@@ -150,6 +151,7 @@ try {
 			'source-control-git-provider',
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
+			'canvas-card-badge-preview-connectors',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-header',
 			'quick-open-card-detail',
@@ -293,6 +295,15 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n\nneedle-basehalf-second\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
+	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
+	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'badge.yaml'), [
+		'path: "README.md"',
+		'kind: file',
+		'description: "Smoke file badge"',
+		'references: []',
+		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'canvas.yaml'), [
 		'path: ""',
 		'size:',
@@ -678,6 +689,47 @@ async function assertNoEditorTabFor(page, name) {
 	}
 
 	throw new Error(`Unexpected VS Code editor tab for ${name}: ${lastTabs.join(', ')}`);
+}
+
+async function assertCanvasCardBadgePreviewAndConnectors(page) {
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await readme.waitFor({ state: 'visible', timeout: 20_000 });
+	await readme.locator('.basehalf-canvas-card-badge-description', { hasText: 'Smoke file badge' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+
+	const handleCount = await readme.locator('.basehalf-canvas-card-connect-handle').count();
+	if (handleCount !== 4) {
+		throw new Error(`Expected four card connection handles, got ${handleCount}`);
+	}
+
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+	await docs.waitFor({ state: 'visible', timeout: 10_000 });
+	await src.waitFor({ state: 'visible', timeout: 10_000 });
+	await docs.hover();
+	const fromBox = await docs.locator('.basehalf-canvas-card-connect-handle.east').boundingBox();
+	const targetBox = await src.boundingBox();
+	if (!fromBox || !targetBox) {
+		throw new Error('Missing card connection geometry');
+	}
+
+	await page.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(targetBox.x + 2, targetBox.y + targetBox.height / 2, { steps: 8 });
+	await page.mouse.up();
+
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
+	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
+	await waitUntil(() => {
+		const canvas = fs.readFileSync(canvasPath, 'utf8');
+		return canvas.includes('from: "docs"')
+			&& canvas.includes('from_anchor: east')
+			&& canvas.includes('to: "src"')
+			&& canvas.includes('to_anchor: west');
+	}, 'canvas.yaml to persist a four-side edge');
+	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
+	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
 }
 
 async function scrollCanvasWorkbenchForCardDetail(page) {

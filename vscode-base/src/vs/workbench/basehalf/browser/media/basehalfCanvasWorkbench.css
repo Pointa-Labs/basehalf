@@ -215,21 +215,39 @@
 	font-weight: 500;
 }
 
+.monaco-workbench .basehalf-canvas-connection-draft {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	overflow: visible;
+	pointer-events: none;
+	color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-connection-draft-path {
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2px;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-dasharray: 6 4;
+}
+
 .monaco-workbench .basehalf-canvas-card {
 	position: absolute;
 	z-index: 1;
-	display: grid;
-	grid-template-columns: 22px minmax(0, 1fr);
-	grid-template-rows: auto 1fr auto;
-	column-gap: 9px;
-	width: 220px;
-	height: 112px;
-	padding: 13px;
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+	box-sizing: border-box;
+	width: 300px;
+	height: 220px;
+	padding: 12px;
 	text-align: left;
 	color: var(--vscode-foreground);
 	background-color: var(--vscode-sideBar-background);
 	border: 1px solid var(--vscode-editorWidget-border);
-	border-radius: 6px;
+	border-radius: 8px;
 	box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
 	cursor: pointer;
 	touch-action: none;
@@ -249,15 +267,35 @@
 	cursor: grabbing;
 }
 
+.monaco-workbench .basehalf-canvas-card.connection-target {
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder), 0 14px 32px rgb(0 0 0 / 28%);
+}
+
+.monaco-workbench .basehalf-canvas-card-header {
+	display: flex;
+	align-items: flex-start;
+	gap: 9px;
+	min-width: 0;
+	flex: none;
+}
+
 .monaco-workbench .basehalf-canvas-card-icon {
-	grid-row: 1 / 4;
-	padding-top: 2px;
+	flex: none;
+	padding-top: 1px;
 	color: var(--vscode-symbolIcon-folderForeground);
 	font-size: 18px;
 }
 
 .monaco-workbench .basehalf-canvas-card .codicon-file {
 	color: var(--vscode-symbolIcon-fileForeground);
+}
+
+.monaco-workbench .basehalf-canvas-card-title {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
 }
 
 .monaco-workbench .basehalf-canvas-card-label {
@@ -268,7 +306,36 @@
 	line-height: 18px;
 }
 
-.monaco-workbench .basehalf-canvas-card-description {
+.monaco-workbench .basehalf-canvas-card-path {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	flex: none;
+	min-height: 42px;
+	padding: 7px 8px;
+	background-color: color-mix(in srgb, var(--vscode-editor-background) 70%, var(--vscode-sideBar-background));
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 62%, transparent);
+	border-radius: 6px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-label {
+	color: var(--vscode-descriptionForeground);
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 13px;
+	text-transform: uppercase;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-description {
 	min-width: 0;
 	display: -webkit-box;
 	-webkit-box-orient: vertical;
@@ -279,14 +346,116 @@
 	line-height: 16px;
 }
 
+.monaco-workbench .basehalf-canvas-card-badge-description.empty {
+	font-style: italic;
+	opacity: 0.72;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview {
+	flex: 1;
+	min-height: 0;
+	padding: 8px;
+	overflow: hidden;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	color: var(--vscode-editor-foreground);
+	background-color: color-mix(in srgb, var(--vscode-editor-background) 84%, transparent);
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 50%, transparent);
+	border-radius: 6px;
+	font-family: var(--monaco-monospace-font);
+	font-size: 11px;
+	line-height: 15px;
+}
+
+.monaco-workbench .basehalf-canvas-card-preview.kind-folder,
+.monaco-workbench .basehalf-canvas-card-preview.kind-media,
+.monaco-workbench .basehalf-canvas-card-preview.kind-empty,
+.monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
+	font-family: inherit;
+	color: var(--vscode-descriptionForeground);
+}
+
 .monaco-workbench .basehalf-canvas-card-meta {
 	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	flex-wrap: wrap;
+	flex: none;
+	font-size: 10px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-canvas-card-pill {
+	max-width: 100%;
+	padding: 1px 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 11px;
-	color: var(--vscode-descriptionForeground);
 	text-transform: uppercase;
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 52%, transparent);
+	border-radius: 999px;
+}
+
+.monaco-workbench .basehalf-canvas-card-pill.kind {
+	color: var(--vscode-foreground);
+}
+
+.monaco-workbench .basehalf-canvas-card-pill.warning {
+	color: var(--vscode-inputValidation-warningForeground);
+	border-color: var(--vscode-inputValidation-warningBorder);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle {
+	position: absolute;
+	z-index: 4;
+	width: 15px;
+	height: 15px;
+	box-sizing: border-box;
+	border: 2px solid var(--vscode-descriptionForeground);
+	border-radius: 50%;
+	background-color: var(--vscode-editor-background);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 80ms ease, transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-card:focus-visible .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-card-connect-handle.active {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.active,
+.monaco-workbench .basehalf-canvas-card.connection-target .basehalf-canvas-card-connect-handle {
+	border-color: var(--vscode-focusBorder);
+	background-color: var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.north {
+	top: 0;
+	left: 50%;
+	transform: translate(-50%, -50%);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.east {
+	top: 50%;
+	right: 0;
+	transform: translate(50%, -50%);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.south {
+	bottom: 0;
+	left: 50%;
+	transform: translate(-50%, 50%);
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.west {
+	top: 50%;
+	left: 0;
+	transform: translate(-50%, -50%);
 }
 
 .monaco-workbench .basehalf-canvas-empty {

@@ -7,6 +7,12 @@ import { basename } from '../../../base/common/resources.js';
 import { IFileStat } from '../../../platform/files/common/files.js';
 
 export const BASEHALF_CANVAS_CHILD_LIMIT = 300;
+export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH = 300;
+export const BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT = 220;
+export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH = 248;
+export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT = 188;
+export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
+export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
 
 const SKIP_NAMES = new Set([
 	'.git',
@@ -38,6 +44,7 @@ const HIDDEN_FILE_NAMES = new Set([
 const AGENT_HINT_FILES = new Set(['CLAUDE.md', 'AGENTS.md']);
 
 export type BaseHalfCanvasItemKind = 'file' | 'folder';
+export type BaseHalfCanvasAnchor = 'north' | 'east' | 'south' | 'west';
 
 export interface IBaseHalfCanvasSize {
 	readonly width: number;
@@ -62,9 +69,9 @@ export interface IBaseHalfCanvasBadgeMetadata {
 
 export interface IBaseHalfCanvasEdge {
 	readonly from: string;
-	readonly from_anchor: 'north' | 'east' | 'south' | 'west';
+	readonly from_anchor: BaseHalfCanvasAnchor;
 	readonly to: string;
-	readonly to_anchor: 'north' | 'east' | 'south' | 'west';
+	readonly to_anchor: BaseHalfCanvasAnchor;
 	readonly label?: string;
 }
 
@@ -192,8 +199,8 @@ export function baseHalfCanvasItemsFromStat(folder: IFileStat, rootLevel: boolea
 export function baseHalfCanvasPosition(index: number, total: number): IBaseHalfCanvasPosition {
 	const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
 	return {
-		x: 48 + (index % cols) * 260,
-		y: 84 + Math.floor(index / cols) * 168
+		x: 60 + (index % cols) * 340,
+		y: 60 + Math.floor(index / cols) * 280
 	};
 }
 
@@ -202,9 +209,17 @@ export function baseHalfCanvasItemBounds(item: IBaseHalfCanvasItem, index: numbe
 	return {
 		x: item.card?.x ?? fallbackPosition.x,
 		y: item.card?.y ?? fallbackPosition.y,
-		width: item.card?.width ?? 220,
-		height: item.card?.height ?? 112
+		width: Math.max(item.card?.width ?? defaultCardWidth(item.kind), BASEHALF_CANVAS_MIN_CARD_WIDTH),
+		height: Math.max(item.card?.height ?? defaultCardHeight(item.kind), BASEHALF_CANVAS_MIN_CARD_HEIGHT)
 	};
+}
+
+function defaultCardWidth(kind: BaseHalfCanvasItemKind): number {
+	return kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH : BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH;
+}
+
+function defaultCardHeight(kind: BaseHalfCanvasItemKind): number {
+	return kind === 'folder' ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT : BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT;
 }
 
 export function baseHalfCanvasEdgeLayouts(edges: readonly IBaseHalfCanvasEdge[], items: readonly IBaseHalfCanvasItem[]): IBaseHalfCanvasEdgeLayoutResult {

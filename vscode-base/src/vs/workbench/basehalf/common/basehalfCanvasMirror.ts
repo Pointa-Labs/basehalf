@@ -41,6 +41,7 @@ export interface IBaseHalfCanvasMirrorService {
 
 	readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null>;
 	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile>;
+	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile>;
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
 }
 
@@ -86,6 +87,17 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		});
 	}
 
+	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
+		const resource = this.canvasResource(folder);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readCanvas(folder);
+			const next = upsertCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, edge);
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
+			return next;
+		});
+	}
+
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
 		const segments = folder.relativePath ? folder.relativePath.split('/').filter(Boolean) : [];
 		return URI.joinPath(folder.workspaceFolder, '.bh', 'mirror', ...segments, 'canvas.yaml');
@@ -106,6 +118,31 @@ export function upsertCanvasCard(canvas: IBaseHalfCanvasFile, card: IBaseHalfCan
 		...(canvas.size ? { size: canvas.size } : {}),
 		cards,
 		edges: canvas.edges
+	};
+}
+
+export function upsertCanvasEdge(canvas: IBaseHalfCanvasFile, edge: IBaseHalfCanvasEdge): IBaseHalfCanvasFile {
+	if (edge.from === edge.to) {
+		return canvas;
+	}
+
+	const edges = [...canvas.edges];
+	const index = edges.findIndex(existing => existing.from === edge.from && existing.to === edge.to);
+	if (index >= 0) {
+		const existing = edges[index];
+		edges[index] = {
+			...edge,
+			...(edge.label !== undefined ? { label: edge.label } : existing.label !== undefined ? { label: existing.label } : {})
+		};
+	} else {
+		edges.push(edge);
+	}
+
+	return {
+		path: canvas.path,
+		...(canvas.size ? { size: canvas.size } : {}),
+		cards: canvas.cards,
+		edges
 	};
 }
 
