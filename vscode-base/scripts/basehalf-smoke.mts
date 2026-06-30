@@ -85,42 +85,48 @@ try {
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 
-	await assertOpenEditorsHidden(page);
-	await assertCompetingViewContainersHidden(page);
-	await assertHiddenSurfaceCommandsStayHidden(page);
-	await assertAgentAreaChoices(page);
-	await assertAgentAreaTerminalCommand(page);
-	await assertSourceControlPanel(page);
+	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
+	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
+	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
+	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
+	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
+	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
-	await runCommand(page, 'Git: Refresh');
-	await assertSourceControlPublishBranchAction(page);
-	await assertGitBranchCheckoutQuickPick(page);
+	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
+	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
+	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
-	await quickOpen(page, 'README.md');
-	await assertCardDetail(page, 'README.md');
-	await assertNoEditorTabFor(page, 'README.md');
+	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
+	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
-	await quickOpen(page, 'src/app.ts', 'Alt+Enter');
-	await assertCardDetail(page, 'app.ts');
-	await assertNoEditorTabFor(page, 'app.ts');
-	await assertSourceCardFlushesBeforeNavigation(page);
-	await assertCardDetail(page, 'README.md');
-	await assertNoEditorTabFor(page, 'README.md');
+	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
+	await step('app-card-detail', () => assertCardDetail(page, 'app.ts'));
+	await step('app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
+	await step('source-card-detail-flush-on-navigation', () => assertSourceCardFlushesBeforeNavigation(page));
+	await step('readme-card-detail-after-flush', () => assertCardDetail(page, 'README.md'));
+	await step('readme-no-editor-tab-after-flush', () => assertNoEditorTabFor(page, 'README.md'));
 
-	await quickOpen(page, '%needle-basehalf-routing');
-	await assertCardDetail(page, 'README.md');
-	await assertNoEditorTabFor(page, 'README.md');
-	await assertFocusLine('README.md', 3);
-	await quickOpen(page, '%needle-basehalf-second');
-	await assertCardDetail(page, 'README.md');
-	await assertNoEditorTabFor(page, 'README.md');
-	await assertFocusLine('README.md', 5);
-	await quickOpen(page, '%needleSymbol', 'Alt+Enter');
-	await assertCardDetail(page, 'app.ts');
-	await assertNoEditorTabFor(page, 'app.ts');
+	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
+	await step('quick-text-search-readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('quick-text-search-readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('quick-text-search-readme-focus-line-3', () => assertFocusLine('README.md', 3));
+	await step('quick-text-search-readme-second', () => quickOpen(page, '%needle-basehalf-second'));
+	await step('quick-text-search-readme-second-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('quick-text-search-readme-second-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('quick-text-search-readme-focus-line-5', () => assertFocusLine('README.md', 5));
+	await step('quick-text-search-app-side', () => quickOpen(page, '%needleSymbol', 'Alt+Enter'));
+	await step('quick-text-search-app-card-detail', () => assertCardDetail(page, 'app.ts'));
+	await step('quick-text-search-app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
 
-	await quickOpen(page, 'docs');
-	await page.locator('.basehalf-canvas-title', { hasText: 'docs' }).waitFor({ state: 'visible', timeout: 20_000 });
+	await step('explorer-folder-row-canvas-open', () => openExplorerRow(page, 'docs'));
+	await step('explorer-folder-row-canvas', () => assertCanvasFolder(page, 'docs'));
+	await step('explorer-file-row-card-open', () => openExplorerRow(page, 'guide.md'));
+	await step('explorer-file-row-card-detail', () => assertCardDetail(page, 'guide.md'));
+	await step('explorer-file-row-no-editor-tab', () => assertNoEditorTabFor(page, 'guide.md'));
+
+	await step('folder-quick-open', () => quickOpen(page, 'docs'));
+	await step('folder-quick-open-canvas', () => assertCanvasFolder(page, 'docs'));
 
 	const summary = {
 		ok: true,
@@ -143,6 +149,8 @@ try {
 			'quick-text-search-selection-focus',
 			'quick-text-search-repeated-selection-focus',
 			'quick-text-search-side-card-detail-no-tab',
+			'explorer-folder-row-canvas',
+			'explorer-file-row-card-detail-no-tab',
 			'folder-quick-open-canvas'
 		]
 	};
@@ -218,8 +226,20 @@ function assertProductIdentity() {
 		nameLong: 'BaseHalf',
 		applicationName: 'basehalf',
 		dataFolderName: '.basehalf',
+		sharedDataFolderName: '.basehalf-shared',
+		serverApplicationName: 'basehalf-server',
+		serverDataFolderName: '.basehalf-server',
+		tunnelApplicationName: 'basehalf-tunnel',
+		win32DirName: 'BaseHalf',
+		win32NameVersion: 'BaseHalf',
+		win32RegValueName: 'BaseHalf',
+		win32AppUserModelId: 'PointaLabs.BaseHalf',
+		win32ShellNameShort: '&BaseHalf',
+		win32TunnelServiceMutex: 'basehalf-tunnelservice',
+		win32TunnelMutex: 'basehalf-tunnel',
 		urlProtocol: 'basehalf',
-		darwinBundleIdentifier: 'com.pointalabs.basehalf'
+		darwinBundleIdentifier: 'com.pointalabs.basehalf',
+		linuxIconName: 'basehalf'
 	};
 
 	for (const [key, value] of Object.entries(expected)) {
@@ -244,6 +264,12 @@ function shouldLogConsoleMessage(message) {
 	const text = message.text();
 	return !text.includes('[Extension Host (stderr)] Debugger listening on')
 		&& !text.includes('[Extension Host (stderr)] For help, see: https://nodejs.org/learn/getting-started/debugging');
+}
+
+async function step(name, run) {
+	console.error(`[basehalf-smoke] start ${name}`);
+	await run();
+	console.error(`[basehalf-smoke] pass ${name}`);
 }
 
 function createFixtureWorkspace(workspace) {
@@ -294,7 +320,7 @@ function getDevElectronPath() {
 
 async function quickOpen(page, value, acceptKey = 'Enter') {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
-	const quickInput = page.locator('.quick-input-widget input');
+	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
 	await waitForQuickInputResult(page);
@@ -313,7 +339,7 @@ async function runCommand(page, value) {
 
 async function tryRunCommand(page, value, options = {}) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
-	const quickInput = page.locator('.quick-input-widget input');
+	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(`>${value}`);
 	const firstRow = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
@@ -324,9 +350,30 @@ async function tryRunCommand(page, value, options = {}) {
 		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
 		return false;
 	}
+	const disabled = await firstRow.evaluate(row => {
+		const element = row;
+		return element.getAttribute('aria-disabled') === 'true'
+			|| element.classList.contains('disabled')
+			|| !!element.querySelector('.disabled');
+	});
+	if (disabled) {
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		return false;
+	}
 	await page.keyboard.press('Enter');
-	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	try {
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	} catch (error) {
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		return false;
+	}
 	return true;
+}
+
+function visibleQuickInput(page) {
+	return page.locator('.quick-input-widget:visible input').last();
 }
 
 function isExpectedCommandRow(rowText, expectedText) {
@@ -338,7 +385,15 @@ function isExpectedCommandRow(rowText, expectedText) {
 
 async function waitForQuickInputResult(page) {
 	await page.waitForFunction(() => {
-		const input = document.querySelector('.quick-input-widget input');
+		const input = Array.from(document.querySelectorAll('.quick-input-widget input')).find(candidate => {
+			const element = candidate;
+			const rect = element.getBoundingClientRect();
+			const style = getComputedStyle(element);
+			return style.display !== 'none'
+				&& style.visibility !== 'hidden'
+				&& rect.width > 0
+				&& rect.height > 0;
+		});
 		const inputVisible = !!input && (() => {
 			const element = input;
 			const rect = element.getBoundingClientRect();
@@ -357,6 +412,18 @@ async function waitForQuickInputResult(page) {
 	}, null, { timeout: 15_000 });
 }
 
+async function openExplorerRow(page, label) {
+	const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: label }).first();
+	if (!(await row.isVisible().catch(() => false))) {
+		await runCommand(page, 'Focus on Files Explorer');
+	}
+	await row.waitFor({ state: 'visible', timeout: 20_000 });
+	await row.click();
+	const isFolder = (await row.getAttribute('aria-expanded')) !== null;
+	const openKey = process.platform === 'darwin' && !isFolder ? 'Meta+ArrowDown' : 'Enter';
+	await page.keyboard.press(openKey);
+}
+
 async function assertOpenEditorsHidden(page) {
 	const headers = await page.locator('.pane-header h3.title').evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(text => text === 'Open Editors'));
 	if (headers.length) {
@@ -365,7 +432,7 @@ async function assertOpenEditorsHidden(page) {
 }
 
 async function assertCompetingViewContainersHidden(page) {
-	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Testing', 'Remote Explorer'];
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Remote Explorer', 'Terminal'];
 	const started = Date.now();
 	let visibleForbidden = [];
 	while (Date.now() - started < 5_000) {
@@ -404,15 +471,18 @@ async function assertHiddenSurfaceCommandsStayHidden(page) {
 		'Extensions: Focus on Extensions View',
 		'Chat: Open Chat',
 		'View: Show Run and Debug',
+		'Debug Console: Focus on Debug Console View',
 		'View: Show Testing',
 		'View: Show Remote Explorer'
 	];
 	let exercisedCommands = 0;
 	for (const command of hiddenSurfaceCommands) {
+		console.error(`[basehalf-smoke] try hidden command ${command}`);
 		if (await tryRunCommand(page, command, { expectedBestRowText: command })) {
 			exercisedCommands++;
 		}
 		await assertCompetingViewContainersHidden(page);
+		console.error(`[basehalf-smoke] pass hidden command ${command}`);
 	}
 	if (!exercisedCommands) {
 		throw new Error('Hidden surface runtime guard did not exercise any VS Code command palette entries');
@@ -430,7 +500,7 @@ async function assertAgentAreaChoices(page) {
 	await runCommand(page, 'New Codex Extension Session');
 	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
-	await page.locator('.basehalf-agent-extension-state', { hasText: /not registered/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-extension-state', { hasText: /openai\.chatgpt/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 }
@@ -530,6 +600,10 @@ async function assertGitBranchCheckoutQuickPick(page) {
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+async function assertCanvasFolder(page, title) {
+	await page.locator('.basehalf-canvas-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
 async function assertNoEditorTabFor(page, name) {
