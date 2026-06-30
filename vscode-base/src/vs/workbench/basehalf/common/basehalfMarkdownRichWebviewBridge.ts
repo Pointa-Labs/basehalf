@@ -9,6 +9,7 @@ import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage,
+	IBaseHalfMarkdownRichTextSelection,
 	baseHalfMarkdownRichUpdateFromPayload,
 	isBaseHalfMarkdownRichWebviewMessage,
 	toBaseHalfMarkdownRichTransferableUpdate
@@ -37,13 +38,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		this._register(toDisposable(() => this.doc.off('update', this.onDocUpdate)));
 	}
 
-	sendInit(resource: string, content: string, editable: boolean): Promise<boolean> {
+	sendInit(resource: string, content: string, editable: boolean, selection?: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
 			key: this.key,
 			resource,
 			content,
-			editable
+			editable,
+			...(selection ? { selection } : {})
 		});
 	}
 

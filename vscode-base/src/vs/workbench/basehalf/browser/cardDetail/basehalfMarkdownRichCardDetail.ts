@@ -268,8 +268,25 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		await this.bridge?.sendInit(state.resource.toString(), content, this.isEditable());
+		await this.bridge?.sendInit(state.resource.toString(), content, this.isEditable(), state.selection);
+		this.writeSelectionFocus(state);
 		await this.sendAdhdState(state);
+	}
+
+	private writeSelectionFocus(state: IBaseHalfCardDetailState): void {
+		if (!state.selection) {
+			return;
+		}
+
+		void this.focusMirrorService.writeFileFocus(state, {
+			projection: state.projection,
+			visible_lines: { start: state.selection.startLineNumber },
+			cursor: {
+				line: state.selection.startLineNumber,
+				column: state.selection.startColumn,
+				line_precision: 'exact'
+			}
+		}).catch(error => this.logService.error(error));
 	}
 
 	private async sendAdhdState(state: IBaseHalfCardDetailState): Promise<void> {
@@ -326,7 +343,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		this.lastSentContent = content;
-		void this.bridge?.sendInit(model.uri.toString(), content, this.isEditable());
+		void this.bridge?.sendInit(model.uri.toString(), content, this.isEditable(), this.state?.selection);
 	}
 
 	private updateEditable(): void {

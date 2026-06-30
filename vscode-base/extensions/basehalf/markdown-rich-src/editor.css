@@ -112,6 +112,22 @@ body,
 	border-radius: 2px;
 }
 
+.basehalf-markdown-rich-selection-reveal {
+	animation: basehalf-selection-reveal 1.6s ease-out;
+	border-radius: 4px;
+}
+
+@keyframes basehalf-selection-reveal {
+	0% {
+		background: color-mix(in srgb, var(--vscode-editor-findMatchHighlightBackground, #ea5c00) 55%, transparent);
+		box-shadow: 0 0 0 2px var(--vscode-editor-findMatchBorder, transparent);
+	}
+	100% {
+		background: transparent;
+		box-shadow: 0 0 0 0 transparent;
+	}
+}
+
 .basehalf-adhd-check {
 	position: absolute;
 	top: 0.28em;

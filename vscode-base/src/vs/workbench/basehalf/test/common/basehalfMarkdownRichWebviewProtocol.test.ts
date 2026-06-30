@@ -18,7 +18,13 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			key: 'workspace\u0000doc.md',
 			resource: 'file:///workspace/doc.md',
 			content: '# Doc\n',
-			editable: true
+			editable: true,
+			selection: {
+				startLineNumber: 3,
+				startColumn: 1,
+				endLineNumber: 3,
+				endColumn: 8
+			}
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.applyYjsUpdate',
@@ -57,6 +63,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		}), true);
 
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md', resource: 'file:///workspace/doc.md', content: '# Doc\n', editable: true, selection: { startLineNumber: 0, startColumn: 1 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: 'workspace\u0000doc.md', resource: 'file:///workspace/doc.md', content: '# Doc\n', editable: true, selection: { startLineNumber: 1, startColumn: 'bad' } }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.init', key: '' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'other.init', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);

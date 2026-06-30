@@ -59,6 +59,7 @@ type BaseHalfMarkdownRichHostMessage =
 		readonly resource: string;
 		readonly content: string;
 		readonly editable: boolean;
+		readonly selection?: IBaseHalfMarkdownRichTextSelection;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
@@ -132,6 +133,13 @@ type BaseHalfMarkdownRichWebviewMessage =
 		readonly message: string;
 		readonly stack?: string;
 	};
+
+interface IBaseHalfMarkdownRichTextSelection {
+	readonly startLineNumber: number;
+	readonly startColumn: number;
+	readonly endLineNumber?: number;
+	readonly endColumn?: number;
+}
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 const AUTOSAVE_MS = 400;
@@ -286,6 +294,12 @@ function findBlockElement(editorElement: HTMLElement | undefined, id: string): H
 	return editorElement?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`) ?? null;
 }
 
+function clearSelectionReveal(editorElement: HTMLElement | undefined): void {
+	for (const element of Array.from(editorElement?.querySelectorAll<HTMLElement>('.basehalf-markdown-rich-selection-reveal') ?? [])) {
+		element.classList.remove('basehalf-markdown-rich-selection-reveal');
+	}
+}
+
 function MarkdownRichEditor(): JSX.Element {
 	const vscode = useMemo(() => acquireVsCodeApi(), []);
 	const initialKey = useMemo(() => decodeHtmlKey(document.getElementById('root')?.dataset.basehalfKey ?? ''), []);
@@ -295,6 +309,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const saveTimer = useRef<number | undefined>(undefined);
 	const focusTimer = useRef<number | undefined>(undefined);
+	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const [version, setVersion] = useState(0);
@@ -488,6 +503,57 @@ function MarkdownRichEditor(): JSX.Element {
 		}, FOCUS_DEBOUNCE_MS);
 	}, [editor, vscode]);
 
+	const revealSelection = useCallback((selection: IBaseHalfMarkdownRichTextSelection | undefined) => {
+		const state = session.current;
+		if (!selection || !state.ready || state.loading) {
+			return;
+		}
+
+		const start = Math.min(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
+		const end = Math.max(selection.startLineNumber, selection.endLineNumber ?? selection.startLineNumber);
+		const ids = baseHalfMarkdownLinesToBlockIds(
+			editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+			state.byId,
+			countBaseHalfMarkdownNewlines(state.frontmatter),
+			[[start, end]]
+		);
+		if (ids.length === 0) {
+			return;
+		}
+
+		const reveal = (attempt = 0): void => {
+			const editorElement = editor.domElement;
+			const elements = ids
+				.map(id => findBlockElement(editorElement, id))
+				.filter((element): element is HTMLElement => !!element);
+
+			if (elements.length === 0 && attempt < 6) {
+				window.requestAnimationFrame(() => reveal(attempt + 1));
+				return;
+			}
+			if (elements.length === 0) {
+				return;
+			}
+
+			clearSelectionReveal(editorElement);
+			elements[0].scrollIntoView({ block: 'center', inline: 'nearest' });
+			for (const element of elements) {
+				element.classList.add('basehalf-markdown-rich-selection-reveal');
+			}
+
+			if (revealTimer.current !== undefined) {
+				window.clearTimeout(revealTimer.current);
+			}
+			revealTimer.current = window.setTimeout(() => {
+				revealTimer.current = undefined;
+				clearSelectionReveal(editorElement);
+			}, 1800);
+			scheduleFocus();
+		};
+
+		window.requestAnimationFrame(() => reveal());
+	}, [editor, scheduleFocus]);
+
 	useEffect(() => {
 		const updateListener = (update: Uint8Array, origin: unknown) => {
 			if (origin === 'basehalf.host') {
@@ -524,7 +590,9 @@ function MarkdownRichEditor(): JSX.Element {
 
 			switch (message.type) {
 				case 'basehalf.markdownRich.init':
-					void applyContent(message.content, message.editable, message.key, message.resource).catch(reportError);
+					void applyContent(message.content, message.editable, message.key, message.resource)
+						.then(() => revealSelection(message.selection))
+						.catch(reportError);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
 					applyUpdate(ydoc, new Uint8Array(message.update), 'basehalf.host');
@@ -567,7 +635,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, notifyDirty, reportError, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, notifyDirty, reportError, revealSelection, serializeAndRequestSave, vscode, ydoc]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
@@ -763,6 +831,9 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 		if (focusTimer.current !== undefined) {
 			window.clearTimeout(focusTimer.current);
+		}
+		if (revealTimer.current !== undefined) {
+			window.clearTimeout(revealTimer.current);
 		}
 	}, []);
 

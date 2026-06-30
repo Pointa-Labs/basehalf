@@ -9,6 +9,13 @@ import { IBaseHalfAdhdCommand, IBaseHalfAdhdFile, isBaseHalfAdhdFile } from './b
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
 
+export interface IBaseHalfMarkdownRichTextSelection {
+	readonly startLineNumber: number;
+	readonly startColumn: number;
+	readonly endLineNumber?: number;
+	readonly endColumn?: number;
+}
+
 export type BaseHalfMarkdownRichHostMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.init';
@@ -16,6 +23,7 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly resource: string;
 		readonly content: string;
 		readonly editable: boolean;
+		readonly selection?: IBaseHalfMarkdownRichTextSelection;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
@@ -105,7 +113,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 		case 'basehalf.markdownRich.init':
 			return typeof candidate.resource === 'string'
 				&& typeof candidate.content === 'string'
-				&& typeof candidate.editable === 'boolean';
+				&& typeof candidate.editable === 'boolean'
+				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
 		case 'basehalf.markdownRich.applyYjsUpdate':
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
@@ -224,6 +233,18 @@ function isBaseHalfMarkdownRichCursor(value: unknown): value is NonNullable<IBas
 		&& isPositiveInteger(cursor.column)
 		&& (cursor.line_precision === 'exact' || cursor.line_precision === 'block_start' || cursor.line_precision === 'estimated')
 		&& (cursor.block === undefined || isPositiveInteger(cursor.block));
+}
+
+function isBaseHalfMarkdownRichSelection(value: unknown): value is IBaseHalfMarkdownRichTextSelection {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const selection = value as Partial<IBaseHalfMarkdownRichTextSelection>;
+	return isPositiveInteger(selection.startLineNumber)
+		&& isPositiveInteger(selection.startColumn)
+		&& (selection.endLineNumber === undefined || isPositiveInteger(selection.endLineNumber))
+		&& (selection.endColumn === undefined || isPositiveInteger(selection.endColumn));
 }
 
 function isBaseHalfMarkdownRichAdhdCommand(value: unknown): value is IBaseHalfAdhdCommand {

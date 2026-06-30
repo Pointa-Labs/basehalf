@@ -17,7 +17,12 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
 
-		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', '# Doc\n', true), true);
+		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', '# Doc\n', true, {
+			startLineNumber: 3,
+			startColumn: 1,
+			endLineNumber: 3,
+			endColumn: 6
+		}), true);
 		assert.strictEqual(await bridge.sendEditable(false), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
@@ -37,7 +42,13 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				key: 'workspace\u0000doc.md',
 				resource: 'file:///workspace/doc.md',
 				content: '# Doc\n',
-				editable: true
+				editable: true,
+				selection: {
+					startLineNumber: 3,
+					startColumn: 1,
+					endLineNumber: 3,
+					endColumn: 6
+				}
 			},
 			{
 				type: 'basehalf.markdownRich.setEditable',

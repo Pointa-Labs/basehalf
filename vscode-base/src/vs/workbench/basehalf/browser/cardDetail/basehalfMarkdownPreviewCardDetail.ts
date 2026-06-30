@@ -28,6 +28,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private resourceKey: string | undefined;
 	private renderTimer: number | undefined;
 	private focusTimer: number | undefined;
+	private selectionRevealTimer: number | undefined;
 	private lastFocusKey: string | undefined;
 	private disposed = false;
 
@@ -95,6 +96,10 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			mainWindow.clearTimeout(this.focusTimer);
 			this.focusTimer = undefined;
 		}
+		if (this.selectionRevealTimer !== undefined) {
+			mainWindow.clearTimeout(this.selectionRevealTimer);
+			this.selectionRevealTimer = undefined;
+		}
 		super.dispose();
 	}
 
@@ -130,6 +135,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		rendered.element.classList.add('basehalf-card-detail-markdown-preview-content');
 		this.rendered.add(rendered);
 		this.updateStatus();
+		this.revealSelection();
 		this.scheduleFocusWrite(0);
 	}
 
@@ -178,6 +184,56 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			this.focusTimer = undefined;
 			this.flushFocusWrite();
 		}, delay);
+	}
+
+	private revealSelection(): void {
+		const selection = this.state?.selection;
+		const model = this.model;
+		if (!selection || !model) {
+			return;
+		}
+
+		const lineCount = Math.max(1, model.getLineCount());
+		const ratio = Math.max(0, Math.min(1, (selection.startLineNumber - 1) / Math.max(1, lineCount - 1)));
+		mainWindow.requestAnimationFrame(() => {
+			const maxScroll = Math.max(0, this.previewScroll.scrollHeight - this.previewScroll.clientHeight);
+			this.previewScroll.scrollTop = ratio * maxScroll;
+			this.clearSelectionReveal();
+
+			const anchor = this.closestRenderedBlockToViewportTop();
+			anchor?.classList.add('basehalf-card-detail-markdown-preview-selection-reveal');
+			if (this.selectionRevealTimer !== undefined) {
+				mainWindow.clearTimeout(this.selectionRevealTimer);
+			}
+			this.selectionRevealTimer = mainWindow.setTimeout(() => {
+				this.selectionRevealTimer = undefined;
+				this.clearSelectionReveal();
+			}, 1800);
+			this.scheduleFocusWrite(0);
+		});
+	}
+
+	private closestRenderedBlockToViewportTop(): HTMLElement | undefined {
+		const viewportTop = this.previewScroll.getBoundingClientRect().top;
+		const candidates = Array.from(this.previewContent.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,table'));
+		let best: { readonly element: HTMLElement; readonly distance: number } | undefined;
+		for (const candidate of candidates) {
+			const rect = candidate.getBoundingClientRect();
+			if (rect.bottom < viewportTop) {
+				continue;
+			}
+			const distance = Math.abs(rect.top - viewportTop);
+			if (!best || distance < best.distance) {
+				best = { element: candidate, distance };
+			}
+		}
+		return best?.element;
+	}
+
+	private clearSelectionReveal(): void {
+		for (const element of Array.from(this.previewContent.querySelectorAll<HTMLElement>('.basehalf-card-detail-markdown-preview-selection-reveal'))) {
+			element.classList.remove('basehalf-card-detail-markdown-preview-selection-reveal');
+		}
 	}
 
 	private flushFocusWrite(): void {

@@ -89,6 +89,7 @@ try {
 	await quickOpen(page, '%needle-basehalf-routing');
 	await assertCardDetail(page, 'README.md');
 	await assertNoEditorTabFor(page, 'README.md');
+	await assertFocusLine('README.md', 3);
 
 	await quickOpen(page, 'docs');
 	await page.locator('.basehalf-canvas-title', { hasText: 'docs' }).waitFor({ state: 'visible', timeout: 20_000 });
@@ -101,6 +102,7 @@ try {
 			'open-editors-hidden',
 			'quick-open-card-detail',
 			'quick-text-search-card-detail-no-tab',
+			'quick-text-search-selection-focus',
 			'folder-quick-open-canvas'
 		]
 	};
@@ -230,6 +232,30 @@ async function assertNoEditorTabFor(page, name) {
 	if (tabs.some(tab => tab && tab.includes(name))) {
 		throw new Error(`Unexpected VS Code editor tab for ${name}: ${tabs.join(', ')}`);
 	}
+}
+
+async function assertFocusLine(relativePath, line) {
+	const focusPath = path.join(workspacePath, '.bh', 'mirror', ...relativePath.split('/'), 'focus.yaml');
+	await waitUntil(() => {
+		if (!fs.existsSync(focusPath)) {
+			return false;
+		}
+		const content = fs.readFileSync(focusPath, 'utf8');
+		return content.includes('projection: rich')
+			&& content.includes('cursor:')
+			&& content.includes(`  line: ${line}`);
+	}, `focus.yaml for ${relativePath} to point at line ${line}`);
+}
+
+async function waitUntil(predicate, description, timeoutMs = 10_000) {
+	const started = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		if (predicate()) {
+			return;
+		}
+		await new Promise(resolve => setTimeout(resolve, 100));
+	}
+	throw new Error(`Timed out waiting for ${description}`);
 }
 
 async function writeFailureArtifacts(error) {
