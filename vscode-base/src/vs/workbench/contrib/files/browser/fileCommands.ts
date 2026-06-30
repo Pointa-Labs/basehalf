@@ -53,7 +53,7 @@ import { OpenEditorsView } from './views/openEditorsView.js';
 import { ExplorerView } from './views/explorerView.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export const openWindowCommand = (accessor: ServicesAccessor, toOpen: IWindowOpenable[], options?: IOpenWindowOptions) => {
 	if (Array.isArray(toOpen)) {
@@ -134,15 +134,16 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		const resources = explorerService.getContext(true);
 
 		if (resources.length) {
-			if (resources.length === 1) {
-				const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0].resource, {
-					source: 'explorerCommand',
-					preserveFocus: false,
-					pinned: true
-				});
-				if (result.handled) {
-					return;
-				}
+			const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0].resource, {
+				source: 'explorerCommand',
+				preserveFocus: false,
+				pinned: true
+			});
+			if (result.handled) {
+				return;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				return;
 			}
 
 			await editorService.openEditors(resources.map(r => ({ resource: r.resource, options: { preserveFocus: false, pinned: true } })));
@@ -738,7 +739,7 @@ CommandsRegistry.registerCommand({
 			pinned: true,
 			forceVSCodeEditor: !!(args?.viewType || args?.languageId)
 		});
-		if (!result.handled) {
+		if (shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 			await editorService.openEditor({
 				resource: saveUri,
 				options: {

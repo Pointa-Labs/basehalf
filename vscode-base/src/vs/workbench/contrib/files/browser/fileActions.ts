@@ -62,7 +62,7 @@ import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export const NEW_FILE_COMMAND_ID = 'explorer.newFile';
 export const NEW_FILE_LABEL = nls.localize2('newFile', "New File...");
@@ -968,7 +968,7 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 					source: 'fileCommand',
 					pinned: true
 				});
-				if (!result.handled) {
+				if (shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 					await editorService.openEditor({ resource: resourceToCreate, options: { pinned: true } });
 				}
 			}
@@ -1282,13 +1282,13 @@ export const pasteFileHandler = async (accessor: ServicesAccessor, fileList?: Fi
 			await explorerService.select(firstTarget);
 			if (targets.length === 1) {
 				const item = explorerService.findClosest(firstTarget);
-				if (item && !item.isDirectory) {
+				if (item) {
 					const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, item.resource, {
 						source: 'fileCommand',
 						pinned: true,
 						preserveFocus: true
 					});
-					if (!result.handled) {
+					if (!item.isDirectory && shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 						await editorService.openEditor({ resource: item.resource, options: { pinned: true, preserveFocus: true } });
 					}
 				}
@@ -1344,12 +1344,15 @@ export const openFilePreserveFocusHandler = async (accessor: ServicesAccessor) =
 	const stats = explorerService.getContext(true);
 	const files = stats.filter(s => !s.isDirectory);
 
-	if (files.length === 1) {
+	if (files.length) {
 		const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, files[0].resource, {
 			source: 'explorerCommand',
 			preserveFocus: true
 		});
 		if (result.handled) {
+			return;
+		}
+		if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 			return;
 		}
 	}

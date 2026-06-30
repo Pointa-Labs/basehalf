@@ -12,6 +12,7 @@ import {
 	BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 	BASEHALF_CONFIGURATION_DEFAULTS,
 	BASEHALF_HIDDEN_SURFACES,
+	BASEHALF_HIDDEN_VIEW_IDS,
 	BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS,
 	BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE,
 	BASEHALF_MIGRATION_MODULE_TRACKS,
@@ -28,6 +29,7 @@ import {
 	isBaseHalfAllowedExternalExtension,
 	isBaseHalfPrimaryViewContainer,
 	shouldBaseHalfCloseStartupEditor,
+	shouldBaseHalfHideView,
 	shouldBaseHalfHideViewContainer
 } from '../../common/basehalfWorkbenchProfile.js';
 
@@ -63,6 +65,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickOpen'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.action.quickTextSearch'), 'remapped');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.extensions'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.explorer.openEditorsView'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.chat'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
@@ -86,7 +89,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		);
 	});
 
-	test('selects hidden view containers without deregistering VS Code registries', () => {
+	test('selects hidden views and view containers without deregistering VS Code registries', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extensions'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.debug'), true);
@@ -95,6 +98,11 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat.view.copilot'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('terminal'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.scm'), false);
+
+		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'workbench.panel.chat.view.copilot']);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.explorer.openEditorsView'), true);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.chat.view.copilot'), true);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.files.explorer'), false);
 	});
 
 	test('declares VS Code activity-bar storage that keeps only BaseHalf sidebar containers pinned', () => {

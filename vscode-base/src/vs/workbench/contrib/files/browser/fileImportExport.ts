@@ -36,7 +36,7 @@ import { WebFileSystemAccess } from '../../../../platform/files/browser/webFileS
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 //#region Browser File Upload (drag and drop, input element)
 
@@ -192,15 +192,15 @@ export class BrowserFileUpload {
 
 		operation.progressScheduler.dispose();
 
-		// Open the uploaded file only if we upload just one.
-		const firstUploadedFile = results[0];
-		if (!token.isCancellationRequested && firstUploadedFile?.isFile) {
-			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, firstUploadedFile.resource, {
+		// Open the uploaded resource only if we upload just one.
+		const firstUploadedResource = results[0];
+		if (!token.isCancellationRequested && results.length === 1 && firstUploadedResource) {
+			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, firstUploadedResource.resource, {
 				source: 'fileCommand',
 				pinned: true
 			});
-			if (!result.handled) {
-				await this.editorService.openEditor({ resource: firstUploadedFile.resource, options: { pinned: true } });
+			if (firstUploadedResource.isFile && shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				await this.editorService.openEditor({ resource: firstUploadedResource.resource, options: { pinned: true } });
 			}
 		}
 	}
@@ -576,12 +576,12 @@ export class ExternalFileImport {
 			const autoOpen = this.configurationService.getValue<IFilesConfiguration>().explorer.autoOpenDroppedFile;
 			if (autoOpen && resourceFileEdits.length === 1) {
 				const item = this.explorerService.findClosest(resourceFileEdits[0].newResource!);
-				if (item && !item.isDirectory) {
+				if (item) {
 					const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, item.resource, {
 						source: 'fileCommand',
 						pinned: true
 					});
-					if (!result.handled) {
+					if (!item.isDirectory && shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 						await this.editorService.openEditor({ resource: item.resource, options: { pinned: true } });
 					}
 				}

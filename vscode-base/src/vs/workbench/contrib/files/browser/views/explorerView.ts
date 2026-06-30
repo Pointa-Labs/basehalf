@@ -57,7 +57,7 @@ import { AbstractTreePart } from '../../../../../base/browser/ui/tree/abstractTr
 import { IHoverService } from '../../../../../platform/hover/browser/hover.js';
 import { IAccessibilityService } from '../../../../../platform/accessibility/common/accessibility.js';
 import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
 
 
 function hasExpandedRootChild(tree: WorkbenchCompressibleAsyncDataTree<ExplorerItem | ExplorerItem[], ExplorerItem, FuzzyScore>, treeInput: ExplorerItem[]): boolean {
@@ -570,6 +570,9 @@ export class ExplorerView extends ViewPane implements IExplorerView {
 						sideBySide: e.sideBySide
 					});
 					if (result.handled) {
+						return;
+					}
+					if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 						return;
 					}
 					await this.editorService.openEditor({ resource: element.resource, options: { preserveFocus: e.editorOptions.preserveFocus, pinned: e.editorOptions.pinned, source: EditorOpenSource.USER } }, e.sideBySide ? SIDE_GROUP : ACTIVE_GROUP);

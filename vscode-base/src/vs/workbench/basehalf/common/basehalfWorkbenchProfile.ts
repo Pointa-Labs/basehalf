@@ -191,6 +191,13 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		reason: 'The full Marketplace/Extensions product surface is hidden while extension support is curated.'
 	},
 	{
+		id: 'workbench.explorer.openEditorsView',
+		kind: 'view',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/files/browser/views/openEditorsView.ts',
+		reason: 'Open Editors exposes VS Code editor-tab state; BaseHalf keeps canvas/card detail as the primary file-open surface.'
+	},
+	{
 		id: 'workbench.panel.chat',
 		kind: 'viewContainer',
 		area: 'chat',
@@ -286,6 +293,10 @@ export const BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_LEF
 	id: surface.id,
 	visible: surface.visible
 })) as readonly { readonly id: string; readonly visible: boolean }[];
+
+export const BASEHALF_HIDDEN_VIEW_IDS = BASEHALF_HIDDEN_SURFACES
+	.filter(surface => surface.kind === 'view')
+	.map(surface => surface.id) as readonly string[];
 
 export interface IBaseHalfAllowedExtensionFamily {
 	readonly family: BaseHalfExtensionFamily;
@@ -552,6 +563,10 @@ export function shouldBaseHalfHideViewContainer(id: string): boolean {
 	return HIDDEN_VIEW_CONTAINER_IDS.has(id);
 }
 
+export function shouldBaseHalfHideView(id: string): boolean {
+	return HIDDEN_VIEW_IDS.has(id);
+}
+
 export function shouldBaseHalfCloseStartupEditor(typeId: string): boolean {
 	return CLOSED_STARTUP_EDITOR_TYPE_IDS.has(typeId);
 }
@@ -585,6 +600,7 @@ const HIDDEN_SURFACE_IDS = new Set<string>(BASEHALF_HIDDEN_SURFACES.map(surface 
 const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(
 	BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'viewContainer').map(surface => surface.id)
 );
+const HIDDEN_VIEW_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_IDS);
 const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
 	BASEHALF_ALLOWED_EXTENSION_FAMILIES.flatMap(family => family.builtInExtensionIds.map(normalizeExtensionId))

@@ -14,6 +14,7 @@ import {
 } from '../../common/basehalfCanvasNavigation.js';
 import {
 	getBaseHalfOpenRoutingDecision,
+	shouldFallbackToVSCodeEditorAfterBaseHalfRouting,
 	tryOpenBaseHalfResource
 } from '../../common/basehalfOpenRouting.js';
 
@@ -84,6 +85,24 @@ suite('BaseHalfOpenRouting', () => {
 
 		assert.deepStrictEqual(result, { handled: false, reason: 'missingOrUnreadable' });
 		assert.strictEqual(service.opened.length, 1);
+	});
+
+	test('falls back to VS Code editor only for explicit editor-compatible reasons', () => {
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({
+			handled: true,
+			target: 'cardDetail',
+			state: {
+				resource: URI.file('/workspace/readme.md'),
+				workspaceFolder: URI.file('/workspace'),
+				relativePath: 'readme.md',
+				source: 'quickAccess',
+				projection: 'source'
+			}
+		}), false);
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'sideBySide' }), true);
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'forcedVSCodeEditor' }), true);
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'missingOrUnreadable' }), true);
+		assert.strictEqual(shouldFallbackToVSCodeEditorAfterBaseHalfRouting({ handled: false, reason: 'blockedByDirtyEditor' }), false);
 	});
 });
 

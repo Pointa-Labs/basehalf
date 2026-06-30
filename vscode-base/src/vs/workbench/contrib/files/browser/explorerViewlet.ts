@@ -38,6 +38,7 @@ import { Codicon } from '../../../../base/common/codicons.js';
 import { registerIcon } from '../../../../platform/theme/common/iconRegistry.js';
 import { isMouseEvent } from '../../../../base/browser/dom.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { shouldBaseHalfHideView } from '../../../basehalf/common/basehalfWorkbenchProfile.js';
 
 const explorerViewIcon = registerIcon('explorer-view-icon', Codicon.files, localize('explorerViewIcon', 'View icon of the explorer view.'));
 const openEditorsViewIcon = registerIcon('open-editors-view-icon', Codicon.book, localize('openEditorsIcon', 'View icon of the open editors view.'));
@@ -69,7 +70,12 @@ export class ExplorerViewletViewsContribution extends Disposable implements IWor
 		const viewDescriptorsToDeregister: IViewDescriptor[] = [];
 
 		const openEditorsViewDescriptor = this.createOpenEditorsViewDescriptor();
-		if (!viewDescriptors.some(v => v.id === openEditorsViewDescriptor.id)) {
+		const registeredOpenEditorsViewDescriptor = viewDescriptors.find(v => v.id === openEditorsViewDescriptor.id);
+		if (shouldBaseHalfHideView(openEditorsViewDescriptor.id)) {
+			if (registeredOpenEditorsViewDescriptor) {
+				viewDescriptorsToDeregister.push(registeredOpenEditorsViewDescriptor);
+			}
+		} else if (!registeredOpenEditorsViewDescriptor) {
 			viewDescriptorsToRegister.push(openEditorsViewDescriptor);
 		}
 

@@ -74,6 +74,8 @@ import { IContextKey, IContextKeyService } from '../../../../../platform/context
 import { CountBadge } from '../../../../../base/browser/ui/countBadge/countBadge.js';
 import { listFilterMatchHighlight, listFilterMatchHighlightBorder } from '../../../../../platform/theme/common/colorRegistry.js';
 import { asCssVariable } from '../../../../../platform/theme/common/colorUtils.js';
+import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
 
 export class ExplorerDelegate implements IListVirtualDelegate<ExplorerItem> {
 
@@ -1587,6 +1589,7 @@ export class FileDragAndDrop implements ITreeDragAndDrop<ExplorerItem> {
 		@IConfigurationService private configurationService: IConfigurationService,
 		@IInstantiationService private instantiationService: IInstantiationService,
 		@IWorkspaceEditingService private workspaceEditingService: IWorkspaceEditingService,
+		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService
 	) {
 		const updateDropEnablement = (e: IConfigurationChangeEvent | undefined) => {
@@ -1977,12 +1980,28 @@ export class FileDragAndDrop implements ITreeDragAndDrop<ExplorerItem> {
 			progressLabel: localize('copying', "Copying {0}", labelSuffix),
 		});
 
-		const editors = resourceFileEdits.filter(edit => {
+		const editors: Array<{ resource: URI; options: { pinned: boolean } }> = [];
+		for (const edit of resourceFileEdits) {
 			const item = edit.newResource ? this.explorerService.findClosest(edit.newResource) : undefined;
-			return item && !item.isDirectory;
-		}).map(edit => ({ resource: edit.newResource, options: { pinned: true } }));
+			if (!item) {
+				continue;
+			}
 
-		await this.editorService.openEditors(editors);
+			const result = await tryOpenBaseHalfResource(this.baseHalfCanvasNavigationService, item.resource, {
+				source: 'fileCommand',
+				pinned: true
+			});
+			if (!result.handled && !shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				return;
+			}
+			if (!item.isDirectory && shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+				editors.push({ resource: item.resource, options: { pinned: true } });
+			}
+		}
+
+		if (editors.length) {
+			await this.editorService.openEditors(editors);
+		}
 	}
 
 	private async doHandleExplorerDropOnMove(sources: ExplorerItem[], target: ExplorerItem): Promise<void> {

@@ -27,7 +27,8 @@ import { ThemeIcon } from '../../../../base/common/themables.js';
 import { IChatWidgetService } from '../../chat/browser/chat.js';
 import { ISymbolVariableEntry } from '../../chat/common/attachments/chatVariableEntries.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { INotebookService } from '../../notebook/common/notebookService.js';
 
 export interface ISymbolQuickPickItem extends IPickerQuickAccessItem, IQuickPickItemWithResource {
 	score?: number;
@@ -70,6 +71,7 @@ export class SymbolsQuickAccessProvider extends PickerQuickAccessProvider<ISymbo
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ICodeEditorService private readonly codeEditorService: ICodeEditorService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
+		@INotebookService private readonly notebookService: INotebookService,
 		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(SymbolsQuickAccessProvider.PREFIX, {
@@ -280,9 +282,13 @@ export class SymbolsQuickAccessProvider extends PickerQuickAccessProvider<ISymbo
 				preserveFocus: editorOptions.preserveFocus,
 				pinned: editorOptions.pinned,
 				selection: editorOptions.selection,
-				sideBySide: targetGroup === SIDE_GROUP
+				sideBySide: targetGroup === SIDE_GROUP,
+				forceVSCodeEditor: symbolToOpen.location.uri.scheme !== Schemas.untitled && this.notebookService.getContributedNotebookTypes(symbolToOpen.location.uri).length > 0
 			});
 			if (result.handled) {
+				return;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 				return;
 			}
 

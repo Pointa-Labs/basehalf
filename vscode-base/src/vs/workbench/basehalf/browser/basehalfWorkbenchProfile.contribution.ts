@@ -14,7 +14,7 @@ import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
-import { BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
 	overrides: BASEHALF_CONFIGURATION_DEFAULTS,
@@ -86,6 +86,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 	private async closeRestoredCompetingSurfaces(): Promise<void> {
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 		await this.closeRestoredHiddenViewContainers();
+		this.closeRestoredHiddenViews();
 		await this.closeRestoredStartupEditors();
 	}
 
@@ -103,6 +104,17 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		if (primaryViewContainer && !this.viewsService.getVisibleViewContainer(ViewContainerLocation.Sidebar)?.id) {
 			await this.viewsService.openViewContainer(primaryViewContainer.id, false);
 			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] restored BaseHalf primary view container: ${primaryViewContainer.id}`);
+		}
+	}
+
+	private closeRestoredHiddenViews(): void {
+		for (const viewId of BASEHALF_HIDDEN_VIEW_IDS) {
+			if (!shouldBaseHalfHideView(viewId) || !this.viewsService.isViewVisible(viewId)) {
+				continue;
+			}
+
+			this.viewsService.closeView(viewId);
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view: ${viewId}`);
 		}
 	}
 

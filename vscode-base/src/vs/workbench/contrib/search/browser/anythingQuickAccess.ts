@@ -59,7 +59,8 @@ import { IChatWidgetService, IQuickChatService } from '../../chat/browser/chat.j
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ICustomEditorLabelService } from '../../../services/editor/common/customEditorLabelService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { INotebookService } from '../../notebook/common/notebookService.js';
 
 interface IAnythingQuickPickItem extends IPickerQuickAccessItem, IQuickPickItemWithResource { }
 
@@ -144,6 +145,7 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 		@ILogService private readonly logService: ILogService,
 		@ICustomEditorLabelService private readonly customEditorLabelService: ICustomEditorLabelService,
 		@IChatWidgetService private readonly chatWidgetService: IChatWidgetService,
+		@INotebookService private readonly notebookService: INotebookService,
 		@IBaseHalfCanvasNavigationService private readonly baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(AnythingQuickAccessProvider.PREFIX, {
@@ -1150,14 +1152,23 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 				preserveFocus: editorOptions.preserveFocus,
 				pinned: editorOptions.pinned,
 				selection: editorOptions.selection,
-				sideBySide: targetGroup === SIDE_GROUP
+				sideBySide: targetGroup === SIDE_GROUP,
+				forceVSCodeEditor: this.shouldOpenResourceInVSCodeEditor(resourceEditorInput)
 			});
 			if (result.handled) {
+				return;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 				return;
 			}
 
 			await this.editorService.openEditor(resourceEditorInput, targetGroup);
 		}
+	}
+
+	private shouldOpenResourceInVSCodeEditor(resourceEditorInput: IResourceEditorInput): boolean {
+		return !!resourceEditorInput.options?.override
+			|| (resourceEditorInput.resource.scheme !== Schemas.untitled && this.notebookService.getContributedNotebookTypes(resourceEditorInput.resource).length > 0);
 	}
 
 	//#endregion

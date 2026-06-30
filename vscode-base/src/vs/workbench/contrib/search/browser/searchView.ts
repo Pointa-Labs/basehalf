@@ -80,7 +80,7 @@ import { AccessibilitySignal, IAccessibilitySignalService } from '../../../../pl
 import { getDefaultHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegateFactory.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 import { ISearchViewModelWorkbenchService } from './searchTreeModel/searchViewModelWorkbenchService.js';
 import { ISearchTreeMatch, isSearchTreeMatch, RenderableMatch, SearchModelLocation, IChangeEvent, FileMatchOrMatch, ISearchTreeFileMatch, ISearchTreeFolderMatch, ISearchModel, ISearchResult, isSearchTreeFileMatch, isSearchTreeFolderMatch, isSearchTreeFolderMatchNoRoot, isSearchTreeFolderMatchWithResource, isSearchTreeFolderMatchWorkspaceRoot, isSearchResult, isTextSearchHeading, ITextSearchHeading, isSearchHeader } from './searchTreeModel/searchTreeCommon.js';
 import { INotebookFileInstanceMatch, isIMatchInNotebook } from './notebookSearch/notebookSearchModelBase.js';
@@ -2266,6 +2266,9 @@ export class SearchView extends ViewPane {
 			});
 			if (result.handled) {
 				this.viewModel.searchResult.getRangeHighlightDecorations().removeHighlightRange();
+				return;
+			}
+			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 				return;
 			}
 

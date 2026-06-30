@@ -71,3 +71,7 @@ export async function tryOpenBaseHalfResource(
 
 	return canvasNavigationService.openResource(resource, decision.options);
 }
+
+export function shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result: BaseHalfOpenRoutingResult): boolean {
+	return !result.handled && result.reason !== 'blockedByDirtyEditor';
+}

@@ -5,6 +5,7 @@
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { DisposableStore, IDisposable } from '../../../../../base/common/lifecycle.js';
 import { ResourceSet } from '../../../../../base/common/map.js';
+import { Schemas } from '../../../../../base/common/network.js';
 import { basenameOrAuthority, dirname } from '../../../../../base/common/resources.js';
 import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { IRange } from '../../../../../editor/common/core/range.js';
@@ -35,8 +36,9 @@ import { SearchModelImpl } from '../searchTreeModel/searchModel.js';
 import { SearchModelLocation, RenderableMatch, ISearchTreeFileMatch, ISearchTreeMatch, ISearchResult } from '../searchTreeModel/searchTreeCommon.js';
 import { searchComparer } from '../searchCompare.js';
 import { IMatch } from '../../../../../base/common/filters.js';
-import { IBaseHalfCanvasNavigationService } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
-import { tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
+import { IBaseHalfCanvasNavigationService, IBaseHalfCanvasNavigationState } from '../../../../basehalf/common/basehalfCanvasNavigation.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../../basehalf/common/basehalfOpenRouting.js';
+import { INotebookService } from '../../../notebook/common/notebookService.js';
 
 export const TEXT_SEARCH_QUICK_ACCESS_PREFIX = '%';
 
@@ -60,6 +62,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 	private editorSequencer: Sequencer;
 	private queryBuilder: QueryBuilder;
 	private searchModel: SearchModelImpl;
+	private baseHalfPreviewState: IBaseHalfCanvasNavigationState | undefined;
 	private currentAsyncSearch: Promise<ISearchComplete> = Promise.resolve({
 		results: [],
 		messages: []
@@ -89,6 +92,7 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		@ILabelService private readonly _labelService: ILabelService,
 		@IViewsService private readonly _viewsService: IViewsService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
+		@INotebookService private readonly _notebookService: INotebookService,
 		@IBaseHalfCanvasNavigationService private readonly _baseHalfCanvasNavigationService: IBaseHalfCanvasNavigationService
 	) {
 		super(TEXT_SEARCH_QUICK_ACCESS_PREFIX, { canAcceptInBackground: true, shouldSkipTrimPickFilter: true });
@@ -129,10 +133,13 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 				this.editorViewState.set();
 				const itemMatch = item.match;
 				this.editorSequencer.queue(async () => {
-					await this.editorViewState.openTransientEditor({
-						resource: itemMatch.parent().resource,
-						options: { preserveFocus: true, revealIfOpened: true, ignoreError: true, selection: itemMatch.range() }
-					});
+					const didPreviewInBaseHalf = await this.previewBaseHalfMatch(itemMatch);
+					if (!didPreviewInBaseHalf) {
+						await this.editorViewState.openTransientEditor({
+							resource: itemMatch.parent().resource,
+							options: { preserveFocus: true, revealIfOpened: true, ignoreError: true, selection: itemMatch.range() }
+						});
+					}
 				});
 			}
 		};
@@ -145,10 +152,14 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 			// could mean the user clicked into the editor directly.
 			if (reason === QuickInputHideReason.Gesture) {
 				this.editorViewState.restore();
+				void this.restoreBaseHalfPreviewState();
 			}
 		}));
 
 		disposables.add(Event.once(picker.onDidHide)(({ reason }) => {
+			if (reason !== QuickInputHideReason.Gesture) {
+				this.baseHalfPreviewState = undefined;
+			}
 			this.searchModel.searchResult.toggleHighlights(false);
 		}));
 
@@ -347,9 +358,13 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 			preserveFocus: editorOptions.preserveFocus,
 			pinned: editorOptions.pinned,
 			selection: editorOptions.selection,
-			sideBySide: targetGroup === SIDE_GROUP
+			sideBySide: targetGroup === SIDE_GROUP,
+			forceVSCodeEditor: iFileInstanceMatch.resource.scheme !== Schemas.untitled && this._notebookService.getContributedNotebookTypes(iFileInstanceMatch.resource).length > 0
 		});
 		if (result.handled) {
+			return;
+		}
+		if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
 			return;
 		}
 
@@ -357,6 +372,47 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 			resource: iFileInstanceMatch.resource,
 			options: editorOptions
 		}, targetGroup);
+	}
+
+	private async previewBaseHalfMatch(itemMatch: ISearchTreeMatch): Promise<boolean> {
+		const resource = itemMatch.parent().resource;
+		if (resource.scheme !== Schemas.untitled && this._notebookService.getContributedNotebookTypes(resource).length > 0) {
+			return false;
+		}
+
+		this.baseHalfPreviewState ??= snapshotBaseHalfNavigationState(this._baseHalfCanvasNavigationService.state);
+		const result = await tryOpenBaseHalfResource(this._baseHalfCanvasNavigationService, resource, {
+			source: 'quickAccess',
+			preserveFocus: true,
+			selection: getEditorSelectionFromMatch(itemMatch, this.searchModel)
+		});
+
+		return result.handled || !shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result);
+	}
+
+	private async restoreBaseHalfPreviewState(): Promise<void> {
+		const state = this.baseHalfPreviewState;
+		this.baseHalfPreviewState = undefined;
+		if (!state) {
+			return;
+		}
+
+		if (state.cardDetail) {
+			await this._baseHalfCanvasNavigationService.openCardDetail(state.cardDetail.resource, {
+				source: state.cardDetail.source,
+				selection: state.cardDetail.selection,
+				preserveFocus: state.cardDetail.preserveFocus,
+				pinned: state.cardDetail.pinned,
+				projection: state.cardDetail.projection
+			});
+			return;
+		}
+
+		if (state.canvasFolder) {
+			await this._baseHalfCanvasNavigationService.openFolderCanvas(state.canvasFolder.resource, {
+				source: state.canvasFolder.source
+			});
+		}
 	}
 
 	protected _getPicks(contentPattern: string, disposables: DisposableStore, token: CancellationToken): Picks<IQuickPickItem> | Promise<Picks<IQuickPickItem> | FastAndSlowPicks<IQuickPickItem>> | FastAndSlowPicks<IQuickPickItem> | null {
@@ -408,4 +464,11 @@ export class TextSearchQuickAccess extends PickerQuickAccessProvider<ITextSearch
 		};
 
 	}
+}
+
+function snapshotBaseHalfNavigationState(state: IBaseHalfCanvasNavigationState): IBaseHalfCanvasNavigationState {
+	return {
+		canvasFolder: state.canvasFolder ? { ...state.canvasFolder } : undefined,
+		cardDetail: state.cardDetail ? { ...state.cardDetail } : undefined
+	};
 }
