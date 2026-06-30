@@ -15,6 +15,7 @@ import {
 import {
 	getBaseHalfOpenRoutingDecision,
 	shouldFallbackToVSCodeEditorAfterBaseHalfRouting,
+	shouldRouteSingleResourceThroughBaseHalf,
 	tryOpenBaseHalfResource
 } from '../../common/basehalfOpenRouting.js';
 
@@ -86,6 +87,12 @@ suite('BaseHalfOpenRouting', () => {
 			route: 'vscode',
 			reason: 'forcedVSCodeEditor'
 		});
+	});
+
+	test('routes only single resource activations through BaseHalf', () => {
+		assert.strictEqual(shouldRouteSingleResourceThroughBaseHalf(0), false);
+		assert.strictEqual(shouldRouteSingleResourceThroughBaseHalf(1), true);
+		assert.strictEqual(shouldRouteSingleResourceThroughBaseHalf(2), false);
 	});
 
 	test('returns navigation fallback reasons without hiding them', async () => {

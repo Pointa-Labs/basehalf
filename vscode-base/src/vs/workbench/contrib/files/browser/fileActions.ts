@@ -62,7 +62,7 @@ import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export const NEW_FILE_COMMAND_ID = 'explorer.newFile';
 export const NEW_FILE_LABEL = nls.localize2('newFile', "New File...");
@@ -1344,7 +1344,7 @@ export const openFilePreserveFocusHandler = async (accessor: ServicesAccessor) =
 	const stats = explorerService.getContext(true);
 	const files = stats.filter(s => !s.isDirectory);
 
-	if (files.length) {
+	if (shouldRouteSingleResourceThroughBaseHalf(files.length)) {
 		const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, files[0].resource, {
 			source: 'explorerCommand',
 			preserveFocus: true

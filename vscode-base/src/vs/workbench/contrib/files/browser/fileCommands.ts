@@ -53,7 +53,7 @@ import { OpenEditorsView } from './views/openEditorsView.js';
 import { ExplorerView } from './views/explorerView.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
-import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
 
 export const openWindowCommand = (accessor: ServicesAccessor, toOpen: IWindowOpenable[], options?: IOpenWindowOptions) => {
 	if (Array.isArray(toOpen)) {
@@ -98,17 +98,19 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 
 		// Set side input
 		if (resources.length) {
-			const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0], {
-				source: 'explorerCommand',
-				preserveFocus: false,
-				pinned: true,
-				sideBySide: true
-			});
-			if (result.handled) {
-				return;
-			}
-			if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
-				return;
+			if (shouldRouteSingleResourceThroughBaseHalf(resources.length)) {
+				const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0], {
+					source: 'explorerCommand',
+					preserveFocus: false,
+					pinned: true,
+					sideBySide: true
+				});
+				if (result.handled) {
+					return;
+				}
+				if (!shouldFallbackToVSCodeEditorAfterBaseHalfRouting(result)) {
+					return;
+				}
 			}
 
 			const untitledResources = resources.filter(resource => resource.scheme === Schemas.untitled);
@@ -148,6 +150,11 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 		const resources = explorerService.getContext(true);
 
 		if (resources.length) {
+			if (!shouldRouteSingleResourceThroughBaseHalf(resources.length)) {
+				await editorService.openEditors(resources.map(r => ({ resource: r.resource, options: { preserveFocus: false, pinned: true } })));
+				return;
+			}
+
 			const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resources[0].resource, {
 				source: 'explorerCommand',
 				preserveFocus: false,

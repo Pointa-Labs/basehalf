@@ -38,6 +38,10 @@ export type BaseHalfOpenRoutingDecision =
 	| { readonly route: 'basehalf'; readonly options: IBaseHalfOpenResourceOptions }
 	| { readonly route: 'vscode'; readonly reason: 'forcedVSCodeEditor' };
 
+export function shouldRouteSingleResourceThroughBaseHalf(resourceCount: number): boolean {
+	return resourceCount === 1;
+}
+
 export function getBaseHalfOpenRoutingDecision(options: IBaseHalfOpenRoutingOptions): BaseHalfOpenRoutingDecision {
 	if (options.forceVSCodeEditor) {
 		return { route: 'vscode', reason: 'forcedVSCodeEditor' };
