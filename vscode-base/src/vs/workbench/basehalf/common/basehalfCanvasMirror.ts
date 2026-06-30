@@ -42,6 +42,8 @@ export interface IBaseHalfCanvasMirrorService {
 	readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null>;
 	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile>;
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile>;
+	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile>;
+	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<IBaseHalfCanvasFile>;
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
 }
 
@@ -98,6 +100,28 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		});
 	}
 
+	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
+		const resource = this.canvasResource(folder);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readCanvas(folder);
+			const next = upsertCanvasEdge(removeCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, previous), edge);
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
+			return next;
+		});
+	}
+
+	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<IBaseHalfCanvasFile> {
+		const resource = this.canvasResource(folder);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readCanvas(folder);
+			const next = removeCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, edge);
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
+			return next;
+		});
+	}
+
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
 		const segments = folder.relativePath ? folder.relativePath.split('/').filter(Boolean) : [];
 		return URI.joinPath(folder.workspaceFolder, '.bh', 'mirror', ...segments, 'canvas.yaml');
@@ -143,6 +167,15 @@ export function upsertCanvasEdge(canvas: IBaseHalfCanvasFile, edge: IBaseHalfCan
 		...(canvas.size ? { size: canvas.size } : {}),
 		cards: canvas.cards,
 		edges
+	};
+}
+
+export function removeCanvasEdge(canvas: IBaseHalfCanvasFile, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): IBaseHalfCanvasFile {
+	return {
+		path: canvas.path,
+		...(canvas.size ? { size: canvas.size } : {}),
+		cards: canvas.cards,
+		edges: canvas.edges.filter(candidate => candidate.from !== edge.from || candidate.to !== edge.to)
 	};
 }
 

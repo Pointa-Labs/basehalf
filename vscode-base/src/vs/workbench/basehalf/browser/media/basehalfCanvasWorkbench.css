@@ -40,6 +40,24 @@
 
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 32px;
+	--bh-zoom: var(--basehalf-canvas-zoom, 1);
+	--bh-card-bg: #1e1e1e;
+	--bh-card-surface: #252526;
+	--bh-card-surface-muted: #181818;
+	--bh-card-text-primary: #cccccc;
+	--bh-card-text-secondary: #9d9d9d;
+	--bh-card-text-tertiary: #808080;
+	--bh-card-text-ghost: #6e6e6e;
+	--bh-card-border: #2b2b2b;
+	--bh-card-border-strong: #454545;
+	--bh-card-accent: #0078d4;
+	--bh-card-accent-soft: #04395e;
+	--bh-card-warning: #cca700;
+	--bh-card-danger: #f14c4c;
+	--bh-card-danger-soft: #5a1d1d;
+	--bh-card-folder: #332b00;
+	--bh-card-folder-border: #5c4f1f;
+	--bh-card-folder-glyph: #d6b656;
 
 	position: absolute;
 	inset: 0;
@@ -191,7 +209,7 @@
 	z-index: 0;
 	overflow: visible;
 	pointer-events: none;
-	color: color-mix(in srgb, var(--vscode-icon-foreground) 42%, transparent);
+	color: var(--bh-card-text-ghost);
 }
 
 .monaco-workbench .basehalf-canvas-edge-path {
@@ -200,6 +218,26 @@
 	stroke-width: 1.5px;
 	stroke-linecap: round;
 	stroke-linejoin: round;
+	transition: stroke 150ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-canvas-edge-path.hover,
+.monaco-workbench .basehalf-canvas-edge-path.selected,
+.monaco-workbench .basehalf-canvas-edge-path.reconnecting {
+	stroke: var(--bh-card-accent);
+	stroke-width: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 20px;
+	pointer-events: stroke;
+	cursor: grab;
+}
+
+.monaco-workbench .basehalf-canvas-edge-hit:active {
+	cursor: grabbing;
 }
 
 .monaco-workbench .basehalf-canvas-edge-arrow path {
@@ -207,12 +245,24 @@
 }
 
 .monaco-workbench .basehalf-canvas-edge-label {
-	fill: var(--vscode-descriptionForeground);
-	stroke: var(--vscode-editor-background);
+	opacity: 0;
+	fill: var(--bh-card-text-secondary);
+	stroke: var(--bh-card-bg);
 	stroke-width: 4px;
 	paint-order: stroke;
 	font-size: 11px;
 	font-weight: 500;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-edge-label.hover,
+.monaco-workbench .basehalf-canvas-edge-label.selected {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-canvas-edge-label.empty {
+	fill: var(--bh-card-text-tertiary);
+	font-style: italic;
 }
 
 .monaco-workbench .basehalf-canvas-connection-draft {
@@ -238,72 +288,156 @@
 	z-index: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 9px;
 	box-sizing: border-box;
 	width: 300px;
 	height: 220px;
-	padding: 12px;
 	text-align: left;
-	color: var(--vscode-foreground);
-	background-color: var(--vscode-sideBar-background);
-	border: 1px solid var(--vscode-editorWidget-border);
+	color: var(--bh-card-text-primary);
+	background: var(--bh-card-surface);
+	border: 1px solid var(--bh-card-border-strong);
 	border-radius: 8px;
-	box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
-	cursor: pointer;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 40%);
+	cursor: grab;
 	touch-action: none;
 	user-select: none;
+	overflow: visible;
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-canvas-card.folder {
+	background: var(--bh-card-folder);
+	border-color: var(--bh-card-folder-border);
 }
 
 .monaco-workbench .basehalf-canvas-card:hover,
-.monaco-workbench .basehalf-canvas-card:focus-visible {
-	border-color: var(--vscode-focusBorder);
+.monaco-workbench .basehalf-canvas-card:focus-visible,
+.monaco-workbench .basehalf-canvas-card.selected {
+	border-color: var(--bh-card-accent);
+	box-shadow: 0 0 0 2px rgb(0 120 212 / 60%), 0 2px 8px rgb(0 0 0 / 50%);
 	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-card.dragging {
+.monaco-workbench .basehalf-canvas-card.dragging,
+.monaco-workbench .basehalf-canvas-card.resizing {
 	z-index: 2;
-	border-color: var(--vscode-focusBorder);
-	box-shadow: 0 14px 32px rgb(0 0 0 / 28%);
+	border-color: var(--bh-card-accent);
+	box-shadow: 0 10px 28px rgb(0 0 0 / 60%);
 	cursor: grabbing;
 }
 
 .monaco-workbench .basehalf-canvas-card.connection-target {
-	border-color: var(--vscode-focusBorder);
-	box-shadow: 0 0 0 1px var(--vscode-focusBorder), 0 14px 32px rgb(0 0 0 / 28%);
+	border-color: var(--bh-card-accent);
+	box-shadow: 0 0 0 2px rgb(0 120 212 / 60%), 0 10px 28px rgb(0 0 0 / 60%);
+}
+
+.monaco-workbench .basehalf-canvas-card-content {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border-radius: 8px;
+}
+
+.monaco-workbench .basehalf-canvas-card-mini {
+	display: none;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 8px 12px;
+	overflow: hidden;
+	font-size: clamp(12px, calc(13px / var(--bh-zoom, 1)), var(--bh-mini-label-cap, 22px));
+}
+
+.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-mini {
+	display: flex;
+}
+
+.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-full {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-mini-flow {
+	display: flow-root;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-mini-icon {
+	float: left;
+	display: flex;
+	align-items: center;
+	height: 1.35em;
+	margin-right: 0.4em;
+}
+
+.monaco-workbench .basehalf-canvas-card-mini-label {
+	color: var(--bh-card-text-primary);
+	font-size: 1em;
+	font-weight: 600;
+	line-height: 1.35;
+	overflow-wrap: anywhere;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-mini-label.danger {
+	color: var(--bh-card-danger);
+}
+
+.monaco-workbench .basehalf-canvas-card-full {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	flex-direction: column;
 }
 
 .monaco-workbench .basehalf-canvas-card-header {
 	display: flex;
 	align-items: flex-start;
-	gap: 9px;
+	gap: 8px;
 	min-width: 0;
 	flex: none;
+	min-height: 42px;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--bh-card-border);
 }
 
 .monaco-workbench .basehalf-canvas-card-icon {
 	flex: none;
-	padding-top: 1px;
-	color: var(--vscode-symbolIcon-folderForeground);
-	font-size: 18px;
-}
-
-.monaco-workbench .basehalf-canvas-card .codicon-file {
-	color: var(--vscode-symbolIcon-fileForeground);
+	display: flex;
+	align-items: center;
+	height: 20px;
 }
 
 .monaco-workbench .basehalf-canvas-card-title {
 	min-width: 0;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
 }
 
+.monaco-workbench .basehalf-canvas-card-title-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
 .monaco-workbench .basehalf-canvas-card-label {
 	min-width: 0;
-	overflow-wrap: anywhere;
-	font-size: 13px;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-primary);
+	font-size: 14px;
 	font-weight: 600;
-	line-height: 18px;
+	line-height: 20px;
+	letter-spacing: 0;
 }
 
 .monaco-workbench .basehalf-canvas-card-path {
@@ -311,60 +445,98 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--vscode-descriptionForeground);
+	color: var(--bh-card-text-tertiary);
 	font-size: 11px;
+	font-family: var(--monaco-monospace-font);
 }
 
-.monaco-workbench .basehalf-canvas-card-badge {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
+.monaco-workbench .basehalf-canvas-card-kind-chip {
 	flex: none;
-	min-height: 42px;
-	padding: 7px 8px;
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 70%, var(--vscode-sideBar-background));
-	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 62%, transparent);
-	border-radius: 6px;
-}
-
-.monaco-workbench .basehalf-canvas-card-badge-label {
-	color: var(--vscode-descriptionForeground);
-	font-size: 10px;
+	padding: 1px 5px;
+	border-radius: 4px;
+	background: rgb(0 0 0 / 12%);
+	color: #8a6c00;
+	font-size: 9px;
 	font-weight: 600;
-	line-height: 13px;
+	line-height: 12px;
+	letter-spacing: 0.6px;
 	text-transform: uppercase;
 }
 
-.monaco-workbench .basehalf-canvas-card-badge-description {
-	min-width: 0;
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	overflow: hidden;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-	line-height: 16px;
+.monaco-workbench .basehalf-canvas-card-kind-chip.danger {
+	color: var(--bh-card-danger);
+	background: var(--bh-card-danger-soft);
 }
 
-.monaco-workbench .basehalf-canvas-card-badge-description.empty {
-	font-style: italic;
-	opacity: 0.72;
+.monaco-workbench .basehalf-canvas-card-badge-toggle {
+	position: relative;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	color: var(--bh-card-text-tertiary);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	cursor: pointer;
+	opacity: 0.56;
+	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+.monaco-workbench .basehalf-canvas-card-badge-toggle.lit,
+.monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle:hover,
+.monaco-workbench .basehalf-canvas-card-badge-toggle:focus-visible {
+	border-color: var(--bh-card-border-strong);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
+	color: var(--bh-card-accent);
+	background: rgb(0 120 212 / 12%);
+	border-color: var(--bh-card-accent-soft);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-dot {
+	position: absolute;
+	top: -2px;
+	right: -2px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--bh-card-accent);
+	border: 1.5px solid var(--bh-card-surface);
+}
+
+.monaco-workbench .basehalf-canvas-card-body {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
 }
 
 .monaco-workbench .basehalf-canvas-card-preview {
 	flex: 1;
 	min-height: 0;
-	padding: 8px;
+	padding: 8px 12px 12px;
 	overflow: hidden;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
-	color: var(--vscode-editor-foreground);
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 84%, transparent);
-	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 50%, transparent);
-	border-radius: 6px;
+	color: var(--bh-card-text-secondary);
+	background: transparent;
 	font-family: var(--monaco-monospace-font);
 	font-size: 11px;
-	line-height: 15px;
+	line-height: 1.45;
+	mask-image: linear-gradient(to bottom, #000 70%, transparent);
+	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
 
 .monaco-workbench .basehalf-canvas-card-preview.kind-folder,
@@ -372,66 +544,223 @@
 .monaco-workbench .basehalf-canvas-card-preview.kind-empty,
 .monaco-workbench .basehalf-canvas-card-preview.kind-unavailable {
 	font-family: inherit;
-	color: var(--vscode-descriptionForeground);
+	color: var(--bh-card-text-tertiary);
 }
 
-.monaco-workbench .basehalf-canvas-card-meta {
-	min-width: 0;
+.monaco-workbench .bh-md-preview {
+	height: 100%;
+	overflow: hidden;
+	color: var(--bh-card-text-secondary);
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+
+.monaco-workbench .bh-md-preview h1,
+.monaco-workbench .bh-md-preview h2,
+.monaco-workbench .bh-md-preview h3,
+.monaco-workbench .bh-md-preview p {
+	margin: 0 0 6px;
+	line-height: 1.35;
+}
+
+.monaco-workbench .bh-md-preview h1 {
+	color: var(--bh-card-text-primary);
+	font-size: 16px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h2 {
+	color: var(--bh-card-text-primary);
+	font-size: 14px;
+	font-weight: 700;
+}
+
+.monaco-workbench .bh-md-preview h3,
+.monaco-workbench .bh-md-preview p {
+	font-size: 12px;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-list {
+	display: flex;
+	min-height: 0;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-row {
 	display: flex;
 	align-items: center;
-	gap: 5px;
-	flex-wrap: wrap;
-	flex: none;
-	font-size: 10px;
-	color: var(--vscode-descriptionForeground);
+	gap: 6px;
+	min-width: 0;
 }
 
-.monaco-workbench .basehalf-canvas-card-pill {
-	max-width: 100%;
-	padding: 1px 6px;
+.monaco-workbench .basehalf-canvas-folder-preview-glyph {
+	flex: none;
+}
+
+.monaco-workbench .basehalf-canvas-folder-preview-label {
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	text-transform: uppercase;
-	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 52%, transparent);
-	border-radius: 999px;
+	color: var(--bh-card-text-secondary);
+	font-family: var(--monaco-monospace-font);
+	font-size: 12px;
+	letter-spacing: 0;
 }
 
-.monaco-workbench .basehalf-canvas-card-pill.kind {
-	color: var(--vscode-foreground);
+.monaco-workbench .basehalf-canvas-folder-preview-label.folder {
+	font-family: inherit;
 }
 
-.monaco-workbench .basehalf-canvas-card-pill.warning {
-	color: var(--vscode-inputValidation-warningForeground);
-	border-color: var(--vscode-inputValidation-warningBorder);
+.monaco-workbench .basehalf-canvas-folder-preview-more,
+.monaco-workbench .basehalf-canvas-folder-empty {
+	padding-left: 18px;
+	color: var(--bh-card-text-tertiary);
+	font-size: 11px;
+}
+
+.monaco-workbench .basehalf-canvas-folder-note {
+	margin-top: 4px;
+	padding-top: 6px;
+	border-top: 1px solid var(--bh-card-border);
+	color: var(--bh-card-text-tertiary);
+	font-size: 11px;
+	line-height: 1.4;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-face {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	background: var(--bh-card-surface);
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 72px;
+	resize: vertical;
+	padding: 7px 8px;
+	color: var(--bh-card-text-primary);
+	background: var(--bh-card-bg);
+	border: 1px solid var(--bh-card-border-strong);
+	border-radius: 6px;
+	font: 12px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt:focus {
+	border-color: var(--bh-card-accent);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-section,
+.monaco-workbench .basehalf-canvas-card-badge-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-list.inbound {
+	padding-left: 8px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-link,
+.monaco-workbench .basehalf-canvas-card-add-reference,
+.monaco-workbench .basehalf-canvas-card-inbound-toggle {
+	min-width: 0;
+	padding: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-secondary);
+	background: transparent;
+	border: 0;
+	font: 12px/18px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	text-align: left;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-card-add-reference,
+.monaco-workbench .basehalf-canvas-card-inbound-toggle {
+	color: var(--bh-card-text-tertiary);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-link:hover,
+.monaco-workbench .basehalf-canvas-card-add-reference:hover,
+.monaco-workbench .basehalf-canvas-card-inbound-toggle:hover {
+	color: var(--bh-card-accent);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-remove {
+	flex: none;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	color: var(--bh-card-text-tertiary);
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-remove:hover {
+	color: var(--bh-card-text-primary);
+	background: rgb(255 255 255 / 6%);
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle {
 	position: absolute;
-	z-index: 4;
+	z-index: 24;
 	width: 15px;
 	height: 15px;
 	box-sizing: border-box;
-	border: 2px solid var(--vscode-descriptionForeground);
+	border: 2px solid var(--bh-card-text-tertiary);
 	border-radius: 50%;
-	background-color: var(--vscode-editor-background);
+	background: var(--bh-card-surface);
 	opacity: 0;
-	pointer-events: none;
+	pointer-events: auto;
 	transition: opacity 80ms ease, transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
 }
 
-.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-connect-handle,
-.monaco-workbench .basehalf-canvas-card:focus-visible .basehalf-canvas-card-connect-handle,
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.active {
 	opacity: 1;
-	pointer-events: auto;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.active,
 .monaco-workbench .basehalf-canvas-card.connection-target .basehalf-canvas-card-connect-handle {
-	border-color: var(--vscode-focusBorder);
-	background-color: var(--vscode-focusBorder);
+	border-color: var(--bh-card-accent-soft);
+	background: var(--bh-card-accent);
+}
+
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.north .basehalf-canvas-card-connect-handle.north,
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.east .basehalf-canvas-card-connect-handle.east,
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.south .basehalf-canvas-card-connect-handle.south,
+.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.west .basehalf-canvas-card-connect-handle.west {
+	opacity: 1;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.north {
@@ -456,6 +785,83 @@
 	top: 50%;
 	left: 0;
 	transform: translate(-50%, -50%);
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle {
+	position: absolute;
+	z-index: 23;
+	width: 12px;
+	height: 12px;
+	background: transparent;
+	border: 0;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-resize-handle,
+.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-resize-handle {
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.north {
+	top: -6px;
+	left: 18px;
+	right: 18px;
+	width: auto;
+	cursor: ns-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.east {
+	top: 18px;
+	right: -6px;
+	bottom: 18px;
+	height: auto;
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.south {
+	bottom: -6px;
+	left: 18px;
+	right: 18px;
+	width: auto;
+	cursor: ns-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.west {
+	top: 18px;
+	left: -6px;
+	bottom: 18px;
+	height: auto;
+	cursor: ew-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.north-east {
+	top: -6px;
+	right: -6px;
+	cursor: nesw-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.south-east {
+	right: -6px;
+	bottom: -6px;
+	cursor: nwse-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.south-west {
+	bottom: -6px;
+	left: -6px;
+	cursor: nesw-resize;
+}
+
+.monaco-workbench .basehalf-canvas-card-resize-handle.north-west {
+	top: -6px;
+	left: -6px;
+	cursor: nwse-resize;
+}
+
+.monaco-workbench .basehalf-file-glyph {
+	flex: none;
+	display: block;
 }
 
 .monaco-workbench .basehalf-canvas-empty {

@@ -12,6 +12,7 @@ import { IFileService, IFileStat } from '../../../platform/files/common/files.js
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILabelService } from '../../../platform/label/common/label.js';
 import { ILogService } from '../../../platform/log/common/log.js';
+import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput/common/quickInput.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
@@ -40,9 +41,25 @@ import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdown
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 
-type BaseHalfCanvasCardPreview = { readonly kind: 'folder' | 'text' | 'media' | 'empty' | 'unavailable'; readonly text: string };
+type BaseHalfCanvasCardPreview =
+	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
+	| { readonly kind: 'text' | 'code' | 'markdown' | 'media' | 'empty' | 'unavailable'; readonly text: string };
+type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
 type BaseHalfCanvasConnectionTarget = { readonly item: IBaseHalfCanvasItem; readonly anchor: BaseHalfCanvasAnchor };
+type BaseHalfCanvasCardLod = 'full' | 'mini';
+type BaseHalfCanvasResizeEdge = 'north' | 'east' | 'south' | 'west' | 'north-east' | 'south-east' | 'south-west' | 'north-west';
+type BaseHalfCanvasEdgeEndpoint = 'source' | 'target';
+type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
 const CANVAS_CARD_ANCHORS: readonly BaseHalfCanvasAnchor[] = ['north', 'east', 'south', 'west'];
+const CANVAS_CARD_RESIZE_EDGES: readonly BaseHalfCanvasResizeEdge[] = ['north', 'east', 'south', 'west', 'north-east', 'south-east', 'south-west', 'north-west'];
+const CARD_LOD_MIN_HEIGHT_PX = 150;
+const CARD_LOD_MIN_ZOOM = 0.5;
+const MINI_LABEL_MIN_FLOW_PX = 12;
+const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
+const CANVAS_CONNECTION_EDGE_THRESHOLD = 22;
+const CANVAS_CONNECTION_CORNER_GUARD = 18;
+const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
+const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
@@ -92,8 +109,39 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		readonly path: SVGPathElement;
 		target?: BaseHalfCanvasConnectionTarget;
 	} | undefined;
+	private activeResizeDrag: {
+		readonly pointerId: number;
+		readonly card: HTMLElement;
+		readonly item: IBaseHalfCanvasItem;
+		readonly edge: BaseHalfCanvasResizeEdge;
+		readonly origin: IBaseHalfCanvasBounds;
+		readonly startClientX: number;
+		readonly startClientY: number;
+		latest: IBaseHalfCanvasBounds;
+		moved: boolean;
+	} | undefined;
+	private activeEdgeReconnect: {
+		readonly pointerId: number;
+		readonly edge: IBaseHalfCanvasEdge;
+		readonly endpoint: BaseHalfCanvasEdgeEndpoint;
+		readonly startClientX: number;
+		readonly startClientY: number;
+		readonly staticPath: SVGPathElement;
+		readonly previewPath: SVGPathElement;
+		readonly sourceBounds: IBaseHalfCanvasBounds;
+		readonly targetBounds: IBaseHalfCanvasBounds;
+		started: boolean;
+		target?: BaseHalfCanvasConnectionTarget;
+	} | undefined;
+	private selectedCardPath: string | undefined;
+	private selectedEdgeId: string | undefined;
+	private selectedEdge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'> | undefined;
 	private suppressNextCardClickForPath: string | undefined;
 	private suppressNextCardClickTimer: number | undefined;
+	private readonly badgeDescriptionTimers = new Map<string, number>();
+	private readonly badgeDescriptionPending = new Map<string, { readonly item: IBaseHalfCanvasItem; readonly value: string }>();
+	private readonly expandedInboundBadges = new Set<string>();
+	private readonly openBadgeFaces = new Set<string>();
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
 	private renderedBoundsByPath = new Map<string, IBaseHalfCanvasBounds>();
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
@@ -117,7 +165,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
-		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService
+		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IQuickInputService private readonly quickInputService: IQuickInputService
 	) {
 		super();
 
@@ -172,6 +221,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.canvasNavigationService.closeCardDetail();
 				return;
 			}
+			if ((event.key === 'Delete' || event.key === 'Backspace') && this.selectedEdgeId) {
+				event.preventDefault();
+				void this.removeSelectedEdge();
+				return;
+			}
 			this.onCanvasKeyDown(event);
 		}));
 		this._register(this.addDisposableListener(this.root, 'wheel', event => this.onCanvasWheel(event)));
@@ -182,6 +236,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.folderFocusTimer = undefined;
 			}
 			this.clearSuppressedCardClick();
+			for (const timer of this.badgeDescriptionTimers.values()) {
+				mainWindow.clearTimeout(timer);
+			}
+			this.badgeDescriptionTimers.clear();
+			this.badgeDescriptionPending.clear();
 		}));
 
 		this.updateCanvasLayer();
@@ -195,10 +254,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		super.dispose();
 	}
 
-	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement, type: K, listener: (event: HTMLElementEventMap[K]) => void) {
-		node.addEventListener(type, listener);
+	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void) {
+		node.addEventListener(type, listener as EventListener);
 		return {
-			dispose: () => node.removeEventListener(type, listener)
+			dispose: () => node.removeEventListener(type, listener as EventListener)
 		};
 	}
 
@@ -332,14 +391,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private async readCardPreview(item: IBaseHalfCanvasItem): Promise<BaseHalfCanvasCardPreview> {
 		if (item.kind === 'folder') {
-			const children = (item.stat.children ?? [])
+			const stat = item.stat.children ? item.stat : await this.fileService.resolve(item.stat.resource);
+			const children = (stat.children ?? [])
 				.filter(child => child.isDirectory || child.isFile)
-				.slice(0, 6)
-				.map(child => `${child.isDirectory ? 'dir' : 'file'} ${basename(child.resource)}`);
-			if (children.length === 0) {
-				return { kind: 'empty', text: 'Empty folder' };
-			}
-			return { kind: 'folder', text: children.join('\n') };
+				.sort((a, b) => {
+					if (a.isDirectory !== b.isDirectory) {
+						return a.isDirectory ? -1 : 1;
+					}
+					return basename(a.resource).localeCompare(basename(b.resource));
+				});
+			return {
+				kind: 'folder',
+				total: children.length,
+				items: children.slice(0, 6).map(child => ({
+					name: basename(child.resource),
+					kind: child.isDirectory ? 'folder' : 'file'
+				}))
+			};
 		}
 
 		const media = mediaPreviewLabel(item.name);
@@ -355,8 +423,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return { kind: 'media', text: 'Binary file' };
 			}
 
-			const text = cleanCardPreviewText(item.name, raw);
-			return text ? { kind: 'text', text } : { kind: 'empty', text: 'Empty file' };
+			const kind = markdownPreviewKind(item.name);
+			const text = kind === 'markdown' ? cleanMarkdownPreviewSource(raw) : cleanCardPreviewText(item.name, raw);
+			return text ? { kind, text } : { kind: 'empty', text: 'Empty file' };
 		} catch {
 			return { kind: 'unavailable', text: 'Preview unavailable' };
 		}
@@ -403,42 +472,89 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.tabIndex = 0;
 		card.setAttribute('role', 'button');
 		card.dataset.basehalfCardPath = item.path;
+		card.dataset.cardHeight = String(bounds.height);
+		card.dataset.lod = this.cardLod(bounds);
+		card.classList.add(item.kind);
+		card.classList.toggle('selected', this.selectedCardPath === item.path);
+		card.classList.toggle('badge-open', this.openBadgeFaces.has(item.path));
 		this.applyCardBounds(card, bounds);
-		card.setAttribute('aria-label', item.name);
+		card.setAttribute('aria-label', `${item.name} card`);
+		card.title = item.kind === 'folder'
+			? `${item.path} - click to select; double-click to enter this folder`
+			: `${item.path} - click to select; double-click to open the editor`;
 
-		const header = append(card, $('.basehalf-canvas-card-header'));
-		const icon = append(header, $('.basehalf-canvas-card-icon.codicon'));
-		icon.classList.add(item.kind === 'folder' ? 'codicon-folder' : 'codicon-file');
+		const type = badgeType(item.name, item.kind === 'folder');
+		const orphan = item.badge?.orphan === true;
+		const dirname = item.path.includes('/') ? item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1)) : '';
+		const content = append(card, $('.basehalf-canvas-card-content'));
+
+		const mini = append(content, $('.basehalf-canvas-card-mini'));
+		this.renderCardTitleChip(mini, type, item.name, orphan, bounds.height);
+
+		const full = append(content, $('.basehalf-canvas-card-full'));
+		const header = append(full, $('.basehalf-canvas-card-header'));
+		const icon = append(header, $('.basehalf-canvas-card-icon'));
+		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
 		const title = append(header, $('.basehalf-canvas-card-title'));
-		const label = append(title, $('.basehalf-canvas-card-label'));
+		const titleRow = append(title, $('.basehalf-canvas-card-title-row'));
+		const label = append(titleRow, $('.basehalf-canvas-card-label'));
 		label.textContent = item.name;
-		if (item.path.includes('/')) {
+		if (preview?.kind === 'folder') {
+			const count = append(titleRow, $('.basehalf-canvas-card-kind-chip.folder'));
+			count.textContent = folderCountLabel(preview.total);
+		}
+		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
+		if (canShowBadgeFace) {
+			const badgeToggle = append(titleRow, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
+			badgeToggle.type = 'button';
+			badgeToggle.title = this.openBadgeFaces.has(item.path) ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
+			badgeToggle.setAttribute('aria-label', `${this.openBadgeFaces.has(item.path) ? 'Hide' : 'Show'} badge for ${item.path}`);
+			badgeToggle.setAttribute('aria-pressed', String(this.openBadgeFaces.has(item.path)));
+			badgeToggle.classList.toggle('lit', !!item.badge?.description);
+			badgeToggle.classList.toggle('pressed', this.openBadgeFaces.has(item.path));
+			this.renderGlyph(badgeToggle, 'badge', item.badge?.description ? 'var(--bh-card-accent)' : 'var(--bh-card-text-tertiary)', 15);
+			if (item.badge?.description && (item.badge.references.length > 0 || item.badge.referenced_by.length > 0)) {
+				append(badgeToggle, $('.basehalf-canvas-card-badge-dot'));
+			}
+			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'pointerdown', event => {
+				event.stopPropagation();
+			}));
+			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'dblclick', event => {
+				event.preventDefault();
+				event.stopPropagation();
+			}));
+			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'click', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.selectCard(item.path);
+				this.toggleBadgeFace(item.path);
+			}));
+		}
+		if (orphan) {
+			const missing = append(titleRow, $('.basehalf-canvas-card-kind-chip.danger'));
+			missing.textContent = 'Missing';
+		}
+		if (dirname) {
 			const path = append(title, $('.basehalf-canvas-card-path'));
-			path.textContent = item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1));
+			path.textContent = `${dirname}/`;
 		}
 
-		const badge = append(card, $('.basehalf-canvas-card-badge'));
-		const badgeLabel = append(badge, $('.basehalf-canvas-card-badge-label.codicon.codicon-tag'));
-		badgeLabel.textContent = ' Badge';
-		const description = append(badge, $('.basehalf-canvas-card-badge-description'));
-		description.textContent = item.badge?.description || 'No badge description';
-		description.classList.toggle('empty', !item.badge?.description);
+		const body = append(full, $('.basehalf-canvas-card-body'));
+		if (this.openBadgeFaces.has(item.path) && canShowBadgeFace) {
+			this.renderCardBadgeFace(body, item);
+		} else {
+			this.renderCardPreview(body, item, preview, orphan);
+		}
 
-		const previewNode = append(card, $('.basehalf-canvas-card-preview'));
-		previewNode.classList.add(`kind-${preview?.kind ?? 'unavailable'}`);
-		previewNode.textContent = preview?.text ?? 'Preview unavailable';
-
-		const meta = append(card, $('.basehalf-canvas-card-meta'));
-		this.renderMetaPills(meta, item);
 		for (const anchor of CANVAS_CARD_ANCHORS) {
 			this.renderConnectionHandle(card, item, bounds, anchor);
 		}
-		if (item.badge?.description) {
-			card.title = `${item.name}\n${item.badge.description}`;
+		for (const edge of CANVAS_CARD_RESIZE_EDGES) {
+			this.renderResizeHandle(card, item, bounds, edge);
 		}
 
 		this.cardListeners.add(this.addDisposableListener(card, 'click', event => {
-			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle')) {
+			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
 				event.preventDefault();
 				event.stopPropagation();
 				return;
@@ -450,6 +566,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 
+			this.selectCard(item.path);
+		}));
+		this.cardListeners.add(this.addDisposableListener(card, 'dblclick', event => {
+			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
 			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 		}));
 		this.cardListeners.add(this.addDisposableListener(card, 'keydown', event => {
@@ -462,36 +589,241 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.cardListeners.add(this.addDisposableListener(card, 'pointermove', event => this.onCardPointerMove(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointerup', event => this.onCardPointerUp(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointercancel', event => this.onCardPointerCancel(event)));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointerleave', () => this.clearSourceAffordance(card)));
 	}
 
-	private renderMetaPills(container: HTMLElement, item: IBaseHalfCanvasItem): void {
-		const kind = append(container, $('.basehalf-canvas-card-pill.kind'));
-		kind.textContent = item.kind;
+	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number): void {
+		const capPx = Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, cardHeightPx * MINI_LABEL_CARD_HEIGHT_FRACTION));
+		container.style.setProperty('--bh-mini-label-cap', `${capPx}px`);
+		const flow = append(container, $('.basehalf-canvas-card-mini-flow'));
+		const icon = append(flow, $('.basehalf-canvas-card-mini-icon'));
+		this.renderGlyph(icon, type, glyphTone(type, orphan), '1.15em');
+		const label = append(flow, $('.basehalf-canvas-card-mini-label'));
+		label.textContent = name;
+		label.classList.toggle('danger', orphan);
+	}
 
-		const references = item.badge?.references.length ?? 0;
-		const referencedBy = item.badge?.referenced_by.length ?? 0;
-		const refs = append(container, $('.basehalf-canvas-card-pill'));
-		refs.textContent = `refs ${references}`;
-		const inbound = append(container, $('.basehalf-canvas-card-pill'));
-		inbound.textContent = `in ${referencedBy}`;
+	private renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
+		const dim = typeof size === 'number' ? `${size}px` : size;
+		const svg = $.SVG('svg');
+		svg.classList.add('basehalf-file-glyph');
+		svg.setAttribute('viewBox', '0 0 16 16');
+		svg.setAttribute('fill', 'none');
+		svg.setAttribute('stroke', 'currentColor');
+		svg.setAttribute('stroke-width', '1.25');
+		svg.setAttribute('stroke-linecap', 'round');
+		svg.setAttribute('stroke-linejoin', 'round');
+		svg.setAttribute('aria-hidden', 'true');
+		svg.style.width = dim;
+		svg.style.height = dim;
+		svg.style.color = tone;
+		renderGlyphPath(svg, type);
+		container.appendChild(svg);
+	}
 
-		if (item.badge?.orphan) {
-			const orphan = append(container, $('.basehalf-canvas-card-pill.warning'));
-			orphan.textContent = 'orphan';
+	private renderCardPreview(container: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined, orphan: boolean): void {
+		const previewNode = append(container, $('.basehalf-canvas-card-preview'));
+		previewNode.classList.add(`kind-${preview?.kind ?? 'unavailable'}`);
+		if (orphan) {
+			previewNode.textContent = item.kind === 'folder' ? item.badge?.description ?? '' : 'Missing file';
+			return;
+		}
+		if (!preview) {
+			previewNode.textContent = 'Preview unavailable';
+			return;
+		}
+		if (preview.kind === 'folder') {
+			this.renderFolderPreview(previewNode, preview, item.badge?.description);
+			return;
+		}
+		if (preview.kind === 'markdown') {
+			this.renderMarkdownPreview(previewNode, preview.text);
+			return;
+		}
+		previewNode.textContent = preview.text;
+	}
+
+	private renderFolderPreview(container: HTMLElement, preview: Extract<BaseHalfCanvasCardPreview, { readonly kind: 'folder' }>, description: string | undefined): void {
+		if (preview.total === 0) {
+			const empty = append(container, $('span.basehalf-canvas-folder-empty'));
+			empty.textContent = 'Empty folder';
+		} else {
+			const list = append(container, $('.basehalf-canvas-folder-preview-list'));
+			for (const child of preview.items) {
+				const row = append(list, $('.basehalf-canvas-folder-preview-row'));
+				const glyph = append(row, $('.basehalf-canvas-folder-preview-glyph'));
+				this.renderGlyph(glyph, badgeType(child.name, child.kind === 'folder'), child.kind === 'folder' ? 'var(--bh-card-folder-glyph)' : 'var(--bh-card-text-tertiary)', 12);
+				const label = append(row, $('.basehalf-canvas-folder-preview-label'));
+				label.textContent = child.kind === 'folder' ? `${child.name}/` : child.name;
+				label.classList.toggle('folder', child.kind === 'folder');
+			}
+			const remaining = preview.total - preview.items.length;
+			if (remaining > 0) {
+				const more = append(list, $('.basehalf-canvas-folder-preview-more'));
+				more.textContent = `+${remaining} more`;
+			}
+		}
+		if (description) {
+			const note = append(container, $('.basehalf-canvas-folder-note'));
+			note.textContent = description;
+		}
+	}
+
+	private renderMarkdownPreview(container: HTMLElement, text: string): void {
+		const md = append(container, $('.bh-md-preview'));
+		const lines = text.split('\n').slice(0, 10);
+		for (const raw of lines) {
+			const line = raw.trim();
+			if (!line) {
+				continue;
+			}
+			const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+			if (heading) {
+				const h = append(md, heading[1].length === 1 ? $('h1') : heading[1].length === 2 ? $('h2') : $('h3'));
+				h.textContent = stripMarkdownInline(heading[2]);
+				continue;
+			}
+			const bullet = /^[-*+]\s+(.+)$/.exec(line);
+			if (bullet) {
+				const item = append(md, $('p.bullet'));
+				item.textContent = `• ${stripMarkdownInline(bullet[1])}`;
+				continue;
+			}
+			const paragraph = append(md, $('p'));
+			paragraph.textContent = stripMarkdownInline(line);
+		}
+	}
+
+	private renderCardBadgeFace(container: HTMLElement, item: IBaseHalfCanvasItem): void {
+		const face = append(container, $('.basehalf-canvas-card-badge-face'));
+		face.setAttribute('data-testid', `card-badge-face-${item.path}`);
+		this.cardListeners.add(this.addDisposableListener(face, 'pointerdown', event => event.stopPropagation()));
+		this.cardListeners.add(this.addDisposableListener(face, 'dblclick', event => event.stopPropagation()));
+		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => event.stopPropagation()));
+
+		const body = append(face, $('.basehalf-canvas-card-badge-scroll'));
+		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
+		prompt.value = item.badge?.description ?? '';
+		prompt.placeholder = item.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
+		prompt.setAttribute('aria-label', `Badge prompt for ${item.path}`);
+		this.cardListeners.add(this.addDisposableListener(prompt, 'input', () => this.scheduleBadgeDescriptionWrite(item, prompt.value)));
+		this.cardListeners.add(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(item.path)));
+		this.cardListeners.add(this.addDisposableListener(prompt, 'keydown', event => {
+			event.stopPropagation();
+			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+				event.preventDefault();
+				this.flushBadgeDescriptionWrite(item.path);
+				prompt.blur();
+			}
+		}));
+
+		const refs = item.badge?.references ?? [];
+		const refSection = append(body, $('.basehalf-canvas-card-badge-section'));
+		if (refs.length > 0) {
+			const list = append(refSection, $('.basehalf-canvas-card-badge-list'));
+			for (const to of refs) {
+				const row = append(list, $('.basehalf-canvas-card-badge-row'));
+				const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
+				label.type = 'button';
+				label.textContent = to;
+				label.title = to;
+				this.cardListeners.add(this.addDisposableListener(label, 'click', event => {
+					event.preventDefault();
+					event.stopPropagation();
+					const target = this.renderedItemsByPath.get(to);
+					if (target) {
+						void this.canvasNavigationService.openResource(target.stat.resource, { source: 'api', pinned: true });
+					}
+				}));
+				const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
+				remove.type = 'button';
+				remove.title = `Remove reference to ${to}`;
+				remove.setAttribute('aria-label', `Remove reference to ${to}`);
+				this.cardListeners.add(this.addDisposableListener(remove, 'click', event => {
+					event.preventDefault();
+					event.stopPropagation();
+					void this.removeBadgeReference(item, to);
+				}));
+			}
+		}
+		const add = append(refSection, $('button.basehalf-canvas-card-add-reference')) as HTMLButtonElement;
+		add.type = 'button';
+		add.textContent = '+ Add reference';
+		this.cardListeners.add(this.addDisposableListener(add, 'click', event => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.addBadgeReference(item);
+		}));
+
+		const inbound = item.badge?.referenced_by ?? [];
+		if (inbound.length > 0) {
+			const inboundSection = append(body, $('.basehalf-canvas-card-badge-section'));
+			const toggle = append(inboundSection, $('button.basehalf-canvas-card-inbound-toggle')) as HTMLButtonElement;
+			toggle.type = 'button';
+			toggle.textContent = `← ${inbound.length} referenced by`;
+			toggle.setAttribute('aria-expanded', String(this.expandedInboundBadges.has(item.path)));
+			this.cardListeners.add(this.addDisposableListener(toggle, 'click', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				if (this.expandedInboundBadges.has(item.path)) {
+					this.expandedInboundBadges.delete(item.path);
+				} else {
+					this.expandedInboundBadges.add(item.path);
+				}
+				void this.render();
+			}));
+			if (this.expandedInboundBadges.has(item.path)) {
+				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
+				for (const from of inbound) {
+					const row = append(list, $('.basehalf-canvas-card-badge-row'));
+					const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
+					label.type = 'button';
+					label.textContent = from;
+					this.cardListeners.add(this.addDisposableListener(label, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						const target = this.renderedItemsByPath.get(from);
+						if (target) {
+							void this.canvasNavigationService.openResource(target.stat.resource, { source: 'api', pinned: true });
+						}
+					}));
+				}
+			}
 		}
 	}
 
 	private renderConnectionHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
 		const handle = append(card, $(`span.basehalf-canvas-card-connect-handle.${anchor}`));
 		handle.setAttribute('aria-hidden', 'true');
+		handle.title = `Connect from ${anchor}`;
 		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onConnectionPointerDown(event, handle, item, bounds, anchor)));
 		this.cardListeners.add(this.addDisposableListener(handle, 'pointermove', event => this.onConnectionPointerMove(event)));
 		this.cardListeners.add(this.addDisposableListener(handle, 'pointerup', event => this.onConnectionPointerUp(event)));
 		this.cardListeners.add(this.addDisposableListener(handle, 'pointercancel', event => this.onConnectionPointerCancel(event)));
 	}
 
+	private renderResizeHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge): void {
+		const handle = append(card, $(`span.basehalf-canvas-card-resize-handle.${edge}`));
+		handle.setAttribute('aria-hidden', 'true');
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onResizePointerDown(event, handle, card, item, bounds, edge)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointermove', event => this.onResizePointerMove(event)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointerup', event => this.onResizePointerUp(event)));
+		this.cardListeners.add(this.addDisposableListener(handle, 'pointercancel', event => this.onResizePointerCancel(event)));
+	}
+
 	private onCardPointerDown(event: PointerEvent, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
-		if (event.button !== 0 || this.activeCardDrag || this.canvasNavigationService.state.cardDetail) {
+		if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
+			return;
+		}
+		const sourceAnchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
+		if (sourceAnchor) {
+			const handle = card.querySelector<HTMLElement>(`.basehalf-canvas-card-connect-handle.${sourceAnchor}`);
+			if (handle) {
+				this.onConnectionPointerDown(event, handle, item, bounds, sourceAnchor);
+			}
+			return;
+		}
+		if (event.button !== 0 || this.activeCardDrag || this.activeResizeDrag || this.canvasNavigationService.state.cardDetail) {
 			return;
 		}
 
@@ -511,6 +843,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private onCardPointerMove(event: PointerEvent): void {
 		const drag = this.activeCardDrag;
 		if (!drag || drag.pointerId !== event.pointerId) {
+			if (event.currentTarget instanceof HTMLElement) {
+				this.updateSourceAffordance(event.currentTarget, event);
+			}
 			return;
 		}
 
@@ -579,6 +914,102 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.applyCardBounds(drag.card, drag.origin);
 		if (drag.card.hasPointerCapture(event.pointerId)) {
 			drag.card.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	private onResizePointerDown(event: PointerEvent, handle: HTMLElement, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge): void {
+		if (event.button !== 0 || this.activeResizeDrag || this.activeCardDrag || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.selectCard(item.path);
+		this.suppressNextCardClick(item.path);
+		this.activeResizeDrag = {
+			pointerId: event.pointerId,
+			card,
+			item,
+			edge,
+			origin: bounds,
+			startClientX: event.clientX,
+			startClientY: event.clientY,
+			latest: bounds,
+			moved: false
+		};
+		handle.setPointerCapture(event.pointerId);
+		card.classList.add('resizing');
+	}
+
+	private onResizePointerMove(event: PointerEvent): void {
+		const drag = this.activeResizeDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const dx = (event.clientX - drag.startClientX) / this.canvasZoom;
+		const dy = (event.clientY - drag.startClientY) / this.canvasZoom;
+		if (!drag.moved && Math.hypot(dx, dy) < 3) {
+			return;
+		}
+
+		drag.moved = true;
+		drag.latest = resizeBounds(drag.origin, drag.edge, dx, dy);
+		this.applyCardBounds(drag.card, drag.latest);
+		drag.card.dataset.cardHeight = String(drag.latest.height);
+		drag.card.dataset.lod = this.cardLod(drag.latest);
+	}
+
+	private onResizePointerUp(event: PointerEvent): void {
+		const drag = this.activeResizeDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		this.activeResizeDrag = undefined;
+		drag.card.classList.remove('resizing');
+		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
+			event.target.releasePointerCapture(event.pointerId);
+		}
+		if (!drag.moved) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+
+		void this.canvasMirrorService.updateCardGeometry(folder, {
+			path: drag.item.path,
+			kind: drag.item.kind,
+			x: drag.latest.x,
+			y: drag.latest.y,
+			width: drag.latest.width,
+			height: drag.latest.height
+		}).then(() => this.render()).catch(error => {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		});
+	}
+
+	private onResizePointerCancel(event: PointerEvent): void {
+		const drag = this.activeResizeDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		this.activeResizeDrag = undefined;
+		drag.card.classList.remove('resizing');
+		this.applyCardBounds(drag.card, drag.origin);
+		drag.card.dataset.cardHeight = String(drag.origin.height);
+		drag.card.dataset.lod = this.cardLod(drag.origin);
+		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
+			event.target.releasePointerCapture(event.pointerId);
 		}
 	}
 
@@ -696,6 +1127,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				relativePath: target.item.path,
 				kind: target.item.kind
 			});
+			this.selectedEdgeId = edgeId(edge.from, edge.to);
+			this.selectedEdge = { from: edge.from, to: edge.to };
 			await this.render();
 		} catch (error) {
 			this.logService.error(error);
@@ -727,22 +1160,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private connectionTargetForPoint(clientX: number, clientY: number, sourcePath: string): BaseHalfCanvasConnectionTarget | undefined {
-		const element = mainWindow.document.elementFromPoint(clientX, clientY);
-		const card = element instanceof HTMLElement ? element.closest<HTMLElement>('.basehalf-canvas-card') : undefined;
-		const path = card?.dataset.basehalfCardPath;
-		if (!card || !path || path === sourcePath) {
-			return undefined;
+		let best: { readonly item: IBaseHalfCanvasItem; readonly anchor: BaseHalfCanvasAnchor; readonly distance: number } | undefined;
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
+			const path = card.dataset.basehalfCardPath;
+			if (!path || path === sourcePath) {
+				continue;
+			}
+			const item = this.renderedItemsByPath.get(path);
+			if (!item) {
+				continue;
+			}
+			const rect = card.getBoundingClientRect();
+			const anchor = targetAnchorForPoint(rect, clientX, clientY);
+			if (!anchor) {
+				continue;
+			}
+			const distance = distanceToRect(rect, clientX, clientY);
+			if (!best || distance < best.distance) {
+				best = { item, anchor, distance };
+			}
 		}
-
-		const item = this.renderedItemsByPath.get(path);
-		if (!item) {
-			return undefined;
-		}
-
-		return {
-			item,
-			anchor: targetAnchorForPoint(card.getBoundingClientRect(), clientX, clientY)
-		};
+		return best ? { item: best.item, anchor: best.anchor } : undefined;
 	}
 
 	private applyCardBounds(card: HTMLElement, bounds: IBaseHalfCanvasBounds): void {
@@ -766,6 +1204,218 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.suppressNextCardClickTimer = undefined;
 		}
 		this.suppressNextCardClickForPath = undefined;
+	}
+
+	private selectCard(path: string): void {
+		this.selectedCardPath = path;
+		this.selectedEdgeId = undefined;
+		this.selectedEdge = undefined;
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.selected'))) {
+			card.classList.toggle('selected', card.dataset.basehalfCardPath === path);
+		}
+		for (const edge of Array.from(this.cards.querySelectorAll<SVGElement>('.basehalf-canvas-edge-path.selected, .basehalf-canvas-edge-hit.selected'))) {
+			edge.classList.remove('selected');
+		}
+	}
+
+	private selectEdge(edge: IBaseHalfCanvasEdge): void {
+		this.selectedCardPath = undefined;
+		this.selectedEdgeId = edgeId(edge.from, edge.to);
+		this.selectedEdge = { from: edge.from, to: edge.to };
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.selected'))) {
+			card.classList.remove('selected');
+		}
+		for (const edgeElement of Array.from(this.cards.querySelectorAll<SVGElement>('.basehalf-canvas-edge-path, .basehalf-canvas-edge-hit'))) {
+			edgeElement.classList.toggle('selected', edgeElement.dataset.edgeId === this.selectedEdgeId);
+		}
+	}
+
+	private toggleBadgeFace(path: string): void {
+		if (this.openBadgeFaces.has(path)) {
+			this.openBadgeFaces.delete(path);
+		} else {
+			this.openBadgeFaces.add(path);
+		}
+		void this.render();
+	}
+
+	private cardLod(bounds: IBaseHalfCanvasBounds): BaseHalfCanvasCardLod {
+		if (bounds.height < CARD_LOD_MIN_HEIGHT_PX) {
+			return 'mini';
+		}
+		return this.canvasZoom >= CARD_LOD_MIN_ZOOM ? 'full' : 'mini';
+	}
+
+	private updateCardLod(): void {
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
+			const height = Number(card.dataset.cardHeight);
+			card.dataset.lod = Number.isFinite(height) && height >= CARD_LOD_MIN_HEIGHT_PX && this.canvasZoom >= CARD_LOD_MIN_ZOOM ? 'full' : 'mini';
+		}
+	}
+
+	private updateSourceAffordance(card: HTMLElement, event: PointerEvent): void {
+		if (this.activeConnectionDrag || this.activeCardDrag || this.activeResizeDrag) {
+			return;
+		}
+		if (event.target instanceof HTMLElement && event.target.closest('button, input, textarea')) {
+			this.clearSourceAffordance(card);
+			return;
+		}
+
+		const anchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
+		card.dataset.sourceAffordance = anchor ?? '';
+		for (const handle of Array.from(card.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle'))) {
+			handle.classList.toggle('active', !!anchor && handle.classList.contains(anchor));
+		}
+	}
+
+	private clearSourceAffordance(card: HTMLElement): void {
+		card.dataset.sourceAffordance = '';
+		for (const handle of Array.from(card.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle.active'))) {
+			handle.classList.remove('active');
+		}
+	}
+
+	private scheduleBadgeDescriptionWrite(item: IBaseHalfCanvasItem, value: string): void {
+		const existing = this.badgeDescriptionTimers.get(item.path);
+		if (existing !== undefined) {
+			mainWindow.clearTimeout(existing);
+		}
+		this.badgeDescriptionPending.set(item.path, { item, value });
+		this.badgeDescriptionTimers.set(item.path, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(item.path), 500));
+	}
+
+	private flushBadgeDescriptionWrite(path: string): void {
+		const pending = this.badgeDescriptionPending.get(path);
+		if (!pending) {
+			return;
+		}
+		const timer = this.badgeDescriptionTimers.get(path);
+		if (timer !== undefined) {
+			mainWindow.clearTimeout(timer);
+			this.badgeDescriptionTimers.delete(path);
+		}
+		this.badgeDescriptionPending.delete(path);
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+
+		void this.badgeMirrorService.updateDescription({
+			resource: pending.item.stat.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: pending.item.path,
+			kind: pending.item.kind
+		}, pending.value).then(() => this.render()).catch(error => {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		});
+	}
+
+	private async addBadgeReference(item: IBaseHalfCanvasItem): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		this.flushBadgeDescriptionWrite(item.path);
+		const existing = new Set(item.badge?.references ?? []);
+		const candidates = this.referenceCandidates(item)
+			.filter(candidate => candidate.path !== item.path && candidate.kind === 'file' && !existing.has(candidate.path));
+		if (candidates.length === 0) {
+			await this.quickInputService.pick([{ label: 'No other files in this folder.' }], { placeHolder: 'Add a reference' });
+			return;
+		}
+
+		type RefPick = IQuickPickItem & { readonly candidate: IBaseHalfCanvasItem };
+		const picked = await this.quickInputService.pick<RefPick>(candidates.map(candidate => ({
+			label: basename(candidate.stat.resource),
+			description: candidate.path,
+			detail: candidate.badge?.description,
+			candidate
+		})), {
+			placeHolder: `Search ${item.kind === 'folder' ? `${item.path}/` : folder.relativePath ? `${folder.relativePath}/` : 'the workspace root'}...`,
+			matchOnDescription: true,
+			matchOnDetail: true
+		});
+		if (!picked) {
+			return;
+		}
+
+		await this.badgeMirrorService.upsertReference({
+			resource: item.stat.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: item.path,
+			kind: item.kind
+		}, {
+			resource: picked.candidate.stat.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: picked.candidate.path,
+			kind: picked.candidate.kind
+		});
+		await this.render();
+	}
+
+	private referenceCandidates(item: IBaseHalfCanvasItem): IBaseHalfCanvasItem[] {
+		if (item.kind === 'folder') {
+			return (item.stat.children ?? [])
+				.filter(child => child.isFile || child.isDirectory)
+				.map(child => {
+					const name = basename(child.resource);
+					return {
+						path: canvasChildPath(item.path, name),
+						name,
+						kind: child.isDirectory ? 'folder' : 'file',
+						stat: child
+					};
+				});
+		}
+		return [...this.renderedItemsByPath.values()];
+	}
+
+	private async removeBadgeReference(item: IBaseHalfCanvasItem, to: string): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		this.flushBadgeDescriptionWrite(item.path);
+		const target = await this.badgeNodeForPath(folder, to, 'file');
+		await this.badgeMirrorService.removeReference({
+			resource: item.stat.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: item.path,
+			kind: item.kind
+		}, target);
+		await this.canvasMirrorService.removeCanvasEdge(folder, { from: item.path, to });
+		await this.render();
+	}
+
+	private async badgeNodeForPath(folder: IBaseHalfCanvasFolderState, relativePath: string, fallbackKind: 'file' | 'folder') {
+		const rendered = this.renderedItemsByPath.get(relativePath);
+		if (rendered) {
+			return {
+				resource: rendered.stat.resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath,
+				kind: rendered.kind
+			};
+		}
+		const resource = relativePath ? joinPath(folder.workspaceFolder, ...relativePath.split('/')) : folder.workspaceFolder;
+		try {
+			const stat = await this.fileService.stat(resource);
+			return {
+				resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath,
+				kind: stat.isDirectory ? 'folder' as const : 'file' as const
+			};
+		} catch {
+			return {
+				resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath,
+				kind: fallbackKind
+			};
+		}
 	}
 
 	private renderEdges(edges: readonly IBaseHalfCanvasEdge[], items: readonly IBaseHalfCanvasItem[], size: Dimension): { dropped: number } {
@@ -799,8 +1449,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		svg.appendChild(defs);
 
 		for (const edge of layoutResult.edges) {
-			const path = $.SVG('path');
+			const path = $.SVG('path') as SVGPathElement;
 			path.classList.add('basehalf-canvas-edge-path');
+			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
+				path.classList.add('selected');
+			}
+			path.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
 			path.setAttribute('d', edge.path);
 			path.setAttribute('marker-end', `url(#${markerId})`);
 			const title = $.SVG('title');
@@ -808,18 +1462,246 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			path.appendChild(title);
 			svg.appendChild(path);
 
-			if (edge.label) {
-				const text = $.SVG('text');
-				text.classList.add('basehalf-canvas-edge-label');
-				text.setAttribute('x', `${edge.label.x}`);
-				text.setAttribute('y', `${edge.label.y - 8}`);
-				text.setAttribute('text-anchor', 'middle');
-				text.textContent = edge.label.text;
-				svg.appendChild(text);
+			const hit = $.SVG('path') as SVGPathElement;
+			hit.classList.add('basehalf-canvas-edge-hit');
+			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
+				hit.classList.add('selected');
 			}
+			hit.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
+			hit.setAttribute('d', edge.path);
+			svg.appendChild(hit);
+
+			const text = $.SVG('text');
+			text.classList.add('basehalf-canvas-edge-label');
+			text.classList.toggle('empty', !edge.label?.text);
+			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
+				text.classList.add('selected');
+			}
+			text.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
+			text.setAttribute('x', `${edge.label?.x ?? (edge.from.x + edge.to.x) / 2}`);
+			text.setAttribute('y', `${(edge.label?.y ?? (edge.from.y + edge.to.y) / 2) - 8}`);
+			text.setAttribute('text-anchor', 'middle');
+			text.textContent = edge.label?.text ?? 'Double-click to say why';
+			svg.appendChild(text);
+
+			const setHover = (hover: boolean) => {
+				path.classList.toggle('hover', hover);
+				hit.classList.toggle('hover', hover);
+				text.classList.toggle('hover', hover);
+			};
+			this.cardListeners.add(this.addDisposableListener(hit, 'mouseenter', () => setHover(true)));
+			this.cardListeners.add(this.addDisposableListener(hit, 'mouseleave', () => setHover(false)));
+			this.cardListeners.add(this.addDisposableListener(hit, 'click', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.selectEdge(edge.edge);
+			}));
+			this.cardListeners.add(this.addDisposableListener(hit, 'dblclick', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.editEdgeLabel(edge.edge);
+			}));
+			this.cardListeners.add(this.addDisposableListener(hit, 'pointerdown', event => this.onEdgePointerDown(event, edge.edge, hit, path)));
+			this.cardListeners.add(this.addDisposableListener(hit, 'pointermove', event => this.onEdgePointerMove(event)));
+			this.cardListeners.add(this.addDisposableListener(hit, 'pointerup', event => this.onEdgePointerUp(event)));
+			this.cardListeners.add(this.addDisposableListener(hit, 'pointercancel', event => this.onEdgePointerCancel(event)));
 		}
 
 		return { dropped: layoutResult.dropped };
+	}
+
+	private onEdgePointerDown(event: PointerEvent, edge: IBaseHalfCanvasEdge, hitPath: SVGPathElement, staticPath: SVGPathElement): void {
+		if (event.button !== 0 || this.activeEdgeReconnect || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.selectEdge(edge);
+		const sourceBounds = this.renderedBoundsByPath.get(edge.from);
+		const targetBounds = this.renderedBoundsByPath.get(edge.to);
+		if (!sourceBounds || !targetBounds) {
+			return;
+		}
+		const { path } = this.createConnectionDraftSvg();
+		path.classList.add('basehalf-canvas-edge-reconnect-preview');
+		this.activeEdgeReconnect = {
+			pointerId: event.pointerId,
+			edge,
+			endpoint: nearestPathRatio(hitPath, event.clientX, event.clientY) < 0.5 ? 'source' : 'target',
+			startClientX: event.clientX,
+			startClientY: event.clientY,
+			staticPath,
+			previewPath: path,
+			sourceBounds,
+			targetBounds,
+			started: false
+		};
+		hitPath.setPointerCapture(event.pointerId);
+	}
+
+	private onEdgePointerMove(event: PointerEvent): void {
+		const drag = this.activeEdgeReconnect;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		const moved = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY) >= EDGE_RECONNECT_DRAG_THRESHOLD;
+		drag.started = drag.started || moved;
+		if (!drag.started) {
+			return;
+		}
+
+		const excluded = drag.endpoint === 'source' ? drag.edge.to : drag.edge.from;
+		const target = this.connectionTargetForPoint(event.clientX, event.clientY, excluded);
+		drag.target = target;
+		const snappedBounds = target ? this.renderedBoundsByPath.get(target.item.path) : undefined;
+		const pointerPoint = target && snappedBounds ? baseHalfCanvasAnchorPoint(snappedBounds, target.anchor) : this.canvasPointFromClient(event.clientX, event.clientY);
+		const sourcePoint = drag.endpoint === 'source' ? pointerPoint : baseHalfCanvasAnchorPoint(drag.sourceBounds, drag.edge.from_anchor);
+		const targetPoint = drag.endpoint === 'target' ? pointerPoint : baseHalfCanvasAnchorPoint(drag.targetBounds, drag.edge.to_anchor);
+		const sourceAnchor = drag.endpoint === 'source' ? target?.anchor ?? drag.edge.from_anchor : drag.edge.from_anchor;
+		const targetAnchor = drag.endpoint === 'target' ? target?.anchor ?? drag.edge.to_anchor : drag.edge.to_anchor;
+		drag.previewPath.setAttribute('d', baseHalfCanvasEdgePath(sourcePoint, sourceAnchor, targetPoint, targetAnchor));
+		drag.staticPath.classList.add('reconnecting');
+		this.markConnectionTarget(target);
+	}
+
+	private onEdgePointerUp(event: PointerEvent): void {
+		const drag = this.activeEdgeReconnect;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		if (event.target instanceof SVGElement && event.target.hasPointerCapture(event.pointerId)) {
+			event.target.releasePointerCapture(event.pointerId);
+		}
+		void this.finishEdgeReconnect(drag);
+	}
+
+	private onEdgePointerCancel(event: PointerEvent): void {
+		const drag = this.activeEdgeReconnect;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+		this.clearEdgeReconnect(drag);
+	}
+
+	private async finishEdgeReconnect(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeEdgeReconnect']>): Promise<void> {
+		const folder = this.getCurrentFolder();
+		const target = drag.target;
+		const started = drag.started;
+		this.clearEdgeReconnect(drag);
+		if (!folder || !started) {
+			return;
+		}
+
+		if (!target) {
+			await this.removeEdge(folder, drag.edge);
+			return;
+		}
+
+		const next: IBaseHalfCanvasEdge = drag.endpoint === 'source' ? {
+			from: target.item.path,
+			from_anchor: target.anchor,
+			to: drag.edge.to,
+			to_anchor: drag.edge.to_anchor,
+			...(drag.edge.label !== undefined ? { label: drag.edge.label } : {})
+		} : {
+			from: drag.edge.from,
+			from_anchor: drag.edge.from_anchor,
+			to: target.item.path,
+			to_anchor: target.anchor,
+			...(drag.edge.label !== undefined ? { label: drag.edge.label } : {})
+		};
+		if (next.from === next.to) {
+			return;
+		}
+
+		try {
+			await this.canvasMirrorService.reconnectCanvasEdge(folder, { from: drag.edge.from, to: drag.edge.to }, next);
+			if (drag.edge.from !== next.from || drag.edge.to !== next.to) {
+				await this.badgeMirrorService.removeReference(
+					await this.badgeNodeForPath(folder, drag.edge.from, 'file'),
+					await this.badgeNodeForPath(folder, drag.edge.to, 'file')
+				);
+				await this.badgeMirrorService.upsertReference(
+					await this.badgeNodeForPath(folder, next.from, 'file'),
+					await this.badgeNodeForPath(folder, next.to, 'file')
+				);
+			}
+			this.selectedEdgeId = edgeId(next.from, next.to);
+			this.selectedEdge = { from: next.from, to: next.to };
+			await this.render();
+		} catch (error) {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private clearEdgeReconnect(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeEdgeReconnect']>): void {
+		drag.previewPath.ownerSVGElement?.remove();
+		drag.staticPath.classList.remove('reconnecting');
+		this.activeEdgeReconnect = undefined;
+		this.markConnectionTarget(undefined);
+	}
+
+	private async editEdgeLabel(edge: IBaseHalfCanvasEdge): Promise<void> {
+		const next = await this.quickInputService.input({
+			title: 'Reference note',
+			placeHolder: 'Say why these connect',
+			value: edge.label ?? ''
+		});
+		if (next === undefined) {
+			return;
+		}
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		const label = next.trim();
+		try {
+			await this.canvasMirrorService.upsertCanvasEdge(folder, {
+				from: edge.from,
+				from_anchor: edge.from_anchor,
+				to: edge.to,
+				to_anchor: edge.to_anchor,
+				...(label ? { label } : {})
+			});
+			this.selectedEdgeId = edgeId(edge.from, edge.to);
+			this.selectedEdge = { from: edge.from, to: edge.to };
+			await this.render();
+		} catch (error) {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		}
+	}
+
+	private async removeSelectedEdge(): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder || !this.selectedEdge) {
+			return;
+		}
+		await this.removeEdge(folder, this.selectedEdge);
+	}
+
+	private async removeEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<void> {
+		try {
+			await this.canvasMirrorService.removeCanvasEdge(folder, edge);
+			await this.badgeMirrorService.removeReference(
+				await this.badgeNodeForPath(folder, edge.from, 'file'),
+				await this.badgeNodeForPath(folder, edge.to, 'file')
+			);
+			this.selectedEdgeId = undefined;
+			this.selectedEdge = undefined;
+			await this.render();
+		} catch (error) {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	private renderTruncated(heldBack: number): void {
@@ -1051,6 +1933,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.zoomOut.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
 		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
 		this.zoomReset.disabled = zoom === 1;
+		this.updateCardLod();
 		const width = parseFloat(this.cards.style.width);
 		const height = parseFloat(this.cards.style.height);
 		if (Number.isFinite(width) && Number.isFinite(height)) {
@@ -1277,6 +2160,23 @@ function mediaPreviewLabel(name: string): string | undefined {
 	return undefined;
 }
 
+function markdownPreviewKind(name: string): 'markdown' | 'text' | 'code' {
+	if (/\.(md|markdown|mdx)$/i.test(name)) {
+		return 'markdown';
+	}
+	return badgeType(name, false) === 'code' ? 'code' : 'text';
+}
+
+function cleanMarkdownPreviewSource(raw: string): string {
+	const lines = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ')
+		.split('\n')
+		.map(line => line.trimEnd())
+		.filter(line => line.trim().length > 0)
+		.slice(0, 12);
+	const preview = lines.join('\n');
+	return preview.length > 800 ? `${preview.slice(0, 797)}...` : preview;
+}
+
 function cleanCardPreviewText(name: string, raw: string): string {
 	let text = raw.replace(/\r\n?/g, '\n').replace(/\t/g, '    ');
 	if (/\.mdx?$/i.test(name)) {
@@ -1297,9 +2197,57 @@ function cleanCardPreviewText(name: string, raw: string): string {
 	return preview.length > 520 ? `${preview.slice(0, 517)}...` : preview;
 }
 
-function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor {
+function stripMarkdownInline(value: string): string {
+	return value
+		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+		.replace(/[*_`~]/g, '')
+		.trim();
+}
+
+function sourceAnchorForPointer(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {
 	const x = clientX - rect.left;
 	const y = clientY - rect.top;
+	if (
+		(x < CANVAS_CONNECTION_CORNER_GUARD || x > rect.width - CANVAS_CONNECTION_CORNER_GUARD) &&
+		(y < CANVAS_CONNECTION_CORNER_GUARD || y > rect.height - CANVAS_CONNECTION_CORNER_GUARD)
+	) {
+		return undefined;
+	}
+
+	const distances: Array<{ readonly anchor: BaseHalfCanvasAnchor; readonly distance: number }> = [
+		{ anchor: 'north', distance: y },
+		{ anchor: 'east', distance: rect.width - x },
+		{ anchor: 'south', distance: rect.height - y },
+		{ anchor: 'west', distance: x }
+	];
+	const nearest = distances.reduce((best, next) => next.distance < best.distance ? next : best);
+	return nearest.distance <= CANVAS_CONNECTION_EDGE_THRESHOLD ? nearest.anchor : undefined;
+}
+
+function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {
+	const margin = CANVAS_CONNECTION_TARGET_HIT_DEPTH / 2;
+	const x = clientX - rect.left;
+	const y = clientY - rect.top;
+	if (x < -margin || x > rect.width + margin || y < -margin || y > rect.height + margin) {
+		return undefined;
+	}
+
+	if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
+		if (y <= CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
+			return 'north';
+		}
+		if (y >= rect.height - CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
+			return 'south';
+		}
+		if (x <= CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
+			return 'west';
+		}
+		if (x >= rect.width - CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
+			return 'east';
+		}
+		return undefined;
+	}
+
 	const distances: Array<{ readonly anchor: BaseHalfCanvasAnchor; readonly distance: number }> = [
 		{ anchor: 'north', distance: Math.abs(y) },
 		{ anchor: 'east', distance: Math.abs(rect.width - x) },
@@ -1307,6 +2255,201 @@ function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): 
 		{ anchor: 'west', distance: Math.abs(x) }
 	];
 	return distances.reduce((best, next) => next.distance < best.distance ? next : best).anchor;
+}
+
+function distanceToRect(rect: DOMRect, clientX: number, clientY: number): number {
+	const dx = Math.max(rect.left - clientX, 0, clientX - rect.right);
+	const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom);
+	return Math.hypot(dx, dy);
+}
+
+function resizeBounds(origin: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge, dx: number, dy: number): IBaseHalfCanvasBounds {
+	let x = origin.x;
+	let y = origin.y;
+	let width = origin.width;
+	let height = origin.height;
+	if (edge.includes('east')) {
+		width = origin.width + dx;
+	}
+	if (edge.includes('south')) {
+		height = origin.height + dy;
+	}
+	if (edge.includes('west')) {
+		width = origin.width - dx;
+		x = origin.x + dx;
+	}
+	if (edge.includes('north')) {
+		height = origin.height - dy;
+		y = origin.y + dy;
+	}
+
+	if (width < 140) {
+		if (edge.includes('west')) {
+			x -= 140 - width;
+		}
+		width = 140;
+	}
+	if (height < 48) {
+		if (edge.includes('north')) {
+			y -= 48 - height;
+		}
+		height = 48;
+	}
+	return {
+		x: roundCanvasPosition(Math.max(0, x)),
+		y: roundCanvasPosition(Math.max(0, y)),
+		width: roundCanvasPosition(width),
+		height: roundCanvasPosition(height)
+	};
+}
+
+function edgeId(from: string, to: string): string {
+	return `${from}\u0000${to}`;
+}
+
+function nearestPathRatio(path: SVGPathElement, clientX: number, clientY: number): number {
+	const ctm = path.getScreenCTM();
+	const total = path.getTotalLength();
+	if (!ctm || total <= 0) {
+		return 1;
+	}
+	let bestLength = 0;
+	let bestDistance = Number.POSITIVE_INFINITY;
+	for (let i = 0; i <= 80; i++) {
+		const length = total * i / 80;
+		const point = path.getPointAtLength(length);
+		const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+		const distance = Math.hypot(screenPoint.x - clientX, screenPoint.y - clientY);
+		if (distance < bestDistance) {
+			bestDistance = distance;
+			bestLength = length;
+		}
+	}
+	return bestLength / total;
+}
+
+function folderCountLabel(total: number): string {
+	return total === 0 ? 'empty' : total === 1 ? '1 item' : `${total} items`;
+}
+
+function canvasChildPath(parent: string, name: string): string {
+	return parent ? `${parent}/${name}` : name;
+}
+
+function badgeType(label: string, isFolder: boolean): BaseHalfCanvasGlyphType {
+	if (isFolder) {
+		return 'folder';
+	}
+	const lower = label.toLowerCase();
+	const dot = lower.lastIndexOf('.');
+	const ext = dot === -1 || dot === lower.length - 1 ? '' : lower.slice(dot + 1);
+	const base = dot === -1 ? lower : lower.slice(0, dot);
+	if (['md', 'markdown', 'mdx', 'txt', 'rst', 'org', 'gitignore', 'dockerignore', 'gitattributes', 'editorconfig', 'npmrc', 'nvmrc', 'csv', 'tsv', 'log', 'text'].includes(ext) || ['readme', 'license', 'changelog', 'authors', 'notice', 'copying'].includes(base)) {
+		return 'text';
+	}
+	if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic', 'avif', 'ico', 'tiff'].includes(ext)) {
+		return 'image';
+	}
+	if (['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus'].includes(ext)) {
+		return 'audio';
+	}
+	if (['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].includes(ext)) {
+		return 'video';
+	}
+	if (ext === 'pdf') {
+		return 'pdf';
+	}
+	if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'py', 'rs', 'go', 'java', 'rb', 'c', 'cpp', 'h', 'cs', 'php', 'swift', 'kt', 'json', 'yaml', 'yml', 'toml', 'css', 'scss', 'html', 'xml', 'sh', 'sql', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'ini', 'conf', 'cfg', 'env', 'properties', 'lock', 'lua', 'pl', 'r', 'gradle', 'vue', 'svelte', 'astro', 'graphql', 'gql', 'proto'].includes(ext) || ['dockerfile', 'makefile', 'gemfile', 'rakefile', 'procfile', 'jenkinsfile', 'vagrantfile'].includes(base)) {
+		return 'code';
+	}
+	return 'generic';
+}
+
+function glyphTone(type: BaseHalfCanvasGlyphType, orphan: boolean): string {
+	if (orphan) {
+		return 'var(--bh-card-danger)';
+	}
+	if (type === 'folder') {
+		return 'var(--bh-card-folder-glyph)';
+	}
+	return 'var(--bh-card-text-tertiary)';
+}
+
+function renderGlyphPath(svg: SVGElement, type: BaseHalfCanvasGlyphType): void {
+	const appendPath = (d: string) => {
+		const path = $.SVG('path');
+		path.setAttribute('d', d);
+		svg.appendChild(path);
+	};
+	if (type === 'text') {
+		appendPath('M3.5 4h9M3.5 7h9M3.5 10h9M3.5 13h5.5');
+		return;
+	}
+	if (type === 'image') {
+		const rect = $.SVG('rect');
+		rect.setAttribute('x', '2.5');
+		rect.setAttribute('y', '3');
+		rect.setAttribute('width', '11');
+		rect.setAttribute('height', '10');
+		rect.setAttribute('rx', '1.6');
+		svg.appendChild(rect);
+		const circle = $.SVG('circle');
+		circle.setAttribute('cx', '5.8');
+		circle.setAttribute('cy', '6.3');
+		circle.setAttribute('r', '1.1');
+		svg.appendChild(circle);
+		appendPath('M3 12l3-3 2.3 2.3L11 8l2.2 2.2');
+		return;
+	}
+	if (type === 'audio') {
+		appendPath('M4 7v2M6.5 4.8v6.4M9 3.2v9.6M11.5 5.6v4.8');
+		return;
+	}
+	if (type === 'video') {
+		const rect = $.SVG('rect');
+		rect.setAttribute('x', '2.5');
+		rect.setAttribute('y', '3.5');
+		rect.setAttribute('width', '11');
+		rect.setAttribute('height', '9');
+		rect.setAttribute('rx', '1.6');
+		svg.appendChild(rect);
+		const path = $.SVG('path');
+		path.setAttribute('d', 'M6.8 6.3l3 1.7-3 1.7z');
+		path.setAttribute('fill', 'currentColor');
+		path.setAttribute('stroke', 'none');
+		svg.appendChild(path);
+		return;
+	}
+	if (type === 'pdf' || type === 'generic') {
+		appendPath('M4 2.5h4.5l3 3V13H4z');
+		appendPath('M8.5 2.5v3h3');
+		if (type === 'pdf') {
+			appendPath('M5.8 9h4M5.8 11h4');
+		}
+		return;
+	}
+	if (type === 'code') {
+		appendPath('M6 5L3 8l3 3M10 5l3 3-3 3');
+		return;
+	}
+	if (type === 'badge') {
+		appendPath('M6 2.5h4M7 2.5v2M9 2.5v2');
+		const rect = $.SVG('rect');
+		rect.setAttribute('x', '3.5');
+		rect.setAttribute('y', '4.4');
+		rect.setAttribute('width', '9');
+		rect.setAttribute('height', '9');
+		rect.setAttribute('rx', '1.5');
+		svg.appendChild(rect);
+		const circle = $.SVG('circle');
+		circle.setAttribute('cx', '6.4');
+		circle.setAttribute('cy', '8');
+		circle.setAttribute('r', '1');
+		svg.appendChild(circle);
+		appendPath('M8.6 7.4h2.2M8.6 9.5h2.5M5.4 11.7h5.2');
+		return;
+	}
+	appendPath('M2.5 4.7a1 1 0 0 1 1-1h2.7a1 1 0 0 1 .72.3l.86.9a1 1 0 0 0 .72.3h4a1 1 0 0 1 1 1v5.3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z');
 }
 
 function oppositeAnchor(anchor: BaseHalfCanvasAnchor): BaseHalfCanvasAnchor {

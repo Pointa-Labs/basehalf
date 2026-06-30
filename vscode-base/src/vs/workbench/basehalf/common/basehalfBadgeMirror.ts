@@ -49,7 +49,9 @@ export interface IBaseHalfBadgeMirrorService {
 
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult>;
+	updateDescription(node: IBaseHalfBadgeNode, description: string): Promise<IBaseHalfBadgeFile>;
 	upsertReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
+	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
 	badgeResource(node: IBaseHalfWorkspaceResource): URI;
 }
 
@@ -142,6 +144,29 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 		}));
 	}
 
+	updateDescription(node: IBaseHalfBadgeNode, description: string): Promise<IBaseHalfBadgeFile> {
+		const trimmed = description.trim();
+		return this.updateBadge(node, badge => ({
+			...badge,
+			...(trimmed ? { description: trimmed } : { description: undefined })
+		}));
+	}
+
+	async removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void> {
+		if (source.relativePath === target.relativePath) {
+			return;
+		}
+
+		await this.updateBadge(source, badge => ({
+			...badge,
+			references: removeString(badge.references, target.relativePath)
+		}));
+		await this.updateBadge(target, badge => ({
+			...badge,
+			referenced_by: removeString(badge.referenced_by, source.relativePath)
+		}));
+	}
+
 	badgeResource(node: IBaseHalfWorkspaceResource): URI {
 		return URI.joinPath(node.workspaceFolder, '.bh', 'mirror', ...mirrorPathSegments(node.relativePath), 'badge.yaml');
 	}
@@ -175,6 +200,10 @@ function uniqueStrings(values: readonly string[]): string[] {
 		}
 	}
 	return out;
+}
+
+function removeString(values: readonly string[], value: string): string[] {
+	return values.filter(candidate => candidate !== value);
 }
 
 function serializeBadgeFile(badge: IBaseHalfBadgeFile): string {

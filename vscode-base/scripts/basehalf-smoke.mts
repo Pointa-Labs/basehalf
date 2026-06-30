@@ -694,7 +694,16 @@ async function assertNoEditorTabFor(page, name) {
 async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
-	await readme.locator('.basehalf-canvas-card-badge-description', { hasText: 'Smoke file badge' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-badge-toggle.lit').waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	const badgePrompt = readme.locator('.basehalf-canvas-card-badge-prompt');
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	const promptValue = await badgePrompt.inputValue();
+	if (promptValue !== 'Smoke file badge') {
+		throw new Error(`Expected card badge face to load prompt, got ${JSON.stringify(promptValue)}`);
+	}
+	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 
 	const handleCount = await readme.locator('.basehalf-canvas-card-connect-handle').count();
@@ -706,16 +715,33 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
 	await docs.waitFor({ state: 'visible', timeout: 10_000 });
 	await src.waitFor({ state: 'visible', timeout: 10_000 });
-	await docs.hover();
-	const fromBox = await docs.locator('.basehalf-canvas-card-connect-handle.east').boundingBox();
-	const targetBox = await src.boundingBox();
-	if (!fromBox || !targetBox) {
+	await docs.locator('.basehalf-canvas-folder-preview-label', { hasText: 'guide.md' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await src.locator('.basehalf-canvas-folder-preview-label', { hasText: 'app.ts' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-workbench').evaluate(root => {
+		root.scrollLeft = 0;
+		root.scrollTop = 0;
+	});
+	await page.waitForTimeout(100);
+	const geometry = await page.evaluate(() => {
+		const docsCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const srcCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+		const docsRect = docsCard?.getBoundingClientRect();
+		const srcRect = srcCard?.getBoundingClientRect();
+		if (!docsRect || !srcRect || docsRect.width <= 0 || docsRect.height <= 0 || srcRect.width <= 0 || srcRect.height <= 0) {
+			return undefined;
+		}
+		return {
+			from: { x: docsRect.x, y: docsRect.y, width: docsRect.width, height: docsRect.height },
+			target: { x: srcRect.x, y: srcRect.y, width: srcRect.width, height: srcRect.height }
+		};
+	});
+	if (!geometry) {
 		throw new Error('Missing card connection geometry');
 	}
 
-	await page.mouse.move(fromBox.x + fromBox.width / 2, fromBox.y + fromBox.height / 2);
+	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
 	await page.mouse.down();
-	await page.mouse.move(targetBox.x + 2, targetBox.y + targetBox.height / 2, { steps: 8 });
+	await page.mouse.move(geometry.target.x + 2, geometry.target.y + geometry.target.height / 2, { steps: 8 });
 	await page.mouse.up();
 
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
