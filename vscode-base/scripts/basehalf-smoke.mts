@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { _electron } from '@playwright/test';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -84,6 +85,7 @@ try {
 	await assertOpenEditorsHidden(page);
 	await assertCompetingViewContainersHidden(page);
 	await assertAgentAreaChoices(page);
+	await assertSourceControlPanel(page);
 
 	await quickOpen(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
@@ -116,6 +118,7 @@ try {
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'agent-area-mounted-connected-choices',
+			'source-control-git-provider',
 			'quick-open-card-detail',
 			'quick-open-side-card-detail-no-tab',
 			'quick-text-search-card-detail-no-tab',
@@ -210,6 +213,16 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'README.md'), '# Smoke README\n\nneedle-basehalf-routing\n\nneedle-basehalf-second\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
+	initializeGitWorkspace(workspace);
+}
+
+function initializeGitWorkspace(workspace) {
+	try {
+		execFileSync('git', ['init', '-b', 'main'], { cwd: workspace, stdio: 'ignore' });
+	} catch {
+		execFileSync('git', ['init'], { cwd: workspace, stdio: 'ignore' });
+		execFileSync('git', ['checkout', '-B', 'main'], { cwd: workspace, stdio: 'ignore' });
+	}
 }
 
 function getDevElectronPath() {
@@ -278,6 +291,30 @@ async function assertAgentAreaChoices(page) {
 			throw new Error(`Disconnected Agent Area choice is visible: ${hidden}`);
 		}
 	}
+}
+
+async function assertSourceControlPanel(page) {
+	await page.locator('.activitybar .action-label[aria-label*="Source Control"]').first().click();
+	await page.locator('.part.sidebar .title-label h2', { hasText: /Source Control/i }).waitFor({ state: 'visible', timeout: 20_000 });
+	const changesPane = page.locator('.pane', { has: page.locator('.pane-header', { hasText: 'Changes' }) }).first();
+	await changesPane.locator('.scm-view').waitFor({ state: 'visible', timeout: 20_000 });
+	await changesPane.locator('.monaco-button', { hasText: /Commit/ }).first().waitFor({ state: 'visible', timeout: 20_000 });
+
+	await changesPane.evaluate(async element => {
+		const started = Date.now();
+		while (Date.now() - started < 20_000) {
+			const text = element.textContent?.replace(/\s+/g, ' ') ?? '';
+			if (text.includes('main')
+				&& text.includes('Changes')
+				&& text.includes('README.md')
+				&& text.includes('app.ts')) {
+				return;
+			}
+			await new Promise(resolve => setTimeout(resolve, 100));
+		}
+		const text = element.textContent?.replace(/\s+/g, ' ') ?? '';
+		throw new Error(`Source Control Changes view did not show expected Git state: ${text}`);
+	});
 }
 
 async function assertCardDetail(page, title) {
