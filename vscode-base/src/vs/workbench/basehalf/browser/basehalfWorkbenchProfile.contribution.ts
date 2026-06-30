@@ -36,6 +36,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 
 		this.clearCompetingStartupStorage();
 		this.applyLeftSidebarProfile();
+		this.registerHiddenSurfaceGuards();
 		this.closeRestoredCompetingSurfaces();
 	}
 
@@ -83,6 +84,20 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] applied BaseHalf ${label}: ${key}`);
 	}
 
+	private registerHiddenSurfaceGuards(): void {
+		this._register(this.viewsService.onDidChangeViewContainerVisibility(event => {
+			if (event.visible && shouldBaseHalfHideViewContainer(event.id)) {
+				void this.closeHiddenViewContainer(event.id, 'reopened hidden VS Code view container');
+			}
+		}));
+
+		this._register(this.viewsService.onDidChangeViewVisibility(event => {
+			if (event.visible && shouldBaseHalfHideView(event.id)) {
+				this.closeHiddenView(event.id, 'reopened hidden VS Code view');
+			}
+		}));
+	}
+
 	private async closeRestoredCompetingSurfaces(): Promise<void> {
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 		await this.closeRestoredHiddenViewContainers();
@@ -96,10 +111,19 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 				continue;
 			}
 
-			this.viewsService.closeViewContainer(viewContainerId);
-			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view container: ${viewContainerId}`);
+			await this.closeHiddenViewContainer(viewContainerId, 'restored hidden VS Code view container');
 		}
 
+		await this.ensurePrimarySidebarVisible();
+	}
+
+	private async closeHiddenViewContainer(viewContainerId: string, reason: string): Promise<void> {
+		this.viewsService.closeViewContainer(viewContainerId);
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed ${reason}: ${viewContainerId}`);
+		await this.ensurePrimarySidebarVisible();
+	}
+
+	private async ensurePrimarySidebarVisible(): Promise<void> {
 		const primaryViewContainer = BASEHALF_PRIMARY_VIEW_CONTAINERS[0];
 		if (primaryViewContainer && !this.viewsService.getVisibleViewContainer(ViewContainerLocation.Sidebar)?.id) {
 			await this.viewsService.openViewContainer(primaryViewContainer.id, false);
@@ -113,9 +137,13 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 				continue;
 			}
 
-			this.viewsService.closeView(viewId);
-			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view: ${viewId}`);
+			this.closeHiddenView(viewId, 'restored hidden VS Code view');
 		}
+	}
+
+	private closeHiddenView(viewId: string, reason: string): void {
+		this.viewsService.closeView(viewId);
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed ${reason}: ${viewId}`);
 	}
 
 	private async closeRestoredStartupEditors(): Promise<void> {

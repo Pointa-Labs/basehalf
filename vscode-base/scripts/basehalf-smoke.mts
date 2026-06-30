@@ -87,6 +87,7 @@ try {
 
 	await assertOpenEditorsHidden(page);
 	await assertCompetingViewContainersHidden(page);
+	await assertHiddenSurfaceCommandsStayHidden(page);
 	await assertAgentAreaChoices(page);
 	await assertSourceControlPanel(page);
 
@@ -124,6 +125,7 @@ try {
 			'canvas-visible',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
+			'hidden-surface-runtime-guard',
 			'agent-area-five-choices-command-unavailable-state',
 			'source-control-git-provider',
 			'quick-open-card-detail',
@@ -273,28 +275,61 @@ async function quickOpen(page, value, acceptKey = 'Enter') {
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
 	await waitForQuickInputResult(page);
-	await page.keyboard.press(acceptKey);
-	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	if (await quickInput.isVisible().catch(() => false)) {
+		await page.keyboard.press(acceptKey);
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	}
 }
 
 async function runCommand(page, value) {
+	const ran = await tryRunCommand(page, value, { expectedBestRowText: value });
+	if (!ran) {
+		throw new Error(`Command not found in QuickInput: ${value}`);
+	}
+}
+
+async function tryRunCommand(page, value, options = {}) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
 	const quickInput = page.locator('.quick-input-widget input');
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(`>${value}`);
-	await page.locator('.quick-input-list-row', { hasText: value }).first().waitFor({ state: 'visible', timeout: 15_000 });
+	const firstRow = page.locator('.quick-input-list .monaco-list-row[role="option"]').first();
+	await firstRow.waitFor({ state: 'visible', timeout: 15_000 });
+	const firstRowText = ((await firstRow.getAttribute('aria-label')) ?? (await firstRow.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+	if (/^No matching/.test(firstRowText) || (options.expectedBestRowText && !isExpectedCommandRow(firstRowText, options.expectedBestRowText))) {
+		await page.keyboard.press('Escape');
+		await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+		return false;
+	}
 	await page.keyboard.press('Enter');
 	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	return true;
+}
+
+function isExpectedCommandRow(rowText, expectedText) {
+	return rowText === expectedText
+		|| rowText.startsWith(`${expectedText} `)
+		|| rowText.endsWith(`: ${expectedText}`);
 }
 
 async function waitForQuickInputResult(page) {
-	await page.locator('.quick-input-list-row').first().waitFor({ state: 'visible', timeout: 15_000 });
 	await page.waitForFunction(() => {
-		const rows = Array.from(document.querySelectorAll('.quick-input-list-row'));
-		return rows.some(row => {
-			const text = row.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+		const input = document.querySelector('.quick-input-widget input');
+		const inputVisible = !!input && (() => {
+			const element = input;
+			const rect = element.getBoundingClientRect();
+			const style = getComputedStyle(element);
+			return style.display !== 'none'
+				&& style.visibility !== 'hidden'
+				&& rect.width > 0
+				&& rect.height > 0;
+		})();
+		const rows = Array.from(document.querySelectorAll('.quick-input-list .monaco-list-row[role="option"]'));
+		const hasResult = rows.some(row => {
+			const text = (row.getAttribute('aria-label') ?? row.textContent ?? '').replace(/\s+/g, ' ').trim();
 			return text && text !== 'No matching results';
 		});
+		return hasResult || !inputVisible;
 	}, null, { timeout: 15_000 });
 }
 
@@ -306,7 +341,23 @@ async function assertOpenEditorsHidden(page) {
 }
 
 async function assertCompetingViewContainersHidden(page) {
-	const visibleTitles = await page.locator('.part.sidebar .title-label h2, .part.panel .title-label h2, .part.auxiliarybar .title-label h2').evaluateAll(nodes => nodes
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Testing', 'Remote Explorer'];
+	const started = Date.now();
+	let visibleForbidden = [];
+	while (Date.now() - started < 5_000) {
+		const visibleTitles = await visibleViewContainerTitles(page);
+		visibleForbidden = forbidden.filter(title => visibleTitles.includes(title));
+		if (!visibleForbidden.length) {
+			return;
+		}
+		await page.waitForTimeout(100);
+	}
+
+	throw new Error(`Competing VS Code view containers are visible: ${visibleForbidden.join(', ')}`);
+}
+
+async function visibleViewContainerTitles(page) {
+	return page.locator('.part.sidebar .title-label h2, .part.panel .title-label h2, .part.auxiliarybar .title-label h2').evaluateAll(nodes => nodes
 		.filter(node => {
 			const element = node;
 			const rect = element.getBoundingClientRect();
@@ -322,11 +373,25 @@ async function assertCompetingViewContainersHidden(page) {
 		})
 		.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
 		.filter(Boolean));
-	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Testing', 'Remote Explorer'];
-	for (const title of forbidden) {
-		if (visibleTitles.includes(title)) {
-			throw new Error(`Competing VS Code view container is visible: ${title}`);
+}
+
+async function assertHiddenSurfaceCommandsStayHidden(page) {
+	const hiddenSurfaceCommands = [
+		'Extensions: Focus on Extensions View',
+		'Chat: Open Chat',
+		'View: Show Run and Debug',
+		'View: Show Testing',
+		'View: Show Remote Explorer'
+	];
+	let exercisedCommands = 0;
+	for (const command of hiddenSurfaceCommands) {
+		if (await tryRunCommand(page, command, { expectedBestRowText: command })) {
+			exercisedCommands++;
 		}
+		await assertCompetingViewContainersHidden(page);
+	}
+	if (!exercisedCommands) {
+		throw new Error('Hidden surface runtime guard did not exercise any VS Code command palette entries');
 	}
 }
 
@@ -347,7 +412,7 @@ async function assertAgentAreaChoices(page) {
 }
 
 async function assertSourceControlPanel(page) {
-	await page.locator('.activitybar .action-label[aria-label*="Source Control"]').first().click();
+	await runCommand(page, 'Source Control: Focus on Changes View');
 	await page.locator('.part.sidebar .title-label h2', { hasText: /Source Control/i }).waitFor({ state: 'visible', timeout: 20_000 });
 	const changesPane = page.locator('.pane', { has: page.locator('.pane-header', { hasText: 'Changes' }) }).first();
 	await changesPane.locator('.scm-view').waitFor({ state: 'visible', timeout: 20_000 });
