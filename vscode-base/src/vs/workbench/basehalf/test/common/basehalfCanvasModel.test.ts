@@ -96,6 +96,31 @@ suite('BaseHalfCanvasModel', () => {
 		);
 	});
 
+	test('attaches badge metadata by workspace-relative path', () => {
+		const root = folder('/workspace', [
+			file('/workspace/README.md')
+		]);
+
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			badges: new Map([
+				['README.md', {
+					description: 'Project overview',
+					references: ['docs/spec.md'],
+					referenced_by: ['index.md'],
+					orphan: true
+				}]
+			])
+		});
+
+		assert.deepStrictEqual(model.items[0].badge, {
+			description: 'Project overview',
+			references: ['docs/spec.md'],
+			referenced_by: ['index.md'],
+			orphan: true
+		});
+	});
+
 	test('keeps only visible canvas edges and reports hidden ones', () => {
 		const root = folder('/workspace', [
 			file('/workspace/a.md'),

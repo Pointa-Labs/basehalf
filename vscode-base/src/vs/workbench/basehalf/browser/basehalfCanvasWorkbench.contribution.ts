@@ -27,6 +27,7 @@ import {
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasSize
 } from '../common/basehalfCanvasModel.js';
+import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
@@ -82,6 +83,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
 		@IEditorService editorService: IEditorService,
+		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService
@@ -197,11 +199,38 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			canvasWarning = error instanceof BaseHalfCanvasMirrorCorrupt ? 'Corrupt canvas.yaml' : 'Unable to read canvas.yaml';
 		}
 
-		const model = baseHalfCanvasModelFromStat(stat, {
+		let model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
 			canvas
 		});
+		let badgeWarning: string | undefined;
+		if (model.items.length > 0) {
+			const badgeRead = await this.badgeMirrorService.readBadges(model.items.map(item => ({
+				resource: item.stat.resource,
+				workspaceFolder: folder.workspaceFolder,
+				relativePath: item.path,
+				kind: item.kind
+			})));
+			if (seq !== this.renderSeq) {
+				return;
+			}
+
+			if (badgeRead.badges.size > 0) {
+				model = baseHalfCanvasModelFromStat(stat, {
+					rootLevel: folder.relativePath.length === 0,
+					folderRelativePath: folder.relativePath,
+					canvas,
+					badges: badgeRead.badges
+				});
+			}
+			if (badgeRead.problems.length > 0) {
+				badgeWarning = `${badgeRead.problems.length} badge metadata issue${badgeRead.problems.length === 1 ? '' : 's'}`;
+				for (const problem of badgeRead.problems) {
+					this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
+				}
+			}
+		}
 		const items = model.items;
 		clearNode(this.cards);
 		this.cardListeners.clear();
@@ -224,6 +253,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		if (canvasWarning) {
 			this.renderCanvasWarning(canvasWarning);
+		}
+		if (badgeWarning) {
+			this.renderCanvasWarning(badgeWarning);
 		}
 
 		this.renderDetail();
@@ -264,8 +296,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		icon.classList.add(item.kind === 'folder' ? 'codicon-folder' : 'codicon-file');
 		const label = append(card, $('.basehalf-canvas-card-label'));
 		label.textContent = item.name;
+		const description = append(card, $('.basehalf-canvas-card-description'));
+		description.textContent = item.badge?.description ?? '';
 		const meta = append(card, $('.basehalf-canvas-card-meta'));
-		meta.textContent = item.kind;
+		meta.textContent = this.cardMetaLabel(item);
+		if (item.badge?.description) {
+			card.title = `${item.name}\n${item.badge.description}`;
+		}
 
 		this.cardListeners.add(this.addDisposableListener(card, 'click', event => {
 			if (this.suppressNextCardClickForPath === item.path) {
@@ -381,6 +418,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.style.height = `${bounds.height}px`;
 	}
 
+	private cardMetaLabel(item: IBaseHalfCanvasItem): string {
+		const parts: string[] = [item.kind];
+		const references = item.badge?.references.length ?? 0;
+		const referencedBy = item.badge?.referenced_by.length ?? 0;
+		if (references > 0) {
+			parts.push(`refs ${references}`);
+		}
+		if (referencedBy > 0) {
+			parts.push(`in ${referencedBy}`);
+		}
+		if (item.badge?.orphan) {
+			parts.push('orphan');
+		}
+		return parts.join(' · ');
+	}
+
 	private suppressNextCardClick(path: string): void {
 		if (this.suppressNextCardClickTimer !== undefined) {
 			mainWindow.clearTimeout(this.suppressNextCardClickTimer);
@@ -458,7 +511,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderCanvasWarning(message: string): void {
+		const warningIndex = this.cards.querySelectorAll('.basehalf-canvas-warning').length;
 		const warning = append(this.cards, $('.basehalf-canvas-warning'));
+		warning.style.top = `${58 + warningIndex * 30}px`;
 		warning.textContent = message;
 	}
 

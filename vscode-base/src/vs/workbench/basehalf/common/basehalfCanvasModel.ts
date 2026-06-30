@@ -53,6 +53,13 @@ export interface IBaseHalfCanvasCard {
 	readonly height: number;
 }
 
+export interface IBaseHalfCanvasBadgeMetadata {
+	readonly description?: string;
+	readonly references: readonly string[];
+	readonly referenced_by: readonly string[];
+	readonly orphan?: boolean;
+}
+
 export interface IBaseHalfCanvasEdge {
 	readonly from: string;
 	readonly from_anchor: 'north' | 'east' | 'south' | 'west';
@@ -74,6 +81,7 @@ export interface IBaseHalfCanvasItem {
 	readonly kind: BaseHalfCanvasItemKind;
 	readonly stat: IFileStat;
 	readonly card?: IBaseHalfCanvasCard;
+	readonly badge?: IBaseHalfCanvasBadgeMetadata;
 }
 
 export interface IBaseHalfCanvasPosition {
@@ -115,6 +123,7 @@ export interface IBaseHalfCanvasModelOptions {
 	readonly rootLevel: boolean;
 	readonly folderRelativePath?: string;
 	readonly canvas?: IBaseHalfCanvasFile | null;
+	readonly badges?: ReadonlyMap<string, IBaseHalfCanvasBadgeMetadata>;
 }
 
 export function isBaseHalfCanvasEntry(stat: IFileStat, rootLevel: boolean): boolean {
@@ -152,12 +161,14 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		const path = childPath(folderRelativePath, name);
 		const kind: BaseHalfCanvasItemKind = stat.isDirectory ? 'folder' : 'file';
 		const card = cardByPath.get(path);
+		const badge = options.badges?.get(path);
 		return {
 			path,
 			name,
 			kind,
 			stat,
-			...(card ? { card } : {})
+			...(card ? { card } : {}),
+			...(badge ? { badge } : {})
 		};
 	});
 
