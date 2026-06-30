@@ -66,6 +66,8 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 	}
 ] as const satisfies readonly IBaseHalfAgentSessionChoice[];
 
+export const BASEHALF_VISIBLE_AGENT_SESSION_CHOICES: readonly IBaseHalfAgentSessionChoice[] = BASEHALF_AGENT_SESSION_CHOICES.filter((choice: IBaseHalfAgentSessionChoice) => !choice.requiresExtensionSlot);
+
 export interface IBaseHalfAgentAreaSession {
 	readonly id: string;
 	readonly kind: BaseHalfAgentSessionKind;

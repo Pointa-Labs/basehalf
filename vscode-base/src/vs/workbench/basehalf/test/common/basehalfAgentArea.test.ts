@@ -13,6 +13,7 @@ import {
 	BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID,
 	BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_SESSION_CHOICES,
+	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
 	baseHalfAgentSessionChoiceForKind
 } from '../../common/basehalfAgentArea.js';
@@ -57,6 +58,19 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(claude.requiresExtensionSlot, 'basehalf.agentArea.extension.claude');
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(codex.requiresExtensionSlot), true);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(claude.requiresExtensionSlot), true);
+	});
+
+	test('only exposes connected Agent Area session choices in the product UI', () => {
+		assert.deepStrictEqual(
+			BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.map(choice => choice.kind),
+			[
+				'tui-codex',
+				'tui-claude',
+				'terminal'
+			]
+		);
+		assert.strictEqual(BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.some(choice => choice.kind === 'extension-codex'), false);
+		assert.strictEqual(BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.some(choice => choice.kind === 'extension-claude'), false);
 	});
 
 	test('takes over the VS Code terminal toggle command without losing the stock view open command', () => {

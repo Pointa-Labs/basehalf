@@ -23,13 +23,8 @@ import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/la
 import { TerminalCommandId } from '../../contrib/terminal/common/terminal.js';
 import { ICreateTerminalOptions, ITerminalInstance, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
 import {
-	BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
-	BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID,
-	BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID,
-	BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID,
-	BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID,
 	BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
-	BASEHALF_AGENT_SESSION_CHOICES,
+	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BaseHalfAgentSessionKind,
 	BaseHalfAgentSessionState,
 	BaseHalfExtensionAgentSessionKind,
@@ -427,7 +422,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private renderChoices(): void {
 		clearNode(this.choices);
-		for (const choice of BASEHALF_AGENT_SESSION_CHOICES) {
+		for (const choice of BASEHALF_VISIBLE_AGENT_SESSION_CHOICES) {
 			const button = append(this.choices, $('button.basehalf-agent-choice')) as HTMLButtonElement;
 			button.type = 'button';
 			button.title = choice.description;
@@ -693,10 +688,23 @@ function actionTitle(title: string): { value: string; original: string } {
 	return { value: title, original: title };
 }
 
-registerCreateAgentSessionAction(BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID, 'terminal', 'New Agent Area Terminal');
-registerCreateAgentSessionAction(BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID, 'tui-codex', 'New Codex TUI Session');
-registerCreateAgentSessionAction(BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID, 'tui-claude', 'New Claude Code TUI Session');
-registerCreateAgentSessionAction(BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID, 'extension-codex', 'New Codex Extension Session');
-registerCreateAgentSessionAction(BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID, 'extension-claude', 'New Claude Code Extension Session');
+for (const choice of BASEHALF_VISIBLE_AGENT_SESSION_CHOICES) {
+	registerCreateAgentSessionAction(choice.commandId, choice.kind, createAgentSessionActionLabel(choice.kind));
+}
 
 registerWorkbenchContribution2(BaseHalfAgentAreaWorkbenchContribution.ID, BaseHalfAgentAreaWorkbenchContribution, WorkbenchPhase.AfterRestored);
+
+function createAgentSessionActionLabel(kind: BaseHalfAgentSessionKind): string {
+	switch (kind) {
+		case 'terminal':
+			return 'New Agent Area Terminal';
+		case 'tui-codex':
+			return 'New Codex TUI Session';
+		case 'tui-claude':
+			return 'New Claude Code TUI Session';
+		case 'extension-codex':
+			return 'New Codex Extension Session';
+		case 'extension-claude':
+			return 'New Claude Code Extension Session';
+	}
+}
