@@ -139,12 +139,21 @@
 	border-radius: 6px;
 	box-shadow: 0 8px 22px rgb(0 0 0 / 18%);
 	cursor: pointer;
+	touch-action: none;
+	user-select: none;
 }
 
 .monaco-workbench .basehalf-canvas-card:hover,
 .monaco-workbench .basehalf-canvas-card:focus-visible {
 	border-color: var(--vscode-focusBorder);
 	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-card.dragging {
+	z-index: 2;
+	border-color: var(--vscode-focusBorder);
+	box-shadow: 0 14px 32px rgb(0 0 0 / 28%);
+	cursor: grabbing;
 }
 
 .monaco-workbench .basehalf-canvas-card-icon {

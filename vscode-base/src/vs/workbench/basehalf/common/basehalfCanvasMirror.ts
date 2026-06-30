@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { VSBuffer } from '../../../base/common/buffer.js';
+import { dirname } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { parse as parseYaml, YamlNode, YamlParseError, YamlScalarNode } from '../../../base/common/yaml.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
@@ -15,6 +17,7 @@ import {
 	IBaseHalfCanvasSize
 } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
+import { createKeyedMutex } from './basehalfKeyedMutex.js';
 
 export const IBaseHalfCanvasMirrorService = createDecorator<IBaseHalfCanvasMirrorService>('baseHalfCanvasMirrorService');
 
@@ -37,11 +40,13 @@ export interface IBaseHalfCanvasMirrorService {
 	readonly _serviceBrand: undefined;
 
 	readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null>;
+	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile>;
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
 }
 
 export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService {
 	declare readonly _serviceBrand: undefined;
+	private readonly mutex = createKeyedMutex();
 
 	constructor(
 		@IFileService private readonly fileService: IFileService
@@ -70,10 +75,96 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		return normalizeCanvasFile(parsed, resource, folder.relativePath);
 	}
 
+	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile> {
+		const resource = this.canvasResource(folder);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readCanvas(folder);
+			const next = upsertCanvasCard(existing ?? { path: folder.relativePath, cards: [], edges: [] }, card);
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
+			return next;
+		});
+	}
+
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
 		const segments = folder.relativePath ? folder.relativePath.split('/').filter(Boolean) : [];
 		return URI.joinPath(folder.workspaceFolder, '.bh', 'mirror', ...segments, 'canvas.yaml');
 	}
+}
+
+export function upsertCanvasCard(canvas: IBaseHalfCanvasFile, card: IBaseHalfCanvasCard): IBaseHalfCanvasFile {
+	const cards = [...canvas.cards];
+	const index = cards.findIndex(existing => existing.path === card.path);
+	if (index >= 0) {
+		cards[index] = card;
+	} else {
+		cards.push(card);
+	}
+
+	return {
+		path: canvas.path,
+		...(canvas.size ? { size: canvas.size } : {}),
+		cards,
+		edges: canvas.edges
+	};
+}
+
+export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
+	const lines = [
+		`path: ${yamlString(canvas.path)}`
+	];
+
+	if (canvas.size) {
+		lines.push(
+			'size:',
+			`  width: ${formatNumber(canvas.size.width)}`,
+			`  height: ${formatNumber(canvas.size.height)}`
+		);
+	}
+
+	lines.push('cards:');
+	if (canvas.cards.length === 0) {
+		lines[lines.length - 1] = 'cards: []';
+	} else {
+		for (const card of canvas.cards) {
+			lines.push(
+				`  - path: ${yamlString(card.path)}`,
+				`    kind: ${card.kind}`,
+				`    x: ${formatNumber(card.x)}`,
+				`    y: ${formatNumber(card.y)}`,
+				`    width: ${formatNumber(card.width)}`,
+				`    height: ${formatNumber(card.height)}`
+			);
+		}
+	}
+
+	lines.push('edges:');
+	if (canvas.edges.length === 0) {
+		lines[lines.length - 1] = 'edges: []';
+	} else {
+		for (const edge of canvas.edges) {
+			lines.push(
+				`  - from: ${yamlString(edge.from)}`,
+				`    from_anchor: ${edge.from_anchor}`,
+				`    to: ${yamlString(edge.to)}`,
+				`    to_anchor: ${edge.to_anchor}`
+			);
+			if (edge.label) {
+				lines.push(`    label: ${yamlString(edge.label)}`);
+			}
+		}
+	}
+
+	lines.push('');
+	return lines.join('\n');
+}
+
+function yamlString(value: string): string {
+	return JSON.stringify(value);
+}
+
+function formatNumber(value: number): string {
+	return String(Number(value.toFixed(4)));
 }
 
 function normalizeCanvasFile(value: unknown, resource: URI, expectedPath: string): IBaseHalfCanvasFile {

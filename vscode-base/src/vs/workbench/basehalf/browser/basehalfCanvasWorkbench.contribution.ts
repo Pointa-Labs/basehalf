@@ -21,6 +21,7 @@ import {
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasItem,
@@ -53,6 +54,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderSeq = 0;
 	private detailKey: string | undefined;
+	private activeCardDrag: {
+		readonly pointerId: number;
+		readonly card: HTMLButtonElement;
+		readonly item: IBaseHalfCanvasItem;
+		readonly origin: IBaseHalfCanvasBounds;
+		readonly startClientX: number;
+		readonly startClientY: number;
+		latest: IBaseHalfCanvasBounds;
+		moved: boolean;
+	} | undefined;
+	private suppressNextCardClickForPath: string | undefined;
+	private suppressNextCardClickTimer: number | undefined;
 	private sourceDetail: BaseHalfSourceCardDetail | undefined;
 	private markdownRichDetail: BaseHalfMarkdownRichCardDetail | undefined;
 	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
@@ -129,6 +142,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				mainWindow.clearTimeout(this.folderFocusTimer);
 				this.folderFocusTimer = undefined;
 			}
+			this.clearSuppressedCardClick();
 		}));
 
 		this.updateCanvasLayer(editorService);
@@ -240,12 +254,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number): void {
-		const { x, y, width, height } = baseHalfCanvasItemBounds(item, index, total);
+		const bounds = baseHalfCanvasItemBounds(item, index, total);
 		const card = append(this.cards, $('button.basehalf-canvas-card')) as HTMLButtonElement;
 		card.type = 'button';
-		card.style.transform = `translate(${x}px, ${y}px)`;
-		card.style.width = `${width}px`;
-		card.style.height = `${height}px`;
+		this.applyCardBounds(card, bounds);
 		card.setAttribute('aria-label', item.name);
 
 		const icon = append(card, $('.basehalf-canvas-card-icon.codicon'));
@@ -255,9 +267,135 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const meta = append(card, $('.basehalf-canvas-card-meta'));
 		meta.textContent = item.kind;
 
-		this.cardListeners.add(this.addDisposableListener(card, 'click', () => {
+		this.cardListeners.add(this.addDisposableListener(card, 'click', event => {
+			if (this.suppressNextCardClickForPath === item.path) {
+				event.preventDefault();
+				event.stopPropagation();
+				this.clearSuppressedCardClick();
+				return;
+			}
+
 			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 		}));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointerdown', event => this.onCardPointerDown(event, card, item, bounds)));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointermove', event => this.onCardPointerMove(event)));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointerup', event => this.onCardPointerUp(event)));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointercancel', event => this.onCardPointerCancel(event)));
+	}
+
+	private onCardPointerDown(event: PointerEvent, card: HTMLButtonElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
+		if (event.button !== 0 || this.activeCardDrag || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		this.activeCardDrag = {
+			pointerId: event.pointerId,
+			card,
+			item,
+			origin: bounds,
+			startClientX: event.clientX,
+			startClientY: event.clientY,
+			latest: bounds,
+			moved: false
+		};
+		card.setPointerCapture(event.pointerId);
+	}
+
+	private onCardPointerMove(event: PointerEvent): void {
+		const drag = this.activeCardDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		const dx = event.clientX - drag.startClientX;
+		const dy = event.clientY - drag.startClientY;
+		if (!drag.moved && Math.hypot(dx, dy) < 4) {
+			return;
+		}
+
+		event.preventDefault();
+		drag.moved = true;
+		drag.card.classList.add('dragging');
+		drag.latest = {
+			...drag.origin,
+			x: roundCanvasPosition(Math.max(0, drag.origin.x + dx)),
+			y: roundCanvasPosition(Math.max(0, drag.origin.y + dy))
+		};
+		this.applyCardBounds(drag.card, drag.latest);
+	}
+
+	private onCardPointerUp(event: PointerEvent): void {
+		const drag = this.activeCardDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		this.activeCardDrag = undefined;
+		drag.card.classList.remove('dragging');
+		if (drag.card.hasPointerCapture(event.pointerId)) {
+			drag.card.releasePointerCapture(event.pointerId);
+		}
+
+		if (!drag.moved) {
+			return;
+		}
+
+		event.preventDefault();
+		event.stopPropagation();
+		this.suppressNextCardClick(drag.item.path);
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+
+		void this.canvasMirrorService.updateCardGeometry(folder, {
+			path: drag.item.path,
+			kind: drag.item.kind,
+			x: drag.latest.x,
+			y: drag.latest.y,
+			width: drag.latest.width,
+			height: drag.latest.height
+		}).then(() => this.render()).catch(error => {
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		});
+	}
+
+	private onCardPointerCancel(event: PointerEvent): void {
+		const drag = this.activeCardDrag;
+		if (!drag || drag.pointerId !== event.pointerId) {
+			return;
+		}
+
+		this.activeCardDrag = undefined;
+		drag.card.classList.remove('dragging');
+		this.applyCardBounds(drag.card, drag.origin);
+		if (drag.card.hasPointerCapture(event.pointerId)) {
+			drag.card.releasePointerCapture(event.pointerId);
+		}
+	}
+
+	private applyCardBounds(card: HTMLElement, bounds: IBaseHalfCanvasBounds): void {
+		card.style.transform = `translate(${bounds.x}px, ${bounds.y}px)`;
+		card.style.width = `${bounds.width}px`;
+		card.style.height = `${bounds.height}px`;
+	}
+
+	private suppressNextCardClick(path: string): void {
+		if (this.suppressNextCardClickTimer !== undefined) {
+			mainWindow.clearTimeout(this.suppressNextCardClickTimer);
+		}
+
+		this.suppressNextCardClickForPath = path;
+		this.suppressNextCardClickTimer = mainWindow.setTimeout(() => this.clearSuppressedCardClick(), 250);
+	}
+
+	private clearSuppressedCardClick(): void {
+		if (this.suppressNextCardClickTimer !== undefined) {
+			mainWindow.clearTimeout(this.suppressNextCardClickTimer);
+			this.suppressNextCardClickTimer = undefined;
+		}
+		this.suppressNextCardClickForPath = undefined;
 	}
 
 	private renderEdges(edges: readonly IBaseHalfCanvasEdge[], items: readonly IBaseHalfCanvasItem[], size: Dimension): { dropped: number } {
@@ -520,3 +658,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 }
 
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
+
+function roundCanvasPosition(value: number): number {
+	return Number(value.toFixed(2));
+}
