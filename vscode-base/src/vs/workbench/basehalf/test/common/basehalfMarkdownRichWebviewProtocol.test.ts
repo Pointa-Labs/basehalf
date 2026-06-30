@@ -59,6 +59,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.adhdState',
 			key: 'workspace\u0000doc.md',
+			readingModeEnabled: true,
 			adhd: {
 				path: 'doc.md',
 				kind: 'file',
@@ -69,6 +70,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.adhdState',
 			key: 'workspace\u0000doc.md',
+			readingModeEnabled: false,
 			error: 'ADHD metadata issue'
 		}), true);
 
@@ -83,6 +85,7 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.adhdState', key: 'workspace\u0000doc.md', adhd: { path: 'doc.md', kind: 'folder' } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.adhdState', key: 'workspace\u0000doc.md', readingModeEnabled: 'yes' }), false);
 	});
 
 	test('recognizes valid webview messages and validates byte payloads', () => {

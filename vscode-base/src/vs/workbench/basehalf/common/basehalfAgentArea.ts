@@ -30,6 +30,8 @@ export interface IBaseHalfAgentSessionChoice {
 	readonly terminalCommand?: string;
 	readonly requiresExtensionSlot?: string;
 	readonly extensionId?: string;
+	readonly extensionViewContainerIds?: readonly string[];
+	readonly extensionViewIds?: readonly string[];
 }
 
 export const BASEHALF_AGENT_SESSION_CHOICES = [
@@ -53,7 +55,9 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 		description: 'Host the curated VS Code Codex extension experience inside the Agent Area.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CODEX_EXTENSION_COMMAND_ID,
 		requiresExtensionSlot: 'basehalf.agentArea.extension.codex',
-		extensionId: 'openai.chatgpt'
+		extensionId: 'openai.chatgpt',
+		extensionViewContainerIds: ['workbench.view.extension.codexSecondaryViewContainer', 'workbench.view.extension.codexViewContainer'],
+		extensionViewIds: ['chatgpt.sidebarSecondaryView', 'chatgpt.sidebarView']
 	},
 	{
 		kind: 'extension-claude',
@@ -61,7 +65,9 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 		description: 'Host the curated VS Code Claude Code extension experience inside the Agent Area.',
 		commandId: BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
 		requiresExtensionSlot: 'basehalf.agentArea.extension.claude',
-		extensionId: 'anthropic.claude-code'
+		extensionId: 'anthropic.claude-code',
+		extensionViewContainerIds: ['workbench.view.extension.claude-sidebar-secondary', 'workbench.view.extension.claude-sidebar'],
+		extensionViewIds: ['claudeVSCodeSidebarSecondary', 'claudeVSCodeSidebar']
 	},
 	{
 		kind: 'terminal',
@@ -102,6 +108,8 @@ export interface IBaseHalfExtensionAgentProviderResult {
 	readonly label?: string;
 	readonly description?: string;
 	readonly detail?: string;
+	readonly setVisible?: (visible: boolean) => void;
+	readonly layout?: () => void;
 	readonly focus?: () => void | Promise<void>;
 	readonly dispose?: () => void | Promise<void>;
 }

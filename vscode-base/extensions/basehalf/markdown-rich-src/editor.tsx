@@ -103,6 +103,7 @@ type BaseHalfMarkdownRichHostMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.adhdState';
 		readonly key: string;
+		readonly readingModeEnabled?: boolean;
 		readonly adhd?: IBaseHalfAdhdFile | null;
 		readonly error?: string;
 	};
@@ -222,6 +223,7 @@ interface SessionState {
 	byId: Map<string, IBaseHalfMarkdownReuseEntry>;
 	adhd: IBaseHalfAdhdFile | null;
 	adhdError: string | undefined;
+	readingModeEnabled: boolean;
 	readBlockIds: Set<string>;
 	lastDisk: string;
 	editable: boolean;
@@ -254,6 +256,7 @@ function createSessionState(key = ''): SessionState {
 		byId: new Map(),
 		adhd: null,
 		adhdError: undefined,
+		readingModeEnabled: false,
 		readBlockIds: new Set(),
 		lastDisk: '',
 		editable: false,
@@ -427,12 +430,19 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string) => {
 		const state = session.current;
+		const isNewResource = state.key !== key || state.resource !== resource;
 		state.loading = true;
 		state.key = key;
 		state.resource = resource;
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
+		if (isNewResource) {
+			state.adhd = null;
+			state.adhdError = undefined;
+			state.readingModeEnabled = false;
+			state.readBlockIds = new Set();
+		}
 		setVersion(value => value + 1);
 
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
@@ -464,8 +474,11 @@ function MarkdownRichEditor(): JSX.Element {
 		setVersion(value => value + 1);
 	}, [vscode]);
 
-	const applyAdhdState = useCallback((adhd: IBaseHalfAdhdFile | null | undefined, error: string | undefined) => {
+	const applyAdhdState = useCallback((adhd: IBaseHalfAdhdFile | null | undefined, error: string | undefined, readingModeEnabled: boolean | undefined) => {
 		const state = session.current;
+		if (readingModeEnabled !== undefined) {
+			state.readingModeEnabled = readingModeEnabled;
+		}
 		if (adhd !== undefined) {
 			state.adhd = adhd;
 			state.readBlockIds = projectAdhdReadBlocks(adhd);
@@ -476,7 +489,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const postAdhdCommand = useCallback((command: IBaseHalfAdhdCommand) => {
 		const state = session.current;
-		if (!state.key || !state.ready) {
+		if (!state.key || !state.ready || !state.readingModeEnabled || state.adhdError !== undefined) {
 			return;
 		}
 		vscode.postMessage({
@@ -701,7 +714,7 @@ function MarkdownRichEditor(): JSX.Element {
 					break;
 				}
 				case 'basehalf.markdownRich.adhdState':
-					applyAdhdState(message.adhd, message.error);
+					applyAdhdState(message.adhd, message.error, message.readingModeEnabled);
 					break;
 			}
 		};
@@ -735,7 +748,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => {
 		const state = session.current;
 		pushBaseHalfAdhdDecorations(editor, {
-			enabled: state.ready && state.adhdError === undefined,
+			enabled: state.ready && state.readingModeEnabled && state.adhdError === undefined,
 			readBlockIds: [...state.readBlockIds],
 			keywords: state.adhd?.highlight_keywords ?? [],
 		});
@@ -753,7 +766,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		const onContextMenu = (event: MouseEvent): void => {
 			const state = session.current;
-			if (!state.ready || state.adhdError !== undefined) {
+			if (!state.ready) {
 				return;
 			}
 
@@ -770,8 +783,9 @@ function MarkdownRichEditor(): JSX.Element {
 			const clipboardText = selection && view
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: selected;
-			const items: ContextMenuItem[] = [
-				existing
+			const items: ContextMenuItem[] = [];
+			if (state.readingModeEnabled && state.adhdError === undefined) {
+				items.push(existing
 					? {
 						id: 'remove-highlight',
 						label: `Remove "${existing}" from highlights`,
@@ -781,13 +795,13 @@ function MarkdownRichEditor(): JSX.Element {
 						id: 'add-highlight',
 						label: `Highlight "${selected}"`,
 						run: () => postAdhdCommand({ command: 'addKeyword', keyword: selected }),
-					},
-				{
-					id: 'copy',
-					label: 'Copy',
-					run: () => void navigator.clipboard.writeText(clipboardText),
-				},
-			];
+					});
+			}
+			items.push({
+				id: 'copy',
+				label: 'Copy',
+				run: () => void navigator.clipboard.writeText(clipboardText),
+			});
 
 			if (view && state.editable && state.conflictDisk === undefined && state.writeError === undefined) {
 				items.push(
@@ -841,7 +855,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 
 			const state = session.current;
-			if (!state.ready || state.adhdError !== undefined) {
+			if (!state.ready || !state.readingModeEnabled || state.adhdError !== undefined) {
 				return;
 			}
 

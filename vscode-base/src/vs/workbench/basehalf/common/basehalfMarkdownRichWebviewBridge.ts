@@ -91,10 +91,11 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	sendAdhdState(options: { readonly adhd?: IBaseHalfAdhdFile | null; readonly error?: string }): Promise<boolean> {
+	sendAdhdState(options: { readonly readingModeEnabled?: boolean; readonly adhd?: IBaseHalfAdhdFile | null; readonly error?: string }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.adhdState',
 			key: this.key,
+			...(options.readingModeEnabled !== undefined ? { readingModeEnabled: options.readingModeEnabled } : {}),
 			...(options.adhd !== undefined ? { adhd: options.adhd } : {}),
 			...(options.error !== undefined ? { error: options.error } : {})
 		});

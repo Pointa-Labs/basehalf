@@ -9,6 +9,7 @@ import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename, joinPath } from '../../../base/common/resources.js';
 import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
+import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILabelService } from '../../../platform/label/common/label.js';
 import { ILogService } from '../../../platform/log/common/log.js';
@@ -40,6 +41,7 @@ import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorServic
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
+import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
 
 type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
@@ -169,6 +171,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService
 	) {
 		super();
@@ -2144,7 +2147,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 
 			if (!fields) {
-				this.canvasZoom = 1;
+				this.canvasZoom = this.defaultCanvasZoom(folder);
 				this.applyCanvasZoom();
 				this.scheduleFolderFocusWrite(0);
 				return;
@@ -2164,11 +2167,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}).catch(error => {
 			this.logService.warn(error);
 			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
-				this.canvasZoom = 1;
+				this.canvasZoom = this.defaultCanvasZoom(folder);
 				this.applyCanvasZoom();
 				this.scheduleFolderFocusWrite(0);
 			}
 		});
+	}
+
+	private defaultCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
+		return normalizeBaseHalfCanvasZoom(this.configurationService.getValue(BaseHalfSetting.CanvasDefaultZoom, { resource: folder.resource }));
 	}
 
 	private flushFolderFocusWrite(): void {
@@ -2200,8 +2207,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
 
-const BASEHALF_CANVAS_MIN_ZOOM = 0.25;
-const BASEHALF_CANVAS_MAX_ZOOM = 2;
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
 
 function roundCanvasPosition(value: number): number {
@@ -2209,10 +2214,7 @@ function roundCanvasPosition(value: number): number {
 }
 
 function normalizeCanvasZoom(value: number): number {
-	if (!Number.isFinite(value)) {
-		return 1;
-	}
-	return Number(Math.min(BASEHALF_CANVAS_MAX_ZOOM, Math.max(BASEHALF_CANVAS_MIN_ZOOM, value)).toFixed(2));
+	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(2));
 }
 
 function mediaPreviewLabel(name: string): string | undefined {

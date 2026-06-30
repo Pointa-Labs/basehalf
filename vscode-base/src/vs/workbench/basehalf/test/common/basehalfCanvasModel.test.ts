@@ -44,8 +44,8 @@ suite('BaseHalfCanvasModel', () => {
 	});
 
 	test('returns stable grid positions', () => {
-		assert.deepStrictEqual(baseHalfCanvasPosition(0, 8), { x: 48, y: 84 });
-		assert.deepStrictEqual(baseHalfCanvasPosition(5, 8), { x: 48, y: 252 });
+		assert.deepStrictEqual(baseHalfCanvasPosition(0, 8), { x: 60, y: 60 });
+		assert.deepStrictEqual(baseHalfCanvasPosition(5, 8), { x: 60, y: 340 });
 	});
 
 	test('merges saved canvas card geometry by workspace-relative path', () => {
@@ -160,7 +160,7 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[0], 0, model.items.length), { x: 12, y: 24, width: 280, height: 160 });
-		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 308, y: 84, width: 220, height: 112 });
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 400, y: 60, width: 300, height: 220 });
 	});
 
 	test('computes anchor points and routed edge paths', () => {

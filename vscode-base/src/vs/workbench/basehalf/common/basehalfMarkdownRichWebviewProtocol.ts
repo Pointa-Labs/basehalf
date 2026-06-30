@@ -61,6 +61,7 @@ export type BaseHalfMarkdownRichHostMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.adhdState';
 		readonly key: string;
+		readonly readingModeEnabled?: boolean;
 		readonly adhd?: IBaseHalfAdhdFile | null;
 		readonly error?: string;
 	};
@@ -149,7 +150,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& (candidate.disk === undefined || typeof candidate.disk === 'string')
 				&& (candidate.message === undefined || typeof candidate.message === 'string');
 		case 'basehalf.markdownRich.adhdState':
-			return (candidate.adhd === undefined || candidate.adhd === null || isBaseHalfAdhdFile(candidate.adhd))
+			return (candidate.readingModeEnabled === undefined || typeof candidate.readingModeEnabled === 'boolean')
+				&& (candidate.adhd === undefined || candidate.adhd === null || isBaseHalfAdhdFile(candidate.adhd))
 				&& (candidate.error === undefined || typeof candidate.error === 'string');
 		default:
 			return false;

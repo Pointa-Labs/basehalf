@@ -5,24 +5,29 @@
 
 import './media/basehalfAgentArea.css';
 
-import { $, append, clearNode } from '../../../base/browser/dom.js';
+import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
 import { isObject } from '../../../base/common/types.js';
 import { localize2 } from '../../../nls.js';
 import { Action2, MenuId, registerAction2 } from '../../../platform/actions/common/actions.js';
-import { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
+import { IInstantiationService, ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { KeyCode, KeyMod } from '../../../base/common/keyCodes.js';
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
+import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { type IShellLaunchConfig, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
+import { ExtensionIdentifier } from '../../../platform/extensions/common/extensions.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
+import { IViewDescriptorService } from '../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
+import { ActivationKind, IExtensionService } from '../../services/extensions/common/extensions.js';
 import { TerminalCommandId } from '../../contrib/terminal/common/terminal.js';
 import { ICreateTerminalOptions, ITerminalInstance, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
+import { ViewPaneContainer } from '../../browser/parts/views/viewPaneContainer.js';
 import {
 	BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID,
@@ -39,6 +44,7 @@ import {
 	IBaseHalfExtensionAgentProvider,
 	IBaseHalfExtensionAgentProviderResult
 } from '../common/basehalfAgentArea.js';
+import { BaseHalfSetting, normalizeBaseHalfAgentDefaultSession } from '../common/basehalfConfiguration.js';
 
 interface IBaseHalfRuntimeAgentSession {
 	id: string;
@@ -52,9 +58,146 @@ interface IBaseHalfRuntimeAgentSession {
 	terminal?: ITerminalInstance;
 	terminalCommand?: string;
 	pendingCommandOnReady?: string;
+	extensionSetVisible?: (visible: boolean) => void;
+	extensionLayout?: () => void;
 	extensionFocus?: () => void | Promise<void>;
 	extensionDispose?: () => void | Promise<void>;
 	closing?: boolean;
+}
+
+interface IBaseHalfResolvedExtensionAgentSurface {
+	readonly viewContainerId: string;
+	readonly viewId: string | undefined;
+}
+
+class BaseHalfExtensionAgentUnavailableError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'BaseHalfExtensionAgentUnavailableError';
+	}
+}
+
+class BaseHalfViewContainerExtensionAgentProvider implements IBaseHalfExtensionAgentProvider {
+	constructor(
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IExtensionService private readonly extensionService: IExtensionService,
+		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
+	) { }
+
+	async createSession(kind: BaseHalfExtensionAgentSessionKind, container: unknown): Promise<IBaseHalfExtensionAgentProviderResult> {
+		if (!(container instanceof mainWindow.HTMLElement)) {
+			throw new Error('BaseHalf extension-agent sessions require a DOM host.');
+		}
+
+		const choice = baseHalfAgentSessionChoiceForKind(kind);
+		if (!choice.extensionId) {
+			throw new Error(`${choice.label} does not declare a VS Code extension id.`);
+		}
+
+		await this.extensionService.whenInstalledExtensionsRegistered();
+		const extension = await this.extensionService.getExtension(choice.extensionId);
+		if (!extension) {
+			throw new BaseHalfExtensionAgentUnavailableError(`${choice.extensionId} is not installed or enabled.`);
+		}
+
+		for (const viewId of choice.extensionViewIds ?? []) {
+			await this.extensionService.activateByEvent(`onView:${viewId}`, ActivationKind.Immediate);
+		}
+		await this.extensionService.activateById(new ExtensionIdentifier(choice.extensionId), {
+			startup: false,
+			extensionId: new ExtensionIdentifier(choice.extensionId),
+			activationEvent: 'basehalf.agentArea.extension'
+		});
+
+		const surface = this.resolveSurface(kind);
+		if (!surface) {
+			const containers = (choice.extensionViewContainerIds ?? []).join(', ') || '<none>';
+			const views = (choice.extensionViewIds ?? []).join(', ') || '<none>';
+			throw new BaseHalfExtensionAgentUnavailableError(`${choice.extensionId} did not contribute an active Agent Area view surface. Containers: ${containers}. Views: ${views}.`);
+		}
+
+		clearNode(container);
+		const viewHost = append(container, $('.basehalf-agent-extension-view-host'));
+		const viewPaneContainer = this.instantiationService.createInstance(ViewPaneContainer, surface.viewContainerId, { mergeViewWithContainerWhenSingleView: true });
+		viewPaneContainer.create(viewHost);
+
+		const layout = () => {
+			const width = Math.max(1, Math.floor(viewHost.clientWidth));
+			const height = Math.max(1, Math.floor(viewHost.clientHeight));
+			viewPaneContainer.layout(new Dimension(width, height));
+		};
+		const resizeObserver = new mainWindow.ResizeObserver(layout);
+		resizeObserver.observe(viewHost);
+
+		viewPaneContainer.setVisible(true);
+		layout();
+		if (surface.viewId) {
+			viewPaneContainer.openView(surface.viewId, false);
+		}
+
+		return {
+			label: choice.label,
+			description: choice.description,
+			detail: `Rendering ${choice.extensionId} via VS Code view ${surface.viewId ?? surface.viewContainerId}`,
+			focus: () => viewPaneContainer.focus(),
+			setVisible: visible => {
+				viewPaneContainer.setVisible(visible);
+				if (visible) {
+					layout();
+				}
+			},
+			layout,
+			dispose: () => {
+				resizeObserver.disconnect();
+				viewPaneContainer.setVisible(false);
+				viewPaneContainer.dispose();
+				viewHost.remove();
+			}
+		};
+	}
+
+	private resolveSurface(kind: BaseHalfExtensionAgentSessionKind): IBaseHalfResolvedExtensionAgentSurface | undefined {
+		const choice = baseHalfAgentSessionChoiceForKind(kind);
+		for (const declaredViewContainerId of choice.extensionViewContainerIds ?? []) {
+			const viewContainerId = this.resolveViewContainerId(declaredViewContainerId);
+			if (!viewContainerId) {
+				continue;
+			}
+
+			const viewContainer = this.viewDescriptorService.getViewContainerById(viewContainerId);
+			if (!viewContainer) {
+				continue;
+			}
+
+			const model = this.viewDescriptorService.getViewContainerModel(viewContainer);
+			const candidateViewIds = choice.extensionViewIds ?? [];
+			const activeViewId = candidateViewIds.find(viewId => model.activeViewDescriptors.some(descriptor => descriptor.id === viewId))
+				?? candidateViewIds.find(viewId => this.viewDescriptorService.getViewDescriptorById(viewId))
+				?? model.activeViewDescriptors[0]?.id
+				?? model.allViewDescriptors[0]?.id;
+
+			return { viewContainerId, viewId: activeViewId };
+		}
+
+		return undefined;
+	}
+
+	private resolveViewContainerId(declaredViewContainerId: string): string | undefined {
+		for (const candidate of this.viewContainerIdCandidates(declaredViewContainerId)) {
+			if (this.viewDescriptorService.getViewContainerById(candidate)) {
+				return candidate;
+			}
+		}
+		return undefined;
+	}
+
+	private viewContainerIdCandidates(declaredViewContainerId: string): readonly string[] {
+		const extensionPrefix = 'workbench.view.extension.';
+		if (declaredViewContainerId.startsWith(extensionPrefix)) {
+			return [declaredViewContainerId, declaredViewContainerId.slice(extensionPrefix.length)];
+		}
+		return [`${extensionPrefix}${declaredViewContainerId}`, declaredViewContainerId];
+	}
 }
 
 class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaService {
@@ -84,9 +227,15 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@ITerminalService private readonly terminalService: ITerminalService,
 		@INotificationService private readonly notificationService: INotificationService,
-		@ILogService private readonly logService: ILogService
+		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@ILogService private readonly logService: ILogService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
 		super();
+
+		const extensionAgentProvider = this.instantiationService.createInstance(BaseHalfViewContainerExtensionAgentProvider);
+		this._register(this.registerExtensionAgentProvider('extension-codex', extensionAgentProvider));
+		this._register(this.registerExtensionAgentProvider('extension-claude', extensionAgentProvider));
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -116,7 +265,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this.empty.textContent = 'Choose an agent session';
 
 		editorContainer.appendChild(this.root);
-		this.resizeObserver = new mainWindow.ResizeObserver(() => this.layoutActiveTerminal());
+		this.resizeObserver = new mainWindow.ResizeObserver(() => this.layoutActiveSession());
 		this.resizeObserver.observe(this.body);
 
 		this._register(toDisposable(() => {
@@ -155,6 +304,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 
 		this.updateActiveSessionVisibility();
+		this.layoutActiveSession();
 		if (!preserveFocus) {
 			await this.focusActiveSession();
 		}
@@ -180,7 +330,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 
 		if (!this.runtimeSessions.length) {
-			await this.createTerminalSession({ source: TerminalCommandId.Toggle });
+			await this.createSession(this.defaultSessionKind());
 			return;
 		}
 
@@ -366,6 +516,17 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private async createExtensionAgentSession(kind: BaseHalfExtensionAgentSessionKind): Promise<IBaseHalfAgentAreaSession> {
 		const choice = baseHalfAgentSessionChoiceForKind(kind);
+		const existing = this.runtimeSessions.find(session => session.kind === kind && !session.closing && session.state !== 'disposed');
+		if (existing && existing.state !== 'failed' && existing.state !== 'unavailable') {
+			this._activeSessionId = existing.id;
+			this.fireSessionsChanged();
+			await this.show(false);
+			return this.snapshotSession(existing);
+		}
+		if (existing) {
+			this.removeRuntimeSession(existing.id, true);
+		}
+
 		const session = this.createRuntimeSession(kind, choice.label, choice.description);
 		await this.show(true);
 
@@ -386,9 +547,18 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			this.applyExtensionAgentProviderResult(session, result);
 			session.state = 'ready';
 			this.fireSessionsChanged();
+			this.updateActiveSessionVisibility();
 			await this.focusSession(session.id);
 		} catch (error) {
-			this.markSessionFailed(session, error);
+			if (error instanceof BaseHalfExtensionAgentUnavailableError) {
+				session.state = 'unavailable';
+				session.detail = error.message;
+				this.renderExtensionState(session);
+				this.fireSessionsChanged();
+				await this.focusSession(session.id);
+			} else {
+				this.markSessionFailed(session, error);
+			}
 		}
 
 		return this.snapshotSession(session);
@@ -443,6 +613,8 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.label = result.label ?? session.label;
 		session.description = result.description ?? session.description;
 		session.detail = result.detail;
+		session.extensionSetVisible = result.setVisible;
+		session.extensionLayout = result.layout;
 		session.extensionFocus = result.focus;
 		session.extensionDispose = result.dispose;
 		if (result.dispose) {
@@ -519,6 +691,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 	}
 
+	private defaultSessionKind(): BaseHalfAgentSessionKind {
+		return normalizeBaseHalfAgentDefaultSession(this.configurationService.getValue(BaseHalfSetting.AgentDefaultSession));
+	}
+
 	private renderTabs(): void {
 		clearNode(this.tabs);
 		this.tabs.classList.toggle('empty', this.runtimeSessions.length === 0);
@@ -593,12 +769,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			session.host.classList.toggle('active', active);
 			session.host.setAttribute('aria-hidden', String(!active));
 			session.terminal?.setVisible(active);
+			session.extensionSetVisible?.(active);
 			if (active && (session.state === 'unavailable' || session.state === 'failed')) {
 				this.renderExtensionState(session);
 			}
 		}
 
-		this.layoutActiveTerminal();
+		this.layoutActiveSession();
 	}
 
 	private async focusActiveSession(): Promise<void> {
@@ -610,12 +787,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (session.terminal) {
 			this.setActiveTerminalForVsCodeCompatibility(session.terminal);
 			session.terminal.setVisible(true);
-			this.layoutActiveTerminal();
+			this.layoutActiveSession();
 			await session.terminal.focusWhenReady(true);
 			return;
 		}
 
 		if (session.extensionFocus) {
+			this.layoutActiveSession();
 			await session.extensionFocus();
 			return;
 		}
@@ -624,15 +802,18 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		focusable?.focus();
 	}
 
-	private layoutActiveTerminal(): void {
+	private layoutActiveSession(): void {
 		const session = this.runtimeSessions.find(session => session.id === this._activeSessionId);
-		if (!this._visible || !session?.terminal || !session.host.classList.contains('active')) {
+		if (!this._visible || !session || !session.host.classList.contains('active')) {
 			return;
 		}
 
-		const width = Math.max(1, Math.floor(session.host.clientWidth));
-		const height = Math.max(1, Math.floor(session.host.clientHeight));
-		session.terminal.layout({ width, height });
+		if (session.terminal) {
+			const width = Math.max(1, Math.floor(session.host.clientWidth));
+			const height = Math.max(1, Math.floor(session.host.clientHeight));
+			session.terminal.layout({ width, height });
+		}
+		session.extensionLayout?.();
 	}
 
 	private createTerminalOptions(label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {

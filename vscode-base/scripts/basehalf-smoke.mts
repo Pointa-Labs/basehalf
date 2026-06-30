@@ -103,8 +103,11 @@ try {
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-status-in-header', () => assertMarkdownRichStatusInHeader(page));
+	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
 	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
 	await step('readme-rich-slash-menu-themed-portal', () => assertMarkdownRichSlashMenuThemedPortal(page));
+	await step('readme-rich-reading-mode-off', () => assertMarkdownRichReadingModeDisabled(page));
+	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
@@ -138,6 +141,7 @@ try {
 
 	await step('folder-quick-open', () => quickOpen(page, 'docs'));
 	await step('folder-quick-open-canvas', () => assertCanvasFolder(page, 'docs'));
+	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 
 	const summary = {
 		ok: true,
@@ -156,8 +160,10 @@ try {
 			'canvas-card-badge-preview-connectors',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-header',
+			'markdown-rich-blockquote-editable',
 			'markdown-rich-block-menu-portal',
 			'markdown-rich-slash-menu-themed-portal',
+			'markdown-rich-reading-mode-settings-toggle',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
@@ -171,7 +177,8 @@ try {
 			'canvas-zoom-controls',
 			'canvas-breadcrumb-root-navigation',
 			'explorer-file-row-card-detail-no-tab',
-			'folder-quick-open-canvas'
+			'folder-quick-open-canvas',
+			'settings-basehalf-category'
 		]
 	};
 	if (opts.keep || opts.output) {
@@ -271,6 +278,10 @@ function assertProductIdentity() {
 	if (packageJson.name !== 'basehalf-vscode-dev') {
 		throw new Error(`BaseHalf dev package identity mismatch: package.name is ${JSON.stringify(packageJson.name)}, expected "basehalf-vscode-dev".`);
 	}
+
+	if (product.updateUrl !== undefined) {
+		throw new Error(`BaseHalf product.json should not enable VS Code updater until a compatible update service exists; got updateUrl=${JSON.stringify(product.updateUrl)}.`);
+	}
 }
 
 function shouldLogConsoleMessage(message) {
@@ -299,6 +310,8 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, 'README.md'), [
 		'# Smoke README',
 		'',
+		'> **Smoke editable quote.** It keeps a [guide link](docs/guide.md) as a rich quote block.',
+		'',
 		'- **Smoke nested item** starts here',
 		'  nested-menu-anchor continuation',
 		'',
@@ -316,6 +329,15 @@ function createFixtureWorkspace(workspace) {
 		'description: "Smoke file badge"',
 		'references: []',
 		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
+	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'adhd.yaml'), [
+		'path: "README.md"',
+		'kind: file',
+		'highlight_keywords:',
+		'  - "Smoke"',
+		'read_paragraphs:',
+		'  - [1, 2]',
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'canvas.yaml'), [
@@ -603,6 +625,26 @@ async function assertStockTerminalPanelHidden(page) {
 	}
 }
 
+async function assertBaseHalfSettingsCategory(page) {
+	await runCommand(page, 'Open Settings (UI)');
+	const editor = page.locator('.settings-editor').first();
+	await editor.waitFor({ state: 'visible', timeout: 20_000 });
+
+	const toc = editor.locator('.settings-toc-container').first();
+	await toc.waitFor({ state: 'visible', timeout: 20_000 });
+	const basehalfEntry = toc.locator('.settings-toc-entry', { hasText: /^BaseHalf$/ }).first();
+	await basehalfEntry.waitFor({ state: 'visible', timeout: 20_000 });
+	await basehalfEntry.click();
+
+	await page.waitForFunction(() => {
+		const settingsEditor = document.querySelector('.settings-editor');
+		const text = (settingsEditor?.textContent ?? '').replace(/\s+/g, ' ');
+		return text.includes('BaseHalf')
+			&& text.includes('ADHD')
+			&& (text.includes('Reading Mode') || text.includes('basehalf.editor.readingMode'));
+	}, null, { timeout: 20_000 });
+}
+
 async function assertSourceControlPanel(page) {
 	await runCommand(page, 'Source Control: Focus on Changes View');
 	await page.locator('.part.sidebar .title-label h2', { hasText: /Source Control/i }).waitFor({ state: 'visible', timeout: 20_000 });
@@ -868,6 +910,16 @@ async function assertMarkdownRichStatusInHeader(page) {
 	await page.locator('.basehalf-card-detail-meta', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
+async function assertMarkdownRichBlockquoteEditable(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const quote = frame.locator('.bn-block-content[data-content-type="quote"]', { hasText: 'Smoke editable quote' }).first();
+	await quote.waitFor({ state: 'visible', timeout: 20_000 });
+	const rawQuoteCount = await frame.locator('.basehalf-raw-passthrough', { hasText: 'Smoke editable quote' }).count();
+	if (rawQuoteCount !== 0) {
+		throw new Error(`Markdown blockquote should be an editable BlockNote quote block, got ${rawQuoteCount} raw passthrough block(s)`);
+	}
+}
+
 async function assertMarkdownRichBlockMenuPortal(page) {
 	const frame = await activeMarkdownRichFrame(page);
 	const content = frame.locator('.bn-block-content', { hasText: 'nested-menu-anchor continuation' }).first();
@@ -969,6 +1021,94 @@ async function assertMarkdownRichSlashMenuThemedPortal(page) {
 	}
 	if (!diagnostic.probeInsideMenu) {
 		throw new Error(`Markdown rich slash menu is not the top interactive surface: ${JSON.stringify(diagnostic)}`);
+	}
+}
+
+async function assertMarkdownRichReadingModeDisabled(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const checkboxCount = await frame.locator('.basehalf-adhd-check').count();
+	const keywordCount = await frame.locator('.basehalf-adhd-keyword').count();
+	if (checkboxCount !== 0 || keywordCount !== 0) {
+		throw new Error(`ADHD reading aids should be disabled by default, checkboxCount=${checkboxCount}, keywordCount=${keywordCount}`);
+	}
+
+	const content = frame.locator('.bn-block-content', { hasText: 'Smoke README' }).first();
+	await content.waitFor({ state: 'visible', timeout: 20_000 });
+	await openMarkdownRichContextMenuForText(frame, 'README');
+	const menuText = await frame.locator('.basehalf-markdown-rich-context-menu').first().textContent({ timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	if (menuText?.includes('Highlight')) {
+		throw new Error(`ADHD highlight context item should be hidden while reading mode is off: ${menuText}`);
+	}
+}
+
+async function assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page) {
+	const vscodeDir = path.join(workspacePath, '.vscode');
+	fs.mkdirSync(vscodeDir, { recursive: true });
+	fs.writeFileSync(path.join(vscodeDir, 'settings.json'), JSON.stringify({
+		'basehalf.editor.readingMode': true
+	}, null, 2), 'utf8');
+
+	const frame = await activeMarkdownRichFrame(page);
+	await frame.locator('.basehalf-adhd-check').first().waitFor({ state: 'visible', timeout: 20_000 });
+	await frame.locator('.basehalf-adhd-keyword', { hasText: 'Smoke' }).first().waitFor({ state: 'visible', timeout: 20_000 });
+
+	const content = frame.locator('.bn-block-content', { hasText: 'Smoke README' }).first();
+	await content.waitFor({ state: 'visible', timeout: 20_000 });
+	await openMarkdownRichContextMenuForText(frame, 'README');
+	const menuText = await frame.locator('.basehalf-markdown-rich-context-menu').first().textContent({ timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	if (!menuText?.includes('Highlight') && !menuText?.includes('Remove')) {
+		throw new Error(`ADHD highlight context item should be available while reading mode is on: ${menuText}`);
+	}
+}
+
+async function openMarkdownRichContextMenuForText(frame, text: string) {
+	const opened = await frame.evaluate((needle: string) => {
+		const root = document.querySelector<HTMLElement>('.bn-editor');
+		const prosemirror = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"], [contenteditable="true"].ProseMirror, .bn-editor [contenteditable="true"]');
+		if (!root || !prosemirror) {
+			return { ok: false, reason: 'missing editor root' };
+		}
+
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		let node: Text | null = null;
+		let start = -1;
+		while (walker.nextNode()) {
+			const current = walker.currentNode as Text;
+			start = current.data.indexOf(needle);
+			if (start >= 0) {
+				node = current;
+				break;
+			}
+		}
+		if (!node) {
+			return { ok: false, reason: 'text not found' };
+		}
+
+		const range = document.createRange();
+		range.setStart(node, start);
+		range.setEnd(node, start + needle.length);
+		const selection = window.getSelection();
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+
+		const rect = range.getBoundingClientRect();
+		const x = Number.isFinite(rect.left) && rect.left > 0 ? rect.left + Math.min(12, Math.max(1, rect.width / 2)) : 120;
+		const y = Number.isFinite(rect.top) && rect.top > 0 ? rect.top + Math.min(12, Math.max(1, rect.height / 2)) : 120;
+		const target = node.parentElement ?? prosemirror;
+		target.dispatchEvent(new MouseEvent('contextmenu', {
+			bubbles: true,
+			cancelable: true,
+			clientX: x,
+			clientY: y,
+			button: 2
+		}));
+		return { ok: true };
+	}, text);
+
+	if (!opened.ok) {
+		throw new Error(`Could not open Markdown rich context menu: ${JSON.stringify(opened)}`);
 	}
 }
 

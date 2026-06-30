@@ -61,6 +61,10 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(claude.requiresExtensionSlot, 'basehalf.agentArea.extension.claude');
 		assert.strictEqual(codex.extensionId, 'openai.chatgpt');
 		assert.strictEqual(claude.extensionId, 'anthropic.claude-code');
+		assert.deepStrictEqual(codex.extensionViewContainerIds, ['workbench.view.extension.codexSecondaryViewContainer', 'workbench.view.extension.codexViewContainer']);
+		assert.deepStrictEqual(codex.extensionViewIds, ['chatgpt.sidebarSecondaryView', 'chatgpt.sidebarView']);
+		assert.deepStrictEqual(claude.extensionViewContainerIds, ['workbench.view.extension.claude-sidebar-secondary', 'workbench.view.extension.claude-sidebar']);
+		assert.deepStrictEqual(claude.extensionViewIds, ['claudeVSCodeSidebarSecondary', 'claudeVSCodeSidebar']);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(codex.requiresExtensionSlot), true);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(claude.requiresExtensionSlot), true);
 	});

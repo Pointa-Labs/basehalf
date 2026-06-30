@@ -14,6 +14,7 @@ import { generateUuid } from '../../../../base/common/uuid.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
@@ -43,6 +44,7 @@ import {
 } from '../../common/basehalfMarkdownRichWebviewSaveCoordinator.js';
 import { IBaseHalfAdhdCommand } from '../../common/basehalfAdhd.js';
 import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
+import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/markdown-rich-out');
@@ -77,6 +79,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ICommandService private readonly commandService: ICommandService,
+		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -158,6 +161,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this._register(this.model.onDidChangeContent(() => this.handleModelContentChanged()));
 			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
 			this._register(this.editorFlushService.registerDocumentFlusher(this.documentKey, options => this.flush(options)));
+			this._register(this.configurationService.onDidChangeConfiguration(event => {
+				const state = this.state;
+				if (state && event.affectsConfiguration(BaseHalfSetting.EditorReadingMode, { resource: state.resource })) {
+					void this.sendAdhdState(state);
+				}
+			}));
 
 			await this.sendDocumentState(state);
 			this.updateStatus();
@@ -264,13 +273,17 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private async handleAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand): Promise<void> {
+		if (!this.isReadingModeEnabled(state)) {
+			return;
+		}
+
 		try {
 			const adhd = await this.runAdhdCommand(state, command);
-			await this.bridge?.sendAdhdState({ adhd });
+			await this.bridge?.sendAdhdState({ readingModeEnabled: true, adhd });
 		} catch (error) {
 			const message = adhdErrorMessage(error);
 			this.logService.error(error);
-			await this.bridge?.sendAdhdState({ error: message });
+			await this.bridge?.sendAdhdState({ readingModeEnabled: true, error: message });
 		}
 	}
 
@@ -322,14 +335,24 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private async sendAdhdState(state: IBaseHalfCardDetailState): Promise<void> {
+		const readingModeEnabled = this.isReadingModeEnabled(state);
+		if (!readingModeEnabled) {
+			await this.bridge?.sendAdhdState({ readingModeEnabled, adhd: null });
+			return;
+		}
+
 		try {
 			const adhd = await this.adhdMirrorService.readAdhd(state);
-			await this.bridge?.sendAdhdState({ adhd });
+			await this.bridge?.sendAdhdState({ readingModeEnabled, adhd });
 		} catch (error) {
 			const message = adhdErrorMessage(error);
 			this.logService.warn(message);
-			await this.bridge?.sendAdhdState({ error: message });
+			await this.bridge?.sendAdhdState({ readingModeEnabled, error: message });
 		}
+	}
+
+	private isReadingModeEnabled(state: IBaseHalfCardDetailState): boolean {
+		return this.configurationService.getValue<boolean>(BaseHalfSetting.EditorReadingMode, { resource: state.resource }) === true;
 	}
 
 	private async handleSaveRequested(message: BaseHalfMarkdownRichSaveRequestedMessage, model: ITextModel): Promise<void> {

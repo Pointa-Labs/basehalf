@@ -141,6 +141,12 @@ suite('BaseHalfMarkdownProjection', () => {
 			assert.strictEqual(baseHalfMarkdownLosesContent('a <!-- --> b', 'a  b'), true);
 		});
 
+		test('flags dropped raw HTML but not standard Markdown normalization', () => {
+			assert.strictEqual(baseHalfMarkdownLosesContent('Keep <span data-x="1">this</span>', 'Keep this'), true);
+			assert.strictEqual(baseHalfMarkdownLosesContent('See [docs](docs/guide.md)', 'See docs'), false);
+			assert.strictEqual(baseHalfMarkdownLosesContent('> [docs/decisions.md D19](docs/decisions.md)', '> docs/decisions.md D19'), false);
+		});
+
 		test('does not flag formatting-only churn', () => {
 			assert.strictEqual(baseHalfMarkdownLosesContent('* a\n* b', '- a\n- b'), false);
 			assert.strictEqual(baseHalfMarkdownLosesContent('soft\nwrap', 'soft wrap'), false);
@@ -173,6 +179,17 @@ suite('BaseHalfMarkdownProjection', () => {
 				hidden: false
 			});
 			assert.strictEqual((projection.blocks[1] as { type?: string }).type, 'paragraph');
+		});
+
+		test('keeps standard blockquotes editable even when Markdown syntax normalizes', async () => {
+			const projection = await buildBaseHalfMarkdownLoadProjection(
+				new FakeMarkdownEditor(),
+				'> [docs/decisions.md D19](docs/decisions.md)\n'
+			);
+
+			assert.strictEqual(projection.blocks.length, 1);
+			assert.strictEqual((projection.blocks[0] as { type?: string }).type, 'quote');
+			assert.strictEqual(projection.byId.size, 1);
 		});
 
 		test('marks multi-block parsed segments as line-accounting-only reuse entries', async () => {
@@ -260,6 +277,10 @@ class FakeMarkdownEditor implements IBaseHalfMarkdownEditorApi {
 
 		if (markdown.includes('<!-- secret -->')) {
 			return [block(`b${this.nextId++}`, 'paragraph', markdown.replace('<!-- secret -->', ''))];
+		}
+
+		if (markdown.startsWith('> [docs/decisions.md D19]')) {
+			return [block(`b${this.nextId++}`, 'quote', '> docs/decisions.md D19')];
 		}
 
 		return [block(`b${this.nextId++}`, blockTypeFor(markdown), markdown.trimEnd())];

@@ -33,6 +33,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
+			readingModeEnabled: true,
 			adhd: {
 				path: 'doc.md',
 				kind: 'file',
@@ -40,7 +41,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				read_paragraphs: [[1, 2]]
 			}
 		}), true);
-		assert.strictEqual(await bridge.sendAdhdState({ error: 'ADHD metadata issue' }), true);
+		assert.strictEqual(await bridge.sendAdhdState({ readingModeEnabled: false, error: 'ADHD metadata issue' }), true);
 
 		assert.deepStrictEqual(transport.messages.map(entry => entry.message), [
 			{
@@ -89,6 +90,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			{
 				type: 'basehalf.markdownRich.adhdState',
 				key: 'workspace\u0000doc.md',
+				readingModeEnabled: true,
 				adhd: {
 					path: 'doc.md',
 					kind: 'file',
@@ -99,6 +101,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			{
 				type: 'basehalf.markdownRich.adhdState',
 				key: 'workspace\u0000doc.md',
+				readingModeEnabled: false,
 				error: 'ADHD metadata issue'
 			}
 		]);

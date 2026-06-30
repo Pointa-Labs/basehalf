@@ -86,9 +86,20 @@ export function baseHalfMarkdownContentTokens(markdown: string): string {
 }
 
 export function baseHalfMarkdownLosesContent(source: string, normalized: string): boolean {
+	// Standard Markdown can normalize substantially across BlockNote's parser and
+	// serializer (wrapped blockquotes, link syntax, list markers) while still being
+	// an editable block. Reserve passthrough for constructs BlockNote cannot model:
+	// comments and raw HTML whose content would be dropped on edit.
+	if (htmlComments(source) !== htmlComments(normalized)) {
+		return true;
+	}
+
+	if (!containsRawHtml(source)) {
+		return false;
+	}
+
 	return (
 		baseHalfMarkdownContentTokens(source) !== baseHalfMarkdownContentTokens(normalized)
-		|| htmlComments(source) !== htmlComments(normalized)
 	);
 }
 
@@ -284,6 +295,10 @@ function trimTrailingLineBreaks(source: string, start: number, end: number): num
 
 function htmlComments(markdown: string): string {
 	return (markdown.match(/<!--[\s\S]*?-->/g) ?? []).join('\u0000');
+}
+
+function containsRawHtml(markdown: string): boolean {
+	return /<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^>]*)?>/.test(markdown);
 }
 
 function isEmptyParagraph(block: { type?: string; content?: unknown }): boolean {

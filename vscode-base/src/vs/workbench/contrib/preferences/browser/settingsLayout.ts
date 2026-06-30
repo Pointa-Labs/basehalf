@@ -177,6 +177,27 @@ export const tocData: ITOCEntry<string> = {
 			]
 		},
 		{
+			id: 'basehalf',
+			label: localize('basehalf', "BaseHalf"),
+			children: [
+				{
+					id: 'basehalf/editor',
+					label: localize('basehalfEditor', "Editor"),
+					settings: ['basehalf.editor.*']
+				},
+				{
+					id: 'basehalf/canvas',
+					label: localize('basehalfCanvas', "Canvas"),
+					settings: ['basehalf.canvas.*']
+				},
+				{
+					id: 'basehalf/agentArea',
+					label: localize('basehalfAgentArea', "Agent Area"),
+					settings: ['basehalf.agent.*']
+				}
+			]
+		},
+		{
 			id: 'chat',
 			label: localize('chat', "Chat"),
 			children: [
