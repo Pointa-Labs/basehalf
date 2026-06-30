@@ -14,7 +14,7 @@ import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
-import { BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
 	overrides: BASEHALF_CONFIGURATION_DEFAULTS,
@@ -91,13 +91,13 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 	}
 
 	private async closeRestoredHiddenViewContainers(): Promise<void> {
-		for (const viewContainer of BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS) {
-			if (!shouldBaseHalfHideViewContainer(viewContainer.id) || !this.viewsService.isViewContainerVisible(viewContainer.id)) {
+		for (const viewContainerId of BASEHALF_HIDDEN_VIEW_CONTAINER_IDS) {
+			if (!shouldBaseHalfHideViewContainer(viewContainerId) || !this.viewsService.isViewContainerVisible(viewContainerId)) {
 				continue;
 			}
 
-			this.viewsService.closeViewContainer(viewContainer.id);
-			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view container: ${viewContainer.id}`);
+			this.viewsService.closeViewContainer(viewContainerId);
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored hidden VS Code view container: ${viewContainerId}`);
 		}
 
 		const primaryViewContainer = BASEHALF_PRIMARY_VIEW_CONTAINERS[0];

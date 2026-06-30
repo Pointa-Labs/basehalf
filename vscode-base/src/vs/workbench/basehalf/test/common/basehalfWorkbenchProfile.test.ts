@@ -12,6 +12,7 @@ import {
 	BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 	BASEHALF_CONFIGURATION_DEFAULTS,
 	BASEHALF_HIDDEN_SURFACES,
+	BASEHALF_HIDDEN_VIEW_CONTAINER_IDS,
 	BASEHALF_HIDDEN_VIEW_IDS,
 	BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS,
 	BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE,
@@ -99,6 +100,16 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('terminal'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.scm'), false);
 
+		assert.deepStrictEqual(
+			BASEHALF_HIDDEN_VIEW_CONTAINER_IDS,
+			[
+				'workbench.view.extensions',
+				'workbench.panel.chat',
+				'workbench.view.debug',
+				'workbench.view.extension.test',
+				'workbench.view.remote'
+			]
+		);
 		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'workbench.panel.chat.view.copilot']);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.explorer.openEditorsView'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.chat.view.copilot'), true);

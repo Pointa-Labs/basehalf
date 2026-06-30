@@ -82,6 +82,7 @@ try {
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 
 	await assertOpenEditorsHidden(page);
+	await assertCompetingViewContainersHidden(page);
 	await assertAgentAreaChoices(page);
 
 	await quickOpen(page, 'README.md');
@@ -102,6 +103,7 @@ try {
 		checks: [
 			'canvas-visible',
 			'open-editors-hidden',
+			'competing-view-containers-hidden',
 			'agent-area-mounted-connected-choices',
 			'quick-open-card-detail',
 			'quick-text-search-card-detail-no-tab',
@@ -222,6 +224,31 @@ async function assertOpenEditorsHidden(page) {
 	const headers = await page.locator('.pane-header h3.title').evaluateAll(nodes => nodes.map(node => (node.textContent || '').trim()).filter(text => text === 'Open Editors'));
 	if (headers.length) {
 		throw new Error('Open Editors view is visible in Explorer');
+	}
+}
+
+async function assertCompetingViewContainersHidden(page) {
+	const visibleTitles = await page.locator('.part.sidebar .title-label h2, .part.panel .title-label h2, .part.auxiliarybar .title-label h2').evaluateAll(nodes => nodes
+		.filter(node => {
+			const element = node;
+			const rect = element.getBoundingClientRect();
+			const style = getComputedStyle(element);
+			return style.display !== 'none'
+				&& style.visibility !== 'hidden'
+				&& rect.width > 0
+				&& rect.height > 0
+				&& rect.right > 0
+				&& rect.bottom > 0
+				&& rect.left < window.innerWidth
+				&& rect.top < window.innerHeight;
+		})
+		.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
+		.filter(Boolean));
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Testing', 'Remote Explorer'];
+	for (const title of forbidden) {
+		if (visibleTitles.includes(title)) {
+			throw new Error(`Competing VS Code view container is visible: ${title}`);
+		}
 	}
 }
 

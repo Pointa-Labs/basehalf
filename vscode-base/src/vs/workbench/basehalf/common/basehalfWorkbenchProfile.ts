@@ -294,6 +294,10 @@ export const BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_LEF
 	visible: surface.visible
 })) as readonly { readonly id: string; readonly visible: boolean }[];
 
+export const BASEHALF_HIDDEN_VIEW_CONTAINER_IDS = BASEHALF_HIDDEN_SURFACES
+	.filter(surface => surface.kind === 'viewContainer')
+	.map(surface => surface.id) as readonly string[];
+
 export const BASEHALF_HIDDEN_VIEW_IDS = BASEHALF_HIDDEN_SURFACES
 	.filter(surface => surface.kind === 'view')
 	.map(surface => surface.id) as readonly string[];
@@ -597,9 +601,7 @@ const PRIMARY_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_PRIMARY_VIEW_CONTAIN
 const PRIMARY_VIEW_IDS = new Set<string>(BASEHALF_PRIMARY_VIEWS.map(surface => surface.id));
 const REMAPPED_SURFACE_IDS = new Set<string>(BASEHALF_REMAPPED_SURFACES.map(surface => surface.id));
 const HIDDEN_SURFACE_IDS = new Set<string>(BASEHALF_HIDDEN_SURFACES.map(surface => surface.id));
-const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(
-	BASEHALF_HIDDEN_SURFACES.filter(surface => surface.kind === 'viewContainer').map(surface => surface.id)
-);
+const HIDDEN_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_CONTAINER_IDS);
 const HIDDEN_VIEW_IDS = new Set<string>(BASEHALF_HIDDEN_VIEW_IDS);
 const CLOSED_STARTUP_EDITOR_TYPE_IDS = new Set<string>(BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS);
 const ALLOWED_BUILT_IN_EXTENSION_IDS = new Set<string>(
