@@ -89,6 +89,7 @@ try {
 	await assertCompetingViewContainersHidden(page);
 	await assertHiddenSurfaceCommandsStayHidden(page);
 	await assertAgentAreaChoices(page);
+	await assertAgentAreaTerminalCommand(page);
 	await assertSourceControlPanel(page);
 
 	await quickOpen(page, 'README.md');
@@ -127,6 +128,7 @@ try {
 			'competing-view-containers-hidden',
 			'hidden-surface-runtime-guard',
 			'agent-area-five-choices-command-unavailable-state',
+			'agent-area-terminal-command-no-stock-panel',
 			'source-control-git-provider',
 			'quick-open-card-detail',
 			'quick-open-side-card-detail-no-tab',
@@ -309,6 +311,7 @@ async function tryRunCommand(page, value, options = {}) {
 function isExpectedCommandRow(rowText, expectedText) {
 	return rowText === expectedText
 		|| rowText.startsWith(`${expectedText} `)
+		|| rowText.startsWith(`${expectedText},`)
 		|| rowText.endsWith(`: ${expectedText}`);
 }
 
@@ -409,6 +412,41 @@ async function assertAgentAreaChoices(page) {
 	await page.locator('.basehalf-agent-extension-state', { hasText: /not registered/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+}
+
+async function assertAgentAreaTerminalCommand(page) {
+	await runCommand(page, 'Terminal: Create New Terminal');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-agent-tab.active').first().waitFor({ state: 'visible', timeout: 20_000 });
+	await page.waitForFunction(() => {
+		const activeSession = document.querySelector('.basehalf-agent-area-session.active');
+		return !!activeSession?.querySelector('.terminal-wrapper, .xterm');
+	}, null, { timeout: 20_000 });
+	await assertStockTerminalPanelHidden(page);
+	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	await assertStockTerminalPanelHidden(page);
+}
+
+async function assertStockTerminalPanelHidden(page) {
+	const visibleTerminalPanelTitles = await page.locator('.part.panel .title-label h2').evaluateAll(nodes => nodes
+		.filter(node => {
+			const element = node;
+			const rect = element.getBoundingClientRect();
+			const style = getComputedStyle(element);
+			return style.display !== 'none'
+				&& style.visibility !== 'hidden'
+				&& rect.width > 0
+				&& rect.height > 0
+				&& rect.right > 0
+				&& rect.bottom > 0
+				&& rect.left < window.innerWidth
+				&& rect.top < window.innerHeight;
+		})
+		.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim())
+		.filter(text => text === 'Terminal'));
+	if (visibleTerminalPanelTitles.length) {
+		throw new Error('Stock VS Code Terminal panel is visible instead of BaseHalf Agent Area');
+	}
 }
 
 async function assertSourceControlPanel(page) {
