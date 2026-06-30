@@ -103,6 +103,7 @@ try {
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-status-in-header', () => assertMarkdownRichStatusInHeader(page));
+	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 
@@ -154,6 +155,7 @@ try {
 			'canvas-card-badge-preview-connectors',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-header',
+			'markdown-rich-block-menu-portal',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
 			'quick-open-side-card-detail-no-tab',
@@ -829,6 +831,47 @@ async function assertMarkdownRichStatusInHeader(page) {
 		throw new Error(`Markdown rich status should live in the detail header, toolbarCount=${toolbarCount}, bodyStatusCount=${bodyStatusCount}`);
 	}
 	await page.locator('.basehalf-card-detail-meta', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertMarkdownRichBlockMenuPortal(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const content = frame.locator('.bn-block-content').first();
+	await content.waitFor({ state: 'visible', timeout: 20_000 });
+	await content.hover({ position: { x: 8, y: 8 } });
+
+	const sideMenu = frame.locator('.basehalf-markdown-rich-portal .bn-side-menu').first();
+	await sideMenu.waitFor({ state: 'visible', timeout: 10_000 });
+
+	const geometry = await frame.evaluate(() => {
+		const menu = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal .bn-side-menu');
+		const portal = document.querySelector<HTMLElement>('.basehalf-markdown-rich-portal');
+		const content = document.querySelector<HTMLElement>('.bn-block-content');
+		const rect = (element: HTMLElement | null) => {
+			if (!element) {
+				return undefined;
+			}
+			const bounds = element.getBoundingClientRect();
+			return {
+				left: bounds.left,
+				right: bounds.right,
+				width: bounds.width
+			};
+		};
+		return {
+			menu: rect(menu),
+			portal: rect(portal),
+			content: rect(content)
+		};
+	});
+
+	if (!geometry.menu || !geometry.portal || !geometry.content) {
+		throw new Error(`Markdown rich block menu portal geometry missing: ${JSON.stringify(geometry)}`);
+	}
+
+	const tolerance = 1;
+	if (geometry.menu.right < geometry.portal.left - tolerance || geometry.menu.left > geometry.content.left + tolerance) {
+		throw new Error(`Markdown rich block menu is not anchored in the left block gutter: ${JSON.stringify(geometry)}`);
+	}
 }
 
 async function assertMarkdownRichEditorEditsAndSaves(page) {

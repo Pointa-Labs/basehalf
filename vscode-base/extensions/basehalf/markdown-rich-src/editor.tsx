@@ -322,6 +322,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
+	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
 	const [version, setVersion] = useState(0);
 
 	const editor = useCreateBlockNote({
@@ -332,6 +333,16 @@ function MarkdownRichEditor(): JSX.Element {
 			user: { name: 'BaseHalf', color: 'var(--vscode-textLink-foreground)' },
 		},
 	});
+	const portalElements = useMemo(() => portalElement ? {
+		formattingToolbar: portalElement,
+		linkToolbar: portalElement,
+		slashMenu: portalElement,
+		emojiPicker: portalElement,
+		sideMenu: portalElement,
+		filePanel: portalElement,
+		tableHandles: portalElement,
+		comments: portalElement,
+	} : undefined, [portalElement]);
 
 	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => ({
 		tryParseMarkdownToBlocks: markdown => editor.tryParseMarkdownToBlocks(markdown),
@@ -893,7 +904,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	return (
 		<div className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}>
-			<div className="basehalf-markdown-rich-portal" />
+			<div ref={setPortalElement} className="basehalf-markdown-rich-portal" />
 			{state.conflictDisk !== undefined && (
 				<div className="basehalf-markdown-rich-banner warning">
 					<span>This file changed outside the rich editor.</span>
@@ -943,10 +954,7 @@ function MarkdownRichEditor(): JSX.Element {
 						editor={editor}
 						editable={canEdit}
 						theme="dark"
-						portalElements={{
-							default: '.basehalf-markdown-rich-portal',
-							sideMenu: '.basehalf-markdown-rich-portal',
-						}}
+						portalElements={portalElements}
 					/>
 				</div>
 			</div>
