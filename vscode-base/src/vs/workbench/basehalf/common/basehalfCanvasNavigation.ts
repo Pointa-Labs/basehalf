@@ -61,9 +61,13 @@ export interface IBaseHalfCanvasNavigationService {
 
 	readonly onDidChangeState: Event<IBaseHalfCanvasNavigationState>;
 	readonly state: IBaseHalfCanvasNavigationState;
+	readonly canGoBack: boolean;
+	readonly canGoForward: boolean;
 
 	openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openFolderCanvas(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	openCardDetail(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult>;
 	closeCardDetail(): Promise<boolean>;
+	goBack(): Promise<boolean>;
+	goForward(): Promise<boolean>;
 }

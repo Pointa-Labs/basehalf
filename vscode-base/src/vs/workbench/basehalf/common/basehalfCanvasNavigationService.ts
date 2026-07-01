@@ -26,6 +26,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 
 	private readonly _onDidChangeState = this._register(new Emitter<IBaseHalfCanvasNavigationState>());
 	readonly onDidChangeState: Event<IBaseHalfCanvasNavigationState> = this._onDidChangeState.event;
+	private readonly backStack: IBaseHalfCanvasNavigationState[] = [];
+	private readonly forwardStack: IBaseHalfCanvasNavigationState[] = [];
 
 	private _state: IBaseHalfCanvasNavigationState = {
 		canvasFolder: undefined,
@@ -34,6 +36,14 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 
 	get state(): IBaseHalfCanvasNavigationState {
 		return this._state;
+	}
+
+	get canGoBack(): boolean {
+		return this.backStack.length > 0;
+	}
+
+	get canGoForward(): boolean {
+		return this.forwardStack.length > 0;
 	}
 
 	constructor(
@@ -133,6 +143,36 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return true;
 	}
 
+	async goBack(): Promise<boolean> {
+		const previous = this.backStack.pop();
+		if (!previous) {
+			return false;
+		}
+		if (!await this.flushActiveCardDetail()) {
+			this.backStack.push(previous);
+			return false;
+		}
+
+		this.forwardStack.push(this._state);
+		this.updateState(previous, { recordHistory: false });
+		return true;
+	}
+
+	async goForward(): Promise<boolean> {
+		const next = this.forwardStack.pop();
+		if (!next) {
+			return false;
+		}
+		if (!await this.flushActiveCardDetail()) {
+			this.forwardStack.push(next);
+			return false;
+		}
+
+		this.backStack.push(this._state);
+		this.updateState(next, { recordHistory: false });
+		return true;
+	}
+
 	private async flushActiveCardDetail(): Promise<boolean> {
 		if (!this._state.cardDetail) {
 			return true;
@@ -140,9 +180,65 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID);
 	}
 
-	private updateState(state: IBaseHalfCanvasNavigationState): void {
+	private updateState(state: IBaseHalfCanvasNavigationState, options: { readonly recordHistory: boolean } = { recordHistory: true }): void {
+		if (this.statesEqual(this._state, state)) {
+			this._state = state;
+			this._onDidChangeState.fire(state);
+			return;
+		}
+		if (options.recordHistory && this.isNavigableState(this._state)) {
+			this.pushDistinct(this.backStack, this._state);
+			this.forwardStack.length = 0;
+		}
 		this._state = state;
 		this._onDidChangeState.fire(state);
+	}
+
+	private pushDistinct(stack: IBaseHalfCanvasNavigationState[], state: IBaseHalfCanvasNavigationState): void {
+		const last = stack[stack.length - 1];
+		if (last && this.statesEqual(last, state)) {
+			return;
+		}
+		stack.push(state);
+	}
+
+	private isNavigableState(state: IBaseHalfCanvasNavigationState): boolean {
+		return !!state.canvasFolder || !!state.cardDetail;
+	}
+
+	private statesEqual(left: IBaseHalfCanvasNavigationState, right: IBaseHalfCanvasNavigationState): boolean {
+		return this.canvasFolderStatesEqual(left.canvasFolder, right.canvasFolder)
+			&& this.cardDetailStatesEqual(left.cardDetail, right.cardDetail);
+	}
+
+	private canvasFolderStatesEqual(left: IBaseHalfCanvasFolderState | undefined, right: IBaseHalfCanvasFolderState | undefined): boolean {
+		if (!left || !right) {
+			return left === right;
+		}
+		return this.uriIdentityService.extUri.isEqual(left.resource, right.resource)
+			&& this.uriIdentityService.extUri.isEqual(left.workspaceFolder, right.workspaceFolder)
+			&& left.relativePath === right.relativePath;
+	}
+
+	private cardDetailStatesEqual(left: IBaseHalfCardDetailState | undefined, right: IBaseHalfCardDetailState | undefined): boolean {
+		if (!left || !right) {
+			return left === right;
+		}
+		return this.uriIdentityService.extUri.isEqual(left.resource, right.resource)
+			&& this.uriIdentityService.extUri.isEqual(left.workspaceFolder, right.workspaceFolder)
+			&& left.relativePath === right.relativePath
+			&& left.projection === right.projection
+			&& this.selectionsEqual(left.selection, right.selection);
+	}
+
+	private selectionsEqual(left: IBaseHalfCardDetailState['selection'], right: IBaseHalfCardDetailState['selection']): boolean {
+		if (!left || !right) {
+			return left === right;
+		}
+		return left.startLineNumber === right.startLineNumber
+			&& left.startColumn === right.startColumn
+			&& left.endLineNumber === right.endLineNumber
+			&& left.endColumn === right.endColumn;
 	}
 
 	private toWorkspaceResource(resource: URI): { resource: URI; workspaceFolder: URI; relativePath: string } | undefined {

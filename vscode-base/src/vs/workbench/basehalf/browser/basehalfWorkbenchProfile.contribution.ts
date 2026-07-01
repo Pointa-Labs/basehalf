@@ -4,12 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { Disposable } from '../../../base/common/lifecycle.js';
+import { RunOnceScheduler } from '../../../base/common/async.js';
 import { Extensions as ConfigurationExtensions, IConfigurationRegistry } from '../../../platform/configuration/common/configurationRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { EditorsOrder } from '../../common/editor.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { ViewContainerLocation } from '../../common/views.js';
+import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
@@ -28,6 +30,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 
 	constructor(
 		@ILogService private readonly logService: ILogService,
+		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
 		@IEditorService private readonly editorService: IEditorService,
 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
@@ -39,6 +42,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		this.clearCompetingStartupStorage();
 		this.applyLeftSidebarProfile();
 		this.registerHiddenSurfaceGuards();
+		this.registerSingleSurfaceEditorGuard();
 		this.closeRestoredCompetingSurfaces();
 	}
 
@@ -102,12 +106,18 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		}));
 	}
 
+	private registerSingleSurfaceEditorGuard(): void {
+		const collapseScheduler = this._register(new RunOnceScheduler(() => this.collapseMainEditorGroups('created extra editor group'), 0));
+		this._register(this.editorGroupsService.onDidAddGroup(() => collapseScheduler.schedule()));
+	}
+
 	private async closeRestoredCompetingSurfaces(): Promise<void> {
 		await this.lifecycleService.when(LifecyclePhase.Restored);
 		await this.closeRestoredHiddenViewContainers();
 		await this.closeRestoredRemappedViewContainers();
 		this.closeRestoredHiddenViews();
 		await this.closeRestoredStartupEditors();
+		this.collapseMainEditorGroups('restored editor groups');
 	}
 
 	private async closeRestoredHiddenViewContainers(): Promise<void> {
@@ -184,6 +194,18 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 
 		await this.editorService.closeEditors(editorsToClose, { preserveFocus: true });
 		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed restored VS Code startup editors: ${editorsToClose.map(identifier => identifier.editor.typeId).join(', ')}`);
+	}
+
+	private collapseMainEditorGroups(reason: string): void {
+		const mainPart = this.editorGroupsService.mainPart;
+		if (mainPart.groups.length <= 1) {
+			return;
+		}
+
+		const didMerge = mainPart.mergeAllGroups(mainPart.activeGroup);
+		if (didMerge) {
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] collapsed ${reason} into one BaseHalf main surface`);
+		}
 	}
 }
 

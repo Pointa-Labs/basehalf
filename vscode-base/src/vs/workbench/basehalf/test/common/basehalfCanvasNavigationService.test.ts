@@ -194,6 +194,73 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.state.cardDetail, undefined);
 	});
 
+	test('tracks canvas navigation history for native back and forward controls', async () => {
+		const service = createService(new Map([
+			['/workspace/docs/guide.md', aFileStat(URI.file('/workspace/docs/guide.md'), FileType.File)]
+		]));
+
+		assert.strictEqual(service.canGoBack, false);
+		assert.strictEqual(service.canGoForward, false);
+
+		await service.openFolderCanvas(URI.file('/workspace/docs'), { source: 'explorer' });
+		assert.strictEqual(service.canGoBack, false);
+
+		await service.openCardDetail(URI.file('/workspace/docs/guide.md'), { source: 'explorer' });
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
+		assert.strictEqual(service.canGoBack, true);
+		assert.strictEqual(service.canGoForward, false);
+
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(typeof service.state.cardDetail, 'undefined');
+		assert.strictEqual(service.canGoBack, false);
+		assert.strictEqual(service.canGoForward, true);
+
+		assert.strictEqual(await service.goForward(), true);
+		const reopenedCard = service.state.cardDetail;
+		assert.ok(reopenedCard);
+		assert.strictEqual(reopenedCard.relativePath, 'docs/guide.md');
+		assert.strictEqual(service.canGoBack, true);
+		assert.strictEqual(service.canGoForward, false);
+	});
+
+	test('does not add duplicate history entries for the same visible card target', async () => {
+		const service = createService(new Map([
+			['/workspace/docs/guide.md', aFileStat(URI.file('/workspace/docs/guide.md'), FileType.File)]
+		]));
+
+		await service.openFolderCanvas(URI.file('/workspace/docs'), { source: 'explorer' });
+		await service.openCardDetail(URI.file('/workspace/docs/guide.md'), { source: 'explorer', pinned: false });
+		await service.openCardDetail(URI.file('/workspace/docs/guide.md'), { source: 'fileCommand', pinned: true });
+
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.canGoBack, false);
+	});
+
+	test('keeps navigation history in place when dirty editor flush blocks back', async () => {
+		const flushService = new BaseHalfEditorFlushService();
+		const service = createService(new Map([
+			['/workspace/readme.md', aFileStat(URI.file('/workspace/readme.md'), FileType.File)]
+		]), [workspaceFolder], flushService);
+
+		await service.openFolderCanvas(URI.file('/workspace'), { source: 'api' });
+		await service.openCardDetail(URI.file('/workspace/readme.md'), { source: 'api' });
+		const before = service.state;
+		const blocker = flushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, async () => false);
+
+		assert.strictEqual(await service.goBack(), false);
+		assert.strictEqual(service.state, before);
+		assert.strictEqual(service.canGoBack, true);
+		assert.strictEqual(service.canGoForward, false);
+
+		blocker.dispose();
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.canGoForward, true);
+	});
+
 	test('blocks file switches, folder opens, and closes when the current card detail cannot flush', async () => {
 		const flushService = new BaseHalfEditorFlushService();
 		const service = createService(new Map([

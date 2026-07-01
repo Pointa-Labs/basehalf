@@ -39,7 +39,7 @@
 }
 
 .monaco-workbench .basehalf-canvas-workbench {
-	--basehalf-canvas-chrome-height: 32px;
+	--basehalf-canvas-chrome-height: 0px;
 	--bh-zoom: var(--basehalf-canvas-zoom, 1);
 	--bh-card-bg: #1e1e1e;
 	--bh-card-surface: #252526;
@@ -84,73 +84,16 @@
 
 .monaco-workbench .basehalf-canvas-chrome {
 	position: sticky;
-	top: 0;
-	z-index: 2;
+	top: 8px;
+	z-index: 3;
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	min-height: var(--basehalf-canvas-chrome-height);
+	justify-content: flex-end;
+	height: 0;
+	min-height: 0;
 	box-sizing: border-box;
-	padding: 3px 10px 3px 12px;
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
-	border-bottom: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 50%, transparent);
-}
-
-.monaco-workbench .basehalf-canvas-title {
-	display: flex;
-	align-items: center;
-	min-width: 0;
-	font-size: 12px;
-	font-weight: 600;
-	line-height: 22px;
-	color: var(--vscode-foreground);
-}
-
-.monaco-workbench .basehalf-canvas-subtitle {
-	min-width: 0;
-	flex: 1;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-size: 11px;
-	color: var(--vscode-descriptionForeground);
-}
-
-.monaco-workbench .basehalf-breadcrumb {
-	max-width: min(190px, 32vw);
-	height: 22px;
-	padding: 0 3px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--vscode-foreground);
-	background: transparent;
-	border: 0;
-	border-radius: 3px;
-	font: inherit;
-	font-weight: 600;
-	cursor: pointer;
-}
-
-.monaco-workbench .basehalf-breadcrumb:hover,
-.monaco-workbench .basehalf-breadcrumb:focus-visible {
-	background-color: var(--vscode-toolbar-hoverBackground);
-	outline: 1px solid var(--vscode-focusBorder);
-}
-
-.monaco-workbench .basehalf-breadcrumb.active {
-	color: var(--vscode-foreground);
-}
-
-.monaco-workbench .basehalf-breadcrumb-separator {
-	flex: none;
-	padding: 0 2px;
-	color: var(--vscode-descriptionForeground);
-	font-size: 12px;
-}
-
-.monaco-workbench .basehalf-breadcrumb-label {
-	color: var(--vscode-foreground);
+	padding: 0 10px;
+	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-zoom-controls {
@@ -158,6 +101,13 @@
 	align-items: center;
 	gap: 2px;
 	flex: none;
+	height: 28px;
+	padding: 2px;
+	pointer-events: auto;
+	background-color: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 65%, transparent);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
 }
 
 .monaco-workbench .basehalf-canvas-zoom-button {
@@ -819,6 +769,10 @@
 .monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-resize-handle,
 .monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-resize-handle {
 	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-card[data-source-affordance]:not([data-source-affordance=""]) .basehalf-canvas-card-resize-handle {
+	pointer-events: none;
 }
 
 .monaco-workbench .basehalf-canvas-card-resize-handle.north {

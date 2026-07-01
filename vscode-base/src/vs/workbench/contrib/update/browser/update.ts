@@ -46,6 +46,14 @@ export function showReleaseNotesInEditor(instantiationService: IInstantiationSer
 	return releaseNotesManager.show(version, useCurrentFile);
 }
 
+export function showLocalReleaseNotesInEditor(instantiationService: IInstantiationService, version: string, text: string) {
+	if (!releaseNotesManager) {
+		releaseNotesManager = instantiationService.createInstance(ReleaseNotesManager);
+	}
+
+	return releaseNotesManager.showLocal(version, text);
+}
+
 async function openLatestReleaseNotesInBrowser(accessor: ServicesAccessor) {
 	const openerService = accessor.get(IOpenerService);
 	const productService = accessor.get(IProductService);

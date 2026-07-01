@@ -11,7 +11,6 @@ import { basename, joinPath } from '../../../base/common/resources.js';
 import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
-import { ILabelService } from '../../../platform/label/common/label.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput/common/quickInput.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
@@ -69,8 +68,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private readonly root: HTMLElement;
 	private readonly chrome: HTMLElement;
-	private readonly title: HTMLElement;
-	private readonly subtitle: HTMLElement;
 	private readonly zoomOut: HTMLButtonElement;
 	private readonly zoomReset: HTMLButtonElement;
 	private readonly zoomIn: HTMLButtonElement;
@@ -84,8 +81,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
-	private readonly breadcrumbListeners = this._register(new DisposableStore());
-	private readonly detailBreadcrumbListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 	private readonly detailDisposables = this._register(new DisposableStore());
 	private readonly connectionDragListeners = this._register(new DisposableStore());
@@ -163,7 +158,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IFileService private readonly fileService: IFileService,
-		@ILabelService private readonly labelService: ILabelService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
 		@IEditorService private readonly editorService: IEditorService,
@@ -187,8 +181,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
 
 		this.chrome = append(this.root, $('.basehalf-canvas-chrome'));
-		this.title = append(this.chrome, $('.basehalf-canvas-title'));
-		this.subtitle = append(this.chrome, $('.basehalf-canvas-subtitle'));
 		const zoomControls = append(this.chrome, $('.basehalf-canvas-zoom-controls'));
 		this.zoomOut = this.createZoomButton(zoomControls, 'Zoom Out', 'codicon-remove', () => this.zoomBy(-1));
 		this.zoomValue = append(zoomControls, $('.basehalf-canvas-zoom-value'));
@@ -283,16 +275,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
-			this.renderBreadcrumbs(this.title, this.breadcrumbListeners);
-			this.subtitle.textContent = '';
 			clearNode(this.cards);
 			this.renderEmpty('No folder');
 			this.renderDetail();
 			return;
 		}
-
-		this.renderBreadcrumbs(this.title, this.breadcrumbListeners, folder, this.canvasNavigationService.state.cardDetail);
-		this.subtitle.textContent = folder.relativePath ? this.labelService.getUriLabel(folder.workspaceFolder) : '';
 
 		let stat: IFileStat;
 		try {
@@ -598,7 +585,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 			}
 		}));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointerdown', event => this.onCardPointerDown(event, card, item, bounds)));
+		this.cardListeners.add(this.addDisposableListener(card, 'pointerdown', event => this.onCardPointerDown(event, card, item, bounds), true));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointermove', event => this.onCardPointerMove(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointerup', event => this.onCardPointerUp(event)));
 		this.cardListeners.add(this.addDisposableListener(card, 'pointercancel', event => this.onCardPointerCancel(event)));
@@ -826,16 +813,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private onCardPointerDown(event: PointerEvent, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
-		if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
+		const target = event.target instanceof Element ? event.target : undefined;
+		if (target?.closest('button, textarea, input')) {
 			return;
 		}
 		const activeAnchor = anchorFromDataset(card.dataset.sourceAffordance);
 		if (activeAnchor) {
 			const handle = card.querySelector<HTMLElement>(`.basehalf-canvas-card-connect-handle.${activeAnchor}.active`);
-			if (handle && clientPointInRect(handle.getBoundingClientRect(), event.clientX, event.clientY, 4)) {
+			const pointerAnchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
+			if (handle && (pointerAnchor === activeAnchor || clientPointInRect(handle.getBoundingClientRect(), event.clientX, event.clientY, 4))) {
 				this.onConnectionPointerDown(event, handle, item, bounds, activeAnchor);
 				return;
 			}
+		}
+		if (target?.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle')) {
+			return;
 		}
 		if (event.button !== 0 || this.activeCardDrag || this.activeResizeDrag || this.canvasNavigationService.state.cardDetail) {
 			return;
@@ -1808,7 +1800,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.markdownRichDetail = undefined;
 			this.markdownPreviewDetail = undefined;
 			this.detailChromeDisposables.clear();
-			this.detailBreadcrumbListeners.clear();
 			this.detailDisposables.clear();
 			clearNode(this.detailProjectionActions);
 			clearNode(this.detailBody);
@@ -1818,7 +1809,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		this.renderBreadcrumbs(this.detailTitle, this.detailBreadcrumbListeners, this.getCurrentFolder(), cardDetail);
+		this.detailTitle.textContent = basename(cardDetail.resource);
 		this.detailMeta.textContent = this.detailMetaFor(cardDetail.projection, cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
 
@@ -2029,93 +2020,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			x: (this.root.scrollLeft + this.root.clientWidth / 2) / this.canvasZoom,
 			y: (this.root.scrollTop + this.root.clientHeight / 2) / this.canvasZoom
 		};
-	}
-
-	private renderBreadcrumbs(
-		container: HTMLElement,
-		listeners: DisposableStore,
-		folder?: IBaseHalfCanvasFolderState,
-		cardDetail?: IBaseHalfCardDetailState
-	): void {
-		listeners.clear();
-		clearNode(container);
-
-		if (!folder) {
-			const fallback = append(container, $('span.basehalf-breadcrumb-label.active'));
-			fallback.textContent = 'BaseHalf';
-			return;
-		}
-
-		const workspaceLabel = basename(folder.workspaceFolder) || this.labelService.getUriLabel(folder.workspaceFolder);
-		this.renderBreadcrumbButton(container, listeners, workspaceLabel, folder.workspaceFolder, '', 'folder', !folder.relativePath && !cardDetail);
-
-		const pathParts = (cardDetail?.relativePath ?? folder.relativePath).split('/').filter(Boolean);
-		const folderPartCount = cardDetail ? Math.max(0, pathParts.length - 1) : pathParts.length;
-		for (let index = 0; index < folderPartCount; index++) {
-			const parts = pathParts.slice(0, index + 1);
-			const relativePath = parts.join('/');
-			this.renderBreadcrumbSeparator(container);
-			this.renderBreadcrumbButton(
-				container,
-				listeners,
-				pathParts[index],
-				joinPath(folder.workspaceFolder, ...parts),
-				relativePath,
-				'folder',
-				relativePath === folder.relativePath && !cardDetail
-			);
-		}
-
-		if (cardDetail) {
-			this.renderBreadcrumbSeparator(container);
-			this.renderBreadcrumbButton(
-				container,
-				listeners,
-				pathParts[pathParts.length - 1] ?? basename(cardDetail.resource),
-				cardDetail.resource,
-				cardDetail.relativePath,
-				'file',
-				true,
-				cardDetail
-			);
-		}
-	}
-
-	private renderBreadcrumbSeparator(container: HTMLElement): void {
-		append(container, $('span.basehalf-breadcrumb-separator.codicon.codicon-chevron-right'));
-	}
-
-	private renderBreadcrumbButton(
-		container: HTMLElement,
-		listeners: DisposableStore,
-		label: string,
-		resource: IBaseHalfCanvasFolderState['resource'],
-		relativePath: string,
-		kind: 'folder' | 'file',
-		active: boolean,
-		cardDetail?: IBaseHalfCardDetailState
-	): void {
-		const button = append(container, $('button.basehalf-breadcrumb')) as HTMLButtonElement;
-		button.type = 'button';
-		button.textContent = label;
-		button.dataset.relativePath = relativePath;
-		button.dataset.kind = kind;
-		button.classList.toggle('active', active);
-		button.title = kind === 'folder' ? `Open ${label}` : label;
-		button.setAttribute('aria-current', active ? 'page' : 'false');
-		listeners.add(this.addDisposableListener(button, 'click', () => {
-			if (kind === 'folder') {
-				void this.canvasNavigationService.openFolderCanvas(resource, { source: 'api' });
-			} else {
-				void this.canvasNavigationService.openCardDetail(resource, {
-					source: 'api',
-					selection: cardDetail?.selection,
-					preserveFocus: cardDetail?.preserveFocus,
-					pinned: cardDetail?.pinned,
-					projection: cardDetail?.projection
-				});
-			}
-		}));
 	}
 
 	private scheduleFolderFocusWrite(delay = 200): void {

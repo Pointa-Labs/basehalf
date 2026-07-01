@@ -474,7 +474,8 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 	private async getAdditionalPicks(query: IPreparedQuery, excludes: ResourceMap<boolean>, includeSymbols: boolean, token: CancellationToken): Promise<Array<IAnythingQuickPickItem>> {
 
 		// Resolve file and symbol picks (if enabled)
-		const [filePicks, symbolPicks] = await Promise.all([
+		const [folderPicks, filePicks, symbolPicks] = await Promise.all([
+			this.getBaseHalfFolderPicks(query, excludes, token),
 			this.getFilePicks(query, excludes, token),
 			this.getWorkspaceSymbolPicks(query, includeSymbols, token)
 		]);
@@ -485,7 +486,7 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 
 		// Perform sorting (top results by score)
 		const sortedAnythingPicks = top(
-			[...filePicks, ...symbolPicks],
+			[...folderPicks, ...filePicks, ...symbolPicks],
 			(anyPickA, anyPickB) => compareItemsByFuzzyScore(anyPickA, anyPickB, query, true, quickPickItemScorerAccessor, this.pickState.scorerCache),
 			AnythingQuickAccessProvider.MAX_RESULTS
 		);
@@ -584,6 +585,82 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 			cacheKey => this.searchService.clearCache(cacheKey),
 			this.pickState.fileQueryCache
 		).load();
+	}
+
+	private async getBaseHalfFolderPicks(query: IPreparedQuery, excludes: ResourceMap<boolean>, token: CancellationToken): Promise<Array<IAnythingQuickPickItem>> {
+		if (!query.normalized) {
+			return [];
+		}
+
+		const folderResources = await this.getBaseHalfFolderResults(query, token);
+		if (token.isCancellationRequested) {
+			return [];
+		}
+
+		const configuration = this.configuration;
+		return folderResources
+			.filter(resource => !excludes.has(resource))
+			.map(resource => {
+				const pick = this.createAnythingPick(resource, configuration);
+				pick.highlights = {
+					label: [{ start: 0, end: pick.label.length }],
+					description: pick.description ? [{ start: 0, end: pick.description.length }] : undefined
+				};
+				return pick;
+			});
+	}
+
+	private async getBaseHalfFolderResults(query: IPreparedQuery, token: CancellationToken): Promise<URI[]> {
+		const pathQuery = trimTrailingPathSeparators(query.original);
+		if (!pathQuery) {
+			return [];
+		}
+
+		const results = new ResourceMap<boolean>(uri => this.uriIdentityService.extUri.getComparisonKey(uri));
+		const addIfFolder = async (resource: URI): Promise<void> => {
+			if (token.isCancellationRequested || results.has(resource)) {
+				return;
+			}
+
+			try {
+				const stat = await this.fileService.stat(resource);
+				if (stat.isDirectory) {
+					results.set(await this.matchFilenameCasing(resource), true);
+				}
+			} catch {
+				// Ignore candidates that do not exist or cannot be read.
+			}
+		};
+
+		for (const folder of this.contextService.getWorkspace().folders) {
+			if (token.isCancellationRequested) {
+				return [];
+			}
+			await addIfFolder(toLocalResource(
+				folder.toResource(pathQuery),
+				this.environmentService.remoteAuthority,
+				this.pathService.defaultUriScheme
+			));
+		}
+
+		if (query.containsPathSeparator) {
+			const userHome = await this.pathService.userHome();
+			const detildifiedQuery = untildify(pathQuery, userHome.scheme === Schemas.file ? userHome.fsPath : userHome.path);
+			if (token.isCancellationRequested) {
+				return [];
+			}
+
+			const isAbsolutePathQuery = (await this.pathService.path).isAbsolute(detildifiedQuery);
+			if (isAbsolutePathQuery) {
+				await addIfFolder(toLocalResource(
+					await this.pathService.fileURI(detildifiedQuery),
+					this.environmentService.remoteAuthority,
+					this.pathService.defaultUriScheme
+				));
+			}
+		}
+
+		return [...results.keys()];
 	}
 
 	private async getFilePicks(query: IPreparedQuery, excludes: ResourceMap<boolean>, token: CancellationToken): Promise<Array<IAnythingQuickPickItem>> {
@@ -1194,4 +1271,8 @@ export class AnythingQuickAccessProvider extends PickerQuickAccessProvider<IAnyt
 	}
 
 	//#endregion
+}
+
+function trimTrailingPathSeparators(path: string): string {
+	return path.replace(/[\\/]+$/g, '');
 }

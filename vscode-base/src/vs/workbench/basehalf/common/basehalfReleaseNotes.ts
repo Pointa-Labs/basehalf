@@ -1,0 +1,28 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+export const BASEHALF_RELEASE_NOTES_COMMAND_ID = 'update.showCurrentReleaseNotes';
+
+export function getBaseHalfReleaseNotesMarkdown(version: string): string {
+	return `# BaseHalf ${version}
+
+BaseHalf is moving onto a real VS Code substrate while keeping the product canvas-first.
+
+## What Changed
+
+- The workbench opens into a BaseHalf welcome surface instead of stock VS Code onboarding.
+- Settings live in VS Code's native Settings UI under the BaseHalf category.
+- Release Notes open as a system page in the main surface, without creating user files.
+- Visible editor tabs and VS Code breadcrumbs are hidden by default so BaseHalf navigation remains canvas-first.
+
+## Current Product Shape
+
+BaseHalf keeps the left sidebar focused on Files, Git, and Search. Folders open canvases, files open card detail, and system pages such as Welcome, Settings, and Release Notes use the current main surface instead of becoming workspace files.
+
+## Settings
+
+Open Settings and search for BaseHalf to configure the editor reading aids, default canvas zoom, and default Agent Area session.
+`;
+}

@@ -132,6 +132,8 @@ class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
 		canvasFolder: undefined,
 		cardDetail: undefined
 	};
+	readonly canGoBack = false;
+	readonly canGoForward = false;
 
 	readonly opened: Array<{ resource: URI; options: IBaseHalfOpenResourceOptions }> = [];
 
@@ -152,5 +154,13 @@ class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
 
 	async closeCardDetail(): Promise<boolean> {
 		throw new Error('Unexpected closeCardDetail call');
+	}
+
+	async goBack(): Promise<boolean> {
+		throw new Error('Unexpected goBack call');
+	}
+
+	async goForward(): Promise<boolean> {
+		throw new Error('Unexpected goForward call');
 	}
 }

@@ -896,19 +896,20 @@ export class GettingStartedPage extends EditorPane {
 	private async buildCategoriesSlide(preserveFocus?: boolean) {
 
 		this.categoriesSlideDisposables.clear();
+		const startupEditor = this.configurationService.getValue<string>(configurationKey);
 		const showOnStartupCheckbox = new Toggle({
 			icon: Codicon.check,
 			actionClassName: 'getting-started-checkbox',
-			isChecked: this.configurationService.getValue(configurationKey) === 'welcomePage',
-			title: localize('checkboxTitle', "When checked, this page will be shown on startup."),
+			isChecked: startupEditor === 'welcomePage' || startupEditor === 'welcomePageInEmptyWorkbench',
+			title: localize('checkboxTitle', "When checked, this page will be shown in empty BaseHalf windows."),
 			...defaultToggleStyles
 		});
 		showOnStartupCheckbox.domNode.id = 'showOnStartup';
-		const showOnStartupLabel = $('label.caption', { for: 'showOnStartup' }, localize('welcomePage.showOnStartup', "Show welcome page on startup"));
+		const showOnStartupLabel = $('label.caption', { for: 'showOnStartup' }, localize('welcomePage.showOnStartup', "Show welcome page in empty windows"));
 		const onShowOnStartupChanged = () => {
 			if (showOnStartupCheckbox.checked) {
 				this.telemetryService.publicLog2<GettingStartedActionEvent, GettingStartedActionClassification>('gettingStarted.ActionExecuted', { command: 'showOnStartupChecked', argument: undefined, walkthroughId: this.currentWalkthrough?.id });
-				this.configurationService.updateValue(configurationKey, 'welcomePage');
+				this.configurationService.updateValue(configurationKey, 'welcomePageInEmptyWorkbench');
 			} else {
 				this.telemetryService.publicLog2<GettingStartedActionEvent, GettingStartedActionClassification>('gettingStarted.ActionExecuted', { command: 'showOnStartupUnchecked', argument: undefined, walkthroughId: this.currentWalkthrough?.id });
 				this.configurationService.updateValue(configurationKey, 'none');
@@ -924,8 +925,8 @@ export class GettingStartedPage extends EditorPane {
 		}));
 
 		const header = $('.header', {},
-			$('h1.product-name.caption', {}, this.productService.nameLong),
-			$('p.subtitle.description', {}, localize({ key: 'gettingStarted.editingEvolved', comment: ['Shown as subtitle on the Welcome page.'] }, "Editing evolved"))
+			$('h1.product-name.caption', {}, localize('gettingStarted.basehalf.productName', "BaseHalf")),
+			$('p.subtitle.description', {}, localize({ key: 'gettingStarted.basehalf.subtitle', comment: ['Shown as subtitle on the Welcome page.'] }, "Folders become canvases. Files become cards. Agents stay beside the work."))
 		);
 
 		const leftColumn = $('.categories-column.categories-column-left', {},);
@@ -1099,19 +1100,19 @@ export class GettingStartedPage extends EditorPane {
 
 		const recentlyOpenedList = this.recentlyOpenedList.value = new GettingStartedIndexList(
 			{
-				title: localize('recent', "Recent"),
+				title: localize('gettingStarted.basehalf.recentCanvases', "Recent Canvases"),
 				klass: 'recently-opened',
 				limit: 5,
 				empty: $('.empty-recent', {},
-					localize('noRecents', "You have no recent folders,"),
-					$('button.button-link', { 'x-dispatch': 'openFolder' }, localize('openFolder', "open a folder")),
-					localize('toStart', "to start.")),
+					localize('gettingStarted.basehalf.noRecents', "No recent canvases."),
+					$('button.button-link', { 'x-dispatch': 'openFolder' }, localize('gettingStarted.basehalf.openFolderToStart', "Open a folder")),
+					localize('gettingStarted.basehalf.toStart', "to start.")),
 
 				more: $('.more', {},
 					$('button.button-link',
 						{
 							'x-dispatch': 'showMoreRecents',
-							title: localize('show more recents', "Show All Recent Folders {0}", this.getKeybindingLabel(OpenRecentAction.ID))
+							title: localize('gettingStarted.basehalf.showMoreRecents', "Show all recent canvases {0}", this.getKeybindingLabel(OpenRecentAction.ID))
 						}, localize('showAll', "More..."))),
 				renderElement: renderRecent,
 				contextService: this.contextService
@@ -1135,7 +1136,14 @@ export class GettingStartedPage extends EditorPane {
 	private filterRecentlyOpened(workspaces: (IRecentFolder | IRecentWorkspace)[]): RecentEntry[] {
 		return workspaces
 			.filter(recent => !this.workspaceContextService.isCurrentWorkspace(isRecentWorkspace(recent) ? recent.workspace : recent.folderUri))
+			.filter(recent => !this.isBaseHalfDevelopmentRecent(recent))
 			.map(recent => ({ ...recent, id: isRecentWorkspace(recent) ? recent.workspace.id : recent.folderUri.toString() }));
+	}
+
+	private isBaseHalfDevelopmentRecent(recent: IRecentFolder | IRecentWorkspace): boolean {
+		const resource = isRecentWorkspace(recent) ? recent.workspace.configPath : recent.folderUri;
+		const pathText = `${recent.label ?? ''} ${resource.fsPath} ${resource.path} ${resource.toString()}`;
+		return /(^|\/)(basehalf-smoke-|bh-agent-)/.test(pathText);
 	}
 
 	private refreshRecentlyOpened(): void {

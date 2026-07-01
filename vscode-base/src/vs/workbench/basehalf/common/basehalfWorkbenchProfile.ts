@@ -380,8 +380,9 @@ export const BASEHALF_HIDDEN_SURFACES = [
 export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
-	'workbench.startupEditor': 'none',
-	'workbench.welcome.enabled': false,
+	'workbench.editor.showTabs': 'none',
+	'breadcrumbs.enabled': false,
+	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,
 	'chat.disableAIFeatures': true,
@@ -551,8 +552,8 @@ export const BASEHALF_MIGRATION_MODULE_TRACKS = [
 			'product.json'
 		],
 		baselineSources: ['apps/desktop/src/main', 'apps/desktop/src/renderer'],
-		keep: ['BaseHalf product identity', 'canvas-first startup state', 'workspace folder opening'],
-		deleteOrHide: ['stock VS Code welcome/product surfaces that compete with canvas', 'old hand-rolled workbench shell']
+		keep: ['BaseHalf product identity', 'canvas-first startup state', 'workspace folder opening', 'single-surface navigation without visible editor tabs'],
+		deleteOrHide: ['stock VS Code welcome/product surfaces that compete with canvas', 'visible VS Code editor tabs as a file/workspace navigation model', 'old hand-rolled workbench shell']
 	}),
 	moduleTrack({
 		id: 'explorer-files-navigation-canvas',

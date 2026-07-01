@@ -131,17 +131,19 @@ try {
 	await step('quick-text-search-app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
 
 	await step('explorer-folder-row-canvas-open', () => openExplorerRow(page, 'docs'));
-	await step('explorer-folder-row-canvas', () => assertCanvasFolder(page, 'docs'));
+	await step('explorer-folder-row-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
 	await step('explorer-file-row-card-open', () => openExplorerRow(page, 'guide.md'));
 	await step('explorer-file-row-card-detail', () => assertCardDetail(page, 'guide.md'));
-	await step('detail-breadcrumb-folder-navigation', () => assertDetailBreadcrumbOpensFolder(page, 'docs'));
+	await step('canvas-breadcrumbs-removed', () => assertCanvasBreadcrumbsRemoved(page));
+	await step('native-back-folder-navigation', () => assertNativeBackOpensPreviousCanvas(page, 'docs/guide.md'));
 	await step('canvas-zoom-controls', () => assertCanvasZoomControls(page));
-	await step('canvas-breadcrumb-root-navigation', () => assertCanvasBreadcrumbOpensRoot(page));
+	await step('native-forward-card-navigation', () => assertNativeForwardOpensCardDetail(page, 'guide.md'));
 	await step('explorer-file-row-no-editor-tab', () => assertNoEditorTabFor(page, 'guide.md'));
 
 	await step('folder-quick-open', () => quickOpen(page, 'docs'));
-	await step('folder-quick-open-canvas', () => assertCanvasFolder(page, 'docs'));
+	await step('folder-quick-open-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
+	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
 
 	const summary = {
 		ok: true,
@@ -173,12 +175,14 @@ try {
 			'quick-text-search-repeated-selection-focus',
 			'quick-text-search-side-card-detail-no-tab',
 			'explorer-folder-row-canvas',
-			'detail-breadcrumb-folder-navigation',
+			'canvas-breadcrumbs-removed',
+			'native-back-folder-navigation',
 			'canvas-zoom-controls',
-			'canvas-breadcrumb-root-navigation',
+			'native-forward-card-navigation',
 			'explorer-file-row-card-detail-no-tab',
 			'folder-quick-open-canvas',
-			'settings-basehalf-category'
+			'settings-basehalf-category',
+			'release-notes-system-page'
 		]
 	};
 	if (opts.keep || opts.output) {
@@ -449,7 +453,7 @@ async function tryRunCommand(page, value, options = {}) {
 }
 
 function visibleQuickInput(page) {
-	return page.locator('.quick-input-widget:visible input').last();
+	return page.locator('.quick-input-widget:visible input:visible').last();
 }
 
 function isExpectedCommandRow(rowText, expectedText) {
@@ -645,6 +649,32 @@ async function assertBaseHalfSettingsCategory(page) {
 	}, null, { timeout: 20_000 });
 }
 
+async function assertBaseHalfReleaseNotesSystemPage(page) {
+	await runCommand(page, 'Show Release Notes');
+	const frame = await activeReleaseNotesFrame(page);
+	await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).waitFor({ state: 'visible', timeout: 20_000 });
+	await frame.locator('body', { hasText: 'Release Notes open as a system page' }).waitFor({ state: 'visible', timeout: 20_000 });
+	await assertNoEditorTabFor(page, 'Release Notes');
+}
+
+async function activeReleaseNotesFrame(page) {
+	const started = Date.now();
+	let lastFrameUrls = [];
+	while (Date.now() - started < 20_000) {
+		const frames = page.frames();
+		lastFrameUrls = frames.map(frame => frame.url()).filter(Boolean);
+		for (const frame of frames) {
+			const hasReleaseNotes = await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).count().catch(() => 0);
+			if (hasReleaseNotes > 0) {
+				return frame;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+
+	throw new Error(`BaseHalf Release Notes webview was not ready. Frames: ${lastFrameUrls.join(', ')}`);
+}
+
 async function assertSourceControlPanel(page) {
 	await runCommand(page, 'Source Control: Focus on Changes View');
 	await page.locator('.part.sidebar .title-label h2', { hasText: /Source Control/i }).waitFor({ state: 'visible', timeout: 20_000 });
@@ -679,7 +709,7 @@ async function assertSourceControlPublishBranchAction(page) {
 
 async function assertGitBranchCheckoutQuickPick(page) {
 	await page.locator('.part.statusbar .statusbar-item', { hasText: 'main' }).first().click();
-	const quickInput = page.locator('.quick-input-widget input');
+	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill('branch-picker-target');
 	await waitForQuickInputResult(page);
@@ -707,14 +737,22 @@ async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
-async function assertCanvasFolder(page, title) {
-	await page.locator('.basehalf-canvas-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+async function assertCanvasContainsCard(page, path) {
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
-async function assertDetailBreadcrumbOpensFolder(page, relativePath) {
-	await page.locator(`.basehalf-card-detail-title .basehalf-breadcrumb[data-relative-path="${relativePath}"]`).click();
+async function assertCanvasBreadcrumbsRemoved(page) {
+	const count = await page.locator('.basehalf-breadcrumb').count();
+	if (count !== 0) {
+		throw new Error(`Expected BaseHalf breadcrumbs to be removed, found ${count}`);
+	}
+}
+
+async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
+	await runCommand(page, 'Go Back');
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
-	await assertCanvasFolder(page, relativePath);
+	await assertCanvasContainsCard(page, expectedCardPath);
 }
 
 async function assertCanvasZoomControls(page) {
@@ -726,11 +764,9 @@ async function assertCanvasZoomControls(page) {
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-async function assertCanvasBreadcrumbOpensRoot(page) {
-	const rootCrumb = page.locator('.basehalf-canvas-title .basehalf-breadcrumb[data-relative-path=""]').first();
-	const rootLabel = ((await rootCrumb.textContent()) ?? '').replace(/\s+/g, ' ').trim();
-	await rootCrumb.click();
-	await assertCanvasFolder(page, rootLabel);
+async function assertNativeForwardOpensCardDetail(page, title) {
+	await runCommand(page, 'Go Forward');
+	await assertCardDetail(page, title);
 }
 
 async function assertNoEditorTabFor(page, name) {

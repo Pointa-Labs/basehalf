@@ -93,6 +93,18 @@ export class ReleaseNotesManager extends Disposable {
 	public async show(version: string, useCurrentFile: boolean): Promise<boolean> {
 		const releaseNoteText = await this.loadReleaseNotes(version, useCurrentFile);
 		const base = await this.getBase(useCurrentFile);
+		return this.showText(version, releaseNoteText, base, useCurrentFile);
+	}
+
+	public async showLocal(version: string, text: string, base = URI.parse('https://basehalf.local/release-notes')): Promise<boolean> {
+		if (!/^#\s/.test(text)) {
+			throw new Error('Invalid release notes');
+		}
+
+		return this.showText(version, text, base, false);
+	}
+
+	private async showText(version: string, releaseNoteText: string, base: URI, useCurrentFile: boolean): Promise<boolean> {
 		this._lastMeta = { text: releaseNoteText, base };
 		const html = await this.renderBody(this._lastMeta);
 		const title = nls.localize('releaseNotesInputName', "Release Notes: {0}", version);
