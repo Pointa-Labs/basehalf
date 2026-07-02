@@ -7,8 +7,9 @@ import './media/basehalfCanvasWorkbench.css';
 
 import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
-import { basename, joinPath } from '../../../base/common/resources.js';
-import { IFileService, IFileStat } from '../../../platform/files/common/files.js';
+import { basename, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
+import { URI } from '../../../base/common/uri.js';
+import { FileChangesEvent, IFileService, IFileStat } from '../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../platform/log/common/log.js';
@@ -228,7 +229,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.canvasNavigationService.onDidChangeState(() => this.render()));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
-			if (folder && event.affects(folder.resource)) {
+			if (folder && event.affects(folder.resource) && !this.isFocusMirrorOnlyChange(event, folder)) {
 				void this.render();
 			}
 		}));
@@ -419,6 +420,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private isRenderCurrent(seq: number): boolean {
 		return !this.disposed && seq === this.renderSeq;
+	}
+
+	private isFocusMirrorOnlyChange(event: FileChangesEvent, folder: IBaseHalfCanvasFolderState): boolean {
+		// This window writes viewport/cursor focus mirrors at pan/zoom cadence; a full
+		// canvas rebuild (folder resolve + preview reads) for those writes causes a
+		// visible hitch right after every gesture. Canvas/badge mirror changes and user
+		// file changes must still re-render.
+		let sawFolderChange = false;
+		for (const resource of [...event.rawAdded, ...event.rawUpdated, ...event.rawDeleted]) {
+			if (!isEqualOrParent(resource, folder.resource)) {
+				continue;
+			}
+			sawFolderChange = true;
+			if (!isBaseHalfFocusMirrorResource(resource)) {
+				return false;
+			}
+		}
+		return sawFolderChange;
 	}
 
 	private async readCardPreviews(items: readonly IBaseHalfCanvasItem[]): Promise<ReadonlyMap<string, BaseHalfCanvasCardPreview>> {
@@ -2157,9 +2176,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const anchorPoint = this.canvasPointFromViewportPoint(anchorClientX, anchorClientY);
 		this.canvasZoom = nextZoom;
 		this.applyCanvasZoom();
-		this.root.scrollLeft = Math.max(0, this.canvasFrameInset.x + anchorPoint.x * nextZoom - anchorClientX);
-		this.root.scrollTop = Math.max(0, this.canvasFrameInset.y + anchorPoint.y * nextZoom - anchorClientY);
-		this.scrollSelectedCardIntoViewport();
+		// Keep the anchor point exactly under the pointer: when the required scroll
+		// position falls outside the scrollable range, the canvas extent grows instead
+		// of clamping, so content never slides away from the pinch.
+		this.scrollCanvasToTarget(
+			this.canvasFrameInset.x + anchorPoint.x * nextZoom - anchorClientX,
+			this.canvasFrameInset.y + anchorPoint.y * nextZoom - anchorClientY
+		);
+		if (!anchor) {
+			// Pointer-anchored zoom must stay glued to the pointer; pulling the selected
+			// card back into the viewport would fight the pinch. Only the button and
+			// keyboard zoom paths keep the selection visible.
+			this.scrollSelectedCardIntoViewport();
+		}
 		this.scheduleFolderFocusWrite(anchor?.focusWriteDelay ?? 0);
 	}
 
@@ -2342,28 +2371,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private panCanvasBy(dx: number, dy: number): void {
-		// Panning up/left past the scroll origin grows the leading inset instead, so the
-		// canvas gains headroom and cards can travel into what used to be clipped space.
-		const growX = dx < 0 ? Math.max(0, -dx - this.root.scrollLeft) : 0;
-		const growY = dy < 0 ? Math.max(0, -dy - this.root.scrollTop) : 0;
+		this.scrollCanvasToTarget(this.root.scrollLeft + dx, this.root.scrollTop + dy);
+	}
+
+	private scrollCanvasToTarget(targetLeft: number, targetTop: number): void {
+		// A target above/left of the scroll origin grows the leading inset instead of
+		// clamping, so the canvas gains headroom and the requested position stays exact.
+		const growX = Math.max(0, -targetLeft);
+		const growY = Math.max(0, -targetTop);
 		if (growX > 0 || growY > 0) {
 			this.canvasFrameInset = { x: this.canvasFrameInset.x + growX, y: this.canvasFrameInset.y + growY };
 			this.cards.style.left = `${this.canvasFrameInset.x}px`;
 			this.cards.style.top = `${this.canvasFrameInset.y}px`;
 			this.growCanvasSurface(growX, growY);
+			targetLeft += growX;
+			targetTop += growY;
 		}
 
-		// Panning down/right past the scroll end grows the trailing extent the same way.
-		const maxScrollLeft = this.root.scrollWidth - this.root.clientWidth;
-		const maxScrollTop = this.root.scrollHeight - this.root.clientHeight;
-		const trailX = dx > 0 ? Math.max(0, dx - (maxScrollLeft - this.root.scrollLeft)) : 0;
-		const trailY = dy > 0 ? Math.max(0, dy - (maxScrollTop - this.root.scrollTop)) : 0;
+		// A target beyond the scroll end grows the trailing extent the same way.
+		const trailX = Math.max(0, targetLeft - (this.root.scrollWidth - this.root.clientWidth));
+		const trailY = Math.max(0, targetTop - (this.root.scrollHeight - this.root.clientHeight));
 		if (trailX > 0 || trailY > 0) {
 			this.growCanvasSurface(trailX, trailY);
 		}
 
-		this.root.scrollLeft += dx + growX;
-		this.root.scrollTop += dy + growY;
+		this.root.scrollLeft = targetLeft;
+		this.root.scrollTop = targetTop;
 	}
 
 	private growCanvasSurface(dx: number, dy: number): void {
@@ -2509,7 +2542,9 @@ const CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX = 24;
 const CANVAS_DRAG_AUTO_PAN_RATE = 0.35;
 const BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY = 250;
 const BASEHALF_CANVAS_WHEEL_DELTA_LIMIT = 30;
-const BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.004;
+// Matches the trackpad pinch convention (scale ~= exp(-deltaY / 100)), so the canvas
+// zooms 1:1 with the finger spread instead of lagging behind it.
+const BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.01;
 const BASEHALF_CANVAS_WHEEL_LINE_DELTA_PX = 16;
 const BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX = 800;
 
@@ -2548,6 +2583,15 @@ function mapCanvasPoint(point: { readonly x: number; readonly y: number }, map: 
 
 function isCanvasZoomWheelEvent(event: WheelEvent): boolean {
 	return event.metaKey || event.ctrlKey;
+}
+
+function isBaseHalfFocusMirrorResource(resource: URI): boolean {
+	const name = basename(resource);
+	if (name !== 'focus.yaml' && name !== 'current_focus.yaml') {
+		return false;
+	}
+
+	return resource.path.includes('/.bh/');
 }
 
 function canvasWheelZoomFactor(event: WheelEvent): number {

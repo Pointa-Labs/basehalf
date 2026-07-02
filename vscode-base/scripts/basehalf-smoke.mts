@@ -889,8 +889,10 @@ async function assertCanvasZoomControls(page) {
 		}));
 	});
 	await page.waitForFunction(() => {
+		// One pinch tick of deltaY=-10 zooms by exp(0.1) ~= 1.105 (trackpad pinch
+		// convention: scale ~= exp(-deltaY / 100)).
 		const zoom = Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom'));
-		return zoom > 1 && zoom < 1.1;
+		return zoom > 1.05 && zoom < 1.2;
 	}, null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
