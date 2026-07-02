@@ -5,7 +5,7 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 
 > **2026-05-27+ architecture pivots**: D2 / D3 / D7 (event-log as source of
 > truth) were **overturned** when the team replaced the event-log model with
-> **MD = content truth + `.bh/` = derived cache + git = history**. D5
+> **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
 > (see notes inline). D12–D23 capture the current direction.
@@ -84,7 +84,8 @@ tombstones (in `.bh/`), git as the conflict-resolution layer.
 ## D7 — ~~Event tiering + compaction~~ (no longer applicable — no event log)
 
 **Why it was dropped.** D2/D3 overturn (D12) means no append-only event log at
-all. Storage stays naturally bounded by the size of MD files + `.bh/` JSON.
+all. Storage stays naturally bounded by the size of MD files plus local `.bh/`
+YAML mirror state.
 High-frequency events (e.g., per-keystroke text) don't apply — the editor
 writes to MD on save, not per-keystroke.
 
@@ -139,11 +140,12 @@ rather than a second product name.
 contributions: `CLA.md`, the CLA Assistant bot, branch protection requiring
 the CLA check + review.
 
-## D12 — MD = content truth; `.bh/` = derived cache; git = history (NEW, overturns D2/D3)
+## D12 — MD = content truth; `.bh/` = local derived mirror; git = user-file history (NEW, overturns D2/D3)
 
 **Decision.** Markdown files on disk are the source of truth for content.
 Anything BaseHalf adds (badge metadata, canvas positions, references) lives
-under `.bh/<workspace-root>/`. Git provides history and undo.
+under `.bh/` as local derived mirror/runtime state. Git provides history and
+undo for user-authored files; `.bh/` itself is ignored.
 
 **Why.** Two reasons:
 
@@ -296,8 +298,8 @@ the badge a pure semantic layer (plain-path references) and the canvas a pure
 visual layer. Embedding `referenced_by` makes "who points at me?" one read.
 
 **Consequences.** This was a **clean break** — no migration of old `.bh/`
-layouts (the spec assumes a fresh mirror). Everything except `.bh/cache/` stays
-in git so the mirror travels with the folder. The canonical agent-hint text now
+layouts (the spec assumes a fresh mirror). The whole `.bh/` tree is local
+derived runtime state and is ignored by git. The canonical agent-hint text now
 lives in `HINT_BODY` in `packages/core/src/modules/workspace/setup.ts`. This
 decision supersedes D14's specific file shapes (`.bh/focus.md` /
 `.bh/badges/<file>.json` / `.bh/index/inbound.json`) while keeping its principle

@@ -52,6 +52,8 @@ const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
 const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
 
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
+	private static readonly STATUS_KINDS = ['loading', 'saving', 'saved', 'dirty', 'readonly', 'warning', 'error'] as const;
+
 	private readonly status: HTMLElement;
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
@@ -71,7 +73,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	constructor(
 		private readonly container: HTMLElement,
-		status: HTMLElement,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
@@ -86,8 +87,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 		clearNode(this.container);
 		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
-		this.status = status;
 		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		this.status = append(root, $('.basehalf-card-detail-markdown-rich-status'));
+		this.status.setAttribute('role', 'status');
+		this.status.setAttribute('aria-live', 'polite');
 		this.setStatus('Loading');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
@@ -432,6 +435,31 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			parts.push(`L${selection.startLineNumber}:${selection.startColumn}`);
 		}
 		this.status.textContent = parts.join(' • ');
+		this.status.setAttribute('data-status-kind', this.statusKind(status));
+		this.status.title = this.status.textContent;
+	}
+
+	private statusKind(status: string): typeof BaseHalfMarkdownRichCardDetail.STATUS_KINDS[number] {
+		const normalized = status.toLowerCase();
+		if (normalized.includes('saving')) {
+			return 'saving';
+		}
+		if (normalized.includes('saved')) {
+			return 'saved';
+		}
+		if (normalized.includes('unsaved') || normalized.includes('dirty')) {
+			return 'dirty';
+		}
+		if (normalized.includes('readonly')) {
+			return 'readonly';
+		}
+		if (normalized.includes('loading') || normalized.includes('model')) {
+			return 'loading';
+		}
+		if (normalized.includes('failed') || normalized.includes('error') || normalized.includes('binary') || normalized.includes('large')) {
+			return 'error';
+		}
+		return 'warning';
 	}
 
 	private isEditable(): boolean {
@@ -446,7 +474,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		return {
 			isDirty: resource => this.textFileService.isDirty(resource),
 			isReadonly: resource => !!this.textFileService.files.get(resource)?.isReadonly(),
-			save: resource => this.textFileService.save(resource)
+			save: (resource, options) => this.textFileService.save(resource, options)
 		};
 	}
 

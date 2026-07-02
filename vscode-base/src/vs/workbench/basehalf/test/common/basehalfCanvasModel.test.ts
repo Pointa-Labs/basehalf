@@ -44,8 +44,8 @@ suite('BaseHalfCanvasModel', () => {
 	});
 
 	test('returns stable grid positions', () => {
-		assert.deepStrictEqual(baseHalfCanvasPosition(0, 8), { x: 60, y: 60 });
-		assert.deepStrictEqual(baseHalfCanvasPosition(5, 8), { x: 60, y: 340 });
+		assert.deepStrictEqual(baseHalfCanvasPosition(0, 8), { x: 370, y: 550 });
+		assert.deepStrictEqual(baseHalfCanvasPosition(5, 8), { x: 370, y: 830 });
 	});
 
 	test('merges saved canvas card geometry by workspace-relative path', () => {
@@ -160,7 +160,23 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[0], 0, model.items.length), { x: 12, y: 24, width: 280, height: 160 });
-		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 400, y: 60, width: 300, height: 220 });
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[1], 1, model.items.length), { x: 1220, y: 690, width: 300, height: 220 });
+	});
+
+	test('keeps saved card positions in unbounded canvas coordinates', () => {
+		const root = folder('/workspace', [
+			file('/workspace/a.md')
+		]);
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			canvas: {
+				path: '',
+				cards: [{ path: 'a.md', kind: 'file', x: -120, y: -80, width: 280, height: 160 }],
+				edges: []
+			}
+		});
+
+		assert.deepStrictEqual(baseHalfCanvasItemBounds(model.items[0], 0, model.items.length), { x: -120, y: -80, width: 280, height: 160 });
 	});
 
 	test('computes anchor points and routed edge paths', () => {

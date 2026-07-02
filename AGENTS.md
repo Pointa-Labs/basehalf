@@ -110,7 +110,8 @@ Current public decision index:
 - D9 — License/IP: Apache-2.0 + CLA + long-term open-core.
 - D10 — Naming/brand: BaseHalf + edition words + trademark policy.
 - D11 — Contribution intake: CLA gate before publish.
-- D12 — Markdown files = content truth; `.bh/` = derived cache; git = history.
+- D12 — Markdown files = content truth; `.bh/` = local derived mirror; git =
+  user-file history.
 - D13 — BaseHalf never modifies user files unprompted.
 - D14 — Agent protocol = publish, not inject.
 - D15 — Electron desktop app, Mac first, cross-platform target.

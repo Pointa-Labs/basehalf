@@ -161,7 +161,7 @@ interface IBaseHalfMarkdownRichTextSelection {
 }
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
-const AUTOSAVE_MS = 400;
+const AUTOSAVE_MS = 1200;
 const FOCUS_DEBOUNCE_MS = 180;
 const SIDE_MENU_GUTTER_GAP = 8;
 
@@ -229,8 +229,9 @@ interface SessionState {
 	editable: boolean;
 	ready: boolean;
 	dirty: boolean;
+	editRevision: number;
 	loading: boolean;
-	pendingSaveContent: Map<string, string>;
+	pendingSaveContent: Map<string, { readonly content: string; readonly revision: number }>;
 	conflictDisk: string | undefined;
 	writeError: string | undefined;
 }
@@ -262,6 +263,7 @@ function createSessionState(key = ''): SessionState {
 		editable: false,
 		ready: false,
 		dirty: false,
+		editRevision: 0,
 		loading: true,
 		pendingSaveContent: new Map(),
 		conflictDisk: undefined,
@@ -452,6 +454,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.frontmatter = frontmatter;
 		state.byId = byId;
 		state.lastDisk = content;
+		state.editRevision = 0;
 		state.ready = true;
 		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
 		state.loading = false;
@@ -505,6 +508,7 @@ function MarkdownRichEditor(): JSX.Element {
 			return;
 		}
 		if (!state.dirty && !forceSerialize && !forceWrite) {
+			state.pendingSaveContent.set(requestId, { content: state.lastDisk, revision: state.editRevision });
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
 				key: state.key,
@@ -518,7 +522,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		try {
 			const content = await spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId);
-			state.pendingSaveContent.set(requestId, content);
+			state.pendingSaveContent.set(requestId, { content, revision: state.editRevision });
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
 				key: state.key,
@@ -693,13 +697,17 @@ function MarkdownRichEditor(): JSX.Element {
 					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite);
 					break;
 				case 'basehalf.markdownRich.saveResult': {
-					const savedContent = state.pendingSaveContent.get(message.requestId);
+					const pending = state.pendingSaveContent.get(message.requestId);
 					state.pendingSaveContent.delete(message.requestId);
 					if (message.result === 'saved' || message.result === 'noop') {
-						state.lastDisk = message.content ?? savedContent ?? state.lastDisk;
+						state.lastDisk = message.content ?? pending?.content ?? state.lastDisk;
 						state.conflictDisk = undefined;
 						state.writeError = undefined;
-						notifyDirty(false);
+						if (!pending || pending.revision === state.editRevision) {
+							notifyDirty(false);
+						} else {
+							setVersion(value => value + 1);
+						}
 					} else if (message.result === 'blockedByConflict') {
 						state.conflictDisk = message.disk ?? state.lastDisk;
 						if (saveTimer.current !== undefined) {
@@ -732,6 +740,7 @@ function MarkdownRichEditor(): JSX.Element {
 			if (state.loading || !state.ready) {
 				return;
 			}
+			state.editRevision += 1;
 			notifyDirty(true);
 			scheduleSave();
 			scheduleFocus();

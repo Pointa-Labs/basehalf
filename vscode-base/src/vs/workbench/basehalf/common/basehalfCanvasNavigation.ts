@@ -10,6 +10,8 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
 
 export const IBaseHalfCanvasNavigationService = createDecorator<IBaseHalfCanvasNavigationService>('baseHalfCanvasNavigationService');
+export const BaseHalfCanNavigateBackContext = 'basehalf.canNavigateBack';
+export const BaseHalfCanNavigateForwardContext = 'basehalf.canNavigateForward';
 
 export type BaseHalfOpenSource =
 	| 'explorer'

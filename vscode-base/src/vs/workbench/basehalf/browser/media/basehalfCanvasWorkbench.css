@@ -892,6 +892,9 @@
 }
 
 .monaco-workbench .basehalf-card-detail-title-block {
+	display: flex;
+	align-items: center;
+	gap: 8px;
 	min-width: 0;
 	flex: 1;
 }
@@ -905,9 +908,15 @@
 }
 
 .monaco-workbench .basehalf-card-detail-meta {
-	min-height: 16px;
+	flex: none;
 	color: var(--vscode-descriptionForeground);
 	font-size: 11px;
+	line-height: 16px;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-card-detail-meta:empty {
+	display: none;
 }
 
 .monaco-workbench .basehalf-card-detail-actions {
@@ -1135,6 +1144,99 @@
 	width: 100%;
 	height: 100%;
 	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status {
+	position: absolute;
+	top: 14px;
+	right: 18px;
+	z-index: 4;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	box-sizing: border-box;
+	max-width: min(340px, calc(100% - 36px));
+	min-height: 25px;
+	padding: 4px 10px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	pointer-events: none;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-sideBar-background));
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 72%, transparent);
+	border-radius: 999px;
+	box-shadow: 0 8px 26px rgb(0 0 0 / 16%);
+	font-size: 11px;
+	line-height: 16px;
+	opacity: 0.74;
+	transform: translate3d(0, 0, 0);
+	transition:
+		opacity 180ms ease,
+		transform 180ms ease,
+		color 180ms ease,
+		background-color 180ms ease,
+		border-color 180ms ease,
+		box-shadow 180ms ease;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status::before {
+	content: "";
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: currentColor;
+	opacity: 0.72;
+	box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 22%, transparent);
+	transition:
+		opacity 180ms ease,
+		box-shadow 180ms ease;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saved"] {
+	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saving"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="loading"] {
+	color: var(--vscode-progressBar-background);
+	opacity: 0.86;
+	transform: translate3d(0, 1px, 0);
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saving"]::before,
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="loading"]::before {
+	animation: basehalf-markdown-rich-status-breathe 1.4s ease-in-out infinite;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="dirty"],
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="warning"] {
+	color: var(--vscode-editorWarning-foreground);
+	opacity: 0.9;
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="readonly"] {
+	color: var(--vscode-disabledForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="error"] {
+	color: var(--vscode-editorError-foreground);
+	background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground) 72%, var(--vscode-editor-background));
+	border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder) 70%, transparent);
+	opacity: 0.95;
+}
+
+@keyframes basehalf-markdown-rich-status-breathe {
+	0%,
+	100% {
+		opacity: 0.42;
+		box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 18%, transparent);
+	}
+	50% {
+		opacity: 1;
+		box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
+	}
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-rich-webview {

@@ -54,7 +54,7 @@ oriented.
 - A **desktop workspace**: Electron, Mac first, with a file tree, canvas,
   previews, and a block editor over local files.
 - A **local folder model**: your files stay where they are; `.bh/` stores
-  BaseHalf metadata that can travel with the folder.
+  local BaseHalf mirror/runtime metadata and is ignored by git.
 - An **agent-readable protocol**: a `.bh/mirror/` tree of plain YAML files —
   `.bh/current_focus.yaml` plus per-node `badge.yaml`, `canvas.yaml`,
   `focus.yaml`, and `adhd.yaml` — publishes the graph and the current focus.
@@ -177,8 +177,8 @@ docs/             decisions, dependency policy, trademark policy
    and compose through `ctx.run`.
 3. **Use the context filesystem.** Core modules use `ctx.fs`, so tests can swap
    in a mock implementation.
-4. **User files are content truth.** Your files remain the source; `.bh/` is the
-   derived mirror (and `.bh/cache/` is rebuildable, gitignored).
+4. **User files are content truth.** Your files remain the source; `.bh/` is a
+   derived local mirror and is gitignored.
 5. **Publish simple local context.** BaseHalf writes a small YAML mirror to disk
    so agents can navigate the workspace from the same folder.
 6. **Composable primitives.** BaseHalf exposes small operations for workspaces,

@@ -14,8 +14,8 @@ export type BaseHalfSetting = typeof BaseHalfSetting[keyof typeof BaseHalfSettin
 
 export const BASEHALF_LEGACY_READING_MODE_SETTING = 'editor.readingMode';
 
-export const BASEHALF_CANVAS_MIN_ZOOM = 0.25;
-export const BASEHALF_CANVAS_MAX_ZOOM = 2;
+export const BASEHALF_CANVAS_MIN_ZOOM = 0.2;
+export const BASEHALF_CANVAS_MAX_ZOOM = 4;
 export const BASEHALF_CANVAS_DEFAULT_ZOOM = 1;
 
 export const BASEHALF_AGENT_DEFAULT_SESSION: BaseHalfAgentSessionKind = 'tui-codex';

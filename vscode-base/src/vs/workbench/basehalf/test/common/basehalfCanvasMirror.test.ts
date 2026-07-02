@@ -128,7 +128,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.strictEqual(serializeCanvasFile({
 			path: 'docs',
 			size: { width: 1200.12345, height: 800 },
-			cards: [{ path: 'docs/a.md', kind: 'file', x: 10.12345, y: 20, width: 260, height: 140 }],
+			cards: [{ path: 'docs/a.md', kind: 'file', x: -10.12345, y: -20, width: 260, height: 140 }],
 			edges: [{ from: 'docs/a.md', from_anchor: 'east', to: 'docs/b.md', to_anchor: 'west', label: 'continues' }]
 		}), [
 			'path: "docs"',
@@ -138,8 +138,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'cards:',
 			'  - path: "docs/a.md"',
 			'    kind: file',
-			'    x: 10.1235',
-			'    y: 20',
+			'    x: -10.1235',
+			'    y: -20',
 			'    width: 260',
 			'    height: 140',
 			'edges:',

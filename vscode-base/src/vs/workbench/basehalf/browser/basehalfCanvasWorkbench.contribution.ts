@@ -21,6 +21,8 @@ import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
 	BaseHalfCanvasAnchor,
+	BASEHALF_CANVAS_DEFAULT_HEIGHT,
+	BASEHALF_CANVAS_DEFAULT_WIDTH,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgePath,
 	baseHalfCanvasAnchorPoint,
@@ -51,6 +53,36 @@ type BaseHalfCanvasCardLod = 'full' | 'mini';
 type BaseHalfCanvasResizeEdge = 'north' | 'east' | 'south' | 'west' | 'north-east' | 'south-east' | 'south-west' | 'north-west';
 type BaseHalfCanvasEdgeEndpoint = 'source' | 'target';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
+type BaseHalfCanvasZoomAnchor = { readonly clientX: number; readonly clientY: number; readonly focusWriteDelay?: number };
+type BaseHalfCanvasViewport = {
+	readonly left: number;
+	readonly top: number;
+	readonly right: number;
+	readonly bottom: number;
+	readonly width: number;
+	readonly height: number;
+	readonly centerX: number;
+	readonly centerY: number;
+};
+type BaseHalfCanvasCardDrag = {
+	readonly pointerId: number;
+	readonly card: HTMLElement;
+	readonly item: IBaseHalfCanvasItem;
+	readonly origin: IBaseHalfCanvasBounds;
+	readonly grab: { readonly x: number; readonly y: number };
+	latest: IBaseHalfCanvasBounds;
+	moved: boolean;
+};
+type BaseHalfCanvasResizeDrag = {
+	readonly pointerId: number;
+	readonly card: HTMLElement;
+	readonly item: IBaseHalfCanvasItem;
+	readonly edge: BaseHalfCanvasResizeEdge;
+	readonly origin: IBaseHalfCanvasBounds;
+	readonly startPoint: { readonly x: number; readonly y: number };
+	latest: IBaseHalfCanvasBounds;
+	moved: boolean;
+};
 const CANVAS_CARD_ANCHORS: readonly BaseHalfCanvasAnchor[] = ['north', 'east', 'south', 'west'];
 const CANVAS_CARD_RESIZE_EDGES: readonly BaseHalfCanvasResizeEdge[] = ['north', 'east', 'south', 'west', 'north-east', 'south-east', 'south-west', 'north-west'];
 const CARD_LOD_MIN_HEIGHT_PX = 150;
@@ -62,6 +94,7 @@ const CANVAS_CONNECTION_CORNER_GUARD = 18;
 const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
 const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
+const CANVAS_FRAME_PADDING_PX = 96;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -88,16 +121,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private renderSeq = 0;
 	private detailKey: string | undefined;
-	private activeCardDrag: {
-		readonly pointerId: number;
-		readonly card: HTMLElement;
-		readonly item: IBaseHalfCanvasItem;
-		readonly origin: IBaseHalfCanvasBounds;
-		readonly startClientX: number;
-		readonly startClientY: number;
-		latest: IBaseHalfCanvasBounds;
-		moved: boolean;
-	} | undefined;
+	private activeCardDrag: BaseHalfCanvasCardDrag | undefined;
 	private activeConnectionDrag: {
 		readonly pointerId: number;
 		readonly source: IBaseHalfCanvasItem;
@@ -108,17 +132,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		readonly path: SVGPathElement;
 		target?: BaseHalfCanvasConnectionTarget;
 	} | undefined;
-	private activeResizeDrag: {
-		readonly pointerId: number;
-		readonly card: HTMLElement;
-		readonly item: IBaseHalfCanvasItem;
-		readonly edge: BaseHalfCanvasResizeEdge;
-		readonly origin: IBaseHalfCanvasBounds;
-		readonly startClientX: number;
-		readonly startClientY: number;
-		latest: IBaseHalfCanvasBounds;
-		moved: boolean;
-	} | undefined;
+	private activeResizeDrag: BaseHalfCanvasResizeDrag | undefined;
 	private activeEdgeReconnect: {
 		readonly pointerId: number;
 		readonly edge: IBaseHalfCanvasEdge;
@@ -152,6 +166,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private restoredFolderFocusKey: string | undefined;
 	private canvasScrollBeforeDetail: { readonly left: number; readonly top: number } | undefined;
 	private canvasZoom = 1;
+	private canvasFrameInset = { x: 0, y: 0 };
+	private dragAutoPan: { frame: number | undefined; clientX: number; clientY: number } | undefined;
+	private renderQueuedBehindGesture = false;
+	private wheelZoomAnimationFrame: number | undefined;
+	private pendingWheelZoomFactor = 1;
+	private pendingWheelZoomAnchor: BaseHalfCanvasZoomAnchor | undefined;
 	private disposed = false;
 
 	constructor(
@@ -238,6 +258,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				mainWindow.clearTimeout(this.folderFocusTimer);
 				this.folderFocusTimer = undefined;
 			}
+			if (this.wheelZoomAnimationFrame !== undefined) {
+				mainWindow.cancelAnimationFrame(this.wheelZoomAnimationFrame);
+				this.wheelZoomAnimationFrame = undefined;
+			}
+			this.stopDragAutoPan();
 			this.clearSuppressedCardClick();
 			for (const timer of this.badgeDescriptionTimers.values()) {
 				mainWindow.clearTimeout(timer);
@@ -271,10 +296,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		// Re-rendering replaces every card element; doing that while a card is being
+		// dragged or resized detaches the gesture from the DOM. Defer until it ends.
+		if (this.activeCardDrag || this.activeResizeDrag) {
+			this.renderQueuedBehindGesture = true;
+			return;
+		}
+		this.renderQueuedBehindGesture = false;
+
 		const seq = ++this.renderSeq;
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
+			this.renderedItemsByPath = new Map();
+			this.renderedBoundsByPath = new Map();
 			clearNode(this.cards);
 			this.renderEmpty('No folder');
 			this.renderDetail();
@@ -288,6 +323,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
+			this.renderedItemsByPath = new Map();
+			this.renderedBoundsByPath = new Map();
 			clearNode(this.cards);
 			this.renderEmpty(error instanceof Error ? error.message : String(error));
 			this.renderDetail();
@@ -699,7 +736,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		face.setAttribute('data-testid', `card-badge-face-${item.path}`);
 		this.cardListeners.add(this.addDisposableListener(face, 'pointerdown', event => event.stopPropagation()));
 		this.cardListeners.add(this.addDisposableListener(face, 'dblclick', event => event.stopPropagation()));
-		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => event.stopPropagation()));
+		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => {
+			if (isCanvasZoomWheelEvent(event)) {
+				this.onCanvasWheel(event);
+			}
+			event.stopPropagation();
+		}));
 
 		const body = append(face, $('.basehalf-canvas-card-badge-scroll'));
 		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
@@ -833,13 +875,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		const grabPoint = this.canvasPointFromClient(event.clientX, event.clientY);
 		this.activeCardDrag = {
 			pointerId: event.pointerId,
 			card,
 			item,
 			origin: bounds,
-			startClientX: event.clientX,
-			startClientY: event.clientY,
+			grab: { x: grabPoint.x - bounds.x, y: grabPoint.y - bounds.y },
 			latest: bounds,
 			moved: false
 		};
@@ -855,8 +897,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		const dx = (event.clientX - drag.startClientX) / this.canvasZoom;
-		const dy = (event.clientY - drag.startClientY) / this.canvasZoom;
+		const point = this.canvasPointFromClient(event.clientX, event.clientY);
+		const dx = point.x - (drag.origin.x + drag.grab.x);
+		const dy = point.y - (drag.origin.y + drag.grab.y);
 		if (!drag.moved && Math.hypot(dx, dy) < 4) {
 			return;
 		}
@@ -864,10 +907,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		event.preventDefault();
 		drag.moved = true;
 		drag.card.classList.add('dragging');
+		this.updateCardDragPosition(drag, event.clientX, event.clientY);
+		this.updateDragAutoPan(event.clientX, event.clientY);
+	}
+
+	private updateCardDragPosition(drag: BaseHalfCanvasCardDrag, clientX: number, clientY: number): void {
+		const point = this.canvasPointFromClient(clientX, clientY);
 		drag.latest = {
 			...drag.origin,
-			x: roundCanvasPosition(Math.max(0, drag.origin.x + dx)),
-			y: roundCanvasPosition(Math.max(0, drag.origin.y + dy))
+			x: roundCanvasPosition(point.x - drag.grab.x),
+			y: roundCanvasPosition(point.y - drag.grab.y)
 		};
 		this.applyCardBounds(drag.card, drag.latest);
 	}
@@ -879,12 +928,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.activeCardDrag = undefined;
+		this.stopDragAutoPan();
 		drag.card.classList.remove('dragging');
 		if (drag.card.hasPointerCapture(event.pointerId)) {
 			drag.card.releasePointerCapture(event.pointerId);
 		}
 
 		if (!drag.moved) {
+			this.flushRenderQueuedBehindGesture();
 			return;
 		}
 
@@ -893,6 +944,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.suppressNextCardClick(drag.item.path);
 		const folder = this.getCurrentFolder();
 		if (!folder) {
+			this.flushRenderQueuedBehindGesture();
 			return;
 		}
 
@@ -903,7 +955,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			y: drag.latest.y,
 			width: drag.latest.width,
 			height: drag.latest.height
-		}).then(() => this.render()).catch(error => {
+		}).then(() => this.render()).then(() => this.revealCardAfterGeometryChange(drag.item.path)).catch(error => {
 			this.logService.error(error);
 			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
 		});
@@ -916,11 +968,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.activeCardDrag = undefined;
+		this.stopDragAutoPan();
 		drag.card.classList.remove('dragging');
 		this.applyCardBounds(drag.card, drag.origin);
 		if (drag.card.hasPointerCapture(event.pointerId)) {
 			drag.card.releasePointerCapture(event.pointerId);
 		}
+		this.flushRenderQueuedBehindGesture();
 	}
 
 	private onResizePointerDown(event: PointerEvent, handle: HTMLElement, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge): void {
@@ -938,8 +992,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			item,
 			edge,
 			origin: bounds,
-			startClientX: event.clientX,
-			startClientY: event.clientY,
+			startPoint: this.canvasPointFromClient(event.clientX, event.clientY),
 			latest: bounds,
 			moved: false
 		};
@@ -955,14 +1008,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		event.preventDefault();
 		event.stopPropagation();
-		const dx = (event.clientX - drag.startClientX) / this.canvasZoom;
-		const dy = (event.clientY - drag.startClientY) / this.canvasZoom;
+		const point = this.canvasPointFromClient(event.clientX, event.clientY);
+		const dx = point.x - drag.startPoint.x;
+		const dy = point.y - drag.startPoint.y;
 		if (!drag.moved && Math.hypot(dx, dy) < 3) {
 			return;
 		}
 
 		drag.moved = true;
-		drag.latest = resizeBounds(drag.origin, drag.edge, dx, dy);
+		this.updateResizeDragBounds(drag, event.clientX, event.clientY);
+		this.updateDragAutoPan(event.clientX, event.clientY);
+	}
+
+	private updateResizeDragBounds(drag: BaseHalfCanvasResizeDrag, clientX: number, clientY: number): void {
+		const point = this.canvasPointFromClient(clientX, clientY);
+		drag.latest = resizeBounds(drag.origin, drag.edge, point.x - drag.startPoint.x, point.y - drag.startPoint.y);
 		this.applyCardBounds(drag.card, drag.latest);
 		drag.card.dataset.cardHeight = String(drag.latest.height);
 		drag.card.dataset.lod = this.cardLod(drag.latest);
@@ -975,11 +1035,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.activeResizeDrag = undefined;
+		this.stopDragAutoPan();
 		drag.card.classList.remove('resizing');
 		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
 			event.target.releasePointerCapture(event.pointerId);
 		}
 		if (!drag.moved) {
+			this.flushRenderQueuedBehindGesture();
 			return;
 		}
 
@@ -987,6 +1049,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		event.stopPropagation();
 		const folder = this.getCurrentFolder();
 		if (!folder) {
+			this.flushRenderQueuedBehindGesture();
 			return;
 		}
 
@@ -997,7 +1060,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			y: drag.latest.y,
 			width: drag.latest.width,
 			height: drag.latest.height
-		}).then(() => this.render()).catch(error => {
+		}).then(() => this.render()).then(() => this.revealCardAfterGeometryChange(drag.item.path)).catch(error => {
 			this.logService.error(error);
 			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
 		});
@@ -1010,6 +1073,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.activeResizeDrag = undefined;
+		this.stopDragAutoPan();
 		drag.card.classList.remove('resizing');
 		this.applyCardBounds(drag.card, drag.origin);
 		drag.card.dataset.cardHeight = String(drag.origin.height);
@@ -1017,6 +1081,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
 			event.target.releasePointerCapture(event.pointerId);
 		}
+		this.flushRenderQueuedBehindGesture();
 	}
 
 	private onConnectionPointerDown(event: PointerEvent, handle: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
@@ -1235,7 +1300,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.selectedCardPath = path;
 		this.selectedEdgeId = undefined;
 		this.selectedEdge = undefined;
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.selected'))) {
+		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
 			card.classList.toggle('selected', card.dataset.basehalfCardPath === path);
 		}
 		for (const edge of Array.from(this.cards.querySelectorAll<SVGElement>('.basehalf-canvas-edge-path.selected, .basehalf-canvas-edge-hit.selected'))) {
@@ -1787,7 +1852,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		clearNode(this.cards);
 		const empty = append(this.cards, $('.basehalf-canvas-empty'));
 		empty.textContent = message;
-		this.updateCanvasExtent(new Dimension(Math.max(800, this.root.clientWidth), Math.max(480, this.root.clientHeight)));
+		const viewport = this.canvasViewport();
+		this.updateCanvasExtent(new Dimension(Math.max(800, viewport.width), Math.max(480, viewport.height)));
 	}
 
 	private renderDetail(): void {
@@ -1810,7 +1876,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.detailTitle.textContent = basename(cardDetail.resource);
-		this.detailMeta.textContent = this.detailMetaFor(cardDetail.projection, cardDetail.selection);
+		this.detailMeta.textContent = this.detailSelectionMetaFor(cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
 
 		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
@@ -1828,7 +1894,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailDisposables.clear();
 
 		if (cardDetail.projection === 'rich') {
-			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody, this.detailMeta));
+			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody));
 			void this.markdownRichDetail.open(cardDetail);
 		} else if (cardDetail.projection === 'preview') {
 			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownPreviewCardDetail, this.detailBody));
@@ -1896,23 +1962,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 	}
 
-	private detailMetaFor(projection: string, selection: { startLineNumber: number; startColumn: number } | undefined): string {
-		const parts = [projection];
+	private detailSelectionMetaFor(selection: { startLineNumber: number; startColumn: number } | undefined): string {
 		if (!selection) {
-			return parts.join(' • ');
+			return '';
 		}
 
-		parts.push(`L${selection.startLineNumber}:${selection.startColumn}`);
-		return parts.join(' • ');
+		return `L${selection.startLineNumber}:${selection.startColumn}`;
 	}
 
 	private canvasSize(items: readonly IBaseHalfCanvasItem[], savedSize: IBaseHalfCanvasSize | undefined): Dimension {
 		if (items.length === 0) {
-			return new Dimension(savedSize?.width ?? 800, savedSize?.height ?? 480);
+			return new Dimension(savedSize?.width ?? BASEHALF_CANVAS_DEFAULT_WIDTH, savedSize?.height ?? BASEHALF_CANVAS_DEFAULT_HEIGHT);
 		}
 
-		let maxX = savedSize?.width ?? 0;
-		let maxY = savedSize?.height ?? 0;
+		let maxX = savedSize?.width ?? BASEHALF_CANVAS_DEFAULT_WIDTH;
+		let maxY = savedSize?.height ?? BASEHALF_CANVAS_DEFAULT_HEIGHT;
 		for (let index = 0; index < items.length; index++) {
 			const item = items[index];
 			const { x, y, width, height } = baseHalfCanvasItemBounds(item, index, items.length);
@@ -1923,10 +1987,93 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private updateCanvasExtent(size: Dimension): void {
+		const previousInset = this.canvasFrameInset;
+		this.canvasFrameInset = this.computeCanvasFrameInset();
 		this.cards.style.width = `${size.width}px`;
 		this.cards.style.height = `${size.height}px`;
-		this.surface.style.width = `${Math.max(size.width * this.canvasZoom, this.root.clientWidth)}px`;
-		this.surface.style.height = `${Math.max(size.height * this.canvasZoom, Math.max(480, this.root.clientHeight - this.chrome.offsetHeight))}px`;
+		this.cards.style.left = `${this.canvasFrameInset.x}px`;
+		this.cards.style.top = `${this.canvasFrameInset.y}px`;
+		this.surface.style.width = `${Math.max(this.canvasFrameInset.x + size.width * this.canvasZoom + CANVAS_FRAME_PADDING_PX, this.root.clientWidth)}px`;
+		this.surface.style.height = `${Math.max(this.canvasFrameInset.y + size.height * this.canvasZoom + CANVAS_FRAME_PADDING_PX, this.canvasViewport().bottom)}px`;
+
+		// The inset anchors canvas coordinates inside the scrollable surface; when it
+		// changes, shift the scroll position with it so the viewport keeps showing the
+		// same canvas content instead of jumping.
+		const insetDx = this.canvasFrameInset.x - previousInset.x;
+		const insetDy = this.canvasFrameInset.y - previousInset.y;
+		if (insetDx !== 0 || insetDy !== 0) {
+			this.root.scrollLeft += insetDx;
+			this.root.scrollTop += insetDy;
+		}
+	}
+
+	private computeCanvasFrameInset(): { readonly x: number; readonly y: number } {
+		const bounds = this.canvasContentBounds();
+		if (!bounds) {
+			return { x: 0, y: 0 };
+		}
+
+		const viewport = this.canvasViewport();
+		const scaledWidth = bounds.width * this.canvasZoom;
+		const scaledHeight = bounds.height * this.canvasZoom;
+		const centeredX = viewport.left + (viewport.width - scaledWidth) / 2 - bounds.x * this.canvasZoom;
+		const centeredY = viewport.top + (viewport.height - scaledHeight) / 2 - bounds.y * this.canvasZoom;
+		const leadingX = viewport.left + CANVAS_FRAME_PADDING_PX - bounds.x * this.canvasZoom;
+		const leadingY = viewport.top + CANVAS_FRAME_PADDING_PX - bounds.y * this.canvasZoom;
+		return {
+			x: roundCanvasPosition(Math.max(CANVAS_FRAME_PADDING_PX, centeredX, leadingX)),
+			y: roundCanvasPosition(Math.max(CANVAS_FRAME_PADDING_PX, centeredY, leadingY))
+		};
+	}
+
+	private canvasContentBounds(): IBaseHalfCanvasBounds | undefined {
+		let minX = Number.POSITIVE_INFINITY;
+		let minY = Number.POSITIVE_INFINITY;
+		let maxX = Number.NEGATIVE_INFINITY;
+		let maxY = Number.NEGATIVE_INFINITY;
+		for (const bounds of this.renderedBoundsByPath.values()) {
+			minX = Math.min(minX, bounds.x);
+			minY = Math.min(minY, bounds.y);
+			maxX = Math.max(maxX, bounds.x + bounds.width);
+			maxY = Math.max(maxY, bounds.y + bounds.height);
+		}
+		if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+			return undefined;
+		}
+		return {
+			x: minX,
+			y: minY,
+			width: Math.max(1, maxX - minX),
+			height: Math.max(1, maxY - minY)
+		};
+	}
+
+	private canvasViewport(): BaseHalfCanvasViewport {
+		const top = this.canvasViewportTopInset();
+		const bottomInset = CANVAS_VIEWPORT_BOTTOM_INSET_PX;
+		const width = Math.max(1, this.root.clientWidth);
+		const height = Math.max(1, this.root.clientHeight - top - bottomInset);
+		return {
+			left: 0,
+			top,
+			right: width,
+			bottom: top + height,
+			width,
+			height,
+			centerX: width / 2,
+			centerY: top + height / 2
+		};
+	}
+
+	private canvasViewportTopInset(): number {
+		const controls = this.chrome.querySelector<HTMLElement>('.basehalf-canvas-zoom-controls');
+		if (!controls) {
+			return CANVAS_VIEWPORT_TOP_INSET_PX;
+		}
+
+		const rootRect = this.root.getBoundingClientRect();
+		const controlsRect = controls.getBoundingClientRect();
+		return Math.max(CANVAS_VIEWPORT_TOP_INSET_PX, Math.ceil(controlsRect.bottom - rootRect.top + CANVAS_VIEWPORT_CHROME_GAP_PX));
 	}
 
 	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
@@ -1960,32 +2107,60 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private onCanvasWheel(event: WheelEvent): void {
-		if (!(event.metaKey || event.ctrlKey)) {
+		if (!isCanvasZoomWheelEvent(event)) {
 			return;
 		}
 
 		event.preventDefault();
-		const delta = event.deltaY > 0 ? -1 : 1;
-		this.setCanvasZoom(this.canvasZoom + delta * BASEHALF_CANVAS_ZOOM_STEP, {
+		this.queueCanvasWheelZoom(canvasWheelZoomFactor(event), {
 			clientX: event.clientX,
-			clientY: event.clientY
+			clientY: event.clientY,
+			focusWriteDelay: BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY
 		});
 	}
 
-	private setCanvasZoom(value: number, anchor?: { readonly clientX: number; readonly clientY: number }): void {
+	private queueCanvasWheelZoom(factor: number, anchor: BaseHalfCanvasZoomAnchor): void {
+		if (!Number.isFinite(factor) || factor === 1) {
+			return;
+		}
+
+		this.pendingWheelZoomFactor *= factor;
+		this.pendingWheelZoomAnchor = anchor;
+		if (this.wheelZoomAnimationFrame !== undefined) {
+			return;
+		}
+
+		this.wheelZoomAnimationFrame = mainWindow.requestAnimationFrame(() => {
+			this.wheelZoomAnimationFrame = undefined;
+			const pendingFactor = this.pendingWheelZoomFactor;
+			const pendingAnchor = this.pendingWheelZoomAnchor;
+			this.pendingWheelZoomFactor = 1;
+			this.pendingWheelZoomAnchor = undefined;
+			if (!pendingAnchor || this.disposed) {
+				return;
+			}
+
+			this.setCanvasZoom(this.canvasZoom * pendingFactor, pendingAnchor);
+		});
+	}
+
+	private setCanvasZoom(value: number, anchor?: BaseHalfCanvasZoomAnchor): void {
 		const nextZoom = normalizeCanvasZoom(value);
 		if (nextZoom === this.canvasZoom) {
 			return;
 		}
 
-		const anchorPoint = anchor ? this.canvasPointFromClient(anchor.clientX, anchor.clientY) : this.viewportCenterCanvasPoint();
-		const anchorClientX = anchor ? anchor.clientX - this.root.getBoundingClientRect().left : this.root.clientWidth / 2;
-		const anchorClientY = anchor ? anchor.clientY - this.root.getBoundingClientRect().top : this.root.clientHeight / 2;
+		const viewport = this.canvasViewport();
+		const rootRect = this.root.getBoundingClientRect();
+		const anchorClientX = anchor ? clamp(anchor.clientX - rootRect.left, viewport.left, viewport.right) : viewport.centerX;
+		const anchorClientY = anchor ? clamp(anchor.clientY - rootRect.top, viewport.top, viewport.bottom) : viewport.centerY;
+		const anchorPoint = this.canvasPointFromViewportPoint(anchorClientX, anchorClientY);
 		this.canvasZoom = nextZoom;
 		this.applyCanvasZoom();
-		this.root.scrollLeft = Math.max(0, anchorPoint.x * nextZoom - anchorClientX);
-		this.root.scrollTop = Math.max(0, anchorPoint.y * nextZoom - anchorClientY);
-		this.scheduleFolderFocusWrite(0);
+		this.root.scrollLeft = Math.max(0, this.canvasFrameInset.x + anchorPoint.x * nextZoom - anchorClientX);
+		this.root.scrollTop = Math.max(0, this.canvasFrameInset.y + anchorPoint.y * nextZoom - anchorClientY);
+		this.scrollSelectedCardIntoViewport();
+		this.scheduleFolderFocusWrite(anchor?.focusWriteDelay ?? 0);
 	}
 
 	private applyCanvasZoom(): void {
@@ -2009,16 +2184,204 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private canvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
 		const rect = this.root.getBoundingClientRect();
+		return this.canvasPointFromViewportPoint(clientX - rect.left, clientY - rect.top);
+	}
+
+	private canvasPointFromViewportPoint(x: number, y: number): { x: number; y: number } {
 		return {
-			x: (this.root.scrollLeft + clientX - rect.left) / this.canvasZoom,
-			y: (this.root.scrollTop + clientY - rect.top) / this.canvasZoom
+			x: (this.root.scrollLeft + x - this.canvasFrameInset.x) / this.canvasZoom,
+			y: (this.root.scrollTop + y - this.canvasFrameInset.y) / this.canvasZoom
 		};
 	}
 
-	private viewportCenterCanvasPoint(): { x: number; y: number } {
+	private scrollSelectedCardIntoViewport(): void {
+		if (!this.selectedCardPath) {
+			return;
+		}
+
+		const bounds = this.renderedBoundsByPath.get(this.selectedCardPath);
+		if (!bounds) {
+			return;
+		}
+
+		this.scrollCanvasBoundsIntoViewport(bounds, CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX);
+	}
+
+	private scrollCanvasBoundsIntoViewport(bounds: IBaseHalfCanvasBounds, margin: number): void {
+		const viewport = this.canvasViewport();
+		const screen = {
+			left: this.canvasFrameInset.x + bounds.x * this.canvasZoom - this.root.scrollLeft,
+			top: this.canvasFrameInset.y + bounds.y * this.canvasZoom - this.root.scrollTop,
+			width: bounds.width * this.canvasZoom,
+			height: bounds.height * this.canvasZoom
+		};
+		const screenRight = screen.left + screen.width;
+		const screenBottom = screen.top + screen.height;
+		const minLeft = viewport.left + margin;
+		const maxRight = viewport.right - margin;
+		const minTop = viewport.top + margin;
+		const maxBottom = viewport.bottom - margin;
+		let nextLeft = this.root.scrollLeft;
+		let nextTop = this.root.scrollTop;
+
+		if (screen.width <= viewport.width - margin * 2) {
+			if (screen.left < minLeft) {
+				nextLeft -= minLeft - screen.left;
+			} else if (screenRight > maxRight) {
+				nextLeft += screenRight - maxRight;
+			}
+		} else if (screen.left > minLeft) {
+			nextLeft += screen.left - minLeft;
+		} else if (screen.left < viewport.left) {
+			nextLeft -= viewport.left - screen.left;
+		}
+
+		if (screen.height <= viewport.height - margin * 2) {
+			if (screen.top < minTop) {
+				nextTop -= minTop - screen.top;
+			} else if (screenBottom > maxBottom) {
+				nextTop += screenBottom - maxBottom;
+			}
+		} else if (screen.top > minTop) {
+			nextTop += screen.top - minTop;
+		} else if (screen.top < viewport.top) {
+			nextTop -= viewport.top - screen.top;
+		}
+
+		this.root.scrollLeft = Math.max(0, nextLeft);
+		this.root.scrollTop = Math.max(0, nextTop);
+	}
+
+	private scrollCanvasPointToViewportCenter(point: { readonly x: number; readonly y: number }): void {
+		const viewport = this.canvasViewport();
+		this.root.scrollLeft = Math.max(0, this.canvasFrameInset.x + point.x * this.canvasZoom - viewport.centerX);
+		this.root.scrollTop = Math.max(0, this.canvasFrameInset.y + point.y * this.canvasZoom - viewport.centerY);
+	}
+
+	private revealCardAfterGeometryChange(path: string): void {
+		if (this.disposed || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+
+		const bounds = this.renderedBoundsByPath.get(path);
+		if (bounds) {
+			this.scrollCanvasBoundsIntoViewport(bounds, CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX);
+		}
+	}
+
+	private flushRenderQueuedBehindGesture(): void {
+		if (this.renderQueuedBehindGesture) {
+			this.renderQueuedBehindGesture = false;
+			void this.render();
+		}
+	}
+
+	private updateDragAutoPan(clientX: number, clientY: number): void {
+		if (this.dragAutoPan) {
+			this.dragAutoPan.clientX = clientX;
+			this.dragAutoPan.clientY = clientY;
+			return;
+		}
+
+		this.dragAutoPan = { frame: undefined, clientX, clientY };
+		this.scheduleDragAutoPanTick();
+	}
+
+	private stopDragAutoPan(): void {
+		if (this.dragAutoPan?.frame !== undefined) {
+			mainWindow.cancelAnimationFrame(this.dragAutoPan.frame);
+		}
+		this.dragAutoPan = undefined;
+	}
+
+	private scheduleDragAutoPanTick(): void {
+		const state = this.dragAutoPan;
+		if (!state) {
+			return;
+		}
+
+		state.frame = mainWindow.requestAnimationFrame(() => {
+			state.frame = undefined;
+			this.dragAutoPanTick();
+		});
+	}
+
+	private dragAutoPanTick(): void {
+		const state = this.dragAutoPan;
+		if (!state || this.disposed) {
+			return;
+		}
+		const gestureCard = this.activeCardDrag?.moved ? this.activeCardDrag.card : this.activeResizeDrag?.moved ? this.activeResizeDrag.card : undefined;
+		if (!gestureCard?.isConnected) {
+			this.stopDragAutoPan();
+			return;
+		}
+
+		const rootRect = this.root.getBoundingClientRect();
+		const viewport = this.canvasViewport();
+		const panX = dragAutoPanStep(state.clientX - rootRect.left, viewport.left, viewport.right);
+		const panY = dragAutoPanStep(state.clientY - rootRect.top, viewport.top, viewport.bottom);
+		if (panX !== 0 || panY !== 0) {
+			this.panCanvasBy(panX, panY);
+			this.updateActiveDragFromPointer(state.clientX, state.clientY);
+		}
+		this.scheduleDragAutoPanTick();
+	}
+
+	private updateActiveDragFromPointer(clientX: number, clientY: number): void {
+		const cardDrag = this.activeCardDrag;
+		if (cardDrag?.moved) {
+			this.updateCardDragPosition(cardDrag, clientX, clientY);
+			return;
+		}
+
+		const resizeDrag = this.activeResizeDrag;
+		if (resizeDrag?.moved) {
+			this.updateResizeDragBounds(resizeDrag, clientX, clientY);
+		}
+	}
+
+	private panCanvasBy(dx: number, dy: number): void {
+		// Panning up/left past the scroll origin grows the leading inset instead, so the
+		// canvas gains headroom and cards can travel into what used to be clipped space.
+		const growX = dx < 0 ? Math.max(0, -dx - this.root.scrollLeft) : 0;
+		const growY = dy < 0 ? Math.max(0, -dy - this.root.scrollTop) : 0;
+		if (growX > 0 || growY > 0) {
+			this.canvasFrameInset = { x: this.canvasFrameInset.x + growX, y: this.canvasFrameInset.y + growY };
+			this.cards.style.left = `${this.canvasFrameInset.x}px`;
+			this.cards.style.top = `${this.canvasFrameInset.y}px`;
+			this.growCanvasSurface(growX, growY);
+		}
+
+		// Panning down/right past the scroll end grows the trailing extent the same way.
+		const maxScrollLeft = this.root.scrollWidth - this.root.clientWidth;
+		const maxScrollTop = this.root.scrollHeight - this.root.clientHeight;
+		const trailX = dx > 0 ? Math.max(0, dx - (maxScrollLeft - this.root.scrollLeft)) : 0;
+		const trailY = dy > 0 ? Math.max(0, dy - (maxScrollTop - this.root.scrollTop)) : 0;
+		if (trailX > 0 || trailY > 0) {
+			this.growCanvasSurface(trailX, trailY);
+		}
+
+		this.root.scrollLeft += dx + growX;
+		this.root.scrollTop += dy + growY;
+	}
+
+	private growCanvasSurface(dx: number, dy: number): void {
+		const width = parseFloat(this.surface.style.width);
+		const height = parseFloat(this.surface.style.height);
+		if (dx > 0 && Number.isFinite(width)) {
+			this.surface.style.width = `${width + dx}px`;
+		}
+		if (dy > 0 && Number.isFinite(height)) {
+			this.surface.style.height = `${height + dy}px`;
+		}
+	}
+
+	private folderFocusViewportCenter(): { x: number; y: number } {
+		const viewport = this.canvasViewport();
 		return {
-			x: (this.root.scrollLeft + this.root.clientWidth / 2) / this.canvasZoom,
-			y: (this.root.scrollTop + this.root.clientHeight / 2) / this.canvasZoom
+			x: (this.root.scrollLeft + viewport.centerX - this.canvasFrameInset.x) / this.canvasZoom,
+			y: (this.root.scrollTop + viewport.centerY - this.canvasFrameInset.y) / this.canvasZoom
 		};
 	}
 
@@ -2051,9 +2414,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 
 			if (!fields) {
-				this.canvasZoom = this.defaultCanvasZoom(folder);
-				this.applyCanvasZoom();
-				this.scheduleFolderFocusWrite(0);
+				this.frameFreshFolderView(folder, seq);
 				return;
 			}
 
@@ -2064,18 +2425,48 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					return;
 				}
 
-				this.root.scrollLeft = Math.max(0, fields.viewport_center.x * this.canvasZoom - this.root.clientWidth / 2);
-				this.root.scrollTop = Math.max(0, fields.viewport_center.y * this.canvasZoom - this.root.clientHeight / 2);
+				this.scrollCanvasPointToViewportCenter(fields.viewport_center);
 				this.scheduleFolderFocusWrite(0);
 			});
 		}).catch(error => {
 			this.logService.warn(error);
 			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
-				this.canvasZoom = this.defaultCanvasZoom(folder);
-				this.applyCanvasZoom();
-				this.scheduleFolderFocusWrite(0);
+				this.frameFreshFolderView(folder, seq);
 			}
 		});
+	}
+
+	private frameFreshFolderView(folder: IBaseHalfCanvasFolderState, seq: number): void {
+		this.canvasZoom = this.freshCanvasZoom(folder);
+		this.applyCanvasZoom();
+		mainWindow.requestAnimationFrame(() => {
+			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
+				return;
+			}
+
+			const bounds = this.canvasContentBounds();
+			if (bounds) {
+				const center = {
+					x: bounds.x + bounds.width / 2,
+					y: bounds.y + bounds.height / 2
+				};
+				this.scrollCanvasPointToViewportCenter(center);
+			}
+			this.scheduleFolderFocusWrite(0);
+		});
+	}
+
+	private freshCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
+		const defaultZoom = this.defaultCanvasZoom(folder);
+		const bounds = this.canvasContentBounds();
+		if (!bounds) {
+			return defaultZoom;
+		}
+
+		const viewport = this.canvasViewport();
+		const fitWidth = Math.max(1, viewport.width - CANVAS_FRAME_PADDING_PX * 2) / bounds.width;
+		const fitHeight = Math.max(1, viewport.height - CANVAS_FRAME_PADDING_PX * 2) / bounds.height;
+		return normalizeCanvasZoom(Math.min(defaultZoom, fitWidth, fitHeight, 1));
 	}
 
 	private defaultCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
@@ -2093,10 +2484,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const fields = {
-			viewport_center: {
-				x: roundCanvasPosition((this.root.scrollLeft + this.root.clientWidth / 2) / this.canvasZoom),
-				y: roundCanvasPosition((this.root.scrollTop + this.root.clientHeight / 2) / this.canvasZoom)
-			},
+			viewport_center: mapCanvasPoint(this.folderFocusViewportCenter(), roundCanvasPosition),
 			zoom: this.canvasZoom
 		};
 		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}::${JSON.stringify(fields)}`;
@@ -2112,13 +2500,69 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
 
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
+const CANVAS_VIEWPORT_TOP_INSET_PX = 48;
+const CANVAS_VIEWPORT_BOTTOM_INSET_PX = 24;
+const CANVAS_VIEWPORT_CHROME_GAP_PX = 16;
+const CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX = 18;
+const CANVAS_DRAG_AUTO_PAN_BAND_PX = 8;
+const CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX = 24;
+const CANVAS_DRAG_AUTO_PAN_RATE = 0.35;
+const BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY = 250;
+const BASEHALF_CANVAS_WHEEL_DELTA_LIMIT = 30;
+const BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.004;
+const BASEHALF_CANVAS_WHEEL_LINE_DELTA_PX = 16;
+const BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX = 800;
 
 function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
 }
 
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
+}
+
+function dragAutoPanStep(position: number, min: number, max: number): number {
+	const leading = position - (min + CANVAS_DRAG_AUTO_PAN_BAND_PX);
+	if (leading < 0) {
+		return Math.max(-CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX, leading * CANVAS_DRAG_AUTO_PAN_RATE);
+	}
+
+	const trailing = position - (max - CANVAS_DRAG_AUTO_PAN_BAND_PX);
+	if (trailing > 0) {
+		return Math.min(CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX, trailing * CANVAS_DRAG_AUTO_PAN_RATE);
+	}
+
+	return 0;
+}
+
 function normalizeCanvasZoom(value: number): number {
-	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(2));
+	return Number(normalizeBaseHalfCanvasZoom(value).toFixed(4));
+}
+
+function mapCanvasPoint(point: { readonly x: number; readonly y: number }, map: (value: number) => number): { readonly x: number; readonly y: number } {
+	return {
+		x: map(point.x),
+		y: map(point.y)
+	};
+}
+
+function isCanvasZoomWheelEvent(event: WheelEvent): boolean {
+	return event.metaKey || event.ctrlKey;
+}
+
+function canvasWheelZoomFactor(event: WheelEvent): number {
+	const delta = Math.max(-BASEHALF_CANVAS_WHEEL_DELTA_LIMIT, Math.min(BASEHALF_CANVAS_WHEEL_DELTA_LIMIT, normalizedCanvasWheelDeltaY(event)));
+	return Math.exp(-delta * BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY);
+}
+
+function normalizedCanvasWheelDeltaY(event: WheelEvent): number {
+	if (event.deltaMode === 1) {
+		return event.deltaY * BASEHALF_CANVAS_WHEEL_LINE_DELTA_PX;
+	}
+	if (event.deltaMode === 2) {
+		return event.deltaY * BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX;
+	}
+	return event.deltaY;
 }
 
 function mediaPreviewLabel(name: string): string | undefined {
@@ -2285,8 +2729,8 @@ function resizeBounds(origin: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeE
 		height = 48;
 	}
 	return {
-		x: roundCanvasPosition(Math.max(0, x)),
-		y: roundCanvasPosition(Math.max(0, y)),
+		x: roundCanvasPosition(x),
+		y: roundCanvasPosition(y),
 		width: roundCanvasPosition(width),
 		height: roundCanvasPosition(height)
 	};

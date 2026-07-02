@@ -84,6 +84,7 @@ try {
 	await page.setViewportSize({ width: 1280, height: 860 });
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
+	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 
 	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
@@ -102,7 +103,7 @@ try {
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
-	await step('readme-rich-status-in-header', () => assertMarkdownRichStatusInHeader(page));
+	await step('readme-rich-status-in-editor', () => assertMarkdownRichStatusInEditor(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
 	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
 	await step('readme-rich-slash-menu-themed-portal', () => assertMarkdownRichSlashMenuThemedPortal(page));
@@ -110,6 +111,8 @@ try {
 	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, 'README.md'));
+	await step('initial-native-forward-readme-card', () => assertNativeForwardOpensCardDetail(page, 'README.md'));
 
 	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
 	await step('app-card-detail', () => assertCardDetail(page, 'app.ts'));
@@ -151,6 +154,7 @@ try {
 		checks: [
 			'product-identity-basehalf',
 			'canvas-visible',
+			'fresh-canvas-framed',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'hidden-surface-runtime-guard',
@@ -161,13 +165,15 @@ try {
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
 			'card-detail-covers-scrolled-canvas',
-			'markdown-rich-status-in-header',
+			'markdown-rich-status-in-editor',
 			'markdown-rich-blockquote-editable',
 			'markdown-rich-block-menu-portal',
 			'markdown-rich-slash-menu-themed-portal',
 			'markdown-rich-reading-mode-settings-toggle',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
+			'initial-native-back-root-canvas',
+			'initial-native-forward-readme-card',
 			'quick-open-side-card-detail-no-tab',
 			'source-card-detail-flush-on-navigation',
 			'quick-text-search-card-detail-no-tab',
@@ -326,6 +332,7 @@ function createFixtureWorkspace(workspace) {
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
+	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n', 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'README.md', 'badge.yaml'), [
 		'path: "README.md"',
@@ -347,9 +354,37 @@ function createFixtureWorkspace(workspace) {
 	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'canvas.yaml'), [
 		'path: ""',
 		'size:',
-		'  width: 1400',
-		'  height: 1800',
-		'cards: []',
+		'  width: 2400',
+		'  height: 1600',
+		'cards:',
+		'  - path: "README.md"',
+		'    kind: file',
+		'    x: -140',
+		'    y: -110',
+		'    width: 300',
+		'    height: 220',
+		'edges: []',
+		''
+	].join('\n'), 'utf8');
+	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'docs'), { recursive: true });
+	fs.writeFileSync(path.join(workspace, '.bh', 'mirror', 'docs', 'canvas.yaml'), [
+		'path: "docs"',
+		'size:',
+		'  width: 2400',
+		'  height: 1600',
+		'cards:',
+		'  - path: "docs/guide.md"',
+		'    kind: file',
+		'    x: -140',
+		'    y: -110',
+		'    width: 300',
+		'    height: 220',
+		'  - path: "docs/far.md"',
+		'    kind: file',
+		'    x: 420',
+		'    y: 980',
+		'    width: 300',
+		'    height: 220',
 		'edges: []',
 		''
 	].join('\n'), 'utf8');
@@ -737,6 +772,53 @@ async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
 }
 
+async function assertFreshCanvasFramed(page) {
+	await page.locator('.basehalf-canvas-card').first().waitFor({ state: 'visible', timeout: 20_000 });
+	await page.waitForFunction(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		const cardsLayer = document.querySelector('.basehalf-canvas-cards');
+		const cards = Array.from(document.querySelectorAll('.basehalf-canvas-card'));
+		if (!(root instanceof HTMLElement) || !(cardsLayer instanceof HTMLElement) || cards.length < 2) {
+			return false;
+		}
+		if (cardsLayer.offsetWidth < 2400 || cardsLayer.offsetHeight < 1600) {
+			return false;
+		}
+
+		const rootRect = root.getBoundingClientRect();
+		const rects = cards
+			.map(card => card.getBoundingClientRect())
+			.filter(rect => rect.width > 0 && rect.height > 0);
+		if (rects.length < 2) {
+			return false;
+		}
+		const firstTransform = getComputedStyle(cards[0]).transform;
+		const firstMatrix = firstTransform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(firstTransform);
+		if (firstMatrix.m41 < 300 || firstMatrix.m42 < 300) {
+			return false;
+		}
+		const negativeCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		if (!(negativeCard instanceof HTMLElement)) {
+			return false;
+		}
+		const negativeTransform = getComputedStyle(negativeCard).transform;
+		const negativeMatrix = negativeTransform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(negativeTransform);
+		const negativeRect = negativeCard.getBoundingClientRect();
+		if (negativeMatrix.m41 >= 0 || negativeMatrix.m42 >= 0 || negativeRect.top - rootRect.top < 44 || negativeRect.left - rootRect.left < 24) {
+			return false;
+		}
+
+		const minLeft = Math.min(...rects.map(rect => rect.left)) - rootRect.left;
+		const minTop = Math.min(...rects.map(rect => rect.top)) - rootRect.top;
+		const maxRight = Math.max(...rects.map(rect => rect.right)) - rootRect.left;
+		const maxBottom = Math.max(...rects.map(rect => rect.bottom)) - rootRect.top;
+		return minLeft >= 90
+			&& minTop >= 90
+			&& maxRight <= rootRect.width - 24
+			&& maxBottom <= rootRect.height - 24;
+	}, null, { timeout: 20_000 });
+}
+
 async function assertCanvasContainsCard(page, path) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
 	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`).waitFor({ state: 'visible', timeout: 20_000 });
@@ -750,23 +832,95 @@ async function assertCanvasBreadcrumbsRemoved(page) {
 }
 
 async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
-	await runCommand(page, 'Go Back');
+	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
 	await assertCanvasContainsCard(page, expectedCardPath);
 }
 
 async function assertCanvasZoomControls(page) {
+	await page.locator('.basehalf-canvas-card').first().click();
+	const initialZoom = await page.locator('.basehalf-canvas-workbench').evaluate(root => Number(root.getAttribute('data-zoom')));
+	const nextZoom = Number((initialZoom + 0.1).toFixed(4));
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1.1', null, { timeout: 10_000 });
-	await page.locator('.basehalf-canvas-zoom-value', { hasText: '110%' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, nextZoom, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-value', { hasText: `${Math.round(nextZoom * 100)}%` }).waitFor({ state: 'visible', timeout: 10_000 });
+	for (let index = 0; index < 5; index++) {
+		await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
+	}
+	await page.waitForFunction(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		const selected = document.querySelector('.basehalf-canvas-card.selected');
+		if (!(root instanceof HTMLElement) || !(selected instanceof HTMLElement)) {
+			return false;
+		}
+		const rootRect = root.getBoundingClientRect();
+		const selectedRect = selected.getBoundingClientRect();
+		return selectedRect.top - rootRect.top >= 44;
+	}, null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs/guide.md"]').click();
+	for (let index = 0; index < 6; index++) {
+		await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
+	}
+	await page.waitForFunction(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs/guide.md"]');
+		if (!(root instanceof HTMLElement) || !(card instanceof HTMLElement)) {
+			return false;
+		}
+		const rootRect = root.getBoundingClientRect();
+		const cardRect = card.getBoundingClientRect();
+		return cardRect.top - rootRect.top >= 44;
+	}, null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-workbench').evaluate(root => {
+		const rect = root.getBoundingClientRect();
+		root.dispatchEvent(new WheelEvent('wheel', {
+			bubbles: true,
+			cancelable: true,
+			ctrlKey: true,
+			clientX: rect.left + rect.width / 2,
+			clientY: rect.top + rect.height / 2,
+			deltaY: -10,
+			deltaMode: 0
+		}));
+	});
+	await page.waitForFunction(() => {
+		const zoom = Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom'));
+		return zoom > 1 && zoom < 1.1;
+	}, null, { timeout: 10_000 });
+	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 }
 
 async function assertNativeForwardOpensCardDetail(page, title) {
-	await runCommand(page, 'Go Forward');
+	await clickCommandCenterNavigationButton(page, 'arrow-right', 'Go Forward');
 	await assertCardDetail(page, title);
+}
+
+async function clickCommandCenterNavigationButton(page, codicon, label) {
+	const selector = `.command-center .action-label.codicon-${codicon}`;
+	const button = page.locator(selector).first();
+	await button.waitFor({ state: 'visible', timeout: 15_000 });
+	await page.waitForFunction(({ codicon, label }) => {
+		const buttons = Array.from(document.querySelectorAll('.command-center .action-label'));
+		return buttons.some(candidate => {
+			const element = candidate;
+			const actionItem = element.closest('.action-item');
+			const rect = element.getBoundingClientRect();
+			const ariaLabel = element.getAttribute('aria-label') ?? '';
+			return (element.classList.contains(`codicon-${codicon}`) || ariaLabel.startsWith(label))
+				&& rect.width > 0
+				&& rect.height > 0
+				&& !element.classList.contains('disabled')
+				&& element.getAttribute('aria-disabled') !== 'true'
+				&& !actionItem?.classList.contains('disabled');
+		});
+	}, { codicon, label }, { timeout: 15_000 });
+	await button.click();
 }
 
 async function assertNoEditorTabFor(page, name) {
@@ -937,13 +1091,36 @@ async function assertCardDetailCoversCanvasViewport(page) {
 	}
 }
 
-async function assertMarkdownRichStatusInHeader(page) {
+async function assertMarkdownRichStatusInEditor(page) {
 	const toolbarCount = await page.locator('.basehalf-card-detail-markdown-rich-toolbar').count();
-	const bodyStatusCount = await page.locator('.basehalf-card-detail-markdown-rich-status').count();
-	if (toolbarCount !== 0 || bodyStatusCount !== 0) {
-		throw new Error(`Markdown rich status should live in the detail header, toolbarCount=${toolbarCount}, bodyStatusCount=${bodyStatusCount}`);
+	if (toolbarCount !== 0) {
+		throw new Error(`Markdown rich status should not create a toolbar, toolbarCount=${toolbarCount}`);
 	}
-	await page.locator('.basehalf-card-detail-meta', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	const headerMetaText = await page.locator('.basehalf-card-detail-meta').textContent().catch(() => '');
+	if (/Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/.test(headerMetaText ?? '')) {
+		throw new Error(`Markdown rich status should not live under the title: ${headerMetaText}`);
+	}
+
+	const status = page.locator('.basehalf-card-detail-markdown-rich-status', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).first();
+	await status.waitFor({ state: 'visible', timeout: 10_000 });
+	const geometry = await status.evaluate(element => {
+		const rect = element.getBoundingClientRect();
+		const editor = element.closest('.basehalf-card-detail-markdown-rich')?.getBoundingClientRect();
+		const header = document.querySelector('.basehalf-card-detail-header')?.getBoundingClientRect();
+		return {
+			statusKind: element.getAttribute('data-status-kind'),
+			rightOffset: editor ? editor.right - rect.right : undefined,
+			topOffset: editor ? rect.top - editor.top : undefined,
+			insideEditor: !!editor && rect.left >= editor.left && rect.right <= editor.right && rect.top >= editor.top && rect.bottom <= editor.bottom,
+			insideHeader: !!header && rect.top >= header.top && rect.bottom <= header.bottom
+		};
+	});
+	if (!geometry.insideEditor || geometry.insideHeader || geometry.rightOffset === undefined || geometry.rightOffset > 40 || geometry.topOffset === undefined || geometry.topOffset > 40) {
+		throw new Error(`Markdown rich status is not anchored in the editor top-right: ${JSON.stringify(geometry)}`);
+	}
+	if (!['saved', 'readonly', 'dirty', 'saving', 'loading', 'warning'].includes(geometry.statusKind ?? '')) {
+		throw new Error(`Markdown rich status has an unexpected state: ${JSON.stringify(geometry)}`);
+	}
 }
 
 async function assertMarkdownRichBlockquoteEditable(page) {

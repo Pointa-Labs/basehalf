@@ -186,8 +186,9 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			this._onDidChangeState.fire(state);
 			return;
 		}
-		if (options.recordHistory && this.isNavigableState(this._state)) {
-			this.pushDistinct(this.backStack, this._state);
+		const previousState = this.isNavigableState(this._state) ? this._state : this.initialVisibleCanvasState();
+		if (options.recordHistory && previousState && !this.statesEqual(previousState, state)) {
+			this.pushDistinct(this.backStack, previousState);
 			this.forwardStack.length = 0;
 		}
 		this._state = state;
@@ -204,6 +205,23 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 
 	private isNavigableState(state: IBaseHalfCanvasNavigationState): boolean {
 		return !!state.canvasFolder || !!state.cardDetail;
+	}
+
+	private initialVisibleCanvasState(): IBaseHalfCanvasNavigationState | undefined {
+		const folder = this.workspaceContextService.getWorkspace().folders[0];
+		if (!folder) {
+			return undefined;
+		}
+
+		return {
+			canvasFolder: {
+				resource: folder.uri,
+				workspaceFolder: folder.uri,
+				relativePath: '',
+				source: 'api'
+			},
+			cardDetail: undefined
+		};
 	}
 
 	private statesEqual(left: IBaseHalfCanvasNavigationState, right: IBaseHalfCanvasNavigationState): boolean {

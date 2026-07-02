@@ -44,6 +44,7 @@ suite('BaseHalfMarkdownRichTextModelDisk', () => {
 		assert.strictEqual(model.value, 'Beta\n');
 		assert.deepStrictEqual(model.editTexts, ['Beta\n']);
 		assert.deepStrictEqual(textFileService.saves.map(resource => resource.toString()), [model.uri.toString()]);
+		assert.deepStrictEqual(textFileService.saveOptions, [{ ignoreErrorHandler: true }]);
 		assert.strictEqual(textFileService.dirty, false);
 	});
 
@@ -177,6 +178,7 @@ class TestTextModel implements IBaseHalfMarkdownRichTextModel {
 
 class TestTextFileService implements IBaseHalfMarkdownRichTextFileService {
 	readonly saves: URI[] = [];
+	readonly saveOptions: unknown[] = [];
 	dirty = false;
 	readonly = false;
 	cancel = false;
@@ -191,8 +193,9 @@ class TestTextFileService implements IBaseHalfMarkdownRichTextFileService {
 		return this.readonly;
 	}
 
-	async save(resource: URI): Promise<URI | undefined> {
+	async save(resource: URI, options?: unknown): Promise<URI | undefined> {
 		this.saves.push(resource);
+		this.saveOptions.push(options);
 		this.onSave?.();
 		if (this.cancel) {
 			return undefined;

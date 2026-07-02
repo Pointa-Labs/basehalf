@@ -11,6 +11,7 @@ import { FileType, IFileService, IFileStat } from '../../../../platform/files/co
 import { UriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { TestWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
+import { IBaseHalfCanvasFolderState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigationService.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
@@ -203,7 +204,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(service.canGoForward, false);
 
 		await service.openFolderCanvas(URI.file('/workspace/docs'), { source: 'explorer' });
-		assert.strictEqual(service.canGoBack, false);
+		assert.strictEqual(service.canGoBack, true);
 
 		await service.openCardDetail(URI.file('/workspace/docs/guide.md'), { source: 'explorer' });
 		assert.strictEqual(service.state.cardDetail?.relativePath, 'docs/guide.md');
@@ -213,7 +214,19 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(await service.goBack(), true);
 		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
 		assert.strictEqual(typeof service.state.cardDetail, 'undefined');
+		assert.strictEqual(service.canGoBack, true);
+		assert.strictEqual(service.canGoForward, true);
+
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
+		assert.strictEqual(typeof service.state.cardDetail, 'undefined');
 		assert.strictEqual(service.canGoBack, false);
+		assert.strictEqual(service.canGoForward, true);
+
+		assert.strictEqual(await service.goForward(), true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(typeof service.state.cardDetail, 'undefined');
+		assert.strictEqual(service.canGoBack, true);
 		assert.strictEqual(service.canGoForward, true);
 
 		assert.strictEqual(await service.goForward(), true);
@@ -222,6 +235,28 @@ suite('BaseHalfCanvasNavigationService', () => {
 		assert.strictEqual(reopenedCard.relativePath, 'docs/guide.md');
 		assert.strictEqual(service.canGoBack, true);
 		assert.strictEqual(service.canGoForward, false);
+	});
+
+	test('tracks the implicit initial workspace canvas before the first card opens', async () => {
+		const service = createService(new Map([
+			['/workspace/readme.md', aFileStat(URI.file('/workspace/readme.md'), FileType.File)]
+		]));
+
+		assert.strictEqual(service.canGoBack, false);
+
+		await service.openCardDetail(URI.file('/workspace/readme.md'), { source: 'api' });
+
+		assert.strictEqual(service.state.cardDetail?.relativePath, 'readme.md');
+		assert.strictEqual(service.canGoBack, true);
+
+		assert.strictEqual(await service.goBack(), true);
+		const canvasFolder: IBaseHalfCanvasFolderState | undefined = service.state.canvasFolder;
+		assert.ok(canvasFolder);
+		assert.strictEqual(canvasFolder.resource.fsPath, '/workspace');
+		assert.strictEqual(canvasFolder.relativePath, '');
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.canGoBack, false);
+		assert.strictEqual(service.canGoForward, true);
 	});
 
 	test('does not add duplicate history entries for the same visible card target', async () => {
@@ -235,6 +270,11 @@ suite('BaseHalfCanvasNavigationService', () => {
 
 		assert.strictEqual(await service.goBack(), true);
 		assert.strictEqual(service.state.canvasFolder?.relativePath, 'docs');
+		assert.strictEqual(service.state.cardDetail, undefined);
+		assert.strictEqual(service.canGoBack, true);
+
+		assert.strictEqual(await service.goBack(), true);
+		assert.strictEqual(service.state.canvasFolder?.relativePath, '');
 		assert.strictEqual(service.state.cardDetail, undefined);
 		assert.strictEqual(service.canGoBack, false);
 	});

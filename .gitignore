@@ -1,15 +1,8 @@
 # dependencies
 node_modules/
 
-# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git so
-# canvas positions / badge prompts / references travel with the folder)
-.bh/cache/
-
-# This repo is BaseHalf's own source, never a content workspace — so the whole
-# .bh/ that the app/demo materializes at the repo ROOT is just scratch. Anchored
-# with a leading slash so it only ignores the root one; real nested workspace
-# .bh/ (per the line above) still commits normally.
-/.bh/
+# BaseHalf local mirror/runtime state.
+**/.bh/
 
 # build output
 dist/

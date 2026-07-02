@@ -25,7 +25,11 @@ export interface IBaseHalfMarkdownRichTextModel {
 export interface IBaseHalfMarkdownRichTextFileService {
 	isDirty(resource: URI): boolean;
 	isReadonly(resource: URI): boolean;
-	save(resource: URI): Promise<URI | undefined>;
+	save(resource: URI, options?: IBaseHalfMarkdownRichTextFileSaveOptions): Promise<URI | undefined>;
+}
+
+export interface IBaseHalfMarkdownRichTextFileSaveOptions {
+	readonly ignoreErrorHandler?: boolean;
 }
 
 export class BaseHalfMarkdownRichTextModelDisposedError extends Error {
@@ -77,7 +81,7 @@ export class BaseHalfMarkdownRichTextModelDisk implements IBaseHalfMarkdownRichD
 		}
 
 		this.assertModelAlive();
-		const saved = await this.textFileService.save(this.model.uri);
+		const saved = await this.textFileService.save(this.model.uri, { ignoreErrorHandler: true });
 		if (!saved) {
 			throw new BaseHalfMarkdownRichTextModelSaveCancelledError(this.model.uri);
 		}

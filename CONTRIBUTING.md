@@ -53,9 +53,7 @@ When contributing, keep these invariants (see [docs/decisions.md](docs/decisions
    other directly — they coordinate through commands.
 4. **User files = content truth.** Modules that touch user files must be
    **observers** (file watcher + reconcile-on-launch), never owners. The
-   `.bh/` mirror is derived; `.bh/cache/` is rebuildable and gitignored, while
-   the rest of `.bh/` (the `mirror/` tree + `current_focus.yaml`) stays in git
-   so the map travels with the folder.
+   `.bh/` mirror is derived local runtime state and is gitignored in full.
 5. **core never writes user files unprompted.** Only explicit user edits
    through the BaseHalf UI (block editor, rename) write back to disk. Agents
    edit user files with their own tools — core stays out of that path.

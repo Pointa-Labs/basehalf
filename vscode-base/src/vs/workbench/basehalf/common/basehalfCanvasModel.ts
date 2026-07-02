@@ -13,6 +13,11 @@ export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH = 248;
 export const BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT = 188;
 export const BASEHALF_CANVAS_MIN_CARD_WIDTH = 140;
 export const BASEHALF_CANVAS_MIN_CARD_HEIGHT = 48;
+export const BASEHALF_CANVAS_DEFAULT_WIDTH = 2400;
+export const BASEHALF_CANVAS_DEFAULT_HEIGHT = 1600;
+const BASEHALF_CANVAS_GRID_COLUMN_GAP = 40;
+const BASEHALF_CANVAS_GRID_ROW_GAP = 60;
+const BASEHALF_CANVAS_DEFAULT_PADDING = 96;
 
 const SKIP_NAMES = new Set([
 	'.git',
@@ -198,9 +203,18 @@ export function baseHalfCanvasItemsFromStat(folder: IFileStat, rootLevel: boolea
 
 export function baseHalfCanvasPosition(index: number, total: number): IBaseHalfCanvasPosition {
 	const cols = Math.max(5, Math.ceil(Math.sqrt(1.34 * Math.max(1, total))));
+	const usedCols = Math.max(1, Math.min(total, cols));
+	const rows = Math.max(1, Math.ceil(Math.max(1, total) / cols));
+	const cellWidth = BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP;
+	const cellHeight = BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP;
+	const gridWidth = (usedCols - 1) * cellWidth + BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH;
+	const gridHeight = (rows - 1) * cellHeight + BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT;
+	const originX = Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_WIDTH - gridWidth) / 2);
+	const originY = Math.max(BASEHALF_CANVAS_DEFAULT_PADDING, (BASEHALF_CANVAS_DEFAULT_HEIGHT - gridHeight) / 2);
+
 	return {
-		x: 60 + (index % cols) * 340,
-		y: 60 + Math.floor(index / cols) * 280
+		x: roundCanvasNumber(originX + (index % cols) * cellWidth),
+		y: roundCanvasNumber(originY + Math.floor(index / cols) * cellHeight)
 	};
 }
 

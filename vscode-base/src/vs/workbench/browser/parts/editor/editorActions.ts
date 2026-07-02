@@ -39,6 +39,7 @@ import { IProgressService, ProgressLocation } from '../../../../platform/progres
 import { resolveCommandsContext } from './editorCommandsContext.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { prepareMoveCopyEditors } from './editor.js';
+import { BaseHalfCanNavigateBackContext, BaseHalfCanNavigateForwardContext, IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 class ExecuteCommandAction extends Action2 {
 
@@ -1432,7 +1433,7 @@ export class NavigateForwardAction extends Action2 {
 			},
 			f1: true,
 			icon: Codicon.arrowRight,
-			precondition: ContextKeyExpr.has('canNavigateForward'),
+			precondition: ContextKeyExpr.or(ContextKeyExpr.has('canNavigateForward'), ContextKeyExpr.has(BaseHalfCanNavigateForwardContext)),
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
 				win: { primary: KeyMod.Alt | KeyCode.RightArrow, secondary: [KeyCode.BrowserForward] },
@@ -1447,6 +1448,11 @@ export class NavigateForwardAction extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
+		const canvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
+		if (await canvasNavigationService.goForward()) {
+			return;
+		}
+
 		const historyService = accessor.get(IHistoryService);
 
 		await historyService.goForward(GoFilter.NONE);
@@ -1466,7 +1472,7 @@ export class NavigateBackwardsAction extends Action2 {
 				mnemonicTitle: localize({ key: 'miBack', comment: ['&& denotes a mnemonic'] }, "&&Back")
 			},
 			f1: true,
-			precondition: ContextKeyExpr.has('canNavigateBack'),
+			precondition: ContextKeyExpr.or(ContextKeyExpr.has('canNavigateBack'), ContextKeyExpr.has(BaseHalfCanNavigateBackContext)),
 			icon: Codicon.arrowLeft,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
@@ -1482,6 +1488,11 @@ export class NavigateBackwardsAction extends Action2 {
 	}
 
 	async run(accessor: ServicesAccessor): Promise<void> {
+		const canvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
+		if (await canvasNavigationService.goBack()) {
+			return;
+		}
+
 		const historyService = accessor.get(IHistoryService);
 
 		await historyService.goBack(GoFilter.NONE);

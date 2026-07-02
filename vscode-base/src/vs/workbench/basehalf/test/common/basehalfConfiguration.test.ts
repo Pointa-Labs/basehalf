@@ -63,6 +63,8 @@ suite('BaseHalfConfiguration', () => {
 	});
 
 	test('normalizes canvas default zoom using the product zoom range', () => {
+		assert.strictEqual(BASEHALF_CANVAS_MIN_ZOOM, 0.2);
+		assert.strictEqual(BASEHALF_CANVAS_MAX_ZOOM, 4);
 		assert.strictEqual(BASEHALF_CANVAS_DEFAULT_ZOOM, 1);
 		assert.strictEqual(normalizeBaseHalfCanvasZoom(1.25), 1.25);
 		assert.strictEqual(normalizeBaseHalfCanvasZoom(Number.NaN), BASEHALF_CANVAS_DEFAULT_ZOOM);

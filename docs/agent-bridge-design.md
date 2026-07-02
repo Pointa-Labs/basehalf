@@ -63,9 +63,8 @@ UI right now." A single-plane tool has no equivalent — this second plane is th
 canvas product's differentiator.
 
 **Orthogonal axis — source of truth (unchanged).** Within the persistent plane,
-`.md` is the **content truth**; `.bh/badges` (prompt/ref/position) is **metadata
-truth** the user authored (NOT derived from `.md` — which is why it stays in git;
-only `.bh/cache/` is ignored); `inbound.json` + `cache/` are **derived**. So "two
+`.md` is the **content truth**; `.bh/` is BaseHalf's local mirror/runtime
+protocol and is gitignored in full. So "two
 planes" and "single source of truth" never conflict: planes = how data flows;
 source-of-truth = who is the source within the persistent plane.
 
