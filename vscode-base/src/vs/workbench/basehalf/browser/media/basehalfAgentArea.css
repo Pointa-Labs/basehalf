@@ -250,6 +250,16 @@
 	font-weight: 500;
 }
 
+/* Compact density: narrow tabs keep only the identifying label. */
+.monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-shortcut,
+.monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-state {
+	display: none;
+}
+
+.monaco-workbench .basehalf-agent-area-tabs.compact .basehalf-agent-tab-labelwrap {
+	padding-left: 8px;
+}
+
 .monaco-workbench .basehalf-agent-tab-state {
 	flex-shrink: 1;
 	min-width: 0;

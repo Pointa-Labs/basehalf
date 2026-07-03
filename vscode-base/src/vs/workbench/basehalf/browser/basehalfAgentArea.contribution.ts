@@ -1171,6 +1171,17 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this.zoomResetButton.classList.toggle('visible', !!activeAgentTab(state)?.zoomedPaneId);
 
 		state.tabs.forEach((tab, index) => this.tabStrip.appendChild(this.renderTab(tab, index)));
+		this.updateTabDensity();
+	}
+
+	/**
+	 * When tabs get narrow, the label is what identifies a session — the ⌘N
+	 * shortcut badge and state text yield entirely instead of crushing it.
+	 */
+	private updateTabDensity(): void {
+		const tabs = this.tabsState.tabs.length;
+		const compact = tabs > 0 && this.tabStrip.clientWidth > 0 && this.tabStrip.clientWidth / tabs < 96;
+		this.tabsBar.classList.toggle('compact', compact);
 	}
 
 	private tabTitle(tab: IBaseHalfAgentTab): string {
@@ -1552,6 +1563,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (!this.visible) {
 			return;
 		}
+		this.updateTabDensity();
 		for (const session of this.runtime.values()) {
 			if (!session.host.classList.contains('active')) {
 				continue;
