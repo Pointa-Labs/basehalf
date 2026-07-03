@@ -85,6 +85,7 @@ try {
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
+	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 
 	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
@@ -159,6 +160,7 @@ try {
 			'product-identity-basehalf',
 			'canvas-visible',
 			'fresh-canvas-framed',
+			'canvas-grid-scoped-to-canvas',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'hidden-surface-runtime-guard',
@@ -783,14 +785,18 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		probe.style.position = 'absolute';
 		probe.style.pointerEvents = 'none';
 		probe.style.backgroundColor = terminal
-			? 'var(--vscode-terminal-background, var(--vscode-editor-background, var(--vscode-panel-background)))'
+			? 'var(--vscode-terminal-background, #181818)'
 			: 'var(--vscode-sideBar-background)';
 		document.querySelector('.monaco-workbench')?.appendChild(probe);
 		const expectedBackground = getComputedStyle(probe).backgroundColor;
 		probe.remove();
 
+		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
+		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
+
 		return getComputedStyle(area).backgroundColor === expectedBackground
-			&& getComputedStyle(activeSession).backgroundColor === expectedBackground;
+			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
+			&& terminalHasThemeLine;
 	}, kind, { timeout: 15_000 });
 }
 
@@ -942,6 +948,17 @@ async function assertFreshCanvasFramed(page) {
 			&& maxRight <= rootRect.width - 24
 			&& maxBottom <= rootRect.height - 24;
 	}, null, { timeout: 20_000 });
+}
+
+async function assertCanvasGridScopedToCanvas(page) {
+	await page.waitForFunction(() => {
+		const canvas = document.querySelector('.basehalf-canvas-workbench');
+		if (!(canvas instanceof HTMLElement)) {
+			return false;
+		}
+
+		return getComputedStyle(canvas, '::before').position === 'absolute';
+	}, null, { timeout: 10_000 });
 }
 
 async function assertCanvasContainsCard(page, path) {

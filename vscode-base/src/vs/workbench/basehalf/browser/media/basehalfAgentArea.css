@@ -12,8 +12,12 @@
 .monaco-workbench .basehalf-agent-area {
 	--basehalf-agent-extension-background: var(--vscode-sideBar-background);
 	--basehalf-agent-extension-foreground: var(--vscode-sideBar-foreground);
-	--basehalf-agent-terminal-background: var(--vscode-terminal-background, var(--vscode-editor-background, var(--vscode-panel-background)));
-	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, var(--vscode-editor-foreground));
+	--basehalf-agent-terminal-background: var(--vscode-terminal-background, #181818);
+	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, #d6deeb);
+	--basehalf-agent-terminal-muted: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 12%, var(--basehalf-agent-terminal-background));
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiMagenta, #c678dd);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #98c379);
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -86,6 +90,7 @@
 /* ── Tab strip (one strip across the top, always visible) ───────────────── */
 
 .monaco-workbench .basehalf-agent-area-tabs {
+	position: relative;
 	display: flex;
 	align-items: stretch;
 	flex: 0 0 auto;
@@ -93,6 +98,21 @@
 	overflow: hidden;
 	background-color: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-sideBarSectionHeader-background));
 	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-area-tabs {
+	background-color: var(--basehalf-agent-terminal-background);
+	background-image:
+		linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 78%, transparent),
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 82%, transparent),
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 72%, transparent)
+		);
+	background-position: 0 0;
+	background-repeat: no-repeat;
+	background-size: 100% 2px;
+	border-bottom-color: var(--basehalf-agent-terminal-muted);
 }
 
 /* No tabs -> the empty-state picker is the whole surface; hide the bar. */
@@ -116,6 +136,11 @@
 	height: auto;
 	border-radius: 0;
 	border-left: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-area-tabs > .basehalf-agent-area-icon {
+	border-left-color: var(--basehalf-agent-terminal-muted);
+	color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 82%, var(--basehalf-agent-terminal-background));
 }
 
 .monaco-workbench .basehalf-agent-zoom-reset {
@@ -162,7 +187,7 @@
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-terminal-foreground);
-	background-color: var(--basehalf-agent-terminal-background);
+	background-color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 7%, var(--basehalf-agent-terminal-background));
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-extension .basehalf-agent-tab.active,
@@ -413,7 +438,7 @@
    command decorations never sit flush against the pane edge. The layout
    measures the surface box, so the terminal reflows to the padded size. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
-	inset: 4px 8px 0 14px;
+	inset: 10px 12px 8px 16px;
 	background-color: var(--basehalf-agent-pane-background);
 }
 
@@ -421,6 +446,13 @@
 	width: 100%;
 	height: 100%;
 	background-color: inherit;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-viewport,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-screen {
+	background-color: var(--basehalf-agent-pane-background);
 }
 
 /* Dim the non-focused panes of a multi-pane tab so the active one stands out. */
@@ -457,6 +489,11 @@
 	opacity: 0;
 	transition: opacity 0.1s ease-out;
 	z-index: 4;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-pane-handle {
+	color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 68%, var(--basehalf-agent-terminal-background));
+	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 9%, var(--basehalf-agent-terminal-background));
 }
 
 .monaco-workbench .basehalf-agent-area-session.pane-split > .basehalf-agent-pane-handle {
@@ -560,6 +597,10 @@
 	position: absolute;
 	background: var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
 	transition: background-color 0.1s ease-out;
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-divider-line {
+	background: var(--basehalf-agent-terminal-muted);
 }
 
 .monaco-workbench .basehalf-agent-divider.row > .basehalf-agent-divider-line {
