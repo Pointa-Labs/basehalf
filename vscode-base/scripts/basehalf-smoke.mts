@@ -90,6 +90,7 @@ try {
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
+	await step('global-auxiliary-toggle-opens-agent-area', () => assertGlobalAuxiliaryToggleOpensAgentArea(page));
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
 	await step('agent-area-tui-session-process-semantics', () => assertAgentAreaTuiSession(page));
 	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
@@ -162,6 +163,7 @@ try {
 			'competing-view-containers-hidden',
 			'hidden-surface-runtime-guard',
 			'agent-area-five-choices-command-unavailable-state',
+			'global-auxiliary-toggle-opens-agent-area',
 			'agent-area-terminal-command-no-stock-panel',
 			'agent-area-tui-session-process-semantics',
 			'agent-area-tabs-and-splits',
@@ -619,6 +621,7 @@ async function assertAgentAreaChoices(page) {
 	// open it first (an extension session also proves the unavailable state).
 	await runCommand(page, 'New Codex Extension Session');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
+	await assertAgentAreaOwnsAuxiliaryBarChrome(page);
 	const choices = await page.locator('.basehalf-agent-empty-choice .basehalf-agent-empty-choice-label').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
 	const expected = ['Codex', 'Claude Code', 'Codex Extension', 'Claude Code Extension', 'Terminal'];
 	if (choices.join('|') !== expected.join('|')) {
@@ -632,6 +635,30 @@ async function assertAgentAreaChoices(page) {
 	// With no tabs left the empty-state picker is the whole surface.
 	await page.locator('.basehalf-agent-area-empty.visible').waitFor({ state: 'visible', timeout: 15_000 });
 	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+async function assertAgentAreaOwnsAuxiliaryBarChrome(page) {
+	await page.locator('.part.auxiliarybar > .title').waitFor({ state: 'hidden', timeout: 15_000 });
+	await page.waitForFunction(() => {
+		const auxiliaryBar = document.querySelector('.part.auxiliarybar');
+		const agentArea = document.querySelector('.basehalf-agent-area');
+		if (!auxiliaryBar || !agentArea) {
+			return false;
+		}
+
+		const auxiliaryRect = auxiliaryBar.getBoundingClientRect();
+		const areaRect = agentArea.getBoundingClientRect();
+		return Math.abs(auxiliaryRect.top - areaRect.top) <= 1
+			&& Math.abs(auxiliaryRect.bottom - areaRect.bottom) <= 1;
+	}, null, { timeout: 15_000 });
+}
+
+async function assertGlobalAuxiliaryToggleOpensAgentArea(page) {
+	await runCommand(page, 'Toggle Secondary Side Bar Visibility');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 15_000 });
+	await assertAgentAreaOwnsAuxiliaryBarChrome(page);
+	await runCommand(page, 'Toggle Secondary Side Bar Visibility');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 

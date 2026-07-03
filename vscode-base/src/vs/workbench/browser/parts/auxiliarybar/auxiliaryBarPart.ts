@@ -32,6 +32,7 @@ import { IMenuService, MenuId } from '../../../../platform/actions/common/action
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { getContextMenuActions } from '../../../../platform/actions/browser/menuEntryActionViewItem.js';
 import { IHoverService } from '../../../../platform/hover/browser/hover.js';
+import { IProductService } from '../../../../platform/product/common/productService.js';
 import { VisibleViewContainersTracker } from '../visibleViewContainersTracker.js';
 import { Extensions } from '../../panecomposite.js';
 
@@ -80,6 +81,7 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 
 	private configuration: IAuxiliaryBarPartConfiguration;
 	private readonly visibleViewContainersTracker: VisibleViewContainersTracker;
+	private readonly hideAuxiliaryBarChrome: boolean;
 
 	constructor(
 		@INotificationService notificationService: INotificationService,
@@ -95,12 +97,13 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 		@IExtensionService extensionService: IExtensionService,
 		@ICommandService private commandService: ICommandService,
 		@IMenuService menuService: IMenuService,
-		@IConfigurationService configurationService: IConfigurationService
+		@IConfigurationService configurationService: IConfigurationService,
+		@IProductService productService: IProductService
 	) {
 		super(
 			Parts.AUXILIARYBAR_PART,
 			{
-				hasTitle: true,
+				hasTitle: !isBaseHalfProduct(productService),
 				trailingSeparator: true,
 				borderWidth: () => (this.getColor(SIDE_BAR_BORDER) || this.getColor(contrastBorder)) ? 1 : 0,
 			},
@@ -128,6 +131,8 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 			menuService,
 			configurationService,
 		);
+
+		this.hideAuxiliaryBarChrome = isBaseHalfProduct(productService);
 
 		// Track visible view containers for auto-hide
 		this.visibleViewContainersTracker = this._register(instantiationService.createInstance(VisibleViewContainersTracker, ViewContainerLocation.AuxiliaryBar));
@@ -261,6 +266,10 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 	}
 
 	protected shouldShowCompositeBar(): boolean {
+		if (this.hideAuxiliaryBarChrome) {
+			return false;
+		}
+
 		if (this.configuration.position === ActivityBarPosition.HIDDEN) {
 			return false;
 		}
@@ -298,4 +307,8 @@ export class AuxiliaryBarPart extends AbstractPaneCompositePart {
 			type: Parts.AUXILIARYBAR_PART
 		};
 	}
+}
+
+function isBaseHalfProduct(productService: IProductService): boolean {
+	return productService.applicationName === 'basehalf';
 }
