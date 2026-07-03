@@ -616,7 +616,7 @@ async function assertHiddenSurfaceCommandsStayHidden(page) {
 
 async function assertAgentAreaChoices(page) {
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'attached', timeout: 15_000 });
-	const choices = await page.locator('.basehalf-agent-choice').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
+	const choices = await page.locator('.basehalf-agent-empty-choice .basehalf-agent-empty-choice-label').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
 	const expected = ['Codex', 'Claude Code', 'Codex Extension', 'Claude Code Extension', 'Terminal'];
 	if (choices.join('|') !== expected.join('|')) {
 		throw new Error(`Unexpected Agent Area choices: ${choices.join(', ')}`);

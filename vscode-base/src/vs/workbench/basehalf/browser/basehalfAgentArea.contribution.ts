@@ -293,7 +293,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private readonly editorContainer: HTMLElement;
 	private readonly root: HTMLElement;
-	private readonly choices: HTMLElement;
+	private readonly tabsBar: HTMLElement;
 	private readonly tabStrip: HTMLElement;
 	private readonly zoomResetButton: HTMLButtonElement;
 	private readonly body: HTMLElement;
@@ -352,16 +352,14 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const header = append(this.root, $('.basehalf-agent-area-header'));
 		const title = append(header, $('.basehalf-agent-area-title'));
 		title.textContent = 'AGENT';
-		this.choices = append(header, $('.basehalf-agent-area-choices'));
 		const hide = append(header, $('button.basehalf-agent-area-icon.codicon.codicon-chevron-right')) as HTMLButtonElement;
 		hide.type = 'button';
 		hide.title = 'Hide Agent Area';
 		hide.setAttribute('aria-label', 'Hide Agent Area');
 		hide.addEventListener('click', () => this.hide());
 
-		this.renderChoices();
-
-		const tabsBar = append(this.root, $('.basehalf-agent-area-tabs'));
+		this.tabsBar = append(this.root, $('.basehalf-agent-area-tabs'));
+		const tabsBar = this.tabsBar;
 		this.tabStrip = append(tabsBar, $('.basehalf-agent-tabstrip'));
 		this.tabStrip.setAttribute('role', 'tablist');
 		this.tabStrip.setAttribute('aria-label', 'Agent sessions');
@@ -396,13 +394,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 		const plus = append(tabsBar, $('button.basehalf-agent-area-icon.basehalf-agent-new-tab.codicon.codicon-add')) as HTMLButtonElement;
 		plus.type = 'button';
-		plus.title = 'New Agent Tab (⌘T)';
-		plus.setAttribute('aria-label', 'New Agent Tab');
-		plus.addEventListener('click', () => void this.newTab());
+		plus.title = 'New Agent Session';
+		plus.setAttribute('aria-label', 'New Agent Session');
+		plus.addEventListener('click', () => this.showNewSessionMenu(plus));
 
 		this.body = append(this.root, $('.basehalf-agent-area-body'));
 		this.empty = append(this.body, $('.basehalf-agent-area-empty'));
-		this.empty.textContent = 'Choose an agent session';
+		this.buildEmptyStatePicker();
 		this.dividersLayer = append(this.body, $('.basehalf-agent-dividers'));
 		this.hud = append(this.body, $('.basehalf-agent-resize-hud'));
 		this.hud.setAttribute('aria-hidden', 'true');
@@ -1001,6 +999,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		};
 		session.host.setAttribute('role', 'tabpanel');
 		session.host.setAttribute('aria-label', label);
+		session.host.classList.add(kind === 'extension-codex' || kind === 'extension-claude' ? 'kind-extension' : 'kind-terminal');
 		session.dimOverlay.setAttribute('aria-hidden', 'true');
 		session.dropZone.appendChild(session.dropPreview);
 		session.disposables.add(toDisposable(() => session.host.remove()));
@@ -1119,7 +1118,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private renderTabStrip(): void {
 		const state = this.tabsState;
 		clearNode(this.tabStrip);
-		this.tabStrip.classList.toggle('empty', state.tabs.length === 0);
+		this.tabsBar.classList.toggle('empty', state.tabs.length === 0);
 		this.empty.classList.toggle('visible', state.tabs.length === 0);
 		this.zoomResetButton.classList.toggle('visible', !!activeAgentTab(state)?.zoomedPaneId);
 
@@ -1518,21 +1517,44 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 	}
 
-	private renderChoices(): void {
-		clearNode(this.choices);
+	/**
+	 * The empty state doubles as the session picker: the five first-class
+	 * choices rendered as labeled buttons, so a fresh Agent Area explains
+	 * itself instead of relying on ambiguous header icons.
+	 */
+	private buildEmptyStatePicker(): void {
+		clearNode(this.empty);
+		const emptyTitle = append(this.empty, $('.basehalf-agent-empty-title'));
+		emptyTitle.textContent = 'Start an agent session';
+		const choices = append(this.empty, $('.basehalf-agent-empty-choices'));
 		for (const choice of BASEHALF_VISIBLE_AGENT_SESSION_CHOICES) {
-			const button = append(this.choices, $('button.basehalf-agent-choice')) as HTMLButtonElement;
+			const button = append(choices, $('button.basehalf-agent-empty-choice')) as HTMLButtonElement;
 			button.type = 'button';
 			button.title = choice.description;
 			button.setAttribute('aria-label', choice.label);
 			const icon = append(button, $(`span.codicon.${this.choiceIconClass(choice.kind)}`));
 			icon.setAttribute('aria-hidden', 'true');
-			const label = append(button, $('span.basehalf-agent-choice-label'));
+			const text = append(button, $('.basehalf-agent-empty-choice-text'));
+			const label = append(text, $('.basehalf-agent-empty-choice-label'));
 			label.textContent = choice.label;
+			const description = append(text, $('.basehalf-agent-empty-choice-desc'));
+			description.textContent = choice.description;
 			button.addEventListener('click', () => {
 				void this.createSession(choice.kind);
 			});
 		}
+	}
+
+	private showNewSessionMenu(anchor: HTMLElement): void {
+		this.contextMenuService.showContextMenu({
+			getAnchor: () => anchor,
+			getActions: () => BASEHALF_VISIBLE_AGENT_SESSION_CHOICES.map(choice => toAction({
+				id: `basehalf.agentArea.menu.${choice.kind}`,
+				label: choice.label,
+				tooltip: choice.description,
+				run: () => void this.createSession(choice.kind)
+			}))
+		});
 	}
 
 	private renderSessionStatePanel(session: IBaseHalfRuntimeAgentSession): void {

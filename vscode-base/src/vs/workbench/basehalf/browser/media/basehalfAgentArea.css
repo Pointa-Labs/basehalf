@@ -77,63 +77,46 @@
 	letter-spacing: 0;
 }
 
-.monaco-workbench .basehalf-agent-area-choices {
-	display: flex;
-	min-width: 0;
-	gap: 2px;
-	justify-content: flex-end;
-}
-
-.monaco-workbench .basehalf-agent-choice,
-.monaco-workbench .basehalf-agent-area-icon,
-.monaco-workbench .basehalf-agent-tab-close,
+/* Text buttons inherit the UI font; buttons that ARE a codicon glyph must
+   keep the icon font, so they only get the chrome reset. */
 .monaco-workbench .basehalf-agent-toast-undo,
-.monaco-workbench .basehalf-agent-toast-dismiss {
+.monaco-workbench .basehalf-agent-empty-choice {
 	border: 0;
 	color: inherit;
 	background: transparent;
 	font: inherit;
 }
 
-.monaco-workbench .basehalf-agent-choice,
+.monaco-workbench .basehalf-agent-area-icon,
+.monaco-workbench .basehalf-agent-tab-close,
+.monaco-workbench .basehalf-agent-toast-dismiss {
+	border: 0;
+	color: inherit;
+	background: transparent;
+	padding: 0;
+}
+
 .monaco-workbench .basehalf-agent-area-icon {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	gap: 4px;
 	min-width: 28px;
 	height: 28px;
-	padding: 0 6px;
 	border-radius: 4px;
 	color: var(--vscode-icon-foreground);
 	cursor: pointer;
 }
 
-.monaco-workbench .basehalf-agent-choice:hover,
 .monaco-workbench .basehalf-agent-area-icon:hover {
 	background-color: var(--vscode-toolbar-hoverBackground);
 }
 
-.monaco-workbench .basehalf-agent-choice:focus-visible,
 .monaco-workbench .basehalf-agent-area-icon:focus-visible,
 .monaco-workbench .basehalf-agent-tab:focus-visible,
-.monaco-workbench .basehalf-agent-tab-close:focus-visible {
+.monaco-workbench .basehalf-agent-tab-close:focus-visible,
+.monaco-workbench .basehalf-agent-empty-choice:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: -1px;
-}
-
-.monaco-workbench .basehalf-agent-choice-label {
-	display: none;
-	max-width: 88px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-size: 11px;
-}
-
-.monaco-workbench .basehalf-agent-area:hover .basehalf-agent-choice-label,
-.monaco-workbench .basehalf-agent-area:focus-within .basehalf-agent-choice-label {
-	display: inline;
 }
 
 /* ── Tab strip (one strip across the top, always visible) ───────────────── */
@@ -144,7 +127,13 @@
 	flex: 0 0 auto;
 	height: 34px;
 	overflow: hidden;
+	background-color: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-sideBarSectionHeader-background));
 	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
+}
+
+/* No tabs -> the empty-state picker is the whole surface; hide the bar. */
+.monaco-workbench .basehalf-agent-area-tabs.empty {
+	display: none;
 }
 
 .monaco-workbench .basehalf-agent-tabstrip {
@@ -155,10 +144,6 @@
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: thin;
-}
-
-.monaco-workbench .basehalf-agent-tabstrip.empty {
-	visibility: hidden;
 }
 
 .monaco-workbench .basehalf-agent-area-tabs > .basehalf-agent-area-icon {
@@ -184,7 +169,6 @@
 	   scrolls. */
 	flex: 1 1 0;
 	min-width: 56px;
-	max-width: 232px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -209,7 +193,7 @@
 
 .monaco-workbench .basehalf-agent-tab.active {
 	color: var(--vscode-sideBar-foreground);
-	background-color: var(--vscode-list-activeSelectionBackground);
+	background-color: var(--vscode-sideBar-background);
 }
 
 .monaco-workbench .basehalf-agent-tab.unavailable {
@@ -258,7 +242,7 @@
 }
 
 .monaco-workbench .basehalf-agent-tab-label {
-	min-width: 0;
+	min-width: 40px;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -267,7 +251,8 @@
 }
 
 .monaco-workbench .basehalf-agent-tab-state {
-	flex-shrink: 0;
+	flex-shrink: 1;
+	min-width: 0;
 	max-width: 68px;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -356,13 +341,60 @@
 
 .monaco-workbench .basehalf-agent-area-empty {
 	display: none;
-	padding: 16px 14px;
+	padding: 20px 16px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 12px;
+	overflow: auto;
 }
 
 .monaco-workbench .basehalf-agent-area-empty.visible {
 	display: block;
+}
+
+.monaco-workbench .basehalf-agent-empty-title {
+	margin-bottom: 12px;
+	color: var(--vscode-sideBar-foreground);
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-agent-empty-choices {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.monaco-workbench .basehalf-agent-empty-choice {
+	display: grid;
+	grid-template-columns: 24px minmax(0, 1fr);
+	gap: 2px 10px;
+	align-items: center;
+	width: 100%;
+	padding: 8px 10px;
+	border-radius: 4px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-agent-empty-choice:hover {
+	background-color: var(--vscode-list-hoverBackground);
+}
+
+.monaco-workbench .basehalf-agent-empty-choice > .codicon {
+	color: var(--vscode-icon-foreground);
+	font-size: 18px;
+}
+
+.monaco-workbench .basehalf-agent-empty-choice-label {
+	color: var(--vscode-sideBar-foreground);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.monaco-workbench .basehalf-agent-empty-choice-desc {
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 15px;
 }
 
 .monaco-workbench .basehalf-agent-area-session {
@@ -383,6 +415,13 @@
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
+}
+
+/* Terminal-backed panes get a gutter so xterm content and shell-integration
+   command decorations never sit flush against the pane edge. The layout
+   measures the surface box, so the terminal reflows to the padded size. */
+.monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
+	inset: 4px 8px 0 14px;
 }
 
 .monaco-workbench .basehalf-agent-area-session .terminal-wrapper {
