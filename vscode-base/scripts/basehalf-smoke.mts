@@ -91,6 +91,7 @@ try {
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
+	await step('agent-area-tui-session-process-semantics', () => assertAgentAreaTuiSession(page));
 	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
@@ -161,6 +162,7 @@ try {
 			'hidden-surface-runtime-guard',
 			'agent-area-five-choices-command-unavailable-state',
 			'agent-area-terminal-command-no-stock-panel',
+			'agent-area-tui-session-process-semantics',
 			'source-control-git-provider',
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
@@ -617,7 +619,7 @@ async function assertAgentAreaChoices(page) {
 	await runCommand(page, 'New Codex Extension Session');
 	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
-	await page.locator('.basehalf-agent-extension-state', { hasText: /openai\.chatgpt/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 }
@@ -633,6 +635,30 @@ async function assertAgentAreaTerminalCommand(page) {
 	await assertStockTerminalPanelHidden(page);
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 	await assertStockTerminalPanelHidden(page);
+}
+
+async function assertAgentAreaTuiSession(page) {
+	await runCommand(page, 'New Claude Code TUI Session');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	// The TUI session either launches the agent CLI as its terminal process, or —
+	// when the CLI is not installed on this machine — surfaces the launch failure
+	// with install guidance instead of pretending the session is fine.
+	await page.waitForFunction(() => {
+		const activeSession = document.querySelector('.basehalf-agent-area-session.active');
+		if (!activeSession) {
+			return false;
+		}
+		if (activeSession.classList.contains('has-state')) {
+			const stateText = activeSession.querySelector('.basehalf-agent-session-state')?.textContent || '';
+			return /claude/i.test(stateText) && /restart/i.test(stateText);
+		}
+		return !!activeSession.querySelector('.basehalf-agent-session-surface .terminal-wrapper, .basehalf-agent-session-surface .xterm');
+	}, null, { timeout: 20_000 });
+	await assertStockTerminalPanelHidden(page);
+	const tabCountBefore = await page.locator('.basehalf-agent-tab').count();
+	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-kill').click();
+	await page.waitForFunction(expected => document.querySelectorAll('.basehalf-agent-tab').length < expected, tabCountBefore, { timeout: 20_000 });
+	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 }
 
 async function assertTogglePanelRemapsToAgentArea(page) {

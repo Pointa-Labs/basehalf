@@ -18,7 +18,9 @@ import {
 	type BaseHalfAgentSessionState,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
-	baseHalfAgentSessionChoiceForKind
+	baseHalfAgentSessionChoiceForKind,
+	baseHalfTuiSessionLaunchConfig,
+	baseHalfTuiSessionLaunchFailureGuidance
 } from '../../common/basehalfAgentArea.js';
 import { isBaseHalfAgentExtensionSlot } from '../../common/basehalfWorkbenchProfile.js';
 
@@ -51,6 +53,37 @@ suite('BaseHalfAgentArea', () => {
 		assert.strictEqual(baseHalfAgentSessionChoiceForKind('terminal').terminalCommand, undefined);
 		assert.strictEqual(baseHalfAgentSessionChoiceForKind('tui-codex').terminalCommand, 'codex');
 		assert.strictEqual(baseHalfAgentSessionChoiceForKind('tui-claude').terminalCommand, 'claude');
+	});
+
+	test('launches TUI agent sessions as the terminal process itself', () => {
+		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-codex'), {
+			name: 'Codex',
+			executable: 'codex',
+			waitOnExit: 'Codex session ended. Press any key to close it, or restart it from its tab.',
+			hideFromUser: true
+		});
+		assert.deepStrictEqual(baseHalfTuiSessionLaunchConfig('tui-claude'), {
+			name: 'Claude Code',
+			executable: 'claude',
+			waitOnExit: 'Claude Code session ended. Press any key to close it, or restart it from its tab.',
+			hideFromUser: true
+		});
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('terminal'), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-codex'), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchConfig('extension-claude'), undefined);
+	});
+
+	test('gives install guidance when a TUI agent CLI fails to launch', () => {
+		assert.strictEqual(
+			baseHalfTuiSessionLaunchFailureGuidance('tui-codex'),
+			'Make sure the \'codex\' command is installed and on your PATH, then restart this session.'
+		);
+		assert.strictEqual(
+			baseHalfTuiSessionLaunchFailureGuidance('tui-claude'),
+			'Make sure the \'claude\' command is installed and on your PATH, then restart this session.'
+		);
+		assert.strictEqual(baseHalfTuiSessionLaunchFailureGuidance('terminal'), undefined);
+		assert.strictEqual(baseHalfTuiSessionLaunchFailureGuidance('extension-codex'), undefined);
 	});
 
 	test('keeps extension sessions behind curated Agent Area slots', () => {

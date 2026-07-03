@@ -88,6 +88,41 @@ export interface IBaseHalfAgentAreaSession {
 	readonly detail?: string;
 }
 
+/**
+ * Launch configuration for a TUI agent session. The agent CLI is the terminal
+ * process itself (not a command typed into a shell), so a missing CLI surfaces
+ * as a launch failure and process exit means the agent session ended.
+ */
+export interface IBaseHalfTuiSessionLaunchConfig {
+	readonly name: string;
+	readonly executable: string;
+	readonly waitOnExit: string;
+	readonly hideFromUser: true;
+}
+
+export function baseHalfTuiSessionLaunchConfig(kind: BaseHalfAgentSessionKind): IBaseHalfTuiSessionLaunchConfig | undefined {
+	const choice = baseHalfAgentSessionChoiceForKind(kind);
+	if (!choice.terminalCommand) {
+		return undefined;
+	}
+
+	return {
+		name: choice.label,
+		executable: choice.terminalCommand,
+		waitOnExit: `${choice.label} session ended. Press any key to close it, or restart it from its tab.`,
+		hideFromUser: true
+	};
+}
+
+export function baseHalfTuiSessionLaunchFailureGuidance(kind: BaseHalfAgentSessionKind): string | undefined {
+	const choice = baseHalfAgentSessionChoiceForKind(kind);
+	if (!choice.terminalCommand) {
+		return undefined;
+	}
+
+	return `Make sure the '${choice.terminalCommand}' command is installed and on your PATH, then restart this session.`;
+}
+
 export interface IBaseHalfCreateAgentTerminalOptions {
 	readonly label?: string;
 	readonly command?: string;

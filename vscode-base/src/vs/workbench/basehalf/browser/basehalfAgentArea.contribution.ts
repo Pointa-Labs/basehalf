@@ -37,6 +37,8 @@ import {
 	BaseHalfAgentSessionState,
 	BaseHalfExtensionAgentSessionKind,
 	baseHalfAgentSessionChoiceForKind,
+	baseHalfTuiSessionLaunchConfig,
+	baseHalfTuiSessionLaunchFailureGuidance,
 	IBaseHalfAgentAreaService,
 	IBaseHalfAgentAreaSession,
 	IBaseHalfAdoptAgentTerminalOptions,
@@ -54,10 +56,10 @@ interface IBaseHalfRuntimeAgentSession {
 	state: BaseHalfAgentSessionState;
 	detail?: string;
 	host: HTMLElement;
+	surface: HTMLElement;
+	statePanel: HTMLElement;
 	disposables: DisposableStore;
 	terminal?: ITerminalInstance;
-	terminalCommand?: string;
-	pendingCommandOnReady?: string;
 	extensionSetVisible?: (visible: boolean) => void;
 	extensionLayout?: () => void;
 	extensionFocus?: () => void | Promise<void>;
@@ -346,11 +348,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				: baseHalfAgentSessionChoiceForKind('terminal');
 		const label = options.label ?? choice.label;
 		const session = this.createRuntimeSession(choice.kind, label, choice.description);
-		session.terminalCommand = command;
 
 		await this.show(true);
 		try {
-			const terminalOptions = this.createTerminalOptions(label, options);
+			const terminalOptions = this.createTerminalOptions(choice.kind, label, options);
 			const terminal = await this.terminalService.createTerminal(terminalOptions);
 			await this.attachTerminalToSession(session, terminal, command);
 		} catch (error) {
@@ -461,18 +462,16 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (session.terminal && !session.terminal.isDisposed) {
 			session.state = 'starting';
 			session.detail = 'Restarting';
-			session.pendingCommandOnReady = session.terminalCommand;
+			this.clearSessionStatePanel(session);
 			this.fireSessionsChanged();
 			session.terminal.relaunch();
 			await this.focusSession(session.id);
 			return;
 		}
 
-		if (session.kind === 'extension-codex' || session.kind === 'extension-claude') {
-			const kind = session.kind;
-			this.removeRuntimeSession(session.id, true);
-			await this.createSession(kind);
-		}
+		const kind = session.kind;
+		this.removeRuntimeSession(session.id, true);
+		await this.createSession(kind);
 	}
 
 	async killSession(id: string): Promise<void> {
@@ -536,14 +535,14 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			const extensionClause = choice.extensionId ? ` Install or enable ${choice.extensionId}` : ' Enable the curated extension';
 			const slotClause = choice.requiresExtensionSlot ? ` and have it register ${choice.requiresExtensionSlot}` : '';
 			session.detail = `${choice.label} is unavailable.${extensionClause}${slotClause}; stock VS Code Chat/Copilot/Sessions UI stays hidden in BaseHalf.`;
-			this.renderExtensionState(session);
+			this.renderSessionStatePanel(session);
 			this.fireSessionsChanged();
 			await this.focusSession(session.id);
 			return this.snapshotSession(session);
 		}
 
 		try {
-			const result = await provider.createSession(kind, session.host);
+			const result = await provider.createSession(kind, session.surface);
 			this.applyExtensionAgentProviderResult(session, result);
 			session.state = 'ready';
 			this.fireSessionsChanged();
@@ -553,7 +552,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			if (error instanceof BaseHalfExtensionAgentUnavailableError) {
 				session.state = 'unavailable';
 				session.detail = error.message;
-				this.renderExtensionState(session);
+				this.renderSessionStatePanel(session);
 				this.fireSessionsChanged();
 				await this.focusSession(session.id);
 			} else {
@@ -573,8 +572,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private async attachTerminalToSession(session: IBaseHalfRuntimeAgentSession, terminal: ITerminalInstance, command?: string, focus = true): Promise<void> {
 		session.terminal = terminal;
-		session.terminalCommand = command;
-		session.disposables.add(terminal.onDisposed(() => this.removeRuntimeSession(session.id, false)));
+		session.disposables.add(terminal.onDisposed(() => this.removeRuntimeSession(session.id, true)));
 		session.disposables.add(terminal.onTitleChanged(instance => {
 			if (instance.title) {
 				session.label = instance.title;
@@ -582,28 +580,23 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			}
 		}));
 		session.disposables.add(terminal.onProcessIdReady(() => {
-			if (session.pendingCommandOnReady) {
-				const pendingCommand = session.pendingCommandOnReady;
-				session.pendingCommandOnReady = undefined;
-				void terminal.sendText(pendingCommand, true);
-			}
-			if (session.state === 'starting' || session.state === 'exited') {
+			this.clearSessionStatePanel(session);
+			if (session.state === 'starting' || session.state === 'exited' || session.state === 'failed') {
 				session.state = 'ready';
-				session.detail = command ? `Started ${command}` : undefined;
+				session.detail = command ? `Running ${command}` : undefined;
 				this.fireSessionsChanged();
 			}
 		}));
 		session.disposables.add(terminal.onExit(exit => this.markTerminalProcessExited(session, exit)));
 
-		terminal.attachToElement(session.host);
+		terminal.attachToElement(session.surface);
 		this.setActiveTerminalForVsCodeCompatibility(terminal);
-		session.state = 'ready';
-		session.detail = command ? `Started ${command}` : undefined;
+		if (!command) {
+			session.state = 'ready';
+			session.detail = undefined;
+		}
 		this.fireSessionsChanged();
 		this.updateActiveSessionVisibility();
-		if (command) {
-			await terminal.sendText(command, true);
-		}
 		if (focus) {
 			await this.focusActiveSession();
 		}
@@ -625,13 +618,16 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	private createRuntimeSession(kind: BaseHalfAgentSessionKind, label: string, description: string, activate = true): IBaseHalfRuntimeAgentSession {
+		const host = append(this.body, $('.basehalf-agent-area-session'));
 		const session: IBaseHalfRuntimeAgentSession = {
 			id: `basehalf-agent-${BaseHalfAgentAreaService.nextSessionId++}`,
 			kind,
 			label,
 			description,
 			state: 'starting',
-			host: append(this.body, $('.basehalf-agent-area-session')),
+			host,
+			surface: append(host, $('.basehalf-agent-session-surface')),
+			statePanel: append(host, $('.basehalf-agent-session-state')),
 			disposables: new DisposableStore()
 		};
 		session.host.setAttribute('role', 'tabpanel');
@@ -752,15 +748,28 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 	}
 
-	private renderExtensionState(session: IBaseHalfRuntimeAgentSession): void {
-		clearNode(session.host);
-		const panel = append(session.host, $('.basehalf-agent-extension-state'));
-		const icon = append(panel, $(`span.codicon.${this.choiceIconClass(session.kind)}`));
+	private renderSessionStatePanel(session: IBaseHalfRuntimeAgentSession): void {
+		clearNode(session.statePanel);
+		session.host.classList.add('has-state');
+		const icon = append(session.statePanel, $(`span.codicon.${this.choiceIconClass(session.kind)}`));
 		icon.setAttribute('aria-hidden', 'true');
-		const title = append(panel, $('.basehalf-agent-extension-title'));
+		const title = append(session.statePanel, $('.basehalf-agent-session-state-title'));
 		title.textContent = session.label;
-		const message = append(panel, $('.basehalf-agent-extension-message'));
+		const message = append(session.statePanel, $('.basehalf-agent-session-state-message'));
 		message.textContent = session.detail ?? session.description;
+		const actions = append(session.statePanel, $('.basehalf-agent-session-state-actions'));
+		const retry = append(actions, $('button.basehalf-agent-session-state-retry')) as HTMLButtonElement;
+		retry.type = 'button';
+		retry.textContent = session.state === 'unavailable' ? 'Retry' : 'Restart Session';
+		retry.setAttribute('aria-label', `Restart ${session.label}`);
+		retry.addEventListener('click', () => {
+			void this.restartSession(session.id);
+		});
+	}
+
+	private clearSessionStatePanel(session: IBaseHalfRuntimeAgentSession): void {
+		session.host.classList.remove('has-state');
+		clearNode(session.statePanel);
 	}
 
 	private updateActiveSessionVisibility(): void {
@@ -771,7 +780,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			session.terminal?.setVisible(active);
 			session.extensionSetVisible?.(active);
 			if (active && (session.state === 'unavailable' || session.state === 'failed')) {
-				this.renderExtensionState(session);
+				this.renderSessionStatePanel(session);
 			}
 		}
 
@@ -809,14 +818,19 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 
 		if (session.terminal) {
-			const width = Math.max(1, Math.floor(session.host.clientWidth));
-			const height = Math.max(1, Math.floor(session.host.clientHeight));
+			const width = Math.max(1, Math.floor(session.surface.clientWidth));
+			const height = Math.max(1, Math.floor(session.surface.clientHeight));
 			session.terminal.layout({ width, height });
 		}
 		session.extensionLayout?.();
 	}
 
-	private createTerminalOptions(label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
+	private createTerminalOptions(kind: BaseHalfAgentSessionKind, label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
+		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind);
+		if (tuiConfig) {
+			return { config: { ...tuiConfig, name: label } };
+		}
+
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
 		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config);
@@ -876,8 +890,12 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 		if (this.isTerminalLaunchError(exit)) {
 			session.state = 'failed';
-			session.detail = exit.code === undefined ? exit.message : `${exit.message} (${exit.code})`;
+			const message = exit.code === undefined ? exit.message : `${exit.message} (${exit.code})`;
+			const guidance = baseHalfTuiSessionLaunchFailureGuidance(session.kind);
+			session.detail = guidance ? `${message}. ${guidance}` : message;
+			this.renderSessionStatePanel(session);
 			this.fireSessionsChanged();
+			this.updateActiveSessionVisibility();
 			this.logService.error(`BaseHalf Agent Area terminal process failed: ${session.detail}`);
 			this.notificationService.notify({
 				severity: Severity.Error,
@@ -887,7 +905,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}
 
 		session.state = 'exited';
-		session.detail = exit === undefined ? 'Process ended' : `Process exited with code ${exit}`;
+		session.detail = exit === undefined || exit === 0
+			? `${session.label} session ended`
+			: `${session.label} exited with code ${exit}`;
 		this.fireSessionsChanged();
 	}
 
@@ -899,7 +919,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const message = error instanceof Error ? error.message : String(error);
 		session.state = 'failed';
 		session.detail = message;
-		this.renderExtensionState(session);
+		this.renderSessionStatePanel(session);
 		this.fireSessionsChanged();
 		this.logService.error(error instanceof Error ? error : message);
 		this.notificationService.notify({
