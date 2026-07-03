@@ -794,9 +794,18 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
 		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
 
+		// The frosted terminal surface: accent glows blended over the opaque
+		// terminal pane through the session's ::after overlay.
+		const overlayStyle = getComputedStyle(activeSession, '::after');
+		const terminalHasFrostedSurface = !terminal
+			|| (overlayStyle.backgroundImage.includes('radial-gradient')
+				&& overlayStyle.mixBlendMode !== 'normal'
+				&& overlayStyle.pointerEvents === 'none');
+
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
-			&& terminalHasThemeLine;
+			&& terminalHasThemeLine
+			&& terminalHasFrostedSurface;
 	}, kind, { timeout: 15_000 });
 }
 

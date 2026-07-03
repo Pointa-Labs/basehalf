@@ -17,7 +17,18 @@
 	--basehalf-agent-terminal-muted: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 12%, var(--basehalf-agent-terminal-background));
 	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiMagenta, #c678dd);
 	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
-	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #98c379);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiCyan, #56b6c2);
+	/* Frosted session surface: soft accent glows blended OVER the opaque
+	   terminal. `screen` never darkens, so bright glyphs stay legible on dark
+	   themes (white is invariant); light themes flip to `multiply`, which
+	   leaves dark glyphs untouched. Painting above the terminal instead of
+	   below it keeps xterm opaque — transparency mode smears partial rows at
+	   the viewport edges. */
+	--basehalf-agent-terminal-glass-blend: screen;
+	--basehalf-agent-terminal-glow-a: color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 14%, transparent);
+	--basehalf-agent-terminal-glow-b: color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 11%, transparent);
+	--basehalf-agent-terminal-glow-c: color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 9%, transparent);
+	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 4%, transparent);
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -26,6 +37,24 @@
 	min-width: 0;
 	color: var(--basehalf-agent-extension-foreground);
 	background-color: var(--basehalf-agent-extension-background);
+}
+
+/* Light themes get a fainter pastel wash via multiply; high contrast stays flat. */
+.monaco-workbench.vs .basehalf-agent-area {
+	--basehalf-agent-terminal-glass-blend: multiply;
+	--basehalf-agent-terminal-glow-a: color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 9%, transparent);
+	--basehalf-agent-terminal-glow-b: color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 7%, transparent);
+	--basehalf-agent-terminal-glow-c: color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 5%, transparent);
+	--basehalf-agent-terminal-sheen: transparent;
+}
+
+.monaco-workbench.hc-black .basehalf-agent-area,
+.monaco-workbench.hc-light .basehalf-agent-area {
+	--basehalf-agent-terminal-glass-blend: normal;
+	--basehalf-agent-terminal-glow-a: transparent;
+	--basehalf-agent-terminal-glow-b: transparent;
+	--basehalf-agent-terminal-glow-c: transparent;
+	--basehalf-agent-terminal-sheen: transparent;
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal {
@@ -425,6 +454,24 @@
 	color: var(--basehalf-agent-pane-foreground);
 }
 
+/* The frosted surface: a faint top sheen plus three accent glows anchored to
+   the pane corners, blended over the whole pane (gutter and terminal alike,
+   so there is no seam at the terminal box). Stays below the dim overlay
+   (z-index 1) and every interaction layer. */
+.monaco-workbench .basehalf-agent-area-session.kind-terminal::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background-image:
+		linear-gradient(180deg, var(--basehalf-agent-terminal-sheen), transparent 110px),
+		radial-gradient(120% 85% at 12% -8%, var(--basehalf-agent-terminal-glow-a), transparent 58%),
+		radial-gradient(110% 90% at 104% 16%, var(--basehalf-agent-terminal-glow-b), transparent 60%),
+		radial-gradient(150% 110% at 42% 110%, var(--basehalf-agent-terminal-glow-c), transparent 62%);
+	mix-blend-mode: var(--basehalf-agent-terminal-glass-blend, screen);
+	pointer-events: none;
+	z-index: 0;
+}
+
 .monaco-workbench .basehalf-agent-area-session.kind-extension {
 	--basehalf-agent-pane-background: var(--basehalf-agent-extension-background);
 	--basehalf-agent-pane-foreground: var(--basehalf-agent-extension-foreground);
@@ -463,6 +510,14 @@
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-viewport,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-screen {
 	background-color: var(--basehalf-agent-pane-background);
+}
+
+/* Terminal sticky scroll expects the stock terminal view chrome for its
+   overlay positioning; inside the Agent Area host it flows below the screen
+   and surfaces as a clipped sliver of stale rows. Hide it until it is ported
+   as a real Agent Area affordance. */
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-sticky-scroll {
+	display: none;
 }
 
 /* Dim the non-focused panes of a multi-pane tab so the active one stands out. */
