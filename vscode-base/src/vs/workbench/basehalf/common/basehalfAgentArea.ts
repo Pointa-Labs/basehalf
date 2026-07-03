@@ -9,6 +9,15 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 
 export const IBaseHalfAgentAreaService = createDecorator<IBaseHalfAgentAreaService>('baseHalfAgentAreaService');
 
+/**
+ * The Agent Area is a real workbench surface: a BaseHalf-owned view container
+ * in the auxiliary bar (the right-side part). The part gives it grid layout,
+ * a native sash, size persistence, and — critically — the same stacking layer
+ * as every other part, so extension webviews anchored into it render normally.
+ */
+export const BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID = 'basehalf.agentArea';
+export const BASEHALF_AGENT_AREA_VIEW_ID = 'basehalf.agentArea.view';
+
 export const BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID = 'basehalf.agentArea.toggle';
 export const BASEHALF_AGENT_AREA_NEW_TERMINAL_COMMAND_ID = 'basehalf.agentArea.newTerminal';
 export const BASEHALF_AGENT_AREA_NEW_CODEX_TUI_COMMAND_ID = 'basehalf.agentArea.newCodexTui';
@@ -83,6 +92,7 @@ export interface IBaseHalfAgentSessionChoice {
 	readonly requiresExtensionSlot?: string;
 	readonly extensionId?: string;
 	readonly extensionViewContainerIds?: readonly string[];
+	readonly extensionCanonicalViewContainerIds?: readonly string[];
 	readonly extensionViewIds?: readonly string[];
 }
 
@@ -119,6 +129,7 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 		requiresExtensionSlot: 'basehalf.agentArea.extension.claude',
 		extensionId: 'anthropic.claude-code',
 		extensionViewContainerIds: ['workbench.view.extension.claude-sidebar-secondary', 'workbench.view.extension.claude-sidebar'],
+		extensionCanonicalViewContainerIds: ['workbench.view.extension.claude-sessions-sidebar'],
 		extensionViewIds: ['claudeVSCodeSidebarSecondary', 'claudeVSCodeSidebar']
 	},
 	{
@@ -130,6 +141,17 @@ export const BASEHALF_AGENT_SESSION_CHOICES = [
 ] as const satisfies readonly IBaseHalfAgentSessionChoice[];
 
 export const BASEHALF_VISIBLE_AGENT_SESSION_CHOICES: readonly IBaseHalfAgentSessionChoice[] = BASEHALF_AGENT_SESSION_CHOICES;
+
+/**
+ * The canonical view containers the curated agent extensions contribute their
+ * webview views to (secondary sidebar/activity bar homes). BaseHalf hosts
+ * those views inside the Agent Area instead, so these containers are never a
+ * product surface: opening one is closed by the workbench profile guard, which
+ * also keeps the single webview instance claimed by the Agent Area's pane.
+ */
+export const BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS: readonly string[] = (BASEHALF_AGENT_SESSION_CHOICES as readonly IBaseHalfAgentSessionChoice[])
+	.flatMap(choice => [...(choice.extensionViewContainerIds ?? []), ...(choice.extensionCanonicalViewContainerIds ?? [])])
+	.flatMap(id => id.startsWith('workbench.view.extension.') ? [id, id.slice('workbench.view.extension.'.length)] : [`workbench.view.extension.${id}`, id]);
 
 export interface IBaseHalfAgentAreaSession {
 	readonly id: string;
@@ -214,6 +236,13 @@ export interface IBaseHalfAgentAreaService {
 	readonly sessions: readonly IBaseHalfAgentAreaSession[];
 	readonly activeSessionId: string | undefined;
 	readonly activeTerminal: unknown | undefined;
+
+	/**
+	 * Adopt the Agent Area's chrome into the given host element — called by the
+	 * Agent Area view pane when the auxiliary bar creates it.
+	 */
+	mountIn(container: HTMLElement): void;
+	focusActivePane(): Promise<void>;
 
 	show(preserveFocus?: boolean): Promise<void>;
 	hide(): void;

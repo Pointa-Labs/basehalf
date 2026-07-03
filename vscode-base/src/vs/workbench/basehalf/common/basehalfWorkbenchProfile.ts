@@ -3,6 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS } from './basehalfAgentArea.js';
 import { VIEWLET_ID as FILES_VIEW_CONTAINER_ID, VIEW_ID as FILES_VIEW_ID } from '../../contrib/files/common/files.js';
 import { REPOSITORIES_VIEW_PANE_ID, HISTORY_VIEW_PANE_ID, VIEWLET_ID as SCM_VIEW_CONTAINER_ID, VIEW_PANE_ID as SCM_VIEW_ID } from '../../contrib/scm/common/scm.js';
 import { DEBUG_PANEL_ID, REPL_VIEW_ID } from '../../contrib/debug/common/debug.js';
@@ -444,6 +445,27 @@ export const BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_LEF
 	visible: surface.visible
 })) as readonly { readonly id: string; readonly visible: boolean }[];
 
+export const BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.auxiliarybar.pinnedPanels';
+export const BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY = 'workbench.auxiliarybar.viewContainersWorkspaceState';
+
+/**
+ * The auxiliary bar IS the Agent Area: exactly one pinned container. Agent
+ * extensions contribute their canonical containers to this location too, but
+ * those are hosted inside the Agent Area instead and stay unpinned/hidden.
+ */
+export const BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS = [
+	{ id: BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, pinned: true, visible: false, order: 0 }
+] as const;
+
+export const BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE = BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS.map(surface => ({
+	id: surface.id,
+	visible: surface.visible
+})) as readonly { readonly id: string; readonly visible: boolean }[];
+
+export function shouldBaseHalfCloseAgentExtensionViewContainer(id: string): boolean {
+	return AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS.has(id);
+}
+
 export const BASEHALF_HIDDEN_VIEW_CONTAINER_IDS = BASEHALF_HIDDEN_SURFACES
 	.filter(surface => surface.kind === 'viewContainer')
 	.map(surface => surface.id) as readonly string[];
@@ -762,6 +784,7 @@ function normalizeExtensionId(extensionId: string): string {
 	return extensionId.trim().toLowerCase();
 }
 
+const AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS);
 const PRIMARY_VIEW_CONTAINER_IDS = new Set<string>(BASEHALF_PRIMARY_VIEW_CONTAINERS.map(surface => surface.id));
 const PRIMARY_VIEW_IDS = new Set<string>(BASEHALF_PRIMARY_VIEWS.map(surface => surface.id));
 const REMAPPED_SURFACE_IDS = new Set<string>(BASEHALF_REMAPPED_SURFACES.map(surface => surface.id));

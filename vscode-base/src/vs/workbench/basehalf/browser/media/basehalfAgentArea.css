@@ -3,78 +3,27 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-.monaco-workbench .part.editor.basehalf-agent-area-host {
-	--basehalf-agent-area-width: min(420px, max(320px, 32vw));
-}
-
-.monaco-workbench .part.editor.basehalf-agent-area-host.basehalf-agent-area-visible > .basehalf-canvas-workbench {
-	right: var(--basehalf-agent-area-width);
+/* The Agent Area chrome fills the auxiliary-bar view pane that adopts it.
+   Layout, sash, and size persistence belong to the workbench part. */
+.monaco-workbench .basehalf-agent-area-view-body {
+	height: 100%;
 }
 
 .monaco-workbench .basehalf-agent-area {
-	position: absolute;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	z-index: 4;
-	display: none;
-	width: var(--basehalf-agent-area-width);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
 	min-width: 0;
 	color: var(--vscode-sideBar-foreground);
 	background-color: var(--vscode-sideBar-background);
-	border-left: 1px solid var(--vscode-sideBar-border, var(--vscode-editorWidget-border));
-}
-
-.monaco-workbench .basehalf-agent-area.visible {
-	display: flex;
-	flex-direction: column;
 }
 
 /* An accent bar on the left edge while the area owns keyboard focus — so the
    precondition for its shortcuts (⌘D, ⌘W, arrows…) is visible. */
 .monaco-workbench .basehalf-agent-area.focused {
 	box-shadow: inset 2px 0 0 0 var(--vscode-focusBorder);
-}
-
-/* ── Left-edge resize sash ──────────────────────────────────────────────── */
-
-.monaco-workbench .basehalf-agent-area-sash {
-	position: absolute;
-	top: 0;
-	left: -3px;
-	width: 6px;
-	height: 100%;
-	cursor: col-resize;
-	z-index: 10;
-	background: transparent;
-	transition: background-color 0.1s ease-out;
-}
-
-.monaco-workbench .basehalf-agent-area-sash:hover,
-.monaco-workbench .basehalf-agent-area-sash.dragging {
-	background-color: var(--vscode-sash-hoverBorder, var(--vscode-focusBorder));
-}
-
-/* ── Header ─────────────────────────────────────────────────────────────── */
-
-.monaco-workbench .basehalf-agent-area-header {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) 28px;
-	align-items: center;
-	gap: 8px;
-	min-height: 38px;
-	padding: 5px 7px 5px 12px;
-	border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-editorWidget-border));
-}
-
-.monaco-workbench .basehalf-agent-area-title {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--vscode-sideBarTitle-foreground);
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0;
 }
 
 /* Text buttons inherit the UI font; buttons that ARE a codicon glyph must

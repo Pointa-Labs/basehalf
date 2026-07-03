@@ -17,7 +17,7 @@ import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/comm
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
-import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseAgentExtensionViewContainer, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE } from '../common/basehalfWorkbenchProfile.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
 	overrides: BASEHALF_CONFIGURATION_DEFAULTS,
@@ -41,6 +41,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 
 		this.clearCompetingStartupStorage();
 		this.applyLeftSidebarProfile();
+		this.applyAuxiliaryBarProfile();
 		this.registerHiddenSurfaceGuards();
 		this.registerSingleSurfaceEditorGuard();
 		this.closeRestoredCompetingSurfaces();
@@ -60,6 +61,24 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 				this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] cleared VS Code workspace startup storage: ${key}`);
 			}
 		}
+	}
+
+	private applyAuxiliaryBarProfile(): void {
+		this.storeJsonIfChanged(
+			BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY,
+			StorageScope.PROFILE,
+			StorageTarget.USER,
+			BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS,
+			'auxiliary bar pinned view containers'
+		);
+
+		this.storeJsonIfChanged(
+			BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY,
+			StorageScope.WORKSPACE,
+			StorageTarget.MACHINE,
+			BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE,
+			'auxiliary bar view container workspace state'
+		);
 	}
 
 	private applyLeftSidebarProfile(): void {
@@ -96,6 +115,11 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 				void this.closeHiddenViewContainer(event.id, 'reopened hidden VS Code view container');
 			} else if (event.visible && shouldBaseHalfCloseRemappedViewContainer(event.id)) {
 				void this.closeRemappedViewContainer(event.id, 'reopened remapped VS Code view container');
+			} else if (event.visible && shouldBaseHalfCloseAgentExtensionViewContainer(event.id)) {
+				// Agent extensions' canonical containers are hosted inside the
+				// Agent Area; their composite must never take over the part.
+				this.viewsService.closeViewContainer(event.id);
+				this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed agent extension canonical view container: ${event.id}`);
 			}
 		}));
 

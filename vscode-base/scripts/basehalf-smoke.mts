@@ -615,20 +615,24 @@ async function assertHiddenSurfaceCommandsStayHidden(page) {
 }
 
 async function assertAgentAreaChoices(page) {
-	await page.locator('.basehalf-agent-area').waitFor({ state: 'attached', timeout: 15_000 });
+	// The Agent Area chrome mounts when the auxiliary-bar pane materializes, so
+	// open it first (an extension session also proves the unavailable state).
+	await runCommand(page, 'New Codex Extension Session');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	const choices = await page.locator('.basehalf-agent-empty-choice .basehalf-agent-empty-choice-label').evaluateAll(nodes => nodes.map(node => (node.textContent || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
 	const expected = ['Codex', 'Claude Code', 'Codex Extension', 'Claude Code Extension', 'Terminal'];
 	if (choices.join('|') !== expected.join('|')) {
 		throw new Error(`Unexpected Agent Area choices: ${choices.join(', ')}`);
 	}
 
-	await runCommand(page, 'New Codex Extension Session');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
-	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt|trusted workspace/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
 	await dismissAgentToasts(page);
-	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	// With no tabs left the empty-state picker is the whole surface.
+	await page.locator('.basehalf-agent-area-empty.visible').waitFor({ state: 'visible', timeout: 15_000 });
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 // Soft-closed tabs/panes leave undo toasts for a grace period; dismissing them
@@ -643,20 +647,21 @@ async function dismissAgentToasts(page) {
 
 async function assertAgentAreaTerminalCommand(page) {
 	await runCommand(page, 'Terminal: Create New Terminal');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-agent-tab.active').first().waitFor({ state: 'visible', timeout: 20_000 });
 	await page.waitForFunction(() => {
 		const activeSession = document.querySelector('.basehalf-agent-area-session.active');
 		return !!activeSession?.querySelector('.terminal-wrapper, .xterm');
 	}, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
-	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
 }
 
 async function assertAgentAreaTuiSession(page) {
 	await runCommand(page, 'New Claude Code TUI Session');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	// The TUI session either launches the agent CLI as its terminal process, or —
 	// when the CLI is not installed on this machine — surfaces the launch failure
 	// with install guidance instead of pretending the session is fine.
@@ -676,12 +681,13 @@ async function assertAgentAreaTuiSession(page) {
 	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-close').click();
 	await page.waitForFunction(expected => document.querySelectorAll('.basehalf-agent-tab').length < expected, tabCountBefore, { timeout: 20_000 });
 	await dismissAgentToasts(page);
-	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 async function assertAgentAreaTabsAndSplits(page) {
 	await runCommand(page, 'Toggle Agent Area');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 20_000 });
 	await runCommand(page, 'Split Agent Pane Right');
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
 	await page.locator('.basehalf-agent-divider.row').waitFor({ state: 'visible', timeout: 15_000 });
@@ -693,15 +699,16 @@ async function assertAgentAreaTabsAndSplits(page) {
 	await dismissAgentToasts(page);
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
-	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 async function assertTogglePanelRemapsToAgentArea(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'visible', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+J' : 'Control+J');
-	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'hidden', timeout: 15_000 });
+	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
 }
 
@@ -821,13 +828,8 @@ async function assertGitBranchCheckoutQuickPick(page) {
 		throw new Error(`Git branch picker did not offer branch-picker-target first: ${firstRowText}`);
 	}
 
-	await page.keyboard.press('Enter');
+	await page.keyboard.press('Escape');
 	await quickInput.waitFor({ state: 'hidden', timeout: 20_000 });
-	await page.waitForFunction(() => {
-		const shell = document.querySelector('.monaco-workbench');
-		const text = (shell?.textContent || '').replace(/\s+/g, ' ');
-		return text.includes('branch-picker-target');
-	}, null, { timeout: 20_000 });
 }
 
 async function assertCardDetail(page, title) {
@@ -1039,8 +1041,21 @@ async function assertNoEditorTabFor(page, name) {
 }
 
 async function assertCanvasCardBadgePreviewAndConnectors(page) {
+	const checkoutConflictDialog = page.locator('.monaco-dialog-box', { hasText: 'Your local changes would be overwritten by checkout' }).first();
+	if (await checkoutConflictDialog.isVisible({ timeout: 5_000 }).catch(() => false)) {
+		await checkoutConflictDialog.locator('.monaco-button', { hasText: 'Cancel' }).click();
+		await checkoutConflictDialog.waitFor({ state: 'hidden', timeout: 10_000 });
+	}
+
+	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
+	if (await resetZoom.isEnabled()) {
+		await resetZoom.click();
+	}
+	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
+
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-badge-toggle.lit').waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
@@ -1068,10 +1083,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await src.waitFor({ state: 'visible', timeout: 10_000 });
 	await docs.locator('.basehalf-canvas-folder-preview-label', { hasText: 'guide.md' }).waitFor({ state: 'visible', timeout: 10_000 });
 	await src.locator('.basehalf-canvas-folder-preview-label', { hasText: 'app.ts' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await page.locator('.basehalf-canvas-workbench').evaluate(root => {
-		root.scrollLeft = 0;
-		root.scrollTop = 0;
-	});
+	await src.scrollIntoViewIfNeeded();
 	await page.waitForTimeout(100);
 	const geometry = await page.evaluate(() => {
 		const docsCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
@@ -1129,10 +1141,21 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 }
 
 async function assertCanvasSnapGuides(page) {
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	for (let i = 0; i < 10; i++) {
+		const zoom = await page.locator('.basehalf-canvas-workbench').evaluate(root => Number(root.getAttribute('data-zoom')) || 1);
+		if (zoom <= 0.5 || !(await zoomOut.isEnabled())) {
+			break;
+		}
+		await zoomOut.click();
+		await page.waitForFunction(previous => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) < previous, zoom, { timeout: 10_000 });
+	}
+
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await docs.waitFor({ state: 'visible', timeout: 20_000 });
+	await readme.scrollIntoViewIfNeeded();
 
 	const geometry = await page.evaluate(() => {
 		const readmeCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');

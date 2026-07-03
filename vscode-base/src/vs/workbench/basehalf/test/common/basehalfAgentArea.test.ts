@@ -17,6 +17,7 @@ import {
 	BASEHALF_AGENT_SESSION_CHOICES,
 	type BaseHalfAgentSessionState,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
+	BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS,
 	BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
 	BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS,
 	baseHalfAgentSessionChoiceForKind,
@@ -98,9 +99,22 @@ suite('BaseHalfAgentArea', () => {
 		assert.deepStrictEqual(codex.extensionViewContainerIds, ['workbench.view.extension.codexSecondaryViewContainer', 'workbench.view.extension.codexViewContainer']);
 		assert.deepStrictEqual(codex.extensionViewIds, ['chatgpt.sidebarSecondaryView', 'chatgpt.sidebarView']);
 		assert.deepStrictEqual(claude.extensionViewContainerIds, ['workbench.view.extension.claude-sidebar-secondary', 'workbench.view.extension.claude-sidebar']);
+		assert.deepStrictEqual(claude.extensionCanonicalViewContainerIds, ['workbench.view.extension.claude-sessions-sidebar']);
 		assert.deepStrictEqual(claude.extensionViewIds, ['claudeVSCodeSidebarSecondary', 'claudeVSCodeSidebar']);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(codex.requiresExtensionSlot), true);
 		assert.strictEqual(isBaseHalfAgentExtensionSlot(claude.requiresExtensionSlot), true);
+	});
+
+	test('closes every native agent extension container outside the Agent Area', () => {
+		for (const id of [
+			'workbench.view.extension.codexSecondaryViewContainer',
+			'workbench.view.extension.codexViewContainer',
+			'workbench.view.extension.claude-sidebar-secondary',
+			'workbench.view.extension.claude-sidebar',
+			'workbench.view.extension.claude-sessions-sidebar'
+		]) {
+			assert.ok(BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS.includes(id), id);
+		}
 	});
 
 	test('exposes all five first-class Agent Area session choices in the product UI', () => {

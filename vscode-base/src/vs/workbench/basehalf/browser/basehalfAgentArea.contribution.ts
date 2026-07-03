@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './media/basehalfAgentArea.css';
+import './basehalfAgentAreaView.js';
 
 import { $, append, clearNode, Dimension, trackFocus } from '../../../base/browser/dom.js';
 import { mainWindow } from '../../../base/browser/window.js';
@@ -14,7 +15,7 @@ import { IDisposable, Disposable, DisposableStore, toDisposable } from '../../..
 import { isMacintosh } from '../../../base/common/platform.js';
 import { isObject } from '../../../base/common/types.js';
 import { localize2 } from '../../../nls.js';
-import { Action2, MenuId, registerAction2 } from '../../../platform/actions/common/actions.js';
+import { Action2, registerAction2 } from '../../../platform/actions/common/actions.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
@@ -24,13 +25,13 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../platform/workspace/common/workspaceTrust.js';
+import { IViewsService } from '../../services/views/common/viewsService.js';
 import { type IShellLaunchConfig, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IViewDescriptorService } from '../../common/views.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
-import { ActivationKind, IExtensionService } from '../../services/extensions/common/extensions.js';
+import { IExtensionService } from '../../services/extensions/common/extensions.js';
 import { TerminalCommandId } from '../../contrib/terminal/common/terminal.js';
 import { ICreateTerminalOptions, ITerminalInstance, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
 import { ViewPaneContainer } from '../../browser/parts/views/viewPaneContainer.js';
@@ -59,6 +60,8 @@ import {
 	BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID,
 	BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS,
 	BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID,
+	BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BaseHalfAgentSessionKind,
 	BaseHalfAgentSessionState,
@@ -117,8 +120,6 @@ import { BaseHalfSetting, normalizeBaseHalfAgentDefaultSession } from '../common
 
 export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean>('basehalfAgentAreaFocused', false);
 
-const AGENT_AREA_WIDTH_STORAGE_KEY = 'basehalf.agentArea.width';
-const AGENT_AREA_MIN_WIDTH = 280;
 const CLOSE_GRACE_MS = 6000;
 const RESIZE_HUD_MS = 750;
 const DIVIDER_MIN_PANE_PX = 48;
@@ -182,9 +183,10 @@ class BaseHalfViewContainerExtensionAgentProvider implements IBaseHalfExtensionA
 			throw new BaseHalfExtensionAgentUnavailableError(`${choice.extensionId} is not installed or enabled.`);
 		}
 
-		for (const viewId of choice.extensionViewIds ?? []) {
-			await this.extensionService.activateByEvent(`onView:${viewId}`, ActivationKind.Immediate);
-		}
+		// Activate the extension so it registers its webview view provider, but do
+		// NOT fire onView activation: that would reveal the view in its canonical
+		// container, whose pane would steal the single webview instance from the
+		// Agent Area pane.
 		await this.extensionService.activateById(new ExtensionIdentifier(choice.extensionId), {
 			startup: false,
 			extensionId: new ExtensionIdentifier(choice.extensionId),
@@ -293,7 +295,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private readonly _onDidChangeSessions = this._register(new Emitter<readonly IBaseHalfAgentAreaSession[]>());
 	readonly onDidChangeSessions: Event<readonly IBaseHalfAgentAreaSession[]> = this._onDidChangeSessions.event;
 
-	private readonly editorContainer: HTMLElement;
 	private readonly root: HTMLElement;
 	private readonly tabsBar: HTMLElement;
 	private readonly tabStrip: HTMLElement;
@@ -312,7 +313,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private readonly extensionProviders = new Map<BaseHalfExtensionAgentSessionKind, IBaseHalfExtensionAgentProvider>();
 	private readonly graceTimers = new Map<string, number>();
 
-	private _visible = false;
 	private editingTabId: string | undefined;
 	private editingDraft = '';
 	private tabDragId: string | undefined;
@@ -328,9 +328,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@ILogService private readonly logService: ILogService,
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
-		@IStorageService private readonly storageService: IStorageService,
 		@IWorkspaceTrustManagementService private readonly workspaceTrustManagementService: IWorkspaceTrustManagementService,
 		@IWorkspaceTrustRequestService private readonly workspaceTrustRequestService: IWorkspaceTrustRequestService,
+		@IViewsService private readonly viewsService: IViewsService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
 		super();
@@ -339,28 +339,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this._register(this.registerExtensionAgentProvider('extension-codex', extensionAgentProvider));
 		this._register(this.registerExtensionAgentProvider('extension-claude', extensionAgentProvider));
 
-		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
-		if (!editorContainer) {
-			throw new Error('BaseHalf Agent Area requires the main editor part container.');
-		}
-		this.editorContainer = editorContainer;
-
-		editorContainer.classList.add('basehalf-agent-area-host');
-		this.restoreAreaWidth();
+		// The chrome is built detached; the Agent Area view pane (auxiliary bar)
+		// adopts it via mountIn() when the part materializes.
 		this.root = $('.basehalf-agent-area');
 		this.root.setAttribute('aria-label', 'BaseHalf Agent Area');
-		this.root.setAttribute('aria-hidden', 'true');
-
-		this.createAreaSash();
-
-		const header = append(this.root, $('.basehalf-agent-area-header'));
-		const title = append(header, $('.basehalf-agent-area-title'));
-		title.textContent = 'AGENT';
-		const hide = append(header, $('button.basehalf-agent-area-icon.codicon.codicon-chevron-right')) as HTMLButtonElement;
-		hide.type = 'button';
-		hide.title = 'Hide Agent Area';
-		hide.setAttribute('aria-label', 'Hide Agent Area');
-		hide.addEventListener('click', () => this.hide());
 
 		this.tabsBar = append(this.root, $('.basehalf-agent-area-tabs'));
 		const tabsBar = this.tabsBar;
@@ -413,7 +395,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this.zoomBadge.textContent = 'zoomed · ⌘⇧↵';
 		this.toasts = append(this.root, $('.basehalf-agent-toasts'));
 
-		editorContainer.appendChild(this.root);
 		this.resizeObserver = new mainWindow.ResizeObserver(() => this.layoutVisiblePanes());
 		this.resizeObserver.observe(this.body);
 
@@ -428,6 +409,25 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			this.root.classList.remove('focused');
 		}));
 
+		// Visibility belongs to the auxiliary bar part: the grid shows/hides the
+		// area, we just mirror the state for sessions and listeners.
+		this._register(this.layoutService.onDidChangePartVisibility(event => {
+			if (event.partId === Parts.AUXILIARYBAR_PART) {
+				this.render();
+				this._onDidChangeVisibility.fire(event.visible);
+			}
+		}));
+
+		// The curated extensions' canonical containers are not product surfaces;
+		// if one opens (extension-triggered reveal), the workbench profile guard
+		// closes it — its pane steals the single webview instance on the way, so
+		// re-assert the Agent Area pane's claim once it is gone.
+		this._register(this.viewsService.onDidChangeViewContainerVisibility(event => {
+			if (!event.visible && BASEHALF_AGENT_EXTENSION_CANONICAL_VIEW_CONTAINER_IDS.includes(event.id)) {
+				this.reassertExtensionClaims();
+			}
+		}));
+
 		this._register(toDisposable(() => {
 			this.resizeObserver.disconnect();
 			for (const key of [...this.graceTimers.keys()]) {
@@ -438,14 +438,18 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				this.disposeRuntimeSession(session, false);
 			}
 			this.root.remove();
-			editorContainer.classList.remove('basehalf-agent-area-host', 'basehalf-agent-area-visible');
 		}));
+	}
+
+	mountIn(container: HTMLElement): void {
+		container.appendChild(this.root);
+		this.render();
 	}
 
 	// ── Public state ───────────────────────────────────────────────────────────
 
 	get visible(): boolean {
-		return this._visible;
+		return this.layoutService.isVisible(Parts.AUXILIARYBAR_PART);
 	}
 
 	get sessions(): readonly IBaseHalfAgentAreaSession[] {
@@ -471,14 +475,9 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	// ── Visibility ─────────────────────────────────────────────────────────────
 
 	async show(preserveFocus = false): Promise<void> {
-		if (!this._visible) {
-			this._visible = true;
-			this.root.classList.add('visible');
-			this.root.setAttribute('aria-hidden', 'false');
-			this.root.parentElement?.classList.add('basehalf-agent-area-visible');
-			this._onDidChangeVisibility.fire(true);
-		}
-
+		// Opening the Agent Area view container reveals the auxiliary bar part
+		// and materializes the view pane, which adopts the chrome via mountIn().
+		await this.viewsService.openViewContainer(BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, false);
 		this.render();
 		if (!preserveFocus) {
 			await this.focusActivePane();
@@ -486,20 +485,16 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	hide(): void {
-		if (!this._visible) {
+		if (!this.visible) {
 			return;
 		}
 
-		this._visible = false;
-		this.root.classList.remove('visible');
-		this.root.setAttribute('aria-hidden', 'true');
-		this.root.parentElement?.classList.remove('basehalf-agent-area-visible');
+		this.layoutService.setPartHidden(true, Parts.AUXILIARYBAR_PART);
 		this.render();
-		this._onDidChangeVisibility.fire(false);
 	}
 
 	async toggle(preserveFocus = false): Promise<void> {
-		if (this._visible) {
+		if (this.visible) {
 			this.hide();
 			return;
 		}
@@ -869,6 +864,21 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		await this.show(true);
 		await this.initializeExtensionPane(session);
 		return this.snapshotSession(session);
+	}
+
+	/**
+	 * A canonical extension container briefly opened and closed again (its pane
+	 * steals the single webview instance while visible). Cycle visibility on the
+	 * Agent Area's ready extension panes so their view panes re-claim.
+	 */
+	private reassertExtensionClaims(): void {
+		for (const session of this.runtime.values()) {
+			if (session.extensionSetVisible && session.state === 'ready' && session.host.classList.contains('active')) {
+				session.extensionSetVisible(false);
+				session.extensionSetVisible(true);
+				session.extensionLayout?.();
+			}
+		}
 	}
 
 	private async initializeExtensionPane(session: IBaseHalfRuntimeAgentSession): Promise<void> {
@@ -1367,7 +1377,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			const inActiveTab = !!owner && owner.id === state.activeTabId;
 			const isZoomed = inActiveTab && zoomedPaneId === session.id;
 			const rect = inActiveTab ? rects.get(session.id) : undefined;
-			const visible = this._visible && inActiveTab && (!zoomedPaneId || isZoomed) && (!!rect || isZoomed);
+			const visible = this.visible && inActiveTab && (!zoomedPaneId || isZoomed) && (!!rect || isZoomed);
 
 			session.host.classList.toggle('active', visible);
 			session.host.setAttribute('aria-hidden', String(!visible));
@@ -1399,13 +1409,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			}
 		}
 
-		this.zoomBadge.classList.toggle('visible', this._visible && !!zoomedPaneId);
+		this.zoomBadge.classList.toggle('visible', this.visible && !!zoomedPaneId);
 	}
 
 	private renderDividers(): void {
 		clearNode(this.dividersLayer);
 		const activeTab = activeAgentTab(this.tabsState);
-		if (!this._visible || !activeTab || activeTab.zoomedPaneId || activeTab.tree.type === 'leaf') {
+		if (!this.visible || !activeTab || activeTab.zoomedPaneId || activeTab.tree.type === 'leaf') {
 			return;
 		}
 
@@ -1502,10 +1512,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		}, RESIZE_HUD_MS);
 	}
 
-	private async focusActivePane(): Promise<void> {
+	async focusActivePane(): Promise<void> {
 		const activeTab = activeAgentTab(this.tabsState);
 		const session = activeTab ? this.runtime.get(activeTab.activePaneId) : undefined;
-		if (!this._visible || !session) {
+		if (!this.visible || !session) {
 			return;
 		}
 
@@ -1528,7 +1538,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	private layoutVisiblePanes(): void {
-		if (!this._visible) {
+		if (!this.visible) {
 			return;
 		}
 		for (const session of this.runtime.values()) {
@@ -1621,51 +1631,6 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.host.classList.remove('has-state');
 		session.statePrimaryAction = undefined;
 		clearNode(session.statePanel);
-	}
-
-	// ── Area width sash ────────────────────────────────────────────────────────
-
-	private restoreAreaWidth(): void {
-		const stored = this.storageService.getNumber(AGENT_AREA_WIDTH_STORAGE_KEY, StorageScope.PROFILE);
-		if (stored !== undefined) {
-			this.applyAreaWidth(stored);
-		}
-	}
-
-	private applyAreaWidth(width: number): number {
-		const max = Math.max(AGENT_AREA_MIN_WIDTH, Math.floor(mainWindow.innerWidth * 0.7));
-		const clamped = Math.max(AGENT_AREA_MIN_WIDTH, Math.min(max, Math.round(width)));
-		this.editorContainer.style.setProperty('--basehalf-agent-area-width', `${clamped}px`);
-		return clamped;
-	}
-
-	private createAreaSash(): void {
-		const sash = append(this.root, $('.basehalf-agent-area-sash'));
-		sash.title = 'Drag to resize';
-		sash.addEventListener('mousedown', e => {
-			e.preventDefault();
-			sash.classList.add('dragging');
-			const startX = e.clientX;
-			const startWidth = this.root.getBoundingClientRect().width;
-			const doc = mainWindow.document;
-			let lastWidth = startWidth;
-			const onMove = (ev: MouseEvent) => {
-				lastWidth = this.applyAreaWidth(startWidth - (ev.clientX - startX));
-				this.layoutVisiblePanes();
-			};
-			const onUp = () => {
-				sash.classList.remove('dragging');
-				doc.removeEventListener('mousemove', onMove);
-				doc.removeEventListener('mouseup', onUp);
-				doc.body.style.cursor = '';
-				doc.body.style.userSelect = '';
-				this.storageService.store(AGENT_AREA_WIDTH_STORAGE_KEY, Math.round(lastWidth), StorageScope.PROFILE, StorageTarget.USER);
-			};
-			doc.addEventListener('mousemove', onMove);
-			doc.addEventListener('mouseup', onUp);
-			doc.body.style.cursor = 'col-resize';
-			doc.body.style.userSelect = 'none';
-		});
 	}
 
 	// ── Terminal plumbing ──────────────────────────────────────────────────────
@@ -1845,8 +1810,7 @@ registerAction2(class BaseHalfToggleTerminalAgentAreaAction extends Action2 {
 				primary: KeyMod.CtrlCmd | KeyCode.Backquote,
 				mac: { primary: KeyMod.WinCtrl | KeyCode.Backquote },
 				weight: KeybindingWeight.WorkbenchContrib
-			},
-			menu: [{ id: MenuId.CommandPalette }]
+			}
 		});
 	}
 
@@ -1861,8 +1825,7 @@ registerAction2(class BaseHalfToggleAgentAreaAction extends Action2 {
 			id: BASEHALF_AGENT_AREA_TOGGLE_COMMAND_ID,
 			title: localize2('basehalf.toggleAgentArea', 'Toggle Agent Area'),
 			category: localize2('basehalf.category', 'BaseHalf'),
-			f1: true,
-			menu: [{ id: MenuId.CommandPalette }]
+			f1: true
 		});
 	}
 
@@ -1877,8 +1840,7 @@ registerAction2(class BaseHalfRestartActiveAgentSessionAction extends Action2 {
 			id: BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID,
 			title: localize2('basehalf.restartActiveAgentAreaSession', 'Restart Active Agent Area Session'),
 			category: localize2('basehalf.category', 'BaseHalf'),
-			f1: true,
-			menu: [{ id: MenuId.CommandPalette }]
+			f1: true
 		});
 	}
 
@@ -1894,8 +1856,7 @@ registerAction2(class BaseHalfKillActiveAgentSessionAction extends Action2 {
 			id: BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID,
 			title: localize2('basehalf.killActiveAgentAreaSession', 'Kill Active Agent Area Session'),
 			category: localize2('basehalf.category', 'BaseHalf'),
-			f1: true,
-			menu: [{ id: MenuId.CommandPalette }]
+			f1: true
 		});
 	}
 
@@ -1912,8 +1873,7 @@ function registerCreateAgentSessionAction(id: string, kind: BaseHalfAgentSession
 				id,
 				title: actionTitle(title),
 				category: localize2('basehalf.category', 'BaseHalf'),
-				f1: true,
-				menu: [{ id: MenuId.CommandPalette }]
+				f1: true
 			});
 		}
 
@@ -1993,8 +1953,7 @@ function registerAgentPaneAction(spec: IBaseHalfAgentPaneActionSpec): void {
 					primary: spec.primary,
 					when: AGENT_AREA_WHEN,
 					weight: AGENT_KEYBINDING_WEIGHT
-				},
-				menu: [{ id: MenuId.CommandPalette }]
+				}
 			});
 		}
 
