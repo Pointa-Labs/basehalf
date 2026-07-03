@@ -29,6 +29,8 @@ import {
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	BASEHALF_CANVAS_MIN_CARD_HEIGHT,
+	BASEHALF_CANVAS_MIN_CARD_WIDTH,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
@@ -44,6 +46,12 @@ import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdown
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
+import {
+	IBaseHalfCanvasSnapGuide,
+	IBaseHalfCanvasSnapRect,
+	snapBaseHalfCanvasResizeRect,
+	snapBaseHalfCanvasTranslateRect
+} from '../common/basehalfCanvasSnap.js';
 
 type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
@@ -108,6 +116,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly zoomValue: HTMLElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
+	private snapGuides: SVGSVGElement | undefined;
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
@@ -306,6 +315,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderQueuedBehindGesture = false;
 
 		const seq = ++this.renderSeq;
+		this.clearSnapGuides();
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
@@ -932,12 +942,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private updateCardDragPosition(drag: BaseHalfCanvasCardDrag, clientX: number, clientY: number): void {
 		const point = this.canvasPointFromClient(clientX, clientY);
-		drag.latest = {
+		const draft = {
 			...drag.origin,
 			x: roundCanvasPosition(point.x - drag.grab.x),
 			y: roundCanvasPosition(point.y - drag.grab.y)
 		};
+		const snapped = this.snapCardTranslate(drag.item.path, draft);
+		drag.latest = snapped.rect;
 		this.applyCardBounds(drag.card, drag.latest);
+		this.renderSnapGuides(snapped.guides);
 	}
 
 	private onCardPointerUp(event: PointerEvent): void {
@@ -948,6 +961,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.activeCardDrag = undefined;
 		this.stopDragAutoPan();
+		this.clearSnapGuides();
 		drag.card.classList.remove('dragging');
 		if (drag.card.hasPointerCapture(event.pointerId)) {
 			drag.card.releasePointerCapture(event.pointerId);
@@ -988,6 +1002,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.activeCardDrag = undefined;
 		this.stopDragAutoPan();
+		this.clearSnapGuides();
 		drag.card.classList.remove('dragging');
 		this.applyCardBounds(drag.card, drag.origin);
 		if (drag.card.hasPointerCapture(event.pointerId)) {
@@ -1041,10 +1056,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private updateResizeDragBounds(drag: BaseHalfCanvasResizeDrag, clientX: number, clientY: number): void {
 		const point = this.canvasPointFromClient(clientX, clientY);
-		drag.latest = resizeBounds(drag.origin, drag.edge, point.x - drag.startPoint.x, point.y - drag.startPoint.y);
+		const draft = resizeBounds(drag.origin, drag.edge, point.x - drag.startPoint.x, point.y - drag.startPoint.y);
+		const snapped = this.snapCardResize(drag.item.path, drag.origin, draft);
+		drag.latest = snapped.rect;
 		this.applyCardBounds(drag.card, drag.latest);
 		drag.card.dataset.cardHeight = String(drag.latest.height);
 		drag.card.dataset.lod = this.cardLod(drag.latest);
+		this.renderSnapGuides(snapped.guides);
 	}
 
 	private onResizePointerUp(event: PointerEvent): void {
@@ -1055,6 +1073,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.activeResizeDrag = undefined;
 		this.stopDragAutoPan();
+		this.clearSnapGuides();
 		drag.card.classList.remove('resizing');
 		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
 			event.target.releasePointerCapture(event.pointerId);
@@ -1093,6 +1112,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.activeResizeDrag = undefined;
 		this.stopDragAutoPan();
+		this.clearSnapGuides();
 		drag.card.classList.remove('resizing');
 		this.applyCardBounds(drag.card, drag.origin);
 		drag.card.dataset.cardHeight = String(drag.origin.height);
@@ -1290,6 +1310,97 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}
 		return best ? { item: best.item, anchor: best.anchor } : undefined;
+	}
+
+	private snapCardTranslate(path: string, draft: IBaseHalfCanvasBounds): { readonly rect: IBaseHalfCanvasSnapRect; readonly guides: readonly IBaseHalfCanvasSnapGuide[] } {
+		const targets = this.snapTargets(path);
+		const rect = snapRect(path, draft);
+		if (targets.length === 0) {
+			return { rect, guides: [] };
+		}
+		return snapBaseHalfCanvasTranslateRect(rect, targets, this.snapThreshold());
+	}
+
+	private snapCardResize(path: string, before: IBaseHalfCanvasBounds, draft: IBaseHalfCanvasBounds): { readonly rect: IBaseHalfCanvasSnapRect; readonly guides: readonly IBaseHalfCanvasSnapGuide[] } {
+		const targets = this.snapTargets(path);
+		const rect = snapRect(path, draft);
+		if (targets.length === 0) {
+			return { rect, guides: [] };
+		}
+		return snapBaseHalfCanvasResizeRect(snapRect(path, before), rect, targets, this.snapThreshold(), {
+			minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
+			minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT
+		});
+	}
+
+	private snapTargets(excludedPath: string): readonly IBaseHalfCanvasSnapRect[] {
+		const targets: IBaseHalfCanvasSnapRect[] = [];
+		for (const [path, bounds] of this.renderedBoundsByPath) {
+			if (path !== excludedPath) {
+				targets.push(snapRect(path, bounds));
+			}
+		}
+		return targets;
+	}
+
+	private snapThreshold(): number {
+		return BASEHALF_CANVAS_SNAP_SCREEN_THRESHOLD / Math.max(BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD, this.canvasZoom);
+	}
+
+	private renderSnapGuides(guides: readonly IBaseHalfCanvasSnapGuide[]): void {
+		if (guides.length === 0) {
+			this.clearSnapGuides();
+			return;
+		}
+
+		const width = Number.parseFloat(this.cards.style.width) || this.cards.scrollWidth || this.root.clientWidth;
+		const height = Number.parseFloat(this.cards.style.height) || this.cards.scrollHeight || this.root.clientHeight;
+		const svg = this.ensureSnapGuidesSvg(width, height);
+		while (svg.firstChild) {
+			svg.firstChild.remove();
+		}
+
+		const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD, this.canvasZoom);
+		const thickness = 1 / zoom;
+		const pad = 10 / zoom;
+		const dash = 5 / zoom;
+		const gap = 5 / zoom;
+		for (const guide of guides) {
+			const line = $.SVG('line') as SVGLineElement;
+			line.classList.add('basehalf-canvas-snap-guide-line');
+			line.dataset.testid = 'canvas-snap-guide';
+			line.setAttribute('stroke-width', String(thickness));
+			line.setAttribute('stroke-dasharray', `${dash} ${gap}`);
+			if (guide.orientation === 'vertical') {
+				line.setAttribute('x1', String(guide.x));
+				line.setAttribute('x2', String(guide.x));
+				line.setAttribute('y1', String(guide.y1 - pad));
+				line.setAttribute('y2', String(guide.y2 + pad));
+			} else {
+				line.setAttribute('x1', String(guide.x1 - pad));
+				line.setAttribute('x2', String(guide.x2 + pad));
+				line.setAttribute('y1', String(guide.y));
+				line.setAttribute('y2', String(guide.y));
+			}
+			svg.appendChild(line);
+		}
+	}
+
+	private ensureSnapGuidesSvg(width: number, height: number): SVGSVGElement {
+		if (!this.snapGuides?.isConnected) {
+			this.snapGuides = append(this.cards, $.SVG('svg')) as SVGSVGElement;
+			this.snapGuides.classList.add('basehalf-canvas-snap-guides');
+			this.snapGuides.setAttribute('aria-hidden', 'true');
+		}
+		this.snapGuides.setAttribute('width', `${width}`);
+		this.snapGuides.setAttribute('height', `${height}`);
+		this.snapGuides.setAttribute('viewBox', `0 0 ${width} ${height}`);
+		return this.snapGuides;
+	}
+
+	private clearSnapGuides(): void {
+		this.snapGuides?.remove();
+		this.snapGuides = undefined;
 	}
 
 	private applyCardBounds(card: HTMLElement, bounds: IBaseHalfCanvasBounds): void {
@@ -2068,8 +2179,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private canvasViewport(): BaseHalfCanvasViewport {
-		const top = this.canvasViewportTopInset();
-		const bottomInset = CANVAS_VIEWPORT_BOTTOM_INSET_PX;
+		const top = CANVAS_VIEWPORT_TOP_INSET_PX;
+		const bottomInset = this.canvasViewportBottomInset();
 		const width = Math.max(1, this.root.clientWidth);
 		const height = Math.max(1, this.root.clientHeight - top - bottomInset);
 		return {
@@ -2084,15 +2195,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
-	private canvasViewportTopInset(): number {
+	private canvasViewportBottomInset(): number {
 		const controls = this.chrome.querySelector<HTMLElement>('.basehalf-canvas-zoom-controls');
 		if (!controls) {
-			return CANVAS_VIEWPORT_TOP_INSET_PX;
+			return CANVAS_VIEWPORT_BOTTOM_INSET_PX;
 		}
 
 		const rootRect = this.root.getBoundingClientRect();
 		const controlsRect = controls.getBoundingClientRect();
-		return Math.max(CANVAS_VIEWPORT_TOP_INSET_PX, Math.ceil(controlsRect.bottom - rootRect.top + CANVAS_VIEWPORT_CHROME_GAP_PX));
+		return Math.max(CANVAS_VIEWPORT_BOTTOM_INSET_PX, Math.ceil(rootRect.bottom - controlsRect.top + CANVAS_VIEWPORT_CHROME_GAP_PX));
 	}
 
 	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
@@ -2533,13 +2644,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
 
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
-const CANVAS_VIEWPORT_TOP_INSET_PX = 48;
+const CANVAS_VIEWPORT_TOP_INSET_PX = 24;
 const CANVAS_VIEWPORT_BOTTOM_INSET_PX = 24;
 const CANVAS_VIEWPORT_CHROME_GAP_PX = 16;
 const CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX = 18;
 const CANVAS_DRAG_AUTO_PAN_BAND_PX = 8;
 const CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX = 24;
 const CANVAS_DRAG_AUTO_PAN_RATE = 0.35;
+const BASEHALF_CANVAS_SNAP_SCREEN_THRESHOLD = 5;
+const BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD = 0.2;
 const BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY = 250;
 const BASEHALF_CANVAS_WHEEL_DELTA_LIMIT = 30;
 // Matches the trackpad pinch convention (scale ~= exp(-deltaY / 100)), so the canvas
@@ -2550,6 +2663,16 @@ const BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX = 800;
 
 function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
+}
+
+function snapRect(id: string, bounds: IBaseHalfCanvasBounds): IBaseHalfCanvasSnapRect {
+	return {
+		id,
+		x: bounds.x,
+		y: bounds.y,
+		width: bounds.width,
+		height: bounds.height
+	};
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -2760,17 +2883,17 @@ function resizeBounds(origin: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeE
 		y = origin.y + dy;
 	}
 
-	if (width < 140) {
+	if (width < BASEHALF_CANVAS_MIN_CARD_WIDTH) {
 		if (edge.includes('west')) {
-			x -= 140 - width;
+			x -= BASEHALF_CANVAS_MIN_CARD_WIDTH - width;
 		}
-		width = 140;
+		width = BASEHALF_CANVAS_MIN_CARD_WIDTH;
 	}
-	if (height < 48) {
+	if (height < BASEHALF_CANVAS_MIN_CARD_HEIGHT) {
 		if (edge.includes('north')) {
-			y -= 48 - height;
+			y -= BASEHALF_CANVAS_MIN_CARD_HEIGHT - height;
 		}
-		height = 48;
+		height = BASEHALF_CANVAS_MIN_CARD_HEIGHT;
 	}
 	return {
 		x: roundCanvasPosition(x),

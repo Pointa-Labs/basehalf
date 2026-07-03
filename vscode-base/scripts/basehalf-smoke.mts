@@ -99,6 +99,7 @@ try {
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
 	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
@@ -164,6 +165,7 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
+			'canvas-snap-guides',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-editor',
 			'markdown-rich-blockquote-editable',
@@ -839,6 +841,38 @@ async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
 
 async function assertCanvasZoomControls(page) {
 	await page.locator('.basehalf-canvas-card').first().click();
+	const stableChrome = await page.locator('.basehalf-canvas-workbench').evaluate(root => {
+		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
+		if (!(root instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
+			throw new Error('Missing canvas zoom controls');
+		}
+
+		const originalLeft = root.scrollLeft;
+		const originalTop = root.scrollTop;
+		root.scrollLeft = 0;
+		root.scrollTop = 0;
+		const rootRect = root.getBoundingClientRect();
+		const before = controls.getBoundingClientRect();
+		root.scrollLeft = Math.min(Math.max(0, root.scrollWidth - root.clientWidth), 240);
+		root.scrollTop = Math.min(Math.max(0, root.scrollHeight - root.clientHeight), 180);
+		const after = controls.getBoundingClientRect();
+		root.scrollLeft = originalLeft;
+		root.scrollTop = originalTop;
+		return {
+			dx: Math.abs(after.left - before.left),
+			dy: Math.abs(after.top - before.top),
+			rightGap: rootRect.right - before.right,
+			bottomGap: rootRect.bottom - before.bottom,
+			scrolledLeft: root.scrollWidth > root.clientWidth,
+			scrolledTop: root.scrollHeight > root.clientHeight
+		};
+	});
+	if ((stableChrome.scrolledLeft || stableChrome.scrolledTop) && (stableChrome.dx > 1 || stableChrome.dy > 1)) {
+		throw new Error(`Expected zoom controls to stay fixed while the canvas scrolls: ${JSON.stringify(stableChrome)}`);
+	}
+	if (stableChrome.rightGap < 4 || stableChrome.rightGap > 24 || stableChrome.bottomGap < 6 || stableChrome.bottomGap > 32) {
+		throw new Error(`Expected zoom controls to sit in the bottom-right of the canvas viewport: ${JSON.stringify(stableChrome)}`);
+	}
 	const initialZoom = await page.locator('.basehalf-canvas-workbench').evaluate(root => Number(root.getAttribute('data-zoom')));
 	const nextZoom = Number((initialZoom + 0.1).toFixed(4));
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
@@ -850,12 +884,14 @@ async function assertCanvasZoomControls(page) {
 	await page.waitForFunction(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const selected = document.querySelector('.basehalf-canvas-card.selected');
-		if (!(root instanceof HTMLElement) || !(selected instanceof HTMLElement)) {
+		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
+		if (!(root instanceof HTMLElement) || !(selected instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
 			return false;
 		}
 		const rootRect = root.getBoundingClientRect();
 		const selectedRect = selected.getBoundingClientRect();
-		return selectedRect.top - rootRect.top >= 44;
+		const controlsRect = controls.getBoundingClientRect();
+		return selectedRect.top - rootRect.top >= 38 && selectedRect.bottom <= controlsRect.top - 8;
 	}, null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
@@ -867,12 +903,14 @@ async function assertCanvasZoomControls(page) {
 	await page.waitForFunction(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs/guide.md"]');
-		if (!(root instanceof HTMLElement) || !(card instanceof HTMLElement)) {
+		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
+		if (!(root instanceof HTMLElement) || !(card instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
 			return false;
 		}
 		const rootRect = root.getBoundingClientRect();
 		const cardRect = card.getBoundingClientRect();
-		return cardRect.top - rootRect.top >= 44;
+		const controlsRect = controls.getBoundingClientRect();
+		return cardRect.top - rootRect.top >= 38 && cardRect.bottom <= controlsRect.top - 8;
 	}, null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
@@ -1027,6 +1065,79 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	}, 'canvas.yaml to persist a four-side edge');
 	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
 	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
+}
+
+async function assertCanvasSnapGuides(page) {
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	await readme.waitFor({ state: 'visible', timeout: 20_000 });
+	await docs.waitFor({ state: 'visible', timeout: 20_000 });
+
+	const geometry = await page.evaluate(() => {
+		const readmeCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const docsCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const root = document.querySelector('.basehalf-canvas-workbench');
+		if (!(readmeCard instanceof HTMLElement) || !(docsCard instanceof HTMLElement) || !(root instanceof HTMLElement)) {
+			return undefined;
+		}
+
+		const matrixFor = (element) => {
+			const transform = getComputedStyle(element).transform;
+			return transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
+		};
+		const readmeMatrix = matrixFor(readmeCard);
+		const docsMatrix = matrixFor(docsCard);
+		const readmeRect = readmeCard.getBoundingClientRect();
+		const rootRect = root.getBoundingClientRect();
+		const zoom = Number(root.getAttribute('data-zoom')) || 1;
+		const targetDraftX = docsMatrix.m41 + 3;
+		const startX = readmeRect.left + readmeRect.width / 2;
+		const startY = readmeRect.top + readmeRect.height / 2;
+		const endX = startX + (targetDraftX - readmeMatrix.m41) * zoom;
+		const endY = startY;
+		if (startX < rootRect.left || startX > rootRect.right || startY < rootRect.top || startY > rootRect.bottom) {
+			return undefined;
+		}
+
+		return {
+			startX,
+			startY,
+			endX,
+			endY,
+			expectedX: docsMatrix.m41,
+			draftX: targetDraftX,
+			initialX: readmeMatrix.m41,
+			zoom
+		};
+	});
+	if (!geometry) {
+		throw new Error('Missing visible canvas geometry for snap smoke');
+	}
+
+	await page.mouse.move(geometry.startX, geometry.startY);
+	await page.mouse.down();
+	await page.mouse.move(geometry.endX, geometry.endY, { steps: 14 });
+	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length > 0, null, { timeout: 10_000 });
+
+	const guides = await page.locator('[data-testid="canvas-snap-guide"]').evaluateAll(lines => lines.map(line => ({
+		x1: Number(line.getAttribute('x1')),
+		x2: Number(line.getAttribute('x2')),
+		y1: Number(line.getAttribute('y1')),
+		y2: Number(line.getAttribute('y2'))
+	})));
+	if (!guides.some(guide => Math.abs(guide.x1 - geometry.expectedX) <= 0.1 && Math.abs(guide.x2 - geometry.expectedX) <= 0.1 && guide.y2 > guide.y1)) {
+		throw new Error(`Expected a vertical snap guide at x=${geometry.expectedX}, got ${JSON.stringify(guides)}`);
+	}
+
+	await page.mouse.up();
+	await page.waitForFunction(() => document.querySelectorAll('[data-testid="canvas-snap-guide"]').length === 0, null, { timeout: 10_000 });
+
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	await waitUntil(() => {
+		const canvas = fs.readFileSync(canvasPath, 'utf8');
+		const savedX = readCanvasCardNumber(canvas, 'README.md', 'x');
+		return savedX !== undefined && Math.abs(savedX - geometry.expectedX) <= 0.1;
+	}, 'README.md card x to persist at the snapped docs x');
 }
 
 async function scrollCanvasWorkbenchForCardDetail(page) {
@@ -1415,6 +1526,15 @@ async function waitUntil(predicate, description, timeoutMs = 10_000) {
 		await new Promise(resolve => setTimeout(resolve, 100));
 	}
 	throw new Error(`Timed out waiting for ${description}`);
+}
+
+function readCanvasCardNumber(canvas, cardPath, field) {
+	const match = new RegExp(`- path: "${escapeRegExp(cardPath)}"[\\s\\S]*?\\n    ${escapeRegExp(field)}: (-?\\d+(?:\\.\\d+)?)`).exec(canvas);
+	return match ? Number(match[1]) : undefined;
+}
+
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function writeFailureArtifacts(error) {
