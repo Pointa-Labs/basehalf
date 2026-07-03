@@ -65,22 +65,20 @@
 	z-index: 0;
 	overflow: auto;
 	background-color: var(--vscode-editor-background);
+	/* The grid must cover the whole scrollable extent, not just the initial
+	   viewport rectangle, so it lives on the scroll container itself with
+	   background-attachment: local (tiles across the full scroll area and
+	   moves with the content, exactly like an absolutely positioned layer). */
+	background-image:
+		linear-gradient(to right, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px),
+		linear-gradient(to bottom, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px);
+	background-size: 32px 32px;
+	background-attachment: local;
 	color: var(--vscode-foreground);
 }
 
 .monaco-workbench .basehalf-canvas-workbench.basehalf-card-detail-open {
 	overflow: hidden;
-}
-
-.monaco-workbench .basehalf-canvas-workbench::before {
-	content: '';
-	position: absolute;
-	inset: 0;
-	pointer-events: none;
-	background-image:
-		linear-gradient(to right, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px),
-		linear-gradient(to bottom, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px);
-	background-size: 32px 32px;
 }
 
 .monaco-workbench .basehalf-canvas-chrome {
