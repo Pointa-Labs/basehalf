@@ -793,6 +793,13 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
 		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
+		const terminalHasBaseHalfColorTokens = !terminal || (() => {
+			const areaStyle = getComputedStyle(area);
+			return areaStyle.getPropertyValue('--vscode-terminal-background').trim().toLowerCase() === '#191a1b'
+				&& areaStyle.getPropertyValue('--vscode-terminal-foreground').trim().toLowerCase() === '#d6deeb'
+				&& areaStyle.getPropertyValue('--vscode-terminal-ansiBlue').trim().toLowerCase() === '#6cb6ff'
+				&& areaStyle.getPropertyValue('--vscode-terminal-ansiCyan').trim().toLowerCase() === '#56d4dd';
+		})();
 		const activeTab = area.querySelector('.basehalf-agent-tab.active');
 		const activeSurface = activeSession.querySelector('.basehalf-agent-session-surface');
 		const terminalPaletteClasses = ['terminal-palette-shell', 'terminal-palette-codex', 'terminal-palette-claude'];
@@ -812,6 +819,7 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
 			&& terminalHasThemeLine
+			&& terminalHasBaseHalfColorTokens
 			&& terminalHasPalette;
 	}, kind, { timeout: 15_000 });
 }

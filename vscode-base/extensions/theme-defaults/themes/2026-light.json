@@ -243,6 +243,7 @@
 		"quickInputList.focusHighlightForeground": "#FFFFFF",
 		"quickInputList.hoverBackground": "#F1F1F3",
 		"terminal.selectionBackground": "#0069CC26",
+		"terminal.foreground": "#202020",
 		"terminalCursor.foreground": "#202020",
 		"terminalCursor.background": "#FFFFFF",
 		"terminal.ansiBlack": "#202020",

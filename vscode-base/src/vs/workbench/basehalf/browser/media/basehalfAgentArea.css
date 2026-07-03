@@ -37,28 +37,28 @@
 .monaco-workbench .basehalf-agent-area.active-terminal-palette-shell,
 .monaco-workbench .basehalf-agent-area-session.terminal-palette-shell,
 .monaco-workbench .basehalf-agent-tab.terminal-palette-shell {
-	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiCyan, #56b6c2);
-	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
-	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #98c379);
-	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiCyan, #56b6c2);
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiCyan, #56d4dd);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #6cb6ff);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #73d99f);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiCyan, #56d4dd);
 }
 
 .monaco-workbench .basehalf-agent-area.active-terminal-palette-codex,
 .monaco-workbench .basehalf-agent-area-session.terminal-palette-codex,
 .monaco-workbench .basehalf-agent-tab.terminal-palette-codex {
-	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiBlue, #61afef);
-	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiMagenta, #c678dd);
-	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiCyan, #56b6c2);
-	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiBlue, #61afef);
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiBlue, #6cb6ff);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiMagenta, #d2a8ff);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiCyan, #56d4dd);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiBlue, #6cb6ff);
 }
 
 .monaco-workbench .basehalf-agent-area.active-terminal-palette-claude,
 .monaco-workbench .basehalf-agent-area-session.terminal-palette-claude,
 .monaco-workbench .basehalf-agent-tab.terminal-palette-claude {
-	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiYellow, #e5c07b);
-	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiRed, #e06c75);
-	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiMagenta, #c678dd);
-	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiYellow, #e5c07b);
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiYellow, #f1c87a);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiRed, #ff6b7a);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiMagenta, #d2a8ff);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiYellow, #f1c87a);
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-extension,
