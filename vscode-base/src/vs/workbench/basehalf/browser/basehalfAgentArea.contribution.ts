@@ -123,6 +123,12 @@ export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean
 const CLOSE_GRACE_MS = 6000;
 const RESIZE_HUD_MS = 750;
 const DIVIDER_MIN_PANE_PX = 48;
+const BASEHALF_AGENT_TERMINAL_PALETTE_CLASSES = ['terminal-palette-shell', 'terminal-palette-codex', 'terminal-palette-claude'] as const;
+const BASEHALF_AGENT_TERMINAL_COLOR_BY_KIND: Readonly<Partial<Record<BaseHalfAgentSessionKind, string>>> = {
+	terminal: 'terminal.ansiCyan',
+	'tui-codex': 'terminal.ansiBlue',
+	'tui-claude': 'terminal.ansiYellow'
+};
 
 interface IBaseHalfRuntimeAgentSession {
 	id: string;
@@ -1037,6 +1043,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.host.setAttribute('role', 'tabpanel');
 		session.host.setAttribute('aria-label', label);
 		session.host.classList.add(kind === 'extension-codex' || kind === 'extension-claude' ? 'kind-extension' : 'kind-terminal');
+		const paletteClass = this.terminalPaletteClass(kind);
+		if (paletteClass) {
+			session.host.classList.add(paletteClass);
+		}
 		session.dimOverlay.setAttribute('aria-hidden', 'true');
 		session.dropZone.appendChild(session.dropPreview);
 		session.disposables.add(toDisposable(() => session.host.remove()));
@@ -1161,6 +1171,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		this.root.classList.toggle('active-kind-terminal', terminal);
 		this.root.classList.toggle('active-kind-extension', extension);
 		this.root.classList.toggle('active-kind-empty', !terminal && !extension);
+		const activePaletteClass = this.terminalPaletteClass(activeKind);
+		for (const paletteClass of BASEHALF_AGENT_TERMINAL_PALETTE_CLASSES) {
+			this.root.classList.toggle(`active-${paletteClass}`, terminal && activePaletteClass === paletteClass);
+		}
 	}
 
 	private renderTabStrip(): void {
@@ -1183,10 +1197,16 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const activePane = this.runtime.get(tab.activePaneId);
 		const title = this.tabTitle(tab);
 		const attention = activePane?.state === 'unavailable' || activePane?.state === 'failed';
+		const terminalPaletteClass = this.terminalPaletteClass(activePane?.kind);
 
 		const el = $('.basehalf-agent-tab');
 		el.classList.toggle('active', active);
 		el.classList.toggle('unavailable', attention);
+		el.classList.toggle('kind-terminal', !!terminalPaletteClass);
+		el.classList.toggle('kind-extension', !!activePane && !terminalPaletteClass);
+		if (terminalPaletteClass) {
+			el.classList.add(terminalPaletteClass);
+		}
 		el.classList.toggle('drop-before', this.tabDropIndex === index);
 		el.classList.toggle('drop-after', this.tabDropIndex === state.tabs.length && index === state.tabs.length - 1);
 		el.setAttribute('role', 'tab');
@@ -1653,18 +1673,30 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private createTerminalOptions(kind: BaseHalfAgentSessionKind, label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
 		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind);
 		if (tuiConfig) {
-			return { config: { ...tuiConfig, name: label } };
+			return {
+				config: this.createAgentAreaTerminalConfig(label, {
+					...tuiConfig,
+					name: label,
+					color: this.terminalColorForKind(kind)
+				})
+			};
 		}
 
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
 		const terminalOptions: ICreateTerminalOptions = raw ? { ...raw } : {};
-		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config);
+		terminalOptions.config = this.createAgentAreaTerminalConfig(label, terminalOptions.config, kind);
 		return terminalOptions;
 	}
 
-	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config']): ICreateTerminalOptions['config'] {
+	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config'], kind: BaseHalfAgentSessionKind = 'terminal'): ICreateTerminalOptions['config'] {
+		const color = this.terminalColorForKind(kind);
 		if (!config) {
-			return { name: label, hideFromUser: true };
+			return {
+				name: label,
+				color,
+				env: this.agentAreaTerminalEnv(),
+				hideFromUser: true
+			};
 		}
 
 		if ('extensionIdentifier' in config) {
@@ -1676,10 +1708,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			return {
 				executable: profile.path,
 				args: profile.args,
-				env: profile.env,
 				icon: profile.icon,
-				color: profile.color,
+				color: profile.color ?? color,
 				name: profile.overrideName ? profile.profileName : label,
+				env: this.agentAreaTerminalEnv(profile.env),
 				hideFromUser: true
 			};
 		}
@@ -1688,8 +1720,36 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		return {
 			...shellLaunchConfig,
 			name: shellLaunchConfig.name ?? label,
+			color: shellLaunchConfig.color ?? color,
+			env: this.agentAreaTerminalEnv(shellLaunchConfig.env),
 			hideFromUser: true
 		};
+	}
+
+	private agentAreaTerminalEnv(env?: IShellLaunchConfig['env']): IShellLaunchConfig['env'] {
+		return {
+			CLICOLOR: '1',
+			COLORTERM: 'truecolor',
+			TERM_PROGRAM: 'BaseHalf',
+			...env
+		};
+	}
+
+	private terminalColorForKind(kind: BaseHalfAgentSessionKind): string | undefined {
+		return BASEHALF_AGENT_TERMINAL_COLOR_BY_KIND[kind];
+	}
+
+	private terminalPaletteClass(kind: BaseHalfAgentSessionKind | undefined): typeof BASEHALF_AGENT_TERMINAL_PALETTE_CLASSES[number] | undefined {
+		switch (kind) {
+			case 'terminal':
+				return 'terminal-palette-shell';
+			case 'tui-codex':
+				return 'terminal-palette-codex';
+			case 'tui-claude':
+				return 'terminal-palette-claude';
+			default:
+				return undefined;
+		}
 	}
 
 	private setActiveTerminalForVsCodeCompatibility(terminal: ITerminalInstance): void {

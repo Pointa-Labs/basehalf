@@ -18,6 +18,7 @@
 	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiMagenta, #c678dd);
 	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
 	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #98c379);
+	--basehalf-agent-terminal-accent-strong: var(--basehalf-agent-terminal-accent-mid);
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -31,6 +32,33 @@
 .monaco-workbench .basehalf-agent-area.active-kind-terminal {
 	color: var(--basehalf-agent-terminal-foreground);
 	background-color: var(--basehalf-agent-terminal-background);
+}
+
+.monaco-workbench .basehalf-agent-area.active-terminal-palette-shell,
+.monaco-workbench .basehalf-agent-area-session.terminal-palette-shell,
+.monaco-workbench .basehalf-agent-tab.terminal-palette-shell {
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiCyan, #56b6c2);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiGreen, #98c379);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiCyan, #56b6c2);
+}
+
+.monaco-workbench .basehalf-agent-area.active-terminal-palette-codex,
+.monaco-workbench .basehalf-agent-area-session.terminal-palette-codex,
+.monaco-workbench .basehalf-agent-tab.terminal-palette-codex {
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiBlue, #61afef);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiMagenta, #c678dd);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiCyan, #56b6c2);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiBlue, #61afef);
+}
+
+.monaco-workbench .basehalf-agent-area.active-terminal-palette-claude,
+.monaco-workbench .basehalf-agent-area-session.terminal-palette-claude,
+.monaco-workbench .basehalf-agent-tab.terminal-palette-claude {
+	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiYellow, #e5c07b);
+	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiRed, #e06c75);
+	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiMagenta, #c678dd);
+	--basehalf-agent-terminal-accent-strong: var(--vscode-terminal-ansiYellow, #e5c07b);
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-extension,
@@ -187,13 +215,43 @@
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-terminal-foreground);
-	background-color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 7%, var(--basehalf-agent-terminal-background));
+	background-color: color-mix(in srgb, var(--basehalf-agent-terminal-accent-strong) 14%, var(--basehalf-agent-terminal-background));
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-extension .basehalf-agent-tab.active,
 .monaco-workbench .basehalf-agent-area.active-kind-empty .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-extension-foreground);
 	background-color: var(--basehalf-agent-extension-background);
+}
+
+.monaco-workbench .basehalf-agent-tab.kind-terminal::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 7px;
+	bottom: 7px;
+	width: 2px;
+	border-radius: 0 2px 2px 0;
+	background:
+		linear-gradient(
+			180deg,
+			var(--basehalf-agent-terminal-accent-start),
+			var(--basehalf-agent-terminal-accent-mid),
+			var(--basehalf-agent-terminal-accent-end)
+		);
+	opacity: 0.72;
+}
+
+.monaco-workbench .basehalf-agent-tab.kind-terminal.active::before {
+	top: 4px;
+	bottom: 4px;
+	width: 3px;
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-agent-tab.kind-terminal .basehalf-agent-tab-shortcut {
+	color: var(--basehalf-agent-terminal-accent-strong);
+	opacity: 0.86;
 }
 
 .monaco-workbench .basehalf-agent-tab.unavailable {
@@ -440,6 +498,57 @@
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
 	inset: 10px 12px 8px 16px;
 	background-color: var(--basehalf-agent-pane-background);
+	box-shadow:
+		inset 0 0 0 1px color-mix(in srgb, var(--basehalf-agent-terminal-accent-strong) 24%, transparent),
+		inset 6px 0 0 color-mix(in srgb, var(--basehalf-agent-terminal-accent-strong) 50%, transparent);
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	pointer-events: none;
+	background:
+		linear-gradient(
+			90deg,
+			var(--basehalf-agent-terminal-accent-start),
+			var(--basehalf-agent-terminal-accent-mid) 48%,
+			var(--basehalf-agent-terminal-accent-end)
+		) top left / 100% 3px no-repeat,
+		linear-gradient(
+			180deg,
+			var(--basehalf-agent-terminal-accent-start),
+			var(--basehalf-agent-terminal-accent-mid) 44%,
+			var(--basehalf-agent-terminal-accent-end)
+		) top left / 5px 100% no-repeat;
+	opacity: 0.86;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 2;
+	pointer-events: none;
+	background:
+		linear-gradient(
+			115deg,
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 18%, transparent) 0%,
+			transparent 34%
+		),
+		linear-gradient(
+			245deg,
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 12%, transparent) 0%,
+			transparent 42%
+		),
+		linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 8%, transparent) 0%,
+			transparent 26%
+		);
+	mix-blend-mode: screen;
+	opacity: 0.58;
 }
 
 .monaco-workbench .basehalf-agent-area-session .terminal-wrapper {
