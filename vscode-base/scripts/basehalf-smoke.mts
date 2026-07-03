@@ -630,6 +630,7 @@ async function assertAgentAreaChoices(page) {
 
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt|trusted workspace/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await assertAgentAreaSurfaceKind(page, 'extension');
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
 	await dismissAgentToasts(page);
 	// With no tabs left the empty-state picker is the whole surface.
@@ -680,6 +681,7 @@ async function assertAgentAreaTerminalCommand(page) {
 		const activeSession = document.querySelector('.basehalf-agent-area-session.active');
 		return !!activeSession?.querySelector('.terminal-wrapper, .xterm');
 	}, null, { timeout: 20_000 });
+	await assertAgentAreaSurfaceKind(page, 'terminal');
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
@@ -703,6 +705,7 @@ async function assertAgentAreaTuiSession(page) {
 		}
 		return !!activeSession.querySelector('.basehalf-agent-session-surface .terminal-wrapper, .basehalf-agent-session-surface .xterm');
 	}, null, { timeout: 20_000 });
+	await assertAgentAreaSurfaceKind(page, 'terminal');
 	await assertStockTerminalPanelHidden(page);
 	const tabCountBefore = await page.locator('.basehalf-agent-tab').count();
 	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-close').click();
@@ -759,6 +762,36 @@ async function assertStockTerminalPanelHidden(page) {
 	if (visibleTerminalPanelTitles.length) {
 		throw new Error('Stock VS Code Terminal panel is visible instead of BaseHalf Agent Area');
 	}
+}
+
+async function assertAgentAreaSurfaceKind(page, kind) {
+	await page.waitForFunction(expectedKind => {
+		const area = document.querySelector('.basehalf-agent-area');
+		const activeSession = document.querySelector('.basehalf-agent-area-session.active');
+		if (!(area instanceof HTMLElement) || !(activeSession instanceof HTMLElement)) {
+			return false;
+		}
+
+		const terminal = expectedKind === 'terminal';
+		const expectedAreaClass = terminal ? 'active-kind-terminal' : 'active-kind-extension';
+		const expectedSessionClass = terminal ? 'kind-terminal' : 'kind-extension';
+		if (!area.classList.contains(expectedAreaClass) || !activeSession.classList.contains(expectedSessionClass)) {
+			return false;
+		}
+
+		const probe = document.createElement('div');
+		probe.style.position = 'absolute';
+		probe.style.pointerEvents = 'none';
+		probe.style.backgroundColor = terminal
+			? 'var(--vscode-terminal-background, var(--vscode-editor-background, var(--vscode-panel-background)))'
+			: 'var(--vscode-sideBar-background)';
+		document.querySelector('.monaco-workbench')?.appendChild(probe);
+		const expectedBackground = getComputedStyle(probe).backgroundColor;
+		probe.remove();
+
+		return getComputedStyle(area).backgroundColor === expectedBackground
+			&& getComputedStyle(activeSession).backgroundColor === expectedBackground;
+	}, kind, { timeout: 15_000 });
 }
 
 async function assertBaseHalfSettingsCategory(page) {

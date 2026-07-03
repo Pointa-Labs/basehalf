@@ -1144,12 +1144,23 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	}
 
 	private render(): void {
+		this.renderActiveSurfaceKind();
 		this.renderTabStrip();
 		this.renderPanes();
 		this.renderDividers();
 		this.renderToasts();
 		this.layoutVisiblePanes();
 		this._onDidChangeSessions.fire(this.sessions);
+	}
+
+	private renderActiveSurfaceKind(): void {
+		const activePaneId = activeAgentTab(this.tabsState)?.activePaneId;
+		const activeKind = activePaneId ? this.runtime.get(activePaneId)?.kind : undefined;
+		const terminal = activeKind === 'terminal' || activeKind === 'tui-codex' || activeKind === 'tui-claude';
+		const extension = activeKind === 'extension-codex' || activeKind === 'extension-claude';
+		this.root.classList.toggle('active-kind-terminal', terminal);
+		this.root.classList.toggle('active-kind-extension', extension);
+		this.root.classList.toggle('active-kind-empty', !terminal && !extension);
 	}
 
 	private renderTabStrip(): void {

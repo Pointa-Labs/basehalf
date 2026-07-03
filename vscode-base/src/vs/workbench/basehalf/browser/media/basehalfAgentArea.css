@@ -10,14 +10,29 @@
 }
 
 .monaco-workbench .basehalf-agent-area {
+	--basehalf-agent-extension-background: var(--vscode-sideBar-background);
+	--basehalf-agent-extension-foreground: var(--vscode-sideBar-foreground);
+	--basehalf-agent-terminal-background: var(--vscode-terminal-background, var(--vscode-editor-background, var(--vscode-panel-background)));
+	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, var(--vscode-editor-foreground));
 	position: relative;
 	display: flex;
 	flex-direction: column;
 	width: 100%;
 	height: 100%;
 	min-width: 0;
-	color: var(--vscode-sideBar-foreground);
-	background-color: var(--vscode-sideBar-background);
+	color: var(--basehalf-agent-extension-foreground);
+	background-color: var(--basehalf-agent-extension-background);
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal {
+	color: var(--basehalf-agent-terminal-foreground);
+	background-color: var(--basehalf-agent-terminal-background);
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-extension,
+.monaco-workbench .basehalf-agent-area.active-kind-empty {
+	color: var(--basehalf-agent-extension-foreground);
+	background-color: var(--basehalf-agent-extension-background);
 }
 
 /* An accent bar on the left edge while the area owns keyboard focus — so the
@@ -143,6 +158,17 @@
 .monaco-workbench .basehalf-agent-tab.active {
 	color: var(--vscode-sideBar-foreground);
 	background-color: var(--vscode-sideBar-background);
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab.active {
+	color: var(--basehalf-agent-terminal-foreground);
+	background-color: var(--basehalf-agent-terminal-background);
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-extension .basehalf-agent-tab.active,
+.monaco-workbench .basehalf-agent-area.active-kind-empty .basehalf-agent-tab.active {
+	color: var(--basehalf-agent-extension-foreground);
+	background-color: var(--basehalf-agent-extension-background);
 }
 
 .monaco-workbench .basehalf-agent-tab.unavailable {
@@ -286,6 +312,7 @@
 	flex: 1 1 auto;
 	min-height: 0;
 	overflow: hidden;
+	background-color: inherit;
 }
 
 .monaco-workbench .basehalf-agent-area-empty {
@@ -352,6 +379,22 @@
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
+	background-color: var(--basehalf-agent-extension-background);
+	color: var(--basehalf-agent-extension-foreground);
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal {
+	--basehalf-agent-pane-background: var(--basehalf-agent-terminal-background);
+	--basehalf-agent-pane-foreground: var(--basehalf-agent-terminal-foreground);
+	background-color: var(--basehalf-agent-pane-background);
+	color: var(--basehalf-agent-pane-foreground);
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-extension {
+	--basehalf-agent-pane-background: var(--basehalf-agent-extension-background);
+	--basehalf-agent-pane-foreground: var(--basehalf-agent-extension-foreground);
+	background-color: var(--basehalf-agent-pane-background);
+	color: var(--basehalf-agent-pane-foreground);
 }
 
 .monaco-workbench .basehalf-agent-area-session.active {
@@ -371,11 +414,13 @@
    measures the surface box, so the terminal reflows to the padded size. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
 	inset: 4px 8px 0 14px;
+	background-color: var(--basehalf-agent-pane-background);
 }
 
 .monaco-workbench .basehalf-agent-area-session .terminal-wrapper {
 	width: 100%;
 	height: 100%;
+	background-color: inherit;
 }
 
 /* Dim the non-focused panes of a multi-pane tab so the active one stands out. */
@@ -383,7 +428,7 @@
 	position: absolute;
 	inset: 0;
 	display: none;
-	background: var(--vscode-sideBar-background);
+	background: var(--basehalf-agent-pane-background, var(--vscode-sideBar-background));
 	opacity: 0.32;
 	pointer-events: none;
 	z-index: 1;
@@ -646,6 +691,7 @@
 	min-width: 0;
 	min-height: 0;
 	overflow: hidden;
+	background-color: var(--basehalf-agent-pane-background, var(--vscode-sideBar-background));
 }
 
 .monaco-workbench .basehalf-agent-extension-view-host > .monaco-pane-view {
@@ -658,8 +704,8 @@
 	position: absolute;
 	inset: 0;
 	overflow: auto;
-	background-color: var(--vscode-sideBar-background);
-	color: var(--vscode-sideBar-foreground);
+	background-color: var(--basehalf-agent-pane-background, var(--vscode-sideBar-background));
+	color: var(--basehalf-agent-pane-foreground, var(--vscode-sideBar-foreground));
 	z-index: 2;
 }
 
