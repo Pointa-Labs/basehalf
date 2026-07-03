@@ -16,10 +16,9 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { ITextEditorSelection, TextEditorSelectionRevealType, TextEditorSelectionSource } from '../../../../platform/editor/common/editor.js';
-import { SaveReason } from '../../../common/editor.js';
 import { applyTextEditorOptions } from '../../../common/editor/editorOptions.js';
 import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/browser/simpleEditorOptions.js';
-import { ITextFileEditorModel, ITextFileSaveOptions, ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
+import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
@@ -29,13 +28,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	private readonly toolbar: HTMLElement;
 	private readonly status: HTMLElement;
-	private readonly banner: HTMLElement;
-	private readonly bannerMessage: HTMLElement;
-	private readonly bannerPrimaryButton: HTMLButtonElement;
-	private readonly bannerDiskButton: HTMLButtonElement;
 	private readonly editorHost: HTMLElement;
 	private readonly saveButton: HTMLButtonElement;
-	private bannerActionRunning = false;
 
 	private editor: CodeEditorWidget | undefined;
 	private state: IBaseHalfCardDetailState | undefined;
@@ -72,27 +66,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		this.saveButton.title = 'Save';
 		this.saveButton.setAttribute('aria-label', 'Save');
 		this.status = append(this.toolbar, $('.basehalf-card-detail-source-status'));
-		this.banner = append(root, $('.basehalf-card-detail-source-banner'));
-		this.banner.hidden = true;
-		this.banner.setAttribute('role', 'status');
-		this.banner.setAttribute('aria-live', 'polite');
-		this.bannerMessage = append(this.banner, $('.basehalf-card-detail-source-banner-message'));
-		const bannerActions = append(this.banner, $('.basehalf-card-detail-source-banner-actions'));
-		this.bannerPrimaryButton = append(bannerActions, $('button.basehalf-card-detail-source-banner-button')) as HTMLButtonElement;
-		this.bannerPrimaryButton.type = 'button';
-		this.bannerDiskButton = append(bannerActions, $('button.basehalf-card-detail-source-banner-button')) as HTMLButtonElement;
-		this.bannerDiskButton.type = 'button';
-		this.bannerDiskButton.textContent = 'Use Disk Version';
 		this.editorHost = append(root, $('.basehalf-card-detail-source-editor'));
 
 		this._register(addDisposableListener(this.saveButton, EventType.CLICK, () => {
 			void this.save();
-		}));
-		this._register(addDisposableListener(this.bannerPrimaryButton, EventType.CLICK, () => {
-			void this.runBannerAction(() => this.isInConflict() ? this.overwriteDiskVersion() : this.save());
-		}));
-		this._register(addDisposableListener(this.bannerDiskButton, EventType.CLICK, () => {
-			void this.runBannerAction(() => this.useDiskVersion());
 		}));
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -193,7 +170,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		await this.flush({ forceSerialize: true });
 	}
 
-	private async flush(_options: IBaseHalfEditorFlushOptions = {}, saveOptions: ITextFileSaveOptions = {}): Promise<boolean> {
+	private async flush(_options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
 		const resource = this.editor?.getModel()?.uri;
 		if (!resource) {
 			this.updateStatus();
@@ -210,17 +187,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			return false;
 		}
 
-		if (this.isInConflict() && !saveOptions.ignoreModifiedSince) {
-			this.updateStatus();
-			return false;
-		}
-
 		this.status.textContent = this.textFileService.isDirty(resource) ? 'Saving' : 'Saved';
 		this.saveButton.disabled = true;
 		try {
-			// No ignoreErrorHandler: a failed save routes through the standard save
-			// error handler, which flags the model CONFLICT/ERROR for the banner.
-			const savedResource = await this.textFileService.save(resource, saveOptions);
+			const savedResource = await this.textFileService.save(resource);
 			if (!savedResource && this.textFileService.isDirty(resource)) {
 				this.updateStatus();
 				return false;
@@ -266,21 +236,25 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		if (!resource) {
 			this.status.textContent = 'No source model';
 			this.saveButton.disabled = true;
-			this.clearSaveBanner();
 			return;
 		}
 
-		const textFileModel = this.getTextFileModel(resource);
-		const hasSaveProblem = this.updateSaveBanner(textFileModel);
 		if (this.isReadonly()) {
 			this.status.textContent = 'Source • Readonly';
 			this.saveButton.disabled = true;
 			return;
 		}
 
-		if (hasSaveProblem) {
-			this.status.textContent = this.isInConflict() ? 'Source • Save conflict' : 'Source • Save failed';
-			this.saveButton.disabled = this.isInConflict() || this.bannerActionRunning;
+		const textFileModel = this.textFileService.files.get(resource);
+		if (textFileModel?.hasState(TextFileEditorModelState.CONFLICT)) {
+			this.status.textContent = 'Source • Save conflict';
+			this.saveButton.disabled = false;
+			return;
+		}
+
+		if (textFileModel?.hasState(TextFileEditorModelState.ERROR)) {
+			this.status.textContent = 'Source • Save failed';
+			this.saveButton.disabled = false;
 			return;
 		}
 
@@ -291,79 +265,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.status.textContent = 'Source • Saved';
 			this.saveButton.disabled = false;
 		}
-	}
-
-	private getTextFileModel(resource: URI | undefined = this.editor?.getModel()?.uri): ITextFileEditorModel | undefined {
-		return resource ? this.textFileService.files.get(resource) : undefined;
-	}
-
-	private isInConflict(): boolean {
-		return !!this.getTextFileModel()?.hasState(TextFileEditorModelState.CONFLICT);
-	}
-
-	private updateSaveBanner(textFileModel: ITextFileEditorModel | undefined): boolean {
-		const inConflict = !!textFileModel?.hasState(TextFileEditorModelState.CONFLICT);
-		const inError = !!textFileModel?.hasState(TextFileEditorModelState.ERROR);
-		if (!inConflict && !inError) {
-			this.clearSaveBanner();
-			return false;
-		}
-
-		this.banner.hidden = false;
-		this.banner.classList.add('visible');
-		this.banner.classList.toggle('conflict', inConflict);
-		this.banner.classList.toggle('error', !inConflict && inError);
-		this.bannerMessage.textContent = inConflict
-			? 'This file changed on disk while this card had unsaved edits.'
-			: 'The last save failed. Retry saving or use the disk version.';
-		this.bannerPrimaryButton.textContent = this.bannerActionRunning
-			? 'Working…'
-			: inConflict ? 'Overwrite Disk Version' : 'Retry Save';
-		this.bannerPrimaryButton.disabled = this.bannerActionRunning || this.isReadonly();
-		this.bannerDiskButton.hidden = false;
-		this.bannerDiskButton.disabled = this.bannerActionRunning;
-		return true;
-	}
-
-	private clearSaveBanner(): void {
-		this.banner.hidden = true;
-		this.banner.classList.remove('visible', 'conflict', 'error');
-		this.bannerMessage.textContent = '';
-		this.bannerPrimaryButton.textContent = '';
-		this.bannerPrimaryButton.disabled = true;
-		this.bannerDiskButton.disabled = true;
-	}
-
-	private async runBannerAction(action: () => Promise<unknown>): Promise<void> {
-		if (this.bannerActionRunning) {
-			return;
-		}
-
-		this.bannerActionRunning = true;
-		this.updateStatus();
-		try {
-			await action();
-		} catch (error) {
-			this.logService.error(error);
-			this.status.textContent = error instanceof Error ? `Save failed: ${error.message}` : `Save failed: ${String(error)}`;
-		} finally {
-			this.bannerActionRunning = false;
-			this.updateStatus();
-		}
-	}
-
-	private async overwriteDiskVersion(): Promise<boolean> {
-		return this.flush({ forceSerialize: true }, { ignoreModifiedSince: true, reason: SaveReason.EXPLICIT });
-	}
-
-	private async useDiskVersion(): Promise<void> {
-		const resource = this.editor?.getModel()?.uri;
-		if (!resource) {
-			return;
-		}
-
-		await this.textFileService.revert(resource, { force: true });
-		this.updateStatus();
 	}
 
 	private isReadonly(): boolean {

@@ -938,6 +938,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			session.detail = `Checking ${choice.extensionId}…`;
 			this.renderSessionStatePanel(session);
 			this.render();
+			await this.extensionService.whenInstalledExtensionsRegistered();
+			if (this.runtime.get(session.id) !== session) {
+				return;
+			}
 			const registered = await this.extensionService.getExtension(choice.extensionId);
 			if (this.runtime.get(session.id) !== session) {
 				return;
@@ -1004,7 +1008,10 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			this.renderSessionStatePanel(session, {
 				label: 'Enable Extension',
 				run: async () => {
-					await this.extensionsWorkbenchService.setEnablement(local, EnablementState.EnabledGlobally);
+					const enablementState = local.enablementState === EnablementState.DisabledWorkspace
+						? EnablementState.EnabledWorkspace
+						: EnablementState.EnabledGlobally;
+					await this.extensionsWorkbenchService.setEnablement(local, enablementState);
 					await this.finishExtensionSetup(session.id, extensionId);
 				}
 			});
