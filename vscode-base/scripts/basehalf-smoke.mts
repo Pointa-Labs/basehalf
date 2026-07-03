@@ -960,13 +960,19 @@ async function assertFreshCanvasFramed(page) {
 }
 
 async function assertCanvasGridScopedToCanvas(page) {
+	// The grid lives on the canvas scroll container itself (background with
+	// background-attachment: local), so it tiles the full scrollable extent
+	// and never bleeds outside the canvas.
 	await page.waitForFunction(() => {
 		const canvas = document.querySelector('.basehalf-canvas-workbench');
 		if (!(canvas instanceof HTMLElement)) {
 			return false;
 		}
 
-		return getComputedStyle(canvas, '::before').position === 'absolute';
+		const style = getComputedStyle(canvas);
+		return style.backgroundImage.includes('linear-gradient')
+			&& style.backgroundSize.includes('32px')
+			&& style.backgroundAttachment.includes('local');
 	}, null, { timeout: 10_000 });
 }
 
