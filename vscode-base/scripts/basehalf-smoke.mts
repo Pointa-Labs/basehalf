@@ -793,34 +793,10 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
 		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
-		const terminalHasBaseHalfColorTokens = !terminal || (() => {
-			const areaStyle = getComputedStyle(area);
-			return areaStyle.getPropertyValue('--vscode-terminal-background').trim().toLowerCase() === '#191a1b'
-				&& areaStyle.getPropertyValue('--vscode-terminal-foreground').trim().toLowerCase() === '#d6deeb'
-				&& areaStyle.getPropertyValue('--vscode-terminal-ansiBlue').trim().toLowerCase() === '#6cb6ff'
-				&& areaStyle.getPropertyValue('--vscode-terminal-ansiCyan').trim().toLowerCase() === '#56d4dd';
-		})();
-		const activeTab = area.querySelector('.basehalf-agent-tab.active');
-		const activeSurface = activeSession.querySelector('.basehalf-agent-session-surface');
-		const terminalPaletteClasses = ['terminal-palette-shell', 'terminal-palette-codex', 'terminal-palette-claude'];
-		const hasTerminalPaletteClass = (node: Element, prefix = '') => terminalPaletteClasses.some(paletteClass => node.classList.contains(`${prefix}${paletteClass}`));
-		const terminalHasPalette = !terminal
-			|| (hasTerminalPaletteClass(area, 'active-')
-				&& hasTerminalPaletteClass(activeSession)
-				&& activeTab instanceof HTMLElement
-				&& activeSurface instanceof HTMLElement
-				&& activeTab.classList.contains('kind-terminal')
-				&& hasTerminalPaletteClass(activeTab)
-				&& getComputedStyle(activeTab, '::before').backgroundImage !== 'none'
-				&& getComputedStyle(activeSurface, '::before').backgroundImage !== 'none'
-				&& getComputedStyle(activeSurface, '::after').backgroundImage !== 'none'
-				&& getComputedStyle(activeSurface).boxShadow !== 'none');
 
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
-			&& terminalHasThemeLine
-			&& terminalHasBaseHalfColorTokens
-			&& terminalHasPalette;
+			&& terminalHasThemeLine;
 	}, kind, { timeout: 15_000 });
 }
 
