@@ -19,6 +19,58 @@ export const BASEHALF_AGENT_AREA_RESTART_ACTIVE_COMMAND_ID = 'basehalf.agentArea
 export const BASEHALF_AGENT_AREA_KILL_ACTIVE_COMMAND_ID = 'basehalf.agentArea.killActive';
 export const BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID = 'basehalf.internal.terminal.toggleView';
 
+export const BASEHALF_AGENT_AREA_NEW_TAB_COMMAND_ID = 'basehalf.agentArea.newTab';
+export const BASEHALF_AGENT_AREA_CLOSE_PANE_COMMAND_ID = 'basehalf.agentArea.closePane';
+export const BASEHALF_AGENT_AREA_CLOSE_TAB_COMMAND_ID = 'basehalf.agentArea.closeTab';
+export const BASEHALF_AGENT_AREA_SPLIT_RIGHT_COMMAND_ID = 'basehalf.agentArea.splitPaneRight';
+export const BASEHALF_AGENT_AREA_SPLIT_DOWN_COMMAND_ID = 'basehalf.agentArea.splitPaneDown';
+export const BASEHALF_AGENT_AREA_FOCUS_PANE_LEFT_COMMAND_ID = 'basehalf.agentArea.focusPaneLeft';
+export const BASEHALF_AGENT_AREA_FOCUS_PANE_RIGHT_COMMAND_ID = 'basehalf.agentArea.focusPaneRight';
+export const BASEHALF_AGENT_AREA_FOCUS_PANE_UP_COMMAND_ID = 'basehalf.agentArea.focusPaneUp';
+export const BASEHALF_AGENT_AREA_FOCUS_PANE_DOWN_COMMAND_ID = 'basehalf.agentArea.focusPaneDown';
+export const BASEHALF_AGENT_AREA_FOCUS_NEXT_PANE_COMMAND_ID = 'basehalf.agentArea.focusNextPane';
+export const BASEHALF_AGENT_AREA_FOCUS_PREVIOUS_PANE_COMMAND_ID = 'basehalf.agentArea.focusPreviousPane';
+export const BASEHALF_AGENT_AREA_NEXT_TAB_COMMAND_ID = 'basehalf.agentArea.nextTab';
+export const BASEHALF_AGENT_AREA_PREVIOUS_TAB_COMMAND_ID = 'basehalf.agentArea.previousTab';
+export const BASEHALF_AGENT_AREA_RESIZE_PANE_LEFT_COMMAND_ID = 'basehalf.agentArea.resizePaneLeft';
+export const BASEHALF_AGENT_AREA_RESIZE_PANE_RIGHT_COMMAND_ID = 'basehalf.agentArea.resizePaneRight';
+export const BASEHALF_AGENT_AREA_RESIZE_PANE_UP_COMMAND_ID = 'basehalf.agentArea.resizePaneUp';
+export const BASEHALF_AGENT_AREA_RESIZE_PANE_DOWN_COMMAND_ID = 'basehalf.agentArea.resizePaneDown';
+export const BASEHALF_AGENT_AREA_EQUALIZE_PANES_COMMAND_ID = 'basehalf.agentArea.equalizePanes';
+export const BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID = 'basehalf.agentArea.togglePaneZoom';
+export const BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS = [1, 2, 3, 4, 5, 6, 7, 8].map(n => `basehalf.agentArea.gotoTab${n}`);
+export const BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID = 'basehalf.agentArea.lastTab';
+
+/**
+ * Every Agent Area command with a keybinding that must fire while an xterm
+ * inside the area owns keyboard focus. The terminal swallows keydowns unless
+ * the bound command is in the commands-to-skip-shell list, so this array is
+ * spliced into the terminal's default skip-shell commands.
+ */
+export const BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS: readonly string[] = [
+	BASEHALF_AGENT_AREA_NEW_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_CLOSE_PANE_COMMAND_ID,
+	BASEHALF_AGENT_AREA_CLOSE_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_SPLIT_RIGHT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_SPLIT_DOWN_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_PANE_LEFT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_PANE_RIGHT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_PANE_UP_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_PANE_DOWN_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_NEXT_PANE_COMMAND_ID,
+	BASEHALF_AGENT_AREA_FOCUS_PREVIOUS_PANE_COMMAND_ID,
+	BASEHALF_AGENT_AREA_NEXT_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_PREVIOUS_TAB_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESIZE_PANE_LEFT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESIZE_PANE_RIGHT_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESIZE_PANE_UP_COMMAND_ID,
+	BASEHALF_AGENT_AREA_RESIZE_PANE_DOWN_COMMAND_ID,
+	BASEHALF_AGENT_AREA_EQUALIZE_PANES_COMMAND_ID,
+	BASEHALF_AGENT_AREA_TOGGLE_ZOOM_COMMAND_ID,
+	...BASEHALF_AGENT_AREA_GOTO_TAB_COMMAND_IDS,
+	BASEHALF_AGENT_AREA_LAST_TAB_COMMAND_ID
+];
+
 export type BaseHalfAgentSessionKind = 'terminal' | 'tui-codex' | 'tui-claude' | 'extension-codex' | 'extension-claude';
 export type BaseHalfAgentSessionState = 'starting' | 'ready' | 'exited' | 'unavailable' | 'failed' | 'disposed';
 
@@ -176,6 +228,20 @@ export interface IBaseHalfAgentAreaService {
 	restartSession(id: string): Promise<void>;
 	killSession(id: string): Promise<void>;
 	closeSession(id: string): Promise<void>;
+
+	// Tab strip + pane splits (Ghostty-style layout ported from the original dock)
+	newTab(): Promise<IBaseHalfAgentAreaSession | undefined>;
+	splitActivePane(dir: 'right' | 'down'): Promise<IBaseHalfAgentAreaSession | undefined>;
+	closeActivePane(): void;
+	closeActiveTab(): void;
+	focusPaneDirection(dir: 'left' | 'right' | 'up' | 'down'): Promise<void>;
+	cyclePaneFocus(delta: 1 | -1): Promise<void>;
+	cycleTab(delta: 1 | -1): Promise<void>;
+	gotoTab(index: number): Promise<void>;
+	gotoLastTab(): Promise<void>;
+	resizeActivePane(dir: 'left' | 'right' | 'up' | 'down'): void;
+	equalizePanes(): void;
+	togglePaneZoom(): void;
 }
 
 export function baseHalfAgentSessionChoiceForKind(kind: BaseHalfAgentSessionKind): IBaseHalfAgentSessionChoice {

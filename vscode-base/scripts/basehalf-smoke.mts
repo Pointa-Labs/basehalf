@@ -93,6 +93,7 @@ try {
 	await step('agent-area-terminal-command-no-stock-panel', () => assertAgentAreaTerminalCommand(page));
 	await step('agent-area-tui-session-process-semantics', () => assertAgentAreaTuiSession(page));
 	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
+	await step('agent-area-tabs-and-splits', () => assertAgentAreaTabsAndSplits(page));
 	await step('source-control-git-provider', () => assertSourceControlPanel(page));
 	commitFixtureChanges(workspacePath, 'smoke changes');
 	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
@@ -163,6 +164,7 @@ try {
 			'agent-area-five-choices-command-unavailable-state',
 			'agent-area-terminal-command-no-stock-panel',
 			'agent-area-tui-session-process-semantics',
+			'agent-area-tabs-and-splits',
 			'source-control-git-provider',
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
@@ -499,7 +501,11 @@ function isExpectedCommandRow(rowText, expectedText) {
 	return rowText === expectedText
 		|| rowText.startsWith(`${expectedText} `)
 		|| rowText.startsWith(`${expectedText},`)
-		|| rowText.endsWith(`: ${expectedText}`);
+		|| rowText.endsWith(`: ${expectedText}`)
+		// Rows for commands with a keybinding append it after the title
+		// (e.g. "BaseHalf: Split Agent Pane Right, ⌘D").
+		|| rowText.includes(`: ${expectedText},`)
+		|| rowText.includes(`: ${expectedText} `);
 }
 
 async function waitForQuickInputResult(page) {
@@ -621,7 +627,18 @@ async function assertAgentAreaChoices(page) {
 	await page.locator('.basehalf-agent-tab.unavailable', { hasText: 'Codex Extension' }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-session-state', { hasText: /openai\.chatgpt/ }).waitFor({ state: 'visible', timeout: 15_000 });
 	await page.locator('.basehalf-agent-tab.unavailable .basehalf-agent-tab-close').click();
+	await dismissAgentToasts(page);
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+}
+
+// Soft-closed tabs/panes leave undo toasts for a grace period; dismissing them
+// finalizes (disposes) the closed sessions and keeps later steps unambiguous.
+async function dismissAgentToasts(page) {
+	await page.locator('.basehalf-agent-toast').first().waitFor({ state: 'visible', timeout: 15_000 });
+	while (await page.locator('.basehalf-agent-toast-dismiss').count()) {
+		await page.locator('.basehalf-agent-toast-dismiss').first().click();
+	}
+	await page.locator('.basehalf-agent-toast').first().waitFor({ state: 'hidden', timeout: 15_000 });
 }
 
 async function assertAgentAreaTerminalCommand(page) {
@@ -656,8 +673,26 @@ async function assertAgentAreaTuiSession(page) {
 	}, null, { timeout: 20_000 });
 	await assertStockTerminalPanelHidden(page);
 	const tabCountBefore = await page.locator('.basehalf-agent-tab').count();
-	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-kill').click();
+	await page.locator('.basehalf-agent-tab.active .basehalf-agent-tab-close').click();
 	await page.waitForFunction(expected => document.querySelectorAll('.basehalf-agent-tab').length < expected, tabCountBefore, { timeout: 20_000 });
+	await dismissAgentToasts(page);
+	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
+}
+
+async function assertAgentAreaTabsAndSplits(page) {
+	await runCommand(page, 'Toggle Agent Area');
+	await page.locator('.basehalf-agent-area.visible').waitFor({ state: 'visible', timeout: 20_000 });
+	await runCommand(page, 'Split Agent Pane Right');
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
+	await page.locator('.basehalf-agent-divider.row').waitFor({ state: 'visible', timeout: 15_000 });
+	await runCommand(page, 'Close Agent Pane');
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
+	await page.locator('.basehalf-agent-toast-undo').first().click();
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
+	await runCommand(page, 'Close Agent Pane');
+	await dismissAgentToasts(page);
+	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
+	await assertStockTerminalPanelHidden(page);
 	await page.locator('.basehalf-agent-area-icon[aria-label="Hide Agent Area"]').click();
 }
 

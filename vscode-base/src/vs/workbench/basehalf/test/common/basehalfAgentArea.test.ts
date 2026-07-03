@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
+import { DEFAULT_COMMANDS_TO_SKIP_SHELL, TerminalCommandId } from '../../../contrib/terminal/common/terminal.js';
 import {
 	BASEHALF_AGENT_AREA_NEW_CLAUDE_EXTENSION_COMMAND_ID,
 	BASEHALF_AGENT_AREA_NEW_CLAUDE_TUI_COMMAND_ID,
@@ -18,6 +18,7 @@ import {
 	type BaseHalfAgentSessionState,
 	BASEHALF_VISIBLE_AGENT_SESSION_CHOICES,
 	BASEHALF_INTERNAL_TERMINAL_VIEW_TOGGLE_COMMAND_ID,
+	BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS,
 	baseHalfAgentSessionChoiceForKind,
 	baseHalfTuiSessionLaunchConfig,
 	baseHalfTuiSessionLaunchFailureGuidance
@@ -128,5 +129,11 @@ suite('BaseHalfAgentArea', () => {
 	test('models process exit as an Agent Area lifecycle state', () => {
 		const states: BaseHalfAgentSessionState[] = ['starting', 'ready', 'exited', 'unavailable', 'failed', 'disposed'];
 		assert.ok(states.includes('exited'));
+	});
+
+	test('tab and pane keybinding commands skip the shell so they fire while an xterm is focused', () => {
+		assert.ok(BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS.length >= 20);
+		const missing = BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS.filter(id => !DEFAULT_COMMANDS_TO_SKIP_SHELL.includes(id));
+		assert.deepStrictEqual(missing, []);
 	});
 });

@@ -19,6 +19,7 @@ import { AccessibilityCommandId } from '../../accessibility/common/accessibility
 import { IEnvironmentVariableInfo } from './environmentVariable.js';
 import { IExtensionPointDescriptor } from '../../../services/extensions/common/extensionsRegistry.js';
 import { defaultTerminalContribCommandsToSkipShell } from '../terminalContribExports.js';
+import { BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS } from '../../../basehalf/common/basehalfAgentArea.js';
 import type { SingleOrMany } from '../../../../base/common/types.js';
 
 export const TERMINAL_VIEW_ID = 'terminal';
@@ -660,6 +661,7 @@ export const DEFAULT_COMMANDS_TO_SKIP_SHELL: string[] = [
 	'workbench.action.terminal.chat.insertCommand',
 	'workbench.action.terminal.chat.viewInChat',
 	...defaultTerminalContribCommandsToSkipShell,
+	...BASEHALF_AGENT_AREA_SKIP_SHELL_COMMAND_IDS,
 ];
 
 export const terminalContributionsDescriptor: IExtensionPointDescriptor<ITerminalContributions> = {
