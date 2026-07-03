@@ -18,6 +18,7 @@ import { IStorageService, StorageScope, StorageTarget } from '../../../platform/
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseAgentExtensionViewContainer, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID } from '../common/basehalfAgentArea.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
 	overrides: BASEHALF_CONFIGURATION_DEFAULTS,
@@ -118,8 +119,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 			} else if (event.visible && shouldBaseHalfCloseAgentExtensionViewContainer(event.id)) {
 				// Agent extensions' canonical containers are hosted inside the
 				// Agent Area; their composite must never take over the part.
-				this.viewsService.closeViewContainer(event.id);
-				this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed agent extension canonical view container: ${event.id}`);
+				void this.closeAgentExtensionViewContainer(event.id);
 			}
 		}));
 
@@ -182,6 +182,24 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		}
 		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed ${reason}: ${viewContainerId}`);
 		await this.ensurePrimarySidebarVisible();
+	}
+
+	private async closeAgentExtensionViewContainer(viewContainerId: string): Promise<void> {
+		const shouldRestoreAgentArea = this.layoutService.isVisible(Parts.AUXILIARYBAR_PART)
+			|| this.viewsService.getVisibleViewContainer(ViewContainerLocation.AuxiliaryBar)?.id === viewContainerId;
+
+		this.viewsService.closeViewContainer(viewContainerId);
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed agent extension canonical view container: ${viewContainerId}`);
+
+		if (!shouldRestoreAgentArea) {
+			return;
+		}
+
+		await this.viewsService.openViewContainer(BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, false);
+		if (!this.layoutService.isVisible(Parts.AUXILIARYBAR_PART)) {
+			this.layoutService.setPartHidden(false, Parts.AUXILIARYBAR_PART);
+		}
+		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] restored BaseHalf Agent Area after closing agent extension container: ${viewContainerId}`);
 	}
 
 	private async ensurePrimarySidebarVisible(): Promise<void> {

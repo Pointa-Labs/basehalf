@@ -383,6 +383,9 @@ export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication'
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'workbench.editor.showTabs': 'none',
 	'breadcrumbs.enabled': false,
+	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents
+	// read the disk, so files auto-save like the rich Markdown card detail.
+	'files.autoSave': 'afterDelay',
 	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,

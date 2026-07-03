@@ -157,6 +157,12 @@
 			"GitHub.copilot-chat"
 		]
 	},
+	"extensionsGallery": {
+		"serviceUrl": "https://open-vsx.org/vscode/gallery",
+		"itemUrl": "https://open-vsx.org/vscode/item",
+		"resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
+		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json"
+	},
 	"onboardingKeymaps": [
 		{
 			"id": "vscode",

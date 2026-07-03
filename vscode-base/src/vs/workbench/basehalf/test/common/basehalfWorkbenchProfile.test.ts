@@ -196,6 +196,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.editor.showTabs'], 'none');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['breadcrumbs.enabled'], false);
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSave'], 'afterDelay');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.startupEditor'], 'welcomePageInEmptyWorkbench');
 		assert.ok(!Object.hasOwn(BASEHALF_CONFIGURATION_DEFAULTS, 'workbench.welcome.enabled'));
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.welcomePage.walkthroughs.openOnInstall'], false);

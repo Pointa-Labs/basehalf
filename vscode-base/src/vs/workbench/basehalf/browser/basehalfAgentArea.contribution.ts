@@ -19,19 +19,25 @@ import { Action2, registerAction2 } from '../../../platform/actions/common/actio
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { ContextKeyExpr, IContextKey, IContextKeyService, RawContextKey } from '../../../platform/contextkey/common/contextkey.js';
 import { IContextMenuService } from '../../../platform/contextview/browser/contextView.js';
+import { IExtensionGalleryService } from '../../../platform/extensionManagement/common/extensionManagement.js';
+import { areSameExtensions } from '../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { ExtensionIdentifier } from '../../../platform/extensions/common/extensions.js';
 import { IInstantiationService, ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
 import { KeybindingWeight } from '../../../platform/keybinding/common/keybindingsRegistry.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
+import { ProgressLocation } from '../../../platform/progress/common/progress.js';
 import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../platform/workspace/common/workspaceTrust.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { type IShellLaunchConfig, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IViewDescriptorService } from '../../common/views.js';
+import { EnablementState } from '../../services/extensionManagement/common/extensionManagement.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IExtensionService } from '../../services/extensions/common/extensions.js';
+import { IHostService } from '../../services/host/browser/host.js';
+import { IExtensionsWorkbenchService } from '../../contrib/extensions/common/extensions.js';
 import { TerminalCommandId } from '../../contrib/terminal/common/terminal.js';
 import { ICreateTerminalOptions, ITerminalInstance, ITerminalService } from '../../contrib/terminal/browser/terminal.js';
 import { ViewPaneContainer } from '../../browser/parts/views/viewPaneContainer.js';
@@ -331,7 +337,11 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@IWorkspaceTrustManagementService private readonly workspaceTrustManagementService: IWorkspaceTrustManagementService,
 		@IWorkspaceTrustRequestService private readonly workspaceTrustRequestService: IWorkspaceTrustRequestService,
 		@IViewsService private readonly viewsService: IViewsService,
-		@IInstantiationService private readonly instantiationService: IInstantiationService
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IExtensionService private readonly extensionService: IExtensionService,
+		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
+		@IExtensionsWorkbenchService private readonly extensionsWorkbenchService: IExtensionsWorkbenchService,
+		@IHostService private readonly hostService: IHostService
 	) {
 		super();
 
@@ -921,6 +931,25 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			return;
 		}
 
+		// The curated agent extension must be installed, enabled, and registered
+		// before the provider can adopt its view. Offer the concrete next step
+		// (install, enable, or reload) instead of a dead-end message.
+		if (choice.extensionId) {
+			session.detail = `Checking ${choice.extensionId}…`;
+			this.renderSessionStatePanel(session);
+			this.render();
+			const registered = await this.extensionService.getExtension(choice.extensionId);
+			if (this.runtime.get(session.id) !== session) {
+				return;
+			}
+			if (!registered) {
+				await this.presentExtensionSetupState(session, choice.extensionId);
+				return;
+			}
+			session.detail = undefined;
+			this.clearSessionStatePanel(session);
+		}
+
 		const provider = this.extensionProviders.get(kind);
 		if (!provider) {
 			session.state = 'unavailable';
@@ -954,6 +983,131 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				this.markSessionFailed(session, error);
 			}
 		}
+	}
+
+	/**
+	 * The session's extension is not registered with the extension host.
+	 * Distinguish "not installed", "installed but disabled", and "installed but
+	 * not yet scanned", and surface the matching primary action.
+	 */
+	private async presentExtensionSetupState(session: IBaseHalfRuntimeAgentSession, extensionId: string): Promise<void> {
+		const choice = baseHalfAgentSessionChoiceForKind(session.kind);
+		await this.extensionsWorkbenchService.whenInitialized;
+		if (this.runtime.get(session.id) !== session) {
+			return;
+		}
+
+		const local = this.extensionsWorkbenchService.installed.find(extension => areSameExtensions(extension.identifier, { id: extensionId }));
+		if (local && (local.enablementState === EnablementState.DisabledGlobally || local.enablementState === EnablementState.DisabledWorkspace)) {
+			session.state = 'unavailable';
+			session.detail = `${extensionId} is installed but disabled. Enable it to start ${choice.label}.`;
+			this.renderSessionStatePanel(session, {
+				label: 'Enable Extension',
+				run: async () => {
+					await this.extensionsWorkbenchService.setEnablement(local, EnablementState.EnabledGlobally);
+					await this.finishExtensionSetup(session.id, extensionId);
+				}
+			});
+			this.render();
+			return;
+		}
+
+		if (local) {
+			// Installed and enabled, but the extension host has not picked it up.
+			session.state = 'unavailable';
+			session.detail = `${extensionId} is installed but has not registered with the extension host yet. Reload the window to finish enabling it.`;
+			this.renderSessionStatePanel(session, {
+				label: 'Reload Window',
+				run: () => this.hostService.reload()
+			});
+			this.render();
+			return;
+		}
+
+		if (!this.extensionGalleryService.isEnabled()) {
+			session.state = 'unavailable';
+			session.detail = `${choice.label} requires the ${extensionId} extension, and no extension gallery is available to install it from.`;
+			this.renderSessionStatePanel(session);
+			this.render();
+			return;
+		}
+
+		session.state = 'unavailable';
+		session.detail = `${choice.label} requires the ${extensionId} extension. Install it from Open VSX to start this session.`;
+		this.renderSessionStatePanel(session, {
+			label: `Install ${choice.label}`,
+			run: () => this.installExtensionForSession(session.id, extensionId)
+		});
+		this.render();
+	}
+
+	private async installExtensionForSession(sessionId: string, extensionId: string): Promise<void> {
+		const session = this.runtime.get(sessionId);
+		if (!session) {
+			return;
+		}
+		session.state = 'starting';
+		session.detail = `Installing ${extensionId}…`;
+		session.statePrimaryAction = undefined;
+		this.renderSessionStatePanel(session);
+		this.render();
+		try {
+			await this.extensionsWorkbenchService.install(extensionId, undefined, ProgressLocation.Notification);
+		} catch (error) {
+			const current = this.runtime.get(sessionId);
+			if (current !== session) {
+				return;
+			}
+			current.state = 'unavailable';
+			current.detail = `Installing ${extensionId} failed: ${error instanceof Error ? error.message : String(error)}`;
+			this.renderSessionStatePanel(current, {
+				label: `Install ${baseHalfAgentSessionChoiceForKind(current.kind).label}`,
+				run: () => this.installExtensionForSession(sessionId, extensionId)
+			});
+			this.render();
+			return;
+		}
+		await this.finishExtensionSetup(sessionId, extensionId);
+	}
+
+	/** Wait for the extension host to register the extension, then remount. */
+	private async finishExtensionSetup(sessionId: string, extensionId: string): Promise<void> {
+		const registered = await this.whenExtensionRegistered(extensionId, 15_000);
+		const session = this.runtime.get(sessionId);
+		if (!session) {
+			return;
+		}
+		if (!registered) {
+			session.state = 'unavailable';
+			session.detail = `${extensionId} is installed but has not registered with the extension host yet. Reload the window to finish enabling it.`;
+			this.renderSessionStatePanel(session, {
+				label: 'Reload Window',
+				run: () => this.hostService.reload()
+			});
+			this.render();
+			return;
+		}
+		await this.initializeExtensionPane(session);
+	}
+
+	private async whenExtensionRegistered(extensionId: string, timeoutMs: number): Promise<boolean> {
+		if (await this.extensionService.getExtension(extensionId)) {
+			return true;
+		}
+		return new Promise<boolean>(resolve => {
+			const disposables = new DisposableStore();
+			const timer = mainWindow.setTimeout(() => {
+				disposables.dispose();
+				resolve(false);
+			}, timeoutMs);
+			disposables.add(toDisposable(() => mainWindow.clearTimeout(timer)));
+			disposables.add(this.extensionService.onDidChangeExtensions(async () => {
+				if (await this.extensionService.getExtension(extensionId)) {
+					disposables.dispose();
+					resolve(true);
+				}
+			}));
+		});
 	}
 
 	private async initializeTerminalPane(session: IBaseHalfRuntimeAgentSession, options: IBaseHalfCreateAgentTerminalOptions): Promise<void> {
@@ -1626,12 +1780,19 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const action = primaryAction ?? session.statePrimaryAction;
 		clearNode(session.statePanel);
 		session.host.classList.add('has-state');
-		const icon = append(session.statePanel, $(`span.codicon.${this.choiceIconClass(session.kind)}`));
+		// While a session is progressing (e.g. installing its extension) the
+		// panel is a progress surface: spinner icon, no action button.
+		const inProgress = session.state === 'starting';
+		const iconClasses = inProgress ? 'codicon-loading.codicon-modifier-spin' : this.choiceIconClass(session.kind);
+		const icon = append(session.statePanel, $(`span.codicon.${iconClasses}`));
 		icon.setAttribute('aria-hidden', 'true');
 		const title = append(session.statePanel, $('.basehalf-agent-session-state-title'));
 		title.textContent = session.label;
 		const message = append(session.statePanel, $('.basehalf-agent-session-state-message'));
 		message.textContent = session.detail ?? session.description;
+		if (inProgress && !action) {
+			return;
+		}
 		const actions = append(session.statePanel, $('.basehalf-agent-session-state-actions'));
 		const button = append(actions, $('button.basehalf-agent-session-state-retry')) as HTMLButtonElement;
 		button.type = 'button';
