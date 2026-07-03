@@ -25,6 +25,7 @@ import { KeybindingWeight } from '../../../platform/keybinding/common/keybinding
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
+import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../platform/workspace/common/workspaceTrust.js';
 import { type IShellLaunchConfig, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IViewDescriptorService } from '../../common/views.js';
@@ -142,6 +143,7 @@ interface IBaseHalfRuntimeAgentSession {
 	extensionLayout?: () => void;
 	extensionFocus?: () => void | Promise<void>;
 	extensionDispose?: () => void | Promise<void>;
+	statePrimaryAction?: { label: string; run: () => void | Promise<void> };
 	closing?: boolean;
 }
 
@@ -327,6 +329,8 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		@IContextKeyService contextKeyService: IContextKeyService,
 		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 		@IStorageService private readonly storageService: IStorageService,
+		@IWorkspaceTrustManagementService private readonly workspaceTrustManagementService: IWorkspaceTrustManagementService,
+		@IWorkspaceTrustRequestService private readonly workspaceTrustRequestService: IWorkspaceTrustRequestService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService
 	) {
 		super();
@@ -883,6 +887,29 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		session.detail = undefined;
 		this.clearSessionStatePanel(session);
 		this.render();
+
+		// Curated agent extensions declare they do not support untrusted
+		// workspaces, so in Restricted Mode they never register and the session
+		// would fail with a confusing "not installed" message. Gate on trust and
+		// offer the concrete next step instead.
+		if (!this.workspaceTrustManagementService.isWorkspaceTrusted()) {
+			session.state = 'unavailable';
+			session.detail = `${choice.label} needs a trusted workspace. Trust this folder to let curated agent extensions run.`;
+			this.renderSessionStatePanel(session, {
+				label: 'Trust Workspace',
+				run: async () => {
+					const trusted = await this.workspaceTrustRequestService.requestWorkspaceTrust({
+						message: `${choice.label} runs as a workspace extension and requires you to trust this folder.`
+					});
+					if (trusted) {
+						await this.initializeExtensionPane(session);
+					}
+				}
+			});
+			this.render();
+			await this.focusSession(session.id);
+			return;
+		}
 
 		const provider = this.extensionProviders.get(kind);
 		if (!provider) {
@@ -1557,7 +1584,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		});
 	}
 
-	private renderSessionStatePanel(session: IBaseHalfRuntimeAgentSession): void {
+	private renderSessionStatePanel(session: IBaseHalfRuntimeAgentSession, primaryAction?: { label: string; run: () => void | Promise<void> }): void {
+		// The action is stored on the session so re-renders (layout, visibility)
+		// keep it instead of falling back to the default Retry button.
+		if (primaryAction) {
+			session.statePrimaryAction = primaryAction;
+		}
+		const action = primaryAction ?? session.statePrimaryAction;
 		clearNode(session.statePanel);
 		session.host.classList.add('has-state');
 		const icon = append(session.statePanel, $(`span.codicon.${this.choiceIconClass(session.kind)}`));
@@ -1567,17 +1600,26 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const message = append(session.statePanel, $('.basehalf-agent-session-state-message'));
 		message.textContent = session.detail ?? session.description;
 		const actions = append(session.statePanel, $('.basehalf-agent-session-state-actions'));
-		const retry = append(actions, $('button.basehalf-agent-session-state-retry')) as HTMLButtonElement;
-		retry.type = 'button';
-		retry.textContent = session.state === 'unavailable' ? 'Retry' : 'Restart Session';
-		retry.setAttribute('aria-label', `Restart ${session.label}`);
-		retry.addEventListener('click', () => {
+		const button = append(actions, $('button.basehalf-agent-session-state-retry')) as HTMLButtonElement;
+		button.type = 'button';
+		if (action) {
+			button.textContent = action.label;
+			button.setAttribute('aria-label', action.label);
+			button.addEventListener('click', () => {
+				void action.run();
+			});
+			return;
+		}
+		button.textContent = session.state === 'unavailable' ? 'Retry' : 'Restart Session';
+		button.setAttribute('aria-label', `Restart ${session.label}`);
+		button.addEventListener('click', () => {
 			void this.restartSession(session.id);
 		});
 	}
 
 	private clearSessionStatePanel(session: IBaseHalfRuntimeAgentSession): void {
 		session.host.classList.remove('has-state');
+		session.statePrimaryAction = undefined;
 		clearNode(session.statePanel);
 	}
 
