@@ -7,6 +7,8 @@ node_modules/
 # build output
 dist/
 build/
+basehalf-dist/
+VSCode-darwin-*/
 out/
 .turbo/
 *.tsbuildinfo

@@ -61,9 +61,13 @@ echo "▸ zipping ${APP} → ${ZIP}"
 echo "▸ signing + writing manifest"
 node build/basehalf/sign-update.mjs "$ZIP" --version "$VERSION" --asset "darwin-${ARCH}" ${NOTES_ARGS[@]+"${NOTES_ARGS[@]}"}
 
+DMG="${DIST}/BaseHalf-${VERSION}-darwin-${ARCH}.dmg"
+echo "▸ building installer dmg"
+bash build/basehalf/make-dmg.sh "$APP" "$DMG" "BaseHalf ${VERSION}"
+
 echo
 echo "Done. Release assets in ${DIST}:"
 ls -lh "$DIST" | sed -n '2,9p'
 echo
 echo "Publish with:"
-echo "  gh release create v${VERSION} '${ZIP}' '${DIST}/update-manifest-darwin-${ARCH}.json' --title 'BaseHalf ${VERSION}' --notes-file <notes.md>"
+echo "  gh release create v${VERSION} '${ZIP}' '${DMG}' '${DIST}/update-manifest-darwin-${ARCH}.json' --title 'BaseHalf ${VERSION}' --notes-file <notes.md>"
