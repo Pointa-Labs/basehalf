@@ -1140,17 +1140,27 @@ async function assertFreshCanvasFramed(page) {
 async function assertCanvasGridScopedToCanvas(page) {
 	// The grid lives on the canvas scroll container itself (background with
 	// background-attachment: local), so it tiles the full scrollable extent
-	// and never bleeds outside the canvas.
+	// and never bleeds outside the canvas. It is canvas world space: the
+	// on-screen step must equal the power-of-two-requantized world step (base
+	// 32 world px) multiplied by the current zoom, and the origin must sit on
+	// the cards layer's frame inset so grid lines stay glued to the content.
 	await page.waitForFunction(() => {
 		const canvas = document.querySelector('.basehalf-canvas-workbench');
-		if (!(canvas instanceof HTMLElement)) {
+		const cards = document.querySelector('.basehalf-canvas-cards');
+		if (!(canvas instanceof HTMLElement) || !(cards instanceof HTMLElement)) {
 			return false;
 		}
 
 		const style = getComputedStyle(canvas);
+		const zoom = parseFloat(style.getPropertyValue('--basehalf-canvas-zoom')) || 1;
+		const worldStep = 32 * Math.pow(2, Math.round(-Math.log2(zoom)));
+		const step = parseFloat(style.backgroundSize);
+		const originX = parseFloat(style.backgroundPosition);
 		return style.backgroundImage.includes('linear-gradient')
-			&& style.backgroundSize.includes('32px')
-			&& style.backgroundAttachment.includes('local');
+			&& style.backgroundAttachment.includes('local')
+			&& Number.isFinite(step)
+			&& Math.abs(step - worldStep * zoom) < 0.1
+			&& Math.abs(originX - (parseFloat(cards.style.left) || 0)) < 0.1;
 	}, null, { timeout: 10_000 });
 }
 

@@ -67,11 +67,17 @@
 	/* The grid must cover the whole scrollable extent, not just the initial
 	   viewport rectangle, so it lives on the scroll container itself with
 	   background-attachment: local. Keep it low-contrast like terminal pane
-	   chrome rather than a decorative wallpaper. */
+	   chrome rather than a decorative wallpaper.
+	   The grid is canvas WORLD space, not screen space: --bh-grid-step is a
+	   world-unit step multiplied by the zoom and --bh-grid-x/y pin line 0 to
+	   the canvas origin (see updateCanvasGrid), so the grid scales and pans
+	   with the cards instead of crawling under them while zooming. The 1px
+	   line stays 1 screen pixel at any zoom. */
 	background-image:
 		linear-gradient(to right, rgb(255 255 255 / 2.8%) 1px, transparent 1px),
 		linear-gradient(to bottom, rgb(255 255 255 / 2.8%) 1px, transparent 1px);
-	background-size: 32px 32px;
+	background-size: var(--bh-grid-step, 32px) var(--bh-grid-step, 32px);
+	background-position: var(--bh-grid-x, 0px) var(--bh-grid-y, 0px);
 	background-attachment: local;
 	color: var(--vscode-foreground);
 }

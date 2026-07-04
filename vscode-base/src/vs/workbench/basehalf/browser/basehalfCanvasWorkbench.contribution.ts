@@ -104,6 +104,7 @@ const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
 const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const CANVAS_FRAME_PADDING_PX = 96;
+const CANVAS_GRID_BASE_WORLD_PX = 32;
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -2135,6 +2136,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.root.scrollLeft += insetDx;
 			this.root.scrollTop += insetDy;
 		}
+		this.updateCanvasGrid();
+	}
+
+	private updateCanvasGrid(): void {
+		// The grid belongs to canvas world space: it pans and scales with the content,
+		// like every mainstream infinite canvas. background-position pins grid line 0
+		// to the canvas origin (the frame inset, where the cards layer sits) and
+		// background-size is a world-unit step multiplied by the zoom. The world step
+		// re-quantizes by powers of two so the on-screen cell stays in a comfortable
+		// ~23-45px band at any zoom; because steps share the same origin and divide
+		// each other, a re-quantization reads as every other line appearing or
+		// disappearing while the surviving lines stay glued to the content.
+		const worldStep = CANVAS_GRID_BASE_WORLD_PX * Math.pow(2, Math.round(-Math.log2(this.canvasZoom)));
+		this.root.style.setProperty('--bh-grid-step', `${worldStep * this.canvasZoom}px`);
+		this.root.style.setProperty('--bh-grid-x', `${this.canvasFrameInset.x}px`);
+		this.root.style.setProperty('--bh-grid-y', `${this.canvasFrameInset.y}px`);
 	}
 
 	private computeCanvasFrameInset(): { readonly x: number; readonly y: number } {
@@ -2319,6 +2336,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const height = parseFloat(this.cards.style.height);
 		if (Number.isFinite(width) && Number.isFinite(height)) {
 			this.updateCanvasExtent(new Dimension(width, height));
+		} else {
+			this.updateCanvasGrid();
 		}
 	}
 
@@ -2495,6 +2514,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.cards.style.left = `${this.canvasFrameInset.x}px`;
 			this.cards.style.top = `${this.canvasFrameInset.y}px`;
 			this.growCanvasSurface(growX, growY);
+			this.updateCanvasGrid();
 			targetLeft += growX;
 			targetTop += growY;
 		}
