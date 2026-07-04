@@ -41,9 +41,7 @@
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 48px;
-	/* Settled zoom lags the live zoom until the gesture goes quiet, so font sizes
-	   derived from it do not re-layout on every zoom frame. */
-	--bh-zoom: var(--basehalf-canvas-zoom-settled, var(--basehalf-canvas-zoom, 1));
+	--bh-zoom: var(--basehalf-canvas-zoom, 1);
 	--bh-card-bg: #171717;
 	--bh-card-surface: #202020;
 	--bh-card-surface-muted: #141414;

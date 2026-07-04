@@ -98,7 +98,6 @@ const CARD_LOD_MIN_HEIGHT_PX = 150;
 const CARD_LOD_MIN_ZOOM = 0.5;
 const MINI_LABEL_MIN_FLOW_PX = 12;
 const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
-const CANVAS_ZOOM_SETTLE_DELAY_MS = 120;
 const CANVAS_CONNECTION_EDGE_THRESHOLD = 22;
 const CANVAS_CONNECTION_CORNER_GUARD = 18;
 const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
@@ -177,7 +176,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private restoredFolderFocusKey: string | undefined;
 	private canvasScrollBeforeDetail: { readonly left: number; readonly top: number } | undefined;
 	private canvasZoom = 1;
-	private canvasZoomSettleTimer: number | undefined;
 	private canvasFrameInset = { x: 0, y: 0 };
 	private dragAutoPan: { frame: number | undefined; clientX: number; clientY: number } | undefined;
 	private renderQueuedBehindGesture = false;
@@ -273,10 +271,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.wheelZoomAnimationFrame !== undefined) {
 				mainWindow.cancelAnimationFrame(this.wheelZoomAnimationFrame);
 				this.wheelZoomAnimationFrame = undefined;
-			}
-			if (this.canvasZoomSettleTimer !== undefined) {
-				mainWindow.clearTimeout(this.canvasZoomSettleTimer);
-				this.canvasZoomSettleTimer = undefined;
 			}
 			this.stopDragAutoPan();
 			this.clearSuppressedCardClick();
@@ -2321,26 +2315,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
 		this.zoomReset.disabled = zoom === 1;
 		this.updateCardLod();
-		this.scheduleSettledCanvasZoomWrite();
 		const width = parseFloat(this.cards.style.width);
 		const height = parseFloat(this.cards.style.height);
 		if (Number.isFinite(width) && Number.isFinite(height)) {
 			this.updateCanvasExtent(new Dimension(width, height));
 		}
-	}
-
-	private scheduleSettledCanvasZoomWrite(): void {
-		// Mini-card labels size their font from the zoom level so the file name keeps a
-		// constant on-screen size. Feeding them the live per-frame zoom re-wraps the
-		// label text on every zoom frame, which reads as flicker; hold the settled value
-		// until the gesture goes quiet and pay for a single re-layout instead.
-		if (this.canvasZoomSettleTimer !== undefined) {
-			mainWindow.clearTimeout(this.canvasZoomSettleTimer);
-		}
-		this.canvasZoomSettleTimer = mainWindow.setTimeout(() => {
-			this.canvasZoomSettleTimer = undefined;
-			this.root.style.setProperty('--basehalf-canvas-zoom-settled', String(this.canvasZoom));
-		}, CANVAS_ZOOM_SETTLE_DELAY_MS);
 	}
 
 	private canvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
