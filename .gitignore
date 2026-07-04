@@ -15,6 +15,10 @@ out/
 # happens to be named `build/`. Un-ignore just that one.
 !packages/desktop/build/
 !packages/desktop/build/**
+# Same story for the VS Code base: vscode-base/build/ is the BUILD SYSTEM
+# (gulp tasks, packaging scripts), not output. Its own .gitignore keeps
+# build/node_modules etc. out.
+!vscode-base/build/
 
 # logs / env / OS cruft
 *.log
