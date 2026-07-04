@@ -194,6 +194,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 	});
 
 	test('defaults the VS Code workbench away from competing startup and agent surfaces', () => {
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.activityBar.location'], 'top');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['workbench.editor.showTabs'], 'none');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['breadcrumbs.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['files.autoSave'], 'afterDelay');

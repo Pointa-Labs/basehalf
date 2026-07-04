@@ -413,6 +413,10 @@ export const BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS = {
 } as const;
 
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
+	// BaseHalf ships three sidebar views (Files/Git/Search); a full-height
+	// vertical activity bar spends a persistent column on three icons, so the
+	// icons sit horizontally above the sidebar and the width goes to the canvas.
+	'workbench.activityBar.location': 'top',
 	'workbench.editor.showTabs': 'none',
 	'breadcrumbs.enabled': false,
 	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents
