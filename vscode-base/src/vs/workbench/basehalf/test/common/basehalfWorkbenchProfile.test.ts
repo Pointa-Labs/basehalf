@@ -234,6 +234,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenPeekView'], 'never');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.automaticallyOpenTestResults'], 'neverOpen');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['testing.countBadge'], 'off');
+		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.enabled'], false);
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.startupPrompt'], 'never');
 		assert.strictEqual(BASEHALF_CONFIGURATION_DEFAULTS['security.workspace.trust.banner'], 'never');
 	});

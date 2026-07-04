@@ -491,6 +491,11 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'testing.automaticallyOpenPeekView': 'never',
 	'testing.automaticallyOpenTestResults': 'neverOpen',
 	'testing.countBadge': 'off',
+	// BaseHalf is local-first with a curated extension allowlist; Restricted
+	// Mode has no product surface. Leaving trust enabled while its prompt and
+	// banner are suppressed would strand fresh folders untrusted, which
+	// silently disables the Git extension (untrustedWorkspaces unsupported).
+	'security.workspace.trust.enabled': false,
 	'security.workspace.trust.startupPrompt': 'never',
 	'security.workspace.trust.banner': 'never',
 	'workbench.colorCustomizations': BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS
