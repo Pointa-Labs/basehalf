@@ -30,7 +30,7 @@ import { INotificationService, Severity } from '../../../platform/notification/c
 import { ProgressLocation } from '../../../platform/progress/common/progress.js';
 import { IWorkspaceTrustManagementService, IWorkspaceTrustRequestService } from '../../../platform/workspace/common/workspaceTrust.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
-import { type IShellLaunchConfig, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
+import { type IShellLaunchConfig, type ITerminalEnvironment, type ITerminalLaunchError, TerminalExitReason } from '../../../platform/terminal/common/terminal.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { IViewDescriptorService } from '../../common/views.js';
 import { EnablementState } from '../../services/extensionManagement/common/extensionManagement.js';
@@ -129,6 +129,15 @@ export const BASEHALF_AGENT_AREA_FOCUSED_CONTEXT_KEY = new RawContextKey<boolean
 const CLOSE_GRACE_MS = 6000;
 const RESIZE_HUD_MS = 750;
 const DIVIDER_MIN_PANE_PX = 48;
+const BASEHALF_GHOSTTY_TERMINAL_ENV: ITerminalEnvironment = {
+	TERM: 'xterm-256color',
+	COLORTERM: 'truecolor',
+	NO_COLOR: null,
+	NODE_DISABLE_COLORS: null,
+	FORCE_COLOR: null,
+	CLICOLOR: '1',
+	CLICOLOR_FORCE: null
+};
 
 interface IBaseHalfRuntimeAgentSession {
 	id: string;
@@ -1208,10 +1217,24 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				this.mutateTabs(state => focusAgentPane(state, owner.id, session.id));
 			}
 		}, true);
+		session.host.addEventListener('mousemove', event => this.updatePaneHandleReveal(session, event));
+		session.host.addEventListener('mouseleave', () => session.host.classList.remove('handle-reveal'));
 
 		this.wirePaneDrag(session);
 		this.runtime.set(session.id, session);
 		return session;
+	}
+
+	private updatePaneHandleReveal(session: IBaseHalfRuntimeAgentSession, event: MouseEvent): void {
+		const box = session.host.getBoundingClientRect();
+		if (box.width === 0 || box.height === 0) {
+			session.host.classList.remove('handle-reveal');
+			return;
+		}
+
+		const hoverHeight = Math.min(box.height, Math.max(12, box.height * 0.2));
+		const y = event.clientY - box.top;
+		session.host.classList.toggle('handle-reveal', y >= 0 && y <= hoverHeight);
 	}
 
 	private wirePaneDrag(session: IBaseHalfRuntimeAgentSession): void {
@@ -1226,10 +1249,12 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				e.dataTransfer.effectAllowed = 'move';
 			}
 			this.paneDragId = session.id;
+			session.host.classList.add('pane-dragging');
 			this.render();
 		});
 		handle.addEventListener('dragend', () => {
 			this.paneDragId = undefined;
+			session.host.classList.remove('pane-dragging');
 			this.render();
 		});
 
@@ -1582,6 +1607,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			session.host.classList.toggle('pane-split', visible && multiPane && !zoomedPaneId);
 			session.host.classList.toggle('drop-target', visible && !!this.paneDragId && this.paneDragId !== session.id);
 			if (!this.paneDragId) {
+				session.host.classList.remove('pane-dragging');
 				session.dropPreview.classList.remove('visible');
 			}
 
@@ -1682,7 +1708,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		if (!rect) {
 			return;
 		}
-		this.hud.textContent = `${session.terminal.cols} × ${session.terminal.rows}`;
+		this.hud.textContent = `${session.terminal.cols} x ${session.terminal.rows}`;
 		this.hud.style.left = `${(rect.x + rect.w / 2) * 100}%`;
 		this.hud.style.top = `${(rect.y + rect.h / 2) * 100}%`;
 		this.hud.classList.add('visible');
@@ -1833,7 +1859,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 	private createTerminalOptions(kind: BaseHalfAgentSessionKind, label: string, options: IBaseHalfCreateAgentTerminalOptions): ICreateTerminalOptions | undefined {
 		const tuiConfig = baseHalfTuiSessionLaunchConfig(kind);
 		if (tuiConfig) {
-			return { config: { ...tuiConfig, name: label } };
+			return { config: this.createAgentAreaTerminalConfig(label, { ...tuiConfig, name: label }) };
 		}
 
 		const raw = this.asTerminalOptions(options.rawTerminalOptions);
@@ -1844,7 +1870,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 
 	private createAgentAreaTerminalConfig(label: string, config: ICreateTerminalOptions['config']): ICreateTerminalOptions['config'] {
 		if (!config) {
-			return { name: label, hideFromUser: true };
+			return { name: label, env: this.createAgentAreaTerminalEnv(), hideFromUser: true };
 		}
 
 		if ('extensionIdentifier' in config) {
@@ -1856,7 +1882,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 			return {
 				executable: profile.path,
 				args: profile.args,
-				env: profile.env,
+				env: this.createAgentAreaTerminalEnv(profile.env),
 				icon: profile.icon,
 				color: profile.color,
 				name: profile.overrideName ? profile.profileName : label,
@@ -1867,8 +1893,16 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		const shellLaunchConfig = config as IShellLaunchConfig;
 		return {
 			...shellLaunchConfig,
+			env: this.createAgentAreaTerminalEnv(shellLaunchConfig.env),
 			name: shellLaunchConfig.name ?? label,
 			hideFromUser: true
+		};
+	}
+
+	private createAgentAreaTerminalEnv(env?: ITerminalEnvironment): ITerminalEnvironment {
+		return {
+			...BASEHALF_GHOSTTY_TERMINAL_ENV,
+			...env
 		};
 	}
 

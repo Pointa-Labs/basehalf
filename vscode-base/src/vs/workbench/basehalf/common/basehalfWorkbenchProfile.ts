@@ -380,6 +380,38 @@ export const BASEHALF_HIDDEN_SURFACES = [
 
 export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
 
+// Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
+// BaseHalf's neutral dark surface and blue product accent.
+export const BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS = {
+	'terminal.background': '#1f1f1f',
+	'terminal.foreground': '#cccccc',
+	'terminalCursor.foreground': '#ffffff',
+	'terminalCursor.background': '#000000',
+	'terminal.selectionBackground': '#3a3d41',
+	'terminal.selectionForeground': '#e0e0e0',
+	'terminal.inactiveSelectionBackground': '#3a3d4180',
+	'terminal.ansiBlack': '#272727',
+	'terminal.ansiRed': '#f74949',
+	'terminal.ansiGreen': '#2ea043',
+	'terminal.ansiYellow': '#9e6a03',
+	'terminal.ansiBlue': '#0078d4',
+	'terminal.ansiMagenta': '#d01273',
+	'terminal.ansiCyan': '#1db4d6',
+	'terminal.ansiWhite': '#cccccc',
+	'terminal.ansiBrightBlack': '#5d5d5d',
+	'terminal.ansiBrightRed': '#dc5452',
+	'terminal.ansiBrightGreen': '#23d18b',
+	'terminal.ansiBrightYellow': '#f5f543',
+	'terminal.ansiBrightBlue': '#3b8eea',
+	'terminal.ansiBrightMagenta': '#d670d6',
+	'terminal.ansiBrightCyan': '#29b8db',
+	'terminal.ansiBrightWhite': '#e5e5e5',
+	'terminalCommandDecoration.defaultBackground': '#cccccc40',
+	'terminalCommandDecoration.errorBackground': '#f74949',
+	'terminalCommandDecoration.successBackground': '#2ea043',
+	'terminalOverviewRuler.border': '#00000000'
+} as const;
+
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'workbench.editor.showTabs': 'none',
 	'breadcrumbs.enabled': false,
@@ -405,11 +437,15 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	'chat.editor.claude.preferAgentHost': false,
 	'debug.internalConsoleOptions': 'neverOpen',
 	'search.useReplacePreview': false,
+	// Ghostty renders the terminal palette directly. VS Code's default contrast
+	// remapping changes ANSI colors enough that Codex/TUI output looks muted.
+	'terminal.integrated.minimumContrastRatio': 1,
 	'testing.automaticallyOpenPeekView': 'never',
 	'testing.automaticallyOpenTestResults': 'neverOpen',
 	'testing.countBadge': 'off',
 	'security.workspace.trust.startupPrompt': 'never',
-	'security.workspace.trust.banner': 'never'
+	'security.workspace.trust.banner': 'never',
+	'workbench.colorCustomizations': BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS
 } as const;
 
 export const BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR = [

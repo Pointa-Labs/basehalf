@@ -21,6 +21,7 @@ out/
 .env
 .env.*
 .DS_Store
+.playwright-cli/
 
 # internal/strategy docs — never commit (kept locally only)
 private-docs/

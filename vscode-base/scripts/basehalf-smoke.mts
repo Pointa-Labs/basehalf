@@ -62,6 +62,11 @@ const env = {
 	NODE_ENV: 'development',
 	VSCODE_DEV: '1',
 	VSCODE_CLI: '1',
+	TERM: 'dumb',
+	COLORTERM: '',
+	NO_COLOR: '1',
+	NODE_DISABLE_COLORS: '1',
+	FORCE_COLOR: '0',
 	ELECTRON_ENABLE_STACK_DUMPING: '1',
 	ELECTRON_ENABLE_LOGGING: '1'
 };
@@ -687,6 +692,7 @@ async function assertAgentAreaTerminalCommand(page) {
 		return !!activeSession?.querySelector('.terminal-wrapper, .xterm');
 	}, null, { timeout: 20_000 });
 	await assertAgentAreaSurfaceKind(page, 'terminal');
+	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
@@ -726,6 +732,7 @@ async function assertAgentAreaTabsAndSplits(page) {
 	await runCommand(page, 'Split Agent Pane Right');
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 2, null, { timeout: 20_000 });
 	await page.locator('.basehalf-agent-divider.row').waitFor({ state: 'visible', timeout: 15_000 });
+	await assertAgentAreaGhosttySplitVisuals(page);
 	await runCommand(page, 'Close Agent Pane');
 	await page.waitForFunction(() => document.querySelectorAll('.basehalf-agent-area-session.active').length === 1, null, { timeout: 20_000 });
 	await page.locator('.basehalf-agent-toast-undo').first().click();
@@ -788,28 +795,196 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		probe.style.position = 'absolute';
 		probe.style.pointerEvents = 'none';
 		probe.style.backgroundColor = terminal
-			? 'var(--vscode-terminal-background, #181818)'
+			? 'var(--vscode-terminal-background, #1f1f1f)'
 			: 'var(--vscode-sideBar-background)';
 		document.querySelector('.monaco-workbench')?.appendChild(probe);
 		const expectedBackground = getComputedStyle(probe).backgroundColor;
 		probe.remove();
 
+		const paletteProbe = document.createElement('div');
+		paletteProbe.style.position = 'absolute';
+		paletteProbe.style.pointerEvents = 'none';
+		paletteProbe.style.color = 'var(--vscode-terminal-foreground)';
+		paletteProbe.style.borderColor = 'var(--vscode-terminal-ansiBlue)';
+		paletteProbe.style.backgroundColor = 'var(--vscode-terminal-ansiRed)';
+		document.querySelector('.monaco-workbench')?.appendChild(paletteProbe);
+		const paletteStyle = getComputedStyle(paletteProbe);
+		const terminalHasGhosttyPalette = !terminal
+			|| (paletteStyle.color === 'rgb(204, 204, 204)'
+				&& paletteStyle.borderColor === 'rgb(0, 120, 212)'
+				&& paletteStyle.backgroundColor === 'rgb(247, 73, 73)');
+		paletteProbe.remove();
+
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
 		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
 
-		// The frosted terminal surface: accent glows blended over the opaque
-		// terminal pane through the session's ::after overlay.
+		// Ghostty-style terminal surface: keep the configured terminal
+		// background as the dominant surface. A neutral linear sheen is okay;
+		// colored radial glows are not.
 		const overlayStyle = getComputedStyle(activeSession, '::after');
-		const terminalHasFrostedSurface = !terminal
-			|| (overlayStyle.backgroundImage.includes('radial-gradient')
-				&& overlayStyle.mixBlendMode !== 'normal'
+		const terminalHasNeutralSurface = !terminal
+			|| (overlayStyle.backgroundImage.includes('linear-gradient')
+				&& !overlayStyle.backgroundImage.includes('radial-gradient')
+				&& overlayStyle.mixBlendMode === 'normal'
 				&& overlayStyle.pointerEvents === 'none');
+
+		const viewport = activeSession.querySelector('.xterm-viewport');
+		const slider = activeSession.querySelector('.xterm-slider');
+		const overviewRuler = activeSession.querySelector('.xterm-decoration-overview-ruler');
+		const surface = activeSession.querySelector('.basehalf-agent-session-surface');
+		const xterm = activeSession.querySelector('.xterm');
+		const scrollableElement = activeSession.querySelector('.xterm-scrollable-element');
+		const commandDecoration = activeSession.querySelector('.terminal-command-decoration, .terminal-command-guide');
+		const terminalHasOverlayScroller = !terminal
+			|| ((viewport instanceof HTMLElement && getComputedStyle(viewport).right === '0px')
+				&& (slider instanceof HTMLElement && getComputedStyle(slider).borderRadius !== '0px')
+				&& (!(overviewRuler instanceof HTMLElement) || getComputedStyle(overviewRuler).display === 'none'));
+		const terminalHasTightGutter = !terminal
+			|| (surface instanceof HTMLElement && xterm instanceof HTMLElement && scrollableElement instanceof HTMLElement
+				&& (() => {
+					const sessionBox = activeSession.getBoundingClientRect();
+					const surfaceBox = surface.getBoundingClientRect();
+					const left = Math.round(surfaceBox.left - sessionBox.left);
+					const right = Math.round(sessionBox.right - surfaceBox.right);
+					const top = Math.round(surfaceBox.top - sessionBox.top);
+					const bottom = Math.round(sessionBox.bottom - surfaceBox.bottom);
+					const xtermStyle = getComputedStyle(xterm);
+					const scrollableStyle = getComputedStyle(scrollableElement);
+					const commandDecorationHidden = !(commandDecoration instanceof HTMLElement)
+						|| getComputedStyle(commandDecoration).display === 'none';
+					return left >= 0 && left <= 1
+						&& right >= 0 && right <= 1
+						&& top >= 0 && top <= 3
+						&& bottom >= 0 && bottom <= 3
+						&& Number.parseFloat(xtermStyle.paddingLeft) <= 3
+						&& Number.parseFloat(scrollableStyle.paddingLeft) <= 3
+						&& Number.parseFloat(scrollableStyle.marginLeft) >= -3
+						&& commandDecorationHidden;
+				})());
 
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
+			&& terminalHasGhosttyPalette
 			&& terminalHasThemeLine
-			&& terminalHasFrostedSurface;
+			&& terminalHasNeutralSurface
+			&& terminalHasOverlayScroller
+			&& terminalHasTightGutter;
 	}, kind, { timeout: 15_000 });
+}
+
+async function assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page) {
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.click();
+	await page.keyboard.insertText(`node -e "console.log('BH_NO_COLOR='+(process.env.NO_COLOR||'<empty>')); console.log('BH_TERM='+process.env.TERM); console.log('BH_COLORTERM='+process.env.COLORTERM); console.log('BH_TERM_PROGRAM='+process.env.TERM_PROGRAM); console.log('BH_FORCE_COLOR='+(process.env.FORCE_COLOR||'<empty>')); console.log('BH_NODE_DISABLE_COLORS='+(process.env.NODE_DISABLE_COLORS||'<empty>')); process.stdout.write('\\x1b[31mBH_RED_SENTINEL\\x1b[0m \\x1b[36mBH_CYAN_SENTINEL\\x1b[0m\\n')"`);
+	await page.keyboard.press('Enter');
+
+	await page.waitForFunction(() => {
+		const getActiveXtermBufferText = (): string => {
+			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
+			const buffer = wrapper?.xterm?.buffer?.active;
+			if (!buffer) {
+				return '';
+			}
+
+			const lines: string[] = [];
+			for (let index = 0; index < buffer.length; index++) {
+				lines.push(buffer.getLine(index)?.translateToString(true) ?? '');
+			}
+			return lines.join('\n');
+		};
+		const text = getActiveXtermBufferText();
+		return text.includes('BH_NO_COLOR=<empty>')
+			&& text.includes('BH_TERM=xterm-256color')
+			&& text.includes('BH_COLORTERM=truecolor')
+			&& text.includes('BH_TERM_PROGRAM=vscode')
+			&& text.includes('BH_FORCE_COLOR=<empty>')
+			&& text.includes('BH_NODE_DISABLE_COLORS=<empty>')
+			&& text.includes('BH_RED_SENTINEL')
+			&& text.includes('BH_CYAN_SENTINEL');
+	}, null, { timeout: 20_000 });
+
+	await page.waitForFunction(() => {
+		const activeXtermHasPaletteText = (marker: string, paletteIndex: number): boolean => {
+			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string; getCell(index: number): { isFgPalette(): boolean; getFgColor(): number } | undefined } | undefined } } } } | null;
+			const buffer = wrapper?.xterm?.buffer?.active;
+			if (!buffer) {
+				return false;
+			}
+
+			for (let row = 0; row < buffer.length; row++) {
+				const line = buffer.getLine(row);
+				const text = line?.translateToString(true) ?? '';
+				let start = text.indexOf(marker);
+				while (line && start >= 0) {
+					for (let column = start; column < start + marker.length; column++) {
+						const cell = line.getCell(column);
+						if (cell?.isFgPalette() && cell.getFgColor() === paletteIndex) {
+							return true;
+						}
+					}
+					start = text.indexOf(marker, start + 1);
+				}
+			}
+
+			return false;
+		};
+		return activeXtermHasPaletteText('BH_RED_SENTINEL', 1)
+			&& activeXtermHasPaletteText('BH_CYAN_SENTINEL', 6);
+	}, null, { timeout: 20_000 });
+}
+
+async function assertAgentAreaGhosttySplitVisuals(page) {
+	await page.waitForFunction(() => {
+		const area = document.querySelector('.basehalf-agent-area');
+		const sessions = [...document.querySelectorAll('.basehalf-agent-area-session.active.kind-terminal')]
+			.filter((node): node is HTMLElement => node instanceof HTMLElement);
+		const dimOverlay = sessions.find(session => session.classList.contains('dimmed'))?.querySelector('.basehalf-agent-pane-dim');
+		const dividerLine = document.querySelector('.basehalf-agent-divider-line');
+		const handle = sessions[0]?.querySelector('.basehalf-agent-pane-handle');
+		const dropPreview = sessions[0]?.querySelector('.basehalf-agent-pane-drop-preview');
+		const hud = document.querySelector('.basehalf-agent-resize-hud');
+		if (!(area instanceof HTMLElement)
+			|| !(dimOverlay instanceof HTMLElement)
+			|| !(dividerLine instanceof HTMLElement)
+			|| !(handle instanceof HTMLElement)
+			|| !(dropPreview instanceof HTMLElement)
+			|| !(hud instanceof HTMLElement)) {
+			return false;
+		}
+
+		const dividerProbe = document.createElement('div');
+		dividerProbe.style.position = 'absolute';
+		dividerProbe.style.pointerEvents = 'none';
+		dividerProbe.style.backgroundColor = 'var(--basehalf-agent-terminal-divider)';
+		area.appendChild(dividerProbe);
+		const expectedDivider = getComputedStyle(dividerProbe).backgroundColor;
+		dividerProbe.remove();
+
+		const dimOpacity = Number.parseFloat(getComputedStyle(dimOverlay).opacity);
+		const handleStyle = getComputedStyle(handle);
+		const dropStyle = getComputedStyle(dropPreview);
+		const hudStyle = getComputedStyle(hud);
+
+		return dimOpacity > 0 && dimOpacity <= 0.16
+			&& getComputedStyle(dividerLine).backgroundColor === expectedDivider
+			&& handleStyle.width === '80px'
+			&& handleStyle.height === '12px'
+			&& handleStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
+			&& dropStyle.borderTopWidth === '0px'
+			&& hudStyle.borderTopWidth === '0px'
+			&& hudStyle.boxShadow !== 'none';
+	}, null, { timeout: 15_000 });
+
+	const firstSession = page.locator('.basehalf-agent-area-session.active.kind-terminal').first();
+	const box = await firstSession.boundingBox();
+	if (!box) {
+		throw new Error('Agent Area split session is not visible for handle reveal check');
+	}
+	await page.mouse.move(box.x + box.width / 2, box.y + 4);
+	await page.waitForFunction(() => {
+		const handle = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .basehalf-agent-pane-handle');
+		return handle instanceof HTMLElement && Number.parseFloat(getComputedStyle(handle).opacity) > 0;
+	}, null, { timeout: 15_000 });
 }
 
 async function assertBaseHalfSettingsCategory(page) {

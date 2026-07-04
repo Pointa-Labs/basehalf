@@ -12,23 +12,15 @@
 .monaco-workbench .basehalf-agent-area {
 	--basehalf-agent-extension-background: var(--vscode-sideBar-background);
 	--basehalf-agent-extension-foreground: var(--vscode-sideBar-foreground);
-	--basehalf-agent-terminal-background: var(--vscode-terminal-background, #181818);
-	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, #d6deeb);
-	--basehalf-agent-terminal-muted: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 12%, var(--basehalf-agent-terminal-background));
-	--basehalf-agent-terminal-accent-start: var(--vscode-terminal-ansiMagenta, #c678dd);
-	--basehalf-agent-terminal-accent-mid: var(--vscode-terminal-ansiBlue, #61afef);
-	--basehalf-agent-terminal-accent-end: var(--vscode-terminal-ansiCyan, #56b6c2);
-	/* Frosted session surface: soft accent glows blended OVER the opaque
-	   terminal. `screen` never darkens, so bright glyphs stay legible on dark
-	   themes (white is invariant); light themes flip to `multiply`, which
-	   leaves dark glyphs untouched. Painting above the terminal instead of
-	   below it keeps xterm opaque — transparency mode smears partial rows at
-	   the viewport edges. */
-	--basehalf-agent-terminal-glass-blend: screen;
-	--basehalf-agent-terminal-glow-a: color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 14%, transparent);
-	--basehalf-agent-terminal-glow-b: color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 11%, transparent);
-	--basehalf-agent-terminal-glow-c: color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 9%, transparent);
-	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 4%, transparent);
+	--basehalf-agent-terminal-background: var(--vscode-terminal-background, #1f1f1f);
+	--basehalf-agent-terminal-foreground: var(--vscode-terminal-foreground, #cccccc);
+	--basehalf-agent-terminal-muted: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 10%, var(--basehalf-agent-terminal-background));
+	--basehalf-agent-terminal-divider: color-mix(in srgb, var(--basehalf-agent-terminal-background) 58%, black);
+	--basehalf-agent-terminal-chrome: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 3%, var(--basehalf-agent-terminal-background));
+	--basehalf-agent-terminal-tab-hover: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 6%, var(--basehalf-agent-terminal-background));
+	--basehalf-agent-terminal-tab-active: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 5%, var(--basehalf-agent-terminal-background));
+	--basehalf-agent-terminal-sheen: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 2%, transparent);
+	--basehalf-agent-terminal-inactive-opacity: 0.15;
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -39,21 +31,14 @@
 	background-color: var(--basehalf-agent-extension-background);
 }
 
-/* Light themes get a fainter pastel wash via multiply; high contrast stays flat. */
+/* Light and high-contrast themes stay flat; BaseHalf should read like a terminal
+   window here, not a tinted marketing surface. */
 .monaco-workbench.vs .basehalf-agent-area {
-	--basehalf-agent-terminal-glass-blend: multiply;
-	--basehalf-agent-terminal-glow-a: color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 9%, transparent);
-	--basehalf-agent-terminal-glow-b: color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 7%, transparent);
-	--basehalf-agent-terminal-glow-c: color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 5%, transparent);
 	--basehalf-agent-terminal-sheen: transparent;
 }
 
 .monaco-workbench.hc-black .basehalf-agent-area,
 .monaco-workbench.hc-light .basehalf-agent-area {
-	--basehalf-agent-terminal-glass-blend: normal;
-	--basehalf-agent-terminal-glow-a: transparent;
-	--basehalf-agent-terminal-glow-b: transparent;
-	--basehalf-agent-terminal-glow-c: transparent;
 	--basehalf-agent-terminal-sheen: transparent;
 }
 
@@ -130,18 +115,9 @@
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-area-tabs {
-	background-color: var(--basehalf-agent-terminal-background);
-	background-image:
-		linear-gradient(
-			90deg,
-			color-mix(in srgb, var(--basehalf-agent-terminal-accent-start) 78%, transparent),
-			color-mix(in srgb, var(--basehalf-agent-terminal-accent-mid) 82%, transparent),
-			color-mix(in srgb, var(--basehalf-agent-terminal-accent-end) 72%, transparent)
-		);
-	background-position: 0 0;
-	background-repeat: no-repeat;
-	background-size: 100% 2px;
-	border-bottom-color: var(--basehalf-agent-terminal-muted);
+	background-color: var(--basehalf-agent-terminal-chrome);
+	background-image: linear-gradient(180deg, var(--basehalf-agent-terminal-sheen), transparent 18px);
+	border-bottom-color: var(--basehalf-agent-terminal-divider);
 }
 
 /* No tabs -> the empty-state picker is the whole surface; hide the bar. */
@@ -209,6 +185,16 @@
 	background-color: var(--vscode-toolbar-hoverBackground);
 }
 
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab {
+	color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 66%, var(--basehalf-agent-terminal-background));
+	box-shadow: inset 1px 0 0 var(--basehalf-agent-terminal-divider);
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab:hover {
+	color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 90%, var(--basehalf-agent-terminal-background));
+	background-color: var(--basehalf-agent-terminal-tab-hover);
+}
+
 .monaco-workbench .basehalf-agent-tab.active {
 	color: var(--vscode-sideBar-foreground);
 	background-color: var(--vscode-sideBar-background);
@@ -216,7 +202,7 @@
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-tab.active {
 	color: var(--basehalf-agent-terminal-foreground);
-	background-color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 7%, var(--basehalf-agent-terminal-background));
+	background-color: var(--basehalf-agent-terminal-tab-active);
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-extension .basehalf-agent-tab.active,
@@ -267,7 +253,7 @@
 .monaco-workbench .basehalf-agent-tab-shortcut {
 	flex-shrink: 0;
 	font-variant-numeric: tabular-nums;
-	opacity: 0.55;
+	opacity: 0.42;
 }
 
 .monaco-workbench .basehalf-agent-tab-label {
@@ -354,8 +340,8 @@
 
 .monaco-workbench .basehalf-agent-tab-activity::after {
 	content: '';
-	width: 7px;
-	height: 7px;
+	width: 6px;
+	height: 6px;
 	border-radius: 50%;
 	background: var(--vscode-activityBarBadge-background, var(--vscode-focusBorder));
 }
@@ -454,20 +440,13 @@
 	color: var(--basehalf-agent-pane-foreground);
 }
 
-/* The frosted surface: a faint top sheen plus three accent glows anchored to
-   the pane corners, blended over the whole pane (gutter and terminal alike,
-   so there is no seam at the terminal box). Stays below the dim overlay
-   (z-index 1) and every interaction layer. */
+/* A Ghostty-like terminal pane is primarily the configured terminal background.
+   Keep only a neutral top sheen; no colored glows behind command output. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal::after {
 	content: '';
 	position: absolute;
 	inset: 0;
-	background-image:
-		linear-gradient(180deg, var(--basehalf-agent-terminal-sheen), transparent 110px),
-		radial-gradient(120% 85% at 12% -8%, var(--basehalf-agent-terminal-glow-a), transparent 58%),
-		radial-gradient(110% 90% at 104% 16%, var(--basehalf-agent-terminal-glow-b), transparent 60%),
-		radial-gradient(150% 110% at 42% 110%, var(--basehalf-agent-terminal-glow-c), transparent 62%);
-	mix-blend-mode: var(--basehalf-agent-terminal-glass-blend, screen);
+	background-image: linear-gradient(180deg, var(--basehalf-agent-terminal-sheen), transparent 72px);
 	pointer-events: none;
 	z-index: 0;
 }
@@ -491,11 +470,11 @@
 	overflow: hidden;
 }
 
-/* Terminal-backed panes get a gutter so xterm content and shell-integration
-   command decorations never sit flush against the pane edge. The layout
-   measures the surface box, so the terminal reflows to the padded size. */
+/* Ghostty keeps its NSScrollView flush with the surface and applies a tiny
+   renderer padding to the grid. Mirror that shape: the xterm host reaches the
+   pane edge, while the glyph grid keeps only a 2px left breath. */
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-session-surface {
-	inset: 10px 12px 8px 16px;
+	inset: 2px 0;
 	background-color: var(--basehalf-agent-pane-background);
 }
 
@@ -510,6 +489,57 @@
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-viewport,
 .monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-screen {
 	background-color: var(--basehalf-agent-pane-background);
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm {
+	padding-left: 2px;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element {
+	margin-left: -2px;
+	padding-left: 2px;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper:not(.fixed-dims) .xterm-viewport {
+	right: 0 !important;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-command-decoration,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-command-guide {
+	display: none !important;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm-decoration-overview-ruler,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-shadow,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-scra {
+	display: none !important;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar {
+	width: 12px !important;
+	background: transparent !important;
+	opacity: 0.64;
+	transition: opacity 0.12s ease-out;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .terminal-wrapper:hover .xterm .xterm-scrollable-element > .xterm-scrollbar,
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar:has(.xterm-slider.xterm-active) {
+	opacity: 1;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
+	left: 3px !important;
+	width: 6px !important;
+	border-radius: 999px !important;
+	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 16%, transparent) !important;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider:hover {
+	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 28%, transparent) !important;
+}
+
+.monaco-workbench .basehalf-agent-area-session.kind-terminal .xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider.xterm-active {
+	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 40%, transparent) !important;
 }
 
 /* Terminal sticky scroll expects the stock terminal view chrome for its
@@ -531,6 +561,10 @@
 	z-index: 1;
 }
 
+.monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-pane-dim {
+	opacity: var(--basehalf-agent-terminal-inactive-opacity);
+}
+
 .monaco-workbench .basehalf-agent-area-session.dimmed > .basehalf-agent-pane-dim {
 	display: block;
 }
@@ -541,33 +575,36 @@
 	top: 0;
 	left: 50%;
 	transform: translateX(-50%);
-	min-width: 20px;
-	height: 11px;
-	padding: 0 4px;
+	width: 80px;
+	height: 12px;
+	padding: 0;
 	display: none;
 	align-items: center;
 	justify-content: center;
 	cursor: grab;
-	border-radius: 0 0 7px 7px;
 	color: var(--vscode-descriptionForeground);
-	background: var(--vscode-toolbar-hoverBackground);
+	background: transparent;
 	opacity: 0;
 	transition: opacity 0.1s ease-out;
 	z-index: 4;
 }
 
 .monaco-workbench .basehalf-agent-area-session.kind-terminal > .basehalf-agent-pane-handle {
-	color: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 68%, var(--basehalf-agent-terminal-background));
-	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 9%, var(--basehalf-agent-terminal-background));
+	color: var(--basehalf-agent-terminal-foreground);
+	background: transparent;
 }
 
 .monaco-workbench .basehalf-agent-area-session.pane-split > .basehalf-agent-pane-handle {
 	display: flex;
 }
 
-.monaco-workbench .basehalf-agent-area-session.pane-split:hover > .basehalf-agent-pane-handle,
-.monaco-workbench .basehalf-agent-pane-handle:hover {
-	opacity: 1;
+.monaco-workbench .basehalf-agent-area-session.pane-split.handle-reveal > .basehalf-agent-pane-handle {
+	opacity: 0.3;
+}
+
+.monaco-workbench .basehalf-agent-area-session.pane-split.pane-dragging > .basehalf-agent-pane-handle,
+.monaco-workbench .basehalf-agent-area-session.pane-split > .basehalf-agent-pane-handle:hover {
+	opacity: 0.85;
 }
 
 .monaco-workbench .basehalf-agent-pane-handle-dots {
@@ -591,9 +628,9 @@
 .monaco-workbench .basehalf-agent-pane-drop-preview {
 	position: absolute;
 	display: none;
-	background: color-mix(in srgb, var(--vscode-focusBorder) 20%, transparent);
-	border: 1.5px solid var(--vscode-focusBorder);
-	border-radius: 2px;
+	background: color-mix(in srgb, var(--vscode-focusBorder) 30%, transparent);
+	border: 0;
+	border-radius: 0;
 	pointer-events: none;
 }
 
@@ -665,7 +702,7 @@
 }
 
 .monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-divider-line {
-	background: var(--basehalf-agent-terminal-muted);
+	background: var(--basehalf-agent-terminal-divider);
 }
 
 .monaco-workbench .basehalf-agent-divider.row > .basehalf-agent-divider-line {
@@ -689,20 +726,32 @@
 	background: var(--vscode-focusBorder);
 }
 
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-divider:hover > .basehalf-agent-divider-line,
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-divider.dragging > .basehalf-agent-divider-line {
+	background: color-mix(in srgb, var(--basehalf-agent-terminal-foreground) 18%, var(--basehalf-agent-terminal-background));
+}
+
 /* The transient "cols × rows" HUD over the active pane on resize. */
 .monaco-workbench .basehalf-agent-resize-hud {
 	position: absolute;
 	display: none;
 	transform: translate(-50%, -50%);
-	padding: 4px 10px;
+	padding: 5px 6px;
 	background: var(--vscode-editorWidget-background);
-	border: 1px solid var(--vscode-editorWidget-border);
 	color: var(--vscode-editorWidget-foreground);
 	font-family: var(--monaco-monospace-font);
 	font-size: 12px;
+	line-height: 14px;
 	border-radius: 4px;
+	box-shadow: 0 2px 8px var(--vscode-widget-shadow);
 	pointer-events: none;
 	z-index: 6;
+}
+
+.monaco-workbench .basehalf-agent-area.active-kind-terminal .basehalf-agent-resize-hud {
+	background: var(--basehalf-agent-terminal-background);
+	color: var(--basehalf-agent-terminal-foreground);
+	box-shadow: 0 2px 8px color-mix(in srgb, black 36%, transparent);
 }
 
 .monaco-workbench .basehalf-agent-resize-hud.visible {

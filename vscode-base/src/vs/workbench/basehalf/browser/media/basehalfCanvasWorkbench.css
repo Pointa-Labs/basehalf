@@ -42,36 +42,36 @@
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 48px;
 	--bh-zoom: var(--basehalf-canvas-zoom, 1);
-	--bh-card-bg: #1e1e1e;
-	--bh-card-surface: #252526;
-	--bh-card-surface-muted: #181818;
+	--bh-card-bg: #171717;
+	--bh-card-surface: #202020;
+	--bh-card-surface-muted: #141414;
 	--bh-card-text-primary: #cccccc;
 	--bh-card-text-secondary: #9d9d9d;
 	--bh-card-text-tertiary: #808080;
 	--bh-card-text-ghost: #6e6e6e;
-	--bh-card-border: #2b2b2b;
-	--bh-card-border-strong: #454545;
+	--bh-card-border: #292929;
+	--bh-card-border-strong: #3a3a3a;
 	--bh-card-accent: #0078d4;
 	--bh-card-accent-soft: #04395e;
 	--bh-card-warning: #cca700;
 	--bh-card-danger: #f14c4c;
 	--bh-card-danger-soft: #5a1d1d;
-	--bh-card-folder: #332b00;
-	--bh-card-folder-border: #5c4f1f;
-	--bh-card-folder-glyph: #d6b656;
+	--bh-card-folder: #222222;
+	--bh-card-folder-border: #3d382c;
+	--bh-card-folder-glyph: #bba76a;
 
 	position: absolute;
 	inset: 0;
 	z-index: 0;
 	overflow: auto;
-	background-color: var(--vscode-editor-background);
+	background-color: var(--bh-card-bg);
 	/* The grid must cover the whole scrollable extent, not just the initial
 	   viewport rectangle, so it lives on the scroll container itself with
-	   background-attachment: local (tiles across the full scroll area and
-	   moves with the content, exactly like an absolutely positioned layer). */
+	   background-attachment: local. Keep it low-contrast like terminal pane
+	   chrome rather than a decorative wallpaper. */
 	background-image:
-		linear-gradient(to right, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px),
-		linear-gradient(to bottom, color-mix(in srgb, var(--vscode-editorWidget-border) 22%, transparent) 1px, transparent 1px);
+		linear-gradient(to right, rgb(255 255 255 / 2.8%) 1px, transparent 1px),
+		linear-gradient(to bottom, rgb(255 255 255 / 2.8%) 1px, transparent 1px);
 	background-size: 32px 32px;
 	background-attachment: local;
 	color: var(--vscode-foreground);
@@ -106,8 +106,8 @@
 	height: 28px;
 	padding: 2px;
 	pointer-events: auto;
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
-	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 65%, transparent);
+	background-color: color-mix(in srgb, var(--bh-card-surface-muted) 92%, transparent);
+	border: 1px solid var(--bh-card-border-strong);
 	border-radius: 4px;
 	box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
 }
@@ -271,7 +271,7 @@
 	text-align: left;
 	color: var(--bh-card-text-primary);
 	background: var(--bh-card-surface);
-	border: 1px solid var(--bh-card-border-strong);
+	border: 1px solid var(--bh-card-border);
 	border-radius: 8px;
 	box-shadow: 0 1px 2px rgb(0 0 0 / 40%);
 	cursor: grab;
@@ -291,7 +291,7 @@
 .monaco-workbench .basehalf-canvas-card:focus-visible,
 .monaco-workbench .basehalf-canvas-card.selected {
 	border-color: var(--bh-card-accent);
-	box-shadow: 0 0 0 2px rgb(0 120 212 / 60%), 0 2px 8px rgb(0 0 0 / 50%);
+	box-shadow: 0 0 0 1px rgb(0 120 212 / 70%), 0 2px 8px rgb(0 0 0 / 50%);
 	outline: none;
 }
 
@@ -305,7 +305,7 @@
 
 .monaco-workbench .basehalf-canvas-card.connection-target {
 	border-color: var(--bh-card-accent);
-	box-shadow: 0 0 0 2px rgb(0 120 212 / 60%), 0 10px 28px rgb(0 0 0 / 60%);
+	box-shadow: 0 0 0 1px rgb(0 120 212 / 70%), 0 10px 28px rgb(0 0 0 / 60%);
 }
 
 .monaco-workbench .basehalf-canvas-card-content {
@@ -431,8 +431,8 @@
 	flex: none;
 	padding: 1px 5px;
 	border-radius: 4px;
-	background: rgb(0 0 0 / 12%);
-	color: #8a6c00;
+	background: rgb(255 255 255 / 5%);
+	color: var(--bh-card-folder-glyph);
 	font-size: 9px;
 	font-weight: 600;
 	line-height: 12px;
