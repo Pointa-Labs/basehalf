@@ -3,7 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from './basehalfAgentArea.js';
+import { localize } from '../../../nls.js';
+import { ConfigurationScope, IConfigurationNode } from '../../../platform/configuration/common/configurationRegistry.js';
+import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgentSessionChoiceForKind } from './basehalfAgentArea.js';
 
 export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
@@ -19,6 +21,40 @@ export const BASEHALF_CANVAS_MAX_ZOOM = 4;
 export const BASEHALF_CANVAS_DEFAULT_ZOOM = 1;
 
 export const BASEHALF_AGENT_DEFAULT_SESSION: BaseHalfAgentSessionKind = 'tui-codex';
+
+// Exported so tests can restore BaseHalf settings after platform suites reset
+// the shared configuration registry.
+export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
+	id: 'basehalf',
+	order: 1,
+	title: localize('basehalfConfigurationTitle', 'BaseHalf'),
+	type: 'object',
+	properties: {
+		[BaseHalfSetting.EditorReadingMode]: {
+			type: 'boolean',
+			default: false,
+			scope: ConfigurationScope.RESOURCE,
+			description: localize('basehalf.editor.readingMode', 'Controls whether BaseHalf ADHD reading aids are enabled in rich Markdown documents.')
+		},
+		[BaseHalfSetting.CanvasDefaultZoom]: {
+			type: 'number',
+			default: BASEHALF_CANVAS_DEFAULT_ZOOM,
+			minimum: BASEHALF_CANVAS_MIN_ZOOM,
+			maximum: BASEHALF_CANVAS_MAX_ZOOM,
+			scope: ConfigurationScope.RESOURCE,
+			description: localize('basehalf.canvas.defaultZoom', 'Controls the initial BaseHalf canvas zoom when a folder has no saved focus mirror.')
+		},
+		[BaseHalfSetting.AgentDefaultSession]: {
+			type: 'string',
+			default: BASEHALF_AGENT_DEFAULT_SESSION,
+			enum: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.kind),
+			enumItemLabels: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.label),
+			enumDescriptions: BASEHALF_AGENT_SESSION_CHOICES.map(choice => choice.description),
+			scope: ConfigurationScope.WINDOW,
+			description: localize('basehalf.agent.defaultSession', 'Controls which Agent Area session is created when the Agent Area is opened with no active sessions.')
+		}
+	}
+};
 
 export type BaseHalfConfigurationMigrationValue = { readonly value: unknown };
 export type BaseHalfConfigurationMigrationPairs = [string, BaseHalfConfigurationMigrationValue][];

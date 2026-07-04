@@ -13,6 +13,7 @@ import {
 	BASEHALF_CANVAS_DEFAULT_ZOOM,
 	BASEHALF_CANVAS_MAX_ZOOM,
 	BASEHALF_CANVAS_MIN_ZOOM,
+	BASEHALF_CONFIGURATION_NODE,
 	BASEHALF_LEGACY_READING_MODE_SETTING,
 	BaseHalfSetting,
 	isBaseHalfAgentSessionKind,
@@ -30,7 +31,12 @@ suite('BaseHalfConfiguration', () => {
 			'basehalf.agent.defaultSession'
 		]);
 
-		const properties = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).getConfigurationProperties();
+		const configurationRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
+		if (!configurationRegistry.getConfigurationProperties()[BaseHalfSetting.EditorReadingMode]) {
+			configurationRegistry.registerConfiguration(BASEHALF_CONFIGURATION_NODE);
+		}
+
+		const properties = configurationRegistry.getConfigurationProperties();
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].section?.title, 'BaseHalf');
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].default, false);
