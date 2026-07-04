@@ -17,7 +17,7 @@ import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/comm
 import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IViewsService } from '../../services/views/common/viewsService.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
-import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseAgentExtensionViewContainer, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_ACTIVE_PANEL_STORAGE_KEY, BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_CONFIGURATION_DEFAULTS, BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY, BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS, BASEHALF_HIDDEN_VIEW_CONTAINER_IDS, BASEHALF_HIDDEN_VIEW_IDS, BASEHALF_LEFT_SIDEBAR_PINNED_VIEW_CONTAINERS, BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE, BASEHALF_PRIMARY_VIEW_CONTAINERS, BASEHALF_PRODUCT_PROFILE_ID, BASEHALF_PROFILE_STORAGE_KEYS_TO_CLEAR, BASEHALF_REMAPPED_VIEW_CONTAINER_IDS, BASEHALF_WORKSPACE_STORAGE_KEYS_TO_CLEAR, shouldBaseHalfCloseAgentExtensionViewContainer, shouldBaseHalfCloseRemappedViewContainer, shouldBaseHalfCloseStartupEditor, shouldBaseHalfHideView, shouldBaseHalfHideViewContainer, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS, BASEHALF_AUXILIARYBAR_PINNED_VIEW_CONTAINERS_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY, BASEHALF_AUXILIARYBAR_VIEW_CONTAINER_WORKSPACE_STATE } from '../common/basehalfWorkbenchProfile.js';
 import { BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID } from '../common/basehalfAgentArea.js';
 
 Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration).registerDefaultConfigurations([{
@@ -44,6 +44,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		this.clearCompetingStartupStorage();
 		this.applyLeftSidebarProfile();
 		this.applyAuxiliaryBarProfile();
+		this.applyStatusBarProfile();
 		this.registerHiddenSurfaceGuards();
 		this.registerSingleSurfaceEditorGuard();
 		this.closeRestoredCompetingSurfaces();
@@ -99,6 +100,39 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 			BASEHALF_LEFT_SIDEBAR_VIEW_CONTAINER_WORKSPACE_STATE,
 			'activity view container workspace state'
 		);
+	}
+
+	private applyStatusBarProfile(): void {
+		// The status bar stays curated, not removed: Git/notification entries are
+		// product surfaces, while these entries point at flows BaseHalf hides.
+		// Merge instead of overwrite so entries the user hid themselves survive.
+		const hiddenEntries = new Set<string>(this.readHiddenStatusbarEntries());
+		for (const entryId of BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS) {
+			hiddenEntries.add(entryId);
+		}
+
+		this.storeJsonIfChanged(
+			BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY,
+			StorageScope.PROFILE,
+			StorageTarget.USER,
+			Array.from(hiddenEntries),
+			'hidden status bar entries'
+		);
+	}
+
+	private readHiddenStatusbarEntries(): string[] {
+		const raw = this.storageService.get(BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY, StorageScope.PROFILE);
+		if (!raw) {
+			return [];
+		}
+
+		try {
+			const parsed: unknown = JSON.parse(raw);
+			return Array.isArray(parsed) ? parsed.filter((entryId): entryId is string => typeof entryId === 'string') : [];
+		} catch (error) {
+			this.logService.warn(`[${BASEHALF_PRODUCT_PROFILE_ID}] ignoring unparseable hidden status bar entries`, error);
+			return [];
+		}
 	}
 
 	private storeJsonIfChanged(key: string, scope: StorageScope, target: StorageTarget, value: unknown, label: string): void {

@@ -7,6 +7,7 @@ import { BASEHALF_AGENT_AREA_VIEW_CONTAINER_ID, BASEHALF_AGENT_EXTENSION_CANONIC
 import { VIEWLET_ID as FILES_VIEW_CONTAINER_ID, VIEW_ID as FILES_VIEW_ID } from '../../contrib/files/common/files.js';
 import { REPOSITORIES_VIEW_PANE_ID, HISTORY_VIEW_PANE_ID, VIEWLET_ID as SCM_VIEW_CONTAINER_ID, VIEW_PANE_ID as SCM_VIEW_ID } from '../../contrib/scm/common/scm.js';
 import { DEBUG_PANEL_ID, REPL_VIEW_ID } from '../../contrib/debug/common/debug.js';
+import { Markers } from '../../contrib/markers/common/markers.js';
 import { Testing } from '../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extensions/common/extensions.js';
@@ -17,10 +18,11 @@ export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.a
 export const BASEHALF_ACTIVITY_VIEW_CONTAINERS_WORKSPACE_STATE_STORAGE_KEY = 'workbench.activity.viewletsWorkspaceState';
 export const BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY = 'workbench.sidebar.activeviewletid';
 export const BASEHALF_ACTIVE_PANEL_STORAGE_KEY = 'workbench.panelpart.activepanelid';
+export const BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY = 'workbench.statusbar.hidden';
 
-export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command';
+export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command' | 'statusbarEntry';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
-export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'remote' | 'chat';
+export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
 
 export interface IBaseHalfWorkbenchSurface {
 	readonly id: string;
@@ -384,11 +386,39 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		reason: 'Testing is not part of the initial BaseHalf left sidebar product surface.'
 	},
 	{
+		id: Markers.MARKERS_CONTAINER_ID,
+		kind: 'viewContainer',
+		area: 'problems',
+		source: 'src/vs/workbench/contrib/markers/common/markers.ts',
+		reason: 'Problems is a stock VS Code panel surface and must not cover the BaseHalf canvas; diagnostics belong to the card detail code editor.'
+	},
+	{
+		id: Markers.MARKERS_VIEW_ID,
+		kind: 'view',
+		area: 'problems',
+		source: 'src/vs/workbench/contrib/markers/common/markers.ts',
+		reason: 'Problems view is hidden with its panel container while diagnostics are not a BaseHalf product surface.'
+	},
+	{
 		id: 'workbench.view.remote',
 		kind: 'viewContainer',
 		area: 'remote',
 		source: 'src/vs/workbench/contrib/remote/browser/remoteExplorer.ts',
 		reason: 'Remote Explorer is hidden until there is an explicit BaseHalf remote-workspace product decision.'
+	},
+	{
+		id: 'status.host',
+		kind: 'statusbarEntry',
+		area: 'remote',
+		source: 'src/vs/workbench/contrib/remote/browser/remoteIndicator.ts',
+		reason: 'BaseHalf is a local-first desktop product; the remote-window indicator points at a flow the curated product does not ship.'
+	},
+	{
+		id: 'status.problems',
+		kind: 'statusbarEntry',
+		area: 'problems',
+		source: 'src/vs/workbench/contrib/markers/browser/markers.contribution.ts',
+		reason: 'The error/warning counter opens the hidden Problems panel; diagnostics are not a BaseHalf status bar surface.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -533,6 +563,10 @@ export const BASEHALF_HIDDEN_VIEW_IDS = BASEHALF_HIDDEN_SURFACES
 
 export const BASEHALF_REMAPPED_VIEW_CONTAINER_IDS = BASEHALF_REMAPPED_SURFACES
 	.filter(surface => surface.kind === 'viewContainer')
+	.map(surface => surface.id) as readonly string[];
+
+export const BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS = BASEHALF_HIDDEN_SURFACES
+	.filter(surface => surface.kind === 'statusbarEntry')
 	.map(surface => surface.id) as readonly string[];
 
 export interface IBaseHalfAllowedExtensionFamily {

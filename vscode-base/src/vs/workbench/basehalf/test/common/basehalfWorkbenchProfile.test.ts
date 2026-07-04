@@ -12,6 +12,8 @@ import {
 	BASEHALF_ACTIVE_VIEWLET_STORAGE_KEY,
 	BASEHALF_CLOSED_STARTUP_EDITOR_TYPE_IDS,
 	BASEHALF_CONFIGURATION_DEFAULTS,
+	BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY,
+	BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS,
 	BASEHALF_HIDDEN_SURFACES,
 	BASEHALF_HIDDEN_VIEW_CONTAINER_IDS,
 	BASEHALF_HIDDEN_VIEW_IDS,
@@ -91,6 +93,9 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.repl'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.testResults'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.view.debug'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('workbench.panel.markers'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('status.host'), 'hidden');
+		assert.strictEqual(getBaseHalfSurfaceDisposition('status.problems'), 'hidden');
 		assert.strictEqual(getBaseHalfSurfaceDisposition('unknown.surface'), undefined);
 	});
 
@@ -141,6 +146,7 @@ suite('BaseHalfWorkbenchProfile', () => {
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.testResults'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.debug'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.extension.test'), true);
+		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.markers'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.view.remote'), true);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('workbench.panel.chat.view.copilot'), false);
 		assert.strictEqual(shouldBaseHalfHideViewContainer('terminal'), false);
@@ -155,17 +161,24 @@ suite('BaseHalfWorkbenchProfile', () => {
 				'workbench.view.debug',
 				'workbench.panel.testResults',
 				'workbench.view.extension.test',
+				'workbench.panel.markers',
 				'workbench.view.remote'
 			]
 		);
-		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'outline', 'timeline', 'workbench.panel.chat.view.copilot', 'workbench.panel.repl.view', 'workbench.panel.testResults.view']);
+		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'outline', 'timeline', 'workbench.panel.chat.view.copilot', 'workbench.panel.repl.view', 'workbench.panel.testResults.view', 'workbench.panel.markers.view']);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.explorer.openEditorsView'), true);
 		assert.strictEqual(shouldBaseHalfHideView('outline'), true);
 		assert.strictEqual(shouldBaseHalfHideView('timeline'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.chat.view.copilot'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.repl.view'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.testResults.view'), true);
+		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.markers.view'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.files.explorer'), false);
+	});
+
+	test('hides the remote indicator and problems counter through VS Code status bar storage', () => {
+		assert.strictEqual(BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY, 'workbench.statusbar.hidden');
+		assert.deepStrictEqual(BASEHALF_HIDDEN_STATUSBAR_ENTRY_IDS, ['status.host', 'status.problems']);
 	});
 
 	test('closes remapped stock view containers that should render inside BaseHalf surfaces', () => {

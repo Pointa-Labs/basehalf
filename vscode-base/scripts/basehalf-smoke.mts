@@ -94,6 +94,7 @@ try {
 
 	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
+	await step('statusbar-curated', () => assertStatusBarCurated(page));
 	await step('hidden-surface-runtime-guard', () => assertHiddenSurfaceCommandsStayHidden(page));
 	await step('agent-area-five-choices-command-unavailable-state', () => assertAgentAreaChoices(page));
 	await step('global-auxiliary-toggle-opens-agent-area', () => assertGlobalAuxiliaryToggleOpensAgentArea(page));
@@ -168,6 +169,7 @@ try {
 			'canvas-grid-scoped-to-canvas',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
+			'statusbar-curated',
 			'hidden-surface-runtime-guard',
 			'agent-area-five-choices-command-unavailable-state',
 			'global-auxiliary-toggle-opens-agent-area',
@@ -575,7 +577,7 @@ async function assertOpenEditorsHidden(page) {
 }
 
 async function assertCompetingViewContainersHidden(page) {
-	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Remote Explorer', 'Terminal'];
+	const forbidden = ['Extensions', 'Chat', 'Run and Debug', 'Debug Console', 'Testing', 'Test Results', 'Problems', 'Remote Explorer', 'Terminal'];
 	const started = Date.now();
 	let visibleForbidden = [];
 	while (Date.now() - started < 5_000) {
@@ -609,6 +611,37 @@ async function visibleViewContainerTitles(page) {
 		.filter(Boolean));
 }
 
+async function assertStatusBarCurated(page) {
+	// The status bar stays curated: Git/notification entries remain, while the
+	// remote-window indicator and the problems counter point at flows BaseHalf
+	// hides. Both entries register asynchronously, so hold the assertion over a
+	// settle window instead of sampling once.
+	await page.locator('.part.statusbar').waitFor({ state: 'visible', timeout: 20_000 });
+	const started = Date.now();
+	let sawVisibleEntry = false;
+	while (Date.now() - started < 5_000) {
+		const visibleEntryIds = await page.locator('.part.statusbar .statusbar-item').evaluateAll(nodes => nodes
+			.filter(node => {
+				const rect = node.getBoundingClientRect();
+				return getComputedStyle(node).display !== 'none' && rect.width > 0 && rect.height > 0;
+			})
+			.map(node => node.id));
+		const visibleCurated = visibleEntryIds.filter(id => id === 'status.host' || id === 'status.problems');
+		if (visibleCurated.length) {
+			throw new Error(`Curated status bar entries are visible: ${visibleCurated.join(', ')}`);
+		}
+		sawVisibleEntry ||= visibleEntryIds.length > 0;
+		if (sawVisibleEntry && Date.now() - started >= 2_000) {
+			return;
+		}
+		await page.waitForTimeout(200);
+	}
+
+	if (!sawVisibleEntry) {
+		throw new Error('No visible status bar entries found; the curated status bar assertion never exercised real entries');
+	}
+}
+
 async function assertHiddenSurfaceCommandsStayHidden(page) {
 	const hiddenSurfaceCommands = [
 		'Extensions: Focus on Extensions View',
@@ -616,6 +649,7 @@ async function assertHiddenSurfaceCommandsStayHidden(page) {
 		'View: Show Run and Debug',
 		'Debug Console: Focus on Debug Console View',
 		'View: Show Testing',
+		'Problems: Focus on Problems View',
 		'View: Show Remote Explorer'
 	];
 	let exercisedCommands = 0;
