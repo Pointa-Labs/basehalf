@@ -9,3 +9,15 @@ ThirdPartyNotices.txt eol=crlf
 *.sh eol=lf
 *.rtf -text
 **/*.json linguist-language=jsonc
+
+# Binary assets — never eol-normalize (a PNG signature contains \r\n).
+*.png binary
+*.jpg binary
+*.gif binary
+*.icns binary
+*.ico binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.tiff binary
+*.dmg binary
