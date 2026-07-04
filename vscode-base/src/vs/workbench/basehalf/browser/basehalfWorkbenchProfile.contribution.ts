@@ -10,7 +10,7 @@ import { ILogService } from '../../../platform/log/common/log.js';
 import { Registry } from '../../../platform/registry/common/platform.js';
 import { EditorsOrder } from '../../common/editor.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { ViewContainerLocation } from '../../common/views.js';
+import { IViewDescriptorService, ViewContainerLocation } from '../../common/views.js';
 import { IEditorGroupsService } from '../../services/editor/common/editorGroupsService.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { ILifecycleService, LifecyclePhase } from '../../services/lifecycle/common/lifecycle.js';
@@ -36,7 +36,8 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
 		@IStorageService private readonly storageService: IStorageService,
-		@IViewsService private readonly viewsService: IViewsService
+		@IViewsService private readonly viewsService: IViewsService,
+		@IViewDescriptorService private readonly viewDescriptorService: IViewDescriptorService
 	) {
 		super();
 
@@ -212,7 +213,7 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 
 	private closeRestoredHiddenViews(): void {
 		for (const viewId of BASEHALF_HIDDEN_VIEW_IDS) {
-			if (!shouldBaseHalfHideView(viewId) || !this.viewsService.isViewVisible(viewId)) {
+			if (!shouldBaseHalfHideView(viewId)) {
 				continue;
 			}
 
@@ -221,8 +222,32 @@ class BaseHalfWorkbenchProfileContribution extends Disposable implements IWorkbe
 	}
 
 	private closeHiddenView(viewId: string, reason: string): void {
-		this.viewsService.closeView(viewId);
-		this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed ${reason}: ${viewId}`);
+		// Hiding the view descriptor removes the pane from its container (the
+		// same state the stock Views menu checkbox writes), which collapsed
+		// panes need — closeView only collapses views that are not the sole
+		// view of their container.
+		if (this.hideViewDescriptor(viewId)) {
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] hid ${reason}: ${viewId}`);
+		} else if (this.viewsService.isViewVisible(viewId)) {
+			this.viewsService.closeView(viewId);
+			this.logService.trace(`[${BASEHALF_PRODUCT_PROFILE_ID}] closed ${reason}: ${viewId}`);
+		}
+	}
+
+	private hideViewDescriptor(viewId: string): boolean {
+		const viewContainer = this.viewDescriptorService.getViewContainerByViewId(viewId);
+		if (!viewContainer) {
+			return false;
+		}
+
+		const model = this.viewDescriptorService.getViewContainerModel(viewContainer);
+		const viewDescriptor = model.visibleViewDescriptors.find(descriptor => descriptor.id === viewId);
+		if (!viewDescriptor?.canToggleVisibility) {
+			return false;
+		}
+
+		model.setVisible(viewId, false);
+		return true;
 	}
 
 	private async closeRestoredStartupEditors(): Promise<void> {

@@ -158,8 +158,10 @@ suite('BaseHalfWorkbenchProfile', () => {
 				'workbench.view.remote'
 			]
 		);
-		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'workbench.panel.chat.view.copilot', 'workbench.panel.repl.view', 'workbench.panel.testResults.view']);
+		assert.deepStrictEqual(BASEHALF_HIDDEN_VIEW_IDS, ['workbench.explorer.openEditorsView', 'outline', 'timeline', 'workbench.panel.chat.view.copilot', 'workbench.panel.repl.view', 'workbench.panel.testResults.view']);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.explorer.openEditorsView'), true);
+		assert.strictEqual(shouldBaseHalfHideView('outline'), true);
+		assert.strictEqual(shouldBaseHalfHideView('timeline'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.chat.view.copilot'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.repl.view'), true);
 		assert.strictEqual(shouldBaseHalfHideView('workbench.panel.testResults.view'), true);

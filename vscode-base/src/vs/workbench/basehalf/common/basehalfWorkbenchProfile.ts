@@ -279,6 +279,20 @@ export const BASEHALF_HIDDEN_SURFACES = [
 		reason: 'Open Editors exposes VS Code editor-tab state; BaseHalf keeps canvas/card detail as the primary file-open surface.'
 	},
 	{
+		id: 'outline',
+		kind: 'view',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/outline/browser/outlinePane.ts',
+		reason: 'Outline is an editor-tab companion surface; hiding it keeps the Files sidebar to the folder tree and lets the single view merge into the title row.'
+	},
+	{
+		id: 'timeline',
+		kind: 'view',
+		area: 'canvas',
+		source: 'src/vs/workbench/contrib/timeline/browser/timelinePane.ts',
+		reason: 'Timeline duplicates Git history, which BaseHalf surfaces through the Git view; hiding it keeps the Files sidebar to the folder tree.'
+	},
+	{
 		id: 'search.action.openNewEditor',
 		kind: 'command',
 		area: 'search',
