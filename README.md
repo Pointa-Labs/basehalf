@@ -3,15 +3,16 @@
 </p>
 
 > **Half AI. Half human. Half machine. Half flesh.**<br>
-> **Building for agents and humans to do their best work.**
+> **A canvas-first desktop workspace for thinking with files and agents.**
 
-BaseHalf is an open-source, local-first desktop workspace for AI-assisted
-knowledge work. It sits on top of a real folder, gives you a canvas, block
-editor, file graph, and agent-readable `.bh/` context, so your own AI agent can
-work from the same materials you see.
+BaseHalf is an open-source, local-first desktop workspace built on a real VS
+Code substrate. It keeps your files in a normal folder, gives humans a
+canvas/card-detail way to navigate that folder, and builds a `.bh/` protocol
+layer so agents can stay oriented in the same materials.
 
 <div align="center">
 
+[![Download][badge-download]][latest-release]
 [![Discussions][badge-discussions]][discussions]
 [![Twitter / X][badge-twitter]][twitter]
 [![Discord][badge-discord]][discord]
@@ -23,178 +24,245 @@ work from the same materials you see.
 
 </div>
 
-**Status:** pre-alpha, dogfood-ready. The local protocol and Electron Mac app
-are usable today and still changing quickly.
+**Status:** BaseHalf 0.4.0 is the current public macOS Apple Silicon release.
+It is usable, early, and changing quickly. The product has moved from the old
+hand-rolled Electron/core shell onto `vscode-base/`, where VS Code provides the
+application substrate and BaseHalf owns the canvas-first product layer.
 
-Bring your own agent: **Codex**, **Claude Code**, **OpenClaw**,
-**Hermes Agent**, or any other agent that can read and write local files.
+Download the latest build from [GitHub Releases][latest-release]. The current
+macOS build is unsigned and unnotarized, so Gatekeeper may block the first
+launch. After dragging the app to Applications, run:
 
-BaseHalf is being built in public. Star the repo, open a discussion, or join the
-community if you're exploring local-first, AI-native workspaces.
-
----
+```bash
+xattr -dr com.apple.quarantine /Applications/BaseHalf.app
+```
 
 ## Why BaseHalf
 
-BaseHalf gives a local project a shared working surface for people and agents.
-It turns a real folder into a visual workspace with files, notes, references,
-prompts, and focus signals that stay close to the materials they describe.
+AI agents are good at reading and editing files, but people think through
+spatial context, references, partial attention, and "where was I?" signals.
+BaseHalf is the meeting place: a real folder remains the source of truth, while
+the app adds a visual canvas, file cards, Markdown projections, Git/Search/File
+surfaces, and an agent-readable local mirror beside the work.
 
-Your files stay in a real folder. BaseHalf adds a `.bh/` mirror layer beside
-them for descriptions, references, canvas positions, and the node the user is
-currently looking at. Humans work through the desktop app. Agents read the same
-local protocol and decide what context to load.
+BaseHalf is not trying to become the agent. It is a substrate for compound work:
+humans keep the map, agents use their own tools, and both sides can inspect the
+same local project without a cloud account or hidden database.
 
-The result is a local workspace your existing agent can understand: a canvas for
-you, plain files for the agent, and a small protocol that helps both sides stay
-oriented.
+The `.bh/` layer is a core part of that product direction, not a legacy detail.
+It is where BaseHalf will publish the workspace map, current focus, references,
+canvas layout, reading state, and agent-facing context. The current release has
+the first mirror primitives in place; the broader `.bh` protocol is one of the
+main areas still being built out.
 
-## What It Is
+## Product Shape
 
-- A **desktop workspace**: Electron, Mac first, with a file tree, canvas,
-  previews, and a block editor over local files.
-- A **local folder model**: your files stay where they are; `.bh/` stores
-  local BaseHalf mirror/runtime metadata and is ignored by git.
-- An **agent-readable protocol**: a `.bh/mirror/` tree of plain YAML files —
-  `.bh/current_focus.yaml` plus per-node `badge.yaml`, `canvas.yaml`,
-  `focus.yaml`, and `adhd.yaml` — publishes the graph and the current focus.
-- A **bring-your-own-agent tool**: you choose the agent. Codex, Claude Code,
-  OpenClaw, Hermes Agent, or any file-reading agent can participate.
-- A **standalone local app**: also useful as a knowledge workspace on its own.
+- **Canvas first.** Folders open as canvases. Files open as full-screen card
+  detail inside the BaseHalf flow. VS Code editor tabs remain fallback plumbing,
+  not the default product model.
+- **Real files stay real.** Markdown, code, media, and project files remain in
+  the workspace folder. Git, external editors, and agents see ordinary files.
+- **`.bh/` is the agent context layer.** BaseHalf keeps user content in real
+  files and uses `.bh/` for local derived context: mirrors, focus, canvas state,
+  references, and reading aids. This is a first-class product workstream, even
+  though the VS Code-base migration has recently been the active focus.
+- **VS Code is the lower layer.** BaseHalf reuses VS Code's Explorer, Search,
+  SCM/Git, quick input, working-copy/file services, menus, settings, extension
+  host, and terminal process APIs.
+- **The left sidebar is small.** The visible sidebar product surface is Files,
+  Git, and Search. Open Editors, generic Extensions, Debug, Testing, Problems,
+  Remote Explorer, stock Chat/Copilot/Sessions, and the stock terminal panel
+  are hidden or remapped while BaseHalf keeps its own product shape.
+- **The right side is Agent Area.** Agent Area hosts TUI agents, curated
+  extension agents, and plain shell sessions with tabs, panes, splits, restart,
+  kill, resize, and zoom controls.
+- **Markdown has projections.** A Markdown file is one working copy with three
+  card-detail projections: `rich` by default, `source` for raw Markdown, and
+  `preview` for read-only rendered Markdown.
 
-## How It Works
+## Agent Area
+
+BaseHalf's first-class session choices are intentionally narrow:
+
+- **Codex** - runs the `codex` CLI as a TUI session.
+- **Claude Code** - runs the `claude` CLI as a TUI session.
+- **Codex Extension** - hosts the curated VS Code Codex extension experience.
+- **Claude Code Extension** - hosts the curated VS Code Claude Code extension
+  experience.
+- **Terminal** - opens a shell for OpenCode, Gemini CLI, or another terminal
+  based agent.
+
+Extension support starts curated, not marketplace-open. BaseHalf currently
+allows only the extension families needed for Git/GitHub auth and the Codex /
+Claude agent surfaces.
+
+## `.bh` Local Protocol
+
+BaseHalf publishes context instead of injecting prompts. Agents can read the
+workspace files directly and, when useful, inspect `.bh/`. This protocol is the
+planned shared language between the app, the human's visual workspace, and
+file-based agents:
 
 ```mermaid
 flowchart LR
-  human["Human"] --> app["BaseHalf Desktop"]
-  app --> files["Local workspace folder"]
-  app --> bh[".bh protocol layer"]
+  human["Human"] --> app["BaseHalf"]
+  app --> substrate["VS Code substrate"]
+  app --> files["Workspace files"]
+  app --> mirror[".bh/mirror"]
 
-  agent["Your AI agent"] --> files
-  agent --> bh
+  agent["Agent"] --> area["Agent Area"]
+  area --> files
+  area --> mirror
 
-  bh --> focus[".bh/current_focus.yaml"]
-  bh --> badge[".bh/mirror/<path>/badge.yaml"]
-  bh --> canvas[".bh/mirror/<folder>/canvas.yaml"]
-  bh --> adhd[".bh/mirror/<file>/adhd.yaml"]
+  mirror --> focus["current_focus.yaml"]
+  mirror --> badge["badge.yaml"]
+  mirror --> canvas["canvas.yaml"]
+  mirror --> aids["focus.yaml / adhd.yaml"]
 ```
 
-A **badge** is a file or folder plus a small backpack of metadata: a one-line
-description and references to other nodes. Badges are a sparse overlay, created
-lazily the first time you annotate a node — a fresh workspace has none, and the
-canvas reads the filesystem directly and overlays only the badges that exist.
+The mirror is deliberately plain. The current implementation already uses these
+shapes as the foundation, and future `.bh` work will make this layer more
+complete and more useful to agents:
 
-The protocol is a per-node mirror tree, deliberately simple:
+- `.bh/current_focus.yaml` points to the active node's `focus.yaml`.
+- `.bh/mirror/<path>/badge.yaml` stores a file or folder description plus
+  `references` and `referenced_by`.
+- `.bh/mirror/<folder>/canvas.yaml` stores card geometry and edge metadata for
+  that folder canvas.
+- `.bh/mirror/<path>/focus.yaml` mirrors the current file projection, cursor or
+  visible lines, or a folder canvas viewport.
+- `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
+  and read ranges.
 
-- `.bh/current_focus.yaml` is a symlink to the `focus.yaml` of the node you are
-  looking at right now — the agent's per-turn entry point.
-- `.bh/mirror/<path>/badge.yaml` describes a node's one-line description,
-  outbound `references`, and the embedded inbound `referenced_by` index.
-- `.bh/mirror/<folder>/canvas.yaml` holds a folder's card positions and the
-  edges (with anchors + labels) between its children.
-- `.bh/mirror/<path>/focus.yaml` mirrors a node's viewport (which line / cursor
-  for a file, pan center / zoom for a folder canvas).
-- `.bh/mirror/<file>/adhd.yaml` carries per-file reading aids: highlight
-  keywords and already-read line-ranges.
-
-BaseHalf publishes structure; the agent chooses what to read.
+User files remain content truth. `.bh/` is a local derived mirror, and automated
+BaseHalf services observe/reconcile unless the user triggers a concrete write.
+Agents edit files with their own tools.
 
 ## What Works Today
 
-BaseHalf is pre-alpha and the core loop is usable:
+- Open a real local folder and land in the BaseHalf canvas workbench.
+- Browse Files, Git, and Search using VS Code-backed side views.
+- Open folders as canvases and files as BaseHalf card detail instead of editor
+  tabs.
+- Drag cards, persist positions, connect cards with labeled anchored edges, and
+  use snap guides.
+- Use Quick Open and Quick Text Search while result activation still routes
+  back into BaseHalf card detail.
+- Edit Markdown in rich mode, switch to source or preview, and keep Markdown as
+  the single file truth.
+- Open code and non-Markdown text through the source card detail.
+- Use VS Code's native Git provider, repository state, branch quick pick, SCM
+  refresh, and publish-branch flow.
+- Run Codex, Claude Code, curated extension agents, and shell agents inside the
+  Agent Area.
+- Read BaseHalf settings in VS Code's Settings UI under the BaseHalf category.
+- See release notes as a system page without creating workspace files.
 
-- Register a real folder as a workspace.
-- See files and folders as badges on a canvas.
-- Drag badges, persist positions, and scope into folder sub-canvases.
-- Add references between badges.
-- Preview and edit Markdown via BlockNote, with guardrails for lossy
-  round-trips.
-- Preview images, audio, video, PDFs, and plain code/text files.
-- Mirror the node you're looking at into `.bh/current_focus.yaml` for agents.
-- Keep `.bh/` metadata reconciled as files are added, renamed, or removed.
+The smoke suite guards this shape: hidden competing workbench surfaces, Files /
+Git / Search sidebar state, Agent Area sessions, canvas routing, Quick Open /
+Search routing, Markdown rich/source behavior, Git provider integration, and
+release notes.
 
-Core modules currently ship for:
+## Install
 
-- `workspace` - register, switch, rename, repath, and inspect workspaces.
-- `badges` - read/write a node's description and references (with the inbound
-  index embedded as `referenced_by`).
-- `canvas` - per-folder card positions and edges (the visual layer).
-- `focus` - mirror the user's current viewport (`focus.yaml` +
-  `current_focus.yaml` symlink) for agents.
-- `adhd` - per-file reading aids (highlight keywords + already-read ranges).
-- `search` - full-text content search across the workspace.
-- `watcher` - reconcile external filesystem changes.
-
-## Quickstart
-
-Requirements: Node >= 20.19 and pnpm 9.
-
-```bash
-pnpm install
-pnpm -r build
-pnpm -r test
-```
-
-Run the desktop app:
+1. Download `BaseHalf-0.4.0-darwin-arm64.dmg` from
+   [the latest release][latest-release].
+2. Open the DMG and drag `BaseHalf.app` into Applications.
+3. If macOS blocks first launch, remove the quarantine attribute:
 
 ```bash
-pnpm --filter @basehalf/desktop dev
+xattr -dr com.apple.quarantine /Applications/BaseHalf.app
 ```
 
-From the app, **Open Folder** registers a real folder as a workspace (path is
-identity — re-opening one just switches to it), scaffolds the `.bh/` mirror, and
-installs the agent-protocol hint into the folder's `CLAUDE.md` + `AGENTS.md`.
-Everything the app does goes through `@basehalf/core`'s `run(command, args)` —
-the one door; there is no separate CLI binary. Your agent then reads the
-published `.bh/` mirror (starting from `.bh/current_focus.yaml`) directly.
+The app's update feed is served from GitHub Releases through the signed
+BaseHalf update manifest.
+
+## Develop From Source
+
+Current desktop development happens in `vscode-base/`. The older `packages/`
+tree is useful for migration history and tests, but new desktop-facing product
+work should be VS Code-aligned workbench/platform code.
+
+Requirements:
+
+- macOS for the current desktop packaging path.
+- Node `24.17.0` from `vscode-base/.nvmrc`.
+- npm.
+
+```bash
+cd vscode-base
+nvm use
+npm install
+npm run compile
+./scripts/code.sh
+```
+
+Useful checks:
+
+```bash
+cd vscode-base
+npm run typecheck-client
+./scripts/test.sh
+npm run basehalf:smoke
+```
+
+For BaseHalf UI/routing changes, `npm run basehalf:smoke` is the important
+product smoke. If `out/` is already current, `npm run basehalf:smoke-no-compile`
+skips the compile step.
+
+Package a macOS release build:
+
+```bash
+cd vscode-base
+build/basehalf/package-darwin.sh arm64
+```
 
 ## Repo Layout
 
 ```text
-packages/
-  core/             kernel + first-party modules
-    src/
-      index.ts        createCore() - the one door
-      kernel/         registry, context, fs abstraction, mirror store, command types
-      modules/
-        workspace/    workspace registry + local file access
-        badges/       file/folder badge.yaml (description + references + referenced_by)
-        canvas/       per-folder canvas.yaml (card positions + edges)
-        focus/        focus.yaml viewport mirror + current_focus.yaml symlink
-        adhd/         per-file adhd.yaml reading aids
-        search/       full-text content search over workspace files
-        watcher/      chokidar reconciliation for local filesystem changes
-  desktop/          Electron + React shell over core via IPC
-docs/             decisions, dependency policy, trademark policy
+vscode-base/                         current desktop product source
+  src/vs/workbench/basehalf/         BaseHalf canvas, card detail, Agent Area,
+                                     profile, routing, mirrors, tests
+  src/vs/platform/basehalf/          BaseHalf platform services such as update
+                                     protocol and mirror-link helpers
+  extensions/basehalf/               rich Markdown webview/editor assets
+  build/basehalf/                    macOS package, DMG, and update scripts
+  BASEHALF_UPSTREAM.md               VS Code import baseline
+
+docs/                                public decisions and policies
+private-docs/                        private product/architecture decision corpus
+packages/                            historical BaseHalf core/desktop material
 ```
 
 ## Architecture Principles
 
-1. **One door.** All operations go through `@basehalf/core`'s
-   `run(command, args)`. The desktop UI, watcher, and any future MCP/CLI shell
-   stay thin.
-2. **Module isolation.** Modules live under `packages/core/src/modules/<name>/`
-   and compose through `ctx.run`.
-3. **Use the context filesystem.** Core modules use `ctx.fs`, so tests can swap
-   in a mock implementation.
-4. **User files are content truth.** Your files remain the source; `.bh/` is a
-   derived local mirror and is gitignored.
-5. **Publish simple local context.** BaseHalf writes a small YAML mirror to disk
-   so agents can navigate the workspace from the same folder.
-6. **Composable primitives.** BaseHalf exposes small operations for workspaces,
-   badges, canvas, focus, reading aids, search, and filesystem reconciliation.
+1. **VS Code substrate, BaseHalf product.** Prefer VS Code services and
+   workbench patterns for infrastructure; keep BaseHalf's product layer
+   canvas-first.
+2. **Module-complete migration.** Port modules to product quality rather than
+   landing placeholder UI or disconnected demo paths.
+3. **Files/Git/Search on the left.** Reuse VS Code mechanics, but route
+   activation into BaseHalf folder canvases and card detail.
+4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
+   render as Agent Area sessions, not the stock terminal panel.
+5. **Curated extensions first.** Git, GitHub auth, Codex, and Claude are the
+   initial extension families. The full marketplace surface stays hidden.
+6. **Markdown shares one truth.** Rich, source, and preview projections operate
+   over the same Markdown working copy.
+7. **BaseHalf does not secretly edit user files.** Automated services publish
+   and reconcile `.bh/` context; explicit user actions or external agents make
+   content changes.
 
 ## Designed For
 
-- **Agent-assisted reading and writing:** keep source files, notes, prompts, and
-  references connected in one local workspace.
-- **Research maps:** arrange files on a canvas, connect supporting materials,
-  and focus a folder of supporting materials for later work.
-- **Project memory:** keep the current focus, file-level descriptions, and
-  reference graph beside the project itself.
-- **Local-first collaboration with agents:** let Codex, Claude Code, OpenClaw,
-  Hermes Agent, or another file-reading agent use the same folder structure you
-  are using.
+- **Curious learners using AI:** build understanding through a canvas of source
+  material, notes, references, and active agent sessions.
+- **Agent-assisted project work:** keep files, Git state, search results, and
+  agent terminals in one local workspace.
+- **Research maps:** arrange folders and files spatially, connect supporting
+  materials, and preserve focus across sessions.
+- **Local-first project memory:** keep lightweight descriptions, references,
+  canvas positions, and reading state beside the project itself.
 
 ## Community
 
@@ -207,13 +275,13 @@ Community links are intentionally lightweight while BaseHalf is early:
 - [QQ Users][qq-users] - Chinese user community.
 - [QQ Developers][qq-developers] - Chinese developer community.
 
-If you are trying BaseHalf with Codex, Claude Code, OpenClaw, Hermes Agent, or
+If you are trying BaseHalf with Codex, Claude Code, OpenCode, Gemini CLI, or
 another local-file agent, we would love to hear what you build.
 
 ## Contributing
 
 BaseHalf is early and deliberately narrow. Please open an issue or discussion
-before sending a non-trivial PR so we can align on scope first.
+before sending a non-trivial external PR so we can align on scope first.
 
 1. Read [CONTRIBUTING.md][contributing] for build/test commands and architecture
    invariants.
@@ -221,18 +289,22 @@ before sending a non-trivial PR so we can align on scope first.
 3. Sign the [CLA][cla] when prompted. Contributions must use
    permissively-licensed dependencies.
 
-Bug reports, ideas, and discussion are always welcome.
+Maintainers push `main` directly after local lint, typecheck, tests, and an
+in-session adversarial review.
 
-By participating you agree to our [Code of Conduct][code-of-conduct].
+Bug reports, ideas, and discussion are always welcome. By participating you
+agree to our [Code of Conduct][code-of-conduct].
 
 ## License
 
-[Apache-2.0][license]. Contributions require a signed [CLA][cla].
+BaseHalf is [Apache-2.0][license]. VS Code-derived portions in `vscode-base/`
+retain their upstream MIT license and third-party notices.
 
-The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
-[trademark policy][trademark-policy].
+Contributions require a signed [CLA][cla]. The "BaseHalf" name and logo are
+trademarks of Pointa Labs, Inc. See the [trademark policy][trademark-policy].
 
 [website]: https://basehalf.com
+[latest-release]: https://github.com/Pointa-Labs/basehalf/releases/latest
 [gitcgr]: https://gitcgr.com/Pointa-Labs/basehalf
 [discussions]: https://github.com/Pointa-Labs/basehalf/discussions
 [twitter]: https://x.com/JustJerry121
@@ -246,6 +318,7 @@ The "BaseHalf" name and logo are trademarks of Pointa Labs, Inc. See the
 [license]: LICENSE
 [trademark-policy]: docs/trademark-policy.md
 
+[badge-download]: https://img.shields.io/badge/Download-macOS%20Apple%20Silicon-6BA6FF?style=flat&labelColor=1A1A17
 [badge-website]: https://img.shields.io/badge/Web%20Version-basehalf.com-9FBBE0?style=flat&labelColor=1A1A17
 [badge-gitcgr]: https://img.shields.io/badge/GitCGR-BaseHalf-C0A8DD?style=flat&labelColor=1A1A17
 [badge-discussions]: https://img.shields.io/badge/GitHub-Discussions-2D333B?style=flat&logo=github&logoColor=DBE7FB&labelColor=1A1A17
