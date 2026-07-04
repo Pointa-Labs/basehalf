@@ -239,9 +239,11 @@ export interface IBaseHalfAgentAreaService {
 
 	/**
 	 * Adopt the Agent Area's chrome into the given host element — called by the
-	 * Agent Area view pane when the auxiliary bar creates it.
+	 * Agent Area view pane when the auxiliary bar creates it. Typed loosely
+	 * because this is a common-layer interface; the browser-layer
+	 * implementation narrows it to an HTMLElement.
 	 */
-	mountIn(container: HTMLElement): void;
+	mountIn(container: unknown): void;
 	focusActivePane(): Promise<void>;
 
 	show(preserveFocus?: boolean): Promise<void>;

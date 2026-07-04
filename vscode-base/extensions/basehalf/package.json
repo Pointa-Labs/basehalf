@@ -9,8 +9,7 @@
 		"vscode": "^1.128.0"
 	},
 	"extensionKind": [
-		"ui",
-		"web"
+		"ui"
 	],
 	"categories": [
 		"Other"
