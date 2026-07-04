@@ -41,7 +41,6 @@
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 48px;
-	--bh-zoom: var(--basehalf-canvas-zoom, 1);
 	--bh-card-bg: #171717;
 	--bh-card-surface: #202020;
 	--bh-card-surface-muted: #141414;
@@ -326,7 +325,6 @@
 	min-height: 0;
 	padding: 8px 12px;
 	overflow: hidden;
-	font-size: clamp(12px, calc(13px / var(--bh-zoom, 1)), var(--bh-mini-label-cap, 22px));
 }
 
 .monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-mini {
@@ -338,8 +336,24 @@
 }
 
 .monaco-workbench .basehalf-canvas-card-mini-flow {
+	/* Counter-scale the label toward a constant on-screen size with a TRANSFORM,
+	   not font-size. The flow font stays fixed at 13px, so the accumulated render
+	   scale of the glyphs (card layer zoom × this inverse scale) is constant and
+	   continuous zooming repaints the label with pixel-identical content — the
+	   per-frame font-size recompute this replaces re-laid-out every label on every
+	   zoom frame, which read as text flicker. The scale follows the original
+	   clamped counter-scale spec: hold ~13px on screen, never smaller than the
+	   12px caption, capped at a fraction of the card's own height (per-card
+	   --bh-mini-label-cap) so the label can never overrun a shrinking card. The
+	   layout width is widened by the inverse factor so the scaled block still
+	   fills the card, which keeps wrap points for long names where they were. */
+	--bh-mini-label-scale: calc(clamp(12px, calc(13px / var(--basehalf-canvas-zoom, 1)), var(--bh-mini-label-cap, 22px)) / 13px);
 	display: flow-root;
 	min-width: 0;
+	font-size: 13px;
+	width: calc(100% / var(--bh-mini-label-scale));
+	transform: scale(var(--bh-mini-label-scale));
+	transform-origin: 0 0;
 }
 
 .monaco-workbench .basehalf-canvas-card-mini-icon {
