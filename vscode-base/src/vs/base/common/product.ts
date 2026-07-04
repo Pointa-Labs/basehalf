@@ -113,6 +113,10 @@ export interface IProductConfiguration {
 
 	readonly downloadUrl?: string;
 	readonly updateUrl?: string;
+	/** BaseHalf release version (strict x.y.z) — the version the self-update
+	 *  feed manifest is compared against; independent of the upstream
+	 *  `version` in package.json. */
+	readonly basehalfVersion?: string;
 	readonly webUrl?: string;
 	readonly webEndpointUrlTemplate?: string;
 	readonly webviewContentExternalBaseUrlTemplate?: string;

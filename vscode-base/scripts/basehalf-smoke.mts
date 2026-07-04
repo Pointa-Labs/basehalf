@@ -304,8 +304,17 @@ function assertProductIdentity() {
 		throw new Error(`BaseHalf dev package identity mismatch: package.name is ${JSON.stringify(packageJson.name)}, expected "basehalf-vscode-dev".`);
 	}
 
-	if (product.updateUrl !== undefined) {
-		throw new Error(`BaseHalf product.json should not enable VS Code updater until a compatible update service exists; got updateUrl=${JSON.stringify(product.updateUrl)}.`);
+	// The BaseHalf darwin update service (updateService.basehalfDarwin.ts) polls
+	// an Ed25519-signed manifest from this URL; quality + a strict x.y.z
+	// basehalfVersion are what its feed gating requires.
+	if (product.updateUrl !== 'https://github.com/Pointa-Labs/basehalf/releases/latest/download') {
+		throw new Error(`BaseHalf product.json updateUrl must point at the releases/latest/download feed; got ${JSON.stringify(product.updateUrl)}.`);
+	}
+	if (product.quality !== 'stable') {
+		throw new Error(`BaseHalf product.json quality must be "stable" (the update service is disabled without it); got ${JSON.stringify(product.quality)}.`);
+	}
+	if (!/^\d+\.\d+\.\d+$/.test(product.basehalfVersion ?? '')) {
+		throw new Error(`BaseHalf product.json basehalfVersion must be strict x.y.z; got ${JSON.stringify(product.basehalfVersion)}.`);
 	}
 }
 
