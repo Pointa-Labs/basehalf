@@ -858,8 +858,25 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 				&& paletteStyle.backgroundColor === 'rgb(247, 73, 73)');
 		paletteProbe.remove();
 
+		// Browser-style tab chrome: the tab bar is a darker frame than the
+		// content, the active tab adopts the exact content background so it
+		// flows into the pane below, and the frame/content hairline is a 1px
+		// overlay (breakable under the active tab) rather than a border.
 		const tabsBar = area.querySelector('.basehalf-agent-area-tabs');
-		const terminalHasThemeLine = !terminal || (tabsBar instanceof HTMLElement && getComputedStyle(tabsBar).backgroundImage !== 'none');
+		const activeTab = area.querySelector('.basehalf-agent-tab.active');
+		const meanChannel = (color: string): number => {
+			const parts = (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+			if (parts.length < 3) {
+				return NaN;
+			}
+			const scale = parts.every(value => value <= 1.001) ? 255 : 1;
+			return (parts[0] + parts[1] + parts[2]) / 3 * scale;
+		};
+		const terminalHasBrowserTabChrome = !terminal
+			|| (tabsBar instanceof HTMLElement && activeTab instanceof HTMLElement
+				&& meanChannel(getComputedStyle(tabsBar).backgroundColor) < meanChannel(expectedBackground)
+				&& getComputedStyle(activeTab).backgroundColor === expectedBackground
+				&& getComputedStyle(tabsBar, '::after').height === '1px');
 
 		// Ghostty-style terminal surface: keep the configured terminal
 		// background as the dominant surface. A neutral linear sheen is okay;
@@ -908,7 +925,7 @@ async function assertAgentAreaSurfaceKind(page, kind) {
 		return getComputedStyle(area).backgroundColor === expectedBackground
 			&& getComputedStyle(activeSession).backgroundColor === expectedBackground
 			&& terminalHasGhosttyPalette
-			&& terminalHasThemeLine
+			&& terminalHasBrowserTabChrome
 			&& terminalHasNeutralSurface
 			&& terminalHasOverlayScroller
 			&& terminalHasTightGutter;

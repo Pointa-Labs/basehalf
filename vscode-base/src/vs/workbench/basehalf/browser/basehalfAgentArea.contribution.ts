@@ -1391,6 +1391,13 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 		el.setAttribute('aria-label', title ? `Tab ${index + 1}: ${title}` : `Tab ${index + 1}`);
 		el.title = activePane?.detail ? `${title || activePane.label} - ${activePane.detail}` : title;
 
+		// Concave feet flaring the active tab into the content below (shown by
+		// CSS only while this tab is active).
+		const curlLeft = append(el, $('span.basehalf-agent-tab-curl.left'));
+		curlLeft.setAttribute('aria-hidden', 'true');
+		const curlRight = append(el, $('span.basehalf-agent-tab-curl.right'));
+		curlRight.setAttribute('aria-hidden', 'true');
+
 		const editing = this.editingTabId === tab.id;
 		el.draggable = !editing;
 
