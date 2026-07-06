@@ -122,6 +122,8 @@ try {
 	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
+	await step('badge-quick-access-note-search', () => assertBadgeQuickAccessFindsNote(page));
 	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, 'README.md'));
 	await step('initial-native-forward-readme-card', () => assertNativeForwardOpensCardDetail(page, 'README.md'));
 
@@ -189,6 +191,8 @@ try {
 			'markdown-rich-reading-mode-settings-toggle',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
+			'card-detail-badge-zone',
+			'badge-quick-access-note-search',
 			'initial-native-back-root-canvas',
 			'initial-native-forward-readme-card',
 			'quick-open-side-card-detail-no-tab',
@@ -1148,6 +1152,47 @@ async function assertGitBranchCheckoutQuickPick(page) {
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+// The card detail's Badge zone: expand it, author a note (flush-on-blur writes
+// .bh/mirror), confirm the persisted value survives the zone's re-render, and
+// cycle the collapse toggle.
+async function assertCardDetailBadgeZone(page) {
+	const toggle = page.locator('[data-testid="card-detail-badge-toggle"]');
+	await toggle.waitFor({ state: 'visible', timeout: 20_000 });
+	if (await page.locator('.basehalf-card-detail-badge-body').count() === 0) {
+		await toggle.click();
+		await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'visible', timeout: 20_000 });
+	}
+
+	const prompt = page.locator('.basehalf-card-detail-badge .basehalf-canvas-card-badge-prompt');
+	await prompt.waitFor({ state: 'visible', timeout: 20_000 });
+	await prompt.click();
+	await prompt.fill('Badge smoke note for agents');
+	await prompt.blur();
+	await page.waitForFunction(() => {
+		const el = document.querySelector('.basehalf-card-detail-badge .basehalf-canvas-card-badge-prompt');
+		return el instanceof HTMLTextAreaElement && el.value.includes('Badge smoke note for agents');
+	}, undefined, { timeout: 20_000 });
+
+	await toggle.click();
+	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'detached', timeout: 20_000 });
+	await page.locator('[data-testid="card-detail-badge-toggle"]').click();
+	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+// `badge ` quick access finds the note authored above and routes back into the
+// card detail — the full write-to-search loop over .bh/mirror.
+async function assertBadgeQuickAccessFindsNote(page) {
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	const quickInput = visibleQuickInput(page);
+	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
+	await quickInput.fill('badge smoke note for agents');
+	const row = page.locator('.quick-input-list .monaco-list-row[role="option"]', { hasText: 'Badge smoke note for agents' }).first();
+	await row.waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Enter');
+	await quickInput.waitFor({ state: 'hidden', timeout: 15_000 });
+	await assertCardDetail(page, 'README.md');
 }
 
 async function assertFreshCanvasFramed(page) {

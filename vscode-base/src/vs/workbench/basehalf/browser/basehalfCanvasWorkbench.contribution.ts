@@ -6,7 +6,7 @@
 import './media/basehalfCanvasWorkbench.css';
 
 import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
-import { Disposable, DisposableStore, toDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { FileChangesEvent, IFileService, IFileStat } from '../../../platform/files/common/files.js';
@@ -31,13 +31,16 @@ import {
 	baseHalfCanvasModelFromStat,
 	BASEHALF_CANVAS_MIN_CARD_HEIGHT,
 	BASEHALF_CANVAS_MIN_CARD_WIDTH,
+	IBaseHalfCanvasBadgeMetadata,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasSize
 } from '../common/basehalfCanvasModel.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
+import { IBaseHalfBadgeFile, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
@@ -106,6 +109,7 @@ const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const CANVAS_FRAME_PADDING_PX = 96;
 const CANVAS_GRID_BASE_WORLD_PX = 32;
+const BASEHALF_DETAIL_BADGE_OPEN_KEY = 'basehalf.cardDetail.badgeOpen';
 
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
@@ -123,6 +127,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
 	private readonly detailProjectionActions: HTMLElement;
+	private readonly detailBadgeZone: HTMLElement;
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
@@ -165,7 +170,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private suppressNextCardClickForPath: string | undefined;
 	private suppressNextCardClickTimer: number | undefined;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
-	private readonly badgeDescriptionPending = new Map<string, { readonly item: IBaseHalfCanvasItem; readonly value: string }>();
+	private readonly badgeDescriptionPending = new Map<string, { readonly node: IBaseHalfBadgeNode; readonly value: string }>();
+	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
+	private readonly detailBadgeDisposables: DisposableStore;
+	private detailBadgeSeq = 0;
 	private readonly expandedInboundBadges = new Set<string>();
 	private readonly openBadgeFaces = new Set<string>();
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
@@ -198,9 +206,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
+		@IStorageService private readonly storageService: IStorageService
 	) {
 		super();
+		this.detailBadgeDisposables = this._register(new DisposableStore());
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -233,6 +243,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		close.title = 'Close';
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
+		this.detailBadgeZone = append(this.detail, $('.basehalf-card-detail-badge'));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
 
 		this.editorContainer.prepend(this.root);
@@ -395,6 +406,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		this.renderedBadges = badgeRead.badges;
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
 		this.renderedBoundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 		clearNode(this.cards);
@@ -611,6 +623,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} else {
 			this.renderCardPreview(body, item, preview, orphan);
 		}
+		this.renderFolderCoverage(full, item, preview);
 
 		for (const anchor of CANVAS_CARD_ANCHORS) {
 			this.renderConnectionHandle(card, item, bounds, anchor);
@@ -773,22 +786,49 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 
 		const body = append(face, $('.basehalf-canvas-card-badge-scroll'));
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+
+		this.renderBadgeEditorContent(body, {
+			resource: item.stat.resource,
+			workspaceFolder: folder.workspaceFolder,
+			relativePath: item.path,
+			kind: item.kind
+		}, item.badge, disposable => this.cardListeners.add(disposable), () => this.referenceCandidates(item));
+	}
+
+	/**
+	 * The shared badge editor — prompt, outbound references, inbound backlinks —
+	 * used by both the canvas card's flip face and the card detail's badge zone.
+	 * The two surfaces differ only in their container chrome and listener
+	 * lifetime, so they hand in a listener sink and a reference-candidate
+	 * provider.
+	 */
+	private renderBadgeEditorContent(
+		body: HTMLElement,
+		node: IBaseHalfBadgeNode,
+		badge: IBaseHalfCanvasBadgeMetadata | undefined,
+		addListener: (disposable: IDisposable) => void,
+		candidates: () => readonly IBaseHalfCanvasItem[]
+	): void {
 		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
-		prompt.value = item.badge?.description ?? '';
-		prompt.placeholder = item.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
-		prompt.setAttribute('aria-label', `Badge prompt for ${item.path}`);
-		this.cardListeners.add(this.addDisposableListener(prompt, 'input', () => this.scheduleBadgeDescriptionWrite(item, prompt.value)));
-		this.cardListeners.add(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(item.path)));
-		this.cardListeners.add(this.addDisposableListener(prompt, 'keydown', event => {
+		prompt.value = badge?.description ?? '';
+		prompt.placeholder = node.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
+		prompt.setAttribute('aria-label', `Badge prompt for ${node.relativePath}`);
+		addListener(this.addDisposableListener(prompt, 'input', () => this.scheduleBadgeDescriptionWrite(node, prompt.value)));
+		addListener(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(node.relativePath)));
+		addListener(this.addDisposableListener(prompt, 'keydown', event => {
 			event.stopPropagation();
 			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 				event.preventDefault();
-				this.flushBadgeDescriptionWrite(item.path);
+				this.flushBadgeDescriptionWrite(node.relativePath);
 				prompt.blur();
 			}
 		}));
 
-		const refs = item.badge?.references ?? [];
+		const refs = badge?.references ?? [];
 		const refSection = append(body, $('.basehalf-canvas-card-badge-section'));
 		if (refs.length > 0) {
 			const list = append(refSection, $('.basehalf-canvas-card-badge-list'));
@@ -798,69 +838,99 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				label.type = 'button';
 				label.textContent = to;
 				label.title = to;
-				this.cardListeners.add(this.addDisposableListener(label, 'click', event => {
+				addListener(this.addDisposableListener(label, 'click', event => {
 					event.preventDefault();
 					event.stopPropagation();
-					const target = this.renderedItemsByPath.get(to);
-					if (target) {
-						void this.canvasNavigationService.openResource(target.stat.resource, { source: 'api', pinned: true });
-					}
+					this.openWorkspaceRelative(node.workspaceFolder, to);
 				}));
 				const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 				remove.type = 'button';
 				remove.title = `Remove reference to ${to}`;
 				remove.setAttribute('aria-label', `Remove reference to ${to}`);
-				this.cardListeners.add(this.addDisposableListener(remove, 'click', event => {
+				addListener(this.addDisposableListener(remove, 'click', event => {
 					event.preventDefault();
 					event.stopPropagation();
-					void this.removeBadgeReference(item, to);
+					void this.removeBadgeReference(node, to);
 				}));
 			}
 		}
 		const add = append(refSection, $('button.basehalf-canvas-card-add-reference')) as HTMLButtonElement;
 		add.type = 'button';
 		add.textContent = '+ Add reference';
-		this.cardListeners.add(this.addDisposableListener(add, 'click', event => {
+		addListener(this.addDisposableListener(add, 'click', event => {
 			event.preventDefault();
 			event.stopPropagation();
-			void this.addBadgeReference(item);
+			void this.addBadgeReference(node, badge?.references ?? [], candidates());
 		}));
 
-		const inbound = item.badge?.referenced_by ?? [];
+		const inbound = badge?.referenced_by ?? [];
 		if (inbound.length > 0) {
 			const inboundSection = append(body, $('.basehalf-canvas-card-badge-section'));
 			const toggle = append(inboundSection, $('button.basehalf-canvas-card-inbound-toggle')) as HTMLButtonElement;
 			toggle.type = 'button';
 			toggle.textContent = `← ${inbound.length} referenced by`;
-			toggle.setAttribute('aria-expanded', String(this.expandedInboundBadges.has(item.path)));
-			this.cardListeners.add(this.addDisposableListener(toggle, 'click', event => {
+			toggle.setAttribute('aria-expanded', String(this.expandedInboundBadges.has(node.relativePath)));
+			addListener(this.addDisposableListener(toggle, 'click', event => {
 				event.preventDefault();
 				event.stopPropagation();
-				if (this.expandedInboundBadges.has(item.path)) {
-					this.expandedInboundBadges.delete(item.path);
+				if (this.expandedInboundBadges.has(node.relativePath)) {
+					this.expandedInboundBadges.delete(node.relativePath);
 				} else {
-					this.expandedInboundBadges.add(item.path);
+					this.expandedInboundBadges.add(node.relativePath);
 				}
 				void this.render();
 			}));
-			if (this.expandedInboundBadges.has(item.path)) {
+			if (this.expandedInboundBadges.has(node.relativePath)) {
 				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
 				for (const from of inbound) {
 					const row = append(list, $('.basehalf-canvas-card-badge-row'));
 					const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 					label.type = 'button';
 					label.textContent = from;
-					this.cardListeners.add(this.addDisposableListener(label, 'click', event => {
+					addListener(this.addDisposableListener(label, 'click', event => {
 						event.preventDefault();
 						event.stopPropagation();
-						const target = this.renderedItemsByPath.get(from);
-						if (target) {
-							void this.canvasNavigationService.openResource(target.stat.resource, { source: 'api', pinned: true });
-						}
+						this.openWorkspaceRelative(node.workspaceFolder, from);
 					}));
 				}
 			}
 		}
+	}
+
+	/** Open a workspace-relative path in BaseHalf navigation — via the rendered
+	 *  canvas item when it is on the current canvas, else straight from the URI
+	 *  (a cross-folder reference target is still one click away). */
+	private openWorkspaceRelative(workspaceFolder: URI, relativePath: string): void {
+		const rendered = this.renderedItemsByPath.get(relativePath);
+		const resource = rendered?.stat.resource ?? (relativePath ? joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder);
+		void this.canvasNavigationService.openResource(resource, { source: 'api', pinned: true });
+	}
+
+	/** A folder card's coverage heat: how many of its DIRECT children carry a
+	 *  human note. Rendered only once something is annotated — an untouched
+	 *  folder stays clean. Direct children (this canvas's granularity), not a
+	 *  recursive census, so rendering never walks the workspace. */
+	private renderFolderCoverage(container: HTMLElement, item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined): void {
+		if (item.kind !== 'folder' || preview?.kind !== 'folder' || preview.total === 0) {
+			return;
+		}
+
+		const childPrefix = `${item.path}/`;
+		let noted = 0;
+		for (const [path, badge] of this.renderedBadges) {
+			if (badge.description && path.startsWith(childPrefix) && !path.slice(childPrefix.length).includes('/')) {
+				noted++;
+			}
+		}
+		if (noted === 0) {
+			return;
+		}
+
+		const share = Math.min(1, noted / preview.total);
+		const coverage = append(container, $('.basehalf-canvas-card-coverage'));
+		coverage.title = `${noted} of ${preview.total} annotated`;
+		const fill = append(coverage, $('.basehalf-canvas-card-coverage-fill'));
+		fill.style.width = `${Math.max(6, Math.round(share * 100))}%`;
 	}
 
 	private renderConnectionHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
@@ -1521,13 +1591,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return false;
 	}
 
-	private scheduleBadgeDescriptionWrite(item: IBaseHalfCanvasItem, value: string): void {
-		const existing = this.badgeDescriptionTimers.get(item.path);
+	private scheduleBadgeDescriptionWrite(node: IBaseHalfBadgeNode, value: string): void {
+		const existing = this.badgeDescriptionTimers.get(node.relativePath);
 		if (existing !== undefined) {
 			mainWindow.clearTimeout(existing);
 		}
-		this.badgeDescriptionPending.set(item.path, { item, value });
-		this.badgeDescriptionTimers.set(item.path, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(item.path), 500));
+		this.badgeDescriptionPending.set(node.relativePath, { node, value });
+		this.badgeDescriptionTimers.set(node.relativePath, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.relativePath), 500));
 	}
 
 	private flushBadgeDescriptionWrite(path: string): void {
@@ -1541,33 +1611,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.badgeDescriptionTimers.delete(path);
 		}
 		this.badgeDescriptionPending.delete(path);
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
 
-		void this.badgeGraphService.updateDescription({
-			resource: pending.item.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: pending.item.path,
-			kind: pending.item.kind
-		}, pending.value).then(() => this.render()).catch(error => {
+		void this.badgeGraphService.updateDescription(pending.node, pending.value).then(() => this.render()).catch(error => {
 			this.logService.error(error);
 			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
 		});
 	}
 
-	private async addBadgeReference(item: IBaseHalfCanvasItem): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		this.flushBadgeDescriptionWrite(item.path);
-		const existing = new Set(item.badge?.references ?? []);
-		const candidates = this.referenceCandidates(item)
-			.filter(candidate => candidate.path !== item.path && candidate.kind === 'file' && !existing.has(candidate.path));
+	private async addBadgeReference(source: IBaseHalfBadgeNode, currentReferences: readonly string[], allCandidates: readonly IBaseHalfCanvasItem[]): Promise<void> {
+		this.flushBadgeDescriptionWrite(source.relativePath);
+		const existing = new Set(currentReferences);
+		// Files AND folders are both first-class reference targets — a folder is
+		// a badge too, and pointing at one is often exactly the annotation.
+		const candidates = allCandidates.filter(candidate => candidate.path !== source.relativePath && !existing.has(candidate.path));
 		if (candidates.length === 0) {
-			await this.quickInputService.pick([{ label: 'No other files in this folder.' }], { placeHolder: 'Add a reference' });
+			await this.quickInputService.pick([{ label: 'Nothing else to reference here.' }], { placeHolder: 'Add a reference' });
 			return;
 		}
 
@@ -1578,7 +1636,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			detail: candidate.badge?.description,
 			candidate
 		})), {
-			placeHolder: `Search ${item.kind === 'folder' ? `${item.path}/` : folder.relativePath ? `${folder.relativePath}/` : 'the workspace root'}...`,
+			placeHolder: `Add a reference from ${source.relativePath || 'the workspace root'}...`,
 			matchOnDescription: true,
 			matchOnDetail: true
 		});
@@ -1586,14 +1644,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		await this.badgeGraphService.addReference({
-			resource: item.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: item.path,
-			kind: item.kind
-		}, {
+		await this.badgeGraphService.addReference(source, {
 			resource: picked.candidate.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
+			workspaceFolder: source.workspaceFolder,
 			relativePath: picked.candidate.path,
 			kind: picked.candidate.kind
 		});
@@ -1617,49 +1670,43 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return [...this.renderedItemsByPath.values()];
 	}
 
-	private async removeBadgeReference(item: IBaseHalfCanvasItem, to: string): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		this.flushBadgeDescriptionWrite(item.path);
-		const target = await this.badgeNodeForPath(folder, to, 'file');
-		await this.badgeGraphService.removeReference({
-			resource: item.stat.resource,
-			workspaceFolder: folder.workspaceFolder,
-			relativePath: item.path,
-			kind: item.kind
-		}, target);
+	private async removeBadgeReference(source: IBaseHalfBadgeNode, to: string): Promise<void> {
+		this.flushBadgeDescriptionWrite(source.relativePath);
+		const target = await this.badgeNodeForPath(source.workspaceFolder, to, 'file');
+		await this.badgeGraphService.removeReference(source, target);
 		// Style cleanup only — with the edge set derived from references, the
 		// line is already gone; this just keeps canvas.yaml from hoarding stale
 		// anchor/label entries.
-		await this.canvasMirrorService.removeCanvasEdge(folder, { from: item.path, to });
+		const folder = this.getCurrentFolder();
+		if (folder) {
+			await this.canvasMirrorService.removeCanvasEdge(folder, { from: source.relativePath, to });
+		}
 		await this.render();
 	}
 
-	private async badgeNodeForPath(folder: IBaseHalfCanvasFolderState, relativePath: string, fallbackKind: 'file' | 'folder') {
+	private async badgeNodeForPath(workspaceFolder: URI, relativePath: string, fallbackKind: 'file' | 'folder'): Promise<IBaseHalfBadgeNode> {
 		const rendered = this.renderedItemsByPath.get(relativePath);
 		if (rendered) {
 			return {
 				resource: rendered.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
+				workspaceFolder,
 				relativePath,
 				kind: rendered.kind
 			};
 		}
-		const resource = relativePath ? joinPath(folder.workspaceFolder, ...relativePath.split('/')) : folder.workspaceFolder;
+		const resource = relativePath ? joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder;
 		try {
 			const stat = await this.fileService.stat(resource);
 			return {
 				resource,
-				workspaceFolder: folder.workspaceFolder,
+				workspaceFolder,
 				relativePath,
 				kind: stat.isDirectory ? 'folder' as const : 'file' as const
 			};
 		} catch {
 			return {
 				resource,
-				workspaceFolder: folder.workspaceFolder,
+				workspaceFolder,
 				relativePath,
 				kind: fallbackKind
 			};
@@ -1893,12 +1940,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const endpointsChanged = drag.edge.from !== next.from || drag.edge.to !== next.to;
 			if (endpointsChanged) {
 				await this.badgeGraphService.addReference(
-					await this.badgeNodeForPath(folder, next.from, 'file'),
-					await this.badgeNodeForPath(folder, next.to, 'file')
+					await this.badgeNodeForPath(folder.workspaceFolder, next.from, 'file'),
+					await this.badgeNodeForPath(folder.workspaceFolder, next.to, 'file')
 				);
 				await this.badgeGraphService.removeReference(
-					await this.badgeNodeForPath(folder, drag.edge.from, 'file'),
-					await this.badgeNodeForPath(folder, drag.edge.to, 'file')
+					await this.badgeNodeForPath(folder.workspaceFolder, drag.edge.from, 'file'),
+					await this.badgeNodeForPath(folder.workspaceFolder, drag.edge.to, 'file')
 				);
 			}
 			await this.canvasMirrorService.reconnectCanvasEdge(folder, { from: drag.edge.from, to: drag.edge.to }, next);
@@ -1963,8 +2010,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// Semantic first: dropping the reference is what removes the line
 			// (edges derive from the graph); the canvas write only sheds styling.
 			await this.badgeGraphService.removeReference(
-				await this.badgeNodeForPath(folder, edge.from, 'file'),
-				await this.badgeNodeForPath(folder, edge.to, 'file')
+				await this.badgeNodeForPath(folder.workspaceFolder, edge.from, 'file'),
+				await this.badgeNodeForPath(folder.workspaceFolder, edge.to, 'file')
 			);
 			await this.canvasMirrorService.removeCanvasEdge(folder, edge);
 			this.selectedEdgeId = undefined;
@@ -2007,6 +2054,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.markdownPreviewDetail = undefined;
 			this.detailChromeDisposables.clear();
 			this.detailDisposables.clear();
+			this.detailBadgeSeq++;
+			this.detailBadgeDisposables.clear();
+			clearNode(this.detailBadgeZone);
 			clearNode(this.detailProjectionActions);
 			clearNode(this.detailBody);
 			clearNode(this.detailTitle);
@@ -2018,6 +2068,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailTitle.textContent = basename(cardDetail.resource);
 		this.detailMeta.textContent = this.detailSelectionMetaFor(cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
+		void this.renderDetailBadge(cardDetail);
 
 		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
 		if (this.detailKey === detailKey) {
@@ -2043,6 +2094,79 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfSourceCardDetail, this.detailBody));
 			void this.sourceDetail.open(cardDetail);
 		}
+	}
+
+	/**
+	 * The card detail's Badge zone: the SAME badge that flips on the canvas
+	 * card, editable while reading the file — a collapsible strip between the
+	 * detail header and the document. This is where "this file has a human
+	 * note" stays visible in reading position, including who points at it.
+	 */
+	private async renderDetailBadge(cardDetail: IBaseHalfCardDetailState): Promise<void> {
+		const seq = ++this.detailBadgeSeq;
+		const node: IBaseHalfBadgeNode = {
+			resource: cardDetail.resource,
+			workspaceFolder: cardDetail.workspaceFolder,
+			relativePath: cardDetail.relativePath,
+			kind: 'file'
+		};
+
+		let badge: IBaseHalfBadgeFile | null = null;
+		try {
+			badge = await this.badgeGraphService.readBadge(node);
+		} catch (error) {
+			this.logService.warn(`BaseHalf card detail badge unreadable for ${node.relativePath}`, error);
+		}
+		if (this.disposed || seq !== this.detailBadgeSeq) {
+			return;
+		}
+		// Never rebuild under the user's cursor — a mirror change while they are
+		// typing in the prompt must not reset the textarea; the pending write
+		// wins and the zone refreshes on the next render after blur. Only the
+		// textarea blocks: a focused toggle button must not veto its own toggle.
+		const active = this.detailBadgeZone.ownerDocument.activeElement;
+		if (active instanceof HTMLTextAreaElement && this.detailBadgeZone.contains(active)) {
+			return;
+		}
+
+		this.detailBadgeDisposables.clear();
+		clearNode(this.detailBadgeZone);
+		const open = this.storageService.getBoolean(BASEHALF_DETAIL_BADGE_OPEN_KEY, StorageScope.PROFILE, true);
+		this.detailBadgeZone.classList.toggle('open', open);
+
+		const toggle = append(this.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle')) as HTMLButtonElement;
+		toggle.type = 'button';
+		toggle.setAttribute('aria-expanded', String(open));
+		toggle.setAttribute('data-testid', 'card-detail-badge-toggle');
+		append(toggle, $(`span.codicon.codicon-chevron-${open ? 'down' : 'right'}`));
+		const title = append(toggle, $('span.basehalf-card-detail-badge-title'));
+		title.textContent = 'Badge';
+		const summary = append(toggle, $('span.basehalf-card-detail-badge-summary'));
+		if (!open) {
+			const inboundCount = badge?.referenced_by.length ?? 0;
+			summary.textContent = badge?.description
+				?? (badge && badge.references.length + inboundCount > 0
+					? `${badge.references.length} reference${badge.references.length === 1 ? '' : 's'}${inboundCount > 0 ? ` · ← ${inboundCount}` : ''}`
+					: 'What agents should know about this file');
+			summary.classList.toggle('empty', !badge?.description);
+		}
+		this.detailBadgeDisposables.add(this.addDisposableListener(toggle, 'click', () => {
+			this.storageService.store(BASEHALF_DETAIL_BADGE_OPEN_KEY, !open, StorageScope.PROFILE, StorageTarget.USER);
+			void this.renderDetailBadge(cardDetail);
+		}));
+
+		if (!open) {
+			return;
+		}
+
+		const body = append(this.detailBadgeZone, $('.basehalf-card-detail-badge-body'));
+		this.renderBadgeEditorContent(
+			body,
+			node,
+			badge ?? undefined,
+			disposable => this.detailBadgeDisposables.add(disposable),
+			() => [...this.renderedItemsByPath.values()]
+		);
 	}
 
 	private syncDetailScrollLock(detailVisible: boolean): void {

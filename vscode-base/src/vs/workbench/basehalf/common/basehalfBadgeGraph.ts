@@ -52,6 +52,8 @@ export interface IBaseHalfBadgeGraphService {
 	/** Remove source→target from both ends, pruning badges the removal
 	 *  emptied. Tolerates either side already missing. */
 	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
+	/** One node's badge, or null when it has none (delegates to the mirror). */
+	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	/** Every badge in the workspace (delegates to the mirror walk). */
 	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult>;
 	/** Mark an existing badge orphan (disk node gone), preserving all content.
@@ -146,6 +148,10 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 				});
 			});
 		});
+	}
+
+	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null> {
+		return this.badgeMirrorService.readBadge(node);
 	}
 
 	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult> {

@@ -729,6 +729,22 @@
 	background: rgb(255 255 255 / 6%);
 }
 
+.monaco-workbench .basehalf-canvas-card-coverage {
+	flex: none;
+	height: 3px;
+	margin: 0 10px 6px;
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--bh-card-border-strong) 60%, transparent);
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card-coverage-fill {
+	height: 100%;
+	border-radius: 2px;
+	background: var(--bh-card-accent);
+	opacity: 0.75;
+}
+
 .monaco-workbench .basehalf-canvas-card-connect-handle {
 	--bh-connect-scale: 1;
 
@@ -1013,6 +1029,88 @@
 .monaco-workbench .basehalf-card-detail-close:focus-visible {
 	background-color: var(--vscode-toolbar-hoverBackground);
 	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-card-detail-badge {
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	border-bottom: 1px solid var(--vscode-editorWidget-border);
+	background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-sideBar-background));
+}
+
+.monaco-workbench .basehalf-card-detail-badge:empty {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 0 12px 0 14px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 0;
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle .codicon {
+	flex: none;
+	font-size: 12px;
+	color: var(--vscode-icon-foreground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-title {
+	flex: none;
+	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-summary {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-summary.empty {
+	font-style: italic;
+	opacity: 0.8;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-height: 240px;
+	overflow: auto;
+	padding: 0 14px 12px;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt {
+	min-height: 52px;
+	color: var(--vscode-input-foreground);
+	background: var(--vscode-input-background);
+	border-color: var(--vscode-editorWidget-border);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle {
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link:hover,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle:hover {
+	color: var(--vscode-textLink-foreground);
 }
 
 .monaco-workbench .basehalf-card-detail-body {
