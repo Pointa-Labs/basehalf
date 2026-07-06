@@ -221,6 +221,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.classList.add('basehalf-canvas-host');
 		this.root = $('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
+		// Focusable (not tabbable): edge selection must be able to park keyboard
+		// focus here or Delete/Backspace can never reach the edge-removal handler.
+		this.root.tabIndex = -1;
 
 		this.chrome = append(this.root, $('.basehalf-canvas-chrome'));
 		const zoomControls = append(this.chrome, $('.basehalf-canvas-zoom-controls'));
@@ -1515,6 +1518,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.selectedCardPath = undefined;
 		this.selectedEdgeId = edgeId(edge.from, edge.to);
 		this.selectedEdge = { from: edge.from, to: edge.to };
+		// An SVG edge cannot hold focus itself; without parking focus on the
+		// canvas root, Delete/Backspace after clicking ONLY the edge would go
+		// nowhere and the selection would be undeletable by keyboard.
+		if (!this.root.contains(this.root.ownerDocument.activeElement)) {
+			this.root.focus();
+		}
 		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.selected'))) {
 			card.classList.remove('selected');
 		}

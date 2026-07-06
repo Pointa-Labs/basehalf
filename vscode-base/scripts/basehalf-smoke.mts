@@ -109,6 +109,9 @@ try {
 	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
 	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+	await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+	await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
@@ -159,6 +162,7 @@ try {
 
 	await step('folder-quick-open', () => quickOpen(page, 'docs'));
 	await step('folder-quick-open-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
+	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
 	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
 
@@ -183,6 +187,10 @@ try {
 			'source-control-publish-branch-action',
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
+			'canvas-derived-edge-visible',
+			'agent-reference-draws-edge',
+			'edge-delete-removes-reference',
+			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
 			'card-detail-covers-scrolled-canvas',
 			'markdown-rich-status-in-editor',
@@ -1552,6 +1560,129 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	}, 'canvas.yaml to persist a four-side edge');
 	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
 	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
+}
+
+// A derived edge (from the reference graph) is drawn on the current canvas.
+async function assertCanvasEdgeVisible(page, from, to) {
+	await page.waitForFunction(([f, t]) => {
+		return Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.some(p => p instanceof SVGPathElement && p.dataset.edgeId === `${f}${String.fromCharCode(0)}${t}`);
+	}, [from, to], { timeout: 15_000 });
+}
+
+async function assertCanvasEdgeGone(page, from, to) {
+	await page.waitForFunction(([f, t]) => {
+		return !Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.some(p => p instanceof SVGPathElement && p.dataset.edgeId === `${f}${String.fromCharCode(0)}${t}`);
+	}, [from, to], { timeout: 15_000 });
+}
+
+// An AGENT (external process) writes a reference straight into badge.yaml —
+// no canvas.yaml edge, source side only. The canvas must notice the mirror
+// change and draw the derived edge without any UI action: the human and the
+// agent share one graph.
+async function assertAgentReferenceDrawsEdge(page) {
+	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	fs.writeFileSync(readmeBadgePath, [
+		'path: "README.md"',
+		'kind: file',
+		'description: "Smoke file badge"',
+		'references:',
+		'  - "docs"',
+		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
+
+	await assertCanvasEdgeVisible(page, 'README.md', 'docs');
+}
+
+// Select the agent-drawn edge with the mouse and delete it with the keyboard:
+// the semantic reference is scrubbed from badge.yaml and the line disappears.
+async function assertEdgeDeleteRemovesReference(page) {
+	const point = await page.evaluate(() => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(p => p instanceof SVGPathElement && p.dataset.edgeId === `README.md${String.fromCharCode(0)}docs`);
+		if (!(hit instanceof SVGPathElement)) {
+			return undefined;
+		}
+		hit.scrollIntoView({ block: 'center', inline: 'center' });
+		const mid = hit.getPointAtLength(hit.getTotalLength() / 2);
+		const ctm = hit.getScreenCTM();
+		if (!ctm) {
+			return undefined;
+		}
+		return { x: ctm.a * mid.x + ctm.c * mid.y + ctm.e, y: ctm.b * mid.x + ctm.d * mid.y + ctm.f };
+	});
+	if (!point) {
+		throw new Error('Could not locate the README.md→docs edge hit path');
+	}
+
+	await page.mouse.click(point.x, point.y);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
+	await page.keyboard.press('Delete');
+
+	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'README badge reference to docs to be removed');
+	await assertCanvasEdgeGone(page, 'README.md', 'docs');
+}
+
+// Rename an annotated file through the Explorer: the badge follows the file,
+// the graph rewrites on both sides, and the derived edge keeps drawing at the
+// new path. Renames back at the end so later steps see the original fixture.
+async function assertExplorerRenameCascadesMirror(page) {
+	const guideBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide.md');
+	const farBadgeDir = path.join(workspacePath, '.bh', 'mirror', 'docs', 'far.md');
+	fs.mkdirSync(guideBadgeDir, { recursive: true });
+	fs.mkdirSync(farBadgeDir, { recursive: true });
+	fs.writeFileSync(path.join(guideBadgeDir, 'badge.yaml'), [
+		'path: "docs/guide.md"',
+		'kind: file',
+		'description: "Guide badge"',
+		'references:',
+		'  - "docs/far.md"',
+		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
+	fs.writeFileSync(path.join(farBadgeDir, 'badge.yaml'), [
+		'path: "docs/far.md"',
+		'kind: file',
+		'references: []',
+		'referenced_by:',
+		'  - "docs/guide.md"',
+		''
+	].join('\n'), 'utf8');
+
+	// We are on the docs canvas (previous step) — the seeded edge draws.
+	await assertCanvasEdgeVisible(page, 'docs/guide.md', 'docs/far.md');
+
+	await renameExplorerEntry(page, 'guide.md', 'guide-renamed.md');
+	await waitUntil(() => {
+		const moved = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide-renamed.md', 'badge.yaml');
+		return fs.existsSync(moved) && fs.readFileSync(moved, 'utf8').includes('path: "docs/guide-renamed.md"');
+	}, 'badge.yaml to follow the renamed file');
+	await waitUntil(() => !fs.existsSync(path.join(guideBadgeDir, 'badge.yaml')), 'old badge.yaml to be gone');
+	await waitUntil(() => fs.readFileSync(path.join(farBadgeDir, 'badge.yaml'), 'utf8').includes('- "docs/guide-renamed.md"'), 'inbound reference to be rewritten');
+	await assertCanvasEdgeVisible(page, 'docs/guide-renamed.md', 'docs/far.md');
+
+	// Restore the fixture: rename back and let the cascade carry it home.
+	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
+	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml')), 'badge.yaml to follow the rename back');
+}
+
+async function renameExplorerEntry(page, currentName, nextName) {
+	const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: currentName }).first();
+	if (!(await row.isVisible().catch(() => false))) {
+		await runCommand(page, 'Focus on Files Explorer');
+	}
+	await row.waitFor({ state: 'visible', timeout: 20_000 });
+	await row.click();
+	// macOS explorer rename is Enter; F2 elsewhere.
+	await page.keyboard.press(process.platform === 'darwin' ? 'Enter' : 'F2');
+	const input = page.locator('.explorer-viewlet .explorer-item .monaco-inputbox input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	await input.fill(nextName);
+	await page.keyboard.press('Enter');
+	await input.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
 async function assertCanvasSnapGuides(page) {
