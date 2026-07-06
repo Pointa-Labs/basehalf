@@ -122,6 +122,7 @@ try {
 	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
 	await step('badge-quick-access-note-search', () => assertBadgeQuickAccessFindsNote(page));
 	await step('initial-native-back-root-canvas', () => assertNativeBackOpensPreviousCanvas(page, 'README.md'));
@@ -191,6 +192,7 @@ try {
 			'markdown-rich-reading-mode-settings-toggle',
 			'quick-open-card-detail',
 			'markdown-rich-editor-edit-save',
+			'workspace-setup-agent-protocol-files',
 			'card-detail-badge-zone',
 			'badge-quick-access-note-search',
 			'initial-native-back-root-canvas',
@@ -1152,6 +1154,33 @@ async function assertGitBranchCheckoutQuickPick(page) {
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+// Workspace setup ran on open: the agent-protocol pointers exist on disk —
+// hint sections in CLAUDE.md/AGENTS.md, the agent-harness index, and the
+// .bh/cache/ gitignore line appended to the fixture's existing .gitignore.
+async function assertWorkspaceSetupAgentProtocolFiles() {
+	const deadline = Date.now() + 20_000;
+	for (; ;) {
+		try {
+			for (const rel of ['CLAUDE.md', 'AGENTS.md']) {
+				const content = fs.readFileSync(path.join(workspacePath, rel), 'utf8');
+				if (!content.includes('<!-- bh:workspace-hint -->') || !content.includes('.bh/current_focus.yaml')) {
+					throw new Error(`${rel} is missing the BaseHalf workspace hint`);
+				}
+			}
+			const index = fs.readFileSync(path.join(workspacePath, '.bh/agent-harness/index.md'), 'utf8');
+			if (!index.startsWith('<!-- bh:agent-harness managed')) {
+				throw new Error('.bh/agent-harness/index.md is missing the managed sentinel');
+			}
+			return;
+		} catch (error) {
+			if (Date.now() > deadline) {
+				throw error;
+			}
+			await new Promise(resolve => setTimeout(resolve, 500));
+		}
+	}
 }
 
 // The card detail's Badge zone: expand it, author a note (flush-on-blur writes

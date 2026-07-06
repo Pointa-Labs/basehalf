@@ -487,6 +487,7 @@ import './basehalf/browser/basehalfNavigation.contribution.js';
 import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';
 import './basehalf/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/browser/basehalfBadgeQuickAccess.contribution.js';
+import './basehalf/browser/basehalfWorkspaceSetup.contribution.js';
 import './basehalf/browser/basehalfAgentArea.contribution.js';
 
 //#endregion
