@@ -126,7 +126,6 @@ export interface IBaseHalfCanvasEdgeLayoutResult {
 export interface IBaseHalfCanvasFolderModel {
 	readonly items: readonly IBaseHalfCanvasItem[];
 	readonly edges: readonly IBaseHalfCanvasEdge[];
-	readonly droppedEdges: number;
 	readonly truncated: number;
 	readonly size?: IBaseHalfCanvasSize;
 }
@@ -168,7 +167,7 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 
 	const cardByPath = new Map((options.canvas?.cards ?? []).map(card => [card.path, card]));
 	const folderRelativePath = options.folderRelativePath ?? '';
-	const items = eligibleChildren.slice(0, BASEHALF_CANVAS_CHILD_LIMIT).map(stat => {
+	const allItems = eligibleChildren.map(stat => {
 		const name = basename(stat.resource);
 		const path = childPath(folderRelativePath, name);
 		const kind: BaseHalfCanvasItemKind = stat.isDirectory ? 'folder' : 'file';
@@ -184,17 +183,77 @@ export function baseHalfCanvasModelFromStat(folder: IFileStat, options: IBaseHal
 		};
 	});
 
-	const itemPaths = new Set(items.map(item => item.path));
-	const allEdges = options.canvas?.edges ?? [];
-	const edges = allEdges.filter(edge => itemPaths.has(edge.from) && itemPaths.has(edge.to));
+	// The child cap only ever cuts UN-annotated filler: a child the user has
+	// touched — described, linked, placed, or orphaned — is part of the curated
+	// set and always survives, no matter how large the flat folder is.
+	let items = allItems;
+	if (allItems.length > BASEHALF_CANVAS_CHILD_LIMIT) {
+		const annotated = allItems.filter(item => isAnnotatedItem(item));
+		const plain = allItems.filter(item => !isAnnotatedItem(item));
+		items = [...annotated, ...plain.slice(0, Math.max(0, BASEHALF_CANVAS_CHILD_LIMIT - annotated.length))]
+			.sort((a, b) => {
+				if (a.kind !== b.kind) {
+					return a.kind === 'folder' ? -1 : 1;
+				}
+
+				return a.name.localeCompare(b.name);
+			});
+	}
 
 	return {
 		items,
-		edges,
-		droppedEdges: allEdges.length - edges.length,
-		truncated: Math.max(0, eligibleChildren.length - items.length),
+		edges: deriveCanvasEdges(items, options.canvas?.edges ?? []),
+		truncated: Math.max(0, allItems.length - items.length),
 		size: options.canvas?.size
 	};
+}
+
+function isAnnotatedItem(item: IBaseHalfCanvasItem): boolean {
+	return item.card !== undefined
+		|| item.badge !== undefined; // badges are pruned when empty, so presence = authored content
+}
+
+/**
+ * The edge set is DERIVED from the reference graph: an edge exists iff a child
+ * REFERENCES a sibling child (both present on this canvas). The canvas.yaml
+ * `edges` supply only the non-derivable styling (anchors + label). This keeps
+ * the drawing a strict visual projection of the semantic graph: a reference an
+ * agent writes straight into badge.yaml draws immediately (default anchors),
+ * a reference removed anywhere never leaves a phantom line, and a rename that
+ * rewrites the graph keeps its lines even where the styling went stale.
+ */
+function deriveCanvasEdges(items: readonly IBaseHalfCanvasItem[], styled: readonly IBaseHalfCanvasEdge[]): IBaseHalfCanvasEdge[] {
+	const itemPaths = new Set(items.map(item => item.path));
+	const styleByPair = new Map(styled.map(edge => [edgePairKey(edge.from, edge.to), edge]));
+	const edges: IBaseHalfCanvasEdge[] = [];
+	for (const item of items) {
+		for (const to of item.badge?.references ?? []) {
+			if (to === item.path) {
+				// The graph layer rejects self-references, but the mirror is
+				// agent-writable — a hand-planted self-reference must not draw a loop.
+				continue;
+			}
+			if (!itemPaths.has(to)) {
+				// Not a sibling on this canvas (e.g. a cross-folder reference):
+				// semantic-only, listed in the badge face, not drawable here.
+				continue;
+			}
+
+			edges.push(styleByPair.get(edgePairKey(item.path, to)) ?? {
+				from: item.path,
+				from_anchor: 'east',
+				to,
+				to_anchor: 'west'
+			});
+		}
+	}
+
+	return edges;
+}
+
+function edgePairKey(from: string, to: string): string {
+	// JSON framing so paths containing spaces cannot collide across the pair.
+	return JSON.stringify([from, to]);
 }
 
 export function baseHalfCanvasItemsFromStat(folder: IFileStat, rootLevel: boolean): IBaseHalfCanvasItem[] {

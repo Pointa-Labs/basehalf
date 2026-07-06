@@ -12,6 +12,7 @@ import { InstantiationType, registerSingleton } from '../../../platform/instanti
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
+import { baseHalfMirrorResource, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 
 export const IBaseHalfBadgeMirrorService = createDecorator<IBaseHalfBadgeMirrorService>('baseHalfBadgeMirrorService');
 
@@ -44,14 +45,27 @@ export interface IBaseHalfBadgeReadResult {
 	readonly problems: readonly IBaseHalfBadgeReadProblem[];
 }
 
+/**
+ * The badge FILE layer: maps a workspace node to its `.bh/mirror/<rel>/badge.yaml`
+ * and owns parsing, validation, serialization, and per-file write atomicity.
+ * Reference-graph SEMANTICS (bidirectional links, orphan lifecycle, rename and
+ * delete cascades) live above this in `IBaseHalfBadgeGraphService` — nothing
+ * else should write badge files directly.
+ */
 export interface IBaseHalfBadgeMirrorService {
 	readonly _serviceBrand: undefined;
 
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
 	readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult>;
-	updateDescription(node: IBaseHalfBadgeNode, description: string): Promise<IBaseHalfBadgeFile>;
-	upsertReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
-	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void>;
+	/** Every badge.yaml in the workspace's mirror tree (the sparse overlay),
+	 *  keyed by workspace-relative path. Corrupt files are collected as
+	 *  problems, never thrown — one bad badge must not blank a listing. */
+	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult>;
+	/** Atomic read-modify-write of one badge.yaml under the file's write lock.
+	 *  `update` receives the current badge (or null when absent) and returns the
+	 *  next value — returning null REMOVES the file, which is how the sparse
+	 *  overlay stays sparse. Returns what was written (or null). */
+	patchBadge(node: IBaseHalfBadgeNode, update: (current: IBaseHalfBadgeFile | null) => IBaseHalfBadgeFile | null): Promise<IBaseHalfBadgeFile | null>;
 	badgeResource(node: IBaseHalfWorkspaceResource): URI;
 }
 
@@ -76,7 +90,70 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 	) { }
 
 	async readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null> {
+		return this.readBadgeAt(this.badgeResource(node), node.relativePath);
+	}
+
+	async readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult> {
+		const badges = new Map<string, IBaseHalfBadgeFile>();
+		const problems: IBaseHalfBadgeReadProblem[] = [];
+		for (const node of nodes) {
+			try {
+				const badge = await this.readBadge(node);
+				if (badge) {
+					badges.set(badge.path, badge);
+				}
+			} catch (error) {
+				problems.push(this.toProblem(error, node.relativePath, this.badgeResource(node)));
+			}
+		}
+
+		return { badges, problems };
+	}
+
+	async listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult> {
+		const badges = new Map<string, IBaseHalfBadgeFile>();
+		const problems: IBaseHalfBadgeReadProblem[] = [];
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'badge.yaml')) {
+			try {
+				const badge = await this.readBadgeAt(entry.resource, entry.relativePath);
+				if (badge) {
+					badges.set(badge.path, badge);
+				}
+			} catch (error) {
+				problems.push(this.toProblem(error, entry.relativePath, entry.resource));
+			}
+		}
+
+		return { badges, problems };
+	}
+
+	patchBadge(node: IBaseHalfBadgeNode, update: (current: IBaseHalfBadgeFile | null) => IBaseHalfBadgeFile | null): Promise<IBaseHalfBadgeFile | null> {
 		const resource = this.badgeResource(node);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const current = await this.readBadgeAt(resource, node.relativePath);
+			const next = update(current);
+			if (next === null) {
+				try {
+					await this.fileService.del(resource);
+				} catch (error) {
+					if (!(error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
+						throw error;
+					}
+				}
+				return null;
+			}
+
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeBadgeFile(next)));
+			return next;
+		});
+	}
+
+	badgeResource(node: IBaseHalfWorkspaceResource): URI {
+		return baseHalfMirrorResource(node.workspaceFolder, node.relativePath, 'badge.yaml');
+	}
+
+	private async readBadgeAt(resource: URI, relativePath: string): Promise<IBaseHalfBadgeFile | null> {
 		let raw: string;
 		try {
 			raw = (await this.fileService.readFile(resource, {
@@ -95,115 +172,21 @@ export class BaseHalfBadgeMirrorService implements IBaseHalfBadgeMirrorService {
 			return null;
 		}
 
-		return normalizeBadgeFile(parsed, resource, node.relativePath, node.kind);
+		return normalizeBadgeFile(parsed, resource, relativePath);
 	}
 
-	async readBadges(nodes: readonly IBaseHalfBadgeNode[]): Promise<IBaseHalfBadgeReadResult> {
-		const badges = new Map<string, IBaseHalfBadgeFile>();
-		const problems: IBaseHalfBadgeReadProblem[] = [];
-		for (const node of nodes) {
-			try {
-				const badge = await this.readBadge(node);
-				if (badge) {
-					badges.set(badge.path, badge);
-				}
-			} catch (error) {
-				if (error instanceof BaseHalfBadgeMirrorCorrupt) {
-					problems.push({
-						relativePath: node.relativePath,
-						resource: error.resource,
-						message: error.reason,
-						corrupt: true
-					});
-				} else {
-					problems.push({
-						relativePath: node.relativePath,
-						resource: this.badgeResource(node),
-						message: error instanceof Error ? error.message : String(error),
-						corrupt: false
-					});
-				}
-			}
+	private toProblem(error: unknown, relativePath: string, resource: URI): IBaseHalfBadgeReadProblem {
+		if (error instanceof BaseHalfBadgeMirrorCorrupt) {
+			return { relativePath, resource: error.resource, message: error.reason, corrupt: true };
 		}
 
-		return { badges, problems };
+		return {
+			relativePath,
+			resource,
+			message: error instanceof Error ? error.message : String(error),
+			corrupt: false
+		};
 	}
-
-	async upsertReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void> {
-		if (source.relativePath === target.relativePath) {
-			return;
-		}
-
-		await this.updateBadge(source, badge => ({
-			...badge,
-			references: uniqueStrings([...badge.references, target.relativePath])
-		}));
-		await this.updateBadge(target, badge => ({
-			...badge,
-			referenced_by: uniqueStrings([...badge.referenced_by, source.relativePath])
-		}));
-	}
-
-	updateDescription(node: IBaseHalfBadgeNode, description: string): Promise<IBaseHalfBadgeFile> {
-		const trimmed = description.trim();
-		return this.updateBadge(node, badge => ({
-			...badge,
-			...(trimmed ? { description: trimmed } : { description: undefined })
-		}));
-	}
-
-	async removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode): Promise<void> {
-		if (source.relativePath === target.relativePath) {
-			return;
-		}
-
-		await this.updateBadge(source, badge => ({
-			...badge,
-			references: removeString(badge.references, target.relativePath)
-		}));
-		await this.updateBadge(target, badge => ({
-			...badge,
-			referenced_by: removeString(badge.referenced_by, source.relativePath)
-		}));
-	}
-
-	badgeResource(node: IBaseHalfWorkspaceResource): URI {
-		return URI.joinPath(node.workspaceFolder, '.bh', 'mirror', ...mirrorPathSegments(node.relativePath), 'badge.yaml');
-	}
-
-	private updateBadge(node: IBaseHalfBadgeNode, update: (badge: IBaseHalfBadgeFile) => IBaseHalfBadgeFile): Promise<IBaseHalfBadgeFile> {
-		const resource = this.badgeResource(node);
-		return this.mutex.runExclusive(resource.toString(), async () => {
-			const existing = await this.readBadge(node);
-			const next = update(existing ?? emptyBadge(node));
-			await this.fileService.createFolder(dirname(resource));
-			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeBadgeFile(next)));
-			return next;
-		});
-	}
-}
-
-function emptyBadge(node: IBaseHalfBadgeNode): IBaseHalfBadgeFile {
-	return {
-		path: node.relativePath,
-		kind: node.kind,
-		references: [],
-		referenced_by: []
-	};
-}
-
-function uniqueStrings(values: readonly string[]): string[] {
-	const out: string[] = [];
-	for (const value of values) {
-		if (!out.includes(value)) {
-			out.push(value);
-		}
-	}
-	return out;
-}
-
-function removeString(values: readonly string[], value: string): string[] {
-	return values.filter(candidate => candidate !== value);
 }
 
 function serializeBadgeFile(badge: IBaseHalfBadgeFile): string {
@@ -246,16 +229,20 @@ function yamlString(value: string): string {
 	return JSON.stringify(value);
 }
 
-function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string, expectedKind: BaseHalfBadgeKind): IBaseHalfBadgeFile {
+function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string): IBaseHalfBadgeFile {
 	const record = asRecord(value, resource, 'badge root must be an object');
 	const path = stringField(record, 'path', resource);
 	if (path !== expectedPath) {
 		throw new BaseHalfBadgeMirrorCorrupt(resource, `path must be "${expectedPath}"`);
 	}
 
+	// The kind is trusted from the FILE, not from the caller: a path cannot be
+	// both a file and a folder on disk, so the stored kind is authoritative and a
+	// caller's guess (e.g. a reference target defaulting to 'file') must not turn
+	// a healthy folder badge into a "corrupt" read.
 	const kind = stringField(record, 'kind', resource);
-	if (kind !== expectedKind) {
-		throw new BaseHalfBadgeMirrorCorrupt(resource, `kind must be "${expectedKind}"`);
+	if (kind !== 'file' && kind !== 'folder') {
+		throw new BaseHalfBadgeMirrorCorrupt(resource, 'kind must be "file" or "folder"');
 	}
 
 	const description = optionalStringField(record, 'description', resource);
@@ -323,19 +310,6 @@ function yamlScalarValue(node: YamlScalarNode): string | number | boolean | null
 	}
 
 	return value;
-}
-
-function mirrorPathSegments(relativePath: string): string[] {
-	if (!relativePath) {
-		return [];
-	}
-
-	const segments = relativePath.split('/').filter(Boolean);
-	if (segments.some(segment => segment === '.' || segment === '..')) {
-		throw new Error(`Invalid BaseHalf mirror relative path: ${relativePath}`);
-	}
-
-	return segments;
 }
 
 function asRecord(value: unknown, resource: URI, reason: string): Record<string, unknown> {

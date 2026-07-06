@@ -82,7 +82,7 @@ suite('BaseHalfBadgeMirrorService', () => {
 		);
 	});
 
-	test('throws a typed corrupt error when path or kind does not match the node', async () => {
+	test('throws a typed corrupt error when the path does not match the node', async () => {
 		const wrongPath = createService(new Map([
 			['/work/.bh/mirror/docs/readme.md/badge.yaml', 'path: docs/other.md\nkind: file\nreferences: []\nreferenced_by: []\n']
 		]));
@@ -90,13 +90,22 @@ suite('BaseHalfBadgeMirrorService', () => {
 			() => wrongPath.readBadge(node('docs/readme.md', 'file')),
 			error => error instanceof BaseHalfBadgeMirrorCorrupt && error.reason === 'path must be "docs/readme.md"'
 		);
+	});
 
-		const wrongKind = createService(new Map([
-			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: file\nreferences: []\nreferenced_by: []\n']
+	test('trusts the stored kind over the caller guess (a reference target defaults to file)', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: folder\nreferences: []\nreferenced_by: ["a.md"]\n']
+		]));
+
+		const badge = await service.readBadge(node('docs', 'file'));
+		assert.strictEqual(badge?.kind, 'folder');
+
+		const invalidKind = createService(new Map([
+			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: link\nreferences: []\nreferenced_by: []\n']
 		]));
 		await assert.rejects(
-			() => wrongKind.readBadge(node('docs', 'folder')),
-			error => error instanceof BaseHalfBadgeMirrorCorrupt && error.reason === 'kind must be "folder"'
+			() => invalidKind.readBadge(node('docs', 'folder')),
+			error => error instanceof BaseHalfBadgeMirrorCorrupt && error.reason === 'kind must be "file" or "folder"'
 		);
 	});
 

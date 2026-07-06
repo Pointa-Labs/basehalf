@@ -149,6 +149,7 @@ import './services/log/common/defaultLogLevels.js';
 import '../platform/basehalf/browser/basehalfMirrorLinkService.js';
 import './basehalf/common/basehalfCanvasNavigationService.js';
 import './basehalf/common/basehalfFocusMirrorService.js';
+import './basehalf/common/basehalfBadgeGraph.js';
 
 import { InstantiationType, registerSingleton } from '../platform/instantiation/common/extensions.js';
 import { GlobalExtensionEnablementService } from '../platform/extensionManagement/common/extensionEnablementService.js';
@@ -484,6 +485,7 @@ import './basehalf/browser/basehalfReleaseNotes.contribution.js';
 import './basehalf/browser/basehalfWorkbenchProfile.contribution.js';
 import './basehalf/browser/basehalfNavigation.contribution.js';
 import './basehalf/browser/basehalfCanvasWorkbench.contribution.js';
+import './basehalf/browser/basehalfMirrorCascade.contribution.js';
 import './basehalf/browser/basehalfAgentArea.contribution.js';
 
 //#endregion

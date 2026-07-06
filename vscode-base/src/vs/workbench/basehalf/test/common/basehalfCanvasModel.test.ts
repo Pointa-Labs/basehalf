@@ -66,7 +66,6 @@ suite('BaseHalfCanvasModel', () => {
 
 		assert.deepStrictEqual(model.size, { width: 1200, height: 800 });
 		assert.deepStrictEqual(model.edges, []);
-		assert.strictEqual(model.droppedEdges, 0);
 		assert.deepStrictEqual(
 			model.items.find(item => item.path === 'docs')?.card,
 			{ path: 'docs', kind: 'folder', x: 320, y: 180, width: 260, height: 140 }
@@ -121,28 +120,36 @@ suite('BaseHalfCanvasModel', () => {
 		});
 	});
 
-	test('keeps only visible canvas edges and reports hidden ones', () => {
+	test('derives edges from badge references, styled by canvas.yaml where available', () => {
 		const root = folder('/workspace', [
 			file('/workspace/a.md'),
-			file('/workspace/b.md')
+			file('/workspace/b.md'),
+			file('/workspace/c.md')
 		]);
 
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
+			badges: new Map([
+				// a→b styled below; a→c has no styling (drawn with default anchors);
+				// a→docs/far.md is cross-canvas (not drawable here); a→a is a
+				// hand-planted self-reference (never drawn).
+				['a.md', { references: ['b.md', 'c.md', 'docs/far.md', 'a.md'], referenced_by: [] }]
+			]),
 			canvas: {
 				path: '',
 				cards: [],
 				edges: [
 					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
-					{ from: 'a.md', from_anchor: 'south', to: 'missing.md', to_anchor: 'north' }
+					// A stale style entry without a live reference draws nothing.
+					{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north' }
 				]
 			}
 		});
 
 		assert.deepStrictEqual(model.edges, [
-			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' }
+			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+			{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
 		]);
-		assert.strictEqual(model.droppedEdges, 1);
 	});
 
 	test('computes card bounds from saved geometry or the stable grid fallback', () => {
@@ -199,6 +206,10 @@ suite('BaseHalfCanvasModel', () => {
 		]);
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
+			// The edge derives from the reference; canvas.yaml supplies its styling.
+			badges: new Map([
+				['a.md', { references: ['b.md'], referenced_by: [] }]
+			]),
 			canvas: {
 				path: '',
 				cards: [

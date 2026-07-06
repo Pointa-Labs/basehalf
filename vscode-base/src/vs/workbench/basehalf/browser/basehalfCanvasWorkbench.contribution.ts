@@ -37,8 +37,9 @@ import {
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasSize
 } from '../common/basehalfCanvasModel.js';
-import { IBaseHalfBadgeMirrorService } from '../common/basehalfBadgeMirror.js';
+import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
+import { baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
@@ -192,7 +193,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService,
 		@IEditorService private readonly editorService: IEditorService,
-		@IBaseHalfBadgeMirrorService private readonly badgeMirrorService: IBaseHalfBadgeMirrorService,
+		@IBaseHalfBadgeGraphService private readonly badgeGraphService: IBaseHalfBadgeGraphService,
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
@@ -239,7 +240,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.canvasNavigationService.onDidChangeState(() => this.render()));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
-			if (folder && event.affects(folder.resource) && !this.isFocusMirrorOnlyChange(event, folder)) {
+			if (!folder) {
+				return;
+			}
+
+			// The folder's mirror node lives under `<workspace>/.bh/mirror/<rel>`,
+			// NOT under the folder resource itself — an agent editing badge.yaml
+			// for a SUBFOLDER canvas must still re-render it.
+			if ((event.affects(folder.resource) || event.affects(baseHalfMirrorRoot(folder.workspaceFolder))) && !this.isFocusMirrorOnlyChange(event, folder)) {
 				void this.render();
 			}
 		}));
@@ -358,36 +366,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		let model = baseHalfCanvasModelFromStat(stat, {
+		// One sparse-mirror walk fetches every badge in the workspace: the model
+		// needs them BEFORE it builds items so the child cap can keep annotated
+		// children and the edge set can derive from the reference graph.
+		const badgeRead = await this.badgeGraphService.listBadges(folder.workspaceFolder);
+		if (!this.isRenderCurrent(seq)) {
+			return;
+		}
+
+		const model = baseHalfCanvasModelFromStat(stat, {
 			rootLevel: folder.relativePath.length === 0,
 			folderRelativePath: folder.relativePath,
-			canvas
+			canvas,
+			badges: badgeRead.badges
 		});
 		let badgeWarning: string | undefined;
-		if (model.items.length > 0) {
-			const badgeRead = await this.badgeMirrorService.readBadges(model.items.map(item => ({
-				resource: item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: item.path,
-				kind: item.kind
-			})));
-			if (!this.isRenderCurrent(seq)) {
-				return;
-			}
-
-			if (badgeRead.badges.size > 0) {
-				model = baseHalfCanvasModelFromStat(stat, {
-					rootLevel: folder.relativePath.length === 0,
-					folderRelativePath: folder.relativePath,
-					canvas,
-					badges: badgeRead.badges
-				});
-			}
-			if (badgeRead.problems.length > 0) {
-				badgeWarning = `${badgeRead.problems.length} badge metadata issue${badgeRead.problems.length === 1 ? '' : 's'}`;
-				for (const problem of badgeRead.problems) {
-					this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
-				}
+		const folderPrefix = folder.relativePath.length === 0 ? '' : `${folder.relativePath}/`;
+		const localProblems = badgeRead.problems.filter(problem => problem.relativePath.startsWith(folderPrefix));
+		if (localProblems.length > 0) {
+			badgeWarning = `${localProblems.length} badge metadata issue${localProblems.length === 1 ? '' : 's'}`;
+			for (const problem of localProblems) {
+				this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
 			}
 		}
 		const items = model.items;
@@ -414,8 +413,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.cards.style.width = `${size.width}px`;
 			this.cards.style.height = `${size.height}px`;
 			this.updateCanvasExtent(size);
-			if (model.droppedEdges + layoutResult.dropped > 0) {
-				this.renderCanvasWarning(`${model.droppedEdges + layoutResult.dropped} hidden connection${model.droppedEdges + layoutResult.dropped === 1 ? '' : 's'}`);
+			if (layoutResult.dropped > 0) {
+				this.renderCanvasWarning(`${layoutResult.dropped} hidden connection${layoutResult.dropped === 1 ? '' : 's'}`);
 			}
 		}
 		if (canvasWarning) {
@@ -1240,8 +1239,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 
 		try {
-			await this.canvasMirrorService.upsertCanvasEdge(folder, edge);
-			await this.badgeMirrorService.upsertReference({
+			// Semantic link first — the drawn line IS the reference; the canvas
+			// edge that follows carries only styling (anchors), so a failure after
+			// the reference landed still draws a default-anchored edge.
+			await this.badgeGraphService.addReference({
 				resource: drag.source.stat.resource,
 				workspaceFolder: folder.workspaceFolder,
 				relativePath: drag.source.path,
@@ -1252,6 +1253,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				relativePath: target.item.path,
 				kind: target.item.kind
 			});
+			await this.canvasMirrorService.upsertCanvasEdge(folder, edge);
 			this.selectedEdgeId = edgeId(edge.from, edge.to);
 			this.selectedEdge = { from: edge.from, to: edge.to };
 			await this.render();
@@ -1544,7 +1546,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		void this.badgeMirrorService.updateDescription({
+		void this.badgeGraphService.updateDescription({
 			resource: pending.item.stat.resource,
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: pending.item.path,
@@ -1584,7 +1586,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		await this.badgeMirrorService.upsertReference({
+		await this.badgeGraphService.addReference({
 			resource: item.stat.resource,
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: item.path,
@@ -1622,12 +1624,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.flushBadgeDescriptionWrite(item.path);
 		const target = await this.badgeNodeForPath(folder, to, 'file');
-		await this.badgeMirrorService.removeReference({
+		await this.badgeGraphService.removeReference({
 			resource: item.stat.resource,
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: item.path,
 			kind: item.kind
 		}, target);
+		// Style cleanup only — with the edge set derived from references, the
+		// line is already gone; this just keeps canvas.yaml from hoarding stale
+		// anchor/label entries.
 		await this.canvasMirrorService.removeCanvasEdge(folder, { from: item.path, to });
 		await this.render();
 	}
@@ -1880,17 +1885,23 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		try {
-			await this.canvasMirrorService.reconnectCanvasEdge(folder, { from: drag.edge.from, to: drag.edge.to }, next);
-			if (drag.edge.from !== next.from || drag.edge.to !== next.to) {
-				await this.badgeMirrorService.removeReference(
-					await this.badgeNodeForPath(folder, drag.edge.from, 'file'),
-					await this.badgeNodeForPath(folder, drag.edge.to, 'file')
-				);
-				await this.badgeMirrorService.upsertReference(
+			// Semantic link first: add the new reference, then retire the old one,
+			// so a validation failure aborts before anything is lost. The canvas
+			// write afterwards only carries styling (anchors + label) — if it
+			// fails, the derived edge still draws from the reference with default
+			// anchors, so nothing needs compensating.
+			const endpointsChanged = drag.edge.from !== next.from || drag.edge.to !== next.to;
+			if (endpointsChanged) {
+				await this.badgeGraphService.addReference(
 					await this.badgeNodeForPath(folder, next.from, 'file'),
 					await this.badgeNodeForPath(folder, next.to, 'file')
 				);
+				await this.badgeGraphService.removeReference(
+					await this.badgeNodeForPath(folder, drag.edge.from, 'file'),
+					await this.badgeNodeForPath(folder, drag.edge.to, 'file')
+				);
 			}
+			await this.canvasMirrorService.reconnectCanvasEdge(folder, { from: drag.edge.from, to: drag.edge.to }, next);
 			this.selectedEdgeId = edgeId(next.from, next.to);
 			this.selectedEdge = { from: next.from, to: next.to };
 			await this.render();
@@ -1927,13 +1938,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		const label = next.trim();
 		try {
-			await this.canvasMirrorService.upsertCanvasEdge(folder, {
-				from: edge.from,
-				from_anchor: edge.from_anchor,
-				to: edge.to,
-				to_anchor: edge.to_anchor,
-				...(label ? { label } : {})
-			});
+			// setCanvasEdgeLabel (not upsert) so clearing the note actually
+			// clears it — the upsert path preserves an existing label by design.
+			await this.canvasMirrorService.setCanvasEdgeLabel(folder, { from: edge.from, to: edge.to }, label || undefined);
 			this.selectedEdgeId = edgeId(edge.from, edge.to);
 			this.selectedEdge = { from: edge.from, to: edge.to };
 			await this.render();
@@ -1953,11 +1960,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private async removeEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<void> {
 		try {
-			await this.canvasMirrorService.removeCanvasEdge(folder, edge);
-			await this.badgeMirrorService.removeReference(
+			// Semantic first: dropping the reference is what removes the line
+			// (edges derive from the graph); the canvas write only sheds styling.
+			await this.badgeGraphService.removeReference(
 				await this.badgeNodeForPath(folder, edge.from, 'file'),
 				await this.badgeNodeForPath(folder, edge.to, 'file')
 			);
+			await this.canvasMirrorService.removeCanvasEdge(folder, edge);
 			this.selectedEdgeId = undefined;
 			this.selectedEdge = undefined;
 			await this.render();

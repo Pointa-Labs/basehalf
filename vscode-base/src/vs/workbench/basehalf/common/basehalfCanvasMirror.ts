@@ -18,6 +18,7 @@ import {
 } from './basehalfCanvasModel.js';
 import { IBaseHalfCanvasFolderState } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
+import { baseHalfIsMirrorSubtree, baseHalfMirrorPathSegments, baseHalfRemapSubtreeRel, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 
 export const IBaseHalfCanvasMirrorService = createDecorator<IBaseHalfCanvasMirrorService>('baseHalfCanvasMirrorService');
 
@@ -44,6 +45,20 @@ export interface IBaseHalfCanvasMirrorService {
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile>;
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile>;
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<IBaseHalfCanvasFile>;
+	/** Set or CLEAR one edge's label (`undefined` removes it) without touching
+	 *  anchors — the upsert path deliberately preserves an existing label, so
+	 *  clearing needs its own verb. Missing edge is a no-op. */
+	setCanvasEdgeLabel(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, label: string | undefined): Promise<IBaseHalfCanvasFile>;
+	/** A node moved `from` → `to`: re-root its own canvas subtree (a folder's
+	 *  child layouts), rewriting card paths and edge endpoints, and carry the
+	 *  PARENT folder's card for it — geometry kept on a same-parent rename,
+	 *  re-seeded into the new parent on a cross-folder move (in-parent edges to
+	 *  it drop there; its siblings changed). Style-only: the semantic reference
+	 *  graph is carried by the badge layer. */
+	relocateNode(workspaceFolder: URI, from: string, to: string): Promise<void>;
+	/** A node was deleted: drop its own canvas subtree plus the parent folder's
+	 *  card and any edges touching it. */
+	purgeNode(workspaceFolder: URI, path: string): Promise<void>;
 	canvasResource(folder: IBaseHalfCanvasFolderState): URI;
 }
 
@@ -56,7 +71,155 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 	) { }
 
 	async readCanvas(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfCanvasFile | null> {
-		const resource = this.canvasResource(folder);
+		return this.readCanvasAt(this.canvasResource(folder), folder.relativePath);
+	}
+
+	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile> {
+		return this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => upsertCanvasCard(existing, card));
+	}
+
+	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
+		return this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => upsertCanvasEdge(existing, edge));
+	}
+
+	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
+		return this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => upsertCanvasEdge(removeCanvasEdge(existing, previous), edge));
+	}
+
+	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<IBaseHalfCanvasFile> {
+		return this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => removeCanvasEdge(existing, edge));
+	}
+
+	setCanvasEdgeLabel(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, label: string | undefined): Promise<IBaseHalfCanvasFile> {
+		const trimmed = label?.trim();
+		return this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => ({
+			...existing,
+			edges: existing.edges.map(candidate => {
+				if (candidate.from !== edge.from || candidate.to !== edge.to) {
+					return candidate;
+				}
+
+				const { label: _label, ...rest } = candidate;
+				return trimmed ? { ...rest, label: trimmed } : rest;
+			})
+		}));
+	}
+
+	async relocateNode(workspaceFolder: URI, from: string, to: string): Promise<void> {
+		if (from === to || baseHalfIsMirrorSubtree(to, from)) {
+			return;
+		}
+
+		const swap = (path: string): string => baseHalfIsMirrorSubtree(path, from) ? baseHalfRemapSubtreeRel(path, from, to) : path;
+
+		// The node's OWN canvas subtree (folders only; a file has none): move each
+		// canvas.yaml to the remapped location, swapping the subtree prefix inside
+		// card paths and edge endpoints.
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml')) {
+			if (!baseHalfIsMirrorSubtree(entry.relativePath, from)) {
+				continue;
+			}
+
+			let read: IBaseHalfCanvasFile | null = null;
+			try {
+				read = await this.readCanvasAt(entry.resource, entry.relativePath);
+			} catch (error) {
+				if (!(error instanceof BaseHalfCanvasMirrorCorrupt)) {
+					throw error;
+				}
+				// A corrupt canvas.yaml is styling, not authored truth — leave it
+				// behind rather than fail the rename the badge layer already did.
+			}
+			if (read === null) {
+				continue;
+			}
+
+			const source = read;
+			const newRel = baseHalfRemapSubtreeRel(entry.relativePath, from, to);
+			await this.patchCanvas(workspaceFolder, newRel, () => ({
+				path: newRel,
+				...(source.size ? { size: source.size } : {}),
+				cards: source.cards.map(card => ({ ...card, path: swap(card.path) })),
+				edges: source.edges.map(candidate => ({ ...candidate, from: swap(candidate.from), to: swap(candidate.to) }))
+			}));
+			await this.deleteCanvasFile(entry.resource);
+		}
+
+		// The PARENT folder's card for this node.
+		const oldParent = parentRel(from);
+		const newParent = parentRel(to);
+		if (oldParent === newParent) {
+			await this.patchCanvas(workspaceFolder, oldParent, existing => ({
+				...existing,
+				cards: existing.cards.map(card => card.path === from ? { ...card, path: to } : card),
+				edges: existing.edges.map(candidate => ({
+					...candidate,
+					from: candidate.from === from ? to : candidate.from,
+					to: candidate.to === from ? to : candidate.to
+				}))
+			}));
+			return;
+		}
+
+		let carried: IBaseHalfCanvasCard | undefined;
+		await this.patchCanvas(workspaceFolder, oldParent, existing => {
+			carried = existing.cards.find(card => card.path === from);
+			return {
+				...existing,
+				cards: existing.cards.filter(card => card.path !== from),
+				// A cross-folder move breaks in-parent edges to this node — its
+				// siblings changed; the badge reference survives, only the styling goes.
+				edges: existing.edges.filter(candidate => candidate.from !== from && candidate.to !== from)
+			};
+		});
+		if (carried) {
+			const placed = { ...carried, path: to };
+			await this.patchCanvas(workspaceFolder, newParent, existing => upsertCanvasCard(existing, placed));
+		}
+	}
+
+	async purgeNode(workspaceFolder: URI, path: string): Promise<void> {
+		for (const entry of await baseHalfWalkMirror(this.fileService, workspaceFolder, 'canvas.yaml')) {
+			if (baseHalfIsMirrorSubtree(entry.relativePath, path)) {
+				await this.deleteCanvasFile(entry.resource);
+			}
+		}
+
+		await this.patchCanvas(workspaceFolder, parentRel(path), existing => ({
+			...existing,
+			cards: existing.cards.filter(card => card.path !== path),
+			edges: existing.edges.filter(candidate => candidate.from !== path && candidate.to !== path)
+		}));
+	}
+
+	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
+		return this.canvasResourceFor(folder.workspaceFolder, folder.relativePath);
+	}
+
+	private canvasResourceFor(workspaceFolder: URI, relativePath: string): URI {
+		return URI.joinPath(workspaceFolder, '.bh', 'mirror', ...baseHalfMirrorPathSegments(relativePath), 'canvas.yaml');
+	}
+
+	/** Atomic read-modify-write of one folder's canvas.yaml under its write
+	 *  lock. An untouched result — no cards, no edges, no size — deletes the
+	 *  file so the mirror overlay stays sparse. */
+	private patchCanvas(workspaceFolder: URI, folderRel: string, update: (existing: IBaseHalfCanvasFile) => IBaseHalfCanvasFile): Promise<IBaseHalfCanvasFile> {
+		const resource = this.canvasResourceFor(workspaceFolder, folderRel);
+		return this.mutex.runExclusive(resource.toString(), async () => {
+			const existing = await this.readCanvasAt(resource, folderRel);
+			const next = update(existing ?? { path: folderRel, cards: [], edges: [] });
+			if (next.cards.length === 0 && next.edges.length === 0 && !next.size) {
+				await this.deleteCanvasFile(resource);
+				return next;
+			}
+
+			await this.fileService.createFolder(dirname(resource));
+			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
+			return next;
+		});
+	}
+
+	private async readCanvasAt(resource: URI, relativePath: string): Promise<IBaseHalfCanvasFile | null> {
 		let raw: string;
 		try {
 			raw = (await this.fileService.readFile(resource, {
@@ -75,57 +238,24 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 			return null;
 		}
 
-		return normalizeCanvasFile(parsed, resource, folder.relativePath);
+		return normalizeCanvasFile(parsed, resource, relativePath);
 	}
 
-	updateCardGeometry(folder: IBaseHalfCanvasFolderState, card: IBaseHalfCanvasCard): Promise<IBaseHalfCanvasFile> {
-		const resource = this.canvasResource(folder);
-		return this.mutex.runExclusive(resource.toString(), async () => {
-			const existing = await this.readCanvas(folder);
-			const next = upsertCanvasCard(existing ?? { path: folder.relativePath, cards: [], edges: [] }, card);
-			await this.fileService.createFolder(dirname(resource));
-			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
-			return next;
-		});
+	private async deleteCanvasFile(resource: URI): Promise<void> {
+		try {
+			await this.fileService.del(resource);
+		} catch (error) {
+			if (!(error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
+				throw error;
+			}
+		}
 	}
+}
 
-	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
-		const resource = this.canvasResource(folder);
-		return this.mutex.runExclusive(resource.toString(), async () => {
-			const existing = await this.readCanvas(folder);
-			const next = upsertCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, edge);
-			await this.fileService.createFolder(dirname(resource));
-			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
-			return next;
-		});
-	}
-
-	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge): Promise<IBaseHalfCanvasFile> {
-		const resource = this.canvasResource(folder);
-		return this.mutex.runExclusive(resource.toString(), async () => {
-			const existing = await this.readCanvas(folder);
-			const next = upsertCanvasEdge(removeCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, previous), edge);
-			await this.fileService.createFolder(dirname(resource));
-			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
-			return next;
-		});
-	}
-
-	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<IBaseHalfCanvasFile> {
-		const resource = this.canvasResource(folder);
-		return this.mutex.runExclusive(resource.toString(), async () => {
-			const existing = await this.readCanvas(folder);
-			const next = removeCanvasEdge(existing ?? { path: folder.relativePath, cards: [], edges: [] }, edge);
-			await this.fileService.createFolder(dirname(resource));
-			await this.fileService.writeFile(resource, VSBuffer.fromString(serializeCanvasFile(next)));
-			return next;
-		});
-	}
-
-	canvasResource(folder: IBaseHalfCanvasFolderState): URI {
-		const segments = folder.relativePath ? folder.relativePath.split('/').filter(Boolean) : [];
-		return URI.joinPath(folder.workspaceFolder, '.bh', 'mirror', ...segments, 'canvas.yaml');
-	}
+/** The folder a node lives in (its parent), as a canvas rel (`''` = root). */
+function parentRel(relativePath: string): string {
+	const index = relativePath.lastIndexOf('/');
+	return index === -1 ? '' : relativePath.slice(0, index);
 }
 
 export function upsertCanvasCard(canvas: IBaseHalfCanvasFile, card: IBaseHalfCanvasCard): IBaseHalfCanvasFile {
