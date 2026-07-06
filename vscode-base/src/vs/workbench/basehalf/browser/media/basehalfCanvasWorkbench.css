@@ -58,6 +58,7 @@
 	--bh-card-folder: #222222;
 	--bh-card-folder-border: #3d382c;
 	--bh-card-folder-glyph: #bba76a;
+	--basehalf-detail-badge-ghost: color-mix(in srgb, var(--vscode-descriptionForeground) 64%, transparent);
 
 	position: absolute;
 	inset: 0;
@@ -652,19 +653,27 @@
 .monaco-workbench .basehalf-canvas-card-badge-prompt {
 	box-sizing: border-box;
 	width: 100%;
-	min-height: 72px;
-	resize: vertical;
-	padding: 7px 8px;
-	color: var(--bh-card-text-primary);
-	background: var(--bh-card-bg);
-	border: 1px solid var(--bh-card-border-strong);
-	border-radius: 6px;
-	font: 12px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	min-height: 22px;
+	resize: none;
+	overflow: hidden;
+	padding: 0 0 6px;
+	color: var(--bh-card-text-secondary);
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid transparent;
+	border-radius: 0;
+	font: 12px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 	outline: none;
+	transition: border-color 120ms ease, color 120ms ease;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-prompt:focus {
-	border-color: var(--bh-card-accent);
+	color: var(--bh-card-text-primary);
+	border-bottom-color: var(--bh-card-border-strong);
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-prompt::placeholder {
+	color: var(--bh-card-text-ghost);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-section,
@@ -681,8 +690,18 @@
 .monaco-workbench .basehalf-canvas-card-badge-row {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 7px;
 	min-width: 0;
+	min-height: 20px;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-direction {
+	flex: none;
+	width: 12px;
+	color: var(--bh-card-text-ghost);
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-link,
@@ -693,17 +712,19 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	color: var(--bh-card-text-secondary);
+	color: var(--bh-card-accent);
 	background: transparent;
 	border: 0;
-	font: 12px/18px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	font: 12px/18px "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
 	text-align: left;
 	cursor: pointer;
 }
 
 .monaco-workbench .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-canvas-card-inbound-toggle {
-	color: var(--bh-card-text-tertiary);
+	align-self: flex-start;
+	color: var(--bh-card-text-ghost);
+	font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-link:hover,
@@ -722,6 +743,13 @@
 	border: 0;
 	border-radius: 4px;
 	cursor: pointer;
+	opacity: 0;
+	transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-card-badge-row:hover .basehalf-canvas-card-badge-remove,
+.monaco-workbench .basehalf-canvas-card-badge-remove:focus-visible {
+	opacity: 1;
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-remove:hover {
@@ -936,9 +964,9 @@
 }
 
 .monaco-workbench .basehalf-card-detail-header {
-	display: flex;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 	align-items: center;
-	justify-content: space-between;
 	gap: 12px;
 	min-height: 46px;
 	padding: 0 12px 0 18px;
@@ -950,7 +978,6 @@
 	align-items: center;
 	gap: 8px;
 	min-width: 0;
-	flex: 1;
 }
 
 .monaco-workbench .basehalf-card-detail-title {
@@ -974,10 +1001,82 @@
 }
 
 .monaco-workbench .basehalf-card-detail-actions {
+	position: relative;
 	display: flex;
 	align-items: center;
+	justify-self: end;
 	gap: 6px;
 	flex: none;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status {
+	flex: none;
+	display: none;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+	box-sizing: border-box;
+	width: 66px;
+	height: 22px;
+	padding: 0 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	pointer-events: none;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 1;
+	opacity: 1;
+	transition:
+		opacity 180ms ease,
+		color 180ms ease;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state] {
+	display: inline-flex;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status-icon {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 12px;
+	height: 12px;
+	font-size: 12px;
+	line-height: 12px;
+	color: currentColor;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saved"] {
+	color: var(--vscode-descriptionForeground);
+	animation: basehalf-detail-save-status-fade-in 180ms ease;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saved"] .basehalf-card-detail-save-status-icon {
+	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saving"] {
+	color: var(--vscode-descriptionForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-source-actions {
+	display: none;
+	align-items: center;
+	gap: 2px;
+}
+
+.monaco-workbench .basehalf-card-detail-source-actions.visible {
+	display: flex;
 }
 
 .monaco-workbench .basehalf-card-detail-projections {
@@ -1035,8 +1134,9 @@
 	flex: none;
 	display: flex;
 	flex-direction: column;
-	border-bottom: 1px solid var(--vscode-editorWidget-border);
-	background-color: color-mix(in srgb, var(--vscode-editor-background) 92%, var(--vscode-sideBar-background));
+	position: relative;
+	justify-self: center;
+	background-color: transparent;
 }
 
 .monaco-workbench .basehalf-card-detail-badge:empty {
@@ -1046,14 +1146,14 @@
 .monaco-workbench .basehalf-card-detail-badge-toggle {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	min-height: 30px;
-	padding: 0 12px 0 14px;
-	color: var(--vscode-foreground);
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
 	background: transparent;
 	border: 0;
-	font-size: 12px;
-	text-align: left;
+	border-radius: 4px;
 	cursor: pointer;
 }
 
@@ -1061,56 +1161,141 @@
 	background-color: var(--vscode-toolbar-hoverBackground);
 }
 
-.monaco-workbench .basehalf-card-detail-badge-toggle .codicon {
+.monaco-workbench .basehalf-card-detail-badge-toggle:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--vscode-focusBorder);
+}
+
+.monaco-workbench .basehalf-card-detail-badge.open .basehalf-card-detail-badge-toggle {
+	background-color: var(--vscode-button-secondaryBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-toggle .codicon,
+.monaco-workbench .basehalf-card-detail-badge-toggle .basehalf-file-glyph {
 	flex: none;
 	font-size: 12px;
-	color: var(--vscode-icon-foreground);
 }
 
 .monaco-workbench .basehalf-card-detail-badge-title {
-	flex: none;
-	font-weight: 600;
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-chevron {
+	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-badge:not(.open) .basehalf-card-detail-badge-chevron {
+	transform: rotate(-90deg);
 }
 
 .monaco-workbench .basehalf-card-detail-badge-summary {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--vscode-descriptionForeground);
+	display: none;
 }
 
 .monaco-workbench .basehalf-card-detail-badge-summary.empty {
-	font-style: italic;
 	opacity: 0.8;
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body {
+	position: absolute;
+	top: calc(100% + 8px);
+	left: 50%;
+	z-index: 20;
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
-	max-height: 240px;
+	gap: 13px;
+	width: min(360px, calc(100vw - 32px));
+	max-height: min(320px, calc(100vh - 86px));
 	overflow: auto;
-	padding: 0 14px 12px;
+	padding: 14px 16px 16px;
+	background-color: var(--vscode-editorWidget-background);
+	border: 1px solid var(--vscode-editorWidget-border);
+	border-radius: 6px;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 38%);
+	outline: none;
+	transform-origin: top center;
+	transform: translateX(-50%);
+	animation: basehalf-detail-badge-popover-in 110ms ease-out;
+	scrollbar-gutter: stable;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt {
-	min-height: 52px;
-	color: var(--vscode-input-foreground);
-	background: var(--vscode-input-background);
-	border-color: var(--vscode-editorWidget-border);
+	min-height: 24px;
+	padding-bottom: 7px;
+	color: var(--vscode-descriptionForeground);
+	border-bottom-color: transparent;
+	font-size: 13px;
+	line-height: 1.62;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt:focus {
+	color: var(--vscode-foreground);
+	border-bottom-color: color-mix(in srgb, var(--vscode-editorWidget-border) 82%, transparent);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-prompt::placeholder {
+	color: var(--basehalf-detail-badge-ghost);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-section,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-list {
+	gap: 5px;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-direction {
+	color: var(--basehalf-detail-badge-ghost);
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle {
-	color: var(--vscode-descriptionForeground);
+	color: var(--basehalf-detail-badge-ghost);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link {
+	max-width: min(320px, 48vw);
+	color: var(--vscode-textLink-foreground);
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference {
+	padding: 1px 7px;
+	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 58%, transparent);
+	border-radius: 999px;
+}
+
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
+.monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:focus-visible {
+	border-color: color-mix(in srgb, var(--vscode-focusBorder) 65%, transparent);
+	background-color: color-mix(in srgb, var(--vscode-toolbar-hoverBackground) 48%, transparent);
 }
 
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-badge-link:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-add-reference:hover,
 .monaco-workbench .basehalf-card-detail-badge-body .basehalf-canvas-card-inbound-toggle:hover {
 	color: var(--vscode-textLink-foreground);
+}
+
+@keyframes basehalf-detail-badge-popover-in {
+	from {
+		opacity: 0;
+		transform: translateX(-50%) translateY(-2px) scale(0.985);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateX(-50%) translateY(0) scale(1);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.monaco-workbench .basehalf-card-detail-badge-body {
+		animation: none;
+	}
 }
 
 .monaco-workbench .basehalf-card-detail-body {
@@ -1131,18 +1316,6 @@
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-}
-
-.monaco-workbench .basehalf-card-detail-source-toolbar {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-height: 34px;
-	padding: 0 12px;
-	color: var(--vscode-descriptionForeground);
-	background-color: var(--vscode-editor-background);
-	border-bottom: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 72%, transparent);
-	font-size: 12px;
 }
 
 .monaco-workbench .basehalf-card-detail-source-save {
@@ -1166,13 +1339,6 @@
 	cursor: default;
 }
 
-.monaco-workbench .basehalf-card-detail-source-status {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
 .monaco-workbench .basehalf-card-detail-source-editor {
 	flex: 1;
 	min-height: 0;
@@ -1184,24 +1350,6 @@
 	width: 100%;
 	height: 100%;
 	min-height: 0;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-preview-toolbar {
-	display: flex;
-	align-items: center;
-	min-height: 34px;
-	padding: 0 12px;
-	color: var(--vscode-descriptionForeground);
-	background-color: var(--vscode-editor-background);
-	border-bottom: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 72%, transparent);
-	font-size: 12px;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-preview-status {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-preview-scroll {
@@ -1282,96 +1430,12 @@
 	min-height: 0;
 }
 
-.monaco-workbench .basehalf-card-detail-markdown-rich-status {
-	position: absolute;
-	top: 14px;
-	right: 18px;
-	z-index: 4;
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	box-sizing: border-box;
-	max-width: min(340px, calc(100% - 36px));
-	min-height: 25px;
-	padding: 4px 10px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	pointer-events: none;
-	color: var(--vscode-descriptionForeground);
-	background: color-mix(in srgb, var(--vscode-editor-background) 86%, var(--vscode-sideBar-background));
-	border: 1px solid color-mix(in srgb, var(--vscode-editorWidget-border) 72%, transparent);
-	border-radius: 999px;
-	box-shadow: 0 8px 26px rgb(0 0 0 / 16%);
-	font-size: 11px;
-	line-height: 16px;
-	opacity: 0.74;
-	transform: translate3d(0, 0, 0);
-	transition:
-		opacity 180ms ease,
-		transform 180ms ease,
-		color 180ms ease,
-		background-color 180ms ease,
-		border-color 180ms ease,
-		box-shadow 180ms ease;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status::before {
-	content: "";
-	flex: none;
-	width: 6px;
-	height: 6px;
-	border-radius: 999px;
-	background: currentColor;
-	opacity: 0.72;
-	box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 22%, transparent);
-	transition:
-		opacity 180ms ease,
-		box-shadow 180ms ease;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saved"] {
-	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saving"],
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="loading"] {
-	color: var(--vscode-progressBar-background);
-	opacity: 0.86;
-	transform: translate3d(0, 1px, 0);
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="saving"]::before,
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="loading"]::before {
-	animation: basehalf-markdown-rich-status-breathe 1.4s ease-in-out infinite;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="dirty"],
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="warning"] {
-	color: var(--vscode-editorWarning-foreground);
-	opacity: 0.9;
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="readonly"] {
-	color: var(--vscode-disabledForeground);
-}
-
-.monaco-workbench .basehalf-card-detail-markdown-rich-status[data-status-kind="error"] {
-	color: var(--vscode-editorError-foreground);
-	background: color-mix(in srgb, var(--vscode-inputValidation-errorBackground) 72%, var(--vscode-editor-background));
-	border-color: color-mix(in srgb, var(--vscode-inputValidation-errorBorder) 70%, transparent);
-	opacity: 0.95;
-}
-
-@keyframes basehalf-markdown-rich-status-breathe {
-	0%,
-	100% {
-		opacity: 0.42;
-		box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 18%, transparent);
+@keyframes basehalf-detail-save-status-fade-in {
+	from {
+		opacity: 0;
 	}
-	50% {
+	to {
 		opacity: 1;
-		box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
 	}
 }
 

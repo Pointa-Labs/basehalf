@@ -95,6 +95,10 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly fields: IBaseHalfMarkdownFocusFields;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.editorActivated';
+		readonly key: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.workbenchCommand';
 		readonly key: string;
 		readonly command: BaseHalfMarkdownRichWorkbenchCommand;
@@ -177,6 +181,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.dirty === 'boolean';
 		case 'basehalf.markdownRich.yjsUpdate':
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
+		case 'basehalf.markdownRich.editorActivated':
+			return true;
 		case 'basehalf.markdownRich.focusChanged':
 			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
 		case 'basehalf.markdownRich.workbenchCommand':

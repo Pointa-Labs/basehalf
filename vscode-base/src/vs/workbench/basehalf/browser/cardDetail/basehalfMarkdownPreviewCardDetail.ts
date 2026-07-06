@@ -18,7 +18,6 @@ import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
-	private readonly status: HTMLElement;
 	private readonly previewScroll: HTMLElement;
 	private readonly previewContent: HTMLElement;
 	private readonly rendered = this._register(new DisposableStore());
@@ -34,6 +33,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	constructor(
 		private readonly container: HTMLElement,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
@@ -44,10 +44,9 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 		clearNode(this.container);
 		const root = append(this.container, $('.basehalf-card-detail-markdown-preview'));
-		const toolbar = append(root, $('.basehalf-card-detail-markdown-preview-toolbar'));
-		this.status = append(toolbar, $('.basehalf-card-detail-markdown-preview-status'));
 		this.previewScroll = append(root, $('.basehalf-card-detail-markdown-preview-scroll'));
 		this.previewContent = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-content'));
+		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(this.previewScroll, EventType.SCROLL, () => this.scheduleFocusWrite()));
 		this._register(this.textFileService.files.onDidChangeDirty(model => {
@@ -65,7 +64,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
 		this.resourceKey = state.resource.toString();
-		this.status.textContent = 'Loading preview';
+		this.setSaveStatus('saving');
 
 		try {
 			const modelReference = await this.textModelService.createModelReference(state.resource);
@@ -128,7 +127,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		const state = this.state;
 		const model = this.model;
 		if (!state || !model) {
-			this.status.textContent = 'No preview model';
+			this.setSaveStatus('saving');
 			return;
 		}
 
@@ -152,17 +151,21 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private updateStatus(): void {
 		const model = this.model;
 		if (!model) {
-			this.status.textContent = 'No preview model';
+			this.setSaveStatus('saving');
 			return;
 		}
 
 		const textFileModel = this.textFileService.files.get(model.uri);
 		if (textFileModel?.isReadonly()) {
-			this.status.textContent = 'Preview • Readonly source';
+			this.setSaveStatus('saved');
 			return;
 		}
 
-		this.status.textContent = this.textFileService.isDirty(model.uri) ? 'Preview • Unsaved source changes' : 'Preview • Source saved';
+		this.setSaveStatus(this.textFileService.isDirty(model.uri) ? 'saving' : 'saved');
+	}
+
+	private setSaveStatus(status: 'saving' | 'saved'): void {
+		this.onSaveStatusChange(status);
 	}
 
 	private renderError(error: unknown): void {
@@ -170,17 +173,17 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		clearNode(this.previewContent);
 
 		if (error instanceof TooLargeFileOperationError) {
-			this.status.textContent = 'Too large';
+			this.setSaveStatus('saved');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
-			this.status.textContent = 'Binary file';
+			this.setSaveStatus('saved');
 			return;
 		}
 
 		const message = error instanceof Error ? error.message : String(error);
-		this.status.textContent = message;
+		this.setSaveStatus('saving');
 		const node = append(this.previewContent, $('.basehalf-card-detail-status'));
 		node.textContent = message;
 	}

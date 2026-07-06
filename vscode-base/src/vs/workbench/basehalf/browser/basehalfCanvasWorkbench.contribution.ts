@@ -38,7 +38,6 @@ import {
 	IBaseHalfCanvasItem,
 	IBaseHalfCanvasSize
 } from '../common/basehalfCanvasModel.js';
-import { IStorageService, StorageScope, StorageTarget } from '../../../platform/storage/common/storage.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
@@ -66,6 +65,7 @@ type BaseHalfCanvasCardLod = 'full' | 'mini';
 type BaseHalfCanvasResizeEdge = 'north' | 'east' | 'south' | 'west' | 'north-east' | 'south-east' | 'south-west' | 'north-west';
 type BaseHalfCanvasEdgeEndpoint = 'source' | 'target';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
+type BaseHalfCardDetailSaveStatus = 'saving' | 'saved';
 type BaseHalfCanvasZoomAnchor = { readonly clientX: number; readonly clientY: number; readonly focusWriteDelay?: number };
 type BaseHalfCanvasViewport = {
 	readonly left: number;
@@ -109,8 +109,6 @@ const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
 const CANVAS_FRAME_PADDING_PX = 96;
 const CANVAS_GRID_BASE_WORLD_PX = 32;
-const BASEHALF_DETAIL_BADGE_OPEN_KEY = 'basehalf.cardDetail.badgeOpen';
-
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
 
@@ -126,6 +124,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
+	private readonly detailSaveStatus: HTMLElement;
+	private readonly detailSaveStatusIcon: HTMLElement;
+	private readonly detailSaveStatusLabel: HTMLElement;
+	private readonly detailSourceActions: HTMLElement;
 	private readonly detailProjectionActions: HTMLElement;
 	private readonly detailBadgeZone: HTMLElement;
 	private readonly detailBody: HTMLElement;
@@ -174,6 +176,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
 	private readonly detailBadgeDisposables: DisposableStore;
 	private detailBadgeSeq = 0;
+	private detailBadgeOpen = false;
+	private detailBadgeResourceKey: string | undefined;
 	private readonly expandedInboundBadges = new Set<string>();
 	private readonly openBadgeFaces = new Set<string>();
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
@@ -206,8 +210,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService,
-		@IStorageService private readonly storageService: IStorageService
+		@IQuickInputService private readonly quickInputService: IQuickInputService
 	) {
 		super();
 		this.detailBadgeDisposables = this._register(new DisposableStore());
@@ -239,14 +242,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const detailTitleBlock = append(detailHeader, $('.basehalf-card-detail-title-block'));
 		this.detailTitle = append(detailTitleBlock, $('.basehalf-card-detail-title'));
 		this.detailMeta = append(detailTitleBlock, $('.basehalf-card-detail-meta'));
+		this.detailBadgeZone = append(detailHeader, $('.basehalf-card-detail-badge'));
 		const detailActions = append(detailHeader, $('.basehalf-card-detail-actions'));
+		this.detailSaveStatus = append(detailActions, $('.basehalf-card-detail-save-status'));
+		this.detailSaveStatus.setAttribute('role', 'status');
+		this.detailSaveStatus.setAttribute('aria-live', 'polite');
+		this.detailSaveStatusIcon = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-icon.codicon'));
+		this.detailSaveStatusIcon.setAttribute('aria-hidden', 'true');
+		this.detailSaveStatusLabel = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-label'));
+		this.detailSourceActions = append(detailActions, $('.basehalf-card-detail-source-actions'));
 		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
 		close.title = 'Close';
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
-		this.detailBadgeZone = append(this.detail, $('.basehalf-card-detail-badge'));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
 
 		this.editorContainer.prepend(this.root);
@@ -316,6 +326,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
+	private addDisposableListener<K extends keyof DocumentEventMap>(node: Document, type: K, listener: (event: DocumentEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
 	private addDisposableListener<K extends keyof WindowEventMap>(node: Window, type: K, listener: (event: WindowEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
 	private addDisposableListener(node: EventTarget, type: string, listener: (event: Event) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions) {
 		node.addEventListener(type, listener as EventListener, useCaptureOrOptions);
@@ -819,16 +830,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
 		prompt.value = badge?.description ?? '';
 		prompt.placeholder = node.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
+		prompt.rows = 1;
+		prompt.spellcheck = false;
 		prompt.setAttribute('aria-label', `Badge prompt for ${node.relativePath}`);
-		addListener(this.addDisposableListener(prompt, 'input', () => this.scheduleBadgeDescriptionWrite(node, prompt.value)));
+		this.fitBadgePrompt(prompt);
+		addListener(this.addDisposableListener(prompt, 'input', () => {
+			this.fitBadgePrompt(prompt);
+			this.scheduleBadgeDescriptionWrite(node, prompt.value);
+		}));
 		addListener(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(node.relativePath)));
 		addListener(this.addDisposableListener(prompt, 'keydown', event => {
-			event.stopPropagation();
 			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 				event.preventDefault();
+				event.stopPropagation();
 				this.flushBadgeDescriptionWrite(node.relativePath);
 				prompt.blur();
+				return;
 			}
+			if (event.metaKey || event.ctrlKey || event.altKey) {
+				return;
+			}
+			event.stopPropagation();
 		}));
 
 		const refs = badge?.references ?? [];
@@ -837,9 +859,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const list = append(refSection, $('.basehalf-canvas-card-badge-list'));
 			for (const to of refs) {
 				const row = append(list, $('.basehalf-canvas-card-badge-row'));
+				const direction = append(row, $('span.basehalf-canvas-card-badge-direction'));
+				direction.textContent = '→';
 				const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 				label.type = 'button';
-				label.textContent = to;
+				label.textContent = baseHalfReferenceLabel(to);
 				label.title = to;
 				addListener(this.addDisposableListener(label, 'click', event => {
 					event.preventDefault();
@@ -848,7 +872,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}));
 				const remove = append(row, $('button.basehalf-canvas-card-badge-remove.codicon.codicon-close')) as HTMLButtonElement;
 				remove.type = 'button';
-				remove.title = `Remove reference to ${to}`;
+				remove.title = `Remove reference to ${baseHalfReferenceLabel(to)}`;
 				remove.setAttribute('aria-label', `Remove reference to ${to}`);
 				addListener(this.addDisposableListener(remove, 'click', event => {
 					event.preventDefault();
@@ -887,9 +911,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
 				for (const from of inbound) {
 					const row = append(list, $('.basehalf-canvas-card-badge-row'));
+					const direction = append(row, $('span.basehalf-canvas-card-badge-direction.inbound'));
+					direction.textContent = '←';
 					const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
 					label.type = 'button';
-					label.textContent = from;
+					label.textContent = baseHalfReferenceLabel(from);
+					label.title = from;
 					addListener(this.addDisposableListener(label, 'click', event => {
 						event.preventDefault();
 						event.stopPropagation();
@@ -898,6 +925,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}
 		}
+	}
+
+	private fitBadgePrompt(prompt: HTMLTextAreaElement): void {
+		prompt.style.height = 'auto';
+		prompt.style.height = `${prompt.scrollHeight}px`;
 	}
 
 	/** Open a workspace-relative path in BaseHalf navigation — via the rendered
@@ -2058,6 +2090,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.syncDetailScrollLock(!!cardDetail);
 		if (!cardDetail) {
 			this.detailKey = undefined;
+			this.detailBadgeOpen = false;
+			this.detailBadgeResourceKey = undefined;
 			this.sourceDetail = undefined;
 			this.markdownRichDetail = undefined;
 			this.markdownPreviewDetail = undefined;
@@ -2066,6 +2100,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.detailBadgeSeq++;
 			this.detailBadgeDisposables.clear();
 			clearNode(this.detailBadgeZone);
+			this.setDetailSaveStatus(undefined);
+			this.clearDetailSourceActions();
 			clearNode(this.detailProjectionActions);
 			clearNode(this.detailBody);
 			clearNode(this.detailTitle);
@@ -2077,6 +2113,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailTitle.textContent = basename(cardDetail.resource);
 		this.detailMeta.textContent = this.detailSelectionMetaFor(cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
+		const detailBadgeResourceKey = cardDetail.resource.toString();
+		if (this.detailBadgeResourceKey !== detailBadgeResourceKey) {
+			this.detailBadgeResourceKey = detailBadgeResourceKey;
+			this.detailBadgeOpen = false;
+		}
 		void this.renderDetailBadge(cardDetail);
 
 		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
@@ -2092,27 +2133,67 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.markdownRichDetail = undefined;
 		this.markdownPreviewDetail = undefined;
 		this.detailDisposables.clear();
+		this.clearDetailSourceActions();
+		this.setDetailSaveStatus('saving');
 
 		if (cardDetail.projection === 'rich') {
-			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownRichCardDetail, this.detailBody));
+			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(
+				BaseHalfMarkdownRichCardDetail,
+				this.detailBody,
+				() => this.closeDetailBadgePopover(cardDetail, false),
+				status => this.setDetailSaveStatus(status)
+			));
 			void this.markdownRichDetail.open(cardDetail);
 		} else if (cardDetail.projection === 'preview') {
-			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfMarkdownPreviewCardDetail, this.detailBody));
+			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(
+				BaseHalfMarkdownPreviewCardDetail,
+				this.detailBody,
+				status => this.setDetailSaveStatus(status)
+			));
 			void this.markdownPreviewDetail.open(cardDetail);
 		} else if (cardDetail.projection === 'source') {
-			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(BaseHalfSourceCardDetail, this.detailBody));
+			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(
+				BaseHalfSourceCardDetail,
+				this.detailBody,
+				this.detailSourceActions,
+				status => this.setDetailSaveStatus(status)
+			));
 			void this.sourceDetail.open(cardDetail);
 		}
 	}
 
+	private setDetailSaveStatus(status: BaseHalfCardDetailSaveStatus | undefined): void {
+		if (!status) {
+			this.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon';
+			this.detailSaveStatusLabel.textContent = '';
+			this.detailSaveStatus.removeAttribute('data-save-state');
+			this.detailSaveStatus.removeAttribute('title');
+			return;
+		}
+
+		const label = status === 'saving' ? 'Saving' : 'Saved';
+		this.detailSaveStatusIcon.className = status === 'saving'
+			? 'basehalf-card-detail-save-status-icon codicon codicon-loading codicon-modifier-spin'
+			: 'basehalf-card-detail-save-status-icon codicon codicon-check';
+		this.detailSaveStatusLabel.textContent = label;
+		this.detailSaveStatus.setAttribute('data-save-state', status);
+		this.detailSaveStatus.title = label;
+	}
+
+	private clearDetailSourceActions(): void {
+		clearNode(this.detailSourceActions);
+		this.detailSourceActions.classList.remove('visible');
+	}
+
 	/**
 	 * The card detail's Badge zone: the SAME badge that flips on the canvas
-	 * card, editable while reading the file — a collapsible strip between the
-	 * detail header and the document. This is where "this file has a human
-	 * note" stays visible in reading position, including who points at it.
+	 * card, editable from the detail header while reading the file. This is
+	 * where "this file has a human note" stays visible without pushing the
+	 * document down, including who points at it.
 	 */
-	private async renderDetailBadge(cardDetail: IBaseHalfCardDetailState): Promise<void> {
+	private async renderDetailBadge(cardDetail: IBaseHalfCardDetailState, openOverride?: boolean, focusToggle = false): Promise<void> {
 		const seq = ++this.detailBadgeSeq;
+		const bodyId = `basehalf-card-detail-badge-popover-${seq}`;
 		const node: IBaseHalfBadgeNode = {
 			resource: cardDetail.resource,
 			workspaceFolder: cardDetail.workspaceFolder,
@@ -2140,16 +2221,28 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.detailBadgeDisposables.clear();
 		clearNode(this.detailBadgeZone);
-		const open = this.storageService.getBoolean(BASEHALF_DETAIL_BADGE_OPEN_KEY, StorageScope.PROFILE, true);
+		const open = openOverride ?? this.detailBadgeOpen;
+		this.detailBadgeOpen = open;
 		this.detailBadgeZone.classList.toggle('open', open);
 
 		const toggle = append(this.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle')) as HTMLButtonElement;
 		toggle.type = 'button';
+		toggle.title = open ? 'Hide Badge' : 'Show Badge';
+		toggle.setAttribute('aria-label', open ? 'Hide Badge' : 'Show Badge');
 		toggle.setAttribute('aria-expanded', String(open));
+		toggle.setAttribute('aria-haspopup', 'dialog');
 		toggle.setAttribute('data-testid', 'card-detail-badge-toggle');
-		append(toggle, $(`span.codicon.codicon-chevron-${open ? 'down' : 'right'}`));
+		if (open) {
+			toggle.setAttribute('aria-controls', bodyId);
+		}
+		// The badge glyph is the toolbar action's identity: accent-toned once
+		// the file carries a note or references, ghost while empty.
+		const hasContent = !!badge?.description?.trim() || (badge?.references.length ?? 0) > 0 || (badge?.referenced_by.length ?? 0) > 0;
+		this.renderGlyph(toggle, 'badge', hasContent ? 'var(--vscode-textLink-foreground)' : 'var(--basehalf-detail-badge-ghost)', 15);
 		const title = append(toggle, $('span.basehalf-card-detail-badge-title'));
 		title.textContent = 'Badge';
+		const chevron = append(toggle, $('span.basehalf-card-detail-badge-chevron.codicon.codicon-chevron-down'));
+		chevron.setAttribute('aria-hidden', 'true');
 		const summary = append(toggle, $('span.basehalf-card-detail-badge-summary'));
 		if (!open) {
 			const inboundCount = badge?.referenced_by.length ?? 0;
@@ -2160,15 +2253,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			summary.classList.toggle('empty', !badge?.description);
 		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(toggle, 'click', () => {
-			this.storageService.store(BASEHALF_DETAIL_BADGE_OPEN_KEY, !open, StorageScope.PROFILE, StorageTarget.USER);
-			void this.renderDetailBadge(cardDetail);
+			if (open) {
+				this.closeDetailBadgePopover(cardDetail, true);
+				return;
+			}
+
+			const nextOpen = !open;
+			this.detailBadgeOpen = nextOpen;
+			void this.renderDetailBadge(cardDetail, nextOpen, !nextOpen);
 		}));
+		if (focusToggle) {
+			mainWindow.setTimeout(() => {
+				if (!this.disposed && seq === this.detailBadgeSeq && this.detailBadgeZone.contains(toggle)) {
+					toggle.focus();
+				}
+			}, 0);
+		}
 
 		if (!open) {
 			return;
 		}
 
 		const body = append(this.detailBadgeZone, $('.basehalf-card-detail-badge-body'));
+		body.id = bodyId;
+		body.tabIndex = -1;
+		body.setAttribute('role', 'dialog');
+		body.setAttribute('aria-label', 'Badge');
 		this.renderBadgeEditorContent(
 			body,
 			node,
@@ -2176,6 +2286,46 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			disposable => this.detailBadgeDisposables.add(disposable),
 			() => [...this.renderedItemsByPath.values()]
 		);
+		this.detailBadgeDisposables.add(this.addDisposableListener(body.ownerDocument, 'pointerdown', event => {
+			const target = event.target;
+			if (target instanceof Node && this.detailBadgeZone.contains(target)) {
+				return;
+			}
+			this.closeDetailBadgePopover(cardDetail, false);
+		}, true));
+		this.detailBadgeDisposables.add(this.addDisposableListener(mainWindow, 'keydown', event => {
+			if (event.key !== 'Escape') {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			this.closeDetailBadgePopover(cardDetail, true);
+		}, true));
+	}
+
+	private closeDetailBadgePopover(cardDetail: IBaseHalfCardDetailState, restoreFocus: boolean): void {
+		if (!this.detailBadgeOpen) {
+			return;
+		}
+
+		this.flushBadgeDescriptionWrite(cardDetail.relativePath);
+		this.detailBadgeOpen = false;
+		this.hideDetailBadgePopoverNow();
+		void this.renderDetailBadge(cardDetail, false, restoreFocus);
+	}
+
+	private hideDetailBadgePopoverNow(): void {
+		this.detailBadgeZone.classList.remove('open');
+		this.detailBadgeZone.querySelector('.basehalf-card-detail-badge-body')?.remove();
+		const toggle = this.detailBadgeZone.querySelector<HTMLButtonElement>('[data-testid="card-detail-badge-toggle"]');
+		if (!toggle) {
+			return;
+		}
+
+		toggle.title = 'Show Badge';
+		toggle.setAttribute('aria-label', 'Show Badge');
+		toggle.setAttribute('aria-expanded', 'false');
+		toggle.removeAttribute('aria-controls');
 	}
 
 	private syncDetailScrollLock(detailVisible: boolean): void {
@@ -2953,6 +3103,16 @@ function stripMarkdownInline(value: string): string {
 		.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
 		.replace(/[*_`~]/g, '')
 		.trim();
+}
+
+function baseHalfReferenceLabel(relativePath: string): string {
+	const trimmed = relativePath.replace(/\/+$/, '');
+	if (!trimmed) {
+		return 'Workspace root';
+	}
+
+	const slash = trimmed.lastIndexOf('/');
+	return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
 function sourceAnchorForPointer(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {

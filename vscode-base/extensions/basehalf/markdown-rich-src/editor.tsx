@@ -137,6 +137,10 @@ type BaseHalfMarkdownRichWebviewMessage =
 		readonly fields: ReturnType<typeof buildBaseHalfMarkdownFocusFields>;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.editorActivated';
+		readonly key: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.workbenchCommand';
 		readonly key: string;
 		readonly command: 'quickOpen' | 'showCommands';
@@ -957,6 +961,14 @@ function MarkdownRichEditor(): JSX.Element {
 	const state = session.current;
 	void version;
 	const canEdit = state.ready && state.editable && state.conflictDisk === undefined && state.writeError === undefined;
+	const notifyEditorActivated = useCallback(() => {
+		const state = session.current;
+		if (!state.key || !state.ready || state.loading) {
+			return;
+		}
+
+		vscode.postMessage({ type: 'basehalf.markdownRich.editorActivated', key: state.key });
+	}, [vscode]);
 
 	const keepLocal = () => {
 		state.conflictDisk = undefined;
@@ -980,7 +992,11 @@ function MarkdownRichEditor(): JSX.Element {
 	};
 
 	return (
-		<div className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}>
+		<div
+			className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}
+			onPointerDownCapture={notifyEditorActivated}
+			onFocusCapture={notifyEditorActivated}
+		>
 			<div
 				ref={setPortalElement}
 				className="basehalf-markdown-rich-portal bn-root bn-mantine dark"

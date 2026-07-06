@@ -164,6 +164,7 @@ try {
 	await step('folder-quick-open-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
+	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
 
 	const summary = {
@@ -219,6 +220,7 @@ try {
 			'explorer-file-row-card-detail-no-tab',
 			'folder-quick-open-canvas',
 			'settings-basehalf-category',
+			'badge-closes-on-rich-editor-activation',
 			'release-notes-system-page'
 		]
 	};
@@ -1197,7 +1199,7 @@ async function assertWorkspaceSetupAgentProtocolFiles() {
 async function assertCardDetailBadgeZone(page) {
 	const toggle = page.locator('[data-testid="card-detail-badge-toggle"]');
 	await toggle.waitFor({ state: 'visible', timeout: 20_000 });
-	if (await page.locator('.basehalf-card-detail-badge-body').count() === 0) {
+	if (!(await page.locator('.basehalf-card-detail-badge-body').isVisible().catch(() => false))) {
 		await toggle.click();
 		await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'visible', timeout: 20_000 });
 	}
@@ -1216,6 +1218,34 @@ async function assertCardDetailBadgeZone(page) {
 	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'detached', timeout: 20_000 });
 	await page.locator('[data-testid="card-detail-badge-toggle"]').click();
 	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'visible', timeout: 20_000 });
+}
+
+// Clicking into the rich Markdown document while the centered Badge popover is
+// open should use that same first click for the editor, not leave the popover
+// hanging around until a second click.
+async function assertBadgeClosesOnRichEditorActivation(page) {
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
+	await page.waitForTimeout(150);
+	await quickOpen(page, 'README.md');
+	await assertCardDetail(page, 'README.md');
+	const rich = page.locator('.basehalf-card-detail-projection[aria-label="Rich"]');
+	if (await rich.count()) {
+		const pressed = await rich.getAttribute('aria-pressed').catch(() => 'false');
+		if (pressed !== 'true') {
+			await rich.click();
+		}
+	}
+	const toggle = page.locator('[data-testid="card-detail-badge-toggle"]');
+	await toggle.waitFor({ state: 'visible', timeout: 20_000 });
+	if (!(await page.locator('.basehalf-card-detail-badge-body').isVisible().catch(() => false))) {
+		await toggle.click({ force: true });
+	}
+	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'visible', timeout: 20_000 });
+	const frame = await activeMarkdownRichFrame(page);
+	const editable = frame.locator('.bn-editor [contenteditable="true"], .bn-editor[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+	await editable.waitFor({ state: 'visible', timeout: 20_000 });
+	await editable.click({ position: { x: 24, y: 180 } });
+	await page.locator('.basehalf-card-detail-badge-body').waitFor({ state: 'detached', timeout: 5_000 });
 }
 
 // `badge ` quick access finds the note authored above and routes back into the
@@ -1670,19 +1700,30 @@ async function assertExplorerRenameCascadesMirror(page) {
 }
 
 async function renameExplorerEntry(page, currentName, nextName) {
-	const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: currentName }).first();
-	if (!(await row.isVisible().catch(() => false))) {
-		await runCommand(page, 'Focus on Files Explorer');
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		try {
+			const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: currentName }).first();
+			if (!(await row.isVisible().catch(() => false))) {
+				await runCommand(page, 'Focus on Files Explorer');
+			}
+			await row.waitFor({ state: 'visible', timeout: 20_000 });
+			await row.click();
+			// macOS explorer rename is Enter; F2 elsewhere.
+			await page.keyboard.press(process.platform === 'darwin' ? 'Enter' : 'F2');
+			const input = page.locator('.explorer-viewlet .explorer-item .monaco-inputbox input');
+			await input.waitFor({ state: 'visible', timeout: 10_000 });
+			await input.fill(nextName);
+			await page.keyboard.press('Enter');
+			await input.waitFor({ state: 'hidden', timeout: 10_000 });
+			return;
+		} catch (error) {
+			await page.keyboard.press('Escape').catch(() => undefined);
+			if (attempt === 3) {
+				throw error;
+			}
+			await page.waitForTimeout(250);
+		}
 	}
-	await row.waitFor({ state: 'visible', timeout: 20_000 });
-	await row.click();
-	// macOS explorer rename is Enter; F2 elsewhere.
-	await page.keyboard.press(process.platform === 'darwin' ? 'Enter' : 'F2');
-	const input = page.locator('.explorer-viewlet .explorer-item .monaco-inputbox input');
-	await input.waitFor({ state: 'visible', timeout: 10_000 });
-	await input.fill(nextName);
-	await page.keyboard.press('Enter');
-	await input.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
 async function assertCanvasSnapGuides(page) {
@@ -1839,28 +1880,33 @@ async function assertMarkdownRichStatusInEditor(page) {
 		throw new Error(`Markdown rich status should not create a toolbar, toolbarCount=${toolbarCount}`);
 	}
 	const headerMetaText = await page.locator('.basehalf-card-detail-meta').textContent().catch(() => '');
-	if (/Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/.test(headerMetaText ?? '')) {
+	if (/\b(Saving|Saved)\b/.test(headerMetaText ?? '')) {
 		throw new Error(`Markdown rich status should not live under the title: ${headerMetaText}`);
 	}
+	const oldRichStatusCount = await page.locator('.basehalf-card-detail-markdown-rich-status').count();
+	if (oldRichStatusCount !== 0) {
+		throw new Error(`Markdown rich status should not render inside the editor, oldRichStatusCount=${oldRichStatusCount}`);
+	}
 
-	const status = page.locator('.basehalf-card-detail-markdown-rich-status', { hasText: /Rich • (Saved|Readonly|Source has unsaved changes|Unsaved changes|Saving|Loading)/ }).first();
+	const status = page.locator('.basehalf-card-detail-save-status', { hasText: /^(Saving|Saved)$/ }).first();
 	await status.waitFor({ state: 'visible', timeout: 10_000 });
 	const geometry = await status.evaluate(element => {
 		const rect = element.getBoundingClientRect();
 		const editor = element.closest('.basehalf-card-detail-markdown-rich')?.getBoundingClientRect();
 		const header = document.querySelector('.basehalf-card-detail-header')?.getBoundingClientRect();
+		const projections = document.querySelector('.basehalf-card-detail-projections.visible')?.getBoundingClientRect();
 		return {
-			statusKind: element.getAttribute('data-status-kind'),
-			rightOffset: editor ? editor.right - rect.right : undefined,
-			topOffset: editor ? rect.top - editor.top : undefined,
+			saveState: element.getAttribute('data-save-state'),
+			text: element.textContent,
 			insideEditor: !!editor && rect.left >= editor.left && rect.right <= editor.right && rect.top >= editor.top && rect.bottom <= editor.bottom,
-			insideHeader: !!header && rect.top >= header.top && rect.bottom <= header.bottom
+			insideHeader: !!header && rect.top >= header.top && rect.bottom <= header.bottom,
+			leftOfProjectionButtons: !!projections && rect.right <= projections.left
 		};
 	});
-	if (!geometry.insideEditor || geometry.insideHeader || geometry.rightOffset === undefined || geometry.rightOffset > 40 || geometry.topOffset === undefined || geometry.topOffset > 40) {
-		throw new Error(`Markdown rich status is not anchored in the editor top-right: ${JSON.stringify(geometry)}`);
+	if (geometry.insideEditor || !geometry.insideHeader || !geometry.leftOfProjectionButtons) {
+		throw new Error(`Markdown rich status is not anchored in the header before projection buttons: ${JSON.stringify(geometry)}`);
 	}
-	if (!['saved', 'readonly', 'dirty', 'saving', 'loading', 'warning'].includes(geometry.statusKind ?? '')) {
+	if (!['saved', 'saving'].includes(geometry.saveState ?? '') || !/^(Saving|Saved)$/.test(geometry.text ?? '')) {
 		throw new Error(`Markdown rich status has an unexpected state: ${JSON.stringify(geometry)}`);
 	}
 }
@@ -2105,7 +2151,7 @@ async function assertSourceCardFlushesBeforeNavigation(page) {
 	await page.locator('.basehalf-card-detail-source-editor .monaco-editor').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
 	await page.keyboard.insertText(`\n${marker}\n`);
-	await page.locator('.basehalf-card-detail-source-status', { hasText: /Unsaved changes/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.locator('.basehalf-card-detail-save-status', { hasText: /^Saving$/ }).waitFor({ state: 'visible', timeout: 10_000 });
 
 	await quickOpen(page, 'README.md');
 	await waitUntil(() => fs.readFileSync(appPath, 'utf8').includes(marker), 'source card detail to flush before navigation');

@@ -52,9 +52,6 @@ const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
 const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
 
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
-	private static readonly STATUS_KINDS = ['loading', 'saving', 'saved', 'dirty', 'readonly', 'warning', 'error'] as const;
-
-	private readonly status: HTMLElement;
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
 	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number }>();
@@ -73,6 +70,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	constructor(
 		private readonly container: HTMLElement,
+		private readonly onEditorFocus: (() => void) | undefined,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
@@ -88,10 +87,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		clearNode(this.container);
 		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
 		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
-		this.status = append(root, $('.basehalf-card-detail-markdown-rich-status'));
-		this.status.setAttribute('role', 'status');
-		this.status.setAttribute('aria-live', 'polite');
-		this.setStatus('Loading');
+		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
@@ -106,7 +102,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		this.state = state;
 		this.resourceKey = state.resource.toString();
 		this.documentKey = baseHalfMarkdownRichDocumentKey(state.workspaceFolder, state.relativePath);
-		this.setStatus('Loading');
+		this.setSaveStatus('saving');
 
 		try {
 			const modelReference = await this.textModelService.createModelReference(state.resource);
@@ -147,7 +143,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
 			}));
 			this._register(this.webview.onFatalError(error => {
-				this.setStatus(`Failed: ${error.message}`);
+				this.setSaveStatus('saving');
 				this.logService.error(error.message);
 			}));
 			this._register(this.textFileService.files.onDidChangeDirty(file => {
@@ -256,7 +252,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.dirty = message.dirty;
 				this.updateStatus();
 				break;
+			case 'basehalf.markdownRich.editorActivated':
+				this.onEditorFocus?.();
+				break;
 			case 'basehalf.markdownRich.focusChanged':
+				this.onEditorFocus?.();
 				void this.focusMirrorService.writeFileFocus(state, {
 					projection: 'rich',
 					...message.fields
@@ -269,7 +269,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				await this.handleAdhdCommand(state, message.command);
 				break;
 			case 'basehalf.markdownRich.error':
-				this.setStatus(`Failed: ${message.message}`);
+				this.setSaveStatus('saving');
 				this.logService.error(message.stack ?? message.message);
 				break;
 		}
@@ -364,7 +364,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 
-		this.setStatus('Saving');
+		this.setSaveStatus('saving');
 		this.writingTextModel = true;
 		try {
 			const outcome = await this.coordinator.handleSaveRequested(
@@ -411,55 +411,20 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private updateStatus(): void {
 		const model = this.model;
 		if (!model) {
-			this.setStatus('No editor model');
+			this.setSaveStatus('saving');
 			return;
 		}
 
 		if (!this.isEditable()) {
-			this.setStatus('Readonly');
+			this.setSaveStatus('saved');
 			return;
 		}
 
-		if (this.dirty) {
-			this.setStatus('Unsaved changes');
-			return;
-		}
-
-		this.setStatus(this.textFileService.isDirty(model.uri) ? 'Source has unsaved changes' : 'Saved');
+		this.setSaveStatus(this.dirty || this.textFileService.isDirty(model.uri) ? 'saving' : 'saved');
 	}
 
-	private setStatus(status: string): void {
-		const parts = ['Rich', status];
-		const selection = this.state?.selection;
-		if (selection) {
-			parts.push(`L${selection.startLineNumber}:${selection.startColumn}`);
-		}
-		this.status.textContent = parts.join(' • ');
-		this.status.setAttribute('data-status-kind', this.statusKind(status));
-		this.status.title = this.status.textContent;
-	}
-
-	private statusKind(status: string): typeof BaseHalfMarkdownRichCardDetail.STATUS_KINDS[number] {
-		const normalized = status.toLowerCase();
-		if (normalized.includes('saving')) {
-			return 'saving';
-		}
-		if (normalized.includes('saved')) {
-			return 'saved';
-		}
-		if (normalized.includes('unsaved') || normalized.includes('dirty')) {
-			return 'dirty';
-		}
-		if (normalized.includes('readonly')) {
-			return 'readonly';
-		}
-		if (normalized.includes('loading') || normalized.includes('model')) {
-			return 'loading';
-		}
-		if (normalized.includes('failed') || normalized.includes('error') || normalized.includes('binary') || normalized.includes('large')) {
-			return 'error';
-		}
-		return 'warning';
+	private setSaveStatus(status: 'saving' | 'saved'): void {
+		this.onSaveStatusChange(status);
 	}
 
 	private isEditable(): boolean {
@@ -481,16 +446,16 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private renderError(error: unknown): void {
 		clearNode(this.webviewHost);
 		if (error instanceof TooLargeFileOperationError) {
-			this.setStatus('Too large');
+			this.setSaveStatus('saved');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
-			this.setStatus('Binary file');
+			this.setSaveStatus('saved');
 			return;
 		}
 
-		this.setStatus(error instanceof Error ? error.message : String(error));
+		this.setSaveStatus('saving');
 	}
 
 	private htmlFor(key: string): string {

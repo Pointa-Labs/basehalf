@@ -112,6 +112,10 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			dirty: true
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.editorActivated',
+			key: 'workspace\u0000doc.md'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.focusChanged',
 			key: 'workspace\u0000doc.md',
 			fields: { visible_blocks: { start: 2 }, cursor: { line: 4, column: 1, line_precision: 'exact', block: 2 } }

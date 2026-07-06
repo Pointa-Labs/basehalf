@@ -26,8 +26,6 @@ import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEdi
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
 
-	private readonly toolbar: HTMLElement;
-	private readonly status: HTMLElement;
 	private readonly editorHost: HTMLElement;
 	private readonly saveButton: HTMLButtonElement;
 
@@ -36,6 +34,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private resourceKey: string | undefined;
 	private focusTimer: number | undefined;
 	private lastFocusKey: string | undefined;
+	private saving = false;
 	private disposed = false;
 	private readonly editorOptions: IEditorOptions = {
 		automaticLayout: false,
@@ -49,6 +48,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	};
 	constructor(
 		private readonly container: HTMLElement,
+		private readonly actionsContainer: HTMLElement,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
@@ -59,14 +60,15 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		super();
 
 		clearNode(this.container);
+		clearNode(this.actionsContainer);
+		this.actionsContainer.classList.add('visible');
 		const root = append(this.container, $('.basehalf-card-detail-source'));
-		this.toolbar = append(root, $('.basehalf-card-detail-source-toolbar'));
-		this.saveButton = append(this.toolbar, $('button.basehalf-card-detail-source-save.codicon.codicon-save')) as HTMLButtonElement;
+		this.saveButton = append(this.actionsContainer, $('button.basehalf-card-detail-source-save.codicon.codicon-save')) as HTMLButtonElement;
 		this.saveButton.type = 'button';
 		this.saveButton.title = 'Save';
 		this.saveButton.setAttribute('aria-label', 'Save');
-		this.status = append(this.toolbar, $('.basehalf-card-detail-source-status'));
 		this.editorHost = append(root, $('.basehalf-card-detail-source-editor'));
+		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(this.saveButton, EventType.CLICK, () => {
 			void this.save();
@@ -110,7 +112,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
 		this.resourceKey = state.resource.toString();
-		this.status.textContent = 'Loading source';
+		this.setSaveStatus('saving');
 		this.saveButton.disabled = true;
 
 		try {
@@ -146,6 +148,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		clearNode(this.actionsContainer);
+		this.actionsContainer.classList.remove('visible');
 		if (this.focusTimer !== undefined) {
 			mainWindow.clearTimeout(this.focusTimer);
 			this.focusTimer = undefined;
@@ -187,19 +191,23 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			return false;
 		}
 
-		this.status.textContent = this.textFileService.isDirty(resource) ? 'Saving' : 'Saved';
+		this.saving = true;
+		this.setSaveStatus('saving');
 		this.saveButton.disabled = true;
 		try {
 			const savedResource = await this.textFileService.save(resource);
 			if (!savedResource && this.textFileService.isDirty(resource)) {
+				this.saving = false;
 				this.updateStatus();
 				return false;
 			}
 			const clean = await this.waitForClean(resource);
+			this.saving = false;
 			this.updateStatus();
 			return clean;
 		} catch (error) {
-			this.status.textContent = error instanceof Error ? `Save failed: ${error.message}` : `Save failed: ${String(error)}`;
+			this.saving = false;
+			this.setSaveStatus('saving');
 			this.saveButton.disabled = false;
 			return false;
 		}
@@ -234,37 +242,42 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private updateStatus(): void {
 		const resource = this.editor?.getModel()?.uri;
 		if (!resource) {
-			this.status.textContent = 'No source model';
+			this.setSaveStatus('saving');
 			this.saveButton.disabled = true;
 			return;
 		}
 
 		if (this.isReadonly()) {
-			this.status.textContent = 'Source • Readonly';
+			this.setSaveStatus('saved');
+			this.saveButton.disabled = true;
+			return;
+		}
+
+		if (this.saving) {
+			this.setSaveStatus('saving');
 			this.saveButton.disabled = true;
 			return;
 		}
 
 		const textFileModel = this.textFileService.files.get(resource);
 		if (textFileModel?.hasState(TextFileEditorModelState.CONFLICT)) {
-			this.status.textContent = 'Source • Save conflict';
+			this.setSaveStatus('saving');
 			this.saveButton.disabled = false;
 			return;
 		}
 
 		if (textFileModel?.hasState(TextFileEditorModelState.ERROR)) {
-			this.status.textContent = 'Source • Save failed';
+			this.setSaveStatus('saving');
 			this.saveButton.disabled = false;
 			return;
 		}
 
-		if (this.textFileService.isDirty(resource)) {
-			this.status.textContent = 'Source • Unsaved changes';
-			this.saveButton.disabled = false;
-		} else {
-			this.status.textContent = 'Source • Saved';
-			this.saveButton.disabled = false;
-		}
+		this.setSaveStatus(this.saving || this.textFileService.isDirty(resource) ? 'saving' : 'saved');
+		this.saveButton.disabled = false;
+	}
+
+	private setSaveStatus(status: 'saving' | 'saved'): void {
+		this.onSaveStatusChange(status);
 	}
 
 	private isReadonly(): boolean {
@@ -282,16 +295,16 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		this.saveButton.disabled = true;
 
 		if (error instanceof TooLargeFileOperationError) {
-			this.status.textContent = 'Too large';
+			this.setSaveStatus('saved');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
-			this.status.textContent = 'Binary file';
+			this.setSaveStatus('saved');
 			return;
 		}
 
-		this.status.textContent = error instanceof Error ? error.message : String(error);
+		this.setSaveStatus('saving');
 	}
 
 	private registerLayoutObserver(): void {
