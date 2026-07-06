@@ -18,6 +18,27 @@ export interface IBaseHalfMarkdownRichTextSelection {
 
 export type BaseHalfMarkdownRichWorkbenchCommand = 'quickOpen' | 'showCommands';
 
+/**
+ * Editing commands the host forwards into the rich editor. The rich editor's
+ * edit history lives in the webview's collaboration undo manager, so
+ * workbench-level Undo/Redo (menu, command service) must be delivered as an
+ * explicit editor command instead of the generic webview native-undo path,
+ * which mutates the DOM behind the editor's transaction model.
+ */
+export type BaseHalfMarkdownRichEditorCommand = 'undo' | 'redo';
+
+/**
+ * Channel ownership contract:
+ * - The Markdown string channel (`init` / `saveRequested` / `saveResult`) is
+ *   the authoritative content transport. The text file working copy stays the
+ *   single content truth.
+ * - The collaboration update channel (`applyYjsUpdate` / `yjsUpdate`) is the
+ *   provider-ready replica stream. On `ready` the host replays its replica
+ *   state so both sides share one history; after that the webview editor is
+ *   the only writer and the host document is a passive replica (the future
+ *   collaboration provider attach point). Host code must never push replica
+ *   state into a live editor outside that `ready` replay.
+ */
 export type BaseHalfMarkdownRichHostMessage =
 	| {
 		readonly type: 'basehalf.markdownRich.init';
@@ -41,6 +62,11 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly type: 'basehalf.markdownRich.revealSelection';
 		readonly key: string;
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.command';
+		readonly key: string;
+		readonly command: BaseHalfMarkdownRichEditorCommand;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.save';
@@ -138,6 +164,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return typeof candidate.editable === 'boolean';
 		case 'basehalf.markdownRich.revealSelection':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
+		case 'basehalf.markdownRich.command':
+			return candidate.command === 'undo' || candidate.command === 'redo';
 		case 'basehalf.markdownRich.save':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0

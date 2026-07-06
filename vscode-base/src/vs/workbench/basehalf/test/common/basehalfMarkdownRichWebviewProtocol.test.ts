@@ -42,6 +42,16 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			}
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.command',
+			key: 'workspace\u0000doc.md',
+			command: 'undo'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.command',
+			key: 'workspace\u0000doc.md',
+			command: 'redo'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.save',
 			key: 'workspace\u0000doc.md',
 			requestId: 'save-1',
@@ -81,6 +91,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'other.init', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.revealSelection', key: 'workspace\u0000doc.md', selection: { startLineNumber: 0, startColumn: 1 } }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.revealSelection', key: 'workspace\u0000doc.md' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.command', key: 'workspace\u0000doc.md', command: 'selectAll' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.command', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);

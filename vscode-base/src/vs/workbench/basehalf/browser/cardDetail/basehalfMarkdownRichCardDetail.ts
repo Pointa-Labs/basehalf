@@ -11,6 +11,7 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
+import { RedoCommand, UndoCommand } from '../../../../editor/browser/editorExtensions.js';
 import { ITextModel } from '../../../../editor/common/model.js';
 import { ITextModelService } from '../../../../editor/common/services/resolverService.js';
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
@@ -34,6 +35,7 @@ import {
 } from '../../common/basehalfMarkdownRichTextModel.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichWorkbenchCommand,
 	isBaseHalfMarkdownRichWebviewMessage
 } from '../../common/basehalfMarkdownRichWebviewProtocol.js';
@@ -47,6 +49,13 @@ import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../../com
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
+
+// The rich editor owns its edit history (the webview's collaboration undo
+// manager), so workbench Undo/Redo must be delivered to it as an explicit
+// editor command. This priority must outrank the generic webview
+// implementation (priority 100), whose native-undo path mutates the
+// contenteditable DOM behind the editor's transaction model.
+const MARKDOWN_RICH_UNDO_REDO_PRIORITY = 110;
 const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf/markdown-rich-out');
 const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
 const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
@@ -137,6 +146,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			}));
 			this.webview.mountTo(this.webviewHost, mainWindow);
 			this.webview.setHtml(this.htmlFor(this.documentKey));
+
+			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
+			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
 
 			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
 			this._register(this.webview.onMissingCsp(extension => {
@@ -288,6 +300,17 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this.logService.error(error);
 			await this.bridge?.sendAdhdState({ readingModeEnabled: true, error: message });
 		}
+	}
+
+	private dispatchEditorCommand(command: BaseHalfMarkdownRichEditorCommand): boolean {
+		const webview = this.webview;
+		const bridge = this.bridge;
+		if (!webview || !bridge || this.webviewService.activeWebview !== webview || !webview.isFocused) {
+			return false;
+		}
+
+		void bridge.sendCommand(command).catch(error => this.logService.error(error));
+		return true;
 	}
 
 	private async handleWorkbenchCommand(command: BaseHalfMarkdownRichWorkbenchCommand): Promise<void> {

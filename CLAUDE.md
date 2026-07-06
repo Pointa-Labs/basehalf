@@ -156,6 +156,7 @@ Current private decision index:
 - [open-source-and-free-until-mature.md](private-docs/decisions/open-source-and-free-until-mature.md) — open source and free until mature.
 - [overturn-event-log-truth-md-files-content-truth.md](private-docs/decisions/overturn-event-log-truth-md-files-content-truth.md) — overturn event-log truth; MD files are content truth.
 - [protocol-not-prompt-injection.md](private-docs/decisions/protocol-not-prompt-injection.md) — compound mechanism is protocol, not prompt injection.
+- [rich-editor-undo-single-owner.md](private-docs/decisions/rich-editor-undo-single-owner.md) — rich editor undo/redo has one owner; collaboration undo manager lifecycle is ours.
 - [right-side-agent-area-hosts-tui-and-extension-agents.md](private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md) — right side is Agent Area for TUI and extension agents.
 - [screen-attention-economy.md](private-docs/decisions/screen-attention-economy.md) — screen attention economy strategy.
 - [target-user-curious-learner-ai-augmented.md](private-docs/decisions/target-user-curious-learner-ai-augmented.md) — target user is curious learner using AI.

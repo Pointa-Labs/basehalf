@@ -30,6 +30,8 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			endLineNumber: 9,
 			endColumn: 5
 		}), true);
+		assert.strictEqual(await bridge.sendCommand('undo'), true);
+		assert.strictEqual(await bridge.sendCommand('redo'), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
@@ -71,6 +73,16 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 					endLineNumber: 9,
 					endColumn: 5
 				}
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'undo'
+			},
+			{
+				type: 'basehalf.markdownRich.command',
+				key: 'workspace\u0000doc.md',
+				command: 'redo'
 			},
 			{
 				type: 'basehalf.markdownRich.save',

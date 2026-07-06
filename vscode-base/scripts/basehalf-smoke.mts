@@ -60,6 +60,9 @@ if (opts.verbose) {
 const env = {
 	...process.env,
 	NODE_ENV: 'development',
+	// Harness processes (agents, editor terminals) may export this; it would
+	// make the dev Electron start as plain node and never open a window.
+	ELECTRON_RUN_AS_NODE: undefined,
 	VSCODE_DEV: '1',
 	VSCODE_CLI: '1',
 	TERM: 'dumb',
@@ -124,6 +127,9 @@ try {
 	await step('readme-rich-reading-mode-off', () => assertMarkdownRichReadingModeDisabled(page));
 	await step('readme-rich-reading-mode-on', () => assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page));
 	await step('readme-rich-editor-edit-save', () => assertMarkdownRichEditorEditsAndSaves(page));
+	await step('readme-rich-undo-redo-roundtrip', () => assertMarkdownRichUndoRedoRoundtrip(page));
+	await step('readme-rich-undo-stops-at-load', () => assertMarkdownRichUndoStopsAtLoad(page));
+	await step('readme-rich-menu-undo-routes-to-editor', () => assertMarkdownRichMenuUndoRoutesToEditor(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
@@ -2125,6 +2131,121 @@ async function assertMarkdownRichEditorEditsAndSaves(page) {
 	await page.keyboard.insertText(marker);
 
 	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'rich Markdown editor to persist edits', 15_000);
+}
+
+function markdownRichUndoRedoKey(kind) {
+	const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+	return kind === 'undo' ? `${modifier}+z` : `${modifier}+Shift+z`;
+}
+
+async function markdownRichEditorHasText(frame, needle) {
+	return (await frame.locator('.bn-editor', { hasText: needle }).count()) > 0;
+}
+
+async function typeMarkdownRichMarker(page, frame, marker) {
+	const readmePath = path.join(workspacePath, 'README.md');
+	const editable = frame.locator('.bn-editor [contenteditable="true"], .bn-editor[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+	await editable.waitFor({ state: 'visible', timeout: 20_000 });
+	await editable.click();
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
+	await page.keyboard.press('Enter');
+	await page.keyboard.insertText(marker);
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), `rich editor to persist "${marker}"`, 15_000);
+}
+
+async function pressMarkdownRichKeyUntil(page, key, predicate, description) {
+	for (let attempt = 0; attempt < 8; attempt++) {
+		await page.keyboard.press(key);
+		await page.waitForTimeout(150);
+		if (await predicate()) {
+			return;
+		}
+	}
+	throw new Error(`Timed out waiting for ${description}`);
+}
+
+async function assertMarkdownRichUndoRedoRoundtrip(page) {
+	const marker = `undo smoke ${Date.now()}`;
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	await typeMarkdownRichMarker(page, frame, marker);
+
+	await pressMarkdownRichKeyUntil(
+		page,
+		markdownRichUndoRedoKey('undo'),
+		async () => !(await markdownRichEditorHasText(frame, marker)),
+		`undo to remove "${marker}" from the rich editor`
+	);
+	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes(marker), 'undo to persist the marker removal', 15_000);
+
+	await pressMarkdownRichKeyUntil(
+		page,
+		markdownRichUndoRedoKey('redo'),
+		() => markdownRichEditorHasText(frame, marker),
+		`redo to restore "${marker}" in the rich editor`
+	);
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'redo to persist the restored marker', 15_000);
+}
+
+async function assertMarkdownRichUndoStopsAtLoad(page) {
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	const editable = frame.locator('.bn-editor [contenteditable="true"], .bn-editor[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+	await editable.click();
+
+	for (let attempt = 0; attempt < 12; attempt++) {
+		await page.keyboard.press(markdownRichUndoRedoKey('undo'));
+		await page.waitForTimeout(80);
+	}
+
+	if (!(await markdownRichEditorHasText(frame, 'Smoke editable quote'))) {
+		throw new Error('Undo walked past the document load and dropped baseline content');
+	}
+
+	// Let a pending autosave settle, then confirm the file kept its baseline content too.
+	await page.waitForTimeout(1_800);
+	if (!fs.readFileSync(readmePath, 'utf8').includes('Smoke editable quote')) {
+		throw new Error('Undo past the document load blanked README.md on disk');
+	}
+}
+
+async function assertMarkdownRichMenuUndoRoutesToEditor(page) {
+	if (process.platform !== 'darwin') {
+		return;
+	}
+
+	const marker = `menu undo smoke ${Date.now()}`;
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	await typeMarkdownRichMarker(page, frame, marker);
+
+	const clickMenuUndo = () => app.evaluate(({ Menu, BrowserWindow }) => {
+		const editMenu = Menu.getApplicationMenu()?.items.find(item => item.label === 'Edit');
+		const undoItem = editMenu?.submenu?.items.find(item => item.label === 'Undo');
+		if (!undoItem) {
+			throw new Error('Edit > Undo menu item was not found');
+		}
+		const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+		// Programmatic MenuItem.click forwards (event, window, webContents) to
+		// the app's click handler, which reads event.triggeredByAccelerator.
+		(undoItem.click as (event: object, window: unknown, webContents: unknown) => void)(
+			{ triggeredByAccelerator: false },
+			window,
+			window?.webContents
+		);
+	});
+
+	for (let attempt = 0; attempt < 8; attempt++) {
+		await clickMenuUndo();
+		await page.waitForTimeout(200);
+		if (!(await markdownRichEditorHasText(frame, marker))) {
+			break;
+		}
+	}
+	if (await markdownRichEditorHasText(frame, marker)) {
+		throw new Error('Edit > Undo did not reach the rich editor');
+	}
+	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes(marker), 'menu undo to persist the marker removal', 15_000);
 }
 
 async function activeMarkdownRichFrame(page) {

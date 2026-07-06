@@ -7,6 +7,7 @@ import { Disposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { Doc as YDoc, applyUpdate, encodeStateAsUpdate } from './vendor/yjs.bundle.js';
 import { IBaseHalfAdhdFile } from './basehalfAdhd.js';
 import {
+	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage,
 	IBaseHalfMarkdownRichTextSelection,
@@ -62,6 +63,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			type: 'basehalf.markdownRich.revealSelection',
 			key: this.key,
 			selection
+		});
+	}
+
+	sendCommand(command: BaseHalfMarkdownRichEditorCommand): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.command',
+			key: this.key,
+			command
 		});
 	}
 

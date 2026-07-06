@@ -18,7 +18,8 @@ import {
 	useExtensionState,
 	type GenericPopoverReference,
 } from '@blocknote/react';
-import { applyUpdate, Doc as YDoc, type XmlFragment } from 'yjs';
+import { applyUpdate, Doc as YDoc, UndoManager, type XmlFragment } from 'yjs';
+import { defaultDeleteFilter, defaultProtectedNodes, ySyncPluginKey, yUndoPluginKey } from 'y-prosemirror';
 import { createRoot } from 'react-dom/client';
 import {
 	useCallback,
@@ -51,6 +52,12 @@ import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
+import {
+	isBaseHalfMarkdownRichHostMessage,
+	type BaseHalfMarkdownRichEditorCommand,
+	type BaseHalfMarkdownRichWebviewMessage,
+	type IBaseHalfMarkdownRichTextSelection,
+} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfMarkdownRichWebviewMessage, transfer?: readonly ArrayBuffer[]): void;
@@ -59,110 +66,6 @@ interface VsCodeApi {
 }
 
 declare function acquireVsCodeApi(): VsCodeApi;
-
-type BaseHalfMarkdownRichHostMessage =
-	| {
-		readonly type: 'basehalf.markdownRich.init';
-		readonly key: string;
-		readonly resource: string;
-		readonly content: string;
-		readonly editable: boolean;
-		readonly selection?: IBaseHalfMarkdownRichTextSelection;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.applyYjsUpdate';
-		readonly key: string;
-		readonly update: ArrayBuffer;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.setEditable';
-		readonly key: string;
-		readonly editable: boolean;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.revealSelection';
-		readonly key: string;
-		readonly selection: IBaseHalfMarkdownRichTextSelection;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.save';
-		readonly key: string;
-		readonly requestId: string;
-		readonly forceSerialize: boolean;
-		readonly forceWrite: boolean;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.saveResult';
-		readonly key: string;
-		readonly requestId: string;
-		readonly result: 'saved' | 'noop' | 'blockedByConflict' | 'writeFailed';
-		readonly content?: string;
-		readonly disk?: string;
-		readonly message?: string;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.adhdState';
-		readonly key: string;
-		readonly readingModeEnabled?: boolean;
-		readonly adhd?: IBaseHalfAdhdFile | null;
-		readonly error?: string;
-	};
-
-type BaseHalfMarkdownRichWebviewMessage =
-	| {
-		readonly type: 'basehalf.markdownRich.ready';
-		readonly key: string;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.yjsUpdate';
-		readonly key: string;
-		readonly update: ArrayBuffer;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.saveRequested';
-		readonly key: string;
-		readonly requestId: string;
-		readonly content: string;
-		readonly previousContent: string;
-		readonly forceWrite: boolean;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.dirtyChanged';
-		readonly key: string;
-		readonly dirty: boolean;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.focusChanged';
-		readonly key: string;
-		readonly fields: ReturnType<typeof buildBaseHalfMarkdownFocusFields>;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.editorActivated';
-		readonly key: string;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.workbenchCommand';
-		readonly key: string;
-		readonly command: 'quickOpen' | 'showCommands';
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.adhdCommand';
-		readonly key: string;
-		readonly command: IBaseHalfAdhdCommand;
-	}
-	| {
-		readonly type: 'basehalf.markdownRich.error';
-		readonly key: string;
-		readonly message: string;
-		readonly stack?: string;
-	};
-
-interface IBaseHalfMarkdownRichTextSelection {
-	readonly startLineNumber: number;
-	readonly startColumn: number;
-	readonly endLineNumber?: number;
-	readonly endColumn?: number;
-}
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 const AUTOSAVE_MS = 1200;
@@ -281,14 +184,6 @@ function copyTransferable(update: Uint8Array): { readonly update: ArrayBuffer; r
 	return { update: copy.buffer, transfer: [copy.buffer] };
 }
 
-function isHostMessage(message: unknown): message is BaseHalfMarkdownRichHostMessage {
-	return typeof message === 'object'
-		&& message !== null
-		&& typeof (message as { type?: unknown }).type === 'string'
-		&& (message as { type: string }).type.startsWith('basehalf.markdownRich.')
-		&& typeof (message as { key?: unknown }).key === 'string';
-}
-
 function nextRequestId(): string {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
@@ -381,6 +276,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const session = useRef(createSessionState(initialKey));
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const saveTimer = useRef<number | undefined>(undefined);
+	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
@@ -406,6 +302,67 @@ function MarkdownRichEditor(): JSX.Element {
 		tableHandles: portalElement,
 		comments: portalElement,
 	} : undefined, [portalElement]);
+
+	// y-prosemirror creates the collaboration undo manager in plugin state but
+	// destroys it from plugin-view teardown, and plugin state survives that
+	// teardown. This webview goes through plugin-view destroy/create cycles at
+	// startup (an editor unmount/remount plus a plugin reconfiguration), after
+	// which the plugin state still holds the destroyed manager and no local
+	// edit is ever captured again — undo stays permanently empty. Own the
+	// manager lifecycle instead: swap in a manager whose destroy survives
+	// plugin-view churn (document teardown clears its doc listener) and mirror
+	// the plugin's selection-restore listeners.
+	const ensureLiveUndoManager = useCallback((): UndoManager | undefined => {
+		const view = editor.prosemirrorView;
+		if (!view) {
+			return undefined;
+		}
+		const syncState = ySyncPluginKey.getState(view.state) as { type?: XmlFragment } | undefined;
+		const undoState = yUndoPluginKey.getState(view.state) as { undoManager: UndoManager; prevSel?: unknown } | undefined;
+		if (!syncState?.type || !undoState?.undoManager) {
+			return undefined;
+		}
+		if (undoState.undoManager === liveUndoManager.current) {
+			return undoState.undoManager;
+		}
+
+		// Truly dispose whatever is being replaced — instance destroy may be
+		// our own no-op override, so go through the prototype.
+		const replaced = undoState.undoManager;
+		UndoManager.prototype.destroy.call(replaced);
+		if (liveUndoManager.current && liveUndoManager.current !== replaced) {
+			UndoManager.prototype.destroy.call(liveUndoManager.current);
+		}
+		const manager = new UndoManager(syncState.type, {
+			trackedOrigins: new Set([ySyncPluginKey]),
+			deleteFilter: item => defaultDeleteFilter(item, defaultProtectedNodes),
+			captureTransaction: transaction => transaction.meta.get('addToHistory') !== false,
+		});
+		manager.destroy = () => { /* must outlive plugin-view teardown */ };
+		manager.on('stack-item-added', ({ stackItem }) => {
+			const state = editor.prosemirrorView?.state;
+			const binding = state ? (ySyncPluginKey.getState(state) as { binding?: object } | undefined)?.binding : undefined;
+			if (binding && state) {
+				stackItem.meta.set(binding, (yUndoPluginKey.getState(state) as { prevSel?: unknown } | undefined)?.prevSel ?? null);
+			}
+		});
+		manager.on('stack-item-popped', ({ stackItem }) => {
+			const state = editor.prosemirrorView?.state;
+			const binding = state
+				? (ySyncPluginKey.getState(state) as { binding?: { beforeTransactionSelection: unknown } } | undefined)?.binding
+				: undefined;
+			if (binding) {
+				binding.beforeTransactionSelection = stackItem.meta.get(binding) || binding.beforeTransactionSelection;
+			}
+		});
+		// Preserve any history the replaced manager still held (e.g. a stack
+		// restored by a fork merge) so the swap is lossless.
+		manager.undoStack = replaced.undoStack;
+		manager.redoStack = replaced.redoStack;
+		undoState.undoManager = manager;
+		liveUndoManager.current = manager;
+		return manager;
+	}, [editor]);
 
 	const editorApi = useMemo<IBaseHalfMarkdownEditorApi>(() => ({
 		tryParseMarkdownToBlocks: markdown => editor.tryParseMarkdownToBlocks(markdown),
@@ -454,6 +411,12 @@ function MarkdownRichEditor(): JSX.Element {
 		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
 		const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editorApi, body);
 		editor.replaceBlocks(editor.document, blocks as Parameters<typeof editor.replaceBlocks>[1]);
+		// Rebuilding the projection is an ordinary local transaction, which the
+		// collaboration undo manager tracks like any edit. Clear the stacks so
+		// load, reload, and conflict resolution are never themselves undoable —
+		// otherwise undo could walk past the load and blank the document. The
+		// fallback covers loads that land while the editor view is unmounted.
+		(ensureLiveUndoManager() ?? liveUndoManager.current)?.clear();
 
 		state.frontmatter = frontmatter;
 		state.byId = byId;
@@ -464,7 +427,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.loading = false;
 		notifyDirty(false);
 		setVersion(value => value + 1);
-	}, [editor, editorApi, notifyDirty, projectAdhdReadBlocks]);
+	}, [editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
 
 	const reportError = useCallback((error: unknown) => {
 		const state = session.current;
@@ -505,6 +468,20 @@ function MarkdownRichEditor(): JSX.Element {
 			command,
 		});
 	}, [vscode]);
+
+	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand) => {
+		const state = session.current;
+		if (!state.ready || state.loading || !state.editable || state.conflictDisk !== undefined || state.writeError !== undefined) {
+			return;
+		}
+
+		ensureLiveUndoManager();
+		if (command === 'undo') {
+			editor.undo();
+		} else {
+			editor.redo();
+		}
+	}, [editor, ensureLiveUndoManager]);
 
 	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean) => {
 		const state = session.current;
@@ -673,7 +650,7 @@ function MarkdownRichEditor(): JSX.Element {
 	useEffect(() => {
 		const onMessage = (event: MessageEvent<unknown>) => {
 			const message = event.data;
-			if (!isHostMessage(message)) {
+			if (!isBaseHalfMarkdownRichHostMessage(message)) {
 				return;
 			}
 			const state = session.current;
@@ -696,6 +673,9 @@ function MarkdownRichEditor(): JSX.Element {
 					break;
 				case 'basehalf.markdownRich.revealSelection':
 					revealSelection(message.selection);
+					break;
+				case 'basehalf.markdownRich.command':
+					runEditorCommand(message.command);
 					break;
 				case 'basehalf.markdownRich.save':
 					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite);
@@ -735,11 +715,14 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, notifyDirty, reportError, revealSelection, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, notifyDirty, reportError, revealSelection, runEditorCommand, serializeAndRequestSave, vscode, ydoc]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
 		const offChange = editor.onChange(() => {
+			// Keep the undo manager live even if a plugin-view teardown killed
+			// the one in plugin state after this document loaded.
+			ensureLiveUndoManager();
 			const state = session.current;
 			if (state.loading || !state.ready) {
 				return;
@@ -756,7 +739,7 @@ function MarkdownRichEditor(): JSX.Element {
 			offSelection();
 			scroll?.removeEventListener('scroll', scheduleFocus);
 		};
-	}, [editor, notifyDirty, scheduleFocus, scheduleSave]);
+	}, [editor, ensureLiveUndoManager, notifyDirty, scheduleFocus, scheduleSave]);
 
 	useEffect(() => {
 		const state = session.current;
@@ -914,6 +897,53 @@ function MarkdownRichEditor(): JSX.Element {
 			window.removeEventListener('blur', close);
 		};
 	}, [contextMenu]);
+
+	useEffect(() => {
+		// Undo/redo must have exactly one owner. Left alone, the key would be
+		// handled twice: the editor's own keymap runs an undo, then the
+		// webview bootstrap forwards the same keydown to the workbench, whose
+		// generic webview implementation replays a native undo that mutates
+		// the contenteditable DOM behind the editor's transaction model.
+		// Intercept in the capture phase (before the editor keymap and the
+		// bootstrap forwarder) and run the editor command directly; the
+		// workbench Edit menu reaches the same command over the message
+		// protocol instead.
+		const onKeyDown = (event: KeyboardEvent) => {
+			if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.isComposing) {
+				return;
+			}
+
+			// Match by layout-resolved key first; fall back to the physical key
+			// position only when the layout produces a non-Latin key (e.g.
+			// Cyrillic), where the editor keymap's own keyCode fallback would
+			// otherwise reintroduce double handling.
+			const key = event.key.toLowerCase();
+			const isLatinLetter = key.length === 1 && key >= 'a' && key <= 'z';
+			const matchesZ = key === 'z' || (!isLatinLetter && event.code === 'KeyZ');
+			const matchesY = key === 'y' || (!isLatinLetter && event.code === 'KeyY');
+			const command: BaseHalfMarkdownRichEditorCommand | undefined =
+				matchesZ ? (event.shiftKey ? 'redo' : 'undo')
+					: matchesY && !event.shiftKey ? 'redo'
+						: undefined;
+			if (!command) {
+				return;
+			}
+
+			// Native text fields (e.g. the link toolbar URL input) keep their
+			// own undo; only the document editor owns Mod+Z here.
+			const target = event.target as HTMLElement | null;
+			if (target && !target.closest?.('.bn-editor')
+				&& (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			runEditorCommand(command);
+		};
+		window.addEventListener('keydown', onKeyDown, true);
+		return () => window.removeEventListener('keydown', onKeyDown, true);
+	}, [runEditorCommand]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
