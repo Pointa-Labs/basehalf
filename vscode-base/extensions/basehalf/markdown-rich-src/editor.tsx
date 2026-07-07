@@ -13,6 +13,7 @@ import { BlockNoteView } from '@blocknote/mantine';
 import {
 	GenericPopover,
 	SideMenu,
+	SuggestionMenuController,
 	useBlockNoteEditor,
 	useCreateBlockNote,
 	useExtensionState,
@@ -63,6 +64,7 @@ import {
 	isBaseHalfMarkdownRichHostMessage,
 	type BaseHalfMarkdownRichEditorCommand,
 	type BaseHalfMarkdownRichWebviewMessage,
+	type IBaseHalfMarkdownRichFileLink,
 	type IBaseHalfMarkdownRichTextSelection,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
 
@@ -242,6 +244,48 @@ function shiftedRect(rect: DOMRect, x: number): DOMRect {
 	return new DOMRect(rect.x + x, rect.y, rect.width, rect.height);
 }
 
+// Wires the `[[` gesture to workspace file search: picking a file inserts a
+// plain Markdown link (relative href), so references written while typing are
+// ordinary links for git, agents, and the reference graph. The menu triggers
+// on `[` with a same-character lookbehind — the suggestion plugin's own
+// multi-character matching only works at a block start — and the leftover
+// opening bracket is removed when a file is picked.
+function BaseHalfFileLinkMenu({ searchFiles }: {
+	readonly searchFiles: (query: string) => Promise<readonly IBaseHalfMarkdownRichFileLink[]>;
+}): JSX.Element {
+	const editor = useBlockNoteEditor();
+	const shouldOpen = useCallback((transaction: { readonly selection: { readonly $from: { readonly nodeBefore: { readonly text?: string } | null } } }) => {
+		return transaction.selection.$from.nodeBefore?.text?.endsWith('[') ?? false;
+	}, []);
+
+	return (
+		<SuggestionMenuController
+			triggerCharacter={'['}
+			shouldOpen={shouldOpen}
+			getItems={async query => {
+				const files = await searchFiles(query);
+				return files.map(file => ({
+					title: file.name,
+					subtext: file.path,
+					onItemClick: () => {
+						const view = editor.prosemirrorView;
+						if (view) {
+							const from = view.state.selection.from;
+							if (view.state.doc.textBetween(from - 1, from) === '[') {
+								view.dispatch(view.state.tr.delete(from - 1, from));
+							}
+						}
+						editor.insertInlineContent([
+							{ type: 'link', href: file.href, content: file.name },
+							' ',
+						]);
+					},
+				}));
+			}}
+		/>
+	);
+}
+
 // BlockNote's default React side menu anchors to the hovered block DOM node;
 // for nested continuation blocks that places the handle over the indent guide.
 // Use BlockNote core's root-gutter reference and leave a small gap so the drag
@@ -294,6 +338,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
+	const pendingFileSearches = useRef(new Map<string, (files: readonly IBaseHalfMarkdownRichFileLink[]) => void>());
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
@@ -483,6 +528,26 @@ function MarkdownRichEditor(): JSX.Element {
 			type: 'basehalf.markdownRich.adhdCommand',
 			key: state.key,
 			command,
+		});
+	}, [vscode]);
+
+	const searchWorkspaceFiles = useCallback((query: string): Promise<readonly IBaseHalfMarkdownRichFileLink[]> => {
+		const state = session.current;
+		if (!state.key || !state.ready) {
+			return Promise.resolve([]);
+		}
+
+		const requestId = nextRequestId();
+		return new Promise(resolve => {
+			const timer = window.setTimeout(() => {
+				pendingFileSearches.current.delete(requestId);
+				resolve([]);
+			}, 3000);
+			pendingFileSearches.current.set(requestId, files => {
+				window.clearTimeout(timer);
+				resolve(files);
+			});
+			vscode.postMessage({ type: 'basehalf.markdownRich.fileSearch', key: state.key, requestId, query });
 		});
 	}, [vscode]);
 
@@ -889,6 +954,12 @@ function MarkdownRichEditor(): JSX.Element {
 				case 'basehalf.markdownRich.command':
 					runEditorCommand(message.command);
 					break;
+				case 'basehalf.markdownRich.fileSearchResult': {
+					const pending = pendingFileSearches.current.get(message.requestId);
+					pendingFileSearches.current.delete(message.requestId);
+					pending?.(message.files);
+					break;
+				}
 				case 'basehalf.markdownRich.save':
 					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite);
 					break;
@@ -1330,6 +1401,7 @@ function MarkdownRichEditor(): JSX.Element {
 						portalElements={portalElements}
 					>
 						<BaseHalfSideMenuController portalElement={portalElement} />
+						<BaseHalfFileLinkMenu searchFiles={searchWorkspaceFiles} />
 					</BlockNoteView>
 				</div>
 			</div>

@@ -5,9 +5,11 @@
 
 import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { CancellationToken } from '../../../../base/common/cancellation.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
-import { isEqual } from '../../../../base/common/resources.js';
+import { posix } from '../../../../base/common/path.js';
+import { basename, isEqual, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -17,7 +19,10 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
+import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { ISearchService } from '../../../services/search/common/search.js';
+import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IWebviewService, IWebviewElement, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
@@ -89,6 +94,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@ISearchService private readonly searchService: ISearchService,
+		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -277,6 +284,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.workbenchCommand':
 				await this.handleWorkbenchCommand(message.command);
 				break;
+			case 'basehalf.markdownRich.fileSearch':
+				await this.handleFileSearch(state, message.requestId, message.query);
+				break;
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);
 				break;
@@ -311,6 +321,36 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 		void bridge.sendCommand(command).catch(error => this.logService.error(error));
 		return true;
+	}
+
+	// Backs the rich editor's `[[` link autocomplete: resolves workspace files
+	// for the typed query, with hrefs already relative to the document being
+	// edited so the webview can write them straight into a Markdown link.
+	private async handleFileSearch(state: IBaseHalfCardDetailState, requestId: string, query: string): Promise<void> {
+		try {
+			const fileQuery = this.instantiationService.createInstance(QueryBuilder).file([state.workspaceFolder], {
+				filePattern: query,
+				sortByScore: true,
+				maxResults: 12
+			});
+			const result = await this.searchService.fileSearch(fileQuery, CancellationToken.None);
+			const documentDir = posix.dirname(posix.sep + state.relativePath);
+			const files = result.results.flatMap(match => {
+				const workspaceRelative = relativePath(state.workspaceFolder, match.resource);
+				if (!workspaceRelative || workspaceRelative === state.relativePath) {
+					return [];
+				}
+				return [{
+					name: basename(match.resource),
+					path: workspaceRelative,
+					href: posix.relative(documentDir, posix.sep + workspaceRelative)
+				}];
+			});
+			await this.bridge?.sendFileSearchResult(requestId, files);
+		} catch (error) {
+			this.logService.error(error);
+			await this.bridge?.sendFileSearchResult(requestId, []);
+		}
 	}
 
 	private async handleWorkbenchCommand(command: BaseHalfMarkdownRichWorkbenchCommand): Promise<void> {

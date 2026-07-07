@@ -28,6 +28,17 @@ export type BaseHalfMarkdownRichWorkbenchCommand = 'quickOpen' | 'showCommands';
 export type BaseHalfMarkdownRichEditorCommand = 'undo' | 'redo';
 
 /**
+ * A workspace file offered by the `[[` link autocomplete. `path` is
+ * workspace-relative (shown as the item's detail); `href` is relative to the
+ * document being edited, ready to be written into a Markdown link.
+ */
+export interface IBaseHalfMarkdownRichFileLink {
+	readonly name: string;
+	readonly path: string;
+	readonly href: string;
+}
+
+/**
  * Channel ownership contract:
  * - The Markdown string channel (`init` / `saveRequested` / `saveResult`) is
  *   the authoritative content transport. The text file working copy stays the
@@ -67,6 +78,12 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly type: 'basehalf.markdownRich.command';
 		readonly key: string;
 		readonly command: BaseHalfMarkdownRichEditorCommand;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.fileSearchResult';
+		readonly key: string;
+		readonly requestId: string;
+		readonly files: readonly IBaseHalfMarkdownRichFileLink[];
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.save';
@@ -130,6 +147,12 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly command: BaseHalfMarkdownRichWorkbenchCommand;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.fileSearch';
+		readonly key: string;
+		readonly requestId: string;
+		readonly query: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.adhdCommand';
 		readonly key: string;
 		readonly command: IBaseHalfAdhdCommand;
@@ -166,6 +189,11 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.command':
 			return candidate.command === 'undo' || candidate.command === 'redo';
+		case 'basehalf.markdownRich.fileSearchResult':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& Array.isArray(candidate.files)
+				&& candidate.files.every(isBaseHalfMarkdownRichFileLink);
 		case 'basehalf.markdownRich.save':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -215,6 +243,10 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return isBaseHalfMarkdownRichFocusFields(candidate.fields);
 		case 'basehalf.markdownRich.workbenchCommand':
 			return candidate.command === 'quickOpen' || candidate.command === 'showCommands';
+		case 'basehalf.markdownRich.fileSearch':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.query === 'string';
 		case 'basehalf.markdownRich.adhdCommand':
 			return isBaseHalfMarkdownRichAdhdCommand(candidate.command);
 		case 'basehalf.markdownRich.error':
@@ -314,6 +346,20 @@ function isBaseHalfMarkdownRichAdhdCommand(value: unknown): value is IBaseHalfAd
 	}
 
 	return false;
+}
+
+function isBaseHalfMarkdownRichFileLink(value: unknown): value is IBaseHalfMarkdownRichFileLink {
+	if (!isObject(value)) {
+		return false;
+	}
+
+	const file = value as Partial<IBaseHalfMarkdownRichFileLink>;
+	return typeof file.name === 'string'
+		&& file.name.length > 0
+		&& typeof file.path === 'string'
+		&& file.path.length > 0
+		&& typeof file.href === 'string'
+		&& file.href.length > 0;
 }
 
 function isPositiveInteger(value: unknown): value is number {

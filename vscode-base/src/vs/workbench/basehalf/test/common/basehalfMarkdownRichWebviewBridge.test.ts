@@ -32,6 +32,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		}), true);
 		assert.strictEqual(await bridge.sendCommand('undo'), true);
 		assert.strictEqual(await bridge.sendCommand('redo'), true);
+		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
@@ -83,6 +84,12 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.command',
 				key: 'workspace\u0000doc.md',
 				command: 'redo'
+			},
+			{
+				type: 'basehalf.markdownRich.fileSearchResult',
+				key: 'workspace\u0000doc.md',
+				requestId: 'files-1',
+				files: [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]
 			},
 			{
 				type: 'basehalf.markdownRich.save',

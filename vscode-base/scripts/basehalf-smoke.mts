@@ -133,6 +133,7 @@ try {
 	await step('readme-rich-external-merge-preserves-cursor', () => assertMarkdownRichExternalMergePreservesCursor(page));
 	await step('readme-rich-context-menu-rich-clipboard', () => assertMarkdownRichContextMenuClipboard(page));
 	await step('readme-rich-composition-defers-autosave', () => assertMarkdownRichCompositionDefersAutosave(page));
+	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
@@ -2311,6 +2312,34 @@ async function assertMarkdownRichCompositionDefersAutosave(page) {
 
 	await frame.evaluate(() => window.dispatchEvent(new CompositionEvent('compositionend')));
 	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'post-composition autosave to persist', 15_000);
+}
+
+async function assertMarkdownRichFileLinkAutocomplete(page) {
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	const target = frame.locator('.bn-block-content', { hasText: 'External merge target paragraph' }).first();
+	await target.click();
+	await page.keyboard.press('End');
+	await page.keyboard.type(' [[', { delay: 80 });
+
+	const menu = frame.locator('.bn-suggestion-menu');
+	await menu.waitFor({ state: 'visible', timeout: 8_000 });
+	await page.keyboard.type('gui', { delay: 80 });
+	await frame.locator('.bn-suggestion-menu-item', { hasText: 'guide.md' }).first().waitFor({ state: 'visible', timeout: 8_000 });
+	await page.keyboard.press('Enter');
+
+	const deadline = Date.now() + 15_000;
+	while ((await frame.locator('.bn-block-content a', { hasText: 'guide.md' }).count()) === 0) {
+		if (Date.now() > deadline) {
+			throw new Error('File link autocomplete did not insert a link');
+		}
+		await page.waitForTimeout(150);
+	}
+	await waitUntil(
+		() => fs.readFileSync(readmePath, 'utf8').split('](docs/guide.md)').length >= 3,
+		'the picked file link to persist as relative Markdown',
+		15_000
+	);
 }
 
 async function assertMarkdownRichMenuUndoRoutesToEditor(page) {

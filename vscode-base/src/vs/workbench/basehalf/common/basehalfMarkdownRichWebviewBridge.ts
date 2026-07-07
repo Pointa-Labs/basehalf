@@ -10,6 +10,7 @@ import {
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichHostMessage,
 	BaseHalfMarkdownRichWebviewMessage,
+	IBaseHalfMarkdownRichFileLink,
 	IBaseHalfMarkdownRichTextSelection,
 	baseHalfMarkdownRichUpdateFromPayload,
 	isBaseHalfMarkdownRichWebviewMessage,
@@ -71,6 +72,15 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			type: 'basehalf.markdownRich.command',
 			key: this.key,
 			command
+		});
+	}
+
+	sendFileSearchResult(requestId: string, files: readonly IBaseHalfMarkdownRichFileLink[]): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.fileSearchResult',
+			key: this.key,
+			requestId,
+			files
 		});
 	}
 

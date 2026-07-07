@@ -52,6 +52,18 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			command: 'redo'
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.fileSearchResult',
+			key: 'workspace\u0000doc.md',
+			requestId: 'files-1',
+			files: [{ name: 'guide.md', path: 'docs/guide.md', href: '../docs/guide.md' }]
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.fileSearchResult',
+			key: 'workspace\u0000doc.md',
+			requestId: 'files-1',
+			files: []
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.save',
 			key: 'workspace\u0000doc.md',
 			requestId: 'save-1',
@@ -93,6 +105,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.revealSelection', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.command', key: 'workspace\u0000doc.md', command: 'selectAll' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.command', key: 'workspace\u0000doc.md' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', requestId: 'files-1', files: [{ name: 'guide.md', path: 'docs/guide.md' }] }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', files: [] }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);
@@ -142,6 +156,20 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			key: 'workspace\u0000doc.md',
 			command: 'showCommands'
 		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.fileSearch',
+			key: 'workspace\u0000doc.md',
+			requestId: 'files-1',
+			query: 'gui'
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.fileSearch',
+			key: 'workspace\u0000doc.md',
+			requestId: 'files-1',
+			query: ''
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.fileSearch', key: 'workspace\u0000doc.md', query: 'gui' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.fileSearch', key: 'workspace\u0000doc.md', requestId: 'files-1' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',
 			key: 'workspace\u0000doc.md',
