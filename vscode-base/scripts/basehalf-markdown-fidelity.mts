@@ -47,6 +47,12 @@ for (const name of corpusFiles) {
 	fs.writeFileSync(path.join(workspacePath, name), bytes);
 }
 
+// The corpus is byte-exact by contract (.gitattributes marks it -text).
+// Guard against a checkout that normalized the line-ending fixture anyway.
+if (!originals.get('crlf.md')?.includes('\r\n')) {
+	throw new Error('crlf.md lost its CRLF line endings — check .gitattributes handling in this checkout');
+}
+
 // A DOM needle unique to each file, used to await the right webview frame.
 const needles: Record<string, string> = {
 	'comments-only.md': 'top comment',
