@@ -130,6 +130,7 @@ try {
 	await step('readme-rich-undo-redo-roundtrip', () => assertMarkdownRichUndoRedoRoundtrip(page));
 	await step('readme-rich-undo-stops-at-load', () => assertMarkdownRichUndoStopsAtLoad(page));
 	await step('readme-rich-menu-undo-routes-to-editor', () => assertMarkdownRichMenuUndoRoutesToEditor(page));
+	await step('readme-rich-external-merge-preserves-cursor', () => assertMarkdownRichExternalMergePreservesCursor(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
@@ -376,6 +377,8 @@ function createFixtureWorkspace(workspace) {
 		'needle-basehalf-routing',
 		'',
 		'needle-basehalf-second',
+		'',
+		'External merge target paragraph.',
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
@@ -2207,6 +2210,57 @@ async function assertMarkdownRichUndoStopsAtLoad(page) {
 	if (!fs.readFileSync(readmePath, 'utf8').includes('Smoke editable quote')) {
 		throw new Error('Undo past the document load blanked README.md on disk');
 	}
+}
+
+async function assertMarkdownRichExternalMergePreservesCursor(page) {
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	const quote = frame.locator('.bn-block-content[data-content-type="quote"]', { hasText: 'Smoke editable quote' }).first();
+	await quote.click();
+	await page.keyboard.press('End');
+	await page.keyboard.insertText(' MERGEMARK');
+	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes('MERGEMARK'), 'merge marker to persist', 15_000);
+
+	const cursorBlock = () => frame.evaluate(() => {
+		const anchor = document.getSelection()?.anchorNode;
+		const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+		return element?.closest('[data-id]')?.getAttribute('data-id') ?? null;
+	});
+	const before = await cursorBlock();
+	if (!before) {
+		throw new Error('No cursor block before the external merge');
+	}
+
+	fs.writeFileSync(readmePath, fs.readFileSync(readmePath, 'utf8')
+		.replace('External merge target paragraph.', 'External merge target paragraph (updated by agent).'), 'utf8');
+
+	const deadline = Date.now() + 15_000;
+	while (!(await markdownRichEditorHasText(frame, 'updated by agent'))) {
+		if (Date.now() > deadline) {
+			throw new Error('External change did not merge into the rich editor');
+		}
+		await page.waitForTimeout(150);
+	}
+
+	const after = await cursorBlock();
+	if (after !== before) {
+		throw new Error(`Cursor block changed across the external merge: ${before} -> ${after}`);
+	}
+	if (!(await markdownRichEditorHasText(frame, 'MERGEMARK'))) {
+		throw new Error('Typed text was lost across the external merge');
+	}
+
+	// Undo must revert the user's own edit, never the external change.
+	await pressMarkdownRichKeyUntil(
+		page,
+		markdownRichUndoRedoKey('undo'),
+		async () => !(await markdownRichEditorHasText(frame, 'MERGEMARK')),
+		'undo to remove the merge marker'
+	);
+	if (!(await markdownRichEditorHasText(frame, 'updated by agent'))) {
+		throw new Error('Undo reverted the external change');
+	}
+	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes('MERGEMARK'), 'merge marker removal to persist', 15_000);
 }
 
 async function assertMarkdownRichMenuUndoRoutesToEditor(page) {

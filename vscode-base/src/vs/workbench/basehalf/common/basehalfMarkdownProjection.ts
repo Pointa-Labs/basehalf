@@ -103,6 +103,56 @@ export function baseHalfMarkdownLosesContent(source: string, normalized: string)
 	);
 }
 
+export interface IBaseHalfMarkdownSegmentProjection {
+	readonly blocks: unknown[];
+	readonly entries: ReadonlyArray<readonly [string, IBaseHalfMarkdownReuseEntry]>;
+}
+
+export async function projectBaseHalfMarkdownSegment(
+	editor: IBaseHalfMarkdownEditorApi,
+	segment: IBaseHalfMarkdownSegment
+): Promise<IBaseHalfMarkdownSegmentProjection> {
+	let parsed: unknown[] = [];
+	try {
+		parsed = await editor.tryParseMarkdownToBlocks(segment.source);
+	} catch {
+		parsed = [];
+	}
+
+	if (isDropped(parsed)) {
+		return { blocks: [passthroughBlock(segment)], entries: [] };
+	}
+
+	const key = await normalize(editor, parsed);
+	if (baseHalfMarkdownLosesContent(segment.source, key)) {
+		return { blocks: [passthroughBlock(segment)], entries: [] };
+	}
+
+	const entries: Array<readonly [string, IBaseHalfMarkdownReuseEntry]> = [];
+	if (parsed.length === 1) {
+		const id = idOf(parsed[0]);
+		if (id) {
+			entries.push([id, { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep }]);
+		}
+	} else {
+		parsed.forEach((block, index) => {
+			const id = idOf(block);
+			if (!id) {
+				return;
+			}
+
+			entries.push([
+				id,
+				index === parsed.length - 1
+					? { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, multi: true }
+					: { key, raw: '', prefix: '', sep: '', multi: true }
+			]);
+		});
+	}
+
+	return { blocks: parsed, entries };
+}
+
 export async function buildBaseHalfMarkdownLoadProjection(
 	editor: IBaseHalfMarkdownEditorApi,
 	body: string
@@ -112,47 +162,10 @@ export async function buildBaseHalfMarkdownLoadProjection(
 	const byId = new Map<string, IBaseHalfMarkdownReuseEntry>();
 
 	for (const segment of segments) {
-		let parsed: unknown[] = [];
-		try {
-			parsed = await editor.tryParseMarkdownToBlocks(segment.source);
-		} catch {
-			parsed = [];
-		}
-
-		if (isDropped(parsed)) {
-			blocks.push(passthroughBlock(segment));
-			continue;
-		}
-
-		const key = await normalize(editor, parsed);
-		if (baseHalfMarkdownLosesContent(segment.source, key)) {
-			blocks.push(passthroughBlock(segment));
-			continue;
-		}
-
-		if (parsed.length === 1) {
-			const id = idOf(parsed[0]);
-			if (id) {
-				byId.set(id, { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep });
-			}
-		} else {
-			parsed.forEach((block, index) => {
-				const id = idOf(block);
-				if (!id) {
-					return;
-				}
-
-				byId.set(
-					id,
-					index === parsed.length - 1
-						? { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, multi: true }
-						: { key, raw: '', prefix: '', sep: '', multi: true }
-				);
-			});
-		}
-
-		for (const block of parsed) {
-			blocks.push(block);
+		const projection = await projectBaseHalfMarkdownSegment(editor, segment);
+		blocks.push(...projection.blocks);
+		for (const [id, entry] of projection.entries) {
+			byId.set(id, entry);
 		}
 	}
 
@@ -164,42 +177,43 @@ export async function buildBaseHalfMarkdownLoadProjection(
 	return { blocks, byId };
 }
 
+export interface IBaseHalfMarkdownSaveContribution {
+	readonly id: string | undefined;
+	readonly text: string;
+}
+
+/**
+ * The exact per-block text each document block contributes to a save. Their
+ * concatenation is what {@link spliceBaseHalfMarkdownSave} writes as the body,
+ * which makes this the alignment basis for incremental external merges: while
+ * the editor is not dirty, these contributions reproduce the on-disk body
+ * byte for byte. Sole exception: when the final block is synthesized, the
+ * save-time trailing-newline collapse can reach across block boundaries; the
+ * per-block view then differs and merge alignment falls back to a rebuild.
+ */
+export async function collectBaseHalfMarkdownSaveContributions(
+	editor: IBaseHalfMarkdownEditorApi,
+	document: readonly unknown[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
+): Promise<IBaseHalfMarkdownSaveContribution[]> {
+	const contributions = await collectContributions(editor, document, byId);
+	const last = contributions[contributions.length - 1];
+	if (last?.synthesized) {
+		last.text = last.text.replace(/\n+$/, '\n');
+	}
+
+	return contributions.map(({ id, text }) => ({ id, text }));
+}
+
 export async function spliceBaseHalfMarkdownSave(
 	editor: IBaseHalfMarkdownEditorApi,
 	document: readonly unknown[],
 	frontmatter: string,
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
 ): Promise<string> {
-	let out = '';
-	let lastSynthesized = false;
-	for (const block of document) {
-		const typedBlock = block as { type?: string; props?: { raw?: string } };
-		if (typedBlock.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
-			out += typedBlock.props?.raw ?? '';
-			lastSynthesized = false;
-			continue;
-		}
-
-		const id = idOf(block);
-		const found = id ? byId.get(id) : undefined;
-		const entry = found && !found.multi ? found : undefined;
-		if (entry && (await normalize(editor, [block])) === entry.key) {
-			out += entry.raw;
-			lastSynthesized = false;
-			continue;
-		}
-
-		const fresh = (await editor.blocksToMarkdownLossy([block])).trimEnd();
-		if (entry) {
-			out += entry.prefix + fresh + entry.sep;
-			lastSynthesized = false;
-		} else {
-			out += fresh + defaultSep(block);
-			lastSynthesized = true;
-		}
-	}
-
-	if (lastSynthesized) {
+	const contributions = await collectContributions(editor, document, byId);
+	let out = contributions.map(contribution => contribution.text).join('');
+	if (contributions[contributions.length - 1]?.synthesized) {
 		out = out.replace(/\n+$/, '\n');
 	}
 
@@ -209,6 +223,36 @@ export async function spliceBaseHalfMarkdownSave(
 	}
 
 	return frontmatter + out;
+}
+
+async function collectContributions(
+	editor: IBaseHalfMarkdownEditorApi,
+	document: readonly unknown[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
+): Promise<Array<{ id: string | undefined; text: string; synthesized: boolean }>> {
+	const contributions: Array<{ id: string | undefined; text: string; synthesized: boolean }> = [];
+	for (const block of document) {
+		const id = idOf(block);
+		const typedBlock = block as { type?: string; props?: { raw?: string } };
+		if (typedBlock.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
+			contributions.push({ id, text: typedBlock.props?.raw ?? '', synthesized: false });
+			continue;
+		}
+
+		const found = id ? byId.get(id) : undefined;
+		const entry = found && !found.multi ? found : undefined;
+		if (entry && (await normalize(editor, [block])) === entry.key) {
+			contributions.push({ id, text: entry.raw, synthesized: false });
+			continue;
+		}
+
+		const fresh = (await editor.blocksToMarkdownLossy([block])).trimEnd();
+		contributions.push(entry
+			? { id, text: entry.prefix + fresh + entry.sep, synthesized: false }
+			: { id, text: fresh + defaultSep(block), synthesized: true });
+	}
+
+	return contributions;
 }
 
 function collectUnits(body: string): IBaseHalfMarkdownUnit[] {

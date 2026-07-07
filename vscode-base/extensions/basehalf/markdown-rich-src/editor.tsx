@@ -43,11 +43,18 @@ import {
 import {
 	BASEHALF_RAW_PASSTHROUGH_BLOCK,
 	buildBaseHalfMarkdownLoadProjection,
+	collectBaseHalfMarkdownSaveContributions,
+	projectBaseHalfMarkdownSegment,
+	segmentBaseHalfMarkdownBody,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter,
 	type IBaseHalfMarkdownEditorApi,
 	type IBaseHalfMarkdownReuseEntry,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownProjection.js';
+import {
+	diffBaseHalfMarkdownSegments,
+	groupBaseHalfMarkdownContributions,
+} from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownMerge.js';
 import {
 	makeBaseHalfAdhdDecorationExtension,
 	pushBaseHalfAdhdDecorations,
@@ -624,6 +631,149 @@ function MarkdownRichEditor(): JSX.Element {
 		window.requestAnimationFrame(() => reveal());
 	}, [editor, scheduleFocus]);
 
+	// Applies an external file change (agent writes, other tools) to the live
+	// document incrementally: only the changed segment range is replaced, so
+	// blocks outside it — and the cursor, scroll position, and undo history —
+	// survive. Returns false when the change cannot be merged safely; the
+	// caller falls back to a full rebuild.
+	const applyExternalContent = useCallback(async (content: string, editable: boolean, key: string, resource: string): Promise<boolean> => {
+		const state = session.current;
+		if (!state.ready || state.loading || state.dirty
+			|| state.key !== key || state.resource !== resource
+			|| state.conflictDisk !== undefined || state.writeError !== undefined) {
+			return false;
+		}
+
+		const baseline = state.lastDisk;
+		state.editable = editable;
+		if (content === baseline) {
+			setVersion(value => value + 1);
+			return true;
+		}
+
+		const { frontmatter, body } = splitBaseHalfMarkdownFrontmatter(content);
+		const oldBody = splitBaseHalfMarkdownFrontmatter(baseline).body;
+		if (body === oldBody) {
+			state.frontmatter = frontmatter;
+			state.lastDisk = content;
+			setVersion(value => value + 1);
+			scheduleFocus();
+			return true;
+		}
+		if (oldBody === '' || body === '') {
+			return false;
+		}
+
+		const oldSegments = segmentBaseHalfMarkdownBody(oldBody);
+		const newSegments = segmentBaseHalfMarkdownBody(body);
+		const contributions = await collectBaseHalfMarkdownSaveContributions(editorApi, editor.document, state.byId);
+		const groups = groupBaseHalfMarkdownContributions(
+			contributions.map(contribution => contribution.text),
+			oldSegments.map(segment => segment.raw)
+		);
+		if (!groups) {
+			return false;
+		}
+
+		const region = diffBaseHalfMarkdownSegments(
+			oldSegments.map(segment => segment.raw),
+			newSegments.map(segment => segment.raw)
+		);
+		if (!region) {
+			return false;
+		}
+
+		const removeIds: string[] = [];
+		for (let index = region.oldStart; index < region.oldEnd; index++) {
+			for (const contributionIndex of groups[index]) {
+				const id = contributions[contributionIndex].id;
+				if (!id) {
+					return false;
+				}
+				removeIds.push(id);
+			}
+		}
+		if (removeIds.length === contributions.length && region.newStart === region.newEnd) {
+			// Would leave the document without blocks; rebuild handles that shape.
+			return false;
+		}
+
+		const newBlocks: unknown[] = [];
+		const newEntries: Array<readonly [string, IBaseHalfMarkdownReuseEntry]> = [];
+		for (let index = region.newStart; index < region.newEnd; index++) {
+			const projection = await projectBaseHalfMarkdownSegment(editorApi, newSegments[index]);
+			newBlocks.push(...projection.blocks);
+			newEntries.push(...projection.entries);
+		}
+
+		let anchorBlockId: string | undefined;
+		let anchorPlacement: 'before' | 'after' = 'after';
+		if (removeIds.length === 0 && newBlocks.length > 0) {
+			if (region.oldStart > 0) {
+				const group = groups[region.oldStart - 1];
+				anchorBlockId = contributions[group[group.length - 1]].id;
+			} else if (groups.length > 0) {
+				anchorBlockId = contributions[groups[0][0]].id;
+				anchorPlacement = 'before';
+			}
+			if (!anchorBlockId) {
+				return false;
+			}
+		}
+
+		// The awaits above are a concurrency window; re-validate before mutating.
+		if (state.dirty || state.loading || state.lastDisk !== baseline) {
+			return false;
+		}
+
+		const scrollElement = scrollRef.current;
+		const visibleAnchorId = firstVisibleBlockId(editor.domElement, scrollElement);
+		const visibleAnchorTop = visibleAnchorId
+			? findBlockElement(editor.domElement, visibleAnchorId)?.getBoundingClientRect().top
+			: undefined;
+
+		// External changes must behave like another author's edits: they never
+		// land on the local undo stack (undo must not revert an agent's write)
+		// and they never clear the redo stack. Untracking the sync origin for
+		// the merge transaction gives exactly those semantics.
+		const manager = ensureLiveUndoManager();
+		manager?.stopCapturing();
+		manager?.trackedOrigins.delete(ySyncPluginKey);
+		state.loading = true;
+		try {
+			if (removeIds.length > 0 && newBlocks.length > 0) {
+				editor.replaceBlocks(removeIds, newBlocks as Parameters<typeof editor.replaceBlocks>[1]);
+			} else if (removeIds.length > 0) {
+				editor.removeBlocks(removeIds);
+			} else if (newBlocks.length > 0 && anchorBlockId) {
+				editor.insertBlocks(newBlocks as Parameters<typeof editor.insertBlocks>[0], anchorBlockId, anchorPlacement);
+			}
+		} finally {
+			state.loading = false;
+			manager?.trackedOrigins.add(ySyncPluginKey);
+		}
+
+		for (const id of removeIds) {
+			state.byId.delete(id);
+		}
+		for (const [id, entry] of newEntries) {
+			state.byId.set(id, entry);
+		}
+		state.frontmatter = frontmatter;
+		state.lastDisk = content;
+		state.readBlockIds = projectAdhdReadBlocks(state.adhd);
+		setVersion(value => value + 1);
+
+		if (visibleAnchorId && visibleAnchorTop !== undefined && scrollElement) {
+			const element = findBlockElement(editor.domElement, visibleAnchorId);
+			if (element) {
+				scrollElement.scrollTop += element.getBoundingClientRect().top - visibleAnchorTop;
+			}
+		}
+		scheduleFocus();
+		return true;
+	}, [editor, editorApi, ensureLiveUndoManager, projectAdhdReadBlocks, scheduleFocus]);
+
 	useEffect(() => {
 		const updateListener = (update: Uint8Array, origin: unknown) => {
 			if (origin === 'basehalf.host') {
@@ -660,8 +810,14 @@ function MarkdownRichEditor(): JSX.Element {
 
 			switch (message.type) {
 				case 'basehalf.markdownRich.init':
-					void applyContent(message.content, message.editable, message.key, message.resource)
-						.then(() => revealSelection(message.selection))
+					void applyExternalContent(message.content, message.editable, message.key, message.resource)
+						.catch(() => false)
+						.then(merged => merged
+							? undefined
+							// Full rebuild; only this path re-reveals the host's
+							// navigation selection — a merge keeps the user's spot.
+							: applyContent(message.content, message.editable, message.key, message.resource)
+								.then(() => revealSelection(message.selection)))
 						.catch(reportError);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
@@ -715,7 +871,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, notifyDirty, reportError, revealSelection, runEditorCommand, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, applyExternalContent, notifyDirty, reportError, revealSelection, runEditorCommand, serializeAndRequestSave, vscode, ydoc]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
