@@ -153,6 +153,11 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly query: string;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.openSource';
+		readonly key: string;
+		readonly selection: IBaseHalfMarkdownRichTextSelection;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.adhdCommand';
 		readonly key: string;
 		readonly command: IBaseHalfAdhdCommand;
@@ -247,6 +252,8 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
 				&& typeof candidate.query === 'string';
+		case 'basehalf.markdownRich.openSource':
+			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.adhdCommand':
 			return isBaseHalfMarkdownRichAdhdCommand(candidate.command);
 		case 'basehalf.markdownRich.error':

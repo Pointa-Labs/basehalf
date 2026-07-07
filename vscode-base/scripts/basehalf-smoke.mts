@@ -122,6 +122,9 @@ try {
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-status-in-editor', () => assertMarkdownRichStatusInEditor(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
+	// Runs while the document is untouched: block-to-line accounting is exact
+	// only for unedited blocks, and later steps type into this file.
+	await step('readme-rich-passthrough-edit-in-source', () => assertMarkdownRichPassthroughEditInSource(page));
 	await step('readme-rich-block-menu-portal', () => assertMarkdownRichBlockMenuPortal(page));
 	await step('readme-rich-slash-menu-themed-portal', () => assertMarkdownRichSlashMenuThemedPortal(page));
 	await step('readme-rich-reading-mode-off', () => assertMarkdownRichReadingModeDisabled(page));
@@ -382,6 +385,8 @@ function createFixtureWorkspace(workspace) {
 		'needle-basehalf-second',
 		'',
 		'External merge target paragraph.',
+		'',
+		'<div class="smoke-raw-island">raw html island</div>',
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
@@ -2340,6 +2345,38 @@ async function assertMarkdownRichFileLinkAutocomplete(page) {
 		'the picked file link to persist as relative Markdown',
 		15_000
 	);
+}
+
+async function assertMarkdownRichPassthroughEditInSource(page) {
+	const frame = await activeMarkdownRichFrame(page);
+	const island = frame.locator('.basehalf-raw-passthrough', { hasText: 'raw html island' }).first();
+	await island.waitFor({ state: 'visible', timeout: 10_000 });
+	await island.hover();
+
+	const edit = island.locator('.basehalf-raw-passthrough-edit');
+	await edit.waitFor({ state: 'visible', timeout: 5_000 });
+	await edit.click();
+
+	// The card reopens in the source projection with the island's line selected.
+	const sourceEditor = page.locator('.basehalf-card-detail-source-editor .monaco-editor');
+	await sourceEditor.waitFor({ state: 'visible', timeout: 15_000 });
+	// The whole block tile is selected; the recorded cursor sits at the
+	// selection end, which may include the tile's trailing blank line.
+	const islandLine = lineNumberForText('README.md', 'smoke-raw-island');
+	const focusPath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'focus.yaml');
+	await waitUntil(() => {
+		if (!fs.existsSync(focusPath)) {
+			return false;
+		}
+		const content = fs.readFileSync(focusPath, 'utf8');
+		const line = Number(/^ {2}line: (\d+)$/m.exec(content)?.[1] ?? NaN);
+		return content.includes('projection: source') && line >= islandLine && line <= islandLine + 1;
+	}, `focus.yaml to record the source selection at the raw island (line ${islandLine})`);
+
+	// Unwind the projection hop with native back so later history assertions
+	// see the original navigation stack (and back works across projections).
+	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
+	await activeMarkdownRichFrame(page);
 }
 
 async function assertMarkdownRichMenuUndoRoutesToEditor(page) {

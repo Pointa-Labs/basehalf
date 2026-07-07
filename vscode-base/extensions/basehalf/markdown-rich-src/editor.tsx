@@ -114,6 +114,15 @@ const rawPassthroughSpec = createBlockSpec(
 			const pre = document.createElement('pre');
 			pre.textContent = (props.source ?? props.raw ?? '').replace(/^\n+|\n+$/g, '');
 			dom.appendChild(pre);
+
+			// This block holds Markdown the rich projection cannot edit; the
+			// escape hatch jumps to the source projection at its lines.
+			const edit = document.createElement('button');
+			edit.type = 'button';
+			edit.className = 'basehalf-raw-passthrough-edit';
+			edit.textContent = 'Edit in source';
+			edit.title = 'This content can only be edited as raw Markdown';
+			dom.appendChild(edit);
 			return { dom };
 		},
 		toExternalHTML: block => {
@@ -1151,6 +1160,47 @@ function MarkdownRichEditor(): JSX.Element {
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
 	}, [editor, postAdhdCommand]);
+
+	useEffect(() => {
+		const dom = editor.prosemirrorView?.dom;
+		if (!dom) {
+			return;
+		}
+
+		const onClick = (event: MouseEvent): void => {
+			const button = (event.target as HTMLElement | null)?.closest?.('.basehalf-raw-passthrough-edit');
+			if (!button) {
+				return;
+			}
+
+			const state = session.current;
+			const blockId = button.closest('[data-id]')?.getAttribute('data-id');
+			if (!state.key || !state.ready || !blockId) {
+				return;
+			}
+
+			const span = baseHalfMarkdownBlockReadSpan(
+				editor.document as unknown as readonly IBaseHalfMarkdownFocusBlock[],
+				blockId,
+				state.byId,
+				countBaseHalfMarkdownNewlines(state.frontmatter)
+			);
+			if (!span) {
+				return;
+			}
+
+			event.preventDefault();
+			event.stopPropagation();
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.openSource',
+				key: state.key,
+				selection: { startLineNumber: span.start, startColumn: 1, endLineNumber: span.end },
+			});
+		};
+
+		dom.addEventListener('click', onClick, true);
+		return () => dom.removeEventListener('click', onClick, true);
+	}, [editor, vscode]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;

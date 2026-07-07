@@ -26,7 +26,7 @@ import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IWebviewService, IWebviewElement, WebviewContentPurpose } from '../../../contrib/webview/browser/webview.js';
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
-import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
 import {
@@ -96,6 +96,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@ISearchService private readonly searchService: ISearchService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
+		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -275,7 +276,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.onEditorFocus?.();
 				break;
 			case 'basehalf.markdownRich.focusChanged':
-				this.onEditorFocus?.();
+				// Mirror bookkeeping only. Focus-field updates also fire on
+				// autosave settle and decoration refreshes, so they must not
+				// count as user activation (editorActivated handles that) —
+				// otherwise the badge zone closes underneath the user.
 				void this.focusMirrorService.writeFileFocus(state, {
 					projection: 'rich',
 					...message.fields
@@ -286,6 +290,16 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				break;
 			case 'basehalf.markdownRich.fileSearch':
 				await this.handleFileSearch(state, message.requestId, message.query);
+				break;
+			case 'basehalf.markdownRich.openSource':
+				// The escape hatch for passthrough blocks: reopen this card in
+				// the source projection with the block's lines selected.
+				await this.canvasNavigationService.openCardDetail(state.resource, {
+					source: 'api',
+					projection: 'source',
+					selection: message.selection,
+					pinned: state.pinned
+				});
 				break;
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);

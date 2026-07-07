@@ -256,9 +256,36 @@ body,
 }
 
 .basehalf-raw-passthrough {
+	position: relative;
 	margin: 4px 0;
 	padding-left: 8px;
 	border-left: 2px solid var(--vscode-panel-border);
+}
+
+.basehalf-raw-passthrough-edit {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	padding: 1px 8px;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 3px;
+	background: var(--vscode-editorWidget-background);
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 16px;
+	cursor: pointer;
+	opacity: 0;
+	transition: opacity 0.1s ease-in-out;
+}
+
+.basehalf-raw-passthrough:hover .basehalf-raw-passthrough-edit,
+.basehalf-raw-passthrough-edit:focus-visible {
+	opacity: 1;
+}
+
+.basehalf-raw-passthrough-edit:hover {
+	color: var(--vscode-foreground);
+	border-color: var(--vscode-focusBorder);
 }
 
 .basehalf-raw-passthrough pre {

@@ -171,6 +171,13 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.fileSearch', key: 'workspace\u0000doc.md', query: 'gui' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.fileSearch', key: 'workspace\u0000doc.md', requestId: 'files-1' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.openSource',
+			key: 'workspace\u0000doc.md',
+			selection: { startLineNumber: 12, startColumn: 1, endLineNumber: 15 }
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openSource', key: 'workspace\u0000doc.md' }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({ type: 'basehalf.markdownRich.openSource', key: 'workspace\u0000doc.md', selection: { startLineNumber: 0, startColumn: 1 } }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.adhdCommand',
 			key: 'workspace\u0000doc.md',
 			command: { command: 'addKeyword', keyword: 'Cost' }
