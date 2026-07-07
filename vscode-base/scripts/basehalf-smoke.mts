@@ -2289,7 +2289,17 @@ async function assertMarkdownRichMenuUndoRoutesToEditor(page) {
 		);
 	});
 
+	// The menubar deliberately drops actions when no window holds OS focus
+	// (substrate behavior); parallel work on the machine can steal focus from
+	// the test app, so take it back before each menu click.
+	const focusWindow = () => app.evaluate(({ app: electronApp, BrowserWindow }) => {
+		electronApp.focus({ steal: true });
+		(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.focus();
+	});
+
 	for (let attempt = 0; attempt < 8; attempt++) {
+		await focusWindow();
+		await page.waitForTimeout(150);
 		await clickMenuUndo();
 		await page.waitForTimeout(200);
 		if (!(await markdownRichEditorHasText(frame, marker))) {

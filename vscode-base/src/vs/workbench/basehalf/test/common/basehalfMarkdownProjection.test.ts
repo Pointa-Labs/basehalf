@@ -126,6 +126,13 @@ suite('BaseHalfMarkdownProjection', () => {
 			assert.deepStrictEqual(segments.map(segment => segment.source), ['- alpha', '- beta']);
 			assert.deepStrictEqual(segments.map(segment => segment.sep), ['\n\n', '\n']);
 		});
+
+		test('segments CRLF bodies per unit instead of one whole-body tile', () => {
+			const segments = tiles('# T\r\n\r\npara one\r\n\r\n- a\r\n- b\r\n');
+
+			assert.deepStrictEqual(segments.map(segment => segment.source), ['# T', 'para one', '- a', '- b']);
+			assert.deepStrictEqual(segments.map(segment => segment.sep), ['\r\n\r\n', '\r\n\r\n', '\r\n', '\r\n']);
+		});
 	});
 
 	suite('content loss detection', () => {
@@ -239,6 +246,28 @@ suite('BaseHalfMarkdownProjection', () => {
 				await spliceBaseHalfMarkdownSave(editor, [{ id: 'a', type: 'paragraph', markdown: 'hello' }], '---\r\nk: v\r\n---', new Map()),
 				'---\r\nk: v\r\n---\r\nhello\n'
 			);
+		});
+
+		test('splices intact multi-block groups verbatim', async () => {
+			const editor = new FakeMarkdownEditor();
+			const body = '> one\n>\n> two\n';
+			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
+
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, blocks, '', byId), body);
+		});
+
+		test('reserializes a multi-block group when a member changed or went missing', async () => {
+			const editor = new FakeMarkdownEditor();
+			const body = '> one\n>\n> two\n';
+			const { blocks, byId } = await buildBaseHalfMarkdownLoadProjection(editor, body);
+
+			const edited = blocks.map(block => (block as { id?: string }).id === 'multi-2'
+				? { ...(block as object), markdown: 'two changed' }
+				: block);
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, edited, '', byId), 'one\n\ntwo changed\n');
+
+			const truncated = blocks.filter(block => (block as { id?: string }).id !== 'multi-2');
+			assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, truncated, '', byId), 'one\n');
 		});
 
 		test('ignores multi reuse entries during save', async () => {

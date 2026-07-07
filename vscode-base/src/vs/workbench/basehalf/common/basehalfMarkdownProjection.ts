@@ -7,6 +7,8 @@ import { lexer, type Token, type Tokens } from '../../../base/common/marked/mark
 
 export const BASEHALF_RAW_PASSTHROUGH_BLOCK = 'rawPassthrough';
 
+let nextGroupSequence = 1;
+
 export interface IBaseHalfMarkdownSegment {
 	readonly source: string;
 	readonly raw: string;
@@ -25,6 +27,12 @@ export interface IBaseHalfMarkdownReuseEntry {
 	readonly prefix: string;
 	readonly sep: string;
 	readonly multi?: boolean;
+	/** Identifies the block group a multi-block segment projected into. */
+	readonly group?: string;
+	/** Number of blocks the segment projected into. */
+	readonly groupSize?: number;
+	/** This block's own normalized form, for per-block change detection. */
+	readonly blockKey?: string;
 }
 
 export interface IBaseHalfMarkdownLoadProjection {
@@ -135,19 +143,21 @@ export async function projectBaseHalfMarkdownSegment(
 			entries.push([id, { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep }]);
 		}
 	} else {
-		parsed.forEach((block, index) => {
-			const id = idOf(block);
+		const group = `g${nextGroupSequence++}`;
+		for (let index = 0; index < parsed.length; index++) {
+			const id = idOf(parsed[index]);
 			if (!id) {
-				return;
+				continue;
 			}
 
+			const shared = { multi: true, group, groupSize: parsed.length, blockKey: await normalize(editor, [parsed[index]]) };
 			entries.push([
 				id,
 				index === parsed.length - 1
-					? { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, multi: true }
-					: { key, raw: '', prefix: '', sep: '', multi: true }
+					? { key, raw: segment.raw, prefix: segment.prefix, sep: segment.sep, ...shared }
+					: { key, raw: '', prefix: '', sep: '', ...shared }
 			]);
-		});
+		}
 	}
 
 	return { blocks: parsed, entries };
@@ -231,18 +241,30 @@ async function collectContributions(
 	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>
 ): Promise<Array<{ id: string | undefined; text: string; synthesized: boolean }>> {
 	const contributions: Array<{ id: string | undefined; text: string; synthesized: boolean }> = [];
-	for (const block of document) {
+	let index = 0;
+	while (index < document.length) {
+		const block = document[index];
 		const id = idOf(block);
 		const typedBlock = block as { type?: string; props?: { raw?: string } };
 		if (typedBlock.type === BASEHALF_RAW_PASSTHROUGH_BLOCK) {
 			contributions.push({ id, text: typedBlock.props?.raw ?? '', synthesized: false });
+			index++;
 			continue;
 		}
 
 		const found = id ? byId.get(id) : undefined;
+		if (found?.group) {
+			const consumed = await spliceIntactGroup(editor, document, byId, index, found, contributions);
+			if (consumed > 0) {
+				index += consumed;
+				continue;
+			}
+		}
+
 		const entry = found && !found.multi ? found : undefined;
 		if (entry && (await normalize(editor, [block])) === entry.key) {
 			contributions.push({ id, text: entry.raw, synthesized: false });
+			index++;
 			continue;
 		}
 
@@ -250,15 +272,62 @@ async function collectContributions(
 		contributions.push(entry
 			? { id, text: entry.prefix + fresh + entry.sep, synthesized: false }
 			: { id, text: fresh + defaultSep(block), synthesized: true });
+		index++;
 	}
 
 	return contributions;
 }
 
+/**
+ * A segment that projects into several blocks can only be spliced back
+ * verbatim as a whole: when the full group is still present, in order, and
+ * every member is unchanged, emit the members' stored raw texts (the final
+ * member carries the segment bytes). Returns the number of blocks consumed,
+ * or 0 when the group is broken and the caller must serialize block by block.
+ */
+async function spliceIntactGroup(
+	editor: IBaseHalfMarkdownEditorApi,
+	document: readonly unknown[],
+	byId: ReadonlyMap<string, IBaseHalfMarkdownReuseEntry>,
+	start: number,
+	first: IBaseHalfMarkdownReuseEntry,
+	contributions: Array<{ id: string | undefined; text: string; synthesized: boolean }>
+): Promise<number> {
+	const run: Array<{ readonly id: string; readonly block: unknown; readonly entry: IBaseHalfMarkdownReuseEntry }> = [];
+	for (let index = start; index < document.length; index++) {
+		const id = idOf(document[index]);
+		const entry = id ? byId.get(id) : undefined;
+		if (!id || !entry || entry.group !== first.group) {
+			break;
+		}
+		run.push({ id, block: document[index], entry });
+	}
+
+	if (run.length !== first.groupSize) {
+		return 0;
+	}
+
+	for (const member of run) {
+		if (member.entry.blockKey === undefined || (await normalize(editor, [member.block])) !== member.entry.blockKey) {
+			return 0;
+		}
+	}
+
+	for (const member of run) {
+		contributions.push({ id: member.id, text: member.entry.raw, synthesized: false });
+	}
+	return run.length;
+}
+
 function collectUnits(body: string): IBaseHalfMarkdownUnit[] {
+	// The lexer normalizes CR/CRLF to LF before tokenizing, so token raws can
+	// only be located in an equally normalized view; the map converts matched
+	// offsets back into positions in the original bytes.
+	const { normalized, toOriginal } = normalizeLineEndings(body);
+
 	let tokens: Token[];
 	try {
-		tokens = [...lexer(body, { gfm: true })];
+		tokens = [...lexer(normalized, { gfm: true })];
 	} catch {
 		return [{ start: 0, end: body.length }];
 	}
@@ -271,7 +340,7 @@ function collectUnits(body: string): IBaseHalfMarkdownUnit[] {
 			continue;
 		}
 
-		const start = body.indexOf(raw, offset);
+		const start = normalized.indexOf(raw, offset);
 		if (start < 0) {
 			return [{ start: 0, end: body.length }];
 		}
@@ -283,30 +352,57 @@ function collectUnits(body: string): IBaseHalfMarkdownUnit[] {
 		}
 
 		if (isListToken(token) && token.items.length > 0) {
-			const listUnits = collectListItemUnits(body, token, start, end);
+			const listUnits = collectListItemUnits(normalized, toOriginal, token, start, end);
 			if (listUnits.length === token.items.length) {
 				units.push(...listUnits);
-			} else {
-				units.push({ start, end: trimTrailingLineBreaks(body, start, end) });
+				continue;
 			}
-			continue;
 		}
 
-		units.push({ start, end: trimTrailingLineBreaks(body, start, end) });
+		units.push({ start: toOriginal(start), end: trimTrailingLineBreaks(body, toOriginal(start), toOriginal(end)) });
 	}
 
 	return units.filter(unit => unit.start < unit.end);
+}
+
+function normalizeLineEndings(body: string): { normalized: string; toOriginal: (index: number) => number } {
+	if (!body.includes('\r')) {
+		return { normalized: body, toOriginal: index => index };
+	}
+
+	const map: number[] = [];
+	let normalized = '';
+	let index = 0;
+	while (index < body.length) {
+		map.push(index);
+		if (body.charCodeAt(index) === 13) {
+			normalized += '\n';
+			index += body.charCodeAt(index + 1) === 10 ? 2 : 1;
+		} else {
+			normalized += body[index];
+			index += 1;
+		}
+	}
+	map.push(body.length);
+
+	return { normalized, toOriginal: position => map[Math.min(position, map.length - 1)] };
 }
 
 function isListToken(token: Token): token is Tokens.List {
 	return token.type === 'list' && Array.isArray((token as Partial<Tokens.List>).items);
 }
 
-function collectListItemUnits(body: string, token: Tokens.List, listStart: number, listEnd: number): IBaseHalfMarkdownUnit[] {
+function collectListItemUnits(
+	normalized: string,
+	toOriginal: (index: number) => number,
+	token: Tokens.List,
+	listStart: number,
+	listEnd: number
+): IBaseHalfMarkdownUnit[] {
 	const units: IBaseHalfMarkdownUnit[] = [];
 	let itemOffset = listStart;
 	for (const item of token.items) {
-		const start = body.indexOf(item.raw, itemOffset);
+		const start = normalized.indexOf(item.raw, itemOffset);
 		if (start < itemOffset || start >= listEnd) {
 			return [];
 		}
@@ -316,14 +412,28 @@ function collectListItemUnits(body: string, token: Tokens.List, listStart: numbe
 			return [];
 		}
 
-		const end = trimTrailingLineBreaks(body, start, rawEnd);
-		if (start < end) {
-			units.push({ start, end });
+		const originalStart = toOriginal(start);
+		const end = trimTrailingLineBreaksInNormalized(normalized, toOriginal, start, rawEnd);
+		if (originalStart < end) {
+			units.push({ start: originalStart, end });
 		}
 		itemOffset = rawEnd;
 	}
 
 	return units;
+}
+
+function trimTrailingLineBreaksInNormalized(
+	normalized: string,
+	toOriginal: (index: number) => number,
+	start: number,
+	end: number
+): number {
+	let index = end;
+	while (index > start && normalized.charCodeAt(index - 1) === 10) {
+		index--;
+	}
+	return toOriginal(index);
 }
 
 function trimTrailingLineBreaks(source: string, start: number, end: number): number {
