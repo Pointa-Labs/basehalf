@@ -150,6 +150,14 @@ interface SessionState {
 	writeError: string | undefined;
 }
 
+interface IIncomingInit {
+	readonly content: string;
+	readonly editable: boolean;
+	readonly key: string;
+	readonly resource: string;
+	readonly selection?: IBaseHalfMarkdownRichTextSelection;
+}
+
 interface ContextMenuItem {
 	readonly id: string;
 	readonly label: string;
@@ -284,6 +292,8 @@ function MarkdownRichEditor(): JSX.Element {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const saveTimer = useRef<number | undefined>(undefined);
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
+	const composing = useRef(false);
+	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
@@ -528,7 +538,14 @@ function MarkdownRichEditor(): JSX.Element {
 		if (saveTimer.current !== undefined) {
 			window.clearTimeout(saveTimer.current);
 		}
-		saveTimer.current = window.setTimeout(() => {
+		saveTimer.current = window.setTimeout(function tick() {
+			// Serializing mid-composition would publish half-composed IME
+			// input to disk (and to every agent watching the file); wait for
+			// the composition to settle. Explicit saves are not deferred.
+			if (composing.current) {
+				saveTimer.current = window.setTimeout(tick, AUTOSAVE_MS);
+				return;
+			}
 			saveTimer.current = undefined;
 			void serializeAndRequestSave(nextRequestId(), false, false);
 		}, AUTOSAVE_MS);
@@ -774,6 +791,47 @@ function MarkdownRichEditor(): JSX.Element {
 		return true;
 	}, [editor, editorApi, ensureLiveUndoManager, projectAdhdReadBlocks, scheduleFocus]);
 
+	// Routes an incoming document state: merge when possible, rebuild
+	// otherwise. Arrivals during IME composition are parked and replayed on
+	// compositionend — mutating the document mid-composition would abort the
+	// user's uncommitted input.
+	const handleIncomingInit = useCallback(async (payload: IIncomingInit): Promise<void> => {
+		if (editor.prosemirrorView?.composing) {
+			pendingInit.current = payload;
+			return;
+		}
+
+		pendingInit.current = undefined;
+		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
+			.catch(() => false);
+		if (!merged) {
+			// Full rebuild; only this path re-reveals the host's navigation
+			// selection — a merge keeps the user's spot.
+			await applyContent(payload.content, payload.editable, payload.key, payload.resource);
+			revealSelection(payload.selection);
+		}
+	}, [applyContent, applyExternalContent, editor, revealSelection]);
+
+	useEffect(() => {
+		const onCompositionStart = () => {
+			composing.current = true;
+		};
+		const onCompositionEnd = () => {
+			composing.current = false;
+			const pending = pendingInit.current;
+			if (pending) {
+				pendingInit.current = undefined;
+				window.setTimeout(() => void handleIncomingInit(pending).catch(reportError), 0);
+			}
+		};
+		window.addEventListener('compositionstart', onCompositionStart, true);
+		window.addEventListener('compositionend', onCompositionEnd, true);
+		return () => {
+			window.removeEventListener('compositionstart', onCompositionStart, true);
+			window.removeEventListener('compositionend', onCompositionEnd, true);
+		};
+	}, [handleIncomingInit, reportError]);
+
 	useEffect(() => {
 		const updateListener = (update: Uint8Array, origin: unknown) => {
 			if (origin === 'basehalf.host') {
@@ -810,15 +868,13 @@ function MarkdownRichEditor(): JSX.Element {
 
 			switch (message.type) {
 				case 'basehalf.markdownRich.init':
-					void applyExternalContent(message.content, message.editable, message.key, message.resource)
-						.catch(() => false)
-						.then(merged => merged
-							? undefined
-							// Full rebuild; only this path re-reveals the host's
-							// navigation selection — a merge keeps the user's spot.
-							: applyContent(message.content, message.editable, message.key, message.resource)
-								.then(() => revealSelection(message.selection)))
-						.catch(reportError);
+					void handleIncomingInit({
+						content: message.content,
+						editable: message.editable,
+						key: message.key,
+						resource: message.resource,
+						...(message.selection ? { selection: message.selection } : {})
+					}).catch(reportError);
 					break;
 				case 'basehalf.markdownRich.applyYjsUpdate':
 					applyUpdate(ydoc, new Uint8Array(message.update), 'basehalf.host');
@@ -927,7 +983,9 @@ function MarkdownRichEditor(): JSX.Element {
 			const selected = (selection && !selection.empty
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: window.getSelection()?.toString() ?? '').trim();
-			if (selected.length === 0) {
+			const canPaste = !!view && state.editable && state.conflictDisk === undefined && state.writeError === undefined;
+			// Without a selection the menu still offers Paste at the cursor.
+			if (selected.length === 0 && !canPaste) {
 				return;
 			}
 
@@ -936,7 +994,7 @@ function MarkdownRichEditor(): JSX.Element {
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: selected;
 			const items: ContextMenuItem[] = [];
-			if (state.readingModeEnabled && state.adhdError === undefined) {
+			if (selected.length > 0 && state.readingModeEnabled && state.adhdError === undefined) {
 				items.push(existing
 					? {
 						id: 'remove-highlight',
@@ -949,33 +1007,63 @@ function MarkdownRichEditor(): JSX.Element {
 						run: () => postAdhdCommand({ command: 'addKeyword', keyword: selected }),
 					});
 			}
-			items.push({
-				id: 'copy',
-				label: 'Copy',
-				run: () => void navigator.clipboard.writeText(clipboardText),
-			});
+			// Copy/cut/paste must behave exactly like their keyboard
+			// counterparts: rich content rides the editor's own clipboard
+			// serialization and paste parsing, not a plain-text detour.
+			const copySelection = (): Promise<void> => {
+				if (view && !view.state.selection.empty) {
+					const { dom, text } = view.serializeForClipboard(view.state.selection.content());
+					return navigator.clipboard.write([new ClipboardItem({
+						'text/html': new Blob([dom.innerHTML], { type: 'text/html' }),
+						'text/plain': new Blob([text], { type: 'text/plain' }),
+					})]).catch(() => navigator.clipboard.writeText(clipboardText));
+				}
+				return navigator.clipboard.writeText(clipboardText);
+			};
 
-			if (view && state.editable && state.conflictDisk === undefined && state.writeError === undefined) {
-				items.push(
-					{
+			if (selected.length > 0) {
+				items.push({
+					id: 'copy',
+					label: 'Copy',
+					run: () => void copySelection(),
+				});
+			}
+
+			if (canPaste && view) {
+				if (selected.length > 0) {
+					items.push({
 						id: 'cut',
 						label: 'Cut',
 						run: () => {
-							void navigator.clipboard.writeText(clipboardText);
-							view.dispatch(view.state.tr.deleteSelection());
-							view.focus();
+							void copySelection().then(() => {
+								view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
+								view.focus();
+							});
 						},
-					},
+					});
+				}
+				items.push(
 					{
 						id: 'paste',
 						label: 'Paste',
 						run: () => {
-							void navigator.clipboard.readText().then(text => {
-								if (text) {
-									view.dispatch(view.state.tr.insertText(text));
-								}
+							void (async () => {
 								view.focus();
-							});
+								try {
+									for (const item of await navigator.clipboard.read()) {
+										if (item.types.includes('text/html')) {
+											view.pasteHTML(await (await item.getType('text/html')).text());
+											return;
+										}
+									}
+								} catch {
+									// clipboard.read unavailable; fall through to plain text
+								}
+								const text = await navigator.clipboard.readText().catch(() => '');
+								if (text) {
+									view.pasteText(text);
+								}
+							})();
 						},
 					},
 				);
