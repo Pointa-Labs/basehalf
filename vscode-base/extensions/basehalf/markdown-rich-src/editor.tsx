@@ -167,6 +167,8 @@ interface IIncomingInit {
 	readonly key: string;
 	readonly resource: string;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
+	/** Arrival order; a payload older than the latest arrival is stale. */
+	readonly generation: number;
 }
 
 interface ContextMenuItem {
@@ -347,6 +349,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
+	const initGeneration = useRef(0);
 	const pendingFileSearches = useRef(new Map<string, (files: readonly IBaseHalfMarkdownRichFileLink[]) => void>());
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
@@ -747,6 +750,9 @@ function MarkdownRichEditor(): JSX.Element {
 		if (body === oldBody) {
 			state.frontmatter = frontmatter;
 			state.lastDisk = content;
+			// Read ranges are absolute file lines; a frontmatter size change
+			// shifts every block's line span.
+			state.readBlockIds = projectAdhdReadBlocks(state.adhd);
 			setVersion(value => value + 1);
 			scheduleFocus();
 			return true;
@@ -839,6 +845,17 @@ function MarkdownRichEditor(): JSX.Element {
 			} else if (newBlocks.length > 0 && anchorBlockId) {
 				editor.insertBlocks(newBlocks as Parameters<typeof editor.insertBlocks>[0], anchorBlockId, anchorPlacement);
 			}
+
+			// Match the load projection's shape guarantee: a document must
+			// always keep at least one editable block to type into.
+			const document = editor.document as ReadonlyArray<{ readonly id: string; readonly type?: string }>;
+			if (document.length > 0 && document.every(block => block.type === BASEHALF_RAW_PASSTHROUGH_BLOCK)) {
+				editor.insertBlocks(
+					[{ type: 'paragraph' }] as Parameters<typeof editor.insertBlocks>[0],
+					document[document.length - 1].id,
+					'after'
+				);
+			}
 		} finally {
 			state.loading = false;
 			manager?.trackedOrigins.add(ySyncPluginKey);
@@ -870,6 +887,14 @@ function MarkdownRichEditor(): JSX.Element {
 	// compositionend — mutating the document mid-composition would abort the
 	// user's uncommitted input.
 	const handleIncomingInit = useCallback(async (payload: IIncomingInit): Promise<void> => {
+		// A payload that a newer arrival superseded — whether parked during
+		// composition and replayed late, or overtaken at an await point — must
+		// never be applied: it would cleanly walk the document back to stale
+		// content that the host has no reason to ever re-send.
+		if (payload.generation !== initGeneration.current) {
+			return;
+		}
+
 		if (editor.prosemirrorView?.composing) {
 			pendingInit.current = payload;
 			return;
@@ -879,6 +904,16 @@ function MarkdownRichEditor(): JSX.Element {
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
 		if (!merged) {
+			if (payload.generation !== initGeneration.current) {
+				return;
+			}
+			const state = session.current;
+			if (state.ready && state.key === payload.key && state.resource === payload.resource && state.dirty) {
+				// The document gained local edits after this content was sent
+				// (parked during composition, or an in-flight race). Rebuilding
+				// would clobber them; divergence is the save conflict path's job.
+				return;
+			}
 			// Full rebuild; only this path re-reveals the host's navigation
 			// selection — a merge keeps the user's spot.
 			await applyContent(payload.content, payload.editable, payload.key, payload.resource);
@@ -947,6 +982,7 @@ function MarkdownRichEditor(): JSX.Element {
 						editable: message.editable,
 						key: message.key,
 						resource: message.resource,
+						generation: ++initGeneration.current,
 						...(message.selection ? { selection: message.selection } : {})
 					}).catch(reportError);
 					break;
@@ -1090,15 +1126,22 @@ function MarkdownRichEditor(): JSX.Element {
 			// Copy/cut/paste must behave exactly like their keyboard
 			// counterparts: rich content rides the editor's own clipboard
 			// serialization and paste parsing, not a plain-text detour.
-			const copySelection = (): Promise<void> => {
-				if (view && !view.state.selection.empty) {
-					const { dom, text } = view.serializeForClipboard(view.state.selection.content());
-					return navigator.clipboard.write([new ClipboardItem({
-						'text/html': new Blob([dom.innerHTML], { type: 'text/html' }),
-						'text/plain': new Blob([text], { type: 'text/plain' }),
-					})]).catch(() => navigator.clipboard.writeText(clipboardText));
+			// Never throws: clipboard access can fail on focus/permission, and
+			// callers (Cut) must still complete their own action.
+			const copySelection = async (): Promise<void> => {
+				try {
+					if (view && !view.state.selection.empty) {
+						const { dom, text } = view.serializeForClipboard(view.state.selection.content());
+						await navigator.clipboard.write([new ClipboardItem({
+							'text/html': new Blob([dom.innerHTML], { type: 'text/html' }),
+							'text/plain': new Blob([text], { type: 'text/plain' }),
+						})]);
+						return;
+					}
+				} catch {
+					// fall through to the plain-text fallback
 				}
-				return navigator.clipboard.writeText(clipboardText);
+				await navigator.clipboard.writeText(clipboardText).catch(() => undefined);
 			};
 
 			if (selected.length > 0) {
