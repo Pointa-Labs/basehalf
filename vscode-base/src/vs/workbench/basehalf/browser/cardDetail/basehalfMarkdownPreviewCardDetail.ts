@@ -30,6 +30,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private selectionRevealTimer: number | undefined;
 	private lastFocusKey: string | undefined;
 	private disposed = false;
+	private visible = false;
+	private pendingRender = false;
 
 	constructor(
 		private readonly container: HTMLElement,
@@ -42,7 +44,6 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	) {
 		super();
 
-		clearNode(this.container);
 		const root = append(this.container, $('.basehalf-card-detail-markdown-preview'));
 		this.previewScroll = append(root, $('.basehalf-card-detail-markdown-preview-scroll'));
 		this.previewContent = append(this.previewScroll, $('.basehalf-card-detail-markdown-preview-content'));
@@ -102,6 +103,21 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		super.dispose();
 	}
 
+	/**
+	 * Re-entry hook for a retained (hidden) surface becoming the visible
+	 * projection again: adopt the latest navigation state and re-assert this
+	 * projection in the focus mirror (the previous projection owned it while
+	 * this one was hidden).
+	 */
+	activate(state: IBaseHalfCardDetailState): void {
+		this.state = state;
+		if (state.selection) {
+			this.revealSelection();
+		}
+		this.lastFocusKey = undefined;
+		this.flushFocusWrite();
+	}
+
 	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
 		if (!selection || !this.state) {
 			return;
@@ -112,6 +128,21 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		this.flushFocusWrite();
 	}
 
+	/**
+	 * While hidden, re-rendering the whole preview per content change of a
+	 * sibling projection is wasted work; suspend and render once on show.
+	 */
+	setVisible(visible: boolean): void {
+		if (this.visible === visible) {
+			return;
+		}
+		this.visible = visible;
+		if (visible && this.pendingRender) {
+			this.pendingRender = false;
+			this.renderNow();
+		}
+	}
+
 	private scheduleRender(delay = 80): void {
 		if (this.renderTimer !== undefined) {
 			mainWindow.clearTimeout(this.renderTimer);
@@ -119,6 +150,10 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 		this.renderTimer = mainWindow.setTimeout(() => {
 			this.renderTimer = undefined;
+			if (!this.visible) {
+				this.pendingRender = true;
+				return;
+			}
 			this.renderNow();
 		}, delay);
 	}

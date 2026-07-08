@@ -47,8 +47,11 @@ import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../com
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
+import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
+import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.js';
+import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import {
 	IBaseHalfCanvasSnapGuide,
 	IBaseHalfCanvasSnapRect,
@@ -65,7 +68,13 @@ type BaseHalfCanvasCardLod = 'full' | 'mini';
 type BaseHalfCanvasResizeEdge = 'north' | 'east' | 'south' | 'west' | 'north-east' | 'south-east' | 'south-west' | 'north-west';
 type BaseHalfCanvasEdgeEndpoint = 'source' | 'target';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
-type BaseHalfCardDetailSaveStatus = 'saving' | 'saved';
+type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
+interface IBaseHalfCardDetailSurface {
+	readonly host: HTMLElement;
+	readonly store: DisposableStore;
+	readonly instance: BaseHalfSourceCardDetail | BaseHalfMarkdownRichCardDetail | BaseHalfMarkdownPreviewCardDetail;
+	readonly whenRendered: Promise<unknown>;
+}
 type BaseHalfCanvasZoomAnchor = { readonly clientX: number; readonly clientY: number; readonly focusWriteDelay?: number };
 type BaseHalfCanvasViewport = {
 	readonly left: number;
@@ -124,22 +133,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
-	private readonly detailSaveStatus: HTMLElement;
+	private readonly detailSaveStatus: HTMLButtonElement;
 	private readonly detailSaveStatusIcon: HTMLElement;
 	private readonly detailSaveStatusLabel: HTMLElement;
-	private readonly detailSourceActions: HTMLElement;
 	private readonly detailProjectionActions: HTMLElement;
 	private readonly detailBadgeZone: HTMLElement;
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
-	private readonly detailDisposables = this._register(new DisposableStore());
 	private readonly connectionDragListeners = this._register(new DisposableStore());
 	private readonly edgeReconnectListeners = this._register(new DisposableStore());
 
 	private renderSeq = 0;
-	private detailKey: string | undefined;
+	private backgroundRenderTimer: number | undefined;
 	private activeCardDrag: BaseHalfCanvasCardDrag | undefined;
 	private activeConnectionDrag: {
 		readonly pointerId: number;
@@ -182,9 +189,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly openBadgeFaces = new Set<string>();
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
 	private renderedBoundsByPath = new Map<string, IBaseHalfCanvasBounds>();
-	private sourceDetail: BaseHalfSourceCardDetail | undefined;
-	private markdownRichDetail: BaseHalfMarkdownRichCardDetail | undefined;
-	private markdownPreviewDetail: BaseHalfMarkdownPreviewCardDetail | undefined;
+	private readonly richWebviewWarmup: BaseHalfMarkdownRichWebviewWarmup;
+	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
+	private detailSurfaceResourceKey: string | undefined;
+	private activeDetailProjection: BaseHalfCardDetailProjection | undefined;
+	private detailSwapSeq = 0;
 	private folderFocusTimer: number | undefined;
 	private lastFolderFocusKey: string | undefined;
 	private restoredFolderFocusKey: string | undefined;
@@ -210,7 +219,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService
+		@IQuickInputService private readonly quickInputService: IQuickInputService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
 	) {
 		super();
 		this.detailBadgeDisposables = this._register(new DisposableStore());
@@ -244,13 +254,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailMeta = append(detailTitleBlock, $('.basehalf-card-detail-meta'));
 		this.detailBadgeZone = append(detailHeader, $('.basehalf-card-detail-badge'));
 		const detailActions = append(detailHeader, $('.basehalf-card-detail-actions'));
-		this.detailSaveStatus = append(detailActions, $('.basehalf-card-detail-save-status'));
-		this.detailSaveStatus.setAttribute('role', 'status');
-		this.detailSaveStatus.setAttribute('aria-live', 'polite');
+		// Ordinary save state stays invisible (everything auto-saves); the
+		// indicator only appears when saving stopped working, as the in-card
+		// escape hatch: click retries the save.
+		this.detailSaveStatus = append(detailActions, $('button.basehalf-card-detail-save-status')) as HTMLButtonElement;
+		this.detailSaveStatus.type = 'button';
+		this.detailSaveStatus.setAttribute('aria-hidden', 'true');
+		this._register(this.addDisposableListener(this.detailSaveStatus, 'click', () => void this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, { forceSerialize: true })));
 		this.detailSaveStatusIcon = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-icon.codicon'));
 		this.detailSaveStatusIcon.setAttribute('aria-hidden', 'true');
 		this.detailSaveStatusLabel = append(this.detailSaveStatus, $('span.basehalf-card-detail-save-status-label'));
-		this.detailSourceActions = append(detailActions, $('.basehalf-card-detail-source-actions'));
 		this.detailProjectionActions = append(detailActions, $('.basehalf-card-detail-projections'));
 		const close = append(detailActions, $('button.basehalf-card-detail-close.codicon.codicon-close')) as HTMLButtonElement;
 		close.type = 'button';
@@ -258,6 +271,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		close.setAttribute('aria-label', 'Close');
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
+		this.richWebviewWarmup = this._register(this.instantiationService.createInstance(BaseHalfMarkdownRichWebviewWarmup, this.detailBody));
 
 		this.editorContainer.prepend(this.root);
 
@@ -272,7 +286,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// NOT under the folder resource itself — an agent editing badge.yaml
 			// for a SUBFOLDER canvas must still re-render it.
 			if ((event.affects(folder.resource) || event.affects(baseHalfMirrorRoot(folder.workspaceFolder))) && !this.isFocusMirrorOnlyChange(event, folder)) {
-				void this.render();
+				this.scheduleBackgroundRender();
 			}
 		}));
 		this._register(this.editorService.onDidVisibleEditorsChange(() => this.reconcileActiveEditor()));
@@ -322,7 +336,38 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	override dispose(): void {
 		this.disposed = true;
 		this.renderSeq++;
+		this.disposeDetailSurfaces();
+		if (this.backgroundRenderTimer !== undefined) {
+			mainWindow.clearTimeout(this.backgroundRenderTimer);
+			this.backgroundRenderTimer = undefined;
+		}
 		super.dispose();
+	}
+
+	/**
+	 * Render driven by disk activity rather than user navigation. Auto-save
+	 * makes these frequent (one per typing pause), so they coalesce, and while
+	 * a full-screen card detail covers the canvas the rebuild is skipped
+	 * entirely — closing the detail changes navigation state, which always
+	 * triggers a fresh full render. Only the detail header's badge zone is
+	 * live while covered, so refresh just that.
+	 */
+	private scheduleBackgroundRender(): void {
+		if (this.backgroundRenderTimer !== undefined) {
+			return;
+		}
+		this.backgroundRenderTimer = mainWindow.setTimeout(() => {
+			this.backgroundRenderTimer = undefined;
+			if (this.disposed) {
+				return;
+			}
+			const cardDetail = this.canvasNavigationService.state.cardDetail;
+			if (cardDetail) {
+				void this.renderDetailBadge(cardDetail);
+				return;
+			}
+			void this.render();
+		}, 100);
 	}
 
 	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
@@ -348,6 +393,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.renderQueuedBehindGesture = false;
 
+		// The card detail depends only on navigation state — render it FIRST,
+		// so opening a card starts the projection surface boot immediately
+		// instead of behind the canvas data pipeline (folder resolve, badge
+		// walk, preview reads) below.
+		this.renderDetail();
+
 		const seq = ++this.renderSeq;
 		this.clearSnapGuides();
 		const folder = this.getCurrentFolder();
@@ -357,7 +408,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBoundsByPath = new Map();
 			clearNode(this.cards);
 			this.renderEmpty('No folder');
-			this.renderDetail();
 			return;
 		}
 
@@ -372,7 +422,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBoundsByPath = new Map();
 			clearNode(this.cards);
 			this.renderEmpty(error instanceof Error ? error.message : String(error));
-			this.renderDetail();
 			return;
 		}
 
@@ -450,7 +499,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderCanvasWarning(badgeWarning);
 		}
 
-		this.renderDetail();
 		this.restoreOrWriteFolderFocus(folder, seq);
 	}
 
@@ -1638,7 +1686,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			mainWindow.clearTimeout(existing);
 		}
 		this.badgeDescriptionPending.set(node.relativePath, { node, value });
-		this.badgeDescriptionTimers.set(node.relativePath, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.relativePath), 500));
+		// Badge notes debounce at the same cadence as file auto-save so every
+		// user edit reaches disk (and watching agents) with one perceived delay.
+		this.badgeDescriptionTimers.set(node.relativePath, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.relativePath), BASEHALF_AUTO_SAVE_DELAY_MS));
 	}
 
 	private flushBadgeDescriptionWrite(path: string): void {
@@ -1653,7 +1703,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.badgeDescriptionPending.delete(path);
 
-		void this.badgeGraphService.updateDescription(pending.node, pending.value).then(() => this.render()).catch(error => {
+		void this.badgeGraphService.updateDescription(pending.node, pending.value).then(() => this.scheduleBackgroundRender()).catch(error => {
 			this.logService.error(error);
 			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
 		});
@@ -2089,24 +2139,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detail.classList.toggle('visible', !!cardDetail);
 		this.syncDetailScrollLock(!!cardDetail);
 		if (!cardDetail) {
-			this.detailKey = undefined;
+			const wasOpen = this.detailSurfaceResourceKey !== undefined;
 			this.detailBadgeOpen = false;
 			this.detailBadgeResourceKey = undefined;
-			this.sourceDetail = undefined;
-			this.markdownRichDetail = undefined;
-			this.markdownPreviewDetail = undefined;
+			this.disposeDetailSurfaces();
 			this.detailChromeDisposables.clear();
-			this.detailDisposables.clear();
 			this.detailBadgeSeq++;
 			this.detailBadgeDisposables.clear();
 			clearNode(this.detailBadgeZone);
 			this.setDetailSaveStatus(undefined);
-			this.clearDetailSourceActions();
 			clearNode(this.detailProjectionActions);
-			clearNode(this.detailBody);
+			// detailBody is NOT cleared wholesale: surfaces remove their own
+			// hosts on dispose, and the prewarmed shell parked in the body
+			// must survive open/close cycles.
 			clearNode(this.detailTitle);
 			this.detailMeta.textContent = '';
-			this.scheduleFolderFocusWrite(0);
+			// Re-assert folder focus only on the open→closed TRANSITION. An
+			// unconditional write here would race the initial-framing restore:
+			// renderDetail runs before the canvas pipeline, so a 0ms write of
+			// the not-yet-framed viewport would land in focus.yaml first and
+			// the restore would then faithfully restore the unframed state.
+			if (wasOpen) {
+				this.scheduleFolderFocusWrite(0);
+			}
 			return;
 		}
 
@@ -2120,69 +2175,138 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		void this.renderDetailBadge(cardDetail);
 
-		const detailKey = `${cardDetail.resource.toString()}::${cardDetail.projection}`;
-		if (this.detailKey === detailKey) {
-			this.sourceDetail?.applySelection(cardDetail.selection);
-			this.markdownRichDetail?.applySelection(cardDetail.selection);
-			this.markdownPreviewDetail?.applySelection(cardDetail.selection);
+		this.renderDetailSurface(cardDetail);
+	}
+
+	/**
+	 * Projection surfaces are retained-mode objects (a webview is an
+	 * out-of-process iframe, Monaco a heavyweight widget), so the card detail
+	 * keeps one layered surface per projection of the open document instead
+	 * of clearing and rebuilding on every switch. Retention is correct by
+	 * construction: all projections are views over the same text model, and
+	 * each already reconciles external content changes. Switching to a
+	 * retained projection is an instant layer swap; a first boot stays
+	 * hidden until its open() resolves at the first meaningful frame, then
+	 * swaps atomically — the previous projection stays visible throughout.
+	 * Surfaces are disposed together when the card closes or the resource
+	 * changes.
+	 */
+	private renderDetailSurface(cardDetail: IBaseHalfCardDetailState): void {
+		const resourceKey = cardDetail.resource.toString();
+		if (this.detailSurfaceResourceKey !== resourceKey) {
+			this.disposeDetailSurfaces();
+			this.detailSurfaceResourceKey = resourceKey;
+		}
+
+		const projection = cardDetail.projection;
+		const existing = this.detailSurfaces.get(projection);
+		if (existing) {
+			if (this.activeDetailProjection === projection) {
+				existing.instance.applySelection(cardDetail.selection);
+			} else {
+				this.detailSwapSeq++;
+				existing.instance.activate(cardDetail);
+				this.setActiveDetailSurface(projection);
+			}
 			return;
 		}
 
-		this.detailKey = detailKey;
-		this.sourceDetail = undefined;
-		this.markdownRichDetail = undefined;
-		this.markdownPreviewDetail = undefined;
-		this.detailDisposables.clear();
-		this.clearDetailSourceActions();
-		this.setDetailSaveStatus('saving');
-
-		if (cardDetail.projection === 'rich') {
-			this.markdownRichDetail = this.detailDisposables.add(this.instantiationService.createInstance(
-				BaseHalfMarkdownRichCardDetail,
-				this.detailBody,
-				() => this.closeDetailBadgePopover(cardDetail, false),
-				status => this.setDetailSaveStatus(status)
-			));
-			void this.markdownRichDetail.open(cardDetail);
-		} else if (cardDetail.projection === 'preview') {
-			this.markdownPreviewDetail = this.detailDisposables.add(this.instantiationService.createInstance(
-				BaseHalfMarkdownPreviewCardDetail,
-				this.detailBody,
-				status => this.setDetailSaveStatus(status)
-			));
-			void this.markdownPreviewDetail.open(cardDetail);
-		} else if (cardDetail.projection === 'source') {
-			this.sourceDetail = this.detailDisposables.add(this.instantiationService.createInstance(
-				BaseHalfSourceCardDetail,
-				this.detailBody,
-				this.detailSourceActions,
-				status => this.setDetailSaveStatus(status)
-			));
-			void this.sourceDetail.open(cardDetail);
+		const seq = ++this.detailSwapSeq;
+		const surface = this.createDetailSurface(projection, cardDetail);
+		this.detailSurfaces.set(projection, surface);
+		if (this.activeDetailProjection === undefined) {
+			// First surface for this card: there is no previous content to
+			// hold on screen, so show the boot immediately — opening responds
+			// instantly, and a visible iframe loads at normal priority
+			// (hidden ones are deprioritized, which starves a cold boot).
+			this.setActiveDetailSurface(projection);
+			return;
 		}
+		// Switching projections: hold the swap until the new surface has its
+		// first frame, so the current projection stays visible throughout and
+		// nothing half-drawn ever appears.
+		void surface.whenRendered.then(() => {
+			if (!this.disposed && seq === this.detailSwapSeq && this.detailSurfaces.get(projection) === surface) {
+				this.setActiveDetailSurface(projection);
+			}
+		});
+	}
+
+	private createDetailSurface(projection: BaseHalfCardDetailProjection, cardDetail: IBaseHalfCardDetailState): IBaseHalfCardDetailSurface {
+		// The prewarmed shell's layer already sits in the detail body (its
+		// iframe must never reparent); adopting it makes that layer THE
+		// surface host for this card.
+		const prewarmed = projection === 'rich' ? this.richWebviewWarmup.take() : undefined;
+		const host = prewarmed ? prewarmed.host : append(this.detailBody, $('.basehalf-card-detail-surface'));
+		const store = new DisposableStore();
+		store.add(toDisposable(() => host.remove()));
+
+		let instance: IBaseHalfCardDetailSurface['instance'];
+		if (projection === 'rich') {
+			instance = store.add(this.instantiationService.createInstance(
+				BaseHalfMarkdownRichCardDetail,
+				host,
+				() => this.closeDetailBadgePopover(cardDetail, false),
+				status => this.setDetailSaveStatus(status),
+				prewarmed
+			));
+		} else if (projection === 'preview') {
+			instance = store.add(this.instantiationService.createInstance(
+				BaseHalfMarkdownPreviewCardDetail,
+				host,
+				status => this.setDetailSaveStatus(status)
+			));
+		} else {
+			instance = store.add(this.instantiationService.createInstance(
+				BaseHalfSourceCardDetail,
+				host,
+				status => this.setDetailSaveStatus(status)
+			));
+		}
+
+		const whenRendered = instance.open(cardDetail).catch(error => this.logService.error(error));
+		return { host, store, instance, whenRendered };
+	}
+
+	private setActiveDetailSurface(projection: BaseHalfCardDetailProjection): void {
+		this.activeDetailProjection = projection;
+		for (const [key, surface] of this.detailSurfaces) {
+			const active = key === projection;
+			surface.host.classList.toggle('active', active);
+			surface.instance.setVisible(active);
+		}
+	}
+
+	private disposeDetailSurfaces(): void {
+		this.detailSwapSeq++;
+		this.activeDetailProjection = undefined;
+		this.detailSurfaceResourceKey = undefined;
+		for (const surface of this.detailSurfaces.values()) {
+			surface.store.dispose();
+		}
+		this.detailSurfaces.clear();
 	}
 
 	private setDetailSaveStatus(status: BaseHalfCardDetailSaveStatus | undefined): void {
-		if (!status) {
-			this.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon';
-			this.detailSaveStatusLabel.textContent = '';
-			this.detailSaveStatus.removeAttribute('data-save-state');
-			this.detailSaveStatus.removeAttribute('title');
+		if (status === 'error') {
+			const label = 'Not saved';
+			this.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon codicon-warning';
+			this.detailSaveStatusLabel.textContent = label;
+			this.detailSaveStatus.setAttribute('data-save-state', 'error');
+			this.detailSaveStatus.title = 'Changes could not be saved to disk. Click to retry saving.';
+			this.detailSaveStatus.setAttribute('aria-label', this.detailSaveStatus.title);
+			this.detailSaveStatus.removeAttribute('aria-hidden');
 			return;
 		}
 
-		const label = status === 'saving' ? 'Saving' : 'Saved';
-		this.detailSaveStatusIcon.className = status === 'saving'
-			? 'basehalf-card-detail-save-status-icon codicon codicon-loading codicon-modifier-spin'
-			: 'basehalf-card-detail-save-status-icon codicon codicon-check';
-		this.detailSaveStatusLabel.textContent = label;
-		this.detailSaveStatus.setAttribute('data-save-state', status);
-		this.detailSaveStatus.title = label;
-	}
-
-	private clearDetailSourceActions(): void {
-		clearNode(this.detailSourceActions);
-		this.detailSourceActions.classList.remove('visible');
+		// 'saving'/'saved' intentionally render nothing: auto-save is the
+		// product surface, not a status ticker.
+		this.detailSaveStatusIcon.className = 'basehalf-card-detail-save-status-icon codicon';
+		this.detailSaveStatusLabel.textContent = '';
+		this.detailSaveStatus.removeAttribute('data-save-state');
+		this.detailSaveStatus.removeAttribute('title');
+		this.detailSaveStatus.removeAttribute('aria-label');
+		this.detailSaveStatus.setAttribute('aria-hidden', 'true');
 	}
 
 	/**

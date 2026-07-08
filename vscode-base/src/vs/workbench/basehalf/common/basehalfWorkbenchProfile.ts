@@ -456,6 +456,16 @@ export const BASEHALF_GHOSTTY_DARK_MODERN_COLOR_CUSTOMIZATIONS = {
 	'terminalOverviewRuler.border': '#00000000'
 } as const;
 
+/**
+ * One product decision — "saves feel instant" — expressed as the auto-save
+ * debounce everywhere BaseHalf persists user edits: the `files.autoSaveDelay`
+ * default below and the badge-description flush in the canvas workbench. The
+ * rich Markdown webview cannot import workbench code, so its `AUTOSAVE_MS` in
+ * `extensions/basehalf/markdown-rich-src/editor.tsx` mirrors this value; keep
+ * the two in sync.
+ */
+export const BASEHALF_AUTO_SAVE_DELAY_MS = 250;
+
 export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// BaseHalf ships three sidebar views (Files/Git/Search); a full-height
 	// vertical activity bar spends a persistent column on three icons, so the
@@ -466,6 +476,7 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// BaseHalf has no persistent dirty-state surface (no editor tabs) and agents
 	// read the disk, so files auto-save like the rich Markdown card detail.
 	'files.autoSave': 'afterDelay',
+	'files.autoSaveDelay': BASEHALF_AUTO_SAVE_DELAY_MS,
 	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,

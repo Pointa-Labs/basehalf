@@ -8,6 +8,7 @@ import { Event } from '../../../../base/common/event.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { FileType, IFileService, IFileStat } from '../../../../platform/files/common/files.js';
+import { TestNotificationService } from '../../../../platform/notification/test/common/testNotificationService.js';
 import { UriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentityService.js';
 import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { TestWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
@@ -360,7 +361,8 @@ suite('BaseHalfCanvasNavigationService', () => {
 					folders: workspaceFolders.map((uri, index) => ({ uri, name: uri.path.split('/').pop() ?? 'workspace', index }))
 				}) as IWorkspace
 			} as Partial<IWorkspaceContextService> as IWorkspaceContextService,
-			editorFlushService
+			editorFlushService,
+			new TestNotificationService()
 		));
 	}
 

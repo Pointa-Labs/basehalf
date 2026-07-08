@@ -61,6 +61,7 @@ import {
 	pushBaseHalfAdhdDecorations,
 } from './adhdDecorations.js';
 import {
+	BASEHALF_MARKDOWN_RICH_WARMUP_KEY,
 	isBaseHalfMarkdownRichHostMessage,
 	type BaseHalfMarkdownRichEditorCommand,
 	type BaseHalfMarkdownRichWebviewMessage,
@@ -77,7 +78,10 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const BLOCKNOTE_FRAGMENT_NAME = 'bn';
-const AUTOSAVE_MS = 1200;
+// Mirrors BASEHALF_AUTO_SAVE_DELAY_MS in
+// src/vs/workbench/basehalf/common/basehalfWorkbenchProfile.ts — the webview
+// bundle cannot import workbench code. Keep the two in sync.
+const AUTOSAVE_MS = 250;
 const FOCUS_DEBOUNCE_MS = 180;
 const SIDE_MENU_GUTTER_GAP = 8;
 
@@ -350,6 +354,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const composing = useRef(false);
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
 	const initGeneration = useRef(0);
+	const renderedAnnounced = useRef(false);
 	const pendingFileSearches = useRef(new Map<string, (files: readonly IBaseHalfMarkdownRichFileLink[]) => void>());
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
@@ -503,6 +508,21 @@ function MarkdownRichEditor(): JSX.Element {
 		setVersion(value => value + 1);
 	}, [editor, editorApi, ensureLiveUndoManager, notifyDirty, projectAdhdReadBlocks]);
 
+	// First meaningful frame: tell the host once the applied document has been
+	// COMMITTED to the DOM (effects run after commit), so the projection swap
+	// it is holding never reveals a half-built editor. Deliberately not paint
+	// based (no rAF): the host keeps this webview hidden until the swap, and a
+	// hidden iframe receives no animation frames — the browser paints the
+	// committed DOM in the same frame the layer becomes visible.
+	useEffect(() => {
+		const state = session.current;
+		if (renderedAnnounced.current || !state.ready || !state.key) {
+			return;
+		}
+		renderedAnnounced.current = true;
+		vscode.postMessage({ type: 'basehalf.markdownRich.rendered', key: state.key });
+	}, [version, vscode]);
+
 	const reportError = useCallback((error: unknown) => {
 		const state = session.current;
 		const message = error instanceof Error ? error.message : String(error);
@@ -620,6 +640,14 @@ function MarkdownRichEditor(): JSX.Element {
 			// input to disk (and to every agent watching the file); wait for
 			// the composition to settle. Explicit saves are not deferred.
 			if (composing.current) {
+				saveTimer.current = window.setTimeout(tick, AUTOSAVE_MS);
+				return;
+			}
+			// A save round trip is still in flight: its result has not updated
+			// lastDisk yet, so a second request now would carry a stale
+			// previousContent and the coordinator would misread our own write
+			// as an external conflict. Wait for the result, then re-fire.
+			if (session.current.pendingSaveContent.size > 0) {
 				saveTimer.current = window.setTimeout(tick, AUTOSAVE_MS);
 				return;
 			}
@@ -976,6 +1004,14 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 
 			switch (message.type) {
+				case 'basehalf.markdownRich.adopt':
+					// A prewarmed shell receives its document identity here and
+					// then runs the ordinary boot handshake.
+					if (!state.key) {
+						state.key = message.key;
+						vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: message.key });
+					}
+					break;
 				case 'basehalf.markdownRich.init':
 					void handleIncomingInit({
 						content: message.content,
@@ -1041,6 +1077,10 @@ function MarkdownRichEditor(): JSX.Element {
 		window.addEventListener('message', onMessage);
 		if (session.current.key) {
 			vscode.postMessage({ type: 'basehalf.markdownRich.ready', key: session.current.key });
+		} else {
+			// Prewarmed shell: booted without a document. Announce under the
+			// warmup sentinel and stay inert until the host adopts us.
+			vscode.postMessage({ type: 'basehalf.markdownRich.booted', key: BASEHALF_MARKDOWN_RICH_WARMUP_KEY });
 		}
 		return () => window.removeEventListener('message', onMessage);
 	}, [applyAdhdState, applyContent, applyExternalContent, notifyDirty, reportError, revealSelection, runEditorCommand, serializeAndRequestSave, vscode, ydoc]);

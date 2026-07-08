@@ -31,41 +31,47 @@ export interface IBaseHalfEditorFlushService {
 export class BaseHalfEditorFlushService implements IBaseHalfEditorFlushService {
 	declare readonly _serviceBrand: undefined;
 
-	private readonly paneFlushers = new Map<string, BaseHalfEditorFlushFn>();
+	// A pane can host several live editor surfaces at once (the card detail
+	// retains one surface per projection of the open document), so both maps
+	// hold sets and a pane flush drains every registered surface.
+	private readonly paneFlushers = new Map<string, Set<BaseHalfEditorFlushFn>>();
 	private readonly documentFlushers = new Map<string, Set<BaseHalfEditorFlushFn>>();
 
 	registerPaneFlusher(paneId: string, fn: BaseHalfEditorFlushFn): IDisposable {
-		this.paneFlushers.set(paneId, fn);
-		return toDisposable(() => {
-			if (this.paneFlushers.get(paneId) === fn) {
-				this.paneFlushers.delete(paneId);
-			}
-		});
+		return this.register(this.paneFlushers, paneId, fn);
 	}
 
 	registerDocumentFlusher(documentKey: string, fn: BaseHalfEditorFlushFn): IDisposable {
-		let flushers = this.documentFlushers.get(documentKey);
+		return this.register(this.documentFlushers, documentKey, fn);
+	}
+
+	private register(registry: Map<string, Set<BaseHalfEditorFlushFn>>, key: string, fn: BaseHalfEditorFlushFn): IDisposable {
+		let flushers = registry.get(key);
 		if (!flushers) {
 			flushers = new Set();
-			this.documentFlushers.set(documentKey, flushers);
+			registry.set(key, flushers);
 		}
 		flushers.add(fn);
 
 		return toDisposable(() => {
-			const current = this.documentFlushers.get(documentKey);
+			const current = registry.get(key);
 			if (!current) {
 				return;
 			}
 			current.delete(fn);
 			if (current.size === 0) {
-				this.documentFlushers.delete(documentKey);
+				registry.delete(key);
 			}
 		});
 	}
 
 	async flushPane(paneId: string, options?: IBaseHalfEditorFlushOptions): Promise<boolean> {
-		const fn = this.paneFlushers.get(paneId);
-		return fn ? this.runFlusher(fn, options) : true;
+		const flushers = this.paneFlushers.get(paneId);
+		if (!flushers || flushers.size === 0) {
+			return true;
+		}
+
+		return this.runFlushers(flushers, options);
 	}
 
 	async flushDocument(documentKey: string, options?: IBaseHalfEditorFlushOptions): Promise<boolean> {
@@ -79,8 +85,10 @@ export class BaseHalfEditorFlushService implements IBaseHalfEditorFlushService {
 
 	async flushAll(options?: IBaseHalfEditorFlushOptions): Promise<boolean> {
 		const flushers = new Set<BaseHalfEditorFlushFn>();
-		for (const fn of this.paneFlushers.values()) {
-			flushers.add(fn);
+		for (const paneFlushers of this.paneFlushers.values()) {
+			for (const fn of paneFlushers) {
+				flushers.add(fn);
+			}
 		}
 		for (const documentFlushers of this.documentFlushers.values()) {
 			for (const fn of documentFlushers) {

@@ -8,6 +8,7 @@ import { Disposable } from '../../../base/common/lifecycle.js';
 import { URI } from '../../../base/common/uri.js';
 import { IFileService } from '../../../platform/files/common/files.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
+import { INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkspaceContextService, IWorkspaceFolder } from '../../../platform/workspace/common/workspace.js';
 import {
@@ -50,7 +51,8 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		@IFileService private readonly fileService: IFileService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
-		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@INotificationService private readonly notificationService: INotificationService
 	) {
 		super();
 	}
@@ -177,7 +179,18 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		if (!this._state.cardDetail) {
 			return true;
 		}
-		return this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID);
+		const flushed = await this.editorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID);
+		if (!flushed) {
+			// The refusal must be explained: without this, a failed save turns
+			// every navigation attempt into a silent no-op that reads as a
+			// hung app. Identical notifications coalesce, so repeated attempts
+			// do not stack.
+			this.notificationService.notify({
+				severity: Severity.Warning,
+				message: 'The open card has changes that could not be saved to disk, so it stays open. Resolve the conflict shown on the card, or save manually, then navigate again.'
+			});
+		}
+		return flushed;
 	}
 
 	private updateState(state: IBaseHalfCanvasNavigationState, options: { readonly recordHistory: boolean } = { recordHistory: true }): void {

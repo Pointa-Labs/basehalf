@@ -5,7 +5,9 @@
 
 import { $, addDisposableListener, append, clearNode, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { DeferredPromise, timeout } from '../../../../base/common/async.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
@@ -65,6 +67,61 @@ const markdownRichMediaRoot = FileAccess.asFileUri('vs/../../extensions/basehalf
 const markdownRichScript = URI.joinPath(markdownRichMediaRoot, 'editor.js');
 const markdownRichStyles = URI.joinPath(markdownRichMediaRoot, 'editor.css');
 
+/**
+ * A booted, document-less editor shell handed over by the warmup pool: its
+ * DOM already lives inside the card-detail body (an iframe reload is the
+ * price of reparenting) and its webview has parsed the editor bundle.
+ */
+export interface IBaseHalfPrewarmedMarkdownRichWebview {
+	readonly host: HTMLElement;
+	readonly root: HTMLElement;
+	readonly webviewHost: HTMLElement;
+	readonly webview: IWebviewElement;
+}
+
+export function createBaseHalfMarkdownRichWebviewElement(webviewService: IWebviewService, title: string): IWebviewElement {
+	return webviewService.createWebviewElement({
+		providedViewType: BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+		title,
+		options: {
+			purpose: WebviewContentPurpose.CustomEditor,
+			enableFindWidget: true,
+			retainContextWhenHidden: true,
+			tryRestoreScrollPosition: true
+		},
+		contentOptions: {
+			allowScripts: true,
+			forwardUntrustedKeypressEvents: true,
+			localResourceRoots: [markdownRichMediaRoot]
+		},
+		extension: undefined
+	});
+}
+
+/**
+ * The webview HTML for the rich Markdown editor. An empty `key` boots a
+ * prewarmed shell: it loads and constructs the editor but stays inert until
+ * the host assigns a document via the `adopt` message.
+ */
+export function baseHalfMarkdownRichWebviewHtml(key: string): string {
+	const nonce = generateUuid();
+	const script = asWebviewUri(markdownRichScript).toString(true);
+	const styles = asWebviewUri(markdownRichStyles).toString(true);
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
+</head>
+<body>
+	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}"></div>
+	<script nonce="${nonce}" type="module" src="${script}"></script>
+</body>
+</html>`;
+}
+
 export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
@@ -81,11 +138,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private lastSentContent: string | undefined;
 	private writingTextModel = false;
 	private disposed = false;
+	private visible = false;
+	private pendingModelSync = false;
+	private readonly firstRendered = new DeferredPromise<void>();
 
 	constructor(
 		private readonly container: HTMLElement,
 		private readonly onEditorFocus: (() => void) | undefined,
 		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
+		private readonly prewarmed: IBaseHalfPrewarmedMarkdownRichWebview | undefined,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IWebviewService private readonly webviewService: IWebviewService,
@@ -101,9 +162,15 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	) {
 		super();
 
-		clearNode(this.container);
-		const root = append(this.container, $('.basehalf-card-detail-markdown-rich'));
-		this.webviewHost = append(root, $('.basehalf-card-detail-markdown-rich-webview'));
+		// A prewarmed shell arrives with its DOM (and booted webview) already
+		// built inside `container`; reparenting the iframe would reload it and
+		// void the warmup, so adopt the existing elements instead.
+		const root = this.prewarmed
+			? this.prewarmed.root
+			: append(this.container, $('.basehalf-card-detail-markdown-rich'));
+		this.webviewHost = this.prewarmed
+			? this.prewarmed.webviewHost
+			: append(root, $('.basehalf-card-detail-markdown-rich-webview'));
 		this.setSaveStatus('saving');
 
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
@@ -136,24 +203,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
 
-			this.webview = this._register(this.webviewService.createWebviewElement({
-				providedViewType: BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
-				title: state.relativePath || state.resource.path,
-				options: {
-					purpose: WebviewContentPurpose.CustomEditor,
-					enableFindWidget: true,
-					retainContextWhenHidden: true,
-					tryRestoreScrollPosition: true
-				},
-				contentOptions: {
-					allowScripts: true,
-					forwardUntrustedKeypressEvents: true,
-					localResourceRoots: [markdownRichMediaRoot]
-				},
-				extension: undefined
-			}));
-			this.webview.mountTo(this.webviewHost, mainWindow);
-			this.webview.setHtml(this.htmlFor(this.documentKey));
+			if (this.prewarmed) {
+				this.webview = this._register(this.prewarmed.webview);
+			} else {
+				this.webview = this._register(createBaseHalfMarkdownRichWebviewElement(this.webviewService, state.relativePath || state.resource.path));
+				this.webview.mountTo(this.webviewHost, mainWindow);
+				this.webview.setHtml(baseHalfMarkdownRichWebviewHtml(this.documentKey));
+			}
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
@@ -187,8 +243,19 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				}
 			}));
 
+			if (this.prewarmed) {
+				// The shell is already booted and inert; assigning its document
+				// key triggers the ordinary `ready` handshake and boot flow.
+				await this.webview.postMessage({ type: 'basehalf.markdownRich.adopt', key: this.documentKey });
+			}
+
 			await this.sendDocumentState(state);
 			this.updateStatus();
+
+			// open() resolves at the first meaningful frame: the webview acks
+			// `rendered` once the document is applied and painted. The timeout
+			// is a progress guarantee for a wedged webview, not a UI delay.
+			await Promise.race([this.firstRendered.p, timeout(10_000)]);
 		} catch (error) {
 			if (this.disposed) {
 				return;
@@ -199,12 +266,43 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
+		this.firstRendered.complete();
 		for (const pending of this.pendingFlushes.values()) {
 			mainWindow.clearTimeout(pending.timer);
 			pending.resolve(true);
 		}
 		this.pendingFlushes.clear();
 		super.dispose();
+	}
+
+	/**
+	 * Re-entry hook for a retained (hidden) surface becoming the visible
+	 * projection again: adopt the latest navigation state and re-reveal its
+	 * selection. Focus mirroring self-heals on the webview's next focus event.
+	 */
+	activate(state: IBaseHalfCardDetailState): void {
+		this.state = state;
+		if (state.selection) {
+			void this.bridge?.sendRevealSelection(state.selection);
+			this.writeSelectionFocus(state);
+		}
+	}
+
+	/**
+	 * While hidden, forwarding every text-model change into the webview would
+	 * run the external-merge path per keystroke typed in a sibling projection
+	 * of the same document. Hidden surfaces suspend forwarding and reconcile
+	 * once when they become visible again.
+	 */
+	setVisible(visible: boolean): void {
+		if (this.visible === visible) {
+			return;
+		}
+		this.visible = visible;
+		if (visible && this.pendingModelSync) {
+			this.pendingModelSync = false;
+			this.forwardModelContent();
+		}
 	}
 
 	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
@@ -257,6 +355,11 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		if (message.type === 'basehalf.markdownRich.ready') {
 			await bridge.handleWebviewMessage(message);
 			await this.sendDocumentState(state);
+			return;
+		}
+
+		if (message.type === 'basehalf.markdownRich.rendered') {
+			this.firstRendered.complete();
 			return;
 		}
 
@@ -466,12 +569,24 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private handleModelContentChanged(): void {
-		const model = this.model;
-		if (!model || this.writingTextModel) {
+		if (!this.model || this.writingTextModel) {
 			return;
 		}
 
 		this.updateStatus();
+		if (!this.visible) {
+			// Reconciled once in setVisible(true).
+			this.pendingModelSync = true;
+			return;
+		}
+		this.forwardModelContent();
+	}
+
+	private forwardModelContent(): void {
+		const model = this.model;
+		if (!model) {
+			return;
+		}
 		const content = model.getValue();
 		if (this.dirty || content === this.lastSentContent) {
 			return;
@@ -522,37 +637,32 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private renderError(error: unknown): void {
 		clearNode(this.webviewHost);
+		// The error notice is this surface's first meaningful frame; unblock
+		// the projection swap so the message becomes visible.
+		this.firstRendered.complete();
+
 		if (error instanceof TooLargeFileOperationError) {
+			this.renderNotice('The file is too large to open here.');
 			this.setSaveStatus('saved');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
+			this.renderNotice('The file is not displayed here because it is either binary or uses an unsupported text encoding.');
 			this.setSaveStatus('saved');
 			return;
 		}
 
-		this.setSaveStatus('saving');
+		this.logService.error('[BaseHalf] rich Markdown card detail failed to open', error);
+		this.renderNotice(`Unable to open the file. ${toErrorMessage(error)}`);
+		this.setSaveStatus('saved');
 	}
 
-	private htmlFor(key: string): string {
-		const nonce = generateUuid();
-		const script = asWebviewUri(markdownRichScript).toString(true);
-		const styles = asWebviewUri(markdownRichStyles).toString(true);
-		return `<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
-</head>
-<body>
-	<div id="root" data-basehalf-key="${escapeAttribute(encodeURIComponent(key))}"></div>
-	<script nonce="${nonce}" type="module" src="${script}"></script>
-</body>
-</html>`;
+	private renderNotice(message: string): void {
+		const notice = append(this.webviewHost, $('.basehalf-card-detail-source-notice'));
+		notice.textContent = message;
 	}
+
 }
 
 function escapeAttribute(value: string): string {

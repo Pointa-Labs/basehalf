@@ -50,7 +50,20 @@ export interface IBaseHalfMarkdownRichFileLink {
  *   collaboration provider attach point). Host code must never push replica
  *   state into a live editor outside that `ready` replay.
  */
+/**
+ * A prewarmed editor shell boots without a document key (the expensive part —
+ * webview process, bundle parse, editor construction — is document
+ * independent). It announces itself with `booted` under this sentinel key and
+ * stays inert until the host assigns its real document key via `adopt`, at
+ * which point it emits the ordinary `ready` and the standard boot flow runs.
+ */
+export const BASEHALF_MARKDOWN_RICH_WARMUP_KEY = 'basehalf.warmup';
+
 export type BaseHalfMarkdownRichHostMessage =
+	| {
+		readonly type: 'basehalf.markdownRich.adopt';
+		readonly key: string;
+	}
 	| {
 		readonly type: 'basehalf.markdownRich.init';
 		readonly key: string;
@@ -111,7 +124,20 @@ export type BaseHalfMarkdownRichHostMessage =
 
 export type BaseHalfMarkdownRichWebviewMessage =
 	| {
+		// A keyless prewarmed shell finished booting; sent under the warmup
+		// sentinel key since the shell has no document yet.
+		readonly type: 'basehalf.markdownRich.booted';
+		readonly key: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.ready';
+		readonly key: string;
+	}
+	| {
+		// First meaningful frame: the initial document content has been
+		// applied and painted. The host holds the projection swap on this,
+		// so a booting editor never becomes visible half-drawn.
+		readonly type: 'basehalf.markdownRich.rendered';
 		readonly key: string;
 	}
 	| {
@@ -181,6 +207,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 	}
 
 	switch (candidate.type) {
+		case 'basehalf.markdownRich.adopt':
+			return true;
 		case 'basehalf.markdownRich.init':
 			return typeof candidate.resource === 'string'
 				&& typeof candidate.content === 'string'
@@ -230,7 +258,9 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 	}
 
 	switch (candidate.type) {
+		case 'basehalf.markdownRich.booted':
 		case 'basehalf.markdownRich.ready':
+		case 'basehalf.markdownRich.rendered':
 			return true;
 		case 'basehalf.markdownRich.saveRequested':
 			return typeof candidate.requestId === 'string'

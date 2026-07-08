@@ -120,7 +120,7 @@ try {
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
-	await step('readme-rich-status-in-editor', () => assertMarkdownRichStatusInEditor(page));
+	await step('readme-rich-save-status-hidden', () => assertMarkdownRichSaveStatusHidden(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
 	// Runs while the document is untouched: block-to-line accounting is exact
 	// only for unedited blocks, and later steps type into this file.
@@ -147,6 +147,7 @@ try {
 	await step('quick-open-app-side', () => quickOpen(page, 'src/app.ts', 'Alt+Enter'));
 	await step('app-card-detail', () => assertCardDetail(page, 'app.ts'));
 	await step('app-no-editor-tab', () => assertNoEditorTabFor(page, 'app.ts'));
+	await step('source-card-save-action-hidden', () => assertSourceCardSaveActionHidden(page));
 	await step('source-card-detail-flush-on-navigation', () => assertSourceCardFlushesBeforeNavigation(page));
 	await step('readme-card-detail-after-flush', () => assertCardDetail(page, 'README.md'));
 	await step('readme-no-editor-tab-after-flush', () => assertNoEditorTabFor(page, 'README.md'));
@@ -207,7 +208,7 @@ try {
 			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
 			'card-detail-covers-scrolled-canvas',
-			'markdown-rich-status-in-editor',
+			'markdown-rich-save-status-hidden',
 			'markdown-rich-blockquote-editable',
 			'markdown-rich-block-menu-portal',
 			'markdown-rich-slash-menu-themed-portal',
@@ -220,6 +221,7 @@ try {
 			'initial-native-back-root-canvas',
 			'initial-native-forward-readme-card',
 			'quick-open-side-card-detail-no-tab',
+			'source-card-save-action-hidden',
 			'source-card-detail-flush-on-navigation',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
@@ -372,6 +374,13 @@ function createFixtureWorkspace(workspace) {
 	fs.mkdirSync(path.join(workspace, 'src'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, 'docs'), { recursive: true });
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror'), { recursive: true });
+	// Park the delay-based auto-save far beyond the test timeouts: with the
+	// product default (250ms) it would write the source-card marker on its
+	// own, making the flush-on-navigation step pass even with the navigation
+	// flush broken. The rich Markdown autosave has its own webview timer and
+	// is unaffected; it gets a dedicated disk assertion instead.
+	fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true });
+	fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({ 'files.autoSaveDelay': 3_600_000 }, null, '\t'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'README.md'), [
 		'# Smoke README',
 		'',
@@ -1181,6 +1190,10 @@ async function assertGitBranchCheckoutQuickPick(page) {
 async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'visible', timeout: 20_000 });
 	await page.locator('.basehalf-card-detail-title', { hasText: title }).waitFor({ state: 'visible', timeout: 20_000 });
+	// The projection surface must ACTIVATE via its first-frame signal. The
+	// bound must stay below the workbench's 10s wedged-boot fallback swap,
+	// or a broken rendered ack would still pass here.
+	await page.locator('.basehalf-card-detail-surface.active').waitFor({ state: 'visible', timeout: 8_000 });
 }
 
 // Workspace setup ran on open: the agent-protocol pointers exist on disk —
@@ -1732,6 +1745,10 @@ async function renameExplorerEntry(page, currentName, nextName) {
 			await input.fill(nextName);
 			await page.keyboard.press('Enter');
 			await input.waitFor({ state: 'hidden', timeout: 10_000 });
+			// The row click above routes into the file's card detail; leave
+			// the canvas visible again — the canvas renders on visibility, so
+			// callers asserting canvas content need the detail closed.
+			await closeCardDetailIfOpen(page);
 			return;
 		} catch (error) {
 			await page.keyboard.press('Escape').catch(() => undefined);
@@ -1741,6 +1758,16 @@ async function renameExplorerEntry(page, currentName, nextName) {
 			await page.waitForTimeout(250);
 		}
 	}
+}
+
+async function closeCardDetailIfOpen(page) {
+	const detail = page.locator('.basehalf-card-detail.visible');
+	const opened = await detail.waitFor({ state: 'visible', timeout: 2_000 }).then(() => true, () => false);
+	if (!opened) {
+		return;
+	}
+	await page.locator('.basehalf-card-detail-close').click();
+	await detail.waitFor({ state: 'hidden', timeout: 10_000 });
 }
 
 async function assertCanvasSnapGuides(page) {
@@ -1891,7 +1918,7 @@ async function assertCardDetailCoversCanvasViewport(page) {
 	}
 }
 
-async function assertMarkdownRichStatusInEditor(page) {
+async function assertMarkdownRichSaveStatusHidden(page) {
 	const toolbarCount = await page.locator('.basehalf-card-detail-markdown-rich-toolbar').count();
 	if (toolbarCount !== 0) {
 		throw new Error(`Markdown rich status should not create a toolbar, toolbarCount=${toolbarCount}`);
@@ -1905,26 +1932,25 @@ async function assertMarkdownRichStatusInEditor(page) {
 		throw new Error(`Markdown rich status should not render inside the editor, oldRichStatusCount=${oldRichStatusCount}`);
 	}
 
-	const status = page.locator('.basehalf-card-detail-save-status', { hasText: /^(Saving|Saved)$/ }).first();
-	await status.waitFor({ state: 'visible', timeout: 10_000 });
+	const status = page.locator('.basehalf-card-detail-save-status').first();
+	await status.waitFor({ state: 'attached', timeout: 10_000 });
 	const geometry = await status.evaluate(element => {
 		const rect = element.getBoundingClientRect();
-		const editor = element.closest('.basehalf-card-detail-markdown-rich')?.getBoundingClientRect();
-		const header = document.querySelector('.basehalf-card-detail-header')?.getBoundingClientRect();
-		const projections = document.querySelector('.basehalf-card-detail-projections.visible')?.getBoundingClientRect();
+		const style = getComputedStyle(element);
 		return {
 			saveState: element.getAttribute('data-save-state'),
-			text: element.textContent,
-			insideEditor: !!editor && rect.left >= editor.left && rect.right <= editor.right && rect.top >= editor.top && rect.bottom <= editor.bottom,
-			insideHeader: !!header && rect.top >= header.top && rect.bottom <= header.bottom,
-			leftOfProjectionButtons: !!projections && rect.right <= projections.left
+			text: element.textContent?.trim(),
+			ariaHidden: element.getAttribute('aria-hidden'),
+			display: style.display,
+			width: rect.width,
+			height: rect.height
 		};
 	});
-	if (geometry.insideEditor || !geometry.insideHeader || !geometry.leftOfProjectionButtons) {
-		throw new Error(`Markdown rich status is not anchored in the header before projection buttons: ${JSON.stringify(geometry)}`);
+	if (geometry.display !== 'none' || geometry.width !== 0 || geometry.height !== 0) {
+		throw new Error(`Markdown rich save status should be hidden: ${JSON.stringify(geometry)}`);
 	}
-	if (!['saved', 'saving'].includes(geometry.saveState ?? '') || !/^(Saving|Saved)$/.test(geometry.text ?? '')) {
-		throw new Error(`Markdown rich status has an unexpected state: ${JSON.stringify(geometry)}`);
+	if (geometry.saveState !== null || geometry.text !== '' || geometry.ariaHidden !== 'true') {
+		throw new Error(`Markdown rich save status should not expose ordinary save state: ${JSON.stringify(geometry)}`);
 	}
 }
 
@@ -2452,10 +2478,31 @@ async function assertSourceCardFlushesBeforeNavigation(page) {
 	await page.locator('.basehalf-card-detail-source-editor .monaco-editor').click();
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
 	await page.keyboard.insertText(`\n${marker}\n`);
-	await page.locator('.basehalf-card-detail-save-status', { hasText: /^Saving$/ }).waitFor({ state: 'visible', timeout: 10_000 });
+
+	// The fixture workspace parks delay-based auto-save beyond the test
+	// timeouts, so the ONLY thing that can put the marker on disk below is
+	// the flush-before-navigation gate this step exists to prove.
+	if (fs.readFileSync(appPath, 'utf8').includes(marker)) {
+		throw new Error('Marker reached disk before navigation — the fixture auto-save override is not in effect and this step cannot prove the navigation flush');
+	}
 
 	await quickOpen(page, 'README.md');
 	await waitUntil(() => fs.readFileSync(appPath, 'utf8').includes(marker), 'source card detail to flush before navigation');
+}
+
+async function assertSourceCardSaveActionHidden(page) {
+	await page.locator('.basehalf-card-detail-source-editor .monaco-editor').waitFor({ state: 'visible', timeout: 15_000 });
+	const sourceActionsCount = await page.locator('.basehalf-card-detail-source-actions').count();
+	if (sourceActionsCount !== 0) {
+		throw new Error(`Source card detail should not render a dedicated save actions container, count=${sourceActionsCount}`);
+	}
+
+	const saveButtonCount = await page.locator(
+		'.basehalf-card-detail-actions .basehalf-card-detail-source-save, .basehalf-card-detail-actions button[aria-label="Save"], .basehalf-card-detail-actions button[title="Save"]'
+	).count();
+	if (saveButtonCount !== 0) {
+		throw new Error(`Source card detail should not expose a manual Save button, count=${saveButtonCount}`);
+	}
 }
 
 async function assertFocusLine(relativePath, line) {

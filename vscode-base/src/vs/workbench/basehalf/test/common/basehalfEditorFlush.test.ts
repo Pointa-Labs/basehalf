@@ -26,7 +26,9 @@ suite('BaseHalfEditorFlushService', () => {
 		assert.deepStrictEqual(calls.length, 1);
 	});
 
-	test('only the latest pane flusher owns a pane id', async () => {
+	test('a pane flush drains every registered surface', async () => {
+		// The card detail retains one surface per projection of the open
+		// document, so several flushers can be live on one pane at once.
 		const service = new BaseHalfEditorFlushService();
 		let firstCalls = 0;
 		let secondCalls = 0;
@@ -39,14 +41,18 @@ suite('BaseHalfEditorFlushService', () => {
 			return true;
 		}));
 
+		assert.strictEqual(await service.flushPane('pane'), true);
+		assert.strictEqual(firstCalls, 1);
+		assert.strictEqual(secondCalls, 1);
+
 		first.dispose();
 		assert.strictEqual(await service.flushPane('pane'), true);
-		assert.strictEqual(firstCalls, 0);
-		assert.strictEqual(secondCalls, 1);
+		assert.strictEqual(firstCalls, 1);
+		assert.strictEqual(secondCalls, 2);
 
 		second.dispose();
 		assert.strictEqual(await service.flushPane('pane'), true);
-		assert.strictEqual(secondCalls, 1);
+		assert.strictEqual(secondCalls, 2);
 	});
 
 	test('flushes every mounted view for a document and reports blockers', async () => {

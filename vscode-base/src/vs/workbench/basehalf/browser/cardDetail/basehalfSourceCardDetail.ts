@@ -3,8 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, append, clearNode, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
+import { $, append, addDisposableListener, EventType } from '../../../../base/browser/dom.js';
 import { mainWindow } from '../../../../base/browser/window.js';
+import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { isEqual } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
@@ -26,8 +27,8 @@ import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEdi
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
 
+	private readonly root: HTMLElement;
 	private readonly editorHost: HTMLElement;
-	private readonly saveButton: HTMLButtonElement;
 
 	private editor: CodeEditorWidget | undefined;
 	private state: IBaseHalfCardDetailState | undefined;
@@ -48,8 +49,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	};
 	constructor(
 		private readonly container: HTMLElement,
-		private readonly actionsContainer: HTMLElement,
-		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
+		private readonly onSaveStatusChange: (status: 'saving' | 'saved' | 'error') => void,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
@@ -59,20 +59,11 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	) {
 		super();
 
-		clearNode(this.container);
-		clearNode(this.actionsContainer);
-		this.actionsContainer.classList.add('visible');
-		const root = append(this.container, $('.basehalf-card-detail-source'));
-		this.saveButton = append(this.actionsContainer, $('button.basehalf-card-detail-source-save.codicon.codicon-save')) as HTMLButtonElement;
-		this.saveButton.type = 'button';
-		this.saveButton.title = 'Save';
-		this.saveButton.setAttribute('aria-label', 'Save');
+		this.root = append(this.container, $('.basehalf-card-detail-source'));
+		const root = this.root;
 		this.editorHost = append(root, $('.basehalf-card-detail-source-editor'));
 		this.setSaveStatus('saving');
 
-		this._register(addDisposableListener(this.saveButton, EventType.CLICK, () => {
-			void this.save();
-		}));
 		this._register(addDisposableListener(root, EventType.KEY_DOWN, event => {
 			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
 				event.preventDefault();
@@ -113,7 +104,6 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		this.state = state;
 		this.resourceKey = state.resource.toString();
 		this.setSaveStatus('saving');
-		this.saveButton.disabled = true;
 
 		try {
 			const modelReference = await this.textModelService.createModelReference(state.resource);
@@ -137,7 +127,13 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.applySelection(state.selection, ScrollType.Immediate);
 			this.updateStatus();
 			this.flushFocusWrite();
-			mainWindow.requestAnimationFrame(() => this.layout());
+			// open() resolves at the first meaningful frame: wait for the
+			// layout pass so a projection swap held on this promise never
+			// reveals an unmeasured, unpainted editor.
+			await new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => {
+				this.layout();
+				resolve();
+			}));
 		} catch (error) {
 			if (this.disposed) {
 				return;
@@ -148,13 +144,30 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	override dispose(): void {
 		this.disposed = true;
-		clearNode(this.actionsContainer);
-		this.actionsContainer.classList.remove('visible');
 		if (this.focusTimer !== undefined) {
 			mainWindow.clearTimeout(this.focusTimer);
 			this.focusTimer = undefined;
 		}
 		super.dispose();
+	}
+
+	/**
+	 * Re-entry hook for a retained (hidden) surface becoming the visible
+	 * projection again: adopt the latest navigation state, re-measure, and
+	 * re-assert this projection in the focus mirror (the previous projection
+	 * owned it while this one was hidden).
+	 */
+	activate(state: IBaseHalfCardDetailState): void {
+		this.state = state;
+		this.layout();
+		this.applySelection(state.selection, ScrollType.Immediate);
+		this.lastFocusKey = undefined;
+		this.flushFocusWrite();
+	}
+
+	setVisible(_visible: boolean): void {
+		// Monaco tracks its text model natively and stays cheap while the
+		// layer is hidden; nothing to suspend.
 	}
 
 	applySelection(selection: ITextEditorSelection | undefined, scrollType: ScrollType = ScrollType.Smooth): void {
@@ -193,10 +206,17 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 		this.saving = true;
 		this.setSaveStatus('saving');
-		this.saveButton.disabled = true;
 		try {
 			const savedResource = await this.textFileService.save(resource);
 			if (!savedResource && this.textFileService.isDirty(resource)) {
+				this.saving = false;
+				this.updateStatus();
+				return false;
+			}
+			// A conflicted/erroring model never settles on its own (auto saves
+			// are skipped in these states), so fail fast instead of burning the
+			// settle timeout before refusing.
+			if (this.hasUnsavableState(resource)) {
 				this.saving = false;
 				this.updateStatus();
 				return false;
@@ -206,11 +226,16 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			this.updateStatus();
 			return clean;
 		} catch (error) {
+			this.logService.error('[BaseHalf] source card detail save failed', error);
 			this.saving = false;
-			this.setSaveStatus('saving');
-			this.saveButton.disabled = false;
+			this.setSaveStatus('error');
 			return false;
 		}
+	}
+
+	private hasUnsavableState(resource: URI): boolean {
+		const textFileModel = this.textFileService.files.get(resource);
+		return !!textFileModel && (textFileModel.hasState(TextFileEditorModelState.CONFLICT) || textFileModel.hasState(TextFileEditorModelState.ERROR));
 	}
 
 	private async waitForClean(resource: URI): Promise<boolean> {
@@ -243,40 +268,31 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		const resource = this.editor?.getModel()?.uri;
 		if (!resource) {
 			this.setSaveStatus('saving');
-			this.saveButton.disabled = true;
 			return;
 		}
 
 		if (this.isReadonly()) {
 			this.setSaveStatus('saved');
-			this.saveButton.disabled = true;
 			return;
 		}
 
 		if (this.saving) {
 			this.setSaveStatus('saving');
-			this.saveButton.disabled = true;
 			return;
 		}
 
-		const textFileModel = this.textFileService.files.get(resource);
-		if (textFileModel?.hasState(TextFileEditorModelState.CONFLICT)) {
-			this.setSaveStatus('saving');
-			this.saveButton.disabled = false;
-			return;
-		}
-
-		if (textFileModel?.hasState(TextFileEditorModelState.ERROR)) {
-			this.setSaveStatus('saving');
-			this.saveButton.disabled = false;
+		// CONFLICT/ERROR models skip all auto saves, so without a visible state
+		// the user would keep typing into a card that silently stopped
+		// persisting. Surface it and let the header indicator offer a retry.
+		if (this.hasUnsavableState(resource)) {
+			this.setSaveStatus('error');
 			return;
 		}
 
 		this.setSaveStatus(this.saving || this.textFileService.isDirty(resource) ? 'saving' : 'saved');
-		this.saveButton.disabled = false;
 	}
 
-	private setSaveStatus(status: 'saving' | 'saved'): void {
+	private setSaveStatus(status: 'saving' | 'saved' | 'error'): void {
 		this.onSaveStatusChange(status);
 	}
 
@@ -292,19 +308,27 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	private renderError(error: unknown): void {
 		this.editorHost.remove();
-		this.saveButton.disabled = true;
 
 		if (error instanceof TooLargeFileOperationError) {
+			this.renderNotice('The file is too large to open here.');
 			this.setSaveStatus('saved');
 			return;
 		}
 
 		if (TextFileOperationError.isTextFileOperationError(error) && error.textFileOperationResult === TextFileOperationResult.FILE_IS_BINARY) {
+			this.renderNotice('The file is not displayed here because it is either binary or uses an unsupported text encoding.');
 			this.setSaveStatus('saved');
 			return;
 		}
 
-		this.setSaveStatus('saving');
+		this.logService.error('[BaseHalf] source card detail failed to open', error);
+		this.renderNotice(`Unable to open the file. ${toErrorMessage(error)}`);
+		this.setSaveStatus('saved');
+	}
+
+	private renderNotice(message: string): void {
+		const notice = append(this.root, $('.basehalf-card-detail-source-notice'));
+		notice.textContent = message;
 	}
 
 	private registerLayoutObserver(): void {

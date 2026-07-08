@@ -1009,32 +1009,37 @@
 	flex: none;
 }
 
+/* Hidden while auto-save works; appears only as the "saving stopped
+   working" escape hatch (conflict/error), where clicking retries. */
 .monaco-workbench .basehalf-card-detail-save-status {
-	flex: none;
 	display: none;
+}
+
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"] {
+	flex: none;
+	display: inline-flex;
 	align-items: center;
-	justify-content: flex-start;
 	gap: 4px;
 	box-sizing: border-box;
-	width: 66px;
 	height: 22px;
-	padding: 0 4px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	pointer-events: none;
-	color: var(--vscode-descriptionForeground);
+	padding: 0 6px;
+	border: 0;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-editorWarning-foreground));
+	font-family: inherit;
 	font-size: 11px;
 	font-weight: 500;
 	line-height: 1;
-	opacity: 1;
-	transition:
-		opacity 180ms ease,
-		color 180ms ease;
+	white-space: nowrap;
+	cursor: pointer;
+	animation: basehalf-detail-save-status-fade-in 180ms ease;
 }
 
-.monaco-workbench .basehalf-card-detail-save-status[data-save-state] {
-	display: inline-flex;
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:hover,
+.monaco-workbench .basehalf-card-detail-save-status[data-save-state="error"]:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	outline: 1px solid var(--vscode-focusBorder);
 }
 
 .monaco-workbench .basehalf-card-detail-save-status-icon {
@@ -1047,36 +1052,6 @@
 	font-size: 12px;
 	line-height: 12px;
 	color: currentColor;
-}
-
-.monaco-workbench .basehalf-card-detail-save-status-label {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saved"] {
-	color: var(--vscode-descriptionForeground);
-	animation: basehalf-detail-save-status-fade-in 180ms ease;
-}
-
-.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saved"] .basehalf-card-detail-save-status-icon {
-	color: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
-}
-
-.monaco-workbench .basehalf-card-detail-save-status[data-save-state="saving"] {
-	color: var(--vscode-descriptionForeground);
-}
-
-.monaco-workbench .basehalf-card-detail-source-actions {
-	display: none;
-	align-items: center;
-	gap: 2px;
-}
-
-.monaco-workbench .basehalf-card-detail-source-actions.visible {
-	display: flex;
 }
 
 .monaco-workbench .basehalf-card-detail-projections {
@@ -1299,9 +1274,24 @@
 }
 
 .monaco-workbench .basehalf-card-detail-body {
+	position: relative;
 	flex: 1;
 	min-height: 0;
 	overflow: auto;
+}
+
+/* One retained layer per projection of the open document. A booting layer
+   stays hidden (visibility keeps layout and lets the webview/editor measure
+   and render) until its first meaningful frame, then the swap is atomic —
+   the previous projection remains visible until that moment. */
+.monaco-workbench .basehalf-card-detail-surface {
+	position: absolute;
+	inset: 0;
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-surface.active {
+	visibility: visible;
 }
 
 .monaco-workbench .basehalf-card-detail-status {
@@ -1318,30 +1308,17 @@
 	min-height: 0;
 }
 
-.monaco-workbench .basehalf-card-detail-source-save {
-	width: 26px;
-	height: 26px;
-	color: var(--vscode-icon-foreground);
-	background: transparent;
-	border: 0;
-	border-radius: 4px;
-	cursor: pointer;
-}
-
-.monaco-workbench .basehalf-card-detail-source-save:hover:not(:disabled),
-.monaco-workbench .basehalf-card-detail-source-save:focus-visible {
-	background-color: var(--vscode-toolbar-hoverBackground);
-	outline: 1px solid var(--vscode-focusBorder);
-}
-
-.monaco-workbench .basehalf-card-detail-source-save:disabled {
-	opacity: 0.45;
-	cursor: default;
-}
-
 .monaco-workbench .basehalf-card-detail-source-editor {
 	flex: 1;
 	min-height: 0;
+}
+
+.monaco-workbench .basehalf-card-detail-source-notice {
+	flex: none;
+	padding: 24px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 13px;
+	text-align: center;
 }
 
 .monaco-workbench .basehalf-card-detail-markdown-preview {

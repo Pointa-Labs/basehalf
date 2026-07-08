@@ -113,8 +113,11 @@ try {
 		const frame = await richFrameContaining(page, needles[name]);
 		await frame.locator('.bn-editor').first().click();
 		await page.keyboard.press('Meta+s');
-		await page.locator('.basehalf-card-detail-save-status', { hasText: /^Saved$/ }).waitFor({ state: 'visible', timeout: 15_000 });
-		await page.waitForTimeout(300);
+		// There is no visible save status (auto-save is the product surface),
+		// and a byte-identical serialize is a no-op that never touches disk —
+		// so wait until the file stays stable long enough for a late rewrite
+		// to have landed, instead of watching UI or mtime.
+		await waitForStableFile(path.join(workspacePath, name));
 
 		const after = fs.readFileSync(path.join(workspacePath, name));
 		const before = originals.get(name)!;
@@ -167,6 +170,30 @@ async function richFrameContaining(page: Awaited<ReturnType<typeof app.firstWind
 		await page.waitForTimeout(150);
 	}
 	throw new Error(`Rich editor frame containing "${needle}" was not ready`);
+}
+
+/**
+ * Waits until the file's bytes have not changed for `stableMs`. Every observed
+ * change resets the stability clock, so a late rewrite (the regression this
+ * script exists to catch) is always observed before the byte comparison runs.
+ */
+async function waitForStableFile(filePath: string, stableMs = 1_200, timeoutMs = 15_000): Promise<void> {
+	const started = Date.now();
+	let last = fs.readFileSync(filePath);
+	let stableSince = Date.now();
+	while (Date.now() - started < timeoutMs) {
+		await new Promise(resolve => setTimeout(resolve, 100));
+		const current = fs.readFileSync(filePath);
+		if (!current.equals(last)) {
+			last = current;
+			stableSince = Date.now();
+			continue;
+		}
+		if (Date.now() - stableSince >= stableMs) {
+			return;
+		}
+	}
+	throw new Error(`File ${filePath} kept changing for ${timeoutMs}ms after save`);
 }
 
 function firstDivergence(before: Buffer, after: Buffer): string {
