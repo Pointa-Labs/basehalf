@@ -63,23 +63,8 @@
 	position: absolute;
 	inset: 0;
 	z-index: 0;
-	overflow: auto;
+	overflow: hidden;
 	background-color: var(--bh-card-bg);
-	/* The grid must cover the whole scrollable extent, not just the initial
-	   viewport rectangle, so it lives on the scroll container itself with
-	   background-attachment: local. Keep it low-contrast like terminal pane
-	   chrome rather than a decorative wallpaper.
-	   The grid is canvas WORLD space, not screen space: --bh-grid-step is a
-	   world-unit step multiplied by the zoom and --bh-grid-x/y pin line 0 to
-	   the canvas origin (see updateCanvasGrid), so the grid scales and pans
-	   with the cards instead of crawling under them while zooming. The 1px
-	   line stays 1 screen pixel at any zoom. */
-	background-image:
-		linear-gradient(to right, rgb(255 255 255 / 2.8%) 1px, transparent 1px),
-		linear-gradient(to bottom, rgb(255 255 255 / 2.8%) 1px, transparent 1px);
-	background-size: var(--bh-grid-step, 32px) var(--bh-grid-step, 32px);
-	background-position: var(--bh-grid-x, 0px) var(--bh-grid-y, 0px);
-	background-attachment: local;
 	color: var(--vscode-foreground);
 }
 
@@ -88,8 +73,9 @@
 }
 
 .monaco-workbench .basehalf-canvas-chrome {
-	position: sticky;
-	top: calc(100% - var(--basehalf-canvas-zoom-bottom-offset));
+	position: absolute;
+	top: auto;
+	bottom: var(--basehalf-canvas-zoom-bottom-offset);
 	left: 0;
 	right: 0;
 	z-index: 3;
@@ -149,30 +135,45 @@
 }
 
 .monaco-workbench .basehalf-canvas-surface {
-	position: relative;
-	min-width: 100%;
-	min-height: calc(100% - var(--basehalf-canvas-chrome-height));
+	position: absolute;
+	inset: 0;
+	min-width: 0;
+	min-height: 0;
 }
 
 .monaco-workbench .basehalf-canvas-cards {
 	position: absolute;
-	top: 0;
-	left: 0;
-	transform-origin: 0 0;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
 }
 
-.monaco-workbench .basehalf-canvas-edges {
+/*
+ * The scene host is a keyboard-event sink, not a selectable canvas object.
+ * Keep it programmatically focusable without inheriting the workbench-wide
+ * full-surface outline; cards, edges, and controls own localized focus states.
+ */
+.monaco-workbench .basehalf-canvas-cards[tabindex="-1"]:focus {
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-card-host {
+	width: 100%;
+	height: 100%;
+}
+
+.monaco-workbench .basehalf-canvas-overlay {
 	position: absolute;
 	inset: 0;
-	z-index: 0;
-	overflow: visible;
+	z-index: 4;
 	pointer-events: none;
-	color: var(--bh-card-text-ghost);
 }
 
 .monaco-workbench .basehalf-canvas-edge-path {
 	fill: none;
-	stroke: currentColor;
+	stroke: var(--bh-card-text-ghost);
 	stroke-width: 1.5px;
 	stroke-linecap: round;
 	stroke-linejoin: round;
@@ -198,56 +199,43 @@
 	cursor: grabbing;
 }
 
-.monaco-workbench .basehalf-canvas-workbench.edge-reconnecting,
-.monaco-workbench .basehalf-canvas-workbench.edge-reconnecting * {
+body.basehalf-canvas-edge-reconnecting,
+body.basehalf-canvas-edge-reconnecting * {
 	cursor: grabbing !important;
 }
 
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card {
-	cursor: crosshair;
-}
-
-.monaco-workbench .basehalf-canvas-edge-arrow path {
-	fill: currentColor;
-}
-
-.monaco-workbench .basehalf-canvas-edge-label {
-	opacity: 0;
-	fill: var(--bh-card-text-secondary);
-	stroke: var(--bh-card-bg);
-	stroke-width: 4px;
-	paint-order: stroke;
-	font-size: 11px;
-	font-weight: 500;
-	pointer-events: none;
-}
-
-.monaco-workbench .basehalf-canvas-edge-label.hover,
-.monaco-workbench .basehalf-canvas-edge-label.selected {
-	opacity: 1;
-}
-
-.monaco-workbench .basehalf-canvas-edge-label.empty {
-	fill: var(--bh-card-text-tertiary);
-	font-style: italic;
-}
-
-.monaco-workbench .basehalf-canvas-connection-draft {
+.monaco-workbench .basehalf-canvas-flow-edge-label {
 	position: absolute;
-	inset: 0;
-	z-index: 3;
-	overflow: visible;
+	max-width: 240px;
+	padding: 2px 5px;
+	overflow: hidden;
+	color: var(--bh-card-text-secondary);
+	background: color-mix(in srgb, var(--bh-card-bg) 92%, transparent);
+	border: 0;
+	border-radius: 3px;
+	opacity: 0;
 	pointer-events: none;
-	color: var(--vscode-focusBorder);
+	font: 500 11px/16px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	transition: opacity 100ms ease;
 }
 
-.monaco-workbench .basehalf-canvas-connection-draft-path {
-	fill: none;
-	stroke: currentColor;
-	stroke-width: 2px;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-	stroke-dasharray: 6 4;
+.monaco-workbench .basehalf-canvas-flow-edge-label.active {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.monaco-workbench .basehalf-canvas-flow-edge-label:focus-visible {
+	opacity: 1;
+	pointer-events: auto;
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-flow-edge-label.empty {
+	color: var(--bh-card-text-tertiary);
+	font-style: italic;
 }
 
 .monaco-workbench .basehalf-canvas-snap-guides {
@@ -267,13 +255,13 @@
 }
 
 .monaco-workbench .basehalf-canvas-card {
-	position: absolute;
+	position: relative;
 	z-index: 1;
 	display: flex;
 	flex-direction: column;
 	box-sizing: border-box;
-	width: 300px;
-	height: 220px;
+	width: 100%;
+	height: 100%;
 	text-align: left;
 	color: var(--bh-card-text-primary);
 	background: var(--bh-card-surface);
@@ -301,8 +289,8 @@
 	outline: none;
 }
 
-.monaco-workbench .basehalf-canvas-card.dragging,
-.monaco-workbench .basehalf-canvas-card.resizing {
+.monaco-workbench .react-flow__node.dragging .basehalf-canvas-card,
+.monaco-workbench .react-flow__node.resizing .basehalf-canvas-card {
 	z-index: 2;
 	border-color: var(--bh-card-accent);
 	box-shadow: 0 10px 28px rgb(0 0 0 / 60%);
@@ -778,139 +766,99 @@
 
 	position: absolute;
 	z-index: 24;
+	/* React Flow derives an edge endpoint from the outer edge of the Handle
+	 * box. Keep that logical box at the card-side anchor and render the larger
+	 * affordance independently, otherwise the path floats one handle radius
+	 * away from the card whenever the affordance is hidden. */
+	width: 1px;
+	height: 1px;
+	border: 0;
+	background: transparent;
+	opacity: 0;
+	pointer-events: none;
+	cursor: crosshair;
+	transition: opacity 80ms ease;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle::before {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 50%;
 	width: 15px;
 	height: 15px;
 	box-sizing: border-box;
 	border: 2px solid var(--bh-card-text-tertiary);
 	border-radius: 50%;
 	background: var(--bh-card-surface);
-	opacity: 0;
-	pointer-events: none;
-	cursor: crosshair;
-	transition: opacity 80ms ease, transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
+	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
+	pointer-events: inherit;
+	transition: transform 80ms ease, border-color 80ms ease, background-color 80ms ease;
 }
 
-.monaco-workbench .basehalf-canvas-card-connect-handle.active {
+.monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
+.monaco-workbench .react-flow__node.selected > .basehalf-canvas-card-connect-handle,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingto {
 	opacity: 1;
-	--bh-connect-scale: 1.15;
-}
-
-.monaco-workbench .basehalf-canvas-workbench:not(.connecting) .basehalf-canvas-card-connect-handle.active {
 	pointer-events: auto;
 }
 
-.monaco-workbench .basehalf-canvas-card-connect-handle.active,
-.monaco-workbench .basehalf-canvas-card.connection-target .basehalf-canvas-card-connect-handle {
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingto,
+.monaco-workbench .basehalf-canvas-card-connect-handle.valid,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connection-target {
+	--bh-connect-scale: 1.15;
+}
+
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom::before,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connectingto::before,
+.monaco-workbench .basehalf-canvas-card-connect-handle.valid::before,
+.monaco-workbench .basehalf-canvas-card-connect-handle.connection-target::before {
 	border-color: var(--bh-card-accent-soft);
 	background: var(--bh-card-accent);
 }
 
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.north .basehalf-canvas-card-connect-handle.north,
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.east .basehalf-canvas-card-connect-handle.east,
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.south .basehalf-canvas-card-connect-handle.south,
-.monaco-workbench .basehalf-canvas-workbench.connecting .basehalf-canvas-card.connection-target.west .basehalf-canvas-card-connect-handle.west {
+.monaco-workbench .react-flow__node.connection-target > .basehalf-canvas-card-connect-handle.connection-target {
 	opacity: 1;
-	--bh-connect-scale: 1.15;
+	pointer-events: auto;
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.north {
 	top: 0;
 	left: 50%;
-	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
+	transform: translate(-50%, -50%);
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.east {
 	top: 50%;
 	right: 0;
-	transform: translate(50%, -50%) scale(var(--bh-connect-scale));
+	transform: translate(50%, -50%);
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.south {
 	bottom: 0;
 	left: 50%;
-	transform: translate(-50%, 50%) scale(var(--bh-connect-scale));
+	transform: translate(-50%, 50%);
 }
 
 .monaco-workbench .basehalf-canvas-card-connect-handle.west {
 	top: 50%;
 	left: 0;
-	transform: translate(-50%, -50%) scale(var(--bh-connect-scale));
+	transform: translate(-50%, -50%);
 }
 
-.monaco-workbench .basehalf-canvas-card-resize-handle {
-	position: absolute;
-	z-index: 23;
-	width: 12px;
-	height: 12px;
-	background: transparent;
-	border: 0;
-	opacity: 0;
-	pointer-events: none;
+.monaco-workbench .basehalf-canvas-node-resizer-line {
+	border-color: var(--bh-card-accent) !important;
 }
 
-.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-resize-handle,
-.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-resize-handle {
-	pointer-events: auto;
-}
-
-.monaco-workbench .basehalf-canvas-card[data-source-affordance]:not([data-source-affordance=""]) .basehalf-canvas-card-resize-handle {
-	pointer-events: none;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.north {
-	top: -6px;
-	left: 18px;
-	right: 18px;
-	width: auto;
-	cursor: ns-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.east {
-	top: 18px;
-	right: -6px;
-	bottom: 18px;
-	height: auto;
-	cursor: ew-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.south {
-	bottom: -6px;
-	left: 18px;
-	right: 18px;
-	width: auto;
-	cursor: ns-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.west {
-	top: 18px;
-	left: -6px;
-	bottom: 18px;
-	height: auto;
-	cursor: ew-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.north-east {
-	top: -6px;
-	right: -6px;
-	cursor: nesw-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.south-east {
-	right: -6px;
-	bottom: -6px;
-	cursor: nwse-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.south-west {
-	bottom: -6px;
-	left: -6px;
-	cursor: nesw-resize;
-}
-
-.monaco-workbench .basehalf-canvas-card-resize-handle.north-west {
-	top: -6px;
-	left: -6px;
-	cursor: nwse-resize;
+.monaco-workbench .basehalf-canvas-node-resizer-handle {
+	width: 8px !important;
+	height: 8px !important;
+	box-sizing: border-box;
+	background: var(--bh-card-surface) !important;
+	border: 1px solid var(--bh-card-accent) !important;
+	border-radius: 2px;
 }
 
 .monaco-workbench .basehalf-file-glyph {
@@ -953,7 +901,7 @@
 .monaco-workbench .basehalf-card-detail {
 	position: absolute;
 	inset: 0;
-	z-index: 3;
+	z-index: 10;
 	display: none;
 	flex-direction: column;
 	background-color: var(--vscode-editor-background);

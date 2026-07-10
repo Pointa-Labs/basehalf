@@ -5,7 +5,7 @@
 
 import './media/basehalfCanvasWorkbench.css';
 
-import { $, append, clearNode, Dimension } from '../../../base/browser/dom.js';
+import { $, append, clearNode } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
@@ -21,22 +21,13 @@ import { SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
-	BaseHalfCanvasAnchor,
-	BASEHALF_CANVAS_DEFAULT_HEIGHT,
-	BASEHALF_CANVAS_DEFAULT_WIDTH,
-	baseHalfCanvasEdgeLayouts,
-	baseHalfCanvasEdgePath,
-	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
-	BASEHALF_CANVAS_MIN_CARD_HEIGHT,
-	BASEHALF_CANVAS_MIN_CARD_WIDTH,
 	IBaseHalfCanvasBadgeMetadata,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
-	IBaseHalfCanvasItem,
-	IBaseHalfCanvasSize
+	IBaseHalfCanvasItem
 } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { IBaseHalfBadgeFile, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
@@ -49,24 +40,31 @@ import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdown
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
+import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import {
-	IBaseHalfCanvasSnapGuide,
-	IBaseHalfCanvasSnapRect,
-	snapBaseHalfCanvasResizeRect,
-	snapBaseHalfCanvasTranslateRect
-} from '../common/basehalfCanvasSnap.js';
+	IBaseHalfCanvasSceneConnection,
+	IBaseHalfCanvasSceneEdge,
+	IBaseHalfCanvasSceneGeometry,
+	IBaseHalfCanvasSceneReconnect,
+	IBaseHalfCanvasSceneViewport
+} from '../common/basehalfCanvasScene.js';
+import {
+	BaseHalfStructuralResourceOutcome,
+	baseHalfStructuralResourceOutcome,
+	IBaseHalfWorkspaceMutationCoordinator,
+	IBaseHalfWorkspaceMutationLease,
+	IBaseHalfWorkspaceMutationStamp,
+	IBaseHalfWorkspaceResourceMutationStamp
+} from '../common/basehalfWorkspaceMutation.js';
 
 type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
 	| { readonly kind: 'text' | 'code' | 'markdown' | 'media' | 'empty' | 'unavailable'; readonly text: string };
 type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
-type BaseHalfCanvasConnectionTarget = { readonly item: IBaseHalfCanvasItem; readonly anchor: BaseHalfCanvasAnchor };
 type BaseHalfCanvasCardLod = 'full' | 'mini';
-type BaseHalfCanvasResizeEdge = 'north' | 'east' | 'south' | 'west' | 'north-east' | 'south-east' | 'south-west' | 'north-west';
-type BaseHalfCanvasEdgeEndpoint = 'source' | 'target';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 interface IBaseHalfCardDetailSurface {
@@ -75,49 +73,19 @@ interface IBaseHalfCardDetailSurface {
 	readonly instance: BaseHalfSourceCardDetail | BaseHalfMarkdownRichCardDetail | BaseHalfMarkdownPreviewCardDetail;
 	readonly whenRendered: Promise<unknown>;
 }
-type BaseHalfCanvasZoomAnchor = { readonly clientX: number; readonly clientY: number; readonly focusWriteDelay?: number };
-type BaseHalfCanvasViewport = {
-	readonly left: number;
-	readonly top: number;
-	readonly right: number;
-	readonly bottom: number;
-	readonly width: number;
-	readonly height: number;
-	readonly centerX: number;
-	readonly centerY: number;
-};
-type BaseHalfCanvasCardDrag = {
-	readonly pointerId: number;
-	readonly card: HTMLElement;
-	readonly item: IBaseHalfCanvasItem;
-	readonly origin: IBaseHalfCanvasBounds;
-	readonly grab: { readonly x: number; readonly y: number };
-	latest: IBaseHalfCanvasBounds;
-	moved: boolean;
-};
-type BaseHalfCanvasResizeDrag = {
-	readonly pointerId: number;
-	readonly card: HTMLElement;
-	readonly item: IBaseHalfCanvasItem;
-	readonly edge: BaseHalfCanvasResizeEdge;
-	readonly origin: IBaseHalfCanvasBounds;
-	readonly startPoint: { readonly x: number; readonly y: number };
-	latest: IBaseHalfCanvasBounds;
-	moved: boolean;
-};
-const CANVAS_CARD_ANCHORS: readonly BaseHalfCanvasAnchor[] = ['north', 'east', 'south', 'west'];
-const CANVAS_CARD_RESIZE_EDGES: readonly BaseHalfCanvasResizeEdge[] = ['north', 'east', 'south', 'west', 'north-east', 'south-east', 'south-west', 'north-west'];
+interface IBaseHalfCanvasMutationGuard {
+	readonly workspaceKey: string;
+	run<T>(task: (lease: IBaseHalfWorkspaceMutationLease) => Promise<T>, relatedStamps?: readonly IBaseHalfWorkspaceResourceMutationStamp[]): Promise<T>;
+}
+interface IBaseHalfStampedReferenceCandidate {
+	readonly candidate: IBaseHalfCanvasItem;
+	readonly stamp: IBaseHalfWorkspaceResourceMutationStamp;
+}
 const CARD_LOD_MIN_HEIGHT_PX = 150;
 const CARD_LOD_MIN_ZOOM = 0.5;
 const MINI_LABEL_MIN_FLOW_PX = 12;
 const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
-const CANVAS_CONNECTION_EDGE_THRESHOLD = 22;
-const CANVAS_CONNECTION_CORNER_GUARD = 18;
-const CANVAS_CONNECTION_TARGET_HIT_DEPTH = 48;
-const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
-const CANVAS_FRAME_PADDING_PX = 96;
-const CANVAS_GRID_BASE_WORLD_PX = 32;
 class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.basehalf.canvasWorkbench';
 
@@ -129,7 +97,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly zoomValue: HTMLElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
-	private snapGuides: SVGSVGElement | undefined;
+	private readonly canvasOverlay: HTMLElement;
+	private readonly canvasScene: BaseHalfCanvasReactScene;
 	private readonly detail: HTMLElement;
 	private readonly detailTitle: HTMLElement;
 	private readonly detailMeta: HTMLElement;
@@ -142,69 +111,46 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
-	private readonly connectionDragListeners = this._register(new DisposableStore());
-	private readonly edgeReconnectListeners = this._register(new DisposableStore());
 
 	private renderSeq = 0;
 	private backgroundRenderTimer: number | undefined;
-	private activeCardDrag: BaseHalfCanvasCardDrag | undefined;
-	private activeConnectionDrag: {
-		readonly pointerId: number;
-		readonly source: IBaseHalfCanvasItem;
-		readonly sourceBounds: IBaseHalfCanvasBounds;
-		readonly sourceAnchor: BaseHalfCanvasAnchor;
-		readonly handle: HTMLElement;
-		readonly svg: SVGSVGElement;
-		readonly path: SVGPathElement;
-		target?: BaseHalfCanvasConnectionTarget;
-	} | undefined;
-	private activeResizeDrag: BaseHalfCanvasResizeDrag | undefined;
-	private activeEdgeReconnect: {
-		readonly pointerId: number;
-		readonly edge: IBaseHalfCanvasEdge;
-		readonly endpoint: BaseHalfCanvasEdgeEndpoint;
-		readonly startClientX: number;
-		readonly startClientY: number;
-		readonly hitPath: SVGPathElement;
-		readonly staticPath: SVGPathElement;
-		readonly previewPath: SVGPathElement;
-		readonly sourceBounds: IBaseHalfCanvasBounds;
-		readonly targetBounds: IBaseHalfCanvasBounds;
-		started: boolean;
-		target?: BaseHalfCanvasConnectionTarget;
-	} | undefined;
-	private selectedCardPath: string | undefined;
-	private selectedEdgeId: string | undefined;
-	private selectedEdge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'> | undefined;
-	private suppressNextCardClickForPath: string | undefined;
-	private suppressNextCardClickTimer: number | undefined;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
-	private readonly badgeDescriptionPending = new Map<string, { readonly node: IBaseHalfBadgeNode; readonly value: string }>();
+	private readonly badgeDescriptionPending = new Map<string, {
+		readonly node: IBaseHalfBadgeNode;
+		readonly guard: IBaseHalfCanvasMutationGuard;
+		value: string;
+		delayReleased: boolean;
+		readonly delay: Promise<void>;
+		readonly releaseDelay: () => void;
+	}>();
+	private readonly pendingCanvasWarnings: string[] = [];
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
 	private readonly detailBadgeDisposables: DisposableStore;
 	private detailBadgeSeq = 0;
 	private detailBadgeOpen = false;
 	private detailBadgeResourceKey: string | undefined;
+	private detailResourceMutationStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private readonly expandedInboundBadges = new Set<string>();
 	private readonly openBadgeFaces = new Set<string>();
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
-	private renderedBoundsByPath = new Map<string, IBaseHalfCanvasBounds>();
 	private readonly richWebviewWarmup: BaseHalfMarkdownRichWebviewWarmup;
 	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
 	private detailSurfaceResourceKey: string | undefined;
 	private activeDetailProjection: BaseHalfCardDetailProjection | undefined;
 	private detailSwapSeq = 0;
+	private detailIdentityReconcileSeq = 0;
+	private detailIdentityPendingResourceKey: string | undefined;
 	private folderFocusTimer: number | undefined;
+	private pendingFolderFocusWrite: {
+		readonly folder: IBaseHalfCanvasFolderState;
+		readonly sceneKey: string;
+		readonly structuralStamp: IBaseHalfWorkspaceMutationStamp;
+		readonly fields: { readonly viewport_center: { readonly x: number; readonly y: number }; readonly zoom: number };
+	} | undefined;
 	private lastFolderFocusKey: string | undefined;
 	private restoredFolderFocusKey: string | undefined;
-	private canvasScrollBeforeDetail: { readonly left: number; readonly top: number } | undefined;
 	private canvasZoom = 1;
-	private canvasFrameInset = { x: 0, y: 0 };
-	private dragAutoPan: { frame: number | undefined; clientX: number; clientY: number } | undefined;
 	private renderQueuedBehindGesture = false;
-	private wheelZoomAnimationFrame: number | undefined;
-	private pendingWheelZoomFactor = 1;
-	private pendingWheelZoomAnchor: BaseHalfCanvasZoomAnchor | undefined;
 	private disposed = false;
 
 	constructor(
@@ -218,6 +164,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasMirrorService private readonly canvasMirrorService: IBaseHalfCanvasMirrorService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
@@ -234,8 +181,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.classList.add('basehalf-canvas-host');
 		this.root = $('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
-		// Focusable (not tabbable): edge selection must be able to park keyboard
-		// focus here or Delete/Backspace can never reach the edge-removal handler.
+		// Focusable (not tabbable) for canvas keyboard shortcuts. Edge deletion is
+		// scoped more narrowly to the React Flow scene host.
 		this.root.tabIndex = -1;
 
 		this.chrome = append(this.root, $('.basehalf-canvas-chrome'));
@@ -246,6 +193,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.zoomIn = this.createZoomButton(zoomControls, 'Zoom In', 'codicon-add', () => this.zoomBy(1));
 		this.surface = append(this.root, $('.basehalf-canvas-surface'));
 		this.cards = append(this.surface, $('.basehalf-canvas-cards'));
+		this.canvasOverlay = append(this.surface, $('.basehalf-canvas-overlay'));
+		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
+			commitGeometry: (sceneKey, structuralEpoch, geometries) => this.commitSceneGeometry(sceneKey, structuralEpoch, geometries),
+			connect: (sceneKey, structuralEpoch, connection) => this.connectSceneEdge(sceneKey, structuralEpoch, connection),
+			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
+			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
+			editEdgeLabel: (sceneKey, structuralEpoch, edge) => this.editSceneEdgeLabel(sceneKey, structuralEpoch, edge),
+			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
+			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
+			didEndInteraction: () => this.flushRenderQueuedBehindGesture(),
+			reportError: error => {
+				this.logService.error(error instanceof Error ? error : String(error));
+				this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+				this.requestRender();
+			}
+		}));
 
 		this.detail = append(this.root, $('.basehalf-card-detail'));
 		const detailHeader = append(this.detail, $('.basehalf-card-detail-header'));
@@ -275,7 +238,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.editorContainer.prepend(this.root);
 
-		this._register(this.canvasNavigationService.onDidChangeState(() => this.render()));
+		this._register(this.canvasNavigationService.onDidChangeState(() => this.requestRender()));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
 			if (!folder) {
@@ -293,44 +256,45 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.editorService.onDidActiveEditorChange(() => this.reconcileActiveEditor()));
 		this._register(this.addDisposableListener(this.root, 'keydown', event => {
 			if (event.key === 'Escape') {
-				if (this.cancelActiveConnectionGesture()) {
-					event.preventDefault();
-					event.stopPropagation();
-					return;
-				}
 				void this.canvasNavigationService.closeCardDetail();
-				return;
-			}
-			if ((event.key === 'Delete' || event.key === 'Backspace') && this.selectedEdgeId) {
-				event.preventDefault();
-				void this.removeSelectedEdge();
 				return;
 			}
 			this.onCanvasKeyDown(event);
 		}));
-		this._register(this.addDisposableListener(this.root, 'wheel', event => this.onCanvasWheel(event)));
-		this._register(this.addDisposableListener(this.root, 'scroll', () => this.scheduleFolderFocusWrite()));
 		this._register(toDisposable(() => {
 			if (this.folderFocusTimer !== undefined) {
 				mainWindow.clearTimeout(this.folderFocusTimer);
 				this.folderFocusTimer = undefined;
 			}
-			if (this.wheelZoomAnimationFrame !== undefined) {
-				mainWindow.cancelAnimationFrame(this.wheelZoomAnimationFrame);
-				this.wheelZoomAnimationFrame = undefined;
-			}
-			this.stopDragAutoPan();
-			this.clearSuppressedCardClick();
 			for (const timer of this.badgeDescriptionTimers.values()) {
 				mainWindow.clearTimeout(timer);
+			}
+			for (const pending of this.badgeDescriptionPending.values()) {
+				pending.releaseDelay();
 			}
 			this.badgeDescriptionTimers.clear();
 			this.badgeDescriptionPending.clear();
 		}));
 
 		this.updateCanvasLayer();
-		this.applyCanvasZoom();
-		void this.render();
+		this.updateCanvasZoomChrome();
+		this._register(this.workspaceMutationCoordinator.onDidFinishStructuralMutation(outcome => {
+			let detailReconciliation: Promise<void> | undefined;
+			const detail = this.canvasNavigationService.state.cardDetail;
+			if (detail) {
+				const effect = baseHalfStructuralResourceOutcome(outcome, detail.workspaceFolder, detail.relativePath, detail.resource);
+				if (effect.kind !== 'none') {
+					detailReconciliation = this.reconcileRetainedDetailIdentity(detail, effect);
+					outcome.waitUntil(detailReconciliation);
+				}
+			}
+			if (outcome.workspaces.some(workspace => this.getCurrentFolder()?.workspaceFolder.toString() === workspace.toString())) {
+				this.requestRender();
+			}
+			void detailReconciliation?.catch(error => this.logService.error(error));
+		}));
+		this._register(this.workspaceMutationCoordinator.onDidChangeResourceMutationFence(() => this.syncDetailMutationFence()));
+		this.requestRender();
 	}
 
 	override dispose(): void {
@@ -366,7 +330,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.renderDetailBadge(cardDetail);
 				return;
 			}
-			void this.render();
+			this.requestRender();
 		}, 100);
 	}
 
@@ -380,34 +344,45 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
+	private requestRender(): void {
+		void this.render().catch(error => {
+			if (this.disposed) {
+				return;
+			}
+			this.logService.error(error);
+			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+		});
+	}
+
 	private async render(): Promise<void> {
 		if (this.disposed) {
 			return;
 		}
+		// Card detail is navigation state, not scene data. It must react even if a
+		// pointer gesture is still winding down on the canvas underneath.
+		this.renderDetail();
 
-		// Re-rendering replaces every card element; doing that while a card is being
-		// dragged or resized detaches the gesture from the DOM. Defer until it ends.
-		if (this.activeCardDrag || this.activeResizeDrag) {
-			this.renderQueuedBehindGesture = true;
+		// External file/mirror changes may arrive during a live scene transaction.
+		// Reconcile after the gesture so a stale disk snapshot cannot overwrite the
+		// controlled React Flow geometry under the pointer.
+		if (this.deferRenderForSceneInteraction()) {
 			return;
 		}
 		this.renderQueuedBehindGesture = false;
 
-		// The card detail depends only on navigation state — render it FIRST,
-		// so opening a card starts the projection surface boot immediately
-		// instead of behind the canvas data pipeline (folder resolve, badge
-		// walk, preview reads) below.
-		this.renderDetail();
-
 		const seq = ++this.renderSeq;
-		this.clearSnapGuides();
+		clearNode(this.canvasOverlay);
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
 			this.renderedItemsByPath = new Map();
-			this.renderedBoundsByPath = new Map();
-			clearNode(this.cards);
+			this.cardListeners.clear();
+			this.canvasScene.update({ key: 'no-folder', structuralEpoch: 0, revision: seq, cards: [], edges: [] });
 			this.renderEmpty('No folder');
+			return;
+		}
+		const structuralStamp = this.workspaceMutationCoordinator.capture(folder.workspaceFolder);
+		if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 			return;
 		}
 
@@ -418,9 +393,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (!this.isRenderCurrent(seq)) {
 				return;
 			}
+			if (this.deferRenderForSceneInteraction()) {
+				return;
+			}
 			this.renderedItemsByPath = new Map();
-			this.renderedBoundsByPath = new Map();
-			clearNode(this.cards);
+			this.cardListeners.clear();
+			if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+				return;
+			}
+			this.canvasScene.update({ key: this.sceneKey(folder), structuralEpoch: structuralStamp.structuralEpoch, revision: seq, cards: [], edges: [] });
 			this.renderEmpty(error instanceof Error ? error.message : String(error));
 			return;
 		}
@@ -468,28 +449,50 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (!this.isRenderCurrent(seq)) {
 			return;
 		}
+		if (this.deferRenderForSceneInteraction()) {
+			return;
+		}
+		if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
+			return;
+		}
 
 		this.renderedBadges = badgeRead.badges;
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
-		this.renderedBoundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
-		clearNode(this.cards);
 		this.cardListeners.clear();
+		const sceneCards = items.map((item, index) => {
+			const bounds = baseHalfCanvasItemBounds(item, index, items.length);
+			return {
+				path: item.path,
+				kind: item.kind,
+				...bounds,
+				element: this.createCard(item, index, items.length, previews.get(item.path), structuralStamp)
+			};
+		});
+		const sceneEdges = model.edges.map(edge => {
+			const from = this.renderedItemsByPath.get(edge.from);
+			const to = this.renderedItemsByPath.get(edge.to);
+			if (!from || !to) {
+				throw new Error(`Canvas edge endpoints are not part of the rendered scene: ${edge.from} -> ${edge.to}`);
+			}
+			return {
+				...edge,
+				id: edgeId(edge.from, edge.to),
+				fromKind: from.kind,
+				toKind: to.kind
+			};
+		});
+		this.canvasScene.update({
+			key: this.sceneKey(folder),
+			structuralEpoch: structuralStamp.structuralEpoch,
+			revision: seq,
+			cards: sceneCards,
+			edges: sceneEdges
+		});
 		if (items.length === 0) {
 			this.renderEmpty('No files');
 		} else {
-			const size = this.canvasSize(items, model.size);
-			const layoutResult = this.renderEdges(model.edges, items, size);
-			for (let i = 0; i < items.length; i++) {
-				this.renderCard(items[i], i, items.length, previews.get(items[i].path));
-			}
 			if (model.truncated > 0) {
 				this.renderTruncated(model.truncated);
-			}
-			this.cards.style.width = `${size.width}px`;
-			this.cards.style.height = `${size.height}px`;
-			this.updateCanvasExtent(size);
-			if (layoutResult.dropped > 0) {
-				this.renderCanvasWarning(`${layoutResult.dropped} hidden connection${layoutResult.dropped === 1 ? '' : 's'}`);
 			}
 		}
 		if (canvasWarning) {
@@ -498,8 +501,280 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		if (badgeWarning) {
 			this.renderCanvasWarning(badgeWarning);
 		}
+		for (const warning of this.pendingCanvasWarnings.splice(0)) {
+			this.renderCanvasWarning(warning);
+		}
 
 		this.restoreOrWriteFolderFocus(folder, seq);
+	}
+
+	private sceneKey(folder: IBaseHalfCanvasFolderState): string {
+		return `${folder.workspaceFolder.toString()}::${folder.relativePath}`;
+	}
+
+	private isCurrentSceneKey(sceneKey: string): boolean {
+		const folder = this.getCurrentFolder();
+		return !!folder && this.sceneKey(folder) === sceneKey;
+	}
+
+	private folderForSceneMutation(sceneKey: string): IBaseHalfCanvasFolderState {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== sceneKey) {
+			throw new Error('The canvas changed before this interaction completed.');
+		}
+		return folder;
+	}
+
+	private sceneMutationStamp(folder: IBaseHalfCanvasFolderState, structuralEpoch: number): IBaseHalfWorkspaceMutationStamp {
+		return { workspaceKey: folder.workspaceFolder.toString(), structuralEpoch };
+	}
+
+	private sceneMutationGuard(workspaceFolder: URI, stamp: IBaseHalfWorkspaceMutationStamp): IBaseHalfCanvasMutationGuard {
+		return {
+			workspaceKey: workspaceFolder.toString(),
+			run: task => this.workspaceMutationCoordinator.runSceneMutation(workspaceFolder, stamp, task)
+		};
+	}
+
+	private resourceMutationGuard(workspaceFolder: URI, stamp: IBaseHalfWorkspaceResourceMutationStamp): IBaseHalfCanvasMutationGuard {
+		return {
+			workspaceKey: workspaceFolder.toString(),
+			run: (task, relatedStamps = []) => this.workspaceMutationCoordinator.runResourceMutation(workspaceFolder, [stamp, ...relatedStamps], task)
+		};
+	}
+
+	private async resolveLiveCanvasNodes(
+		sceneKey: string,
+		folder: IBaseHalfCanvasFolderState,
+		nodes: readonly { readonly path: string; readonly kind: IBaseHalfCanvasItem['kind'] }[]
+	): Promise<ReadonlyMap<string, IBaseHalfBadgeNode>> {
+		const prefix = folder.relativePath ? `${folder.relativePath}/` : '';
+		for (const node of nodes) {
+			const child = prefix ? node.path.startsWith(prefix) ? node.path.slice(prefix.length) : '' : node.path;
+			if (!child || child.includes('/')) {
+				throw new Error(`Canvas node is no longer a direct child of this folder: ${node.path}`);
+			}
+		}
+		const live = await this.resolveLiveWorkspaceNodes(folder.workspaceFolder, nodes);
+		this.folderForSceneMutation(sceneKey);
+		return live;
+	}
+
+	private async resolveLiveWorkspaceNodes(
+		workspaceFolder: URI,
+		nodes: readonly { readonly path: string; readonly kind: IBaseHalfCanvasItem['kind'] }[]
+	): Promise<ReadonlyMap<string, IBaseHalfBadgeNode>> {
+		const live = new Map<string, IBaseHalfBadgeNode>();
+		for (const node of nodes) {
+			const resource = joinPath(workspaceFolder, ...node.path.split('/'));
+			const stat = await this.fileService.stat(resource);
+			if (node.kind === 'folder' ? !stat.isDirectory : !stat.isFile) {
+				throw new Error(`Canvas node kind changed before the interaction completed: ${node.path}`);
+			}
+			live.set(node.path, {
+				resource,
+				workspaceFolder,
+				relativePath: node.path,
+				kind: node.kind
+			});
+		}
+		return live;
+	}
+
+	private async commitSceneGeometry(sceneKey: string, structuralEpoch: number, geometries: readonly IBaseHalfCanvasSceneGeometry[]): Promise<void> {
+		if (geometries.length === 0) {
+			return;
+		}
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		await this.workspaceMutationCoordinator.runSceneMutation(
+			queuedFolder.workspaceFolder,
+			this.sceneMutationStamp(queuedFolder, structuralEpoch),
+			async lease => {
+				const folder = this.folderForSceneMutation(sceneKey);
+				await this.resolveLiveCanvasNodes(sceneKey, folder, geometries);
+				await this.canvasMirrorService.updateCardGeometries(folder, geometries.map(geometry => ({
+					path: geometry.path,
+					kind: geometry.kind,
+					x: geometry.x,
+					y: geometry.y,
+					width: geometry.width,
+					height: geometry.height
+				})), lease);
+			}
+		);
+		this.requestRender();
+	}
+
+	private async connectSceneEdge(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void> {
+		if (connection.from === connection.to) {
+			return;
+		}
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		await this.workspaceMutationCoordinator.runSceneMutation(
+			queuedFolder.workspaceFolder,
+			this.sceneMutationStamp(queuedFolder, structuralEpoch),
+			async lease => {
+				const folder = this.folderForSceneMutation(sceneKey);
+				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
+					{ path: connection.from, kind: connection.fromKind },
+					{ path: connection.to, kind: connection.toKind }
+				]);
+				const edge: IBaseHalfCanvasEdge = {
+					from: connection.from,
+					from_anchor: connection.fromAnchor,
+					to: connection.to,
+					to_anchor: connection.toAnchor
+				};
+				await this.badgeGraphService.addReference(live.get(edge.from)!, live.get(edge.to)!, lease);
+				try {
+					await this.canvasMirrorService.upsertCanvasEdge(folder, edge, lease);
+				} catch (error) {
+					// The semantic reference already landed, so the edge still exists and
+					// will render with default anchors. Styling failure is recoverable.
+					this.logService.warn(error);
+					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+				}
+			}
+		);
+		this.requestRender();
+	}
+
+	private async reconnectSceneEdge(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void> {
+		const { previous, next: connection } = intent;
+		if (connection.from === connection.to) {
+			return;
+		}
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		await this.workspaceMutationCoordinator.runSceneMutation(
+			queuedFolder.workspaceFolder,
+			this.sceneMutationStamp(queuedFolder, structuralEpoch),
+			async lease => {
+				const folder = this.folderForSceneMutation(sceneKey);
+				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
+					{ path: previous.from, kind: previous.fromKind },
+					{ path: previous.to, kind: previous.toKind },
+					{ path: connection.from, kind: connection.fromKind },
+					{ path: connection.to, kind: connection.toKind }
+				]);
+				const next: IBaseHalfCanvasEdge = {
+					from: connection.from,
+					from_anchor: connection.fromAnchor,
+					to: connection.to,
+					to_anchor: connection.toAnchor,
+					...(previous.label !== undefined ? { label: previous.label } : {})
+				};
+					const endpointsChanged = previous.from !== next.from || previous.to !== next.to;
+					if (endpointsChanged) {
+						const semanticResult = await this.badgeGraphService.reconnectReference(
+							live.get(previous.from)!,
+						live.get(previous.to)!,
+						live.get(next.from)!,
+						live.get(next.to)!,
+							lease
+						);
+						if (semanticResult === 'already-connected') {
+							return;
+						}
+				}
+				try {
+					await this.canvasMirrorService.reconnectCanvasEdge(folder, previous, next, lease);
+				} catch (error) {
+					this.logService.warn(error);
+					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+				}
+			}
+		);
+		this.requestRender();
+	}
+
+	private async removeEdgeFromScene(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		await this.workspaceMutationCoordinator.runSceneMutation(
+			queuedFolder.workspaceFolder,
+			this.sceneMutationStamp(queuedFolder, structuralEpoch),
+			async lease => {
+				const folder = this.folderForSceneMutation(sceneKey);
+				const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
+					{ path: edge.from, kind: edge.fromKind },
+					{ path: edge.to, kind: edge.toKind }
+				]);
+				await this.badgeGraphService.removeReference(live.get(edge.from)!, live.get(edge.to)!, lease);
+				try {
+					await this.canvasMirrorService.removeCanvasEdge(folder, edge, lease);
+				} catch (error) {
+					this.logService.warn(error);
+					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+				}
+			}
+		);
+		this.requestRender();
+	}
+
+	private async editSceneEdgeLabel(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
+		const queuedFolder = this.folderForSceneMutation(sceneKey);
+		const next = await this.quickInputService.input({
+			title: 'Reference note',
+			placeHolder: 'Say why these connect',
+			value: edge.label ?? ''
+		});
+		if (next === undefined) {
+			return;
+		}
+		await this.workspaceMutationCoordinator.runSceneMutation(
+			queuedFolder.workspaceFolder,
+			this.sceneMutationStamp(queuedFolder, structuralEpoch),
+			async lease => {
+				const folder = this.folderForSceneMutation(sceneKey);
+					const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
+						{ path: edge.from, kind: edge.fromKind },
+						{ path: edge.to, kind: edge.toKind }
+					]);
+					const label = next.trim() || undefined;
+					await this.badgeGraphService.runWithReference(live.get(edge.from)!, live.get(edge.to)!, async () => {
+						if (label === undefined) {
+							// Clearing a derived edge with no style is intentionally a no-op.
+							await this.canvasMirrorService.setCanvasEdgeLabel(folder, edge, undefined, lease);
+							return;
+						}
+						// A derived edge has no canvas row yet. Materialize its complete style
+						// from the scene anchors instead of silently mapping over an empty list.
+						await this.canvasMirrorService.upsertCanvasEdge(folder, {
+							from: edge.from,
+							from_anchor: edge.from_anchor,
+							to: edge.to,
+							to_anchor: edge.to_anchor,
+							label
+						}, lease);
+					}, lease);
+			}
+		);
+		this.requestRender();
+	}
+
+	private openSceneCard(sceneKey: string, structuralEpoch: number, path: string): void {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+			return;
+		}
+		const item = this.renderedItemsByPath.get(path);
+		if (item) {
+			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
+		}
+	}
+
+	private onSceneViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void {
+		if (!this.isCurrentSceneKey(sceneKey)) {
+			return;
+		}
+		this.canvasZoom = viewport.zoom;
+		this.updateCanvasZoomChrome();
+		if (final) {
+			const folder = this.getCurrentFolder();
+			if (folder) {
+				this.scheduleFolderFocusWrite(200, { folder, viewport });
+			}
+		}
 	}
 
 	private isRenderCurrent(seq: number): boolean {
@@ -606,18 +881,22 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.classList.toggle('basehalf-canvas-on-top', this.editorService.visibleEditors.length === 0);
 	}
 
-	private renderCard(item: IBaseHalfCanvasItem, index: number, total: number, preview: BaseHalfCanvasCardPreview | undefined): void {
+	private createCard(
+		item: IBaseHalfCanvasItem,
+		index: number,
+		total: number,
+		preview: BaseHalfCanvasCardPreview | undefined,
+		structuralStamp: IBaseHalfWorkspaceMutationStamp
+	): HTMLElement {
 		const bounds = baseHalfCanvasItemBounds(item, index, total);
-		const card = append(this.cards, $('.basehalf-canvas-card'));
+		const card = $('.basehalf-canvas-card');
 		card.tabIndex = 0;
 		card.setAttribute('role', 'button');
 		card.dataset.basehalfCardPath = item.path;
 		card.dataset.cardHeight = String(bounds.height);
 		card.dataset.lod = this.cardLod(bounds);
 		card.classList.add(item.kind);
-		card.classList.toggle('selected', this.selectedCardPath === item.path);
 		card.classList.toggle('badge-open', this.openBadgeFaces.has(item.path));
-		this.applyCardBounds(card, bounds);
 		card.setAttribute('aria-label', `${item.name} card`);
 		card.title = item.kind === 'folder'
 			? `${item.path} - click to select; double-click to enter this folder`
@@ -646,6 +925,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
 		if (canShowBadgeFace) {
 			const badgeToggle = append(titleRow, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
+			badgeToggle.classList.add('nodrag', 'nopan', 'nowheel');
 			badgeToggle.type = 'button';
 			badgeToggle.title = this.openBadgeFaces.has(item.path) ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
 			badgeToggle.setAttribute('aria-label', `${this.openBadgeFaces.has(item.path) ? 'Hide' : 'Show'} badge for ${item.path}`);
@@ -681,56 +961,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const body = append(full, $('.basehalf-canvas-card-body'));
 		if (this.openBadgeFaces.has(item.path) && canShowBadgeFace) {
-			this.renderCardBadgeFace(body, item);
+			this.renderCardBadgeFace(body, item, structuralStamp);
 		} else {
 			this.renderCardPreview(body, item, preview, orphan);
 		}
 		this.renderFolderCoverage(full, item, preview);
 
-		for (const anchor of CANVAS_CARD_ANCHORS) {
-			this.renderConnectionHandle(card, item, bounds, anchor);
-		}
-		for (const edge of CANVAS_CARD_RESIZE_EDGES) {
-			this.renderResizeHandle(card, item, bounds, edge);
-		}
-
-		this.cardListeners.add(this.addDisposableListener(card, 'click', event => {
-			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
-				event.preventDefault();
-				event.stopPropagation();
-				return;
-			}
-			if (this.suppressNextCardClickForPath === item.path) {
-				event.preventDefault();
-				event.stopPropagation();
-				this.clearSuppressedCardClick();
-				return;
-			}
-
-			this.selectCard(item.path);
-		}));
-		this.cardListeners.add(this.addDisposableListener(card, 'dblclick', event => {
-			if (event.target instanceof HTMLElement && event.target.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle, button, textarea, input')) {
-				event.preventDefault();
-				event.stopPropagation();
-				return;
-			}
-
-			event.preventDefault();
-			event.stopPropagation();
-			void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
-		}));
 		this.cardListeners.add(this.addDisposableListener(card, 'keydown', event => {
 			if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 			}
 		}));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointerdown', event => this.onCardPointerDown(event, card, item, bounds), true));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointermove', event => this.onCardPointerMove(event)));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointerup', event => this.onCardPointerUp(event)));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointercancel', event => this.onCardPointerCancel(event)));
-		this.cardListeners.add(this.addDisposableListener(card, 'pointerleave', () => this.clearSourceAffordance(card)));
+		return card;
 	}
 
 	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number): void {
@@ -835,30 +1078,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private renderCardBadgeFace(container: HTMLElement, item: IBaseHalfCanvasItem): void {
+	private renderCardBadgeFace(container: HTMLElement, item: IBaseHalfCanvasItem, structuralStamp: IBaseHalfWorkspaceMutationStamp): void {
 		const face = append(container, $('.basehalf-canvas-card-badge-face'));
+		face.classList.add('nowheel', 'nodrag');
 		face.setAttribute('data-testid', `card-badge-face-${item.path}`);
 		this.cardListeners.add(this.addDisposableListener(face, 'pointerdown', event => event.stopPropagation()));
 		this.cardListeners.add(this.addDisposableListener(face, 'dblclick', event => event.stopPropagation()));
-		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => {
-			if (isCanvasZoomWheelEvent(event)) {
-				this.onCanvasWheel(event);
-			}
-			event.stopPropagation();
-		}));
+		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => event.stopPropagation()));
 
 		const body = append(face, $('.basehalf-canvas-card-badge-scroll'));
 		const folder = this.getCurrentFolder();
 		if (!folder) {
 			return;
 		}
+		const mutationGuard = this.sceneMutationGuard(folder.workspaceFolder, structuralStamp);
 
 		this.renderBadgeEditorContent(body, {
 			resource: item.stat.resource,
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: item.path,
 			kind: item.kind
-		}, item.badge, disposable => this.cardListeners.add(disposable), () => this.referenceCandidates(item));
+		}, item.badge, mutationGuard, disposable => this.cardListeners.add(disposable), () => this.referenceCandidates(item));
 	}
 
 	/**
@@ -872,6 +1112,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		body: HTMLElement,
 		node: IBaseHalfBadgeNode,
 		badge: IBaseHalfCanvasBadgeMetadata | undefined,
+		mutationGuard: IBaseHalfCanvasMutationGuard,
 		addListener: (disposable: IDisposable) => void,
 		candidates: () => readonly IBaseHalfCanvasItem[]
 	): void {
@@ -884,14 +1125,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.fitBadgePrompt(prompt);
 		addListener(this.addDisposableListener(prompt, 'input', () => {
 			this.fitBadgePrompt(prompt);
-			this.scheduleBadgeDescriptionWrite(node, prompt.value);
+			this.scheduleBadgeDescriptionWrite(node, prompt.value, mutationGuard);
 		}));
-		addListener(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(node.relativePath)));
+		addListener(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath)));
 		addListener(this.addDisposableListener(prompt, 'keydown', event => {
 			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
 				event.preventDefault();
 				event.stopPropagation();
-				this.flushBadgeDescriptionWrite(node.relativePath);
+				this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
 				prompt.blur();
 				return;
 			}
@@ -902,10 +1143,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}));
 
 		const refs = badge?.references ?? [];
+		const stampedCandidates: IBaseHalfStampedReferenceCandidate[] = candidates().map(candidate => ({
+			candidate,
+			stamp: this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, candidate.path)
+		}));
 		const refSection = append(body, $('.basehalf-canvas-card-badge-section'));
 		if (refs.length > 0) {
 			const list = append(refSection, $('.basehalf-canvas-card-badge-list'));
 			for (const to of refs) {
+				const targetStamp = this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, to);
 				const row = append(list, $('.basehalf-canvas-card-badge-row'));
 				const direction = append(row, $('span.basehalf-canvas-card-badge-direction'));
 				direction.textContent = '→';
@@ -925,7 +1171,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				addListener(this.addDisposableListener(remove, 'click', event => {
 					event.preventDefault();
 					event.stopPropagation();
-					void this.removeBadgeReference(node, to);
+					void this.removeBadgeReference(node, to, mutationGuard, targetStamp).catch(error => this.reportCanvasMutationError(error));
 				}));
 			}
 		}
@@ -935,7 +1181,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		addListener(this.addDisposableListener(add, 'click', event => {
 			event.preventDefault();
 			event.stopPropagation();
-			void this.addBadgeReference(node, badge?.references ?? [], candidates());
+			void this.addBadgeReference(node, badge?.references ?? [], stampedCandidates, mutationGuard).catch(error => this.reportCanvasMutationError(error));
 		}));
 
 		const inbound = badge?.referenced_by ?? [];
@@ -953,7 +1199,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				} else {
 					this.expandedInboundBadges.add(node.relativePath);
 				}
-				void this.render();
+				this.requestRender();
 			}));
 			if (this.expandedInboundBadges.has(node.relativePath)) {
 				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
@@ -1016,601 +1262,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		fill.style.width = `${Math.max(6, Math.round(share * 100))}%`;
 	}
 
-	private renderConnectionHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
-		const handle = append(card, $(`span.basehalf-canvas-card-connect-handle.${anchor}`));
-		handle.dataset.anchor = anchor;
-		handle.setAttribute('aria-hidden', 'true');
-		handle.title = `Connect from ${anchor}`;
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onConnectionPointerDown(event, handle, item, bounds, anchor)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointermove', event => this.onConnectionPointerMove(event)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointerup', event => this.onConnectionPointerUp(event)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointercancel', event => this.onConnectionPointerCancel(event)));
-	}
-
-	private renderResizeHandle(card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge): void {
-		const handle = append(card, $(`span.basehalf-canvas-card-resize-handle.${edge}`));
-		handle.setAttribute('aria-hidden', 'true');
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointerdown', event => this.onResizePointerDown(event, handle, card, item, bounds, edge)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointermove', event => this.onResizePointerMove(event)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointerup', event => this.onResizePointerUp(event)));
-		this.cardListeners.add(this.addDisposableListener(handle, 'pointercancel', event => this.onResizePointerCancel(event)));
-	}
-
-	private onCardPointerDown(event: PointerEvent, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds): void {
-		const target = event.target instanceof Element ? event.target : undefined;
-		if (target?.closest('button, textarea, input')) {
-			return;
-		}
-		const activeAnchor = anchorFromDataset(card.dataset.sourceAffordance);
-		if (activeAnchor) {
-			const handle = card.querySelector<HTMLElement>(`.basehalf-canvas-card-connect-handle.${activeAnchor}.active`);
-			const pointerAnchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
-			if (handle && (pointerAnchor === activeAnchor || clientPointInRect(handle.getBoundingClientRect(), event.clientX, event.clientY, 4))) {
-				this.onConnectionPointerDown(event, handle, item, bounds, activeAnchor);
-				return;
-			}
-		}
-		if (target?.closest('.basehalf-canvas-card-connect-handle, .basehalf-canvas-card-resize-handle')) {
-			return;
-		}
-		if (event.button !== 0 || this.activeCardDrag || this.activeResizeDrag || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-
-		const grabPoint = this.canvasPointFromClient(event.clientX, event.clientY);
-		this.activeCardDrag = {
-			pointerId: event.pointerId,
-			card,
-			item,
-			origin: bounds,
-			grab: { x: grabPoint.x - bounds.x, y: grabPoint.y - bounds.y },
-			latest: bounds,
-			moved: false
-		};
-		card.setPointerCapture(event.pointerId);
-	}
-
-	private onCardPointerMove(event: PointerEvent): void {
-		const drag = this.activeCardDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			if (event.currentTarget instanceof HTMLElement) {
-				this.updateSourceAffordance(event.currentTarget, event);
-			}
-			return;
-		}
-
-		const point = this.canvasPointFromClient(event.clientX, event.clientY);
-		const dx = point.x - (drag.origin.x + drag.grab.x);
-		const dy = point.y - (drag.origin.y + drag.grab.y);
-		if (!drag.moved && Math.hypot(dx, dy) < 4) {
-			return;
-		}
-
-		event.preventDefault();
-		drag.moved = true;
-		drag.card.classList.add('dragging');
-		this.updateCardDragPosition(drag, event.clientX, event.clientY);
-		this.updateDragAutoPan(event.clientX, event.clientY);
-	}
-
-	private updateCardDragPosition(drag: BaseHalfCanvasCardDrag, clientX: number, clientY: number): void {
-		const point = this.canvasPointFromClient(clientX, clientY);
-		const draft = {
-			...drag.origin,
-			x: roundCanvasPosition(point.x - drag.grab.x),
-			y: roundCanvasPosition(point.y - drag.grab.y)
-		};
-		const snapped = this.snapCardTranslate(drag.item.path, draft);
-		drag.latest = snapped.rect;
-		this.applyCardBounds(drag.card, drag.latest);
-		this.renderSnapGuides(snapped.guides);
-	}
-
-	private onCardPointerUp(event: PointerEvent): void {
-		const drag = this.activeCardDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		this.activeCardDrag = undefined;
-		this.stopDragAutoPan();
-		this.clearSnapGuides();
-		drag.card.classList.remove('dragging');
-		if (drag.card.hasPointerCapture(event.pointerId)) {
-			drag.card.releasePointerCapture(event.pointerId);
-		}
-
-		if (!drag.moved) {
-			this.flushRenderQueuedBehindGesture();
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.suppressNextCardClick(drag.item.path);
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			this.flushRenderQueuedBehindGesture();
-			return;
-		}
-
-		void this.canvasMirrorService.updateCardGeometry(folder, {
-			path: drag.item.path,
-			kind: drag.item.kind,
-			x: drag.latest.x,
-			y: drag.latest.y,
-			width: drag.latest.width,
-			height: drag.latest.height
-		}).then(() => this.render()).then(() => this.revealCardAfterGeometryChange(drag.item.path)).catch(error => {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		});
-	}
-
-	private onCardPointerCancel(event: PointerEvent): void {
-		const drag = this.activeCardDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		this.activeCardDrag = undefined;
-		this.stopDragAutoPan();
-		this.clearSnapGuides();
-		drag.card.classList.remove('dragging');
-		this.applyCardBounds(drag.card, drag.origin);
-		if (drag.card.hasPointerCapture(event.pointerId)) {
-			drag.card.releasePointerCapture(event.pointerId);
-		}
-		this.flushRenderQueuedBehindGesture();
-	}
-
-	private onResizePointerDown(event: PointerEvent, handle: HTMLElement, card: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge): void {
-		if (event.button !== 0 || this.activeResizeDrag || this.activeCardDrag || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.selectCard(item.path);
-		this.suppressNextCardClick(item.path);
-		this.activeResizeDrag = {
-			pointerId: event.pointerId,
-			card,
-			item,
-			edge,
-			origin: bounds,
-			startPoint: this.canvasPointFromClient(event.clientX, event.clientY),
-			latest: bounds,
-			moved: false
-		};
-		handle.setPointerCapture(event.pointerId);
-		card.classList.add('resizing');
-	}
-
-	private onResizePointerMove(event: PointerEvent): void {
-		const drag = this.activeResizeDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		const point = this.canvasPointFromClient(event.clientX, event.clientY);
-		const dx = point.x - drag.startPoint.x;
-		const dy = point.y - drag.startPoint.y;
-		if (!drag.moved && Math.hypot(dx, dy) < 3) {
-			return;
-		}
-
-		drag.moved = true;
-		this.updateResizeDragBounds(drag, event.clientX, event.clientY);
-		this.updateDragAutoPan(event.clientX, event.clientY);
-	}
-
-	private updateResizeDragBounds(drag: BaseHalfCanvasResizeDrag, clientX: number, clientY: number): void {
-		const point = this.canvasPointFromClient(clientX, clientY);
-		const draft = resizeBounds(drag.origin, drag.edge, point.x - drag.startPoint.x, point.y - drag.startPoint.y);
-		const snapped = this.snapCardResize(drag.item.path, drag.origin, draft);
-		drag.latest = snapped.rect;
-		this.applyCardBounds(drag.card, drag.latest);
-		drag.card.dataset.cardHeight = String(drag.latest.height);
-		drag.card.dataset.lod = this.cardLod(drag.latest);
-		this.renderSnapGuides(snapped.guides);
-	}
-
-	private onResizePointerUp(event: PointerEvent): void {
-		const drag = this.activeResizeDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		this.activeResizeDrag = undefined;
-		this.stopDragAutoPan();
-		this.clearSnapGuides();
-		drag.card.classList.remove('resizing');
-		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
-			event.target.releasePointerCapture(event.pointerId);
-		}
-		if (!drag.moved) {
-			this.flushRenderQueuedBehindGesture();
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			this.flushRenderQueuedBehindGesture();
-			return;
-		}
-
-		void this.canvasMirrorService.updateCardGeometry(folder, {
-			path: drag.item.path,
-			kind: drag.item.kind,
-			x: drag.latest.x,
-			y: drag.latest.y,
-			width: drag.latest.width,
-			height: drag.latest.height
-		}).then(() => this.render()).then(() => this.revealCardAfterGeometryChange(drag.item.path)).catch(error => {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		});
-	}
-
-	private onResizePointerCancel(event: PointerEvent): void {
-		const drag = this.activeResizeDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		this.activeResizeDrag = undefined;
-		this.stopDragAutoPan();
-		this.clearSnapGuides();
-		drag.card.classList.remove('resizing');
-		this.applyCardBounds(drag.card, drag.origin);
-		drag.card.dataset.cardHeight = String(drag.origin.height);
-		drag.card.dataset.lod = this.cardLod(drag.origin);
-		if (event.target instanceof HTMLElement && event.target.hasPointerCapture(event.pointerId)) {
-			event.target.releasePointerCapture(event.pointerId);
-		}
-		this.flushRenderQueuedBehindGesture();
-	}
-
-	private onConnectionPointerDown(event: PointerEvent, handle: HTMLElement, item: IBaseHalfCanvasItem, bounds: IBaseHalfCanvasBounds, anchor: BaseHalfCanvasAnchor): void {
-		if (event.button !== 0 || this.activeConnectionDrag || this.canvasNavigationService.state.cardDetail || !handle.classList.contains('active')) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.clearAllSourceAffordances();
-		const { svg, path } = this.createConnectionDraftSvg();
-		this.activeConnectionDrag = {
-			pointerId: event.pointerId,
-			source: item,
-			sourceBounds: bounds,
-			sourceAnchor: anchor,
-			handle,
-			svg,
-			path
-		};
-		this.suppressNextCardClick(item.path);
-		handle.setPointerCapture(event.pointerId);
-		handle.classList.add('active');
-		this.root.classList.add('connecting');
-		this.connectionDragListeners.clear();
-		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointermove', event => this.onConnectionPointerMove(event), true));
-		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointerup', event => this.onConnectionPointerUp(event), true));
-		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'pointercancel', event => this.onConnectionPointerCancel(event), true));
-		this.connectionDragListeners.add(this.addDisposableListener(mainWindow, 'keydown', event => {
-			if (event.key !== 'Escape') {
-				return;
-			}
-			if (this.cancelActiveConnectionGesture()) {
-				event.preventDefault();
-				event.stopPropagation();
-			}
-		}, true));
-		this.updateConnectionDraft(event);
-	}
-
-	private onConnectionPointerMove(event: PointerEvent): void {
-		if (!this.activeConnectionDrag || this.activeConnectionDrag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.updateConnectionDraft(event);
-	}
-
-	private onConnectionPointerUp(event: PointerEvent): void {
-		const drag = this.activeConnectionDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.updateConnectionDraft(event);
-		void this.finishConnectionDrag(drag);
-	}
-
-	private onConnectionPointerCancel(event: PointerEvent): void {
-		const drag = this.activeConnectionDrag;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		this.clearConnectionDrag(drag);
-	}
-
-	private createConnectionDraftSvg(): { readonly svg: SVGSVGElement; readonly path: SVGPathElement } {
-		const width = Number.parseFloat(this.cards.style.width) || this.cards.scrollWidth || this.root.clientWidth;
-		const height = Number.parseFloat(this.cards.style.height) || this.cards.scrollHeight || this.root.clientHeight;
-		const svg = append(this.cards, $.SVG('svg')) as SVGSVGElement;
-		svg.classList.add('basehalf-canvas-connection-draft');
-		svg.setAttribute('width', `${width}`);
-		svg.setAttribute('height', `${height}`);
-		svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-		svg.setAttribute('aria-hidden', 'true');
-		const path = $.SVG('path') as SVGPathElement;
-		path.classList.add('basehalf-canvas-connection-draft-path');
-		svg.appendChild(path);
-		return { svg, path };
-	}
-
-	private updateConnectionDraft(event: PointerEvent): void {
-		const drag = this.activeConnectionDrag;
-		if (!drag) {
-			return;
-		}
-
-		const from = baseHalfCanvasAnchorPoint(drag.sourceBounds, drag.sourceAnchor);
-		const target = this.connectionTargetForPoint(event.clientX, event.clientY, drag.source.path);
-		drag.target = target;
-		const targetBounds = target ? this.renderedBoundsByPath.get(target.item.path) : undefined;
-		const to = target && targetBounds ? baseHalfCanvasAnchorPoint(targetBounds, target.anchor) : this.canvasPointFromClient(event.clientX, event.clientY);
-		const toAnchor = target?.anchor ?? oppositeAnchor(drag.sourceAnchor);
-		drag.path.setAttribute('d', baseHalfCanvasEdgePath(from, drag.sourceAnchor, to, toAnchor));
-		this.markConnectionTarget(target);
-	}
-
-	private async finishConnectionDrag(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeConnectionDrag']>): Promise<void> {
-		const target = drag.target;
-		this.clearConnectionDrag(drag);
-		const folder = this.getCurrentFolder();
-		if (!folder || !target || target.item.path === drag.source.path) {
-			return;
-		}
-
-		const edge: IBaseHalfCanvasEdge = {
-			from: drag.source.path,
-			from_anchor: drag.sourceAnchor,
-			to: target.item.path,
-			to_anchor: target.anchor
-		};
-
-		try {
-			// Semantic link first — the drawn line IS the reference; the canvas
-			// edge that follows carries only styling (anchors), so a failure after
-			// the reference landed still draws a default-anchored edge.
-			await this.badgeGraphService.addReference({
-				resource: drag.source.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: drag.source.path,
-				kind: drag.source.kind
-			}, {
-				resource: target.item.stat.resource,
-				workspaceFolder: folder.workspaceFolder,
-				relativePath: target.item.path,
-				kind: target.item.kind
-			});
-			await this.canvasMirrorService.upsertCanvasEdge(folder, edge);
-			this.selectedEdgeId = edgeId(edge.from, edge.to);
-			this.selectedEdge = { from: edge.from, to: edge.to };
-			await this.render();
-		} catch (error) {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		}
-	}
-
-	private clearConnectionDrag(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeConnectionDrag']>): void {
-		this.connectionDragListeners.clear();
-		if (drag.handle.hasPointerCapture(drag.pointerId)) {
-			drag.handle.releasePointerCapture(drag.pointerId);
-		}
-		drag.handle.classList.remove('active');
-		drag.svg.remove();
-		this.activeConnectionDrag = undefined;
-		this.root.classList.remove('connecting');
-		this.markConnectionTarget(undefined);
-	}
-
-	private markConnectionTarget(target: BaseHalfCanvasConnectionTarget | undefined): void {
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.connection-target'))) {
-			card.classList.remove('connection-target', 'north', 'east', 'south', 'west');
-			card.dataset.targetAffordance = '';
-		}
-		if (!target) {
-			return;
-		}
-
-		const card = this.cards.querySelector<HTMLElement>(`.basehalf-canvas-card[data-basehalf-card-path="${cssStringEscape(target.item.path)}"]`);
-		if (card) {
-			card.classList.add('connection-target', target.anchor);
-			card.dataset.targetAffordance = target.anchor;
-		}
-	}
-
-	private connectionTargetForPoint(clientX: number, clientY: number, sourcePath: string): BaseHalfCanvasConnectionTarget | undefined {
-		let best: { readonly item: IBaseHalfCanvasItem; readonly anchor: BaseHalfCanvasAnchor; readonly distance: number } | undefined;
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
-			const path = card.dataset.basehalfCardPath;
-			if (!path || path === sourcePath) {
-				continue;
-			}
-			const item = this.renderedItemsByPath.get(path);
-			if (!item) {
-				continue;
-			}
-			const rect = card.getBoundingClientRect();
-			const anchor = targetAnchorForPoint(rect, clientX, clientY);
-			if (!anchor) {
-				continue;
-			}
-			const distance = distanceToRect(rect, clientX, clientY);
-			if (!best || distance < best.distance) {
-				best = { item, anchor, distance };
-			}
-		}
-		return best ? { item: best.item, anchor: best.anchor } : undefined;
-	}
-
-	private snapCardTranslate(path: string, draft: IBaseHalfCanvasBounds): { readonly rect: IBaseHalfCanvasSnapRect; readonly guides: readonly IBaseHalfCanvasSnapGuide[] } {
-		const targets = this.snapTargets(path);
-		const rect = snapRect(path, draft);
-		if (targets.length === 0) {
-			return { rect, guides: [] };
-		}
-		return snapBaseHalfCanvasTranslateRect(rect, targets, this.snapThreshold());
-	}
-
-	private snapCardResize(path: string, before: IBaseHalfCanvasBounds, draft: IBaseHalfCanvasBounds): { readonly rect: IBaseHalfCanvasSnapRect; readonly guides: readonly IBaseHalfCanvasSnapGuide[] } {
-		const targets = this.snapTargets(path);
-		const rect = snapRect(path, draft);
-		if (targets.length === 0) {
-			return { rect, guides: [] };
-		}
-		return snapBaseHalfCanvasResizeRect(snapRect(path, before), rect, targets, this.snapThreshold(), {
-			minWidth: BASEHALF_CANVAS_MIN_CARD_WIDTH,
-			minHeight: BASEHALF_CANVAS_MIN_CARD_HEIGHT
-		});
-	}
-
-	private snapTargets(excludedPath: string): readonly IBaseHalfCanvasSnapRect[] {
-		const targets: IBaseHalfCanvasSnapRect[] = [];
-		for (const [path, bounds] of this.renderedBoundsByPath) {
-			if (path !== excludedPath) {
-				targets.push(snapRect(path, bounds));
-			}
-		}
-		return targets;
-	}
-
-	private snapThreshold(): number {
-		return BASEHALF_CANVAS_SNAP_SCREEN_THRESHOLD / Math.max(BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD, this.canvasZoom);
-	}
-
-	private renderSnapGuides(guides: readonly IBaseHalfCanvasSnapGuide[]): void {
-		if (guides.length === 0) {
-			this.clearSnapGuides();
-			return;
-		}
-
-		const width = Number.parseFloat(this.cards.style.width) || this.cards.scrollWidth || this.root.clientWidth;
-		const height = Number.parseFloat(this.cards.style.height) || this.cards.scrollHeight || this.root.clientHeight;
-		const svg = this.ensureSnapGuidesSvg(width, height);
-		while (svg.firstChild) {
-			svg.firstChild.remove();
-		}
-
-		const zoom = Math.max(BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD, this.canvasZoom);
-		const thickness = 1 / zoom;
-		const pad = 10 / zoom;
-		const dash = 5 / zoom;
-		const gap = 5 / zoom;
-		for (const guide of guides) {
-			const line = $.SVG('line') as SVGLineElement;
-			line.classList.add('basehalf-canvas-snap-guide-line');
-			line.dataset.testid = 'canvas-snap-guide';
-			line.setAttribute('stroke-width', String(thickness));
-			line.setAttribute('stroke-dasharray', `${dash} ${gap}`);
-			if (guide.orientation === 'vertical') {
-				line.setAttribute('x1', String(guide.x));
-				line.setAttribute('x2', String(guide.x));
-				line.setAttribute('y1', String(guide.y1 - pad));
-				line.setAttribute('y2', String(guide.y2 + pad));
-			} else {
-				line.setAttribute('x1', String(guide.x1 - pad));
-				line.setAttribute('x2', String(guide.x2 + pad));
-				line.setAttribute('y1', String(guide.y));
-				line.setAttribute('y2', String(guide.y));
-			}
-			svg.appendChild(line);
-		}
-	}
-
-	private ensureSnapGuidesSvg(width: number, height: number): SVGSVGElement {
-		if (!this.snapGuides?.isConnected) {
-			this.snapGuides = append(this.cards, $.SVG('svg')) as SVGSVGElement;
-			this.snapGuides.classList.add('basehalf-canvas-snap-guides');
-			this.snapGuides.setAttribute('aria-hidden', 'true');
-		}
-		this.snapGuides.setAttribute('width', `${width}`);
-		this.snapGuides.setAttribute('height', `${height}`);
-		this.snapGuides.setAttribute('viewBox', `0 0 ${width} ${height}`);
-		return this.snapGuides;
-	}
-
-	private clearSnapGuides(): void {
-		this.snapGuides?.remove();
-		this.snapGuides = undefined;
-	}
-
-	private applyCardBounds(card: HTMLElement, bounds: IBaseHalfCanvasBounds): void {
-		card.style.transform = `translate(${bounds.x}px, ${bounds.y}px)`;
-		card.style.width = `${bounds.width}px`;
-		card.style.height = `${bounds.height}px`;
-	}
-
-	private suppressNextCardClick(path: string): void {
-		if (this.suppressNextCardClickTimer !== undefined) {
-			mainWindow.clearTimeout(this.suppressNextCardClickTimer);
-		}
-
-		this.suppressNextCardClickForPath = path;
-		this.suppressNextCardClickTimer = mainWindow.setTimeout(() => this.clearSuppressedCardClick(), 250);
-	}
-
-	private clearSuppressedCardClick(): void {
-		if (this.suppressNextCardClickTimer !== undefined) {
-			mainWindow.clearTimeout(this.suppressNextCardClickTimer);
-			this.suppressNextCardClickTimer = undefined;
-		}
-		this.suppressNextCardClickForPath = undefined;
-	}
 
 	private selectCard(path: string): void {
-		this.selectedCardPath = path;
-		this.selectedEdgeId = undefined;
-		this.selectedEdge = undefined;
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
-			card.classList.toggle('selected', card.dataset.basehalfCardPath === path);
-		}
-		for (const edge of Array.from(this.cards.querySelectorAll<SVGElement>('.basehalf-canvas-edge-path.selected, .basehalf-canvas-edge-hit.selected'))) {
-			edge.classList.remove('selected');
-		}
+		this.canvasScene.select({ cardPaths: [path] });
 	}
 
-	private selectEdge(edge: IBaseHalfCanvasEdge): void {
-		this.selectedCardPath = undefined;
-		this.selectedEdgeId = edgeId(edge.from, edge.to);
-		this.selectedEdge = { from: edge.from, to: edge.to };
-		// An SVG edge cannot hold focus itself; without parking focus on the
-		// canvas root, Delete/Backspace after clicking ONLY the edge would go
-		// nowhere and the selection would be undeletable by keyboard.
-		if (!this.root.contains(this.root.ownerDocument.activeElement)) {
-			this.root.focus();
-		}
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card.selected'))) {
-			card.classList.remove('selected');
-		}
-		for (const edgeElement of Array.from(this.cards.querySelectorAll<SVGElement>('.basehalf-canvas-edge-path, .basehalf-canvas-edge-hit'))) {
-			edgeElement.classList.toggle('selected', edgeElement.dataset.edgeId === this.selectedEdgeId);
-		}
-	}
 
 	private toggleBadgeFace(path: string): void {
 		if (this.openBadgeFaces.has(path)) {
@@ -1618,7 +1274,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} else {
 			this.openBadgeFaces.add(path);
 		}
-		void this.render();
+		this.requestRender();
 	}
 
 	private cardLod(bounds: IBaseHalfCanvasBounds): BaseHalfCanvasCardLod {
@@ -1628,104 +1284,103 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return this.canvasZoom >= CARD_LOD_MIN_ZOOM ? 'full' : 'mini';
 	}
 
-	private updateCardLod(): void {
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
-			const height = Number(card.dataset.cardHeight);
-			card.dataset.lod = Number.isFinite(height) && height >= CARD_LOD_MIN_HEIGHT_PX && this.canvasZoom >= CARD_LOD_MIN_ZOOM ? 'full' : 'mini';
-		}
+
+	private badgeDescriptionKey(workspaceFolder: URI, relativePath: string): string {
+		return `${workspaceFolder.toString()}\0${relativePath}`;
 	}
 
-	private updateSourceAffordance(card: HTMLElement, event: PointerEvent): void {
-		if (this.activeConnectionDrag || this.activeCardDrag || this.activeResizeDrag) {
-			return;
-		}
-		if (event.target instanceof HTMLElement && event.target.closest('button, input, textarea')) {
-			this.clearSourceAffordance(card);
-			return;
-		}
-
-		const anchor = sourceAnchorForPointer(card.getBoundingClientRect(), event.clientX, event.clientY);
-		card.dataset.sourceAffordance = anchor ?? '';
-		for (const handle of Array.from(card.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle'))) {
-			handle.classList.toggle('active', !!anchor && handle.classList.contains(anchor));
-		}
-	}
-
-	private clearSourceAffordance(card: HTMLElement): void {
-		card.dataset.sourceAffordance = '';
-		for (const handle of Array.from(card.querySelectorAll<HTMLElement>('.basehalf-canvas-card-connect-handle.active'))) {
-			handle.classList.remove('active');
-		}
-	}
-
-	private clearAllSourceAffordances(): void {
-		for (const card of Array.from(this.cards.querySelectorAll<HTMLElement>('.basehalf-canvas-card'))) {
-			this.clearSourceAffordance(card);
-		}
-	}
-
-	private cancelActiveConnectionGesture(): boolean {
-		const connection = this.activeConnectionDrag;
-		if (connection) {
-			this.clearConnectionDrag(connection);
-			return true;
-		}
-
-		const reconnect = this.activeEdgeReconnect;
-		if (reconnect) {
-			this.clearEdgeReconnect(reconnect);
-			return true;
-		}
-
-		return false;
-	}
-
-	private scheduleBadgeDescriptionWrite(node: IBaseHalfBadgeNode, value: string): void {
-		const existing = this.badgeDescriptionTimers.get(node.relativePath);
+	private scheduleBadgeDescriptionWrite(node: IBaseHalfBadgeNode, value: string, guard: IBaseHalfCanvasMutationGuard): void {
+		const key = this.badgeDescriptionKey(node.workspaceFolder, node.relativePath);
+		const existing = this.badgeDescriptionTimers.get(key);
 		if (existing !== undefined) {
 			mainWindow.clearTimeout(existing);
 		}
-		this.badgeDescriptionPending.set(node.relativePath, { node, value });
-		// Badge notes debounce at the same cadence as file auto-save so every
-		// user edit reaches disk (and watching agents) with one perceived delay.
-		this.badgeDescriptionTimers.set(node.relativePath, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.relativePath), BASEHALF_AUTO_SAVE_DELAY_MS));
-	}
-
-	private flushBadgeDescriptionWrite(path: string): void {
-		const pending = this.badgeDescriptionPending.get(path);
-		if (!pending) {
+		const current = this.badgeDescriptionPending.get(key);
+		if (current) {
+			current.value = value;
+			if (!current.delayReleased) {
+				this.badgeDescriptionTimers.set(key, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath), BASEHALF_AUTO_SAVE_DELAY_MS));
+			}
 			return;
 		}
-		const timer = this.badgeDescriptionTimers.get(path);
-		if (timer !== undefined) {
-			mainWindow.clearTimeout(timer);
-			this.badgeDescriptionTimers.delete(path);
-		}
-		this.badgeDescriptionPending.delete(path);
 
-		void this.badgeGraphService.updateDescription(pending.node, pending.value).then(() => this.scheduleBackgroundRender()).catch(error => {
+		if (guard.workspaceKey !== node.workspaceFolder.toString()) {
+			return;
+		}
+		let releaseDelay!: () => void;
+		const delay = new Promise<void>(resolve => releaseDelay = resolve);
+		const pending = { node, guard, value, delayReleased: false, delay, releaseDelay };
+		this.badgeDescriptionPending.set(key, pending);
+		// Badge notes debounce at the same cadence as file auto-save so every
+		// user edit reaches disk with one perceived delay. The workspace FIFO is
+		// reserved NOW, so a later rename waits for this authored note and then
+		// carries it instead of letting a timer recreate the old path afterwards.
+		this.badgeDescriptionTimers.set(key, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath), BASEHALF_AUTO_SAVE_DELAY_MS));
+		void guard.run(async lease => {
+			await delay;
+			if (this.badgeDescriptionPending.get(key) !== pending) {
+				return;
+			}
+			this.badgeDescriptionPending.delete(key);
+			this.badgeDescriptionTimers.delete(key);
+			const live = await this.resolveLiveWorkspaceNodes(node.workspaceFolder, [{ path: node.relativePath, kind: node.kind }]);
+			await this.badgeGraphService.updateDescription(live.get(node.relativePath)!, pending.value, lease);
+		}).then(() => this.scheduleBackgroundRender()).catch(error => {
+			if (this.badgeDescriptionPending.get(key) === pending) {
+				this.badgeDescriptionPending.delete(key);
+				const timer = this.badgeDescriptionTimers.get(key);
+				if (timer !== undefined) {
+					mainWindow.clearTimeout(timer);
+					this.badgeDescriptionTimers.delete(key);
+				}
+			}
 			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
+			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+			this.requestRender();
 		});
 	}
 
-	private async addBadgeReference(source: IBaseHalfBadgeNode, currentReferences: readonly string[], allCandidates: readonly IBaseHalfCanvasItem[]): Promise<void> {
-		this.flushBadgeDescriptionWrite(source.relativePath);
+	private flushBadgeDescriptionWrite(workspaceFolder: URI, path: string): void {
+		const key = this.badgeDescriptionKey(workspaceFolder, path);
+		const pending = this.badgeDescriptionPending.get(key);
+		if (!pending) {
+			return;
+		}
+		const timer = this.badgeDescriptionTimers.get(key);
+		if (timer !== undefined) {
+			mainWindow.clearTimeout(timer);
+			this.badgeDescriptionTimers.delete(key);
+		}
+		pending.delayReleased = true;
+		pending.releaseDelay();
+	}
+
+	private async addBadgeReference(
+		source: IBaseHalfBadgeNode,
+		currentReferences: readonly string[],
+		allCandidates: readonly IBaseHalfStampedReferenceCandidate[],
+		guard: IBaseHalfCanvasMutationGuard
+	): Promise<void> {
+		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
+			return;
+		}
+		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
 		const existing = new Set(currentReferences);
 		// Files AND folders are both first-class reference targets — a folder is
 		// a badge too, and pointing at one is often exactly the annotation.
-		const candidates = allCandidates.filter(candidate => candidate.path !== source.relativePath && !existing.has(candidate.path));
+		const candidates = allCandidates.filter(({ candidate }) => candidate.path !== source.relativePath && !existing.has(candidate.path));
 		if (candidates.length === 0) {
 			await this.quickInputService.pick([{ label: 'Nothing else to reference here.' }], { placeHolder: 'Add a reference' });
 			return;
 		}
 
-		type RefPick = IQuickPickItem & { readonly candidate: IBaseHalfCanvasItem };
-		const picked = await this.quickInputService.pick<RefPick>(candidates.map(candidate => ({
+		type RefPick = IQuickPickItem & IBaseHalfStampedReferenceCandidate;
+		const picked = await this.quickInputService.pick<RefPick>(candidates.map(({ candidate, stamp }) => ({
 			label: basename(candidate.stat.resource),
 			description: candidate.path,
 			detail: candidate.badge?.description,
-			candidate
+			candidate,
+			stamp
 		})), {
 			placeHolder: `Add a reference from ${source.relativePath || 'the workspace root'}...`,
 			matchOnDescription: true,
@@ -1735,13 +1390,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		await this.badgeGraphService.addReference(source, {
-			resource: picked.candidate.stat.resource,
-			workspaceFolder: source.workspaceFolder,
-			relativePath: picked.candidate.path,
-			kind: picked.candidate.kind
-		});
-		await this.render();
+		await guard.run(async lease => {
+			const live = await this.resolveLiveWorkspaceNodes(source.workspaceFolder, [
+				{ path: source.relativePath, kind: source.kind },
+				{ path: picked.candidate.path, kind: picked.candidate.kind }
+			]);
+			await this.badgeGraphService.addReference(live.get(source.relativePath)!, live.get(picked.candidate.path)!, lease);
+		}, [picked.stamp]);
+		this.requestRender();
 	}
 
 	private referenceCandidates(item: IBaseHalfCanvasItem): IBaseHalfCanvasItem[] {
@@ -1761,377 +1417,144 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return [...this.renderedItemsByPath.values()];
 	}
 
-	private async removeBadgeReference(source: IBaseHalfBadgeNode, to: string): Promise<void> {
-		this.flushBadgeDescriptionWrite(source.relativePath);
-		const target = await this.badgeNodeForPath(source.workspaceFolder, to, 'file');
-		await this.badgeGraphService.removeReference(source, target);
-		// Style cleanup only — with the edge set derived from references, the
-		// line is already gone; this just keeps canvas.yaml from hoarding stale
-		// anchor/label entries.
-		const folder = this.getCurrentFolder();
-		if (folder) {
-			await this.canvasMirrorService.removeCanvasEdge(folder, { from: source.relativePath, to });
+	private async removeBadgeReference(
+		source: IBaseHalfBadgeNode,
+		to: string,
+		guard: IBaseHalfCanvasMutationGuard,
+		targetStamp: IBaseHalfWorkspaceResourceMutationStamp
+	): Promise<void> {
+		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
+			return;
 		}
-		await this.render();
-	}
-
-	private async badgeNodeForPath(workspaceFolder: URI, relativePath: string, fallbackKind: 'file' | 'folder'): Promise<IBaseHalfBadgeNode> {
-		const rendered = this.renderedItemsByPath.get(relativePath);
-		if (rendered) {
-			return {
-				resource: rendered.stat.resource,
-				workspaceFolder,
-				relativePath,
-				kind: rendered.kind
-			};
-		}
-		const resource = relativePath ? joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder;
-		try {
-			const stat = await this.fileService.stat(resource);
-			return {
-				resource,
-				workspaceFolder,
-				relativePath,
-				kind: stat.isDirectory ? 'folder' as const : 'file' as const
-			};
-		} catch {
-			return {
-				resource,
-				workspaceFolder,
-				relativePath,
-				kind: fallbackKind
-			};
-		}
-	}
-
-	private renderEdges(edges: readonly IBaseHalfCanvasEdge[], items: readonly IBaseHalfCanvasItem[], size: Dimension): { dropped: number } {
-		const layoutResult = baseHalfCanvasEdgeLayouts(edges, items);
-		if (layoutResult.edges.length === 0) {
-			return { dropped: layoutResult.dropped };
-		}
-
-		const markerId = `basehalf-canvas-edge-arrow-${this.renderSeq}`;
-		const svg = append(this.cards, $.SVG('svg')) as SVGSVGElement;
-		svg.classList.add('basehalf-canvas-edges');
-		svg.setAttribute('width', `${size.width}`);
-		svg.setAttribute('height', `${size.height}`);
-		svg.setAttribute('viewBox', `0 0 ${size.width} ${size.height}`);
-		svg.setAttribute('aria-hidden', 'true');
-
-		const defs = $.SVG('defs');
-		const marker = $.SVG('marker');
-		marker.classList.add('basehalf-canvas-edge-arrow');
-		marker.setAttribute('id', markerId);
-		marker.setAttribute('viewBox', '0 0 10 10');
-		marker.setAttribute('refX', '9');
-		marker.setAttribute('refY', '5');
-		marker.setAttribute('markerWidth', '6');
-		marker.setAttribute('markerHeight', '6');
-		marker.setAttribute('orient', 'auto-start-reverse');
-		const arrow = $.SVG('path');
-		arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
-		marker.appendChild(arrow);
-		defs.appendChild(marker);
-		svg.appendChild(defs);
-
-		for (const edge of layoutResult.edges) {
-			const path = $.SVG('path') as SVGPathElement;
-			path.classList.add('basehalf-canvas-edge-path');
-			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
-				path.classList.add('selected');
+		const canvasFolder = this.getCurrentFolder();
+		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
+		await guard.run(async lease => {
+			const live = await this.resolveLiveWorkspaceNodes(source.workspaceFolder, [{ path: source.relativePath, kind: source.kind }]);
+			const removed = await this.badgeGraphService.removeReference(live.get(source.relativePath)!, {
+				resource: joinPath(source.workspaceFolder, ...to.split('/')),
+				workspaceFolder: source.workspaceFolder,
+				relativePath: to,
+				kind: 'file'
+			}, lease);
+			if (!removed) {
+				throw new Error(`The reference ${source.relativePath} → ${to} changed before it could be removed.`);
 			}
-			path.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
-			path.setAttribute('d', edge.path);
-			path.setAttribute('marker-end', `url(#${markerId})`);
-			const title = $.SVG('title');
-			title.textContent = edge.label?.text ? `${edge.edge.from} to ${edge.edge.to}: ${edge.label.text}` : `${edge.edge.from} to ${edge.edge.to}`;
-			path.appendChild(title);
-			svg.appendChild(path);
-
-			const hit = $.SVG('path') as SVGPathElement;
-			hit.classList.add('basehalf-canvas-edge-hit');
-			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
-				hit.classList.add('selected');
+			// Style cleanup only — with the edge set derived from references, the
+			// line is already gone; this just keeps canvas.yaml from hoarding stale
+			// anchor/label entries.
+			if (canvasFolder?.workspaceFolder.toString() === source.workspaceFolder.toString()) {
+				await this.canvasMirrorService.removeCanvasEdge(canvasFolder, { from: source.relativePath, to }, lease);
 			}
-			hit.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
-			hit.setAttribute('d', edge.path);
-			svg.appendChild(hit);
-
-			const text = $.SVG('text');
-			text.classList.add('basehalf-canvas-edge-label');
-			text.classList.toggle('empty', !edge.label?.text);
-			if (this.selectedEdgeId === edgeId(edge.edge.from, edge.edge.to)) {
-				text.classList.add('selected');
-			}
-			text.dataset.edgeId = edgeId(edge.edge.from, edge.edge.to);
-			text.setAttribute('x', `${edge.label?.x ?? (edge.from.x + edge.to.x) / 2}`);
-			text.setAttribute('y', `${(edge.label?.y ?? (edge.from.y + edge.to.y) / 2) - 8}`);
-			text.setAttribute('text-anchor', 'middle');
-			text.textContent = edge.label?.text ?? 'Double-click to say why';
-			svg.appendChild(text);
-
-			const setHover = (hover: boolean) => {
-				path.classList.toggle('hover', hover);
-				hit.classList.toggle('hover', hover);
-				text.classList.toggle('hover', hover);
-			};
-			this.cardListeners.add(this.addDisposableListener(hit, 'mouseenter', () => setHover(true)));
-			this.cardListeners.add(this.addDisposableListener(hit, 'mouseleave', () => setHover(false)));
-			this.cardListeners.add(this.addDisposableListener(hit, 'click', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.selectEdge(edge.edge);
-			}));
-			this.cardListeners.add(this.addDisposableListener(hit, 'dblclick', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				void this.editEdgeLabel(edge.edge);
-			}));
-			this.cardListeners.add(this.addDisposableListener(hit, 'pointerdown', event => this.onEdgePointerDown(event, edge.edge, hit, path)));
-			this.cardListeners.add(this.addDisposableListener(hit, 'pointermove', event => this.onEdgePointerMove(event)));
-			this.cardListeners.add(this.addDisposableListener(hit, 'pointerup', event => this.onEdgePointerUp(event)));
-			this.cardListeners.add(this.addDisposableListener(hit, 'pointercancel', event => this.onEdgePointerCancel(event)));
-		}
-
-		return { dropped: layoutResult.dropped };
-	}
-
-	private onEdgePointerDown(event: PointerEvent, edge: IBaseHalfCanvasEdge, hitPath: SVGPathElement, staticPath: SVGPathElement): void {
-		if (event.button !== 0 || this.activeEdgeReconnect || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		this.selectEdge(edge);
-		const sourceBounds = this.renderedBoundsByPath.get(edge.from);
-		const targetBounds = this.renderedBoundsByPath.get(edge.to);
-		if (!sourceBounds || !targetBounds) {
-			return;
-		}
-		const { path } = this.createConnectionDraftSvg();
-		path.classList.add('basehalf-canvas-edge-reconnect-preview');
-		this.activeEdgeReconnect = {
-			pointerId: event.pointerId,
-			edge,
-			endpoint: nearestPathRatio(hitPath, event.clientX, event.clientY) < 0.5 ? 'source' : 'target',
-			startClientX: event.clientX,
-			startClientY: event.clientY,
-			hitPath,
-			staticPath,
-			previewPath: path,
-			sourceBounds,
-			targetBounds,
-			started: false
-		};
-		hitPath.setPointerCapture(event.pointerId);
-		this.root.classList.add('edge-reconnecting');
-		this.edgeReconnectListeners.clear();
-		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointermove', event => this.onEdgePointerMove(event), true));
-		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointerup', event => this.onEdgePointerUp(event), true));
-		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'pointercancel', event => this.onEdgePointerCancel(event), true));
-		this.edgeReconnectListeners.add(this.addDisposableListener(mainWindow, 'keydown', event => {
-			if (event.key !== 'Escape') {
-				return;
-			}
-			if (this.cancelActiveConnectionGesture()) {
-				event.preventDefault();
-				event.stopPropagation();
-			}
-		}, true));
-	}
-
-	private onEdgePointerMove(event: PointerEvent): void {
-		const drag = this.activeEdgeReconnect;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		const moved = Math.hypot(event.clientX - drag.startClientX, event.clientY - drag.startClientY) >= EDGE_RECONNECT_DRAG_THRESHOLD;
-		drag.started = drag.started || moved;
-		if (!drag.started) {
-			return;
-		}
-
-		const excluded = drag.endpoint === 'source' ? drag.edge.to : drag.edge.from;
-		const target = this.connectionTargetForPoint(event.clientX, event.clientY, excluded);
-		drag.target = target;
-		const snappedBounds = target ? this.renderedBoundsByPath.get(target.item.path) : undefined;
-		const pointerPoint = target && snappedBounds ? baseHalfCanvasAnchorPoint(snappedBounds, target.anchor) : this.canvasPointFromClient(event.clientX, event.clientY);
-		const sourcePoint = drag.endpoint === 'source' ? pointerPoint : baseHalfCanvasAnchorPoint(drag.sourceBounds, drag.edge.from_anchor);
-		const targetPoint = drag.endpoint === 'target' ? pointerPoint : baseHalfCanvasAnchorPoint(drag.targetBounds, drag.edge.to_anchor);
-		const sourceAnchor = drag.endpoint === 'source' ? target?.anchor ?? drag.edge.from_anchor : drag.edge.from_anchor;
-		const targetAnchor = drag.endpoint === 'target' ? target?.anchor ?? drag.edge.to_anchor : drag.edge.to_anchor;
-		drag.previewPath.setAttribute('d', baseHalfCanvasEdgePath(sourcePoint, sourceAnchor, targetPoint, targetAnchor));
-		drag.staticPath.classList.add('reconnecting');
-		this.markConnectionTarget(target);
-	}
-
-	private onEdgePointerUp(event: PointerEvent): void {
-		const drag = this.activeEdgeReconnect;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-
-		event.preventDefault();
-		event.stopPropagation();
-		if (event.target instanceof SVGElement && event.target.hasPointerCapture(event.pointerId)) {
-			event.target.releasePointerCapture(event.pointerId);
-		}
-		void this.finishEdgeReconnect(drag);
-	}
-
-	private onEdgePointerCancel(event: PointerEvent): void {
-		const drag = this.activeEdgeReconnect;
-		if (!drag || drag.pointerId !== event.pointerId) {
-			return;
-		}
-		this.clearEdgeReconnect(drag);
-	}
-
-	private async finishEdgeReconnect(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeEdgeReconnect']>): Promise<void> {
-		const folder = this.getCurrentFolder();
-		const target = drag.target;
-		const started = drag.started;
-		this.clearEdgeReconnect(drag);
-		if (!folder || !started) {
-			return;
-		}
-
-		if (!target) {
-			await this.removeEdge(folder, drag.edge);
-			return;
-		}
-
-		const next: IBaseHalfCanvasEdge = drag.endpoint === 'source' ? {
-			from: target.item.path,
-			from_anchor: target.anchor,
-			to: drag.edge.to,
-			to_anchor: drag.edge.to_anchor,
-			...(drag.edge.label !== undefined ? { label: drag.edge.label } : {})
-		} : {
-			from: drag.edge.from,
-			from_anchor: drag.edge.from_anchor,
-			to: target.item.path,
-			to_anchor: target.anchor,
-			...(drag.edge.label !== undefined ? { label: drag.edge.label } : {})
-		};
-		if (next.from === next.to) {
-			return;
-		}
-
-		try {
-			// Semantic link first: add the new reference, then retire the old one,
-			// so a validation failure aborts before anything is lost. The canvas
-			// write afterwards only carries styling (anchors + label) — if it
-			// fails, the derived edge still draws from the reference with default
-			// anchors, so nothing needs compensating.
-			const endpointsChanged = drag.edge.from !== next.from || drag.edge.to !== next.to;
-			if (endpointsChanged) {
-				await this.badgeGraphService.addReference(
-					await this.badgeNodeForPath(folder.workspaceFolder, next.from, 'file'),
-					await this.badgeNodeForPath(folder.workspaceFolder, next.to, 'file')
-				);
-				await this.badgeGraphService.removeReference(
-					await this.badgeNodeForPath(folder.workspaceFolder, drag.edge.from, 'file'),
-					await this.badgeNodeForPath(folder.workspaceFolder, drag.edge.to, 'file')
-				);
-			}
-			await this.canvasMirrorService.reconnectCanvasEdge(folder, { from: drag.edge.from, to: drag.edge.to }, next);
-			this.selectedEdgeId = edgeId(next.from, next.to);
-			this.selectedEdge = { from: next.from, to: next.to };
-			await this.render();
-		} catch (error) {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		}
-	}
-
-	private clearEdgeReconnect(drag: NonNullable<BaseHalfCanvasWorkbenchContribution['activeEdgeReconnect']>): void {
-		this.edgeReconnectListeners.clear();
-		if (drag.hitPath.hasPointerCapture(drag.pointerId)) {
-			drag.hitPath.releasePointerCapture(drag.pointerId);
-		}
-		drag.previewPath.ownerSVGElement?.remove();
-		drag.staticPath.classList.remove('reconnecting');
-		this.activeEdgeReconnect = undefined;
-		this.root.classList.remove('edge-reconnecting');
-		this.markConnectionTarget(undefined);
-	}
-
-	private async editEdgeLabel(edge: IBaseHalfCanvasEdge): Promise<void> {
-		const next = await this.quickInputService.input({
-			title: 'Reference note',
-			placeHolder: 'Say why these connect',
-			value: edge.label ?? ''
-		});
-		if (next === undefined) {
-			return;
-		}
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-		const label = next.trim();
-		try {
-			// setCanvasEdgeLabel (not upsert) so clearing the note actually
-			// clears it — the upsert path preserves an existing label by design.
-			await this.canvasMirrorService.setCanvasEdgeLabel(folder, { from: edge.from, to: edge.to }, label || undefined);
-			this.selectedEdgeId = edgeId(edge.from, edge.to);
-			this.selectedEdge = { from: edge.from, to: edge.to };
-			await this.render();
-		} catch (error) {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		}
-	}
-
-	private async removeSelectedEdge(): Promise<void> {
-		const folder = this.getCurrentFolder();
-		if (!folder || !this.selectedEdge) {
-			return;
-		}
-		await this.removeEdge(folder, this.selectedEdge);
-	}
-
-	private async removeEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>): Promise<void> {
-		try {
-			// Semantic first: dropping the reference is what removes the line
-			// (edges derive from the graph); the canvas write only sheds styling.
-			await this.badgeGraphService.removeReference(
-				await this.badgeNodeForPath(folder.workspaceFolder, edge.from, 'file'),
-				await this.badgeNodeForPath(folder.workspaceFolder, edge.to, 'file')
-			);
-			await this.canvasMirrorService.removeCanvasEdge(folder, edge);
-			this.selectedEdgeId = undefined;
-			this.selectedEdge = undefined;
-			await this.render();
-		} catch (error) {
-			this.logService.error(error);
-			this.renderCanvasWarning(error instanceof Error ? error.message : String(error));
-		}
+		}, [targetStamp]);
+		this.requestRender();
 	}
 
 	private renderTruncated(heldBack: number): void {
-		const truncated = append(this.cards, $('.basehalf-canvas-truncated'));
+		const truncated = append(this.canvasOverlay, $('.basehalf-canvas-truncated'));
 		truncated.textContent = `+${heldBack} more`;
 	}
 
 	private renderCanvasWarning(message: string): void {
-		const warningIndex = this.cards.querySelectorAll('.basehalf-canvas-warning').length;
-		const warning = append(this.cards, $('.basehalf-canvas-warning'));
+		const warningIndex = this.canvasOverlay.querySelectorAll('.basehalf-canvas-warning').length;
+		const warning = append(this.canvasOverlay, $('.basehalf-canvas-warning'));
 		warning.style.top = `${58 + warningIndex * 30}px`;
 		warning.textContent = message;
 	}
 
+	private queueCanvasWarning(message: string): void {
+		if (!this.pendingCanvasWarnings.includes(message)) {
+			this.pendingCanvasWarnings.push(message);
+		}
+	}
+
+	private reportCanvasMutationError(error: unknown): void {
+		this.logService.error(error instanceof Error ? error : String(error));
+		this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+		this.requestRender();
+	}
+
 	private renderEmpty(message: string): void {
-		clearNode(this.cards);
-		const empty = append(this.cards, $('.basehalf-canvas-empty'));
+		const empty = append(this.canvasOverlay, $('.basehalf-canvas-empty'));
 		empty.textContent = message;
-		const viewport = this.canvasViewport();
-		this.updateCanvasExtent(new Dimension(Math.max(800, viewport.width), Math.max(480, viewport.height)));
+	}
+
+	private async reconcileRetainedDetailIdentity(
+		openedDetail: IBaseHalfCardDetailState,
+		effect: Exclude<BaseHalfStructuralResourceOutcome, { readonly kind: 'none' }>
+	): Promise<void> {
+		const resourceKey = openedDetail.resource.toString();
+		if (this.canvasNavigationService.state.cardDetail?.resource.toString() !== resourceKey) {
+			return;
+		}
+
+		const seq = ++this.detailIdentityReconcileSeq;
+		this.detailIdentityPendingResourceKey = resourceKey;
+		this.flushBadgeDescriptionWrite(openedDetail.workspaceFolder, openedDetail.relativePath);
+		this.detailResourceMutationStamp = undefined;
+		this.detailBadgeResourceKey = undefined;
+		this.detailBadgeOpen = false;
+		this.detailBadgeSeq++;
+		this.detailBadgeDisposables.clear();
+		clearNode(this.detailBadgeZone);
+		this.detailChromeDisposables.clear();
+		clearNode(this.detailProjectionActions);
+		this.disposeDetailSurfaces();
+		this.setDetailSaveStatus(undefined);
+
+		if (effect.kind === 'close') {
+			await this.closeInvalidatedDetail(seq, resourceKey);
+			return;
+		}
+
+		const nextResource = effect.kind === 'move' ? effect.resource : openedDetail.resource;
+		let stat: IFileStat;
+		try {
+			stat = await this.fileService.resolve(nextResource);
+		} catch {
+			await this.closeInvalidatedDetail(seq, resourceKey);
+			return;
+		}
+		if (!this.isPendingDetailIdentity(seq, resourceKey)) {
+			return;
+		}
+		if (!stat.isFile) {
+			await this.closeInvalidatedDetail(seq, resourceKey);
+			return;
+		}
+
+		if (effect.kind === 'move') {
+			const result = await this.canvasNavigationService.openCardDetail(nextResource, {
+				source: openedDetail.source,
+				selection: openedDetail.selection,
+				preserveFocus: openedDetail.preserveFocus,
+				pinned: openedDetail.pinned,
+				projection: openedDetail.projection
+			});
+			if (!result.handled && this.isPendingDetailIdentity(seq, resourceKey)) {
+				await this.closeInvalidatedDetail(seq, resourceKey);
+			}
+			return;
+		}
+
+		// No member touching this URI completed. Rebuild only after the URI has
+		// been resolved as a file; the old retained model/webview never inherits
+		// a freshly captured generation.
+		this.detailIdentityPendingResourceKey = undefined;
+		this.requestRender();
+	}
+
+	private isPendingDetailIdentity(seq: number, resourceKey: string): boolean {
+		return !this.disposed
+			&& seq === this.detailIdentityReconcileSeq
+			&& this.detailIdentityPendingResourceKey === resourceKey
+			&& this.canvasNavigationService.state.cardDetail?.resource.toString() === resourceKey;
+	}
+
+	private async closeInvalidatedDetail(seq: number, resourceKey: string): Promise<void> {
+		if (!this.isPendingDetailIdentity(seq, resourceKey)) {
+			return;
+		}
+		await this.canvasNavigationService.closeCardDetail();
 	}
 
 	private renderDetail(): void {
@@ -2139,9 +1562,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detail.classList.toggle('visible', !!cardDetail);
 		this.syncDetailScrollLock(!!cardDetail);
 		if (!cardDetail) {
+			this.detail.inert = false;
+			this.detail.removeAttribute('aria-busy');
+			this.detailIdentityReconcileSeq++;
+			this.detailIdentityPendingResourceKey = undefined;
 			const wasOpen = this.detailSurfaceResourceKey !== undefined;
 			this.detailBadgeOpen = false;
 			this.detailBadgeResourceKey = undefined;
+			this.detailResourceMutationStamp = undefined;
 			this.disposeDetailSurfaces();
 			this.detailChromeDisposables.clear();
 			this.detailBadgeSeq++;
@@ -2165,17 +1593,40 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		const resourceKey = cardDetail.resource.toString();
+		if (this.detailIdentityPendingResourceKey && this.detailIdentityPendingResourceKey !== resourceKey) {
+			this.detailIdentityReconcileSeq++;
+			this.detailIdentityPendingResourceKey = undefined;
+		}
+		if (this.detailIdentityPendingResourceKey === resourceKey) {
+			return;
+		}
+		this.syncDetailMutationFence();
+
 		this.detailTitle.textContent = basename(cardDetail.resource);
 		this.detailMeta.textContent = this.detailSelectionMetaFor(cardDetail.selection);
 		this.renderProjectionActions(cardDetail);
-		const detailBadgeResourceKey = cardDetail.resource.toString();
+		const detailBadgeResourceKey = resourceKey;
 		if (this.detailBadgeResourceKey !== detailBadgeResourceKey) {
 			this.detailBadgeResourceKey = detailBadgeResourceKey;
+			this.detailResourceMutationStamp = this.workspaceMutationCoordinator.captureResource(cardDetail.workspaceFolder, cardDetail.relativePath);
 			this.detailBadgeOpen = false;
 		}
 		void this.renderDetailBadge(cardDetail);
 
 		this.renderDetailSurface(cardDetail);
+	}
+
+	private syncDetailMutationFence(): void {
+		const detail = this.canvasNavigationService.state.cardDetail;
+		const fenced = !!detail && this.workspaceMutationCoordinator.isResourceMutationFenced(detail.workspaceFolder, detail.relativePath);
+		this.detail.inert = fenced;
+		this.detail.toggleAttribute('aria-busy', fenced);
+		for (const surface of this.detailSurfaces.values()) {
+			if (surface.instance instanceof BaseHalfMarkdownRichCardDetail) {
+				surface.instance.setStructuralFrozen(fenced);
+			}
+		}
 	}
 
 	/**
@@ -2265,6 +1716,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		const whenRendered = instance.open(cardDetail).catch(error => this.logService.error(error));
+		if (instance instanceof BaseHalfMarkdownRichCardDetail) {
+			instance.setStructuralFrozen(this.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
+		}
 		return { host, store, instance, whenRendered };
 	}
 
@@ -2317,6 +1771,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	 */
 	private async renderDetailBadge(cardDetail: IBaseHalfCardDetailState, openOverride?: boolean, focusToggle = false): Promise<void> {
 		const seq = ++this.detailBadgeSeq;
+		const structuralStamp = this.detailResourceMutationStamp;
+		if (!structuralStamp || structuralStamp.relativePath !== cardDetail.relativePath
+			|| !this.workspaceMutationCoordinator.isResourceStampCurrent(cardDetail.workspaceFolder, structuralStamp)) {
+			return;
+		}
 		const bodyId = `basehalf-card-detail-badge-popover-${seq}`;
 		const node: IBaseHalfBadgeNode = {
 			resource: cardDetail.resource,
@@ -2331,7 +1790,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		} catch (error) {
 			this.logService.warn(`BaseHalf card detail badge unreadable for ${node.relativePath}`, error);
 		}
-		if (this.disposed || seq !== this.detailBadgeSeq) {
+		if (this.disposed || seq !== this.detailBadgeSeq
+			|| !this.workspaceMutationCoordinator.isResourceStampCurrent(cardDetail.workspaceFolder, structuralStamp)) {
 			return;
 		}
 		// Never rebuild under the user's cursor — a mirror change while they are
@@ -2407,6 +1867,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			body,
 			node,
 			badge ?? undefined,
+			this.resourceMutationGuard(cardDetail.workspaceFolder, structuralStamp),
 			disposable => this.detailBadgeDisposables.add(disposable),
 			() => [...this.renderedItemsByPath.values()]
 		);
@@ -2432,7 +1893,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		this.flushBadgeDescriptionWrite(cardDetail.relativePath);
+		this.flushBadgeDescriptionWrite(cardDetail.workspaceFolder, cardDetail.relativePath);
 		this.detailBadgeOpen = false;
 		this.hideDetailBadgePopoverNow();
 		void this.renderDetailBadge(cardDetail, false, restoreFocus);
@@ -2454,24 +1915,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private syncDetailScrollLock(detailVisible: boolean): void {
 		this.root.classList.toggle('basehalf-card-detail-open', detailVisible);
-		if (detailVisible) {
-			if (!this.canvasScrollBeforeDetail) {
-				this.canvasScrollBeforeDetail = {
-					left: this.root.scrollLeft,
-					top: this.root.scrollTop
-				};
-			}
-			this.root.scrollLeft = 0;
-			this.root.scrollTop = 0;
-			return;
-		}
-
-		const scroll = this.canvasScrollBeforeDetail;
-		this.canvasScrollBeforeDetail = undefined;
-		if (scroll) {
-			this.root.scrollLeft = scroll.left;
-			this.root.scrollTop = scroll.top;
-		}
 	}
 
 	private renderProjectionActions(cardDetail: IBaseHalfCardDetailState): void {
@@ -2517,127 +1960,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return `L${selection.startLineNumber}:${selection.startColumn}`;
 	}
 
-	private canvasSize(items: readonly IBaseHalfCanvasItem[], savedSize: IBaseHalfCanvasSize | undefined): Dimension {
-		if (items.length === 0) {
-			return new Dimension(savedSize?.width ?? BASEHALF_CANVAS_DEFAULT_WIDTH, savedSize?.height ?? BASEHALF_CANVAS_DEFAULT_HEIGHT);
-		}
-
-		let maxX = savedSize?.width ?? BASEHALF_CANVAS_DEFAULT_WIDTH;
-		let maxY = savedSize?.height ?? BASEHALF_CANVAS_DEFAULT_HEIGHT;
-		for (let index = 0; index < items.length; index++) {
-			const item = items[index];
-			const { x, y, width, height } = baseHalfCanvasItemBounds(item, index, items.length);
-			maxX = Math.max(maxX, x + width);
-			maxY = Math.max(maxY, y + height);
-		}
-		return new Dimension(maxX + 48, maxY + 76);
-	}
-
-	private updateCanvasExtent(size: Dimension): void {
-		const previousInset = this.canvasFrameInset;
-		this.canvasFrameInset = this.computeCanvasFrameInset();
-		this.cards.style.width = `${size.width}px`;
-		this.cards.style.height = `${size.height}px`;
-		this.cards.style.left = `${this.canvasFrameInset.x}px`;
-		this.cards.style.top = `${this.canvasFrameInset.y}px`;
-		this.surface.style.width = `${Math.max(this.canvasFrameInset.x + size.width * this.canvasZoom + CANVAS_FRAME_PADDING_PX, this.root.clientWidth)}px`;
-		this.surface.style.height = `${Math.max(this.canvasFrameInset.y + size.height * this.canvasZoom + CANVAS_FRAME_PADDING_PX, this.canvasViewport().bottom)}px`;
-
-		// The inset anchors canvas coordinates inside the scrollable surface; when it
-		// changes, shift the scroll position with it so the viewport keeps showing the
-		// same canvas content instead of jumping.
-		const insetDx = this.canvasFrameInset.x - previousInset.x;
-		const insetDy = this.canvasFrameInset.y - previousInset.y;
-		if (insetDx !== 0 || insetDy !== 0) {
-			this.root.scrollLeft += insetDx;
-			this.root.scrollTop += insetDy;
-		}
-		this.updateCanvasGrid();
-	}
-
-	private updateCanvasGrid(): void {
-		// The grid belongs to canvas world space: it pans and scales with the content,
-		// like every mainstream infinite canvas. background-position pins grid line 0
-		// to the canvas origin (the frame inset, where the cards layer sits) and
-		// background-size is a world-unit step multiplied by the zoom. The world step
-		// re-quantizes by powers of two so the on-screen cell stays in a comfortable
-		// ~23-45px band at any zoom; because steps share the same origin and divide
-		// each other, a re-quantization reads as every other line appearing or
-		// disappearing while the surviving lines stay glued to the content.
-		const worldStep = CANVAS_GRID_BASE_WORLD_PX * Math.pow(2, Math.round(-Math.log2(this.canvasZoom)));
-		this.root.style.setProperty('--bh-grid-step', `${worldStep * this.canvasZoom}px`);
-		this.root.style.setProperty('--bh-grid-x', `${this.canvasFrameInset.x}px`);
-		this.root.style.setProperty('--bh-grid-y', `${this.canvasFrameInset.y}px`);
-	}
-
-	private computeCanvasFrameInset(): { readonly x: number; readonly y: number } {
-		const bounds = this.canvasContentBounds();
-		if (!bounds) {
-			return { x: 0, y: 0 };
-		}
-
-		const viewport = this.canvasViewport();
-		const scaledWidth = bounds.width * this.canvasZoom;
-		const scaledHeight = bounds.height * this.canvasZoom;
-		const centeredX = viewport.left + (viewport.width - scaledWidth) / 2 - bounds.x * this.canvasZoom;
-		const centeredY = viewport.top + (viewport.height - scaledHeight) / 2 - bounds.y * this.canvasZoom;
-		const leadingX = viewport.left + CANVAS_FRAME_PADDING_PX - bounds.x * this.canvasZoom;
-		const leadingY = viewport.top + CANVAS_FRAME_PADDING_PX - bounds.y * this.canvasZoom;
-		return {
-			x: roundCanvasPosition(Math.max(CANVAS_FRAME_PADDING_PX, centeredX, leadingX)),
-			y: roundCanvasPosition(Math.max(CANVAS_FRAME_PADDING_PX, centeredY, leadingY))
-		};
-	}
-
-	private canvasContentBounds(): IBaseHalfCanvasBounds | undefined {
-		let minX = Number.POSITIVE_INFINITY;
-		let minY = Number.POSITIVE_INFINITY;
-		let maxX = Number.NEGATIVE_INFINITY;
-		let maxY = Number.NEGATIVE_INFINITY;
-		for (const bounds of this.renderedBoundsByPath.values()) {
-			minX = Math.min(minX, bounds.x);
-			minY = Math.min(minY, bounds.y);
-			maxX = Math.max(maxX, bounds.x + bounds.width);
-			maxY = Math.max(maxY, bounds.y + bounds.height);
-		}
-		if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
-			return undefined;
-		}
-		return {
-			x: minX,
-			y: minY,
-			width: Math.max(1, maxX - minX),
-			height: Math.max(1, maxY - minY)
-		};
-	}
-
-	private canvasViewport(): BaseHalfCanvasViewport {
-		const top = CANVAS_VIEWPORT_TOP_INSET_PX;
-		const bottomInset = this.canvasViewportBottomInset();
-		const width = Math.max(1, this.root.clientWidth);
-		const height = Math.max(1, this.root.clientHeight - top - bottomInset);
-		return {
-			left: 0,
-			top,
-			right: width,
-			bottom: top + height,
-			width,
-			height,
-			centerX: width / 2,
-			centerY: top + height / 2
-		};
-	}
-
-	private canvasViewportBottomInset(): number {
-		const controls = this.chrome.querySelector<HTMLElement>('.basehalf-canvas-zoom-controls');
-		if (!controls) {
-			return CANVAS_VIEWPORT_BOTTOM_INSET_PX;
-		}
-
-		const rootRect = this.root.getBoundingClientRect();
-		const controlsRect = controls.getBoundingClientRect();
-		return Math.max(CANVAS_VIEWPORT_BOTTOM_INSET_PX, Math.ceil(rootRect.bottom - controlsRect.top + CANVAS_VIEWPORT_CHROME_GAP_PX));
-	}
 
 	private createZoomButton(container: HTMLElement, title: string, icon: string, action: () => void): HTMLButtonElement {
 		const button = append(container, $(`button.basehalf-canvas-zoom-button.codicon.${icon}`)) as HTMLButtonElement;
@@ -2646,6 +1968,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		button.setAttribute('aria-label', title);
 		this._register(this.addDisposableListener(button, 'click', () => action()));
 		return button;
+	}
+
+	private updateCanvasZoomChrome(): void {
+		const zoom = normalizeCanvasZoom(this.canvasZoom);
+		this.canvasZoom = zoom;
+		this.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
+		this.root.dataset.zoom = String(zoom);
+		this.zoomValue.textContent = `${Math.round(zoom * 100)}%`;
+		this.zoomOut.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
+		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
+		this.zoomReset.disabled = zoom === 1;
 	}
 
 	private zoomBy(direction: -1 | 1): void {
@@ -2669,303 +2002,70 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
-	private onCanvasWheel(event: WheelEvent): void {
-		if (!isCanvasZoomWheelEvent(event)) {
-			return;
-		}
 
-		event.preventDefault();
-		this.queueCanvasWheelZoom(canvasWheelZoomFactor(event), {
-			clientX: event.clientX,
-			clientY: event.clientY,
-			focusWriteDelay: BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY
-		});
-	}
-
-	private queueCanvasWheelZoom(factor: number, anchor: BaseHalfCanvasZoomAnchor): void {
-		if (!Number.isFinite(factor) || factor === 1) {
-			return;
-		}
-
-		this.pendingWheelZoomFactor *= factor;
-		this.pendingWheelZoomAnchor = anchor;
-		if (this.wheelZoomAnimationFrame !== undefined) {
-			return;
-		}
-
-		this.wheelZoomAnimationFrame = mainWindow.requestAnimationFrame(() => {
-			this.wheelZoomAnimationFrame = undefined;
-			const pendingFactor = this.pendingWheelZoomFactor;
-			const pendingAnchor = this.pendingWheelZoomAnchor;
-			this.pendingWheelZoomFactor = 1;
-			this.pendingWheelZoomAnchor = undefined;
-			if (!pendingAnchor || this.disposed) {
-				return;
-			}
-
-			this.setCanvasZoom(this.canvasZoom * pendingFactor, pendingAnchor);
-		});
-	}
-
-	private setCanvasZoom(value: number, anchor?: BaseHalfCanvasZoomAnchor): void {
+	private setCanvasZoom(value: number): void {
 		const nextZoom = normalizeCanvasZoom(value);
 		if (nextZoom === this.canvasZoom) {
 			return;
 		}
-
-		const viewport = this.canvasViewport();
-		const rootRect = this.root.getBoundingClientRect();
-		const anchorClientX = anchor ? clamp(anchor.clientX - rootRect.left, viewport.left, viewport.right) : viewport.centerX;
-		const anchorClientY = anchor ? clamp(anchor.clientY - rootRect.top, viewport.top, viewport.bottom) : viewport.centerY;
-		const anchorPoint = this.canvasPointFromViewportPoint(anchorClientX, anchorClientY);
+		const folder = this.getCurrentFolder();
+		const sceneKey = folder ? this.sceneKey(folder) : undefined;
 		this.canvasZoom = nextZoom;
-		this.applyCanvasZoom();
-		// Keep the anchor point exactly under the pointer: when the required scroll
-		// position falls outside the scrollable range, the canvas extent grows instead
-		// of clamping, so content never slides away from the pinch.
-		this.scrollCanvasToTarget(
-			this.canvasFrameInset.x + anchorPoint.x * nextZoom - anchorClientX,
-			this.canvasFrameInset.y + anchorPoint.y * nextZoom - anchorClientY
-		);
-		if (!anchor) {
-			// Pointer-anchored zoom must stay glued to the pointer; pulling the selected
-			// card back into the viewport would fight the pinch. Only the button and
-			// keyboard zoom paths keep the selection visible.
-			this.scrollSelectedCardIntoViewport();
-		}
-		this.scheduleFolderFocusWrite(anchor?.focusWriteDelay ?? 0);
-	}
-
-	private applyCanvasZoom(): void {
-		const zoom = normalizeCanvasZoom(this.canvasZoom);
-		this.canvasZoom = zoom;
-		this.root.style.setProperty('--basehalf-canvas-zoom', String(zoom));
-		this.root.dataset.zoom = String(zoom);
-		this.cards.style.transform = `scale(${zoom})`;
-		this.cards.style.transformOrigin = '0 0';
-		this.zoomValue.textContent = `${Math.round(zoom * 100)}%`;
-		this.zoomOut.disabled = zoom <= BASEHALF_CANVAS_MIN_ZOOM;
-		this.zoomIn.disabled = zoom >= BASEHALF_CANVAS_MAX_ZOOM;
-		this.zoomReset.disabled = zoom === 1;
-		this.updateCardLod();
-		const width = parseFloat(this.cards.style.width);
-		const height = parseFloat(this.cards.style.height);
-		if (Number.isFinite(width) && Number.isFinite(height)) {
-			this.updateCanvasExtent(new Dimension(width, height));
-		} else {
-			this.updateCanvasGrid();
-		}
-	}
-
-	private canvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
-		const rect = this.root.getBoundingClientRect();
-		return this.canvasPointFromViewportPoint(clientX - rect.left, clientY - rect.top);
-	}
-
-	private canvasPointFromViewportPoint(x: number, y: number): { x: number; y: number } {
-		return {
-			x: (this.root.scrollLeft + x - this.canvasFrameInset.x) / this.canvasZoom,
-			y: (this.root.scrollTop + y - this.canvasFrameInset.y) / this.canvasZoom
-		};
-	}
-
-	private scrollSelectedCardIntoViewport(): void {
-		if (!this.selectedCardPath) {
-			return;
-		}
-
-		const bounds = this.renderedBoundsByPath.get(this.selectedCardPath);
-		if (!bounds) {
-			return;
-		}
-
-		this.scrollCanvasBoundsIntoViewport(bounds, CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX);
-	}
-
-	private scrollCanvasBoundsIntoViewport(bounds: IBaseHalfCanvasBounds, margin: number): void {
-		const viewport = this.canvasViewport();
-		const screen = {
-			left: this.canvasFrameInset.x + bounds.x * this.canvasZoom - this.root.scrollLeft,
-			top: this.canvasFrameInset.y + bounds.y * this.canvasZoom - this.root.scrollTop,
-			width: bounds.width * this.canvasZoom,
-			height: bounds.height * this.canvasZoom
-		};
-		const screenRight = screen.left + screen.width;
-		const screenBottom = screen.top + screen.height;
-		const minLeft = viewport.left + margin;
-		const maxRight = viewport.right - margin;
-		const minTop = viewport.top + margin;
-		const maxBottom = viewport.bottom - margin;
-		let nextLeft = this.root.scrollLeft;
-		let nextTop = this.root.scrollTop;
-
-		if (screen.width <= viewport.width - margin * 2) {
-			if (screen.left < minLeft) {
-				nextLeft -= minLeft - screen.left;
-			} else if (screenRight > maxRight) {
-				nextLeft += screenRight - maxRight;
+		this.updateCanvasZoomChrome();
+		void this.canvasScene.setZoom(nextZoom).then(() => {
+			if (folder && sceneKey && this.isCurrentSceneKey(sceneKey)) {
+				this.scheduleFolderFocusWrite(0, { folder, viewport: this.canvasScene.getViewport() });
 			}
-		} else if (screen.left > minLeft) {
-			nextLeft += screen.left - minLeft;
-		} else if (screen.left < viewport.left) {
-			nextLeft -= viewport.left - screen.left;
-		}
-
-		if (screen.height <= viewport.height - margin * 2) {
-			if (screen.top < minTop) {
-				nextTop -= minTop - screen.top;
-			} else if (screenBottom > maxBottom) {
-				nextTop += screenBottom - maxBottom;
+		}).catch(() => {
+			if (sceneKey && this.isCurrentSceneKey(sceneKey) && this.canvasZoom === nextZoom) {
+				this.canvasZoom = normalizeCanvasZoom(this.canvasScene.getViewport().zoom);
+				this.updateCanvasZoomChrome();
 			}
-		} else if (screen.top > minTop) {
-			nextTop += screen.top - minTop;
-		} else if (screen.top < viewport.top) {
-			nextTop -= viewport.top - screen.top;
-		}
-
-		this.root.scrollLeft = Math.max(0, nextLeft);
-		this.root.scrollTop = Math.max(0, nextTop);
+		});
 	}
 
-	private scrollCanvasPointToViewportCenter(point: { readonly x: number; readonly y: number }): void {
-		const viewport = this.canvasViewport();
-		this.root.scrollLeft = Math.max(0, this.canvasFrameInset.x + point.x * this.canvasZoom - viewport.centerX);
-		this.root.scrollTop = Math.max(0, this.canvasFrameInset.y + point.y * this.canvasZoom - viewport.centerY);
-	}
-
-	private revealCardAfterGeometryChange(path: string): void {
-		if (this.disposed || this.canvasNavigationService.state.cardDetail) {
-			return;
-		}
-
-		const bounds = this.renderedBoundsByPath.get(path);
-		if (bounds) {
-			this.scrollCanvasBoundsIntoViewport(bounds, CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX);
-		}
-	}
 
 	private flushRenderQueuedBehindGesture(): void {
 		if (this.renderQueuedBehindGesture) {
 			this.renderQueuedBehindGesture = false;
-			void this.render();
+			this.requestRender();
 		}
 	}
 
-	private updateDragAutoPan(clientX: number, clientY: number): void {
-		if (this.dragAutoPan) {
-			this.dragAutoPan.clientX = clientX;
-			this.dragAutoPan.clientY = clientY;
-			return;
+	private deferRenderForSceneInteraction(): boolean {
+		if (!this.canvasScene.isInteracting()) {
+			return false;
 		}
-
-		this.dragAutoPan = { frame: undefined, clientX, clientY };
-		this.scheduleDragAutoPanTick();
+		this.renderQueuedBehindGesture = true;
+		return true;
 	}
 
-	private stopDragAutoPan(): void {
-		if (this.dragAutoPan?.frame !== undefined) {
-			mainWindow.cancelAnimationFrame(this.dragAutoPan.frame);
-		}
-		this.dragAutoPan = undefined;
-	}
 
-	private scheduleDragAutoPanTick(): void {
-		const state = this.dragAutoPan;
-		if (!state) {
-			return;
-		}
-
-		state.frame = mainWindow.requestAnimationFrame(() => {
-			state.frame = undefined;
-			this.dragAutoPanTick();
-		});
-	}
-
-	private dragAutoPanTick(): void {
-		const state = this.dragAutoPan;
-		if (!state || this.disposed) {
-			return;
-		}
-		const gestureCard = this.activeCardDrag?.moved ? this.activeCardDrag.card : this.activeResizeDrag?.moved ? this.activeResizeDrag.card : undefined;
-		if (!gestureCard?.isConnected) {
-			this.stopDragAutoPan();
-			return;
-		}
-
-		const rootRect = this.root.getBoundingClientRect();
-		const viewport = this.canvasViewport();
-		const panX = dragAutoPanStep(state.clientX - rootRect.left, viewport.left, viewport.right);
-		const panY = dragAutoPanStep(state.clientY - rootRect.top, viewport.top, viewport.bottom);
-		if (panX !== 0 || panY !== 0) {
-			this.panCanvasBy(panX, panY);
-			this.updateActiveDragFromPointer(state.clientX, state.clientY);
-		}
-		this.scheduleDragAutoPanTick();
-	}
-
-	private updateActiveDragFromPointer(clientX: number, clientY: number): void {
-		const cardDrag = this.activeCardDrag;
-		if (cardDrag?.moved) {
-			this.updateCardDragPosition(cardDrag, clientX, clientY);
-			return;
-		}
-
-		const resizeDrag = this.activeResizeDrag;
-		if (resizeDrag?.moved) {
-			this.updateResizeDragBounds(resizeDrag, clientX, clientY);
-		}
-	}
-
-	private panCanvasBy(dx: number, dy: number): void {
-		this.scrollCanvasToTarget(this.root.scrollLeft + dx, this.root.scrollTop + dy);
-	}
-
-	private scrollCanvasToTarget(targetLeft: number, targetTop: number): void {
-		// A target above/left of the scroll origin grows the leading inset instead of
-		// clamping, so the canvas gains headroom and the requested position stays exact.
-		const growX = Math.max(0, -targetLeft);
-		const growY = Math.max(0, -targetTop);
-		if (growX > 0 || growY > 0) {
-			this.canvasFrameInset = { x: this.canvasFrameInset.x + growX, y: this.canvasFrameInset.y + growY };
-			this.cards.style.left = `${this.canvasFrameInset.x}px`;
-			this.cards.style.top = `${this.canvasFrameInset.y}px`;
-			this.growCanvasSurface(growX, growY);
-			this.updateCanvasGrid();
-			targetLeft += growX;
-			targetTop += growY;
-		}
-
-		// A target beyond the scroll end grows the trailing extent the same way.
-		const trailX = Math.max(0, targetLeft - (this.root.scrollWidth - this.root.clientWidth));
-		const trailY = Math.max(0, targetTop - (this.root.scrollHeight - this.root.clientHeight));
-		if (trailX > 0 || trailY > 0) {
-			this.growCanvasSurface(trailX, trailY);
-		}
-
-		this.root.scrollLeft = targetLeft;
-		this.root.scrollTop = targetTop;
-	}
-
-	private growCanvasSurface(dx: number, dy: number): void {
-		const width = parseFloat(this.surface.style.width);
-		const height = parseFloat(this.surface.style.height);
-		if (dx > 0 && Number.isFinite(width)) {
-			this.surface.style.width = `${width + dx}px`;
-		}
-		if (dy > 0 && Number.isFinite(height)) {
-			this.surface.style.height = `${height + dy}px`;
-		}
-	}
-
-	private folderFocusViewportCenter(): { x: number; y: number } {
-		const viewport = this.canvasViewport();
+	private folderFocusViewportCenter(viewport: IBaseHalfCanvasSceneViewport): { x: number; y: number } {
 		return {
-			x: (this.root.scrollLeft + viewport.centerX - this.canvasFrameInset.x) / this.canvasZoom,
-			y: (this.root.scrollTop + viewport.centerY - this.canvasFrameInset.y) / this.canvasZoom
+			x: (this.root.clientWidth / 2 - viewport.x) / viewport.zoom,
+			y: (this.root.clientHeight / 2 - viewport.y) / viewport.zoom
 		};
 	}
 
-	private scheduleFolderFocusWrite(delay = 200): void {
+	private scheduleFolderFocusWrite(
+		delay = 200,
+		context?: { readonly folder: IBaseHalfCanvasFolderState; readonly viewport: IBaseHalfCanvasSceneViewport }
+	): void {
+		const folder = context?.folder ?? this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		const viewport = context?.viewport ?? this.canvasScene.getViewport();
+		this.pendingFolderFocusWrite = {
+			folder,
+			sceneKey: this.sceneKey(folder),
+			structuralStamp: this.workspaceMutationCoordinator.capture(folder.workspaceFolder),
+			fields: {
+				viewport_center: mapCanvasPoint(this.folderFocusViewportCenter(viewport), roundCanvasPosition),
+				zoom: viewport.zoom
+			}
+		};
 		if (this.folderFocusTimer !== undefined) {
 			mainWindow.clearTimeout(this.folderFocusTimer);
 		}
@@ -2988,7 +2088,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.restoredFolderFocusKey = key;
-		void this.focusMirrorService.readFolderFocus(folder).then(fields => {
+		void this.focusMirrorService.readFolderFocus(folder).then(async fields => {
 			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
 				return;
 			}
@@ -2999,15 +2099,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 
 			this.canvasZoom = fields.zoom;
-			this.applyCanvasZoom();
-			mainWindow.requestAnimationFrame(() => {
-				if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
-					return;
-				}
-
-				this.scrollCanvasPointToViewportCenter(fields.viewport_center);
+			this.updateCanvasZoomChrome();
+			await this.canvasScene.setViewportCenter(fields.viewport_center.x, fields.viewport_center.y, fields.zoom);
+			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
 				this.scheduleFolderFocusWrite(0);
-			});
+			}
 		}).catch(error => {
 			this.logService.warn(error);
 			if (seq === this.renderSeq && !this.canvasNavigationService.state.cardDetail) {
@@ -3017,36 +2113,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private frameFreshFolderView(folder: IBaseHalfCanvasFolderState, seq: number): void {
-		this.canvasZoom = this.freshCanvasZoom(folder);
-		this.applyCanvasZoom();
-		mainWindow.requestAnimationFrame(() => {
+		const maxZoom = Math.min(1, this.defaultCanvasZoom(folder));
+		void this.canvasScene.fit(undefined, { maxZoom, padding: 0.12 }).then(() => {
 			if (seq !== this.renderSeq || this.canvasNavigationService.state.cardDetail) {
 				return;
 			}
-
-			const bounds = this.canvasContentBounds();
-			if (bounds) {
-				const center = {
-					x: bounds.x + bounds.width / 2,
-					y: bounds.y + bounds.height / 2
-				};
-				this.scrollCanvasPointToViewportCenter(center);
-			}
 			this.scheduleFolderFocusWrite(0);
-		});
-	}
-
-	private freshCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
-		const defaultZoom = this.defaultCanvasZoom(folder);
-		const bounds = this.canvasContentBounds();
-		if (!bounds) {
-			return defaultZoom;
-		}
-
-		const viewport = this.canvasViewport();
-		const fitWidth = Math.max(1, viewport.width - CANVAS_FRAME_PADDING_PX * 2) / bounds.width;
-		const fitHeight = Math.max(1, viewport.height - CANVAS_FRAME_PADDING_PX * 2) / bounds.height;
-		return normalizeCanvasZoom(Math.min(defaultZoom, fitWidth, fitHeight, 1));
+		}).catch(error => this.logService.error(error));
 	}
 
 	private defaultCanvasZoom(folder: IBaseHalfCanvasFolderState): number {
@@ -3054,79 +2127,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private flushFolderFocusWrite(): void {
-		if (this.canvasNavigationService.state.cardDetail) {
+		const pending = this.pendingFolderFocusWrite;
+		this.pendingFolderFocusWrite = undefined;
+		if (!pending || this.canvasNavigationService.state.cardDetail || !this.isCurrentSceneKey(pending.sceneKey)) {
 			return;
 		}
 
-		const folder = this.getCurrentFolder();
-		if (!folder) {
-			return;
-		}
-
-		const fields = {
-			viewport_center: mapCanvasPoint(this.folderFocusViewportCenter(), roundCanvasPosition),
-			zoom: this.canvasZoom
-		};
-		const key = `${folder.workspaceFolder.toString()}::${folder.relativePath}::${JSON.stringify(fields)}`;
+		const key = `${pending.sceneKey}::${pending.structuralStamp.structuralEpoch}::${JSON.stringify(pending.fields)}`;
 		if (key === this.lastFolderFocusKey) {
 			return;
 		}
 
-		this.lastFolderFocusKey = key;
-		void this.focusMirrorService.writeFolderFocus(folder, fields).catch(error => this.logService.error(error));
+		void this.workspaceMutationCoordinator.runSceneMutation(
+			pending.folder.workspaceFolder,
+			pending.structuralStamp,
+			async lease => {
+				if (!this.isCurrentSceneKey(pending.sceneKey)) {
+					return;
+				}
+				await this.focusMirrorService.writeFolderFocus(pending.folder, pending.fields, lease);
+			}
+		).then(() => this.lastFolderFocusKey = key).catch(error => this.logService.error(error));
 	}
 }
 
 registerWorkbenchContribution2(BaseHalfCanvasWorkbenchContribution.ID, BaseHalfCanvasWorkbenchContribution, WorkbenchPhase.AfterRestored);
 
 const BASEHALF_CANVAS_ZOOM_STEP = 0.1;
-const CANVAS_VIEWPORT_TOP_INSET_PX = 24;
-const CANVAS_VIEWPORT_BOTTOM_INSET_PX = 24;
-const CANVAS_VIEWPORT_CHROME_GAP_PX = 16;
-const CANVAS_VIEWPORT_SELECTED_CARD_MARGIN_PX = 18;
-const CANVAS_DRAG_AUTO_PAN_BAND_PX = 8;
-const CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX = 24;
-const CANVAS_DRAG_AUTO_PAN_RATE = 0.35;
-const BASEHALF_CANVAS_SNAP_SCREEN_THRESHOLD = 5;
-const BASEHALF_CANVAS_MIN_ZOOM_FOR_SNAP_THRESHOLD = 0.2;
-const BASEHALF_CANVAS_WHEEL_FOCUS_WRITE_DELAY = 250;
-const BASEHALF_CANVAS_WHEEL_DELTA_LIMIT = 30;
-// Matches the trackpad pinch convention (scale ~= exp(-deltaY / 100)), so the canvas
-// zooms 1:1 with the finger spread instead of lagging behind it.
-const BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY = 0.01;
-const BASEHALF_CANVAS_WHEEL_LINE_DELTA_PX = 16;
-const BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX = 800;
 
 function roundCanvasPosition(value: number): number {
 	return Number(value.toFixed(2));
-}
-
-function snapRect(id: string, bounds: IBaseHalfCanvasBounds): IBaseHalfCanvasSnapRect {
-	return {
-		id,
-		x: bounds.x,
-		y: bounds.y,
-		width: bounds.width,
-		height: bounds.height
-	};
-}
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, value));
-}
-
-function dragAutoPanStep(position: number, min: number, max: number): number {
-	const leading = position - (min + CANVAS_DRAG_AUTO_PAN_BAND_PX);
-	if (leading < 0) {
-		return Math.max(-CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX, leading * CANVAS_DRAG_AUTO_PAN_RATE);
-	}
-
-	const trailing = position - (max - CANVAS_DRAG_AUTO_PAN_BAND_PX);
-	if (trailing > 0) {
-		return Math.min(CANVAS_DRAG_AUTO_PAN_MAX_STEP_PX, trailing * CANVAS_DRAG_AUTO_PAN_RATE);
-	}
-
-	return 0;
 }
 
 function normalizeCanvasZoom(value: number): number {
@@ -3140,10 +2170,6 @@ function mapCanvasPoint(point: { readonly x: number; readonly y: number }, map: 
 	};
 }
 
-function isCanvasZoomWheelEvent(event: WheelEvent): boolean {
-	return event.metaKey || event.ctrlKey;
-}
-
 function isBaseHalfFocusMirrorResource(resource: URI): boolean {
 	const name = basename(resource);
 	if (name !== 'focus.yaml' && name !== 'current_focus.yaml') {
@@ -3151,21 +2177,6 @@ function isBaseHalfFocusMirrorResource(resource: URI): boolean {
 	}
 
 	return resource.path.includes('/.bh/');
-}
-
-function canvasWheelZoomFactor(event: WheelEvent): number {
-	const delta = Math.max(-BASEHALF_CANVAS_WHEEL_DELTA_LIMIT, Math.min(BASEHALF_CANVAS_WHEEL_DELTA_LIMIT, normalizedCanvasWheelDeltaY(event)));
-	return Math.exp(-delta * BASEHALF_CANVAS_WHEEL_ZOOM_SENSITIVITY);
-}
-
-function normalizedCanvasWheelDeltaY(event: WheelEvent): number {
-	if (event.deltaMode === 1) {
-		return event.deltaY * BASEHALF_CANVAS_WHEEL_LINE_DELTA_PX;
-	}
-	if (event.deltaMode === 2) {
-		return event.deltaY * BASEHALF_CANVAS_WHEEL_PAGE_DELTA_PX;
-	}
-	return event.deltaY;
 }
 
 function mediaPreviewLabel(name: string): string | undefined {
@@ -3239,139 +2250,8 @@ function baseHalfReferenceLabel(relativePath: string): string {
 	return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
 }
 
-function sourceAnchorForPointer(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {
-	const x = clientX - rect.left;
-	const y = clientY - rect.top;
-	if (
-		(x < CANVAS_CONNECTION_CORNER_GUARD || x > rect.width - CANVAS_CONNECTION_CORNER_GUARD) &&
-		(y < CANVAS_CONNECTION_CORNER_GUARD || y > rect.height - CANVAS_CONNECTION_CORNER_GUARD)
-	) {
-		return undefined;
-	}
-
-	const distances: Array<{ readonly anchor: BaseHalfCanvasAnchor; readonly distance: number }> = [
-		{ anchor: 'north', distance: y },
-		{ anchor: 'east', distance: rect.width - x },
-		{ anchor: 'south', distance: rect.height - y },
-		{ anchor: 'west', distance: x }
-	];
-	const nearest = distances.reduce((best, next) => next.distance < best.distance ? next : best);
-	return nearest.distance <= CANVAS_CONNECTION_EDGE_THRESHOLD ? nearest.anchor : undefined;
-}
-
-function anchorFromDataset(value: string | undefined): BaseHalfCanvasAnchor | undefined {
-	return value === 'north' || value === 'east' || value === 'south' || value === 'west' ? value : undefined;
-}
-
-function clientPointInRect(rect: DOMRect, clientX: number, clientY: number, tolerance = 0): boolean {
-	return clientX >= rect.left - tolerance
-		&& clientX <= rect.right + tolerance
-		&& clientY >= rect.top - tolerance
-		&& clientY <= rect.bottom + tolerance;
-}
-
-function targetAnchorForPoint(rect: DOMRect, clientX: number, clientY: number): BaseHalfCanvasAnchor | undefined {
-	const margin = CANVAS_CONNECTION_TARGET_HIT_DEPTH / 2;
-	const x = clientX - rect.left;
-	const y = clientY - rect.top;
-	if (x < -margin || x > rect.width + margin || y < -margin || y > rect.height + margin) {
-		return undefined;
-	}
-
-	if (x < 0 || x > rect.width || y < 0 || y > rect.height) {
-		if (y <= CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
-			return 'north';
-		}
-		if (y >= rect.height - CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
-			return 'south';
-		}
-		if (x <= CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
-			return 'west';
-		}
-		if (x >= rect.width - CANVAS_CONNECTION_TARGET_HIT_DEPTH) {
-			return 'east';
-		}
-		return undefined;
-	}
-
-	const distances: Array<{ readonly anchor: BaseHalfCanvasAnchor; readonly distance: number }> = [
-		{ anchor: 'north', distance: Math.abs(y) },
-		{ anchor: 'east', distance: Math.abs(rect.width - x) },
-		{ anchor: 'south', distance: Math.abs(rect.height - y) },
-		{ anchor: 'west', distance: Math.abs(x) }
-	];
-	return distances.reduce((best, next) => next.distance < best.distance ? next : best).anchor;
-}
-
-function distanceToRect(rect: DOMRect, clientX: number, clientY: number): number {
-	const dx = Math.max(rect.left - clientX, 0, clientX - rect.right);
-	const dy = Math.max(rect.top - clientY, 0, clientY - rect.bottom);
-	return Math.hypot(dx, dy);
-}
-
-function resizeBounds(origin: IBaseHalfCanvasBounds, edge: BaseHalfCanvasResizeEdge, dx: number, dy: number): IBaseHalfCanvasBounds {
-	let x = origin.x;
-	let y = origin.y;
-	let width = origin.width;
-	let height = origin.height;
-	if (edge.includes('east')) {
-		width = origin.width + dx;
-	}
-	if (edge.includes('south')) {
-		height = origin.height + dy;
-	}
-	if (edge.includes('west')) {
-		width = origin.width - dx;
-		x = origin.x + dx;
-	}
-	if (edge.includes('north')) {
-		height = origin.height - dy;
-		y = origin.y + dy;
-	}
-
-	if (width < BASEHALF_CANVAS_MIN_CARD_WIDTH) {
-		if (edge.includes('west')) {
-			x -= BASEHALF_CANVAS_MIN_CARD_WIDTH - width;
-		}
-		width = BASEHALF_CANVAS_MIN_CARD_WIDTH;
-	}
-	if (height < BASEHALF_CANVAS_MIN_CARD_HEIGHT) {
-		if (edge.includes('north')) {
-			y -= BASEHALF_CANVAS_MIN_CARD_HEIGHT - height;
-		}
-		height = BASEHALF_CANVAS_MIN_CARD_HEIGHT;
-	}
-	return {
-		x: roundCanvasPosition(x),
-		y: roundCanvasPosition(y),
-		width: roundCanvasPosition(width),
-		height: roundCanvasPosition(height)
-	};
-}
-
 function edgeId(from: string, to: string): string {
 	return `${from}\u0000${to}`;
-}
-
-function nearestPathRatio(path: SVGPathElement, clientX: number, clientY: number): number {
-	const ctm = path.getScreenCTM();
-	const total = path.getTotalLength();
-	if (!ctm || total <= 0) {
-		return 1;
-	}
-	let bestLength = 0;
-	let bestDistance = Number.POSITIVE_INFINITY;
-	for (let i = 0; i <= 80; i++) {
-		const length = total * i / 80;
-		const point = path.getPointAtLength(length);
-		const screenPoint = new DOMPoint(point.x, point.y).matrixTransform(ctm);
-		const distance = Math.hypot(screenPoint.x - clientX, screenPoint.y - clientY);
-		if (distance < bestDistance) {
-			bestDistance = distance;
-			bestLength = length;
-		}
-	}
-	return bestLength / total;
 }
 
 function folderCountLabel(total: number): string {
@@ -3496,21 +2376,4 @@ function renderGlyphPath(svg: SVGElement, type: BaseHalfCanvasGlyphType): void {
 		return;
 	}
 	appendPath('M2.5 4.7a1 1 0 0 1 1-1h2.7a1 1 0 0 1 .72.3l.86.9a1 1 0 0 0 .72.3h4a1 1 0 0 1 1 1v5.3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z');
-}
-
-function oppositeAnchor(anchor: BaseHalfCanvasAnchor): BaseHalfCanvasAnchor {
-	switch (anchor) {
-		case 'north':
-			return 'south';
-		case 'east':
-			return 'west';
-		case 'south':
-			return 'north';
-		case 'west':
-			return 'east';
-	}
-}
-
-function cssStringEscape(value: string): string {
-	return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }

@@ -166,6 +166,7 @@ Current private decision index:
 - [vscode-aligned-electron-architecture.md](private-docs/decisions/vscode-aligned-electron-architecture.md) — align with VS Code Electron workbench/provider model.
 - [vscode-base-canvas-detail-markdown-projections.md](private-docs/decisions/vscode-base-canvas-detail-markdown-projections.md) — VS Code substrate with BaseHalf canvas detail and Markdown projections.
 - [vscode-base-module-complete-migration.md](private-docs/decisions/vscode-base-module-complete-migration.md) — migrate modules to complete product quality, not MVP/intermediate shell.
+- [vscode-base-react-flow-scene-island.md](private-docs/decisions/vscode-base-react-flow-scene-island.md) — React Flow owns the live canvas scene behind a narrow VS Code workbench adapter.
 - [vscode-base-sidebar-extension-and-file-open-boundaries.md](private-docs/decisions/vscode-base-sidebar-extension-and-file-open-boundaries.md) — VS Code sidebar mechanics with BaseHalf navigation.
 - [wedge-is-compound-thinking-not-decisions.md](private-docs/decisions/wedge-is-compound-thinking-not-decisions.md) — wedge is compound thinking, not decision provenance.
 
