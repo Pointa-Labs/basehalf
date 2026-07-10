@@ -3,8 +3,9 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
+import { relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
+import { FileOperationResult, IFileService, toFileOperationResult } from '../../../platform/files/common/files.js';
 
 /**
  * Utilities for treating `<workspace>/.bh/mirror/` as a tree of per-node
@@ -19,6 +20,69 @@ import { FileOperationError, FileOperationResult, IFileService } from '../../../
 
 export function baseHalfMirrorRoot(workspaceFolder: URI): URI {
 	return URI.joinPath(workspaceFolder, '.bh', 'mirror');
+}
+
+export class BaseHalfMirrorSymbolicLinkError extends Error {
+	override readonly name = 'BaseHalfMirrorSymbolicLinkError';
+
+	constructor(
+		readonly resource: URI,
+		readonly symbolicLink: URI
+	) {
+		super(`Refusing to access BaseHalf mirror path through symbolic link ${symbolicLink.toString()} (target ${resource.toString()})`);
+	}
+}
+
+/**
+ * Fail closed when any EXISTING component below `<workspace>/.bh/` on the way
+ * to a mirror resource is a symbolic link. This guard is shared by raw mirror
+ * snapshot/commit paths; checking only the YAML leaf would still allow a
+ * planted `.bh/mirror/<node>` directory link to redirect reads and writes.
+ *
+ * A missing component ends the walk because none of its descendants can exist
+ * yet. Callers check again after directory creation and after commit. These
+ * application-layer checks reject stable/planted links, but cannot close an
+ * arbitrary external process' final check-to-provider-commit race; that needs
+ * a future provider primitive based on component-relative no-follow IO.
+ */
+export async function baseHalfAssertMirrorPathComponentsNotSymbolicLink(
+	fileService: IFileService,
+	workspaceFolder: URI,
+	resource: URI
+): Promise<void> {
+	const mirrorRoot = baseHalfMirrorRoot(workspaceFolder);
+	const relative = getRelativePath(mirrorRoot, resource);
+	if (relative === undefined || relative === '..' || relative.startsWith('../')) {
+		throw new Error(`Resource is outside the BaseHalf mirror tree: ${resource.toString()}`);
+	}
+
+	const candidates = [URI.joinPath(workspaceFolder, '.bh'), mirrorRoot];
+	let current = mirrorRoot;
+	for (const segment of baseHalfMirrorPathSegments(relative)) {
+		current = URI.joinPath(current, segment);
+		candidates.push(current);
+	}
+
+	for (const candidate of candidates) {
+		try {
+			// `stat` observes the directory entry without enumerating a symbolic
+			// link's target. `resolve` is intentionally not used here: checking a
+			// hostile mirror-root link must not first traverse and list outside data.
+			const stat = await fileService.stat(candidate);
+			if (stat.isSymbolicLink) {
+				throw new BaseHalfMirrorSymbolicLinkError(resource, candidate);
+			}
+		} catch (error) {
+			// `IFileService.stat` deliberately exposes provider errors directly,
+			// whereas read/resolve operations commonly wrap them in
+			// `FileOperationError`. Treat both representations of a missing suffix
+			// alike; every other provider failure still fails closed.
+			if (isFileNotFound(error)) {
+				return;
+			}
+			throw error;
+		}
+	}
 }
 
 /** `.bh/mirror/<rel>/<fileName>`; rejects `.`/`..` segments so a hostile rel
@@ -76,9 +140,12 @@ export async function baseHalfWalkMirror(fileService: IFileService, workspaceFol
 		const current = stack.pop()!;
 		let children;
 		try {
-			children = (await fileService.resolve(current.resource)).children ?? [];
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, current.resource);
+			const resolved = await fileService.resolve(current.resource);
+			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(fileService, workspaceFolder, current.resource);
+			children = resolved.children ?? [];
 		} catch (error) {
-			if (error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND) {
+			if (isFileNotFound(error)) {
 				continue;
 			}
 
@@ -102,4 +169,8 @@ export async function baseHalfWalkMirror(fileService: IFileService, workspaceFol
 	}
 
 	return out.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+function isFileNotFound(error: unknown): boolean {
+	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
 }

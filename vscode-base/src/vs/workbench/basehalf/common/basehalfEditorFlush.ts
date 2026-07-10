@@ -6,6 +6,7 @@
 import { IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { createDecorator } from '../../../platform/instantiation/common/instantiation.js';
 import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
+import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
 
 export const IBaseHalfEditorFlushService = createDecorator<IBaseHalfEditorFlushService>('baseHalfEditorFlushService');
 
@@ -14,6 +15,31 @@ export const BASEHALF_CARD_DETAIL_PANE_ID = 'basehalf.cardDetail';
 export interface IBaseHalfEditorFlushOptions {
 	readonly forceSerialize?: boolean;
 	readonly forceWrite?: boolean;
+	/** Treat a rejected flusher as a failed save. Structural operations use this
+	 *  hard mode because disposing a dirty retained webview would lose data. */
+	readonly rejectOnError?: boolean;
+	/** Only the currently visible authoring projection may serialize. Retained
+	 *  hidden projections can lag the shared TextModel. */
+	readonly activeProjection?: BaseHalfCardDetailProjection;
+}
+
+const BASEHALF_STRUCTURAL_EDITOR_FLUSH_OPTIONS: Readonly<IBaseHalfEditorFlushOptions> = {
+	forceSerialize: true,
+	// A rename/delete is not consent to overwrite a newer TextModel/disk edit.
+	// Rich save conflict detection must remain active and veto the operation.
+	forceWrite: false,
+	rejectOnError: true
+};
+
+export function baseHalfStructuralEditorFlushOptions(activeProjection: BaseHalfCardDetailProjection): IBaseHalfEditorFlushOptions {
+	return { ...BASEHALF_STRUCTURAL_EDITOR_FLUSH_OPTIONS, activeProjection };
+}
+
+export function baseHalfEditorProjectionCanFlush(owner: BaseHalfCardDetailProjection, visible: boolean, options: IBaseHalfEditorFlushOptions): boolean {
+	if (!options.activeProjection) {
+		return true;
+	}
+	return owner === options.activeProjection && visible;
 }
 
 export type BaseHalfEditorFlushFn = (options?: IBaseHalfEditorFlushOptions) => Promise<boolean>;
@@ -115,7 +141,7 @@ export class BaseHalfEditorFlushService implements IBaseHalfEditorFlushService {
 			// A torn-down editor can reject during window/workspace transitions. Match
 			// the legacy BaseHalf flush registry: reject means non-blocking teardown,
 			// while an explicit false is the data-loss guard.
-			return true;
+			return options?.rejectOnError ? false : true;
 		}
 	}
 }

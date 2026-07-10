@@ -6,7 +6,7 @@
 import * as assert from 'assert';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { URI } from '../../../../base/common/uri.js';
-import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
+import { FileOperationError, FileOperationResult, FileType, IFileService, IFileStat } from '../../../../platform/files/common/files.js';
 import { BaseHalfBadgeMirrorCorrupt, BaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
 
 suite('BaseHalfBadgeMirrorService', () => {
@@ -134,6 +134,89 @@ suite('BaseHalfBadgeMirrorService', () => {
 		assert.strictEqual(result.problems[0].corrupt, true);
 	});
 
+	test('replays an absent create race and merges the external badge', async () => {
+		const badgePath = '/work/.bh/mirror/docs/readme.md/badge.yaml';
+		const fileService = new TestFileService(new Map());
+		fileService.createExternallyOnNextCreate(badgePath, [
+			'path: "docs/readme.md"',
+			'kind: file',
+			'references:',
+			'  - "external.md"',
+			'referenced_by: []',
+			''
+		].join('\n'));
+		const service = mirrorService(fileService);
+		let updateCount = 0;
+
+		const updated = await service.patchBadge(node('docs/readme.md', 'file'), current => {
+			updateCount++;
+			return {
+				...(current ?? { path: 'docs/readme.md', kind: 'file', references: [], referenced_by: [] }),
+				description: 'Local note'
+			};
+		});
+
+		assert.strictEqual(updateCount, 2);
+		assert.strictEqual(fileService.createCount, 1);
+		assert.strictEqual(fileService.writeCount, 1);
+		assert.deepStrictEqual(updated, {
+			path: 'docs/readme.md',
+			kind: 'file',
+			description: 'Local note',
+			references: ['external.md'],
+			referenced_by: []
+		});
+		});
+
+	test('replays an equal-length external rewrite detected by the exact-byte precommit check', async () => {
+		const badgePath = '/work/.bh/mirror/docs/readme.md/badge.yaml';
+		const initial = 'path: "docs/readme.md"\nkind: file\ndescription: "AAAA"\nreferences: []\nreferenced_by: []\n';
+		const external = initial.replace('AAAA', 'BBBB');
+		assert.strictEqual(VSBuffer.fromString(initial).byteLength, VSBuffer.fromString(external).byteLength);
+		const fileService = new TestFileService(new Map([[badgePath, initial]]));
+		fileService.replaceExternallyBeforeNextCommit(badgePath, external);
+		const service = mirrorService(fileService);
+
+		await service.patchBadge(node('docs/readme.md', 'file'), current => ({
+			...(current ?? { path: 'docs/readme.md', kind: 'file', references: [], referenced_by: [] }),
+			references: ['mine.md']
+		}));
+
+		assert.strictEqual((await service.readBadge(node('docs/readme.md', 'file')))?.description, 'BBBB');
+		assert.deepStrictEqual((await service.readBadge(node('docs/readme.md', 'file')))?.references, ['mine.md']);
+		assert.strictEqual(fileService.writeCount, 2);
+	});
+
+	test('commits semantic empty as canonical YAML instead of unlinking', async () => {
+		const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
+		const fileService = new TestFileService(new Map([
+			[badgePath, 'path: "a.md"\nkind: file\ndescription: "Remove me"\nreferences: []\nreferenced_by: []\n']
+		]));
+		const service = mirrorService(fileService);
+
+		assert.strictEqual(await service.patchBadge(node('a.md', 'file'), () => null), null);
+
+		assert.strictEqual(fileService.files.get(badgePath), 'path: "a.md"\nkind: file\nreferences: []\nreferenced_by: []\n');
+		assert.strictEqual(fileService.deleteCount, 0);
+		assert.strictEqual(await service.readBadge(node('a.md', 'file')), null);
+	});
+
+	test('does not delete an external write that lands after an empty commit', async () => {
+		const badgePath = '/work/.bh/mirror/a.md/badge.yaml';
+		const fileService = new TestFileService(new Map([
+			[badgePath, 'path: "a.md"\nkind: file\ndescription: "Remove me"\nreferences: []\nreferenced_by: []\n']
+		]));
+		const external = 'path: "a.md"\nkind: file\ndescription: "External latest"\nreferences: []\nreferenced_by: []\n';
+		fileService.writeExternallyAfterNextWrite(badgePath, external);
+		const service = mirrorService(fileService);
+
+		assert.strictEqual(await service.patchBadge(node('a.md', 'file'), () => null), null);
+
+		assert.strictEqual(fileService.files.get(badgePath), external);
+		assert.strictEqual(fileService.deleteCount, 0);
+		assert.strictEqual((await service.readBadge(node('a.md', 'file')))?.description, 'External latest');
+	});
+
 	function node(relativePath: string, kind: 'file' | 'folder'): IBaseHalfBadgeNode {
 		return {
 			resource: relativePath ? URI.joinPath(workspaceFolder, ...relativePath.split('/')) : workspaceFolder,
@@ -144,21 +227,152 @@ suite('BaseHalfBadgeMirrorService', () => {
 	}
 
 	function createService(files: Map<string, string>): BaseHalfBadgeMirrorService {
-		return new BaseHalfBadgeMirrorService(new TestFileService(files) as unknown as IFileService);
+		return mirrorService(new TestFileService(files));
+	}
+
+	function mirrorService(fileService: TestFileService): BaseHalfBadgeMirrorService {
+		return new BaseHalfBadgeMirrorService(fileService as unknown as IFileService);
 	}
 });
 
 class TestFileService {
-	constructor(
-		private readonly files: Map<string, string>
-	) { }
+	readonly files: Map<string, string>;
+	private readonly revisions = new Map<string, number>();
+	private readonly externalCreates = new Map<string, string>();
+	private readonly externalWritesBeforeCommit = new Map<string, string>();
+	private readonly externalWritesAfterCommit = new Map<string, string>();
+	createCount = 0;
+	writeCount = 0;
+	deleteCount = 0;
 
-	async readFile(resource: URI): Promise<{ value: VSBuffer }> {
+	constructor(files: Map<string, string>) {
+		this.files = files;
+		for (const path of files.keys()) {
+			this.revisions.set(path, 1);
+		}
+	}
+
+	async readFile(resource: URI): Promise<{ value: VSBuffer; mtime: number; etag: string }> {
 		const raw = this.files.get(resource.fsPath);
 		if (raw === undefined) {
 			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
 		}
 
-		return { value: VSBuffer.fromString(raw) };
+		const revision = this.revisions.get(resource.fsPath) ?? 0;
+		return { value: VSBuffer.fromString(raw), mtime: revision, etag: `v${revision}` };
 	}
+
+	async stat(resource: URI): Promise<IFileStat> {
+		if (this.files.has(resource.fsPath)) {
+			return stat(resource, FileType.File);
+		}
+		if ([...this.files.keys()].some(path => path.startsWith(`${resource.fsPath}/`))) {
+			return stat(resource, FileType.Directory);
+		}
+		throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+	}
+
+	async createFolder(resource: URI): Promise<IFileStat> {
+		return stat(resource, FileType.Directory);
+	}
+
+	async createFile(resource: URI, buffer: VSBuffer, options?: { overwrite?: boolean }): Promise<IFileStat> {
+		this.createCount++;
+		const external = this.externalCreates.get(resource.fsPath);
+		if (external !== undefined) {
+			this.externalCreates.delete(resource.fsPath);
+			this.files.set(resource.fsPath, external);
+			this.revisions.set(resource.fsPath, (this.revisions.get(resource.fsPath) ?? 0) + 1);
+		}
+		if (this.files.has(resource.fsPath) && !options?.overwrite) {
+			throw new FileOperationError('already exists', FileOperationResult.FILE_MODIFIED_SINCE);
+		}
+		this.files.set(resource.fsPath, buffer.toString());
+		this.revisions.set(resource.fsPath, (this.revisions.get(resource.fsPath) ?? 0) + 1);
+		return stat(resource, FileType.File);
+	}
+
+	async writeFileWithExpectedContents(resource: URI, buffer: VSBuffer, expectedContents: VSBuffer | null): Promise<IFileStat> {
+		if (expectedContents === null) {
+			return this.createFile(resource, buffer, { overwrite: false });
+		}
+
+		this.writeCount++;
+		const externalBeforeCommit = this.externalWritesBeforeCommit.get(resource.fsPath);
+		if (externalBeforeCommit !== undefined) {
+			this.externalWritesBeforeCommit.delete(resource.fsPath);
+			this.files.set(resource.fsPath, externalBeforeCommit);
+			this.revisions.set(resource.fsPath, (this.revisions.get(resource.fsPath) ?? 0) + 1);
+		}
+		if (this.files.get(resource.fsPath) !== expectedContents.toString()) {
+			throw new FileOperationError('modified', FileOperationResult.FILE_MODIFIED_SINCE);
+		}
+		const revision = this.revisions.get(resource.fsPath);
+		if (revision === undefined) {
+			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+		}
+		this.files.set(resource.fsPath, buffer.toString());
+		this.revisions.set(resource.fsPath, revision + 1);
+		const external = this.externalWritesAfterCommit.get(resource.fsPath);
+		if (external !== undefined) {
+			this.externalWritesAfterCommit.delete(resource.fsPath);
+			this.files.set(resource.fsPath, external);
+			this.revisions.set(resource.fsPath, revision + 2);
+		}
+		return stat(resource, FileType.File);
+	}
+
+	async writeFile(resource: URI, buffer: VSBuffer, options?: { mtime?: number; etag?: string }): Promise<IFileStat> {
+		this.writeCount++;
+		const revision = this.revisions.get(resource.fsPath);
+		if (revision === undefined) {
+			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+		}
+		if (options?.mtime !== revision || options.etag !== `v${revision}`) {
+			throw new FileOperationError('modified', FileOperationResult.FILE_MODIFIED_SINCE);
+		}
+		this.files.set(resource.fsPath, buffer.toString());
+		this.revisions.set(resource.fsPath, revision + 1);
+		const external = this.externalWritesAfterCommit.get(resource.fsPath);
+		if (external !== undefined) {
+			this.externalWritesAfterCommit.delete(resource.fsPath);
+			this.files.set(resource.fsPath, external);
+			this.revisions.set(resource.fsPath, revision + 2);
+		}
+		return stat(resource, FileType.File);
+	}
+
+	createExternallyOnNextCreate(path: string, contents: string): void {
+		this.externalCreates.set(path, contents);
+	}
+
+	replaceExternallyBeforeNextCommit(path: string, contents: string): void {
+		this.externalWritesBeforeCommit.set(path, contents);
+	}
+
+	writeExternallyAfterNextWrite(path: string, contents: string): void {
+		this.externalWritesAfterCommit.set(path, contents);
+	}
+
+	async del(resource: URI): Promise<void> {
+		this.deleteCount++;
+		if (!this.files.delete(resource.fsPath)) {
+			throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
+		}
+		this.revisions.delete(resource.fsPath);
+	}
+}
+
+function stat(resource: URI, type: FileType): IFileStat {
+	return {
+		resource,
+		name: resource.path.split('/').pop() ?? '',
+		isFile: type === FileType.File,
+		isDirectory: type === FileType.Directory,
+		isSymbolicLink: false,
+		mtime: 0,
+		ctime: 0,
+		size: 0,
+		children: undefined
+	};
 }

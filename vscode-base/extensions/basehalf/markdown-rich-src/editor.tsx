@@ -68,6 +68,8 @@ import {
 	type IBaseHalfMarkdownRichFileLink,
 	type IBaseHalfMarkdownRichTextSelection,
 } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichWebviewProtocol.js';
+import { baseHalfCaptureStableMarkdownRichSnapshot } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichStructuralSave.js';
+import { BaseHalfMarkdownRichAsyncMutationBarrier } from '../../../src/vs/workbench/basehalf/common/basehalfMarkdownRichAsyncMutation.js';
 
 interface VsCodeApi {
 	postMessage(message: BaseHalfMarkdownRichWebviewMessage, transfer?: readonly ArrayBuffer[]): void;
@@ -158,6 +160,7 @@ interface SessionState {
 	editable: boolean;
 	ready: boolean;
 	dirty: boolean;
+	structuralFrozen: boolean;
 	editRevision: number;
 	loading: boolean;
 	pendingSaveContent: Map<string, { readonly content: string; readonly revision: number }>;
@@ -202,6 +205,7 @@ function createSessionState(key = ''): SessionState {
 		editable: false,
 		ready: false,
 		dirty: false,
+		structuralFrozen: false,
 		editRevision: 0,
 		loading: true,
 		pendingSaveContent: new Map(),
@@ -346,12 +350,15 @@ function MarkdownRichEditor(): JSX.Element {
 	const vscode = useMemo(() => acquireVsCodeApi(), []);
 	const initialKey = useMemo(() => decodeHtmlKey(document.getElementById('root')?.dataset.basehalfKey ?? ''), []);
 	const ydoc = useMemo(() => new YDoc(), []);
+	const asyncMutationBarrier = useMemo(() => new BaseHalfMarkdownRichAsyncMutationBarrier(), []);
 	const fragment = useMemo(() => ydoc.getXmlFragment(BLOCKNOTE_FRAGMENT_NAME), [ydoc]);
 	const session = useRef(createSessionState(initialKey));
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const saveTimer = useRef<number | undefined>(undefined);
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
+	const compositionSettledWaiters = useRef(new Set<() => void>());
+	const pendingSaveSettledWaiters = useRef(new Set<() => void>());
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
 	const initGeneration = useRef(0);
 	const renderedAnnounced = useRef(false);
@@ -585,7 +592,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand) => {
 		const state = session.current;
-		if (!state.ready || state.loading || !state.editable || state.conflictDisk !== undefined || state.writeError !== undefined) {
+		if (!state.ready || state.loading || !state.editable || state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
 			return;
 		}
 
@@ -597,12 +604,38 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 	}, [editor, ensureLiveUndoManager]);
 
-	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean) => {
+	const waitForCompositionSettled = useCallback(async (): Promise<void> => {
+		while (composing.current || !!editor.prosemirrorView?.composing) {
+			await new Promise<void>(resolve => compositionSettledWaiters.current.add(resolve));
+		}
+		// compositionend is delivered before ProseMirror's final transaction has
+		// necessarily reached BlockNote. Drain the task before taking a snapshot.
+		await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+	}, [editor]);
+
+	const waitForPendingSaveSettled = useCallback(async (): Promise<void> => {
+		while (session.current.pendingSaveContent.size > 0) {
+			await new Promise<void>(resolve => pendingSaveSettledWaiters.current.add(resolve));
+		}
+	}, []);
+
+	const serializeAndRequestSave = useCallback(async (requestId: string, forceSerialize: boolean, forceWrite: boolean, structural = false) => {
 		const state = session.current;
 		if (!state.key || !state.ready) {
 			return;
 		}
-		if (!state.dirty && !forceSerialize && !forceWrite) {
+		if (state.structuralFrozen && !structural) {
+			return;
+		}
+		const key = state.key;
+		const resource = state.resource;
+		if (structural && !state.structuralFrozen) {
+			return;
+		}
+		if (!structural) {
+			await waitForCompositionSettled();
+		}
+		if (!structural && !state.dirty && !forceSerialize && !forceWrite) {
 			state.pendingSaveContent.set(requestId, { content: state.lastDisk, revision: state.editRevision });
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
@@ -616,20 +649,35 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 
 		try {
-			const content = await spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId);
-			state.pendingSaveContent.set(requestId, { content, revision: state.editRevision });
+			const snapshot = structural
+				? await baseHalfCaptureStableMarkdownRichSnapshot({
+					waitForCompositionSettled,
+					waitForPendingSaveSettled,
+					isComposing: () => composing.current || !!editor.prosemirrorView?.composing,
+					isFrozen: () => state.structuralFrozen && state.key === key && state.resource === resource,
+					revision: () => state.editRevision,
+					serialize: () => spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId),
+				})
+				: {
+					value: await spliceBaseHalfMarkdownSave(editorApi, editor.document, state.frontmatter, state.byId),
+					revision: state.editRevision,
+				};
+			if (!snapshot) {
+				return;
+			}
+			state.pendingSaveContent.set(requestId, { content: snapshot.value, revision: snapshot.revision });
 			vscode.postMessage({
 				type: 'basehalf.markdownRich.saveRequested',
 				key: state.key,
 				requestId,
-				content,
+				content: snapshot.value,
 				previousContent: state.lastDisk,
 				forceWrite,
 			});
 		} catch (error) {
 			reportError(error);
 		}
-	}, [editor, editorApi, reportError, vscode]);
+	}, [editor, editorApi, reportError, vscode, waitForCompositionSettled, waitForPendingSaveSettled]);
 
 	const scheduleSave = useCallback(() => {
 		if (saveTimer.current !== undefined) {
@@ -955,6 +1003,10 @@ function MarkdownRichEditor(): JSX.Element {
 		};
 		const onCompositionEnd = () => {
 			composing.current = false;
+			for (const resolve of compositionSettledWaiters.current) {
+				resolve();
+			}
+			compositionSettledWaiters.current.clear();
 			const pending = pendingInit.current;
 			if (pending) {
 				pendingInit.current = undefined;
@@ -1029,6 +1081,37 @@ function MarkdownRichEditor(): JSX.Element {
 					state.editable = message.editable;
 					setVersion(value => value + 1);
 					break;
+				case 'basehalf.markdownRich.setStructuralFreeze': {
+					state.structuralFrozen = message.frozen;
+					const freezeKey = state.key;
+					if (message.frozen) {
+						if (saveTimer.current !== undefined) {
+							window.clearTimeout(saveTimer.current);
+							saveTimer.current = undefined;
+						}
+						setContextMenu(undefined);
+						const active = document.activeElement;
+						if (active instanceof HTMLElement && editor.domElement?.contains(active)) {
+							active.blur();
+						}
+						editor.prosemirrorView?.dom.blur();
+					} else if (state.dirty && state.conflictDisk === undefined && state.writeError === undefined) {
+						scheduleSave();
+					}
+					setVersion(value => value + 1);
+					void (async () => {
+						if (message.frozen) {
+							await asyncMutationBarrier.waitForIdle();
+						}
+						vscode.postMessage({
+							type: 'basehalf.markdownRich.structuralFreezeChanged',
+							key: freezeKey,
+							requestId: message.requestId,
+							frozen: message.frozen,
+						});
+					})();
+					break;
+				}
 				case 'basehalf.markdownRich.revealSelection':
 					revealSelection(message.selection);
 					break;
@@ -1042,11 +1125,17 @@ function MarkdownRichEditor(): JSX.Element {
 					break;
 				}
 				case 'basehalf.markdownRich.save':
-					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite);
+					void serializeAndRequestSave(message.requestId, message.forceSerialize, message.forceWrite, message.structural);
 					break;
 				case 'basehalf.markdownRich.saveResult': {
 					const pending = state.pendingSaveContent.get(message.requestId);
 					state.pendingSaveContent.delete(message.requestId);
+					if (state.pendingSaveContent.size === 0) {
+						for (const resolve of pendingSaveSettledWaiters.current) {
+							resolve();
+						}
+						pendingSaveSettledWaiters.current.clear();
+					}
 					if (message.result === 'saved' || message.result === 'noop') {
 						state.lastDisk = message.content ?? pending?.content ?? state.lastDisk;
 						state.conflictDisk = undefined;
@@ -1083,7 +1172,7 @@ function MarkdownRichEditor(): JSX.Element {
 			vscode.postMessage({ type: 'basehalf.markdownRich.booted', key: BASEHALF_MARKDOWN_RICH_WARMUP_KEY });
 		}
 		return () => window.removeEventListener('message', onMessage);
-	}, [applyAdhdState, applyContent, applyExternalContent, notifyDirty, reportError, revealSelection, runEditorCommand, serializeAndRequestSave, vscode, ydoc]);
+	}, [applyAdhdState, applyContent, applyExternalContent, asyncMutationBarrier, editor, notifyDirty, reportError, revealSelection, runEditorCommand, scheduleSave, serializeAndRequestSave, vscode, ydoc]);
 
 	useEffect(() => {
 		const scroll = scrollRef.current;
@@ -1139,7 +1228,7 @@ function MarkdownRichEditor(): JSX.Element {
 			const selected = (selection && !selection.empty
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: window.getSelection()?.toString() ?? '').trim();
-			const canPaste = !!view && state.editable && state.conflictDisk === undefined && state.writeError === undefined;
+			const canPaste = !!view && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
 			// Without a selection the menu still offers Paste at the cursor.
 			if (selected.length === 0 && !canPaste) {
 				return;
@@ -1150,6 +1239,16 @@ function MarkdownRichEditor(): JSX.Element {
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: selected;
 			const items: ContextMenuItem[] = [];
+			const mutationKey = state.key;
+			const canApplyAsyncMutation = (): boolean => {
+				const current = session.current;
+				return current.key === mutationKey
+					&& current.ready
+					&& current.editable
+					&& !current.structuralFrozen
+					&& current.conflictDisk === undefined
+					&& current.writeError === undefined;
+			};
 			if (selected.length > 0 && state.readingModeEnabled && state.adhdError === undefined) {
 				items.push(existing
 					? {
@@ -1198,7 +1297,11 @@ function MarkdownRichEditor(): JSX.Element {
 						id: 'cut',
 						label: 'Cut',
 						run: () => {
-							void copySelection().then(() => {
+							void asyncMutationBarrier.run(async () => {
+								await copySelection();
+								if (!canApplyAsyncMutation()) {
+									return;
+								}
 								view.dispatch(view.state.tr.deleteSelection().scrollIntoView());
 								view.focus();
 							});
@@ -1210,23 +1313,29 @@ function MarkdownRichEditor(): JSX.Element {
 						id: 'paste',
 						label: 'Paste',
 						run: () => {
-							void (async () => {
-								view.focus();
+							void asyncMutationBarrier.run(async () => {
+								let html: string | undefined;
 								try {
 									for (const item of await navigator.clipboard.read()) {
 										if (item.types.includes('text/html')) {
-											view.pasteHTML(await (await item.getType('text/html')).text());
-											return;
+											html = await (await item.getType('text/html')).text();
+											break;
 										}
 									}
 								} catch {
 									// clipboard.read unavailable; fall through to plain text
 								}
-								const text = await navigator.clipboard.readText().catch(() => '');
-								if (text) {
+								const text = html === undefined ? await navigator.clipboard.readText().catch(() => '') : '';
+								if (!canApplyAsyncMutation()) {
+									return;
+								}
+								view.focus();
+								if (html !== undefined) {
+									view.pasteHTML(html);
+								} else if (text) {
 									view.pasteText(text);
 								}
-							})();
+							});
 						},
 					},
 				);
@@ -1242,7 +1351,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
-	}, [editor, postAdhdCommand]);
+	}, [asyncMutationBarrier, editor, postAdhdCommand]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;
@@ -1438,7 +1547,7 @@ function MarkdownRichEditor(): JSX.Element {
 
 	const state = session.current;
 	void version;
-	const canEdit = state.ready && state.editable && state.conflictDisk === undefined && state.writeError === undefined;
+	const canEdit = state.ready && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
 	const notifyEditorActivated = useCallback(() => {
 		const state = session.current;
 		if (!state.key || !state.ready || state.loading) {
@@ -1472,6 +1581,7 @@ function MarkdownRichEditor(): JSX.Element {
 	return (
 		<div
 			className={`basehalf-markdown-rich${state.ready ? ' ready' : ''}`}
+			aria-busy={state.structuralFrozen}
 			onPointerDownCapture={notifyEditorActivated}
 			onFocusCapture={notifyEditorActivated}
 		>

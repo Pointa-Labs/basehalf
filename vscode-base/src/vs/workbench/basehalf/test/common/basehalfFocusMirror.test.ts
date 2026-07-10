@@ -13,6 +13,7 @@ import { ILogService } from '../../../../platform/log/common/log.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { BaseHalfFocusMirrorCorrupt, BaseHalfFocusMirrorService, serializeFileFocus, serializeFolderFocus } from '../../common/basehalfFocusMirrorService.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfFocusMirrorService', () => {
 	const workspaceFolder = URI.file('/work');
@@ -252,7 +253,8 @@ suite('BaseHalfFocusMirrorService', () => {
 			fileService as unknown as IFileService,
 			{ extUri } as Partial<IUriIdentityService> as IUriIdentityService,
 			mirrorLinkService,
-			{ error: () => undefined } as Partial<ILogService> as ILogService
+			{ error: () => undefined } as Partial<ILogService> as ILogService,
+			new BaseHalfWorkspaceMutationCoordinator()
 		);
 
 		return { service, fileService, mirrorLinkService };
@@ -263,6 +265,11 @@ class TestFileService {
 	readonly files = new Map<string, string>();
 	readonly createdFolders: URI[] = [];
 	readonly writes: { resource: URI; content: string }[] = [];
+
+	async stat(resource: URI): Promise<IFileStat> {
+		const file = resource.fsPath.endsWith('.md');
+		return { ...stat(resource), isFile: file, isDirectory: !file };
+	}
 
 	async readFile(resource: URI): Promise<{ value: VSBuffer }> {
 		const content = this.files.get(resource.fsPath);

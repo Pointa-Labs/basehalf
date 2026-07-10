@@ -16,6 +16,7 @@ import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIde
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState, IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { BaseHalfCardDetailProjection } from './basehalfCardDetail.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
+import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from './basehalfWorkspaceMutation.js';
 
 export const IBaseHalfFocusMirrorService = createDecorator<IBaseHalfFocusMirrorService>('baseHalfFocusMirrorService');
 
@@ -47,8 +48,8 @@ export interface IBaseHalfFocusMirrorService {
 	readonly _serviceBrand: undefined;
 
 	readFolderFocus(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfFolderFocusFields | null>;
-	writeFileFocus(file: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields): Promise<void>;
-	writeFolderFocus(folder: IBaseHalfCanvasFolderState, fields: IBaseHalfFolderFocusFields): Promise<void>;
+	writeFileFocus(file: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	writeFolderFocus(folder: IBaseHalfCanvasFolderState, fields: IBaseHalfFolderFocusFields, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
 	focusResource(node: IBaseHalfWorkspaceResource): URI;
 	currentFocusResource(workspaceFolder: URI): URI;
 	currentFocusTarget(relativePath: string): string;
@@ -76,7 +77,8 @@ export class BaseHalfFocusMirrorService implements IBaseHalfFocusMirrorService {
 		@IFileService private readonly fileService: IFileService,
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBaseHalfMirrorLinkService private readonly mirrorLinkService: IBaseHalfMirrorLinkService,
-		@ILogService private readonly logService: ILogService
+		@ILogService private readonly logService: ILogService,
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator
 	) { }
 
 	async readFolderFocus(folder: IBaseHalfCanvasFolderState): Promise<IBaseHalfFolderFocusFields | null> {
@@ -102,12 +104,12 @@ export class BaseHalfFocusMirrorService implements IBaseHalfFocusMirrorService {
 		return normalizeFolderFocusFile(parsed, resource, folder.relativePath);
 	}
 
-	writeFileFocus(file: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields): Promise<void> {
-		return this.writeFocus(file, serializeFileFocus(file.relativePath, fields));
+	writeFileFocus(file: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		return this.writeFocus(file, serializeFileFocus(file.relativePath, fields), 'file', lease);
 	}
 
-	writeFolderFocus(folder: IBaseHalfCanvasFolderState, fields: IBaseHalfFolderFocusFields): Promise<void> {
-		return this.writeFocus(folder, serializeFolderFocus(folder.relativePath, fields));
+	writeFolderFocus(folder: IBaseHalfCanvasFolderState, fields: IBaseHalfFolderFocusFields, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		return this.writeFocus(folder, serializeFolderFocus(folder.relativePath, fields), 'folder', lease);
 	}
 
 	focusResource(node: IBaseHalfWorkspaceResource): URI {
@@ -123,9 +125,21 @@ export class BaseHalfFocusMirrorService implements IBaseHalfFocusMirrorService {
 		return ['mirror', ...segments, 'focus.yaml'].join('/');
 	}
 
-	private writeFocus(node: IBaseHalfWorkspaceResource, content: string): Promise<void> {
+	private writeFocus(node: IBaseHalfWorkspaceResource, content: string, kind: 'file' | 'folder', lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
+		if (lease) {
+			this.workspaceMutationCoordinator.assertLease(lease, node.workspaceFolder);
+			return this.writeFocusLocked(node, content, kind);
+		}
+		return this.workspaceMutationCoordinator.runExclusive(node.workspaceFolder, () => this.writeFocusLocked(node, content, kind));
+	}
+
+	private writeFocusLocked(node: IBaseHalfWorkspaceResource, content: string, kind: 'file' | 'folder'): Promise<void> {
 		const workspaceKey = node.workspaceFolder.toString();
 		return this.mutex.runExclusive(workspaceKey, async () => {
+			const stat = await this.fileService.stat(node.resource);
+			if (kind === 'folder' ? !stat.isDirectory : !stat.isFile) {
+				throw new Error(`Cannot write focus for a path whose kind changed: ${node.relativePath}`);
+			}
 			const focusResource = this.focusResource(node);
 			if (await this.shouldWriteFocusContent(focusResource, content)) {
 				await this.fileService.createFolder(this.uriIdentityService.extUri.dirname(focusResource));

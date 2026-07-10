@@ -15,7 +15,10 @@ import { IMarkdownRendererService } from '../../../../platform/markdown/browser/
 import { ILogService } from '../../../../platform/log/common/log.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
+import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import { BaseHalfMarkdownRichTextModelDisk } from '../../common/basehalfMarkdownRichTextModel.js';
+import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 
 export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private readonly previewScroll: HTMLElement;
@@ -27,6 +30,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 	private resourceKey: string | undefined;
 	private renderTimer: number | undefined;
 	private focusTimer: number | undefined;
+	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private selectionRevealTimer: number | undefined;
 	private lastFocusKey: string | undefined;
 	private disposed = false;
@@ -38,8 +42,10 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		private readonly onSaveStatusChange: (status: 'saving' | 'saved') => void,
 		@ITextModelService private readonly textModelService: ITextModelService,
 		@ITextFileService private readonly textFileService: ITextFileService,
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IMarkdownRendererService private readonly markdownRendererService: IMarkdownRendererService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -64,6 +70,7 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
+		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.setSaveStatus('saving');
 
@@ -76,6 +83,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 			this._register(modelReference);
 			this.model = modelReference.object.textEditorModel;
 			this._register(this.model.onDidChangeContent(() => this.scheduleRender()));
+			this._register(this.editorFlushService.registerPaneFlusher(BASEHALF_CARD_DETAIL_PANE_ID, options => this.flush(options)));
+			this._register(this.editorFlushService.registerDocumentFlusher(state.resource.toString(), options => this.flush(options)));
 			this.renderNow();
 			this.flushFocusWrite();
 		} catch (error) {
@@ -140,6 +149,34 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 		if (visible && this.pendingRender) {
 			this.pendingRender = false;
 			this.renderNow();
+		}
+	}
+
+	/** Preview is read-only UI but still owns the shared TextModel while it is
+	 * the active projection. Workspace edits can dirty that model even when a
+	 * Source surface was never instantiated, so structural preflight must save
+	 * it here rather than relying on a hidden Monaco flusher. */
+	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
+		if (!baseHalfEditorProjectionCanFlush('preview', this.visible, options)) {
+			return true;
+		}
+		const model = this.model;
+		if (!model || !this.textFileService.isDirty(model.uri)) {
+			this.updateStatus();
+			return true;
+		}
+		try {
+			await new BaseHalfMarkdownRichTextModelDisk(model, {
+				isDirty: resource => this.textFileService.isDirty(resource),
+				isReadonly: resource => !!this.textFileService.files.get(resource)?.isReadonly(),
+				save: (resource, saveOptions) => this.textFileService.save(resource, saveOptions)
+			}).write(model.getValue());
+			this.updateStatus();
+			return true;
+		} catch (error) {
+			this.logService.error('[BaseHalf] preview shared TextModel save failed', error);
+			this.updateStatus();
+			return false;
 		}
 	}
 
@@ -286,7 +323,8 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 
 	private flushFocusWrite(): void {
 		const state = this.state;
-		if (!state) {
+		const stamp = this.focusStamp;
+		if (!state || !stamp) {
 			return;
 		}
 
@@ -301,12 +339,13 @@ export class BaseHalfMarkdownPreviewCardDetail extends Disposable {
 				}
 			}
 			: { projection: state.projection };
-		const key = JSON.stringify(fields);
+		const key = `${stamp.structuralEpoch}:${JSON.stringify(fields)}`;
 		if (key === this.lastFocusKey) {
 			return;
 		}
 
-		this.lastFocusKey = key;
-		void this.focusMirrorService.writeFileFocus(state, fields).catch(error => this.logService.error(error));
+		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
+			this.focusMirrorService.writeFileFocus(state, fields, lease)
+		).then(() => this.lastFocusKey = key).catch(error => this.logService.error(error));
 	}
 }

@@ -64,11 +64,18 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			files: []
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
+			type: 'basehalf.markdownRich.setStructuralFreeze',
+			key: 'workspace\u0000doc.md',
+			requestId: 'freeze-1',
+			frozen: true
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.save',
 			key: 'workspace\u0000doc.md',
 			requestId: 'save-1',
 			forceSerialize: true,
-			forceWrite: false
+			forceWrite: false,
+			structural: true
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({
 			type: 'basehalf.markdownRich.saveResult',
@@ -107,7 +114,8 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.command', key: 'workspace\u0000doc.md' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', requestId: 'files-1', files: [{ name: 'guide.md', path: 'docs/guide.md' }] }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.fileSearchResult', key: 'workspace\u0000doc.md', files: [] }), false);
-		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.setStructuralFreeze', key: 'workspace\u0000doc.md', requestId: '', frozen: true }), false);
+		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.save', key: 'workspace\u0000doc.md', requestId: 'save-1', forceSerialize: true, forceWrite: false }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'maybe' }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.saveResult', key: 'workspace\u0000doc.md', requestId: 'save-1', result: 'saved', message: 1 }), false);
 		assert.strictEqual(isBaseHalfMarkdownRichHostMessage({ type: 'basehalf.markdownRich.adhdState', key: 'workspace\u0000doc.md', adhd: { path: 'doc.md', kind: 'folder' } }), false);
@@ -131,6 +139,12 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			content: '# Edited\n',
 			previousContent: '# Before\n',
 			forceWrite: false
+		}), true);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.structuralFreezeChanged',
+			key: 'workspace\u0000doc.md',
+			requestId: 'freeze-1',
+			frozen: true
 		}), true);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.dirtyChanged',
@@ -204,6 +218,12 @@ suite('BaseHalfMarkdownRichWebviewProtocol', () => {
 			requestId: 'save-1',
 			content: '# Edited\n',
 			previousContent: '# Before\n'
+		}), false);
+		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
+			type: 'basehalf.markdownRich.structuralFreezeChanged',
+			key: 'workspace\u0000doc.md',
+			requestId: 'freeze-1',
+			frozen: 'yes'
 		}), false);
 		assert.strictEqual(isBaseHalfMarkdownRichWebviewMessage({
 			type: 'basehalf.markdownRich.dirtyChanged',

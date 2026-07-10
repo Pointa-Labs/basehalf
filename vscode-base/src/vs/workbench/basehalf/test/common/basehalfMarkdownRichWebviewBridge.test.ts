@@ -24,6 +24,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 			endColumn: 6
 		}), true);
 		assert.strictEqual(await bridge.sendEditable(false), true);
+		assert.strictEqual(await bridge.sendStructuralFreeze('freeze-1', true), true);
 		assert.strictEqual(await bridge.sendRevealSelection({
 			startLineNumber: 8,
 			startColumn: 1,
@@ -33,7 +34,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendCommand('undo'), true);
 		assert.strictEqual(await bridge.sendCommand('redo'), true);
 		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
-		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false }), true);
+		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
 			readingModeEnabled: true,
@@ -66,6 +67,12 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				editable: false
 			},
 			{
+				type: 'basehalf.markdownRich.setStructuralFreeze',
+				key: 'workspace\u0000doc.md',
+				requestId: 'freeze-1',
+				frozen: true
+			},
+			{
 				type: 'basehalf.markdownRich.revealSelection',
 				key: 'workspace\u0000doc.md',
 				selection: {
@@ -96,7 +103,8 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				key: 'workspace\u0000doc.md',
 				requestId: 'save-1',
 				forceSerialize: true,
-				forceWrite: false
+				forceWrite: false,
+				structural: true
 			},
 			{
 				type: 'basehalf.markdownRich.saveResult',

@@ -44,6 +44,23 @@ suite('BaseHalfMarkdownRichWebviewSaveCoordinator', () => {
 		assert.deepStrictEqual(sender.results, [{ requestId: 'save-1', result: 'blockedByConflict', options: { disk: 'Source unsaved\n' } }]);
 	});
 
+	test('structural serialization never treats rename/delete as consent to overwrite external content', async () => {
+		const disk = new TestDisk('External edit\n');
+		const sender = new TestSender();
+		// forceSerialize is the host→webview command; the resulting save request
+		// deliberately keeps forceWrite false so the operation precondition can
+		// veto instead of destroying the external edit.
+		const outcome = await new BaseHalfMarkdownRichWebviewSaveCoordinator().handleSaveRequested(saveRequested({
+			content: 'Rich local\n',
+			previousContent: 'Before external edit\n',
+			forceWrite: false
+		}), disk, sender);
+
+		assert.deepStrictEqual(outcome, { result: 'blockedByConflict', okToLeave: false, disk: 'External edit\n' });
+		assert.strictEqual(disk.content, 'External edit\n');
+		assert.deepStrictEqual(disk.writes, []);
+	});
+
 	test('force writes local rich content over current source content', async () => {
 		const disk = new TestDisk('Source unsaved\n');
 		const sender = new TestSender();

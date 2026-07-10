@@ -22,7 +22,8 @@ import { getSimpleCodeEditorWidgetOptions } from '../../../contrib/codeEditor/br
 import { ITextFileService, TextFileEditorModelState, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
 import { IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
-import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { baseHalfEditorProjectionCanFlush, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
 
 export class BaseHalfSourceCardDetail extends Disposable {
 	private static readonly SAVE_SETTLE_TIMEOUT = 15000;
@@ -34,8 +35,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 	private state: IBaseHalfCardDetailState | undefined;
 	private resourceKey: string | undefined;
 	private focusTimer: number | undefined;
+	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private lastFocusKey: string | undefined;
 	private saving = false;
+	private visible = false;
 	private disposed = false;
 	private readonly editorOptions: IEditorOptions = {
 		automaticLayout: false,
@@ -55,6 +58,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		@ITextFileService private readonly textFileService: ITextFileService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -102,6 +106,7 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
+		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.setSaveStatus('saving');
 
@@ -165,7 +170,8 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		this.flushFocusWrite();
 	}
 
-	setVisible(_visible: boolean): void {
+	setVisible(visible: boolean): void {
+		this.visible = visible;
 		// Monaco tracks its text model natively and stays cheap while the
 		// layer is hidden; nothing to suspend.
 	}
@@ -187,7 +193,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		await this.flush({ forceSerialize: true });
 	}
 
-	private async flush(_options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
+	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
+		if (!baseHalfEditorProjectionCanFlush('source', this.visible, options)) {
+			return true;
+		}
 		const resource = this.editor?.getModel()?.uri;
 		if (!resource) {
 			this.updateStatus();
@@ -366,8 +375,9 @@ export class BaseHalfSourceCardDetail extends Disposable {
 
 	private flushFocusWrite(): void {
 		const state = this.state;
+		const stamp = this.focusStamp;
 		const editor = this.editor;
-		if (!state || !editor?.hasModel()) {
+		if (!state || !stamp || !editor?.hasModel()) {
 			return;
 		}
 
@@ -378,12 +388,13 @@ export class BaseHalfSourceCardDetail extends Disposable {
 			visible_lines: { start: firstVisibleLine },
 			...(position ? { cursor: { line: position.lineNumber, column: position.column, line_precision: 'exact' as const } } : {})
 		};
-		const key = JSON.stringify(fields);
+		const key = `${stamp.structuralEpoch}:${JSON.stringify(fields)}`;
 		if (key === this.lastFocusKey) {
 			return;
 		}
 
-		this.lastFocusKey = key;
-		void this.focusMirrorService.writeFileFocus(state, fields).catch(error => this.logService.error(error));
+		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
+			this.focusMirrorService.writeFileFocus(state, fields, lease)
+		).then(() => this.lastFocusKey = key).catch(error => this.logService.error(error));
 	}
 }

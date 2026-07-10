@@ -30,7 +30,9 @@ import { IWebviewService, IWebviewElement, WebviewContentPurpose } from '../../.
 import { asWebviewUri, webviewGenericCspSource } from '../../../contrib/webview/common/webview.js';
 import { IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushOptions, IBaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
-import { IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import { IBaseHalfFileFocusFields, IBaseHalfFocusMirrorService } from '../../common/basehalfFocusMirrorService.js';
+import { IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceResourceMutationStamp } from '../../common/basehalfWorkspaceMutation.js';
+import { baseHalfMarkdownRichNeedsSaveRequest } from '../../common/basehalfMarkdownRichFlush.js';
 import {
 	BaseHalfMarkdownRichLiveDocumentRegistry,
 	baseHalfMarkdownRichDocumentKey,
@@ -126,8 +128,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private readonly webviewHost: HTMLElement;
 	private readonly coordinator = new BaseHalfMarkdownRichWebviewSaveCoordinator();
 	private readonly pendingFlushes = new Map<string, { readonly resolve: (ok: boolean) => void; readonly timer: number }>();
+	private pendingStructuralFreeze: { readonly requestId: string; readonly frozen: boolean; readonly promise: DeferredPromise<boolean>; readonly timer: number } | undefined;
 
 	private state: IBaseHalfCardDetailState | undefined;
+	private focusStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private model: ITextModel | undefined;
 	private resourceKey: string | undefined;
 	private documentKey: string | undefined;
@@ -140,6 +144,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	private disposed = false;
 	private visible = false;
 	private pendingModelSync = false;
+	private structuralFrozen = false;
+	private acknowledgedStructuralFrozen = false;
 	private readonly firstRendered = new DeferredPromise<void>();
 
 	constructor(
@@ -152,6 +158,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@IWebviewService private readonly webviewService: IWebviewService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
 		@IBaseHalfFocusMirrorService private readonly focusMirrorService: IBaseHalfFocusMirrorService,
+		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IBaseHalfAdhdMirrorService private readonly adhdMirrorService: IBaseHalfAdhdMirrorService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
@@ -184,6 +191,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	async open(state: IBaseHalfCardDetailState): Promise<void> {
 		this.state = state;
+		this.focusStamp = this.workspaceMutationCoordinator.captureResource(state.workspaceFolder, state.relativePath);
 		this.resourceKey = state.resource.toString();
 		this.documentKey = baseHalfMarkdownRichDocumentKey(state.workspaceFolder, state.relativePath);
 		this.setSaveStatus('saving');
@@ -202,7 +210,6 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this.bridge = this._register(new BaseHalfMarkdownRichWebviewBridge(this.documentKey, this.liveDocument.document.doc, {
 				postMessage: (message, transfer) => this.webview?.postMessage(message, transfer) ?? Promise.resolve(false)
 			}));
-
 			if (this.prewarmed) {
 				this.webview = this._register(this.prewarmed.webview);
 			} else {
@@ -215,6 +222,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
 
 			this._register(this.webview.onMessage(event => void this.handleWebviewMessage(event.message)));
+			if (this.structuralFrozen) {
+				this.postStructuralFreeze();
+			}
 			this._register(this.webview.onMissingCsp(extension => {
 				this.logService.warn(`BaseHalf Markdown rich webview missing CSP for ${extension.value}`);
 			}));
@@ -272,6 +282,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			pending.resolve(true);
 		}
 		this.pendingFlushes.clear();
+		this.settleStructuralFreeze(false);
 		super.dispose();
 	}
 
@@ -305,6 +316,21 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
+	/**
+	 * The host DOM's `inert` attribute cannot fence an iframe. Structural file
+	 * operations therefore hold an explicit editor-side freeze from preflight
+	 * through the did/fail cascade. A structural save waits for the matching
+	 * webview acknowledgement before it may serialize.
+	 */
+	setStructuralFrozen(frozen: boolean): void {
+		if (this.structuralFrozen === frozen
+			&& (this.pendingStructuralFreeze?.frozen === frozen || this.acknowledgedStructuralFrozen === frozen)) {
+			return;
+		}
+		this.structuralFrozen = frozen;
+		this.postStructuralFreeze();
+	}
+
 	applySelection(selection: IBaseHalfCardDetailState['selection']): void {
 		if (!this.state) {
 			return;
@@ -322,14 +348,22 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
-		if (!this.dirty || !this.bridge) {
+		const structural = options.activeProjection !== undefined;
+		if (!this.bridge) {
+			return !structural;
+		}
+		if (!baseHalfMarkdownRichNeedsSaveRequest(this.dirty, this.visible, options)) {
 			return true;
+		}
+		if (structural && (!this.structuralFrozen || !await this.waitForStructuralFreeze())) {
+			return false;
 		}
 
 		const requestId = `flush-${generateUuid()}`;
 		const posted = await this.bridge.sendSave(requestId, {
 			forceSerialize: options.forceSerialize ?? true,
-			forceWrite: options.forceWrite ?? false
+			forceWrite: options.forceWrite ?? false,
+			structural
 		});
 		if (!posted) {
 			return false;
@@ -354,6 +388,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 		if (message.type === 'basehalf.markdownRich.ready') {
 			await bridge.handleWebviewMessage(message);
+			if (this.structuralFrozen && !this.acknowledgedStructuralFrozen) {
+				this.postStructuralFreeze();
+			}
 			await this.sendDocumentState(state);
 			return;
 		}
@@ -368,6 +405,9 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		switch (message.type) {
+			case 'basehalf.markdownRich.structuralFreezeChanged':
+				this.handleStructuralFreezeChanged(message.requestId, message.frozen);
+				break;
 			case 'basehalf.markdownRich.saveRequested':
 				await this.handleSaveRequested(message, model);
 				break;
@@ -383,10 +423,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				// autosave settle and decoration refreshes, so they must not
 				// count as user activation (editorActivated handles that) —
 				// otherwise the badge zone closes underneath the user.
-				void this.focusMirrorService.writeFileFocus(state, {
+				this.writeFileFocus(state, {
 					projection: 'rich',
 					...message.fields
-				}).catch(error => this.logService.error(error));
+				});
 				break;
 			case 'basehalf.markdownRich.workbenchCommand':
 				await this.handleWorkbenchCommand(message.command);
@@ -412,6 +452,59 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.logService.error(message.stack ?? message.message);
 				break;
 		}
+	}
+
+	private postStructuralFreeze(): void {
+		const bridge = this.bridge;
+		if (!bridge) {
+			return;
+		}
+		this.settleStructuralFreeze(false);
+		const requestId = `freeze-${generateUuid()}`;
+		const promise = new DeferredPromise<boolean>();
+		const timer = mainWindow.setTimeout(() => {
+			if (this.pendingStructuralFreeze?.requestId === requestId) {
+				this.pendingStructuralFreeze = undefined;
+				promise.complete(false);
+			}
+		}, 5000);
+		this.pendingStructuralFreeze = { requestId, frozen: this.structuralFrozen, promise, timer };
+		void bridge.sendStructuralFreeze(requestId, this.structuralFrozen).then(posted => {
+			if (!posted && this.pendingStructuralFreeze?.requestId === requestId) {
+				this.settleStructuralFreeze(false);
+			}
+		}, () => {
+			if (this.pendingStructuralFreeze?.requestId === requestId) {
+				this.settleStructuralFreeze(false);
+			}
+		});
+	}
+
+	private async waitForStructuralFreeze(): Promise<boolean> {
+		if (this.acknowledgedStructuralFrozen && !this.pendingStructuralFreeze) {
+			return true;
+		}
+		const pending = this.pendingStructuralFreeze;
+		return !!pending?.frozen && await pending.promise.p;
+	}
+
+	private handleStructuralFreezeChanged(requestId: string, frozen: boolean): void {
+		const pending = this.pendingStructuralFreeze;
+		if (!pending || pending.requestId !== requestId || pending.frozen !== frozen) {
+			return;
+		}
+		this.acknowledgedStructuralFrozen = frozen;
+		this.settleStructuralFreeze(true);
+	}
+
+	private settleStructuralFreeze(ok: boolean): void {
+		const pending = this.pendingStructuralFreeze;
+		if (!pending) {
+			return;
+		}
+		this.pendingStructuralFreeze = undefined;
+		mainWindow.clearTimeout(pending.timer);
+		pending.promise.complete(ok);
 	}
 
 	private async handleAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand): Promise<void> {
@@ -482,16 +575,22 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private runAdhdCommand(state: IBaseHalfCardDetailState, command: IBaseHalfAdhdCommand) {
-		switch (command.command) {
-			case 'addKeyword':
-				return this.adhdMirrorService.addKeyword(state, command.keyword);
-			case 'removeKeyword':
-				return this.adhdMirrorService.removeKeyword(state, command.keyword);
-			case 'markRead':
-				return this.adhdMirrorService.markRead(state, command.start, command.end);
-			case 'markUnread':
-				return this.adhdMirrorService.markUnread(state, command.start, command.end);
+		const stamp = this.focusStamp;
+		if (!stamp) {
+			return Promise.reject(new Error('The card detail resource is no longer current.'));
 		}
+		return this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease => {
+			switch (command.command) {
+				case 'addKeyword':
+					return this.adhdMirrorService.addKeyword(state, command.keyword, lease);
+				case 'removeKeyword':
+					return this.adhdMirrorService.removeKeyword(state, command.keyword, lease);
+				case 'markRead':
+					return this.adhdMirrorService.markRead(state, command.start, command.end, lease);
+				case 'markUnread':
+					return this.adhdMirrorService.markUnread(state, command.start, command.end, lease);
+			}
+		});
 	}
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
@@ -506,7 +605,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			return;
 		}
 
-		void this.focusMirrorService.writeFileFocus(state, {
+		this.writeFileFocus(state, {
 			projection: state.projection,
 			visible_lines: { start: state.selection.startLineNumber },
 			cursor: {
@@ -514,7 +613,17 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				column: state.selection.startColumn,
 				line_precision: 'exact'
 			}
-		}).catch(error => this.logService.error(error));
+		});
+	}
+
+	private writeFileFocus(state: IBaseHalfCardDetailState, fields: IBaseHalfFileFocusFields): void {
+		const stamp = this.focusStamp;
+		if (!stamp) {
+			return;
+		}
+		void this.workspaceMutationCoordinator.runResourceMutation(state.workspaceFolder, stamp, lease =>
+			this.focusMirrorService.writeFileFocus(state, fields, lease)
+		).catch(error => this.logService.error(error));
 	}
 
 	private async sendAdhdState(state: IBaseHalfCardDetailState): Promise<void> {

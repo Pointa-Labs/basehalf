@@ -59,6 +59,15 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
+	sendStructuralFreeze(requestId: string, frozen: boolean): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.setStructuralFreeze',
+			key: this.key,
+			requestId,
+			frozen
+		});
+	}
+
 	sendRevealSelection(selection: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.revealSelection',
@@ -84,13 +93,14 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		});
 	}
 
-	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean }): Promise<boolean> {
+	sendSave(requestId: string, options: { readonly forceSerialize: boolean; readonly forceWrite: boolean; readonly structural: boolean }): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.save',
 			key: this.key,
 			requestId,
 			forceSerialize: options.forceSerialize,
-			forceWrite: options.forceWrite
+			forceWrite: options.forceWrite,
+			structural: options.structural
 		});
 	}
 

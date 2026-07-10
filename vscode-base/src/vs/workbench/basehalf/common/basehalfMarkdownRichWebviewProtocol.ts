@@ -83,6 +83,15 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly editable: boolean;
 	}
 	| {
+		/** Freeze editor input for the full lifetime of a structural file
+		 * operation. The request id is echoed by the webview so the host never
+		 * starts serialization before the iframe has observed the fence. */
+		readonly type: 'basehalf.markdownRich.setStructuralFreeze';
+		readonly key: string;
+		readonly requestId: string;
+		readonly frozen: boolean;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.revealSelection';
 		readonly key: string;
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
@@ -104,6 +113,7 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly requestId: string;
 		readonly forceSerialize: boolean;
 		readonly forceWrite: boolean;
+		readonly structural: boolean;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.saveResult';
@@ -157,6 +167,12 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly type: 'basehalf.markdownRich.dirtyChanged';
 		readonly key: string;
 		readonly dirty: boolean;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.structuralFreezeChanged';
+		readonly key: string;
+		readonly requestId: string;
+		readonly frozen: boolean;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.focusChanged';
@@ -218,6 +234,10 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return candidate.update instanceof ArrayBuffer;
 		case 'basehalf.markdownRich.setEditable':
 			return typeof candidate.editable === 'boolean';
+		case 'basehalf.markdownRich.setStructuralFreeze':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.frozen === 'boolean';
 		case 'basehalf.markdownRich.revealSelection':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.command':
@@ -231,7 +251,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
 				&& typeof candidate.forceSerialize === 'boolean'
-				&& typeof candidate.forceWrite === 'boolean';
+				&& typeof candidate.forceWrite === 'boolean'
+				&& typeof candidate.structural === 'boolean';
 		case 'basehalf.markdownRich.saveResult':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -270,6 +291,10 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 				&& typeof candidate.forceWrite === 'boolean';
 		case 'basehalf.markdownRich.dirtyChanged':
 			return typeof candidate.dirty === 'boolean';
+		case 'basehalf.markdownRich.structuralFreezeChanged':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.frozen === 'boolean';
 		case 'basehalf.markdownRich.yjsUpdate':
 			return isBaseHalfMarkdownRichUpdatePayload(candidate.update);
 		case 'basehalf.markdownRich.editorActivated':

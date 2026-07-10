@@ -5,10 +5,23 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { baseHalfEditorProjectionCanFlush, baseHalfStructuralEditorFlushOptions, BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfEditorFlushService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
+
+	test('structural flush serializes but never force-overwrites a newer disk edit', () => {
+		assert.deepStrictEqual(baseHalfStructuralEditorFlushOptions('preview'), {
+			forceSerialize: true,
+			forceWrite: false,
+			rejectOnError: true,
+			activeProjection: 'preview'
+		});
+		assert.strictEqual(baseHalfEditorProjectionCanFlush('rich', true, baseHalfStructuralEditorFlushOptions('rich')), true);
+		assert.strictEqual(baseHalfEditorProjectionCanFlush('rich', false, baseHalfStructuralEditorFlushOptions('source')), false);
+		assert.strictEqual(baseHalfEditorProjectionCanFlush('source', false, baseHalfStructuralEditorFlushOptions('preview')), false);
+		assert.strictEqual(baseHalfEditorProjectionCanFlush('preview', true, baseHalfStructuralEditorFlushOptions('preview')), true);
+	});
 
 	test('flushes a registered pane and unregisters it with disposal', async () => {
 		const service = new BaseHalfEditorFlushService();
@@ -53,6 +66,32 @@ suite('BaseHalfEditorFlushService', () => {
 		second.dispose();
 		assert.strictEqual(await service.flushPane('pane'), true);
 		assert.strictEqual(secondCalls, 2);
+	});
+
+	test('cold Preview structural preflight owns shared TextModel save without hidden Source or Rich', async () => {
+		const service = new BaseHalfEditorFlushService();
+		const calls: string[] = [];
+		disposables.add(service.registerPaneFlusher('pane', async options => {
+			if (baseHalfEditorProjectionCanFlush('rich', false, options ?? {})) {
+				calls.push('hidden-rich');
+			}
+			return true;
+		}));
+		disposables.add(service.registerPaneFlusher('pane', async options => {
+			if (baseHalfEditorProjectionCanFlush('source', false, options ?? {})) {
+				calls.push('hidden-source');
+			}
+			return true;
+		}));
+		disposables.add(service.registerPaneFlusher('pane', async options => {
+			if (baseHalfEditorProjectionCanFlush('preview', true, options ?? {})) {
+				calls.push('preview-shared-text-model-save');
+			}
+			return true;
+		}));
+
+		assert.strictEqual(await service.flushPane('pane', baseHalfStructuralEditorFlushOptions('preview')), true);
+		assert.deepStrictEqual(calls, ['preview-shared-text-model-save']);
 	});
 
 	test('flushes every mounted view for a document and reports blockers', async () => {
@@ -108,5 +147,7 @@ suite('BaseHalfEditorFlushService', () => {
 		assert.strictEqual(await service.flushPane('pane'), true);
 		assert.strictEqual(await service.flushDocument('doc'), true);
 		assert.strictEqual(await service.flushAll(), true);
+		assert.strictEqual(await service.flushPane('pane', { rejectOnError: true }), false);
+		assert.strictEqual(await service.flushDocument('doc', { rejectOnError: true }), false);
 	});
 });
