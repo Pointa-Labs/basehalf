@@ -75,6 +75,7 @@ const env = {
 };
 
 let app;
+let canvasViewportBeforeCardDetail;
 try {
 	if (!fs.existsSync(electronPath)) {
 		throw new Error(`Dev Electron was not found at ${electronPath}. Run npm run electron or npm run basehalf:smoke first.`);
@@ -95,6 +96,32 @@ try {
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 
+	if (opts.canvasOnly) {
+		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
+		await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+		await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page));
+		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page));
+		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+		console.log(JSON.stringify({
+			ok: true,
+			workspace: workspacePath,
+			checks: [
+				'fresh-canvas-framed',
+				'canvas-grid-scoped-to-canvas',
+				'canvas-card-badge-preview-connectors',
+				'canvas-derived-edge-visible',
+				'canvas-edge-follows-card-drag-live',
+				'canvas-edge-half-reconnect',
+				'agent-reference-draws-edge',
+				'edge-delete-scoped-to-canvas',
+				'edge-delete-removes-reference',
+				'canvas-snap-guides'
+			]
+		}, null, 2));
+	} else {
 	await step('open-editors-hidden', () => assertOpenEditorsHidden(page));
 	await step('competing-view-containers-hidden', () => assertCompetingViewContainersHidden(page));
 	await step('statusbar-curated', () => assertStatusBarCurated(page));
@@ -113,7 +140,10 @@ try {
 
 	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 	await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+	await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
+	await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
 	await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page));
 	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
@@ -203,7 +233,9 @@ try {
 			'git-branch-checkout-quickpick',
 			'canvas-card-badge-preview-connectors',
 			'canvas-derived-edge-visible',
+			'canvas-edge-follows-card-drag-live',
 			'agent-reference-draws-edge',
+			'edge-delete-scoped-to-canvas',
 			'edge-delete-removes-reference',
 			'explorer-rename-cascades-mirror',
 			'canvas-snap-guides',
@@ -243,6 +275,7 @@ try {
 		summary.runRoot = runRoot;
 	}
 	console.log(JSON.stringify(summary, null, 2));
+	}
 } catch (error) {
 	await writeFailureArtifacts(error);
 	throw error;
@@ -260,6 +293,7 @@ function parseArgs(args) {
 	const parsed = {
 		keep: false,
 		verbose: false,
+		canvasOnly: false,
 		output: undefined
 	};
 
@@ -271,6 +305,9 @@ function parseArgs(args) {
 				break;
 			case '--verbose':
 				parsed.verbose = true;
+				break;
+			case '--canvas-only':
+				parsed.canvasOnly = true;
 				break;
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
@@ -300,6 +337,7 @@ function printHelpAndExit() {
 Options:
   --output <path>     Store smoke logs/user-data/crashes in this directory.
   --keep              Keep the generated temporary directory after the run.
+  --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);
@@ -777,11 +815,81 @@ async function assertAgentAreaTerminalCommand(page) {
 		return !!activeSession?.querySelector('.terminal-wrapper, .xterm');
 	}, null, { timeout: 20_000 });
 	await assertAgentAreaSurfaceKind(page, 'terminal');
+	await assertAgentAreaTerminalClipboardPaste(page);
 	await assertAgentAreaTerminalGhosttyEnvAndAnsiColors(page);
 	await assertStockTerminalPanelHidden(page);
 	await runCommand(page, 'Toggle Agent Area');
 	await page.locator('.basehalf-agent-area').waitFor({ state: 'hidden', timeout: 15_000 });
 	await assertStockTerminalPanelHidden(page);
+}
+
+async function assertAgentAreaTerminalClipboardPaste(page) {
+	const marker = `BH_TYPELESS_PASTE_${Date.now()}`;
+	const terminal = page.locator('.basehalf-agent-area-session.active.kind-terminal .xterm').first();
+	await terminal.click();
+	const allowClipboardOverwrite = process.env.CI === 'true'
+		|| process.env.CI === '1'
+		|| process.env.BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE === '1';
+
+	// Use Electron's native clipboard rather than the renderer Clipboard API:
+	// vscode-file pages intentionally lack browser clipboard permission, while
+	// Typeless writes the macOS pasteboard before synthesizing the paste shortcut.
+	// Do not touch a rich clipboard: Electron cannot restore every arbitrary OS
+	// pasteboard flavor atomically, so preserving images/files/RTF wins over this
+	// assertion when a developer runs the smoke with such data copied. CI owns an
+	// ephemeral clipboard and always exercises the native shortcut path; developers
+	// can opt into the same behavior with BASEHALF_SMOKE_ALLOW_CLIPBOARD_OVERWRITE=1.
+	const clipboardState = await app.evaluate(({ clipboard }, { text, allowClipboardOverwrite }) => {
+		const formats = clipboard.availableFormats();
+		const textOnly = formats.every(format => {
+			const normalized = format.toLowerCase();
+			return normalized === 'text'
+				|| normalized === 'string'
+				|| normalized === 'utf8_string'
+				|| normalized.startsWith('text/plain')
+				|| normalized === 'public.utf8-plain-text';
+		});
+		if (!textOnly && !allowClipboardOverwrite) {
+			return { exercised: false, previousText: '' };
+		}
+		const previousText = clipboard.readText();
+		clipboard.writeText(text);
+		return { exercised: true, previousText };
+	}, { text: marker, allowClipboardOverwrite });
+	if (!clipboardState.exercised) {
+		console.error('[basehalf-smoke] skip Agent Area shortcut paste probe: preserving non-text clipboard formats');
+		return;
+	}
+
+	try {
+		const pasteShortcut = process.platform === 'darwin'
+			? 'Meta+V'
+			: process.platform === 'win32'
+				? 'Control+V'
+				: 'Control+Shift+V';
+		await page.keyboard.press(pasteShortcut);
+		await page.waitForFunction(expected => {
+			const wrapper = document.querySelector('.basehalf-agent-area-session.active.kind-terminal .terminal-wrapper') as HTMLElement & { xterm?: { buffer?: { active?: { length: number; getLine(index: number): { translateToString(trimRight?: boolean): string } | undefined } } } } | null;
+			const buffer = wrapper?.xterm?.buffer?.active;
+			if (!buffer) {
+				return false;
+			}
+			for (let index = 0; index < buffer.length; index++) {
+				if ((buffer.getLine(index)?.translateToString(true) ?? '').includes(expected)) {
+					return true;
+				}
+			}
+			return false;
+		}, marker, { timeout: 15_000 });
+	} finally {
+		// Never execute the probe, and do not leave the smoke test's marker in the
+		// user's clipboard after exercising the same shortcut Typeless dispatches.
+		try {
+			await page.keyboard.press('Control+C');
+		} finally {
+			await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), clipboardState.previousText);
+		}
+	}
 }
 
 async function assertAgentAreaTuiSession(page) {
@@ -1297,11 +1405,9 @@ async function assertFreshCanvasFramed(page) {
 	await page.waitForFunction(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const cardsLayer = document.querySelector('.basehalf-canvas-cards');
+		const viewport = cardsLayer?.querySelector('.react-flow__viewport');
 		const cards = Array.from(document.querySelectorAll('.basehalf-canvas-card'));
-		if (!(root instanceof HTMLElement) || !(cardsLayer instanceof HTMLElement) || cards.length < 2) {
-			return false;
-		}
-		if (cardsLayer.offsetWidth < 2400 || cardsLayer.offsetHeight < 1600) {
+		if (!(root instanceof HTMLElement) || !(cardsLayer instanceof HTMLElement) || !(viewport instanceof HTMLElement) || cards.length < 2) {
 			return false;
 		}
 
@@ -1312,19 +1418,20 @@ async function assertFreshCanvasFramed(page) {
 		if (rects.length < 2) {
 			return false;
 		}
-		const firstTransform = getComputedStyle(cards[0]).transform;
-		const firstMatrix = firstTransform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(firstTransform);
-		if (firstMatrix.m41 < 300 || firstMatrix.m42 < 300) {
-			return false;
-		}
 		const negativeCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 		if (!(negativeCard instanceof HTMLElement)) {
 			return false;
 		}
-		const negativeTransform = getComputedStyle(negativeCard).transform;
+		const negativeNode = negativeCard.closest('.react-flow__node');
+		if (!(negativeNode instanceof HTMLElement)) {
+			return false;
+		}
+		const negativeTransform = getComputedStyle(negativeNode).transform;
 		const negativeMatrix = negativeTransform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(negativeTransform);
-		const negativeRect = negativeCard.getBoundingClientRect();
-		if (negativeMatrix.m41 >= 0 || negativeMatrix.m42 >= 0 || negativeRect.top - rootRect.top < 44 || negativeRect.left - rootRect.left < 24) {
+		const viewportTransform = getComputedStyle(viewport).transform;
+		const viewportMatrix = viewportTransform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(viewportTransform);
+		const reportedZoom = Number(root.dataset.zoom);
+		if (negativeMatrix.m41 >= 0 || negativeMatrix.m42 >= 0 || !Number.isFinite(reportedZoom) || Math.abs(viewportMatrix.a - reportedZoom) > 0.01) {
 			return false;
 		}
 
@@ -1332,37 +1439,55 @@ async function assertFreshCanvasFramed(page) {
 		const minTop = Math.min(...rects.map(rect => rect.top)) - rootRect.top;
 		const maxRight = Math.max(...rects.map(rect => rect.right)) - rootRect.left;
 		const maxBottom = Math.max(...rects.map(rect => rect.bottom)) - rootRect.top;
-		return minLeft >= 90
-			&& minTop >= 90
-			&& maxRight <= rootRect.width - 24
-			&& maxBottom <= rootRect.height - 24;
+		return minLeft >= 10
+			&& minTop >= 10
+			&& maxRight <= rootRect.width - 10
+			&& maxBottom <= rootRect.height - 10;
 	}, null, { timeout: 20_000 });
+
+	const canvasFocusState = await page.locator('.basehalf-canvas-cards').evaluate(element => {
+		if (!(element instanceof HTMLElement)) {
+			return { focused: false, outlineStyle: '', outlineWidth: '' };
+		}
+		element.focus();
+		const style = getComputedStyle(element);
+		return {
+			focused: document.activeElement === element,
+			outlineStyle: style.outlineStyle,
+			outlineWidth: style.outlineWidth,
+		};
+	});
+	if (!canvasFocusState.focused) {
+		throw new Error('Expected the canvas scene host to remain programmatically focusable');
+	}
+	if (canvasFocusState.outlineStyle !== 'none' && canvasFocusState.outlineWidth !== '0px') {
+		throw new Error(`Expected the focused canvas scene host to avoid a full-surface outline: ${JSON.stringify(canvasFocusState)}`);
+	}
 }
 
 async function assertCanvasGridScopedToCanvas(page) {
-	// The grid lives on the canvas scroll container itself (background with
-	// background-attachment: local), so it tiles the full scrollable extent
-	// and never bleeds outside the canvas. It is canvas world space: the
-	// on-screen step must equal the power-of-two-requantized world step (base
-	// 32 world px) multiplied by the current zoom, and the origin must sit on
-	// the cards layer's frame inset so grid lines stay glued to the content.
+	// React Flow owns the world-space grid inside the same scene as its nodes
+	// and edges. It must fill only the island, never become a workbench-level
+	// CSS background that can drift independently from the viewport transform.
 	await page.waitForFunction(() => {
 		const canvas = document.querySelector('.basehalf-canvas-workbench');
 		const cards = document.querySelector('.basehalf-canvas-cards');
 		if (!(canvas instanceof HTMLElement) || !(cards instanceof HTMLElement)) {
 			return false;
 		}
-
-		const style = getComputedStyle(canvas);
-		const zoom = parseFloat(style.getPropertyValue('--basehalf-canvas-zoom')) || 1;
-		const worldStep = 32 * Math.pow(2, Math.round(-Math.log2(zoom)));
-		const step = parseFloat(style.backgroundSize);
-		const originX = parseFloat(style.backgroundPosition);
-		return style.backgroundImage.includes('linear-gradient')
-			&& style.backgroundAttachment.includes('local')
-			&& Number.isFinite(step)
-			&& Math.abs(step - worldStep * zoom) < 0.1
-			&& Math.abs(originX - (parseFloat(cards.style.left) || 0)) < 0.1;
+		const background = cards.querySelector('.react-flow__background');
+		const pattern = background?.querySelector('pattern');
+		if (!(background instanceof SVGElement) || !(pattern instanceof SVGElement)) {
+			return false;
+		}
+		const canvasRect = cards.getBoundingClientRect();
+		const backgroundRect = background.getBoundingClientRect();
+		return background.closest('.basehalf-canvas-react-island') === cards
+			&& getComputedStyle(canvas).backgroundImage === 'none'
+			&& Math.abs(backgroundRect.left - canvasRect.left) <= 1
+			&& Math.abs(backgroundRect.top - canvasRect.top) <= 1
+			&& Math.abs(backgroundRect.width - canvasRect.width) <= 1
+			&& Math.abs(backgroundRect.height - canvasRect.height) <= 1;
 	}, null, { timeout: 10_000 });
 }
 
@@ -1385,40 +1510,43 @@ async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
 }
 
 async function assertCanvasZoomControls(page) {
-	await page.locator('.basehalf-canvas-card').first().click();
-	const stableChrome = await page.locator('.basehalf-canvas-workbench').evaluate(root => {
+	const reset = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
+	if (await reset.isEnabled()) {
+		await reset.click();
+	}
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
+	const beforePan = await page.evaluate(() => {
+		const root = document.querySelector('.basehalf-canvas-workbench');
 		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
-		if (!(root instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
-			throw new Error('Missing canvas zoom controls');
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		if (!(root instanceof HTMLElement) || !(controls instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+			throw new Error('Missing React Flow zoom geometry');
 		}
-
-		const originalLeft = root.scrollLeft;
-		const originalTop = root.scrollTop;
-		root.scrollLeft = 0;
-		root.scrollTop = 0;
 		const rootRect = root.getBoundingClientRect();
-		const before = controls.getBoundingClientRect();
-		root.scrollLeft = Math.min(Math.max(0, root.scrollWidth - root.clientWidth), 240);
-		root.scrollTop = Math.min(Math.max(0, root.scrollHeight - root.clientHeight), 180);
-		const after = controls.getBoundingClientRect();
-		root.scrollLeft = originalLeft;
-		root.scrollTop = originalTop;
+		const controlsRect = controls.getBoundingClientRect();
 		return {
-			dx: Math.abs(after.left - before.left),
-			dy: Math.abs(after.top - before.top),
-			rightGap: rootRect.right - before.right,
-			bottomGap: rootRect.bottom - before.bottom,
-			scrolledLeft: root.scrollWidth > root.clientWidth,
-			scrolledTop: root.scrollHeight > root.clientHeight
+			controls: { left: controlsRect.left, top: controlsRect.top },
+			viewport: getComputedStyle(viewport).transform,
+			rightGap: rootRect.right - controlsRect.right,
+			bottomGap: rootRect.bottom - controlsRect.bottom,
+			center: { x: rootRect.left + rootRect.width / 2, y: rootRect.top + rootRect.height / 2 }
 		};
 	});
-	if ((stableChrome.scrolledLeft || stableChrome.scrolledTop) && (stableChrome.dx > 1 || stableChrome.dy > 1)) {
-		throw new Error(`Expected zoom controls to stay fixed while the canvas scrolls: ${JSON.stringify(stableChrome)}`);
+	await page.mouse.move(beforePan.center.x, beforePan.center.y);
+	await page.mouse.wheel(80, 120);
+	await page.waitForFunction(previous => {
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		return viewport instanceof HTMLElement && getComputedStyle(viewport).transform !== previous;
+	}, beforePan.viewport, { timeout: 10_000 });
+	const afterPan = await page.locator('.basehalf-canvas-zoom-controls').boundingBox();
+	if (!afterPan || Math.abs(afterPan.x - beforePan.controls.left) > 1 || Math.abs(afterPan.y - beforePan.controls.top) > 1) {
+		throw new Error(`Expected zoom chrome to stay fixed while React Flow pans: ${JSON.stringify({ beforePan, afterPan })}`);
 	}
-	if (stableChrome.rightGap < 4 || stableChrome.rightGap > 24 || stableChrome.bottomGap < 6 || stableChrome.bottomGap > 32) {
-		throw new Error(`Expected zoom controls to sit in the bottom-right of the canvas viewport: ${JSON.stringify(stableChrome)}`);
+	if (beforePan.rightGap < 4 || beforePan.rightGap > 24 || beforePan.bottomGap < 6 || beforePan.bottomGap > 32) {
+		throw new Error(`Expected zoom controls in the bottom-right of the canvas viewport: ${JSON.stringify(beforePan)}`);
 	}
-	const initialZoom = await page.locator('.basehalf-canvas-workbench').evaluate(root => Number(root.getAttribute('data-zoom')));
+
+	const initialZoom = 1;
 	const nextZoom = Number((initialZoom + 0.1).toFixed(4));
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
 	await page.waitForFunction(expected => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) === expected, nextZoom, { timeout: 10_000 });
@@ -1428,40 +1556,20 @@ async function assertCanvasZoomControls(page) {
 	}
 	await page.waitForFunction(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
-		const selected = document.querySelector('.basehalf-canvas-card.selected');
-		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
-		if (!(root instanceof HTMLElement) || !(selected instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		if (!(root instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
 			return false;
 		}
-		const rootRect = root.getBoundingClientRect();
-		const selectedRect = selected.getBoundingClientRect();
-		const controlsRect = controls.getBoundingClientRect();
-		return selectedRect.top - rootRect.top >= 38 && selectedRect.bottom <= controlsRect.top - 8;
+		const transform = getComputedStyle(viewport).transform;
+		const matrix = transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
+		return Math.abs(matrix.a - Number(root.dataset.zoom)) < 0.01;
 	}, null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs/guide.md"]').click();
-	for (let index = 0; index < 6; index++) {
-		await page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom In"]').click();
-	}
-	await page.waitForFunction(() => {
-		const root = document.querySelector('.basehalf-canvas-workbench');
-		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs/guide.md"]');
-		const controls = document.querySelector('.basehalf-canvas-zoom-controls');
-		if (!(root instanceof HTMLElement) || !(card instanceof HTMLElement) || !(controls instanceof HTMLElement)) {
-			return false;
-		}
-		const rootRect = root.getBoundingClientRect();
-		const cardRect = card.getBoundingClientRect();
-		const controlsRect = controls.getBoundingClientRect();
-		return cardRect.top - rootRect.top >= 38 && cardRect.bottom <= controlsRect.top - 8;
-	}, null, { timeout: 10_000 });
-	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
-	await page.locator('.basehalf-canvas-workbench').evaluate(root => {
-		const rect = root.getBoundingClientRect();
-		root.dispatchEvent(new WheelEvent('wheel', {
+	await page.locator('.basehalf-canvas-cards .react-flow').evaluate(flow => {
+		const rect = flow.getBoundingClientRect();
+		flow.dispatchEvent(new WheelEvent('wheel', {
 			bubbles: true,
 			cancelable: true,
 			ctrlKey: true,
@@ -1537,6 +1645,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
+	await centerCanvasCards(page, [readme]);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-badge-toggle.lit').waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
@@ -1550,65 +1659,85 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 
-	const handleCount = await readme.locator('.basehalf-canvas-card-connect-handle').count();
+	const readmeNode = page.locator('.react-flow__node', { has: readme });
+	const readmeHandles = readmeNode.locator(':scope > .basehalf-canvas-card-connect-handle');
+	const handleCount = await readmeHandles.count();
 	if (handleCount !== 4) {
 		throw new Error(`Expected four card connection handles, got ${handleCount}`);
 	}
-	const activeReadmeHandles = await readme.locator('.basehalf-canvas-card-connect-handle.active').count();
-	if (activeReadmeHandles !== 0) {
-		throw new Error(`Expected card connection handles to stay hidden until a side is approached, got ${activeReadmeHandles} active`);
+	await readme.hover();
+	const visibleReadmeHandles = await readmeHandles.evaluateAll(handles => handles.filter(handle => {
+		const style = getComputedStyle(handle);
+		return Number(style.opacity) > 0.5 && style.pointerEvents !== 'none';
+	}).length);
+	if (visibleReadmeHandles !== 4) {
+		throw new Error(`Expected all four React Flow handles on card hover, got ${visibleReadmeHandles}`);
 	}
 
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	for (let attempt = 0; attempt < 8 && (!await docs.isVisible() || !await src.isVisible()); attempt++) {
+		if (!await zoomOut.isEnabled()) {
+			break;
+		}
+		await zoomOut.click();
+		await page.waitForTimeout(50);
+	}
 	await docs.waitFor({ state: 'visible', timeout: 10_000 });
 	await src.waitFor({ state: 'visible', timeout: 10_000 });
+	await centerCanvasCards(page, [docs, src]);
+	if (await resetZoom.isEnabled()) {
+		await resetZoom.click();
+	}
+	await page.waitForFunction(() => Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom')) >= 0.5, null, { timeout: 10_000 });
 	await docs.locator('.basehalf-canvas-folder-preview-label', { hasText: 'guide.md' }).waitFor({ state: 'visible', timeout: 10_000 });
 	await src.locator('.basehalf-canvas-folder-preview-label', { hasText: 'app.ts' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await src.scrollIntoViewIfNeeded();
-	await page.waitForTimeout(100);
-	const geometry = await page.evaluate(() => {
-		const docsCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
-		const srcCard = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="src"]');
-		const docsRect = docsCard?.getBoundingClientRect();
-		const srcRect = srcCard?.getBoundingClientRect();
-		if (!docsRect || !srcRect || docsRect.width <= 0 || docsRect.height <= 0 || srcRect.width <= 0 || srcRect.height <= 0) {
-			return undefined;
-		}
-		return {
-			from: { x: docsRect.x, y: docsRect.y, width: docsRect.width, height: docsRect.height },
-			target: { x: srcRect.x, y: srcRect.y, width: srcRect.width, height: srcRect.height }
-		};
-	});
-	if (!geometry) {
-		throw new Error('Missing card connection geometry');
+	const docsNode = page.locator('.react-flow__node', { has: docs });
+	const srcNode = page.locator('.react-flow__node', { has: src });
+	const docsEast = docsNode.locator(':scope > .basehalf-canvas-card-connect-handle.east');
+	const srcWest = srcNode.locator(':scope > .basehalf-canvas-card-connect-handle.west');
+	await docs.hover();
+	const sourceBox = await docsEast.boundingBox();
+	const targetBox = await srcWest.boundingBox();
+	const canvasBox = await page.locator('.basehalf-canvas-cards').boundingBox();
+	if (!sourceBox || !targetBox || !canvasBox) {
+		throw new Error('Missing React Flow connection geometry');
 	}
 
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
 	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
 	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
-	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"] .basehalf-canvas-card-connect-handle.east')?.classList.contains('active') === true, null, { timeout: 10_000 });
+	const sourcePoint = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
+	await page.mouse.move(sourcePoint.x, sourcePoint.y);
 	await page.mouse.down();
-	await page.locator('.basehalf-canvas-connection-draft').waitFor({ state: 'visible', timeout: 10_000 });
-	await page.mouse.move(geometry.from.x + geometry.from.width + 180, geometry.from.y + geometry.from.height + 240, { steps: 8 });
+	// React Flow intentionally waits until the pointer crosses its connection
+	// drag threshold; pointer-down alone does not create a draft path.
+	await page.mouse.move(sourcePoint.x + 8, sourcePoint.y, { steps: 2 });
+	await page.locator('.react-flow__connection-path').waitFor({ state: 'attached', timeout: 10_000 });
+	await page.mouse.move(canvasBox.x + canvasBox.width - 30, canvasBox.y + canvasBox.height - 80, { steps: 8 });
 	await page.mouse.up();
 	await page.waitForTimeout(150);
 	const afterCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
 	if (afterCancelCanvas !== beforeCancelCanvas) {
 		throw new Error('Expected blank connection release to cancel without changing canvas.yaml');
 	}
-	const draftCountAfterCancel = await page.locator('.basehalf-canvas-connection-draft').count();
+	const draftCountAfterCancel = await page.locator('.react-flow__connection-path').count();
 	if (draftCountAfterCancel !== 0) {
 		throw new Error(`Expected connection draft to be removed after cancel, got ${draftCountAfterCancel}`);
 	}
 
-	await page.mouse.move(geometry.from.x + geometry.from.width - 2, geometry.from.y + geometry.from.height / 2);
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"] .basehalf-canvas-card-connect-handle.east')?.classList.contains('active') === true, null, { timeout: 10_000 });
+	await docs.hover();
+	const freshSourceBox = await docsEast.boundingBox();
+	const freshTargetBox = await srcWest.boundingBox();
+	if (!freshSourceBox || !freshTargetBox) {
+		throw new Error('Missing React Flow handles after cancelled connection');
+	}
+	await page.mouse.move(freshSourceBox.x + freshSourceBox.width / 2, freshSourceBox.y + freshSourceBox.height / 2);
 	await page.mouse.down();
-	await page.mouse.move(geometry.target.x + 2, geometry.target.y + geometry.target.height / 2, { steps: 8 });
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="src"]')?.getAttribute('data-target-affordance') === 'west', null, { timeout: 10_000 });
+	await page.mouse.move(freshTargetBox.x + freshTargetBox.width / 2, freshTargetBox.y + freshTargetBox.height / 2, { steps: 8 });
+	await page.waitForFunction(() => document.querySelector('.react-flow__connection-path') !== null, null, { timeout: 10_000 });
 	await page.mouse.up();
 
 	await waitUntil(() => {
@@ -1620,6 +1749,44 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	}, 'canvas.yaml to persist a four-side edge');
 	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
 	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
+}
+
+async function centerCanvasCards(page, cards) {
+	const canvas = page.locator('.basehalf-canvas-cards');
+	for (let attempt = 0; attempt < 4; attempt++) {
+		const canvasBox = await canvas.boundingBox();
+		const cardBoxes = await Promise.all(cards.map(card => card.boundingBox()));
+		if (!canvasBox || cardBoxes.some(box => !box)) {
+			throw new Error('Missing canvas card geometry while centering the smoke-test viewport');
+		}
+
+		const boxes = cardBoxes;
+		const left = Math.min(...boxes.map(box => box.x));
+		const right = Math.max(...boxes.map(box => box.x + box.width));
+		const top = Math.min(...boxes.map(box => box.y));
+		const bottom = Math.max(...boxes.map(box => box.y + box.height));
+		const deltaX = canvasBox.x + canvasBox.width / 2 - (left + right) / 2;
+		const deltaY = canvasBox.y + canvasBox.height / 2 - (top + bottom) / 2;
+		if (Math.abs(deltaX) < 2 && Math.abs(deltaY) < 2) {
+			return;
+		}
+
+		const startX = canvasBox.x + canvasBox.width / 2;
+		const startY = canvasBox.y + canvasBox.height / 2;
+		const maxDeltaX = Math.max(1, canvasBox.width / 2 - 12);
+		const maxDeltaY = Math.max(1, canvasBox.height / 2 - 12);
+		await page.mouse.move(startX, startY);
+		await page.mouse.down({ button: 'middle' });
+		await page.mouse.move(
+			startX + Math.max(-maxDeltaX, Math.min(maxDeltaX, deltaX)),
+			startY + Math.max(-maxDeltaY, Math.min(maxDeltaY, deltaY)),
+			{ steps: 8 }
+		);
+		await page.mouse.up({ button: 'middle' });
+		await page.waitForTimeout(50);
+	}
+
+	throw new Error('Canvas viewport did not settle around the requested cards');
 }
 
 // A derived edge (from the reference graph) is drawn on the current canvas.
@@ -1635,6 +1802,362 @@ async function assertCanvasEdgeGone(page, from, to) {
 		return !Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
 			.some(p => p instanceof SVGPathElement && p.dataset.edgeId === `${f}${String.fromCharCode(0)}${t}`);
 	}, [from, to], { timeout: 15_000 });
+}
+
+// The original regression: while the pointer is still down, React Flow's
+// controlled node and custom edge must consume the same live geometry. Disk
+// persistence intentionally happens only after pointer-up.
+async function assertCanvasEdgeFollowsCardDragLive(page) {
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const canvasBefore = fs.readFileSync(canvasPath, 'utf8');
+	const before = await page.evaluate(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const node = card?.closest('.react-flow__node');
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+		if (!(card instanceof HTMLElement) || !(node instanceof HTMLElement) || !(edge instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const rect = card.getBoundingClientRect();
+		return {
+			startX: rect.left + rect.width / 2,
+			startY: rect.top + rect.height / 2,
+			edgePath: edge.getAttribute('d'),
+			nodeTransform: getComputedStyle(node).transform
+		};
+	});
+	if (!before?.edgePath) {
+		throw new Error('Missing docs→src live edge geometry');
+	}
+
+	await page.mouse.move(before.startX, before.startY);
+	await page.mouse.down();
+	await page.mouse.move(before.startX + 64, before.startY + 37, { steps: 10 });
+	await page.waitForFunction(({ edgePath, nodeTransform }) => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const node = card?.closest('.react-flow__node');
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+		return node instanceof HTMLElement
+			&& edge instanceof SVGPathElement
+			&& getComputedStyle(node).transform !== nodeTransform
+			&& edge.getAttribute('d') !== edgePath;
+	}, { edgePath: before.edgePath, nodeTransform: before.nodeTransform }, { timeout: 10_000 });
+
+	const endpointDistance = await page.evaluate(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+		const node = card?.closest('.react-flow__node');
+		const handle = node?.querySelector(':scope > .basehalf-canvas-card-connect-handle.east');
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `docs${String.fromCharCode(0)}src`);
+		if (!(handle instanceof HTMLElement) || !(edge instanceof SVGPathElement)) {
+			return Number.POSITIVE_INFINITY;
+		}
+		const point = edge.getPointAtLength(0);
+		const ctm = edge.getScreenCTM();
+		if (!ctm) {
+			return Number.POSITIVE_INFINITY;
+		}
+		const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+		const handleRect = handle.getBoundingClientRect();
+		return Math.hypot(screen.x - (handleRect.left + handleRect.width / 2), screen.y - (handleRect.top + handleRect.height / 2));
+	});
+	if (endpointDistance > 3) {
+		throw new Error(`Live edge endpoint drifted ${endpointDistance}px from the dragged card handle`);
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBefore) {
+		throw new Error('Canvas geometry persisted before the drag gesture completed');
+	}
+
+	await page.mouse.up();
+	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== canvasBefore, 'dragged docs geometry to persist after pointer-up');
+}
+
+// A relationship line is itself the reconnect affordance: its first directed
+// half owns the source endpoint and its second half owns the target endpoint.
+// Each preview must keep the opposite endpoint pinned. The target reconnect is
+// then committed through the real semantic graph and canvas style mirrors.
+async function assertCanvasEdgeHalfReconnect(page) {
+	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
+	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	for (let attempt = 0; attempt < 16; attempt++) {
+		const zoom = await page.locator('.basehalf-canvas-workbench').getAttribute('data-zoom').then(Number);
+		if (zoom <= 0.5) {
+			break;
+		}
+		if (!await zoomOut.isEnabled()) {
+			break;
+		}
+		await zoomOut.click();
+		await page.waitForTimeout(50);
+	}
+	await docs.waitFor({ state: 'visible', timeout: 10_000 });
+	await src.waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+	await centerCanvasCards(page, [docs, src, readme]);
+	const canvasBounds = await page.locator('.basehalf-canvas-cards').boundingBox();
+	const cardBounds = await Promise.all([docs.boundingBox(), src.boundingBox(), readme.boundingBox()]);
+	if (!canvasBounds || cardBounds.some(bounds => !bounds || bounds.x < canvasBounds.x - 1 || bounds.y < canvasBounds.y - 1
+		|| bounds.x + bounds.width > canvasBounds.x + canvasBounds.width + 1
+		|| bounds.y + bounds.height > canvasBounds.y + canvasBounds.height + 1)) {
+		throw new Error('Edge reconnect fixture cards are not fully inside the visible canvas viewport');
+	}
+
+	const readmeWest = page.locator('.react-flow__node', { has: readme }).locator(':scope > .basehalf-canvas-card-connect-handle.west');
+	const reconnectTarget = await readmeWest.boundingBox();
+	if (!reconnectTarget) {
+		throw new Error('Missing endpoint handles for edge half reconnect smoke');
+	}
+
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const canvasBeforeEscape = fs.readFileSync(canvasPath, 'utf8');
+	const beforeSource = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	const sourceBlank = await canvasReconnectBlankPoint(page, beforeSource.firstHalf);
+	await page.mouse.move(beforeSource.firstHalf.x, beforeSource.firstHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(sourceBlank.x, sourceBlank.y, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	const sourcePreview = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	if (pointDistance(sourcePreview.source, beforeSource.source) < 8) {
+		throw new Error('First-half drag did not move the source endpoint preview');
+	}
+	if (pointDistance(sourcePreview.target, beforeSource.target) > 3) {
+		throw new Error('First-half drag moved the opposite target endpoint');
+	}
+	const stableGrabbingCursor = await page.evaluate(() => document.body.classList.contains('basehalf-canvas-edge-reconnecting'));
+	if (!stableGrabbingCursor) {
+		throw new Error('Edge reconnect lost its document-level grabbing cursor');
+	}
+
+	// Escape is a pure cancellation: the gesture lock and preview disappear,
+	// and the subsequent physical pointer-up has no semantic effect.
+	await page.keyboard.press('Escape');
+	await page.mouse.up();
+	await assertCanvasEdgeVisible(page, 'docs', 'src');
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === undefined;
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeEscape) {
+		throw new Error('Escape committed an edge reconnect instead of cancelling it');
+	}
+
+	// A no-drag click selects only; the second click in a dblclick must still
+	// open the label input even though React has not necessarily committed the
+	// reconnect-state cleanup from pointerup yet.
+	const clickGeometry = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	await page.mouse.click(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y);
+	await page.waitForFunction(edgeId => Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit.selected'))
+		.some(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId), `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
+		throw new Error('A single edge click opened the reference-note input');
+	}
+	const canvasBeforeLabelCancel = fs.readFileSync(canvasPath, 'utf8');
+	await page.mouse.dblclick(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y, { delay: 40 });
+	const edgeLabelInput = visibleQuickInput(page);
+	await edgeLabelInput.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await edgeLabelInput.getAttribute('placeholder') !== 'Say why these connect') {
+		throw new Error('Edge double-click opened the wrong quick input');
+	}
+	await page.keyboard.press('Escape');
+	await edgeLabelInput.waitFor({ state: 'hidden', timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeLabelCancel) {
+		throw new Error('Cancelling the edge label input persisted a label');
+	}
+
+	// The portal-rendered label is a real keyboard affordance: focus keeps it
+	// visible, selects its edge without stealing focus, and Enter opens editing.
+	await page.evaluate(edgeId => {
+		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
+			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
+		if (!(label instanceof HTMLButtonElement)) {
+			throw new Error('Missing keyboard-focusable edge label');
+		}
+		label.focus();
+	}, `docs${String.fromCharCode(0)}src`);
+	await page.waitForFunction(edgeId => {
+		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
+			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
+		return label instanceof HTMLButtonElement
+			&& document.activeElement === label
+			&& Number(getComputedStyle(label).opacity) > 0.5;
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	await page.keyboard.press('Enter');
+	await edgeLabelInput.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.keyboard.press('Escape');
+	await edgeLabelInput.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	// Releasing the source endpoint on its excluded opposite card is invalid,
+	// not blank. It cancels and preserves the semantic edge.
+	const invalidGeometry = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	const srcBounds = await src.boundingBox();
+	if (!srcBounds) {
+		throw new Error('Missing src card bounds for invalid reconnect smoke');
+	}
+	const canvasBeforeInvalidCard = fs.readFileSync(canvasPath, 'utf8');
+	await page.mouse.move(invalidGeometry.firstHalf.x, invalidGeometry.firstHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(srcBounds.x + srcBounds.width / 2, srcBounds.y + srcBounds.height / 2, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'source';
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	await page.mouse.up();
+	await assertCanvasEdgeVisible(page, 'docs', 'src');
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === undefined;
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeInvalidCard) {
+		throw new Error('Releasing on the excluded opposite card deleted or reconnected the edge');
+	}
+
+	const beforeTarget = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	const targetBlank = await canvasReconnectBlankPoint(page, beforeTarget.secondHalf);
+	await page.mouse.move(beforeTarget.secondHalf.x, beforeTarget.secondHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(targetBlank.x, targetBlank.y, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'target';
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	const targetPreview = await canvasEdgeGestureGeometry(page, 'docs', 'src');
+	if (pointDistance(targetPreview.source, beforeTarget.source) > 3) {
+		throw new Error('Second-half drag moved the opposite source endpoint');
+	}
+	if (pointDistance(targetPreview.target, beforeTarget.target) < 8) {
+		throw new Error('Second-half drag did not move the target endpoint preview');
+	}
+	if (sourcePreview.path === targetPreview.path) {
+		throw new Error('The two directed edge halves produced indistinguishable previews');
+	}
+
+	await page.mouse.move(reconnectTarget.x + reconnectTarget.width / 2, reconnectTarget.y + reconnectTarget.height / 2, { steps: 8 });
+	await page.waitForFunction(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const node = card?.closest('.react-flow__node');
+		return card?.classList.contains('connection-target')
+			&& card.classList.contains('west')
+			&& node?.querySelector(':scope > .basehalf-canvas-card-connect-handle.west')?.classList.contains('connection-target');
+	}, null, { timeout: 10_000 });
+	await page.mouse.up();
+	await assertCanvasEdgeGone(page, 'docs', 'src');
+	await assertCanvasEdgeVisible(page, 'docs', 'README.md');
+
+	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
+	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
+	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	await waitUntil(() => {
+		const canvas = fs.readFileSync(canvasPath, 'utf8');
+		return canvas.includes('from: "docs"')
+			&& canvas.includes('to: "README.md"')
+			&& canvas.includes('to_anchor: west');
+	}, 'target-half reconnect styling to persist in canvas.yaml');
+	await waitUntil(() => fs.readFileSync(docsBadgePath, 'utf8').includes('- "README.md"')
+		&& !fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'target-half reconnect to replace the source reference');
+	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'target-half reconnect inbound reference to persist');
+	await waitUntil(() => !fs.existsSync(srcBadgePath) || !fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'old target inbound reference to be removed');
+
+	// Restore the fixture with the same real second-half gesture so later smoke
+	// steps do not inherit a reverse docs↔README pair or altered graph topology.
+	const srcWest = page.locator('.react-flow__node', { has: src }).locator(':scope > .basehalf-canvas-card-connect-handle.west');
+	const restoreTarget = await srcWest.boundingBox();
+	if (!restoreTarget) {
+		throw new Error('Missing src west handle while restoring the reconnect fixture');
+	}
+	const beforeRestore = await canvasEdgeGestureGeometry(page, 'docs', 'README.md');
+	await page.mouse.move(beforeRestore.secondHalf.x, beforeRestore.secondHalf.y);
+	await page.mouse.down();
+	await page.mouse.move(restoreTarget.x + restoreTarget.width / 2, restoreTarget.y + restoreTarget.height / 2, { steps: 8 });
+	await page.waitForFunction(edgeId => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return edge instanceof SVGPathElement && edge.dataset.reconnectEnd === 'target';
+	}, `docs${String.fromCharCode(0)}README.md`, { timeout: 10_000 });
+	await page.mouse.up();
+	await assertCanvasEdgeGone(page, 'docs', 'README.md');
+	await assertCanvasEdgeVisible(page, 'docs', 'src');
+	await waitUntil(() => {
+		const canvas = fs.readFileSync(canvasPath, 'utf8');
+		return canvas.includes('from: "docs"') && canvas.includes('to: "src"') && canvas.includes('to_anchor: west');
+	}, 'restored target-half reconnect styling to persist');
+	await waitUntil(() => fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"')
+		&& !fs.readFileSync(docsBadgePath, 'utf8').includes('- "README.md"'), 'restored docs reference to persist');
+	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'restored src inbound reference to persist');
+	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'temporary README inbound reference to be removed');
+}
+
+async function canvasEdgeGestureGeometry(page, from, to) {
+	const geometry = await page.evaluate(([source, target]) => {
+		const edge = Array.from(document.querySelectorAll('.basehalf-canvas-edge-path'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `${source}${String.fromCharCode(0)}${target}`);
+		if (!(edge instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const ctm = edge.getScreenCTM();
+		const total = edge.getTotalLength();
+		if (!ctm || total <= 0) {
+			return undefined;
+		}
+		const screenPoint = ratio => {
+			const point = edge.getPointAtLength(total * ratio);
+			const screen = new DOMPoint(point.x, point.y).matrixTransform(ctm);
+			return { x: screen.x, y: screen.y };
+		};
+		return {
+			path: edge.getAttribute('d'),
+			source: screenPoint(0),
+			target: screenPoint(1),
+			firstHalf: screenPoint(0.25),
+			secondHalf: screenPoint(0.75)
+		};
+	}, [from, to]);
+	if (!geometry?.path) {
+		throw new Error(`Could not inspect ${from}→${to} edge geometry`);
+	}
+	return geometry;
+}
+
+async function canvasReconnectBlankPoint(page, origin) {
+	return page.evaluate(point => {
+		const canvas = document.querySelector('.basehalf-canvas-cards')?.getBoundingClientRect();
+		if (!canvas) {
+			throw new Error('Missing canvas bounds for reconnect preview');
+		}
+		const cards = Array.from(document.querySelectorAll('.react-flow__node')).map(node => node.getBoundingClientRect());
+		const candidates = [];
+		for (const xRatio of [0.08, 0.25, 0.5, 0.75, 0.92]) {
+			for (const yRatio of [0.08, 0.25, 0.5, 0.75, 0.92]) {
+				candidates.push({ x: canvas.left + canvas.width * xRatio, y: canvas.top + canvas.height * yRatio });
+			}
+		}
+		const distanceToRect = (candidate, rect) => Math.hypot(
+			Math.max(rect.left - candidate.x, 0, candidate.x - rect.right),
+			Math.max(rect.top - candidate.y, 0, candidate.y - rect.bottom)
+		);
+		return candidates.reduce((best, candidate) => {
+			const cardDistance = cards.length > 0
+				? Math.min(...cards.map(rect => distanceToRect(candidate, rect)))
+				: Number.POSITIVE_INFINITY;
+			const originDistance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
+			const score = Math.min(cardDistance, originDistance);
+			return !best || score > best.score ? { ...candidate, score } : best;
+		}, undefined);
+	}, origin).then(({ x, y }) => ({ x, y }));
+}
+
+function pointDistance(a, b) {
+	return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 // An AGENT (external process) writes a reference straight into badge.yaml —
@@ -1658,32 +2181,65 @@ async function assertAgentReferenceDrawsEdge(page) {
 
 // Select the agent-drawn edge with the mouse and delete it with the keyboard:
 // the semantic reference is scrubbed from badge.yaml and the line disappears.
-async function assertEdgeDeleteRemovesReference(page) {
-	const point = await page.evaluate(() => {
-		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
-			.find(p => p instanceof SVGPathElement && p.dataset.edgeId === `README.md${String.fromCharCode(0)}docs`);
-		if (!(hit instanceof SVGPathElement)) {
-			return undefined;
+async function assertEdgeDeleteScopedToCanvas(page) {
+	const point = await edgeScreenMidpoint(page, 'README.md', 'docs');
+	await page.mouse.click(point.x, point.y);
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
+	await page.evaluate(() => {
+		const outside = document.querySelector('.part.sidebar');
+		if (!(outside instanceof HTMLElement)) {
+			throw new Error('Missing focus target outside the canvas');
 		}
-		hit.scrollIntoView({ block: 'center', inline: 'center' });
-		const mid = hit.getPointAtLength(hit.getTotalLength() / 2);
-		const ctm = hit.getScreenCTM();
-		if (!ctm) {
-			return undefined;
+		outside.tabIndex = -1;
+		outside.focus();
+		if (document.activeElement !== outside || document.querySelector('.basehalf-canvas-cards')?.contains(document.activeElement)) {
+			throw new Error('Could not move focus outside the canvas before testing scoped Delete');
 		}
-		return { x: ctm.a * mid.x + ctm.c * mid.y + ctm.e, y: ctm.b * mid.x + ctm.d * mid.y + ctm.f };
 	});
-	if (!point) {
-		throw new Error('Could not locate the README.md→docs edge hit path');
+	await page.keyboard.press('Delete');
+	await page.waitForTimeout(200);
+	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	if (!fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"')) {
+		throw new Error('Delete outside the canvas removed the selected semantic edge');
 	}
+	await assertCanvasEdgeVisible(page, 'README.md', 'docs');
+}
+
+async function assertEdgeDeleteRemovesReference(page) {
+	const point = await edgeScreenMidpoint(page, 'README.md', 'docs');
 
 	await page.mouse.click(point.x, point.y);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
+	await page.evaluate(edgeId => {
+		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
+			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
+		if (!(label instanceof HTMLButtonElement)) {
+			throw new Error('Missing selected edge label for keyboard deletion');
+		}
+		label.focus();
+	}, `README.md${String.fromCharCode(0)}docs`);
 	await page.keyboard.press('Delete');
 
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
 	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'README badge reference to docs to be removed');
 	await assertCanvasEdgeGone(page, 'README.md', 'docs');
+}
+
+async function edgeScreenMidpoint(page, from, to) {
+	const point = await page.evaluate(([source, target]) => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === `${source}${String.fromCharCode(0)}${target}`);
+		if (!(hit instanceof SVGPathElement)) {
+			return undefined;
+		}
+		const mid = hit.getPointAtLength(hit.getTotalLength() / 2);
+		const ctm = hit.getScreenCTM();
+		return ctm ? new DOMPoint(mid.x, mid.y).matrixTransform(ctm) : undefined;
+	}, [from, to]);
+	if (!point) {
+		throw new Error(`Could not locate the ${from}→${to} edge hit path`);
+	}
+	return point;
 }
 
 // Rename an annotated file through the Explorer: the badge follows the file,
@@ -1720,13 +2276,33 @@ async function assertExplorerRenameCascadesMirror(page) {
 		const moved = path.join(workspacePath, '.bh', 'mirror', 'docs', 'guide-renamed.md', 'badge.yaml');
 		return fs.existsSync(moved) && fs.readFileSync(moved, 'utf8').includes('path: "docs/guide-renamed.md"');
 	}, 'badge.yaml to follow the renamed file');
-	await waitUntil(() => !fs.existsSync(path.join(guideBadgeDir, 'badge.yaml')), 'old badge.yaml to be gone');
+	await waitUntil(() => badgeMirrorIsAbsentOrCanonicalEmpty(path.join(guideBadgeDir, 'badge.yaml')), 'old badge.yaml to be absent or a canonical empty tombstone');
 	await waitUntil(() => fs.readFileSync(path.join(farBadgeDir, 'badge.yaml'), 'utf8').includes('- "docs/guide-renamed.md"'), 'inbound reference to be rewritten');
 	await assertCanvasEdgeVisible(page, 'docs/guide-renamed.md', 'docs/far.md');
 
 	// Restore the fixture: rename back and let the cascade carry it home.
 	await renameExplorerEntry(page, 'guide-renamed.md', 'guide.md');
-	await waitUntil(() => fs.existsSync(path.join(guideBadgeDir, 'badge.yaml')), 'badge.yaml to follow the rename back');
+	await waitUntil(() => {
+		const restored = path.join(guideBadgeDir, 'badge.yaml');
+		if (!fs.existsSync(restored)) {
+			return false;
+		}
+		const contents = fs.readFileSync(restored, 'utf8');
+		return contents.includes('path: "docs/guide.md"')
+			&& contents.includes('description: "Guide badge"')
+			&& contents.includes('- "docs/far.md"');
+	}, 'badge.yaml to reuse the target tombstone and follow the rename back');
+}
+
+function badgeMirrorIsAbsentOrCanonicalEmpty(file) {
+	if (!fs.existsSync(file)) {
+		return true;
+	}
+	const contents = fs.readFileSync(file, 'utf8');
+	return !/^description:/m.test(contents)
+		&& /^references:\s*\[\]\s*$/m.test(contents)
+		&& /^referenced_by:\s*\[\]\s*$/m.test(contents)
+		&& !/^\s+-\s+/m.test(contents);
 }
 
 async function renameExplorerEntry(page, currentName, nextName) {
@@ -1794,13 +2370,18 @@ async function assertCanvasSnapGuides(page) {
 		if (!(readmeCard instanceof HTMLElement) || !(docsCard instanceof HTMLElement) || !(root instanceof HTMLElement)) {
 			return undefined;
 		}
+		const readmeNode = readmeCard.closest('.react-flow__node');
+		const docsNode = docsCard.closest('.react-flow__node');
+		if (!(readmeNode instanceof HTMLElement) || !(docsNode instanceof HTMLElement)) {
+			return undefined;
+		}
 
 		const matrixFor = (element) => {
 			const transform = getComputedStyle(element).transform;
 			return transform === 'none' ? new DOMMatrixReadOnly() : new DOMMatrixReadOnly(transform);
 		};
-		const readmeMatrix = matrixFor(readmeCard);
-		const docsMatrix = matrixFor(docsCard);
+		const readmeMatrix = matrixFor(readmeNode);
+		const docsMatrix = matrixFor(docsNode);
 		const readmeRect = readmeCard.getBoundingClientRect();
 		const rootRect = root.getBoundingClientRect();
 		const zoom = Number(root.getAttribute('data-zoom')) || 1;
@@ -1818,7 +2399,8 @@ async function assertCanvasSnapGuides(page) {
 			startY,
 			endX,
 			endY,
-			expectedX: docsMatrix.m41,
+			targetAxesX: [docsMatrix.m41, docsMatrix.m41 + docsNode.offsetWidth / 2, docsMatrix.m41 + docsNode.offsetWidth],
+			draggedWidth: readmeNode.offsetWidth,
 			draftX: targetDraftX,
 			initialX: readmeMatrix.m41,
 			zoom
@@ -1839,8 +2421,11 @@ async function assertCanvasSnapGuides(page) {
 		y1: Number(line.getAttribute('y1')),
 		y2: Number(line.getAttribute('y2'))
 	})));
-	if (!guides.some(guide => Math.abs(guide.x1 - geometry.expectedX) <= 0.1 && Math.abs(guide.x2 - geometry.expectedX) <= 0.1 && guide.y2 > guide.y1)) {
-		throw new Error(`Expected a vertical snap guide at x=${geometry.expectedX}, got ${JSON.stringify(guides)}`);
+	const verticalGuide = guides.find(guide => Math.abs(guide.x1 - guide.x2) <= 0.1
+		&& geometry.targetAxesX.some(axis => Math.abs(guide.x1 - axis) <= 0.1)
+		&& guide.y2 > guide.y1);
+	if (!verticalGuide) {
+		throw new Error(`Expected a vertical snap guide on a docs alignment axis ${JSON.stringify(geometry.targetAxesX)}, got ${JSON.stringify(guides)}`);
 	}
 
 	await page.mouse.up();
@@ -1850,37 +2435,38 @@ async function assertCanvasSnapGuides(page) {
 	await waitUntil(() => {
 		const canvas = fs.readFileSync(canvasPath, 'utf8');
 		const savedX = readCanvasCardNumber(canvas, 'README.md', 'x');
-		return savedX !== undefined && Math.abs(savedX - geometry.expectedX) <= 0.1;
-	}, 'README.md card x to persist at the snapped docs x');
+		return savedX !== undefined && [savedX, savedX + geometry.draggedWidth / 2, savedX + geometry.draggedWidth]
+			.some(axis => Math.abs(axis - verticalGuide.x1) <= 0.1);
+	}, 'README.md card to persist on the displayed docs snap axis');
 }
 
 async function scrollCanvasWorkbenchForCardDetail(page) {
-	const result = await page.evaluate(() => {
+	const before = await page.evaluate(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
-		if (!(root instanceof HTMLElement)) {
-			throw new Error('Missing BaseHalf canvas workbench');
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		if (!(root instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+			throw new Error('Missing React Flow canvas viewport');
 		}
-
-		root.scrollTop = Math.min(320, Math.max(0, root.scrollHeight - root.clientHeight));
-		root.scrollLeft = Math.min(120, Math.max(0, root.scrollWidth - root.clientWidth));
 		return {
-			top: root.scrollTop,
-			left: root.scrollLeft,
-			scrollHeight: root.scrollHeight,
-			clientHeight: root.clientHeight
+			transform: getComputedStyle(viewport).transform,
+			point: { x: root.getBoundingClientRect().left + 28, y: root.getBoundingClientRect().top + 28 }
 		};
 	});
-
-	if (result.top < 100) {
-		throw new Error(`Expected scrollable canvas before card detail, got top=${result.top}, scrollHeight=${result.scrollHeight}, clientHeight=${result.clientHeight}`);
-	}
+	await page.mouse.move(before.point.x, before.point.y);
+	await page.mouse.wheel(90, 180);
+	await page.waitForFunction(previous => {
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		return viewport instanceof HTMLElement && getComputedStyle(viewport).transform !== previous;
+	}, before.transform, { timeout: 10_000 });
+	canvasViewportBeforeCardDetail = await page.locator('.basehalf-canvas-cards .react-flow__viewport').evaluate(viewport => getComputedStyle(viewport).transform);
 }
 
 async function assertCardDetailCoversCanvasViewport(page) {
 	const geometry = await page.evaluate(() => {
 		const root = document.querySelector('.basehalf-canvas-workbench');
 		const detail = document.querySelector('.basehalf-card-detail.visible');
-		if (!(root instanceof HTMLElement) || !(detail instanceof HTMLElement)) {
+		const viewport = document.querySelector('.basehalf-canvas-cards .react-flow__viewport');
+		if (!(root instanceof HTMLElement) || !(detail instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
 			throw new Error('Missing visible BaseHalf card detail');
 		}
 
@@ -1896,16 +2482,15 @@ async function assertCardDetailCoversCanvasViewport(page) {
 			detailLeft: detailRect.left,
 			detailBottom: detailRect.bottom,
 			detailRight: detailRect.right,
-			scrollTop: root.scrollTop,
-			scrollLeft: root.scrollLeft,
+			viewportTransform: getComputedStyle(viewport).transform,
 			locked: root.classList.contains('basehalf-card-detail-open'),
 			bottomProbeIsCanvas: !!bottomProbe?.closest('.basehalf-canvas-card, .basehalf-canvas-surface')
 		};
 	});
 
 	const tolerance = 1;
-	if (!geometry.locked || geometry.scrollTop !== 0 || geometry.scrollLeft !== 0) {
-		throw new Error(`Card detail did not lock canvas scroll: ${JSON.stringify(geometry)}`);
+	if (!geometry.locked || geometry.viewportTransform !== canvasViewportBeforeCardDetail) {
+		throw new Error(`Card detail did not preserve the React Flow viewport: ${JSON.stringify({ geometry, canvasViewportBeforeCardDetail })}`);
 	}
 	if (Math.abs(geometry.detailTop - geometry.rootTop) > tolerance
 		|| Math.abs(geometry.detailLeft - geometry.rootLeft) > tolerance
