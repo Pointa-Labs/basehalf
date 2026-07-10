@@ -1,3 +1,5 @@
+canvas-react-vendor-src/**
+esbuild.canvasReactVendor.mts
 markdown-rich-src/**
 esbuild.markdownRich.mts
 tsconfig.json

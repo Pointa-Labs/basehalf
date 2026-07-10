@@ -619,6 +619,7 @@ export async function esbuildExtensions(taskName: string, isWatch: boolean, scri
 
 // Additional projects to run esbuild on. These typically build code for webviews
 const esbuildMediaScripts: { script: string; tsconfig: string }[] = [
+	{ script: 'basehalf/esbuild.canvasReactVendor.mts', tsconfig: 'basehalf/canvas-react-vendor-src/tsconfig.json' },
 	{ script: 'basehalf/esbuild.markdownRich.mts', tsconfig: 'basehalf/markdown-rich-src/tsconfig.json' },
 	{ script: 'ipynb/esbuild.notebook.mts', tsconfig: 'ipynb/notebook-src/tsconfig.json' },
 	{ script: 'markdown-language-features/esbuild.notebook.mts', tsconfig: 'markdown-language-features/notebook/tsconfig.json' },
