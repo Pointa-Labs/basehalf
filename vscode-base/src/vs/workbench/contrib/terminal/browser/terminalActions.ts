@@ -201,13 +201,16 @@ export function registerContextualInstanceAction(
 		run: async (c, accessor, focusedInstanceArgs, allInstanceArgs) => {
 			let instances = getSelectedViewInstances2(accessor, allInstanceArgs);
 			if (!instances) {
-				const activeInstance = (
+				const hostActiveInstance = (
 					options.activeInstanceType === 'view'
 						? c.groupService
 						: options.activeInstanceType === 'editor' ?
 							c.editorService
 							: c.service
 				).activeInstance;
+				const activeInstance = options.activeInstanceType
+					? hostActiveInstance
+					: getActiveTerminalInstanceForCommand(accessor, hostActiveInstance);
 				if (!activeInstance) {
 					return;
 				}
@@ -236,7 +239,7 @@ export function registerActiveInstanceAction(
 	return registerTerminalAction({
 		...options,
 		run: (c, accessor, args) => {
-			const activeInstance = c.service.activeInstance;
+			const activeInstance = getActiveTerminalInstanceForCommand(accessor, c.service.activeInstance);
 			if (activeInstance) {
 				return originalRun(activeInstance, c, accessor, args);
 			}
@@ -262,12 +265,35 @@ export function registerActiveXtermAction(
 				return originalRun(activeDetached.xterm, accessor, activeDetached, args);
 			}
 
-			const activeInstance = c.service.activeInstance;
+			const activeInstance = getActiveTerminalInstanceForCommand(accessor, c.service.activeInstance);
 			if (activeInstance?.xterm) {
 				return originalRun(activeInstance.xterm, accessor, activeInstance, args);
 			}
 		}
 	});
+}
+
+/**
+ * Resolve the terminal that product-level commands should target in BaseHalf.
+ *
+ * Agent Area terminals deliberately remain `hideFromUser` so VS Code's stock
+ * terminal panel never becomes a second product surface. Such terminals cannot
+ * be promoted through {@link ITerminalService.setActiveInstance} without first
+ * being moved into a stock terminal host, so command routing must prefer the
+ * Agent Area's active session explicitly. This is especially important for
+ * clipboard-driven dictation tools, which finish by dispatching the platform
+ * paste shortcut rather than typing characters into xterm one by one. A
+ * focused stock/editor terminal still wins, preserving VS Code's advanced
+ * terminal hosts when one of them genuinely owns keyboard focus.
+ */
+export function getBaseHalfActiveTerminalInstance(agentAreaTerminal: unknown, fallback: ITerminalInstance | undefined): ITerminalInstance | undefined {
+	const agentAreaInstance = asBaseHalfTerminalInstance(agentAreaTerminal);
+	return agentAreaInstance?.hasFocus ? agentAreaInstance : fallback ?? agentAreaInstance;
+}
+
+/** Resolve an active terminal from an action handler without exposing BaseHalf's service to every terminal contribution. */
+export function getActiveTerminalInstanceForCommand(accessor: ServicesAccessor, fallback: ITerminalInstance | undefined): ITerminalInstance | undefined {
+	return getBaseHalfActiveTerminalInstance(accessor.get(IBaseHalfAgentAreaService).activeTerminal, fallback);
 }
 
 export interface ITerminalServicesCollection {

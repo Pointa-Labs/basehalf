@@ -20,7 +20,7 @@ import { IWorkspaceContextService } from '../../../../../platform/workspace/comm
 import { IConfigurationResolverService } from '../../../../services/configurationResolver/common/configurationResolver.js';
 import { IHistoryService } from '../../../../services/history/common/history.js';
 import { ITerminalService } from '../../../terminal/browser/terminal.js';
-import { registerTerminalAction } from '../../../terminal/browser/terminalActions.js';
+import { getActiveTerminalInstanceForCommand, registerTerminalAction } from '../../../terminal/browser/terminalActions.js';
 import { TerminalCommandId } from '../../../terminal/common/terminal.js';
 import { TerminalContextKeys, TerminalContextKeyStrings } from '../../../terminal/common/terminalContextKey.js';
 
@@ -39,7 +39,7 @@ export const terminalSendSequenceCommand = async (accessor: ServicesAccessor, ar
 	const historyService = accessor.get(IHistoryService);
 	const terminalService = accessor.get(ITerminalService);
 
-	const instance = terminalService.activeInstance;
+	const instance = getActiveTerminalInstanceForCommand(accessor, terminalService.activeInstance);
 	if (instance) {
 		function isTextArg(obj: unknown): obj is { text: string } {
 			return isObject(obj) && 'text' in obj;

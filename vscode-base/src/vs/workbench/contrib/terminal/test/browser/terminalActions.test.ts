@@ -3,11 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { deepStrictEqual } from 'assert';
+import { deepStrictEqual, strictEqual } from 'assert';
 import { URI } from '../../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { IWorkspaceFolder } from '../../../../../platform/workspace/common/workspace.js';
-import { WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
+import type { ITerminalInstance } from '../../browser/terminal.js';
+import { getBaseHalfActiveTerminalInstance, WorkspaceFolderCwdPair, shrinkWorkspaceFolderCwdPairs } from '../../browser/terminalActions.js';
 
 function makeFakeFolder(name: string, uri: URI): IWorkspaceFolder {
 	return {
@@ -35,6 +36,48 @@ suite('terminalActions', () => {
 	const b = makeFakeFolder('b', URI.joinPath(root, 'b'));
 	const c = makeFakeFolder('c', URI.joinPath(root, 'c'));
 	const d = makeFakeFolder('d', URI.joinPath(root, 'd'));
+
+	suite('getBaseHalfActiveTerminalInstance', () => {
+		const terminal = (name: string, hasFocus = false): ITerminalInstance => ({
+			title: name,
+			hasFocus,
+			attachToElement: () => undefined,
+			setVisible: () => undefined,
+			focusWhenReady: async () => undefined
+		}) as unknown as ITerminalInstance;
+
+		test('prefers a focused Agent Area terminal over the stock host fallback', () => {
+			const agentAreaTerminal = terminal('agent-area', true);
+			const stockTerminal = terminal('stock');
+
+			strictEqual(getBaseHalfActiveTerminalInstance(agentAreaTerminal, stockTerminal), agentAreaTerminal);
+		});
+
+		test('preserves a focused stock or editor host when Agent Area is not focused', () => {
+			const agentAreaTerminal = terminal('agent-area');
+			const stockTerminal = terminal('stock', true);
+
+			strictEqual(getBaseHalfActiveTerminalInstance(agentAreaTerminal, stockTerminal), stockTerminal);
+		});
+
+		test('uses the Agent Area terminal when no stock host has an active instance', () => {
+			const agentAreaTerminal = terminal('agent-area');
+
+			strictEqual(getBaseHalfActiveTerminalInstance(agentAreaTerminal, undefined), agentAreaTerminal);
+		});
+
+		test('falls back to the stock host when the Agent Area has no terminal session', () => {
+			const stockTerminal = terminal('stock');
+
+			strictEqual(getBaseHalfActiveTerminalInstance(undefined, stockTerminal), stockTerminal);
+		});
+
+		test('rejects incomplete Agent Area terminal candidates', () => {
+			const stockTerminal = terminal('stock');
+
+			strictEqual(getBaseHalfActiveTerminalInstance({ focusWhenReady: async () => undefined }, stockTerminal), stockTerminal);
+		});
+	});
 
 	suite('shrinkWorkspaceFolderCwdPairs', () => {
 		test('should return empty when given array is empty', () => {
