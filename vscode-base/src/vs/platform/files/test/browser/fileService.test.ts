@@ -13,8 +13,9 @@ import { isEqual } from '../../../../base/common/resources.js';
 import { consumeStream, newWriteableStream, ReadableStreamEvents } from '../../../../base/common/stream.js';
 import { URI } from '../../../../base/common/uri.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { IFileOpenOptions, IFileReadStreamOptions, FileSystemProviderCapabilities, FileType, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IStat, IFileAtomicReadOptions, IFileAtomicWriteOptions, IFileAtomicDeleteOptions, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileAtomicWriteCapability, IFileAtomicOptions, IFileChange, isFileSystemWatcher, FileChangesEvent, FileChangeType } from '../../common/files.js';
+import { IFileOpenOptions, IFileReadStreamOptions, FileSystemProviderCapabilities, FileType, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IStat, IFileAtomicReadOptions, IFileAtomicWriteOptions, IFileAtomicDeleteOptions, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileAtomicWriteCapability, IFileAtomicOptions, IFileChange, isFileSystemWatcher, FileChangesEvent, FileChangeType, FileOperationError, FileOperationResult } from '../../common/files.js';
 import { FileService } from '../../common/fileService.js';
+import { InMemoryFileSystemProvider } from '../../common/inMemoryFilesystemProvider.js';
 import { NullFileSystemProvider } from '../common/nullFileSystemProvider.js';
 import { NullLogService } from '../../../log/common/log.js';
 
@@ -89,6 +90,148 @@ suite('File Service', () => {
 		assert.strictEqual(registrations.length, 2);
 		assert.strictEqual(registrations[1].scheme, 'test');
 		assert.strictEqual(registrations[1].added, false);
+	});
+
+	test('writeFileWithExpectedContents detects an equal-length rewrite at the provider precommit check', async () => {
+		const service = disposables.add(new FileService(new NullLogService()));
+		const folder = URI.parse('expected:/mirror');
+		const resource = URI.parse('expected:/mirror/file.yaml');
+		const initial = VSBuffer.fromString('AAAA');
+		const external = VSBuffer.fromString('BBBB');
+		const provider = new class extends InMemoryFileSystemProvider {
+			armed = false;
+
+			override async writeFileExclusiveAtomic(candidate: URI, content: Uint8Array): Promise<IStat> {
+				const stat = await super.writeFileExclusiveAtomic(candidate, content);
+				if (this.armed && candidate.path.includes('.commit-tmp.')) {
+					this.armed = false;
+					await super.writeFile(resource, external.buffer, { create: true, overwrite: true, unlock: false, atomic: false });
+				}
+				return stat;
+			}
+		};
+		disposables.add(provider);
+		disposables.add(service.registerProvider(resource.scheme, provider));
+		await service.createFolder(folder);
+		await service.writeFile(resource, initial);
+		provider.armed = true;
+
+		await assert.rejects(
+			() => service.writeFileWithExpectedContents(resource, VSBuffer.fromString('NEXT'), initial, { atomic: { postfix: '.commit-tmp' } }),
+			error => error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_MODIFIED_SINCE
+		);
+
+		assert.strictEqual((await service.readFile(resource)).value.toString(), 'BBBB');
+		assert.deepStrictEqual((await provider.readdir(folder)).map(([name]) => name), ['file.yaml']);
+	});
+
+	test('writeFileWithExpectedContents rejects a size change before reading unbounded external contents', async () => {
+		const service = disposables.add(new FileService(new NullLogService()));
+		const folder = URI.parse('expected-size:/mirror');
+		const resource = URI.parse('expected-size:/mirror/file.yaml');
+		const initial = VSBuffer.fromString('small');
+		const external = VSBuffer.alloc(1024 * 1024);
+		const provider = new class extends InMemoryFileSystemProvider {
+			armed = false;
+			targetReads = 0;
+
+			override async writeFileExclusiveAtomic(candidate: URI, content: Uint8Array): Promise<IStat> {
+				const stat = await super.writeFileExclusiveAtomic(candidate, content);
+				if (this.armed && candidate.path.includes('.commit-tmp.')) {
+					this.armed = false;
+					await super.writeFile(resource, external.buffer, { create: true, overwrite: true, unlock: false, atomic: false });
+				}
+				return stat;
+			}
+
+			override async readFile(candidate: URI): Promise<Uint8Array> {
+				if (candidate.toString() === resource.toString()) {
+					this.targetReads++;
+				}
+				return super.readFile(candidate);
+			}
+		};
+		disposables.add(provider);
+		disposables.add(service.registerProvider(resource.scheme, provider));
+		await service.createFolder(folder);
+		await service.writeFile(resource, initial);
+		provider.armed = true;
+
+		await assert.rejects(
+			() => service.writeFileWithExpectedContents(resource, VSBuffer.fromString('next'), initial, { atomic: { postfix: '.commit-tmp' } }),
+			error => error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_MODIFIED_SINCE
+		);
+
+		assert.strictEqual(provider.targetReads, 0);
+		assert.strictEqual((await provider.stat(resource)).size, external.byteLength);
+	});
+
+	test('writeFileWithExpectedContents preserves a target that wins an atomic-exclusive-create race', async () => {
+		const service = disposables.add(new FileService(new NullLogService()));
+		const folder = URI.parse('exclusive:/mirror');
+		const resource = URI.parse('exclusive:/mirror/file.yaml');
+		const external = VSBuffer.fromString('external');
+		const provider = new class extends InMemoryFileSystemProvider {
+			armed = true;
+
+			override async writeFileExclusiveAtomic(candidate: URI, content: Uint8Array): Promise<IStat> {
+				if (this.armed && candidate.toString() === resource.toString()) {
+					this.armed = false;
+					await super.writeFile(resource, external.buffer, { create: true, overwrite: true, unlock: false, atomic: false });
+				}
+				return super.writeFileExclusiveAtomic(candidate, content);
+			}
+		};
+		disposables.add(provider);
+		disposables.add(service.registerProvider(resource.scheme, provider));
+		await service.createFolder(folder);
+
+		await assert.rejects(
+			() => service.writeFileWithExpectedContents(resource, VSBuffer.fromString('ours'), null, { atomic: { postfix: '.commit-tmp' } }),
+			error => error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_MOVE_CONFLICT
+		);
+
+		assert.strictEqual((await service.readFile(resource)).value.toString(), 'external');
+	});
+
+	test('writeFileWithExpectedContents returns committed metadata without a post-commit stat', async () => {
+		const service = disposables.add(new FileService(new NullLogService()));
+		const folder = URI.parse('committed-metadata:/mirror');
+		const resource = URI.parse('committed-metadata:/mirror/file.yaml');
+		const initial = VSBuffer.fromString('old');
+		const next = VSBuffer.fromString('complete replacement');
+		const provider = new class extends InMemoryFileSystemProvider {
+			private committed = false;
+			postCommitTargetStatCalls = 0;
+
+			override async rename(from: URI, to: URI, options: { overwrite: boolean }): Promise<void> {
+				await super.rename(from, to, options);
+				if (isEqual(to, resource)) {
+					this.committed = true;
+				}
+			}
+
+			override async stat(candidate: URI): Promise<IStat> {
+				if (this.committed && isEqual(candidate, resource)) {
+					this.postCommitTargetStatCalls++;
+					throw new Error('post-commit metadata lookup unavailable');
+				}
+				return super.stat(candidate);
+			}
+		};
+		disposables.add(provider);
+		disposables.add(service.registerProvider(resource.scheme, provider));
+		await service.createFolder(folder);
+		await service.writeFile(resource, initial);
+
+		const stat = await service.writeFileWithExpectedContents(resource, next, initial, { atomic: { postfix: '.commit-tmp' } });
+
+		assert.strictEqual(provider.postCommitTargetStatCalls, 0);
+		assert.strictEqual(stat.resource.toString(), resource.toString());
+		assert.strictEqual(stat.name, 'file.yaml');
+		assert.strictEqual(stat.isFile, true);
+		assert.strictEqual(stat.size, next.byteLength);
+		assert.strictEqual((await provider.readFile(resource)).toString(), next.toString());
 	});
 
 	test('watch', async () => {

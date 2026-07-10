@@ -9,9 +9,10 @@ import { Event, AsyncEmitter, IWaitUntil } from '../../../../base/common/event.j
 import { Promises } from '../../../../base/common/async.js';
 import { insert } from '../../../../base/common/arrays.js';
 import { URI } from '../../../../base/common/uri.js';
-import { Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
-import { IFileService, FileOperation, IFileStatWithMetadata } from '../../../../platform/files/common/files.js';
+import { dispose, Disposable, IDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+import { IFileAtomicOptions, IFileService, FileOperation, IFileStatWithMetadata } from '../../../../platform/files/common/files.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
+import { onUnexpectedError } from '../../../../base/common/errors.js';
 import { IWorkingCopyService } from './workingCopyService.js';
 import { IWorkingCopy } from './workingCopy.js';
 import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
@@ -67,6 +68,17 @@ export interface WorkingCopyFileEvent extends IWaitUntil {
 	 * The array of source/target pair of files involved in given operation.
 	 */
 	readonly files: readonly SourceTargetPair[];
+
+	/**
+	 * Members that completed on disk before this event fired. MOVE, COPY and
+	 * DELETE execute sequentially, so a failure event exposes the exact durable
+	 * prefix instead of forcing listeners to infer it from the post-failure file
+	 * system shape. Empty in the will event; identical to `files` after a
+	 * successful sequential operation. Every phase receives a fresh array
+	 * snapshot, so a listener retaining or mutating one phase cannot corrupt the
+	 * next phase's accounting.
+	 */
+	readonly completedFiles: readonly SourceTargetPair[];
 }
 
 export interface IWorkingCopyFileOperationParticipant {
@@ -82,6 +94,40 @@ export interface IWorkingCopyFileOperationParticipant {
 		timeout: number,
 		token: CancellationToken
 	): Promise<void>;
+}
+
+/**
+ * A file-operation precondition is a hard veto point. Unlike ordinary file
+ * operation participants (whose failures are logged and ignored for extension
+ * compatibility), a rejected precondition prevents `onWill` and physical IO.
+ * A returned guard remains held through the did/fail event and is always
+ * disposed afterwards, allowing an owner to freeze input across the operation.
+ */
+export interface IWorkingCopyFileOperationPrecondition {
+	prepare(
+		files: readonly SourceTargetPair[],
+		operation: FileOperation,
+		undoInfo: IFileOperationUndoRedoInfo | undefined,
+		token: CancellationToken
+	): Promise<IWorkingCopyFileOperationPreconditionGuard | void>;
+}
+
+/** A hard-precondition guard can finalize its private transaction immediately
+ * after physical IO and before public did/fail listeners run. This avoids
+ * listener-order deadlocks for nested resource operations while keeping plain
+ * `IDisposable` guards source-compatible. */
+export interface IWorkingCopyFileOperationPreconditionGuard extends IDisposable {
+	didRun?(completedFiles: readonly SourceTargetPair[]): Promise<void>;
+	didFail?(completedFiles: readonly SourceTargetPair[]): Promise<void>;
+	/** Runs after every public did/fail listener but before guard disposal and
+	 * before the file-operation promise resolves. */
+	afterPublicEvents?(): Promise<void>;
+}
+
+interface IWorkingCopyFileOperationFinalizer {
+	didRun(completedFiles: readonly SourceTargetPair[]): Promise<void>;
+	didFail(completedFiles: readonly SourceTargetPair[]): Promise<void>;
+	afterPublicEvents(): Promise<void>;
 }
 
 export interface IStoredFileWorkingCopySaveParticipantContext {
@@ -132,6 +178,7 @@ export interface IDeleteOperation {
 	resource: URI;
 	useTrash?: boolean;
 	recursive?: boolean;
+	atomic?: IFileAtomicOptions | false;
 }
 
 export interface IMoveOperation {
@@ -193,6 +240,10 @@ export interface IWorkingCopyFileService {
 	 * Adds a participant for file operations on working copies.
 	 */
 	addFileOperationParticipant(participant: IWorkingCopyFileOperationParticipant): IDisposable;
+
+	/** Adds a hard precondition that runs after ordinary participants and before
+	 *  `onWill`/disk IO. Rejections propagate to the operation caller. */
+	addFileOperationPrecondition(precondition: IWorkingCopyFileOperationPrecondition): IDisposable;
 
 	//#endregion
 
@@ -360,31 +411,40 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 		// file operation participant
 		const files = operations.map(operation => ({ target: operation.resource }));
 		await this.runFileOperationParticipants(files, FileOperation.CREATE, undoInfo, token);
+		return this.runWithFileOperationPreconditions(files, FileOperation.CREATE, undoInfo, token, async finalizer => {
+			// before events
+			const event = { correlationId: this.correlationIds++, operation: FileOperation.CREATE, files };
+			await this._onWillRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
 
-		// before events
-		const event = { correlationId: this.correlationIds++, operation: FileOperation.CREATE, files };
-		await this._onWillRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			// now actually create on disk
+			let stats: IFileStatWithMetadata[];
+			try {
+				if (isFile) {
+					stats = await Promises.settled(operations.map(operation => this.fileService.createFile(operation.resource, (operation as ICreateFileOperation).contents, { overwrite: operation.overwrite })));
+				} else {
+					stats = await Promises.settled(operations.map(operation => this.fileService.createFolder(operation.resource)));
+				}
+			} catch (error) {
 
-		// now actually create on disk
-		let stats: IFileStatWithMetadata[];
-		try {
-			if (isFile) {
-				stats = await Promises.settled(operations.map(operation => this.fileService.createFile(operation.resource, (operation as ICreateFileOperation).contents, { overwrite: operation.overwrite })));
-			} else {
-				stats = await Promises.settled(operations.map(operation => this.fileService.createFolder(operation.resource)));
+				// error event
+				await this.finalizeAndFire(
+					() => finalizer.didFail([]),
+					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+					() => finalizer.afterPublicEvents()
+				).catch(onUnexpectedError);
+
+				throw error;
 			}
-		} catch (error) {
 
-			// error event
-			await this._onDidFailWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			// after event
+			await this.finalizeAndFire(
+				() => finalizer.didRun(files),
+				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...files] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+				() => finalizer.afterPublicEvents()
+			);
 
-			throw error;
-		}
-
-		// after event
-		await this._onDidRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
-
-		return stats;
+			return stats;
+		});
 	}
 
 	async move(operations: IMoveOperation[], token: CancellationToken, undoInfo?: IFileOperationUndoRedoInfo): Promise<IFileStatWithMetadata[]> {
@@ -408,49 +468,66 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 
 		// file operation participant
 		const files = operations.map(o => o.file);
-		await this.runFileOperationParticipants(files, move ? FileOperation.MOVE : FileOperation.COPY, undoInfo, token);
+		const operation = move ? FileOperation.MOVE : FileOperation.COPY;
+		await this.runFileOperationParticipants(files, operation, undoInfo, token);
+		return this.runWithFileOperationPreconditions(files, operation, undoInfo, token, async finalizer => {
+			// before event
+			const event = { correlationId: this.correlationIds++, operation, files };
+			const completedFiles: SourceTargetPair[] = [];
+			await this._onWillRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
 
-		// before event
-		const event = { correlationId: this.correlationIds++, operation: move ? FileOperation.MOVE : FileOperation.COPY, files };
-		await this._onWillRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			try {
+				for (const { file, overwrite } of operations) {
+					const { source, target } = file;
+					// if source and target are not equal, handle dirty working copies
+					// depending on the operation:
+					// - move: revert both source and target (if any)
+					// - copy: revert target (if any)
+					if (!this.uriIdentityService.extUri.isEqual(source, target)) {
+						const dirtyWorkingCopies = (move ? [...this.getDirty(source), ...this.getDirty(target)] : this.getDirty(target));
+						await Promises.settled(dirtyWorkingCopies.map(dirtyWorkingCopy => dirtyWorkingCopy.revert({ soft: true })));
+					}
 
-		try {
-			for (const { file: { source, target }, overwrite } of operations) {
-				// if source and target are not equal, handle dirty working copies
-				// depending on the operation:
-				// - move: revert both source and target (if any)
-				// - copy: revert target (if any)
-				if (!this.uriIdentityService.extUri.isEqual(source, target)) {
-					const dirtyWorkingCopies = (move ? [...this.getDirty(source), ...this.getDirty(target)] : this.getDirty(target));
-					await Promises.settled(dirtyWorkingCopies.map(dirtyWorkingCopy => dirtyWorkingCopy.revert({ soft: true })));
+					// now we can rename the source to target via file operation
+					if (move) {
+						stats.push(await this.fileService.move(source, target, overwrite));
+					} else {
+						stats.push(await this.fileService.copy(source, target, overwrite));
+					}
+					completedFiles.push(file);
 				}
+			} catch (error) {
 
-				// now we can rename the source to target via file operation
-				if (move) {
-					stats.push(await this.fileService.move(source, target, overwrite));
-				} else {
-					stats.push(await this.fileService.copy(source, target, overwrite));
-				}
+				// error event
+				await this.finalizeAndFire(
+					() => finalizer.didFail(completedFiles),
+					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+					() => finalizer.afterPublicEvents()
+				).catch(onUnexpectedError);
+
+				throw error;
 			}
-		} catch (error) {
 
-			// error event
-			await this._onDidFailWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			// after event
+			await this.finalizeAndFire(
+				() => finalizer.didRun(completedFiles),
+				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+				() => finalizer.afterPublicEvents()
+			);
 
-			throw error;
-		}
-
-		// after event
-		await this._onDidRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
-
-		return stats;
+			return stats;
+		});
 	}
 
-	async delete(operations: IDeleteOperation[], token: CancellationToken, undoInfo?: IFileOperationUndoRedoInfo): Promise<void> {
+	delete(operations: IDeleteOperation[], token: CancellationToken, undoInfo?: IFileOperationUndoRedoInfo): Promise<void> {
+		return this.doDelete(operations, token, undoInfo);
+	}
+
+	private async doDelete(operations: IDeleteOperation[], token: CancellationToken, undoInfo?: IFileOperationUndoRedoInfo): Promise<void> {
 
 		// validate delete operation before starting
 		for (const operation of operations) {
-			const validateDelete = await this.fileService.canDelete(operation.resource, { recursive: operation.recursive, useTrash: operation.useTrash });
+			const validateDelete = await this.fileService.canDelete(operation.resource, { recursive: operation.recursive, useTrash: operation.useTrash, atomic: operation.atomic });
 			if (validateDelete instanceof Error) {
 				throw validateDelete;
 			}
@@ -459,34 +536,46 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 		// file operation participant
 		const files = operations.map(operation => ({ target: operation.resource }));
 		await this.runFileOperationParticipants(files, FileOperation.DELETE, undoInfo, token);
+		return this.runWithFileOperationPreconditions(files, FileOperation.DELETE, undoInfo, token, async finalizer => {
+			// before events
+			const event = { correlationId: this.correlationIds++, operation: FileOperation.DELETE, files };
+			const completedFiles: SourceTargetPair[] = [];
+			await this._onWillRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
 
-		// before events
-		const event = { correlationId: this.correlationIds++, operation: FileOperation.DELETE, files };
-		await this._onWillRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			try {
+				// check for any existing dirty working copies for the resource
+				// and do a soft revert before deleting to be able to close
+				// any opened editor with these working copies
+				for (const operation of operations) {
+					const dirtyWorkingCopies = this.getDirty(operation.resource);
+					await Promises.settled(dirtyWorkingCopies.map(dirtyWorkingCopy => dirtyWorkingCopy.revert({ soft: true })));
+				}
 
-		// check for any existing dirty working copies for the resource
-		// and do a soft revert before deleting to be able to close
-		// any opened editor with these working copies
-		for (const operation of operations) {
-			const dirtyWorkingCopies = this.getDirty(operation.resource);
-			await Promises.settled(dirtyWorkingCopies.map(dirtyWorkingCopy => dirtyWorkingCopy.revert({ soft: true })));
-		}
+				// now actually delete from disk
+				for (let index = 0; index < operations.length; index++) {
+					const operation = operations[index];
+					await this.fileService.del(operation.resource, { recursive: operation.recursive, useTrash: operation.useTrash, atomic: operation.atomic });
+					completedFiles.push(files[index]);
+				}
+			} catch (error) {
 
-		// now actually delete from disk
-		try {
-			for (const operation of operations) {
-				await this.fileService.del(operation.resource, { recursive: operation.recursive, useTrash: operation.useTrash });
+				// error event
+				await this.finalizeAndFire(
+					() => finalizer.didFail(completedFiles),
+					() => this._onDidFailWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+					() => finalizer.afterPublicEvents()
+				).catch(onUnexpectedError);
+
+				throw error;
 			}
-		} catch (error) {
 
-			// error event
-			await this._onDidFailWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
-
-			throw error;
-		}
-
-		// after event
-		await this._onDidRunWorkingCopyFileOperation.fireAsync(event, CancellationToken.None /* intentional: we currently only forward cancellation to participants */);
+			// after event
+			await this.finalizeAndFire(
+				() => finalizer.didRun(completedFiles),
+				() => this._onDidRunWorkingCopyFileOperation.fireAsync({ ...event, completedFiles: [...completedFiles] }, CancellationToken.None /* intentional: we currently only forward cancellation to participants */),
+				() => finalizer.afterPublicEvents()
+			);
+		});
 	}
 
 	//#endregion
@@ -495,13 +584,85 @@ export class WorkingCopyFileService extends Disposable implements IWorkingCopyFi
 	//#region File operation participants
 
 	private readonly fileOperationParticipants: WorkingCopyFileOperationParticipant;
+	private readonly fileOperationPreconditions: IWorkingCopyFileOperationPrecondition[] = [];
 
 	addFileOperationParticipant(participant: IWorkingCopyFileOperationParticipant): IDisposable {
 		return this.fileOperationParticipants.addFileOperationParticipant(participant);
 	}
 
+	addFileOperationPrecondition(precondition: IWorkingCopyFileOperationPrecondition): IDisposable {
+		return toDisposable(insert(this.fileOperationPreconditions, precondition));
+	}
+
 	private runFileOperationParticipants(files: SourceTargetPair[], operation: FileOperation, undoInfo: IFileOperationUndoRedoInfo | undefined, token: CancellationToken): Promise<void> {
 		return this.fileOperationParticipants.participate(files, operation, undoInfo, token);
+	}
+
+	private async runWithFileOperationPreconditions<T>(
+		files: readonly SourceTargetPair[],
+		operation: FileOperation,
+		undoInfo: IFileOperationUndoRedoInfo | undefined,
+		token: CancellationToken,
+		task: (finalizer: IWorkingCopyFileOperationFinalizer) => Promise<T>
+	): Promise<T> {
+		const guards: IWorkingCopyFileOperationPreconditionGuard[] = [];
+		try {
+			for (const precondition of this.fileOperationPreconditions) {
+				const guard = await precondition.prepare(files, operation, undoInfo, token);
+				if (guard) {
+					guards.push(guard);
+				}
+			}
+			const finalize = async (kind: 'didRun' | 'didFail' | 'afterPublicEvents', completedFiles: readonly SourceTargetPair[]): Promise<void> => {
+				const errors: unknown[] = [];
+				for (const guard of guards) {
+					try {
+						if (kind === 'afterPublicEvents') {
+							await guard.afterPublicEvents?.();
+						} else {
+							await guard[kind]?.([...completedFiles]);
+						}
+					} catch (error) {
+						errors.push(error);
+					}
+				}
+				if (errors.length === 1) {
+					throw errors[0];
+				}
+				if (errors.length > 1) {
+					throw new AggregateError(errors, `Working copy file-operation ${kind} finalizers failed`);
+				}
+			};
+			return await task({
+				didRun: completedFiles => finalize('didRun', completedFiles),
+				didFail: completedFiles => finalize('didFail', completedFiles),
+				afterPublicEvents: () => finalize('afterPublicEvents', [])
+			});
+		} finally {
+			dispose(guards.reverse());
+		}
+	}
+
+	private async finalizeAndFire(finalize: () => Promise<void>, fire: () => Promise<void>, afterPublicEvents: () => Promise<void>): Promise<void> {
+		try {
+			await finalize();
+		} catch (error) {
+			onUnexpectedError(error);
+		}
+		let eventError: unknown;
+		try {
+			await fire();
+		} catch (error) {
+			eventError = error;
+		}
+		try {
+			await afterPublicEvents();
+		} catch (error) {
+			onUnexpectedError(error);
+		}
+		if (eventError !== undefined) {
+			throw eventError;
+		}
 	}
 
 	//#endregion

@@ -6,7 +6,7 @@
 import { localize } from '../../../../nls.js';
 import { Event } from '../../../../base/common/event.js';
 import { isLinux } from '../../../../base/common/platform.js';
-import { FileSystemProviderCapabilities, IFileDeleteOptions, IStat, FileType, IFileReadStreamOptions, IFileWriteOptions, IFileOpenOptions, IFileOverwriteOptions, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileAtomicReadCapability, IFileAtomicReadOptions, IFileSystemProviderWithFileCloneCapability, IFileChange } from '../../../../platform/files/common/files.js';
+import { FileSystemProviderCapabilities, IFileDeleteOptions, IStat, FileType, IFileReadStreamOptions, IFileWriteOptions, IFileOpenOptions, IFileOverwriteOptions, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileAtomicReadCapability, IFileAtomicReadOptions, IFileSystemProviderWithFileAtomicWriteExclusiveCapability, IFileSystemProviderWithFileCloneCapability, IFileChange } from '../../../../platform/files/common/files.js';
 import { AbstractDiskFileSystemProvider } from '../../../../platform/files/common/diskFileSystemProvider.js';
 import { IMainProcessService } from '../../../../platform/ipc/common/mainProcessService.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
@@ -30,6 +30,7 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 	IFileSystemProviderWithFileReadStreamCapability,
 	IFileSystemProviderWithFileFolderCopyCapability,
 	IFileSystemProviderWithFileAtomicReadCapability,
+	IFileSystemProviderWithFileAtomicWriteExclusiveCapability,
 	IFileSystemProviderWithFileCloneCapability {
 
 	private readonly provider: DiskFileSystemProviderClient;
@@ -90,6 +91,10 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 
 	writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> {
 		return this.provider.writeFile(resource, content, opts);
+	}
+
+	writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		return this.provider.writeFileExclusiveAtomic(resource, content);
 	}
 
 	open(resource: URI, opts: IFileOpenOptions): Promise<number> {

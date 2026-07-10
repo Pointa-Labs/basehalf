@@ -17,8 +17,9 @@ import { mark } from '../../../base/common/performance.js';
 import { extUri, extUriIgnorePathCase, IExtUri, isAbsolutePath } from '../../../base/common/resources.js';
 import { consumeStream, isReadableBufferedStream, isReadableStream, listenStream, newWriteableStream, peekReadable, peekStream, transform } from '../../../base/common/stream.js';
 import { URI } from '../../../base/common/uri.js';
+import { generateUuid } from '../../../base/common/uuid.js';
 import { localize } from '../../../nls.js';
-import { ensureFileSystemProviderError, etag, ETAG_DISABLED, FileChangesEvent, IFileDeleteOptions, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, hasFileAppendCapability, hasFileAtomicReadCapability, hasFileFolderCopyCapability, hasFileReadStreamCapability, hasOpenReadWriteCloseCapability, hasReadWriteCapability, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatWithMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IFileStatResult, IFileStatResultWithMetadata, IResolveMetadataFileOptions, IStat, IFileStatWithPartialMetadata, IWatchOptions, IWriteFileOptions, NotModifiedSinceFileOperationError, toFileOperationResult, toFileSystemProviderErrorCode, hasFileCloneCapability, TooLargeFileOperationError, hasFileAtomicDeleteCapability, hasFileAtomicWriteCapability, IWatchOptionsWithCorrelation, IFileSystemWatcher, IWatchOptionsWithoutCorrelation, hasFileRealpathCapability } from './files.js';
+import { ensureFileSystemProviderError, etag, ETAG_DISABLED, FileChangesEvent, IFileDeleteOptions, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, hasFileAppendCapability, hasFileAtomicReadCapability, hasFileFolderCopyCapability, hasFileReadStreamCapability, hasOpenReadWriteCloseCapability, hasReadWriteCapability, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatWithMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemProviderRegistrationEvent, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IFileStatResult, IFileStatResultWithMetadata, IResolveMetadataFileOptions, IStat, IFileStatWithPartialMetadata, IWatchOptions, IWriteFileOptions, IWriteFileWithExpectedContentsOptions, NotModifiedSinceFileOperationError, toFileOperationResult, toFileSystemProviderErrorCode, hasFileCloneCapability, TooLargeFileOperationError, hasFileAtomicDeleteCapability, hasFileAtomicWriteCapability, IWatchOptionsWithCorrelation, IFileSystemWatcher, IWatchOptionsWithoutCorrelation, hasFileRealpathCapability, hasFileAtomicWriteExclusiveCapability, IFileSystemProviderWithFileAtomicWriteExclusiveCapability } from './files.js';
 import { readFileIntoStream } from './io.js';
 import { ILogService } from '../../log/common/log.js';
 import { ErrorNoTelemetry } from '../../../base/common/errors.js';
@@ -249,21 +250,7 @@ export class FileService extends Disposable implements IFileService {
 		const { providerExtUri } = this.getExtUri(provider);
 
 		// convert to file stat
-		const fileStat: IFileStat = {
-			resource,
-			name: providerExtUri.basename(resource),
-			isFile: (stat.type & FileType.File) !== 0,
-			isDirectory: (stat.type & FileType.Directory) !== 0,
-			isSymbolicLink: (stat.type & FileType.SymbolicLink) !== 0,
-			mtime: stat.mtime,
-			ctime: stat.ctime,
-			size: stat.size,
-			readonly: Boolean((stat.permissions ?? 0) & FilePermission.Readonly) || Boolean(provider.capabilities & FileSystemProviderCapabilities.Readonly),
-			locked: Boolean((stat.permissions ?? 0) & FilePermission.Locked),
-			executable: Boolean((stat.permissions ?? 0) & FilePermission.Executable),
-			etag: etag({ mtime: stat.mtime, size: stat.size }),
-			children: undefined
-		};
+		const fileStat = this.toFileStatWithoutChildren(provider, resource, stat);
 
 		// check to recurse for directories
 		if (fileStat.isDirectory && recurse(fileStat, siblings)) {
@@ -294,6 +281,28 @@ export class FileService extends Disposable implements IFileService {
 		}
 
 		return fileStat;
+	}
+
+	private toFileStatWithoutChildren(provider: IFileSystemProvider, resource: URI, stat: IStat): IFileStatWithMetadata;
+	private toFileStatWithoutChildren(provider: IFileSystemProvider, resource: URI, stat: { type: FileType } & Partial<IStat>): IFileStat;
+	private toFileStatWithoutChildren(provider: IFileSystemProvider, resource: URI, stat: IStat | { type: FileType } & Partial<IStat>): IFileStat {
+		const { providerExtUri } = this.getExtUri(provider);
+
+		return {
+			resource,
+			name: providerExtUri.basename(resource),
+			isFile: (stat.type & FileType.File) !== 0,
+			isDirectory: (stat.type & FileType.Directory) !== 0,
+			isSymbolicLink: (stat.type & FileType.SymbolicLink) !== 0,
+			mtime: stat.mtime,
+			ctime: stat.ctime,
+			size: stat.size,
+			readonly: Boolean((stat.permissions ?? 0) & FilePermission.Readonly) || Boolean(provider.capabilities & FileSystemProviderCapabilities.Readonly),
+			locked: Boolean((stat.permissions ?? 0) & FilePermission.Locked),
+			executable: Boolean((stat.permissions ?? 0) & FilePermission.Executable),
+			etag: etag({ mtime: stat.mtime, size: stat.size }),
+			children: undefined
+		};
 	}
 
 	async resolveAll(toResolve: { resource: URI; options?: IResolveFileOptions }[]): Promise<IFileStatResult[]>;
@@ -429,6 +438,121 @@ export class FileService extends Disposable implements IFileService {
 		}
 
 		return this.resolve(resource, { resolveMetadata: true });
+	}
+
+	async writeFileWithExpectedContents(resource: URI, contents: VSBuffer, expectedContents: VSBuffer | null, options: IWriteFileWithExpectedContentsOptions): Promise<IFileStatWithMetadata> {
+		const provider = this.throwIfFileSystemIsReadonly(await this.withWriteProvider(resource), resource);
+		if (!hasReadWriteCapability(provider) || !hasFileAtomicWriteCapability(provider) || !hasFileAtomicWriteExclusiveCapability(provider)) {
+			throw new FileOperationError(
+				localize('fileExpectedContentsUnsupported', "Unable to conditionally write file '{0}' because its provider lacks atomic write capabilities", this.resourceForError(resource)),
+				FileOperationResult.FILE_OTHER_ERROR,
+				options
+			);
+		}
+
+		const { providerExtUri } = this.getExtUri(provider);
+		let committedStat!: IStat;
+		try {
+			// Parent creation is deliberately outside the target commit. A parent
+			// removed afterwards is surfaced as FILE_NOT_FOUND and callers can replay.
+			await this.mkdirp(provider, providerExtUri.dirname(resource));
+			await this.writeQueue.queueFor(resource, async () => {
+				committedStat = await this.doWriteFileWithExpectedContentsQueued(
+					provider,
+					providerExtUri,
+					resource,
+					contents,
+					expectedContents,
+					options
+				);
+			}, providerExtUri);
+		} catch (error) {
+			throw new FileOperationError(
+				localize('err.expectedContentsWrite', "Unable to conditionally write file '{0}' ({1})", this.resourceForError(resource), ensureFileSystemProviderError(error).toString()),
+				toFileOperationResult(error),
+				options
+			);
+		}
+
+		// The provider returns metadata captured before/as part of publication.
+		// Never perform fallible provider I/O after the namespace commit: callers
+		// use rejection to decide whether compensation bookkeeping is required.
+		const fileStat = this.toFileStatWithoutChildren(provider, resource, committedStat);
+		if (expectedContents === null) {
+			this._onDidRunOperation.fire(new FileOperationEvent(resource, FileOperation.CREATE, fileStat));
+		} else {
+			this._onDidRunOperation.fire(new FileOperationEvent(resource, FileOperation.WRITE));
+		}
+
+		return fileStat;
+	}
+
+	private async doWriteFileWithExpectedContentsQueued(
+		provider: IFileSystemProviderWithFileReadWriteCapability & IFileSystemProviderWithFileAtomicWriteExclusiveCapability,
+		providerExtUri: IExtUri,
+		resource: URI,
+		contents: VSBuffer,
+		expectedContents: VSBuffer | null,
+		options: IWriteFileWithExpectedContentsOptions
+	): Promise<IStat> {
+		if (expectedContents === null) {
+			// The capability publishes complete bytes under an absent name. The
+			// local disk provider stages via O_EXCL and commits with link(2).
+			return provider.writeFileExclusiveAtomic(resource, contents.buffer);
+		}
+
+		const tempResource = providerExtUri.joinPath(
+			providerExtUri.dirname(resource),
+			`${providerExtUri.basename(resource)}${options.atomic.postfix}.${generateUuid()}`
+		);
+		let tempCreated = false;
+		try {
+			// Stage first so the exact check below is the final asynchronous step
+			// before the provider's same-directory atomic rename.
+			const stagedStat = await provider.writeFileExclusiveAtomic(tempResource, contents.buffer);
+			tempCreated = true;
+
+			const currentStat = await provider.stat(resource);
+			if ((currentStat.type & FileType.SymbolicLink) !== 0) {
+				throw new FileOperationError(
+					localize('fileExpectedContentsSymlink', "Unable to conditionally replace a symbolic link"),
+					FileOperationResult.FILE_OTHER_ERROR,
+					options
+				);
+			}
+			if (currentStat.size !== expectedContents.byteLength) {
+				throw new FileOperationError(
+					localize('fileExpectedContentsChanged', "File Modified Since"),
+					FileOperationResult.FILE_MODIFIED_SINCE,
+					options
+				);
+			}
+			const currentContents = VSBuffer.wrap(await provider.readFile(resource));
+			if (!currentContents.equals(expectedContents)) {
+				throw new FileOperationError(
+					localize('fileExpectedContentsChanged', "File Modified Since"),
+					FileOperationResult.FILE_MODIFIED_SINCE,
+					options
+				);
+			}
+
+			// There is no portable conditional rename. An uncooperative external
+			// process can still write between the exact check and this atomic replace.
+			await provider.rename(tempResource, resource, { overwrite: true });
+			tempCreated = false;
+
+			// The rename publishes the staged inode, so its pre-publication metadata
+			// is the committed file metadata without a post-commit stat call.
+			return stagedStat;
+		} finally {
+			if (tempCreated) {
+				try {
+					await provider.delete(tempResource, { recursive: false, useTrash: false, atomic: false });
+				} catch (error) {
+					this.logService.trace(error);
+				}
+			}
+		}
 	}
 
 

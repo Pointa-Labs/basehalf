@@ -99,6 +99,19 @@ suite('FileUserDataProvider', () => {
 		assert.strictEqual(actual2.value.toString(), '{}');
 	});
 
+	test('preserves atomic exclusive writes through the user-data scheme', async () => {
+		const resource = userDataProfilesService.defaultProfile.settingsResource;
+		const contents = VSBuffer.fromString('{"atomic":true}');
+		assert.ok(fileUserDataProvider.capabilities & FileSystemProviderCapabilities.FileAtomicWriteExclusive);
+
+		const committed = await testObject.writeFileWithExpectedContents(resource, contents, null, { atomic: { postfix: '.commit-tmp' } });
+
+		assert.strictEqual(committed.resource.toString(), resource.toString());
+		assert.strictEqual(committed.size, contents.byteLength);
+		const onDisk = await testObject.readFile(joinPath(userDataHomeOnDisk, 'settings.json'));
+		assert.strictEqual(onDisk.value.toString(), contents.toString());
+	});
+
 	test('write to existing file', async () => {
 		const resource = userDataProfilesService.defaultProfile.settingsResource;
 		await testObject.writeFile(joinPath(userDataHomeOnDisk, 'settings.json'), VSBuffer.fromString('{}'));

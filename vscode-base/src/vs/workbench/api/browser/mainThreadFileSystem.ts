@@ -11,6 +11,8 @@ import { extHostNamedCustomer, IExtHostContext } from '../../services/extensions
 import { ExtHostContext, ExtHostFileSystemShape, IFileChangeDto, MainContext, MainThreadFileSystemShape } from '../common/extHost.protocol.js';
 import { VSBuffer } from '../../../base/common/buffer.js';
 import { IMarkdownString } from '../../../base/common/htmlContent.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { IWorkingCopyFileService } from '../../services/workingCopy/common/workingCopyFileService.js';
 
 @extHostNamedCustomer(MainContext.MainThreadFileSystem)
 export class MainThreadFileSystem implements MainThreadFileSystemShape {
@@ -21,7 +23,8 @@ export class MainThreadFileSystem implements MainThreadFileSystemShape {
 
 	constructor(
 		extHostContext: IExtHostContext,
-		@IFileService private readonly _fileService: IFileService
+		@IFileService private readonly _fileService: IFileService,
+		@IWorkingCopyFileService private readonly _workingCopyFileService: IWorkingCopyFileService
 	) {
 		this._proxy = extHostContext.getProxy(ExtHostContext.ExtHostFileSystem);
 
@@ -120,7 +123,7 @@ export class MainThreadFileSystem implements MainThreadFileSystemShape {
 
 	async $rename(source: UriComponents, target: UriComponents, opts: IFileOverwriteOptions): Promise<void> {
 		try {
-			await this._fileService.move(URI.revive(source), URI.revive(target), opts.overwrite);
+			await this._workingCopyFileService.move([{ file: { source: URI.revive(source), target: URI.revive(target) }, overwrite: opts.overwrite }], CancellationToken.None);
 		} catch (err) {
 			return MainThreadFileSystem._handleError(err);
 		}
@@ -144,7 +147,7 @@ export class MainThreadFileSystem implements MainThreadFileSystemShape {
 
 	async $delete(uri: UriComponents, opts: IFileDeleteOptions): Promise<void> {
 		try {
-			return await this._fileService.del(URI.revive(uri), opts);
+			return await this._workingCopyFileService.delete([{ resource: URI.revive(uri), recursive: opts.recursive, useTrash: opts.useTrash, atomic: opts.atomic }], CancellationToken.None);
 		} catch (err) {
 			return MainThreadFileSystem._handleError(err);
 		}

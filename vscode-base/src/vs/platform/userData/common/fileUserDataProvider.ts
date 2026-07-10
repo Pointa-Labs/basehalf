@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
-import { IFileSystemProviderWithFileReadWriteCapability, IFileChange, IWatchOptions, IStat, IFileOverwriteOptions, FileType, IFileWriteOptions, IFileDeleteOptions, FileSystemProviderCapabilities, IFileSystemProviderWithFileReadStreamCapability, IFileReadStreamOptions, IFileSystemProviderWithFileAtomicReadCapability, hasFileFolderCopyCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileOpenOptions, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileCloneCapability, hasFileCloneCapability, IFileAtomicReadOptions, IFileAtomicOptions } from '../../files/common/files.js';
+import { IFileSystemProviderWithFileReadWriteCapability, IFileChange, IWatchOptions, IStat, IFileOverwriteOptions, FileType, IFileWriteOptions, IFileDeleteOptions, FileSystemProviderCapabilities, IFileSystemProviderWithFileReadStreamCapability, IFileReadStreamOptions, IFileSystemProviderWithFileAtomicReadCapability, hasFileFolderCopyCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileOpenOptions, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileCloneCapability, hasFileCloneCapability, IFileAtomicReadOptions, IFileAtomicOptions, IFileSystemProviderWithFileAtomicWriteExclusiveCapability, hasFileAtomicWriteExclusiveCapability } from '../../files/common/files.js';
 import { URI } from '../../../base/common/uri.js';
 import { CancellationToken } from '../../../base/common/cancellation.js';
 import { ReadableStreamEvents } from '../../../base/common/stream.js';
@@ -26,6 +26,7 @@ export class FileUserDataProvider extends Disposable implements
 	IFileSystemProviderWithFileFolderCopyCapability,
 	IFileSystemProviderWithFileAtomicReadCapability,
 	IFileSystemProviderWithFileAtomicWriteCapability,
+	IFileSystemProviderWithFileAtomicWriteExclusiveCapability,
 	IFileSystemProviderWithFileAtomicDeleteCapability,
 	IFileSystemProviderWithFileCloneCapability {
 
@@ -123,6 +124,13 @@ export class FileUserDataProvider extends Disposable implements
 
 	writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> {
 		return this.fileSystemProvider.writeFile(this.toFileSystemResource(resource), content, opts);
+	}
+
+	writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		if (hasFileAtomicWriteExclusiveCapability(this.fileSystemProvider)) {
+			return this.fileSystemProvider.writeFileExclusiveAtomic(this.toFileSystemResource(resource), content);
+		}
+		throw new Error('atomic exclusive write not supported');
 	}
 
 	enforceAtomicWriteFile(resource: URI): IFileAtomicOptions | false {

@@ -16,9 +16,10 @@ import { isLinux, isWindows } from '../../../base/common/platform.js';
 import { extUriBiasedIgnorePathCase, joinPath, basename as resourcesBasename, dirname as resourcesDirname } from '../../../base/common/resources.js';
 import { newWriteableStream, ReadableStreamEvents } from '../../../base/common/stream.js';
 import { URI } from '../../../base/common/uri.js';
+import { generateUuid } from '../../../base/common/uuid.js';
 import { IDirent, Promises, RimRafMode, SymlinkSupport } from '../../../base/node/pfs.js';
 import { localize } from '../../../nls.js';
-import { createFileSystemProviderError, IFileAtomicReadOptions, IFileDeleteOptions, IFileOpenOptions, IFileOverwriteOptions, IFileReadStreamOptions, FileSystemProviderCapabilities, FileSystemProviderError, FileSystemProviderErrorCode, FileType, IFileWriteOptions, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileCloneCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, isFileOpenForWriteOptions, IStat, FilePermission, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileChange, IFileSystemProviderWithFileRealpathCapability } from '../common/files.js';
+import { createFileSystemProviderError, IFileAtomicReadOptions, IFileDeleteOptions, IFileOpenOptions, IFileOverwriteOptions, IFileReadStreamOptions, FileSystemProviderCapabilities, FileSystemProviderError, FileSystemProviderErrorCode, FileType, IFileWriteOptions, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileCloneCapability, IFileSystemProviderWithFileFolderCopyCapability, IFileSystemProviderWithFileReadStreamCapability, IFileSystemProviderWithFileReadWriteCapability, IFileSystemProviderWithOpenReadWriteCloseCapability, isFileOpenForWriteOptions, IStat, FilePermission, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileAtomicDeleteCapability, IFileChange, IFileSystemProviderWithFileRealpathCapability, IFileSystemProviderWithFileAtomicWriteExclusiveCapability } from '../common/files.js';
 import { readFileIntoStream } from '../common/io.js';
 import { AbstractNonRecursiveWatcherClient, AbstractUniversalWatcherClient, ILogMessage } from '../common/watcher.js';
 import { AbstractDiskFileSystemProvider } from '../common/diskFileSystemProvider.js';
@@ -32,6 +33,7 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 	IFileSystemProviderWithFileFolderCopyCapability,
 	IFileSystemProviderWithFileAtomicReadCapability,
 	IFileSystemProviderWithFileAtomicWriteCapability,
+	IFileSystemProviderWithFileAtomicWriteExclusiveCapability,
 	IFileSystemProviderWithFileAtomicDeleteCapability,
 	IFileSystemProviderWithFileCloneCapability,
 	IFileSystemProviderWithFileRealpathCapability {
@@ -54,6 +56,7 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 				FileSystemProviderCapabilities.FileAppend |
 				FileSystemProviderCapabilities.FileAtomicRead |
 				FileSystemProviderCapabilities.FileAtomicWrite |
+				FileSystemProviderCapabilities.FileAtomicWriteExclusive |
 				FileSystemProviderCapabilities.FileAtomicDelete |
 				FileSystemProviderCapabilities.FileClone |
 				FileSystemProviderCapabilities.FileRealpath;
@@ -74,28 +77,32 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 		try {
 			const { stat, symbolicLink } = await SymlinkSupport.stat(this.toFilePath(resource)); // cannot use fs.stat() here to support links properly
 
-			let permissions: FilePermission | undefined = undefined;
-			if ((stat.mode & 0o200) === 0) {
-				permissions = FilePermission.Locked;
-			}
-			if (
-				stat.mode & constants.S_IXUSR ||
-				stat.mode & constants.S_IXGRP ||
-				stat.mode & constants.S_IXOTH
-			) {
-				permissions = (permissions ?? 0) | FilePermission.Executable;
-			}
-
-			return {
-				type: this.toType(stat, symbolicLink),
-				ctime: stat.birthtime.getTime(), // intentionally not using ctime here, we want the creation time
-				mtime: stat.mtime.getTime(),
-				size: stat.size,
-				permissions
-			};
+			return this.toStat(stat, symbolicLink);
 		} catch (error) {
 			throw this.toFileSystemProviderError(error);
 		}
+	}
+
+	private toStat(stat: Stats, symbolicLink?: { dangling: boolean }): IStat {
+		let permissions: FilePermission | undefined = undefined;
+		if ((stat.mode & 0o200) === 0) {
+			permissions = FilePermission.Locked;
+		}
+		if (
+			stat.mode & constants.S_IXUSR ||
+			stat.mode & constants.S_IXGRP ||
+			stat.mode & constants.S_IXOTH
+		) {
+			permissions = (permissions ?? 0) | FilePermission.Executable;
+		}
+
+		return {
+			type: this.toType(stat, symbolicLink),
+			ctime: stat.birthtime.getTime(), // intentionally not using ctime here, we want the creation time
+			mtime: stat.mtime.getTime(),
+			size: stat.size,
+			permissions
+		};
 	}
 
 	private async statIgnoreError(resource: URI): Promise<IStat | undefined> {
@@ -242,10 +249,74 @@ export class DiskFileSystemProvider extends AbstractDiskFileSystemProvider imple
 	}
 
 	async writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> {
-		if (opts?.atomic !== false && opts?.atomic?.postfix && await this.canWriteFileAtomic(resource)) {
+		// The provider contract for create+!overwrite is an exclusive create.
+		// Do not route it through atomic temp+overwrite (or exists+open('w')):
+		// both would overwrite a target created after their validation step.
+		if (opts.create && !opts.overwrite) {
+			await this.writeFileExclusiveAtomic(resource, content);
+			return;
+		} else if (opts?.atomic !== false && opts?.atomic?.postfix && await this.canWriteFileAtomic(resource)) {
 			return this.doWriteFileAtomic(resource, joinPath(resourcesDirname(resource), `${resourcesBasename(resource)}${opts.atomic.postfix}`), content, opts);
 		} else {
 			return this.doWriteFile(resource, content, opts);
+		}
+	}
+
+	async writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		const lock = await this.createResourceLock(resource);
+		const filePath = this.toFilePath(resource);
+		const tempPath = join(dirname(filePath), `.${basename(filePath)}.exclusive.${generateUuid()}`);
+		let tempCreated = false;
+		let tempHandle: number | undefined;
+		try {
+			// Publish complete bytes, not a partially written target: stage and
+			// flush under a unique O_EXCL name, then atomically link that inode to
+			// the absent target name. link(2) fails with EEXIST without replacing.
+			tempHandle = await Promises.open(tempPath, 'wx');
+			tempCreated = true;
+			let written = 0;
+			while (written < content.byteLength) {
+				const result = await Promises.write(tempHandle, content, written, content.byteLength - written, written);
+				if (result.bytesWritten === 0) {
+					throw new Error(`Unable to make progress writing exclusive temporary file '${tempPath}'`);
+				}
+				written += result.bytesWritten;
+			}
+			if (DiskFileSystemProvider.canFlush) {
+				try {
+					await Promises.fdatasync(tempHandle);
+				} catch (error) {
+					DiskFileSystemProvider.configureFlushOnWrite(false);
+					this.logService.error(error);
+				}
+			}
+			await Promises.close(tempHandle);
+			tempHandle = undefined;
+
+			// Capture metadata while the staged inode is still private. Once link(2)
+			// publishes it, no fallible metadata lookup may turn success into failure.
+			const committedStat = this.toStat(await promises.stat(tempPath));
+			await promises.link(tempPath, filePath);
+
+			return committedStat;
+		} catch (error) {
+			throw await this.toFileSystemProviderWriteError(resource, error);
+		} finally {
+			if (typeof tempHandle === 'number') {
+				try {
+					await Promises.close(tempHandle);
+				} catch (error) {
+					this.logService.trace(error);
+				}
+			}
+			if (tempCreated) {
+				try {
+					await promises.unlink(tempPath);
+				} catch (error) {
+					this.logService.trace(error);
+				}
+			}
+			lock.dispose();
 		}
 	}
 

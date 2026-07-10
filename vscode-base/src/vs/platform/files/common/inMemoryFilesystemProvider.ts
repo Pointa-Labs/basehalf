@@ -9,7 +9,7 @@ import { Disposable, IDisposable } from '../../../base/common/lifecycle.js';
 import * as resources from '../../../base/common/resources.js';
 import { ReadableStreamEvents, newWriteableStream } from '../../../base/common/stream.js';
 import { URI } from '../../../base/common/uri.js';
-import { FileChangeType, IFileDeleteOptions, IFileOverwriteOptions, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, IFileWriteOptions, IFileChange, IFileSystemProviderWithFileReadWriteCapability, IStat, IWatchOptions, createFileSystemProviderError, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileOpenOptions, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileReadStreamCapability, isFileOpenForWriteOptions } from './files.js';
+import { FileChangeType, IFileDeleteOptions, IFileOverwriteOptions, FileSystemProviderCapabilities, FileSystemProviderErrorCode, FileType, IFileWriteOptions, IFileChange, IFileSystemProviderWithFileReadWriteCapability, IStat, IWatchOptions, createFileSystemProviderError, IFileSystemProviderWithOpenReadWriteCloseCapability, IFileOpenOptions, IFileSystemProviderWithFileAtomicDeleteCapability, IFileSystemProviderWithFileAtomicReadCapability, IFileSystemProviderWithFileAtomicWriteCapability, IFileSystemProviderWithFileReadStreamCapability, isFileOpenForWriteOptions, IFileSystemProviderWithFileAtomicWriteExclusiveCapability } from './files.js';
 
 class File implements IStat {
 
@@ -58,6 +58,7 @@ export class InMemoryFileSystemProvider extends Disposable implements
 	IFileSystemProviderWithFileReadStreamCapability,
 	IFileSystemProviderWithFileAtomicReadCapability,
 	IFileSystemProviderWithFileAtomicWriteCapability,
+	IFileSystemProviderWithFileAtomicWriteExclusiveCapability,
 	IFileSystemProviderWithFileAtomicDeleteCapability {
 
 	private memoryFdCounter = 0;
@@ -65,13 +66,13 @@ export class InMemoryFileSystemProvider extends Disposable implements
 	private _onDidChangeCapabilities = this._register(new Emitter<void>());
 	readonly onDidChangeCapabilities = this._onDidChangeCapabilities.event;
 
-	private _capabilities = FileSystemProviderCapabilities.FileReadWrite | FileSystemProviderCapabilities.FileOpenReadWriteClose | FileSystemProviderCapabilities.FileAppend | FileSystemProviderCapabilities.PathCaseSensitive;
+	private _capabilities = FileSystemProviderCapabilities.FileReadWrite | FileSystemProviderCapabilities.FileOpenReadWriteClose | FileSystemProviderCapabilities.FileAppend | FileSystemProviderCapabilities.FileAtomicWrite | FileSystemProviderCapabilities.FileAtomicWriteExclusive | FileSystemProviderCapabilities.PathCaseSensitive;
 	get capabilities(): FileSystemProviderCapabilities { return this._capabilities; }
 
 	setReadOnly(readonly: boolean) {
 		const isReadonly = !!(this._capabilities & FileSystemProviderCapabilities.Readonly);
 		if (readonly !== isReadonly) {
-			this._capabilities = FileSystemProviderCapabilities.FileReadWrite | FileSystemProviderCapabilities.FileAppend | FileSystemProviderCapabilities.PathCaseSensitive | (readonly ? FileSystemProviderCapabilities.Readonly : 0);
+			this._capabilities = FileSystemProviderCapabilities.FileReadWrite | FileSystemProviderCapabilities.FileAppend | FileSystemProviderCapabilities.FileAtomicWrite | FileSystemProviderCapabilities.FileAtomicWriteExclusive | FileSystemProviderCapabilities.PathCaseSensitive | (readonly ? FileSystemProviderCapabilities.Readonly : 0);
 			this._onDidChangeCapabilities.fire();
 		}
 	}
@@ -111,6 +112,10 @@ export class InMemoryFileSystemProvider extends Disposable implements
 	}
 
 	async writeFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): Promise<void> {
+		this.doWriteFile(resource, content, opts);
+	}
+
+	private doWriteFile(resource: URI, content: Uint8Array, opts: IFileWriteOptions): File {
 		const basename = resources.basename(resource);
 		const parent = this._lookupParentDirectory(resource);
 		let entry = parent.entries.get(basename);
@@ -143,6 +148,15 @@ export class InMemoryFileSystemProvider extends Disposable implements
 		}
 
 		this._fireSoon({ type: FileChangeType.UPDATED, resource });
+
+		return entry;
+	}
+
+	async writeFileExclusiveAtomic(resource: URI, content: Uint8Array): Promise<IStat> {
+		// All lookup/create/publication steps above are synchronous in this
+		// provider, so no observer can see a partially initialized File entry.
+		const entry = this.doWriteFile(resource, content, { create: true, overwrite: false, unlock: false, atomic: false });
+		return { type: entry.type, ctime: entry.ctime, mtime: entry.mtime, size: entry.size };
 	}
 
 	// file open/read/write/close

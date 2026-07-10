@@ -13,7 +13,7 @@ import { URI } from '../../../../../base/common/uri.js';
 import { FileOperation } from '../../../../../platform/files/common/files.js';
 import { TestWorkingCopy } from '../../../../test/common/workbenchTestServices.js';
 import { VSBuffer } from '../../../../../base/common/buffer.js';
-import { ICopyOperation } from '../../common/workingCopyFileService.js';
+import { ICopyOperation, SourceTargetPair } from '../../common/workingCopyFileService.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../../base/common/cancellation.js';
 import { timeout } from '../../../../../base/common/async.js';
 import { DisposableStore } from '../../../../../base/common/lifecycle.js';
@@ -90,6 +90,161 @@ suite('WorkingCopyFileService', () => {
 			true);
 	});
 
+	test('move failure reports the exact completed prefix', async function () {
+		const first = { source: toResource.call(this, '/path/first.txt'), target: toResource.call(this, '/path/first-moved.txt') };
+		const second = { source: toResource.call(this, '/path/second.txt'), target: toResource.call(this, '/path/second-moved.txt') };
+		const originalMove = accessor.fileService.move;
+		let calls = 0;
+		accessor.fileService.move = async (source, target, overwrite) => {
+			if (calls++ === 1) {
+				throw new Error('second move failed');
+			}
+			return originalMove.call(accessor.fileService, source, target, overwrite);
+		};
+		let completed: readonly { readonly source?: URI; readonly target: URI }[] | undefined;
+		let willSnapshotLength = -1;
+		let willSnapshot: SourceTargetPair[] | undefined;
+		disposables.add(accessor.workingCopyFileService.onWillRunWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.MOVE) {
+				willSnapshotLength = event.completedFiles.length;
+				willSnapshot = event.completedFiles as SourceTargetPair[];
+				// A hostile/stale listener can mutate its own phase snapshot, but it
+				// must not corrupt the service's durable-prefix accounting.
+				willSnapshot.push(second);
+			}
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidFailWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.MOVE) {
+				completed = [...event.completedFiles];
+			}
+		}));
+
+		await assert.rejects(accessor.workingCopyFileService.move([
+			{ file: first },
+			{ file: second }
+		], CancellationToken.None));
+		assert.strictEqual(willSnapshotLength, 0);
+		assert.deepStrictEqual(completed?.map(file => [file.source?.toString(), file.target.toString()]), [[first.source.toString(), first.target.toString()]]);
+	});
+
+	test('hard preconditions run after ordinary participants and before will/IO', async function () {
+		const source = toResource.call(this, '/path/precondition.txt');
+		const target = toResource.call(this, '/path/precondition-moved.txt');
+		const order: string[] = [];
+		let guarded = false;
+		const originalMove = accessor.fileService.move;
+		accessor.fileService.move = async (from, to, overwrite) => {
+			assert.strictEqual(guarded, true);
+			order.push('io');
+			return originalMove.call(accessor.fileService, from, to, overwrite);
+		};
+		disposables.add(accessor.workingCopyFileService.addFileOperationParticipant({
+			participate: async () => { order.push('participant'); }
+		}));
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async () => {
+				guarded = true;
+				order.push('precondition');
+				return { dispose: () => { guarded = false; order.push('release'); } };
+			}
+		}));
+		disposables.add(accessor.workingCopyFileService.onWillRunWorkingCopyFileOperation(() => { assert.strictEqual(guarded, true); order.push('will'); }));
+		disposables.add(accessor.workingCopyFileService.onDidRunWorkingCopyFileOperation(event => {
+			assert.strictEqual(guarded, true);
+			order.push('did');
+			event.waitUntil(Promise.resolve().then(() => { assert.strictEqual(guarded, true); order.push('did:wait'); }));
+		}));
+
+		await accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None);
+		assert.strictEqual(guarded, false);
+		assert.deepStrictEqual(order, ['participant', 'precondition', 'will', 'io', 'did', 'did:wait', 'release']);
+	});
+
+	test('hard precondition rejection prevents move and delete IO', async function () {
+		const source = toResource.call(this, '/path/veto.txt');
+		const target = toResource.call(this, '/path/veto-moved.txt');
+		let ioCalls = 0;
+		let willCalls = 0;
+		let guardReleases = 0;
+		accessor.fileService.move = async () => {
+			ioCalls++;
+			throw new Error('move IO must not run');
+		};
+		accessor.fileService.del = async () => {
+			ioCalls++;
+		};
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async () => ({ dispose: () => guardReleases++ })
+		}));
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async () => { throw new Error('save refused'); }
+		}));
+		disposables.add(accessor.workingCopyFileService.onWillRunWorkingCopyFileOperation(() => { willCalls++; }));
+
+		await assert.rejects(accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None), /save refused/);
+		await assert.rejects(accessor.workingCopyFileService.delete([{ resource: source }], CancellationToken.None), /save refused/);
+		assert.strictEqual(ioCalls, 0);
+		assert.strictEqual(willCalls, 0);
+		assert.strictEqual(guardReleases, 2);
+	});
+
+	test('hard precondition guard spans failure event and always releases', async function () {
+		const source = toResource.call(this, '/path/guard-failure.txt');
+		const target = toResource.call(this, '/path/guard-failure-moved.txt');
+		let guarded = false;
+		accessor.fileService.move = async () => { throw new Error('disk failed'); };
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async () => {
+				guarded = true;
+				return { dispose: () => { guarded = false; } };
+			}
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidFailWorkingCopyFileOperation(event => {
+			event.waitUntil(Promise.resolve().then(() => assert.strictEqual(guarded, true)));
+		}));
+
+		await assert.rejects(accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None), /disk failed/);
+		assert.strictEqual(guarded, false);
+	});
+
+	test('precondition transaction finalizes before public did listeners and permits nested overlapping IO', async function () {
+		const source = toResource.call(this, '/path/finalizer-source.txt');
+		const target = toResource.call(this, '/path/finalizer-target.txt');
+		await accessor.fileService.createFile(source);
+		const order: string[] = [];
+		const deleted: string[] = [];
+		const originalDelete = accessor.fileService.del;
+		accessor.fileService.del = async (resource, options) => {
+			deleted.push(resource.toString());
+			return originalDelete.call(accessor.fileService, resource, options);
+		};
+		disposables.add(accessor.workingCopyFileService.addFileOperationPrecondition({
+			prepare: async (_files, operation) => operation === FileOperation.MOVE ? {
+				didRun: async completedFiles => {
+					assert.deepStrictEqual(completedFiles.map(file => file.target.toString()), [target.toString()]);
+					order.push('internal-finalizer');
+				},
+				afterPublicEvents: async () => { order.push('after-public-barrier'); },
+				dispose: () => { order.push('guard-dispose'); }
+			} : { dispose: () => undefined }
+		}));
+		disposables.add(accessor.workingCopyFileService.onDidRunWorkingCopyFileOperation(event => {
+			if (event.operation !== FileOperation.MOVE) {
+				return;
+			}
+			event.waitUntil((async () => {
+				order.push('public-did-start');
+				await accessor.workingCopyFileService.delete([{ resource: target }], CancellationToken.None);
+				order.push('nested-delete-complete');
+			})());
+		}));
+
+		await accessor.workingCopyFileService.move([{ file: { source, target } }], CancellationToken.None);
+
+		assert.deepStrictEqual(order, ['internal-finalizer', 'public-did-start', 'nested-delete-complete', 'after-public-barrier', 'guard-dispose']);
+		assert.deepStrictEqual(deleted, [target.toString()]);
+	});
+
 	test('move - dirty file (target exists and is dirty)', async function () {
 		await testMoveOrCopy([{ source: toResource.call(this, '/path/file.txt'), target: toResource.call(this, '/path/file_target.txt') }], true, true);
 	});
@@ -137,6 +292,31 @@ suite('WorkingCopyFileService', () => {
 
 	test('copy - dirty file (target exists and is dirty)', async function () {
 		await testMoveOrCopy([{ source: toResource.call(this, '/path/file.txt'), target: toResource.call(this, '/path/file_target.txt') }], false, true);
+	});
+
+	test('delete failure reports the exact completed prefix', async function () {
+		const first = toResource.call(this, '/path/first-delete.txt');
+		const second = toResource.call(this, '/path/second-delete.txt');
+		const originalDelete = accessor.fileService.del;
+		let calls = 0;
+		accessor.fileService.del = async (resource, options) => {
+			if (calls++ === 1) {
+				throw new Error('second delete failed');
+			}
+			return originalDelete.call(accessor.fileService, resource, options);
+		};
+		let completed: readonly { readonly target: URI }[] | undefined;
+		disposables.add(accessor.workingCopyFileService.onDidFailWorkingCopyFileOperation(event => {
+			if (event.operation === FileOperation.DELETE) {
+				completed = [...event.completedFiles];
+			}
+		}));
+
+		await assert.rejects(accessor.workingCopyFileService.delete([
+			{ resource: first },
+			{ resource: second }
+		], CancellationToken.None));
+		assert.deepStrictEqual(completed?.map(file => file.target.toString()), [first.toString()]);
 	});
 
 	test('getDirty', async function () {

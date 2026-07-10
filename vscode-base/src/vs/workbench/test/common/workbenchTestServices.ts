@@ -19,7 +19,7 @@ import { URI } from '../../../base/common/uri.js';
 import { ITextResourcePropertiesService } from '../../../editor/common/services/textResourceConfiguration.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IResourceEditorInput } from '../../../platform/editor/common/editor.js';
-import { FileChangesEvent, FileOperationEvent, FileSystemProviderCapabilities, IBaseFileStat, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatResult, IFileStatWithMetadata, IFileStatWithPartialMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemWatcher, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IResolveMetadataFileOptions, IWatchOptions, IWatchOptionsWithCorrelation, IWriteFileOptions } from '../../../platform/files/common/files.js';
+import { FileChangesEvent, FileOperationEvent, FileSystemProviderCapabilities, IBaseFileStat, ICreateFileOptions, IFileContent, IFileService, IFileStat, IFileStatResult, IFileStatWithMetadata, IFileStatWithPartialMetadata, IFileStreamContent, IFileSystemProvider, IFileSystemProviderActivationEvent, IFileSystemProviderCapabilitiesChangeEvent, IFileSystemWatcher, IReadFileOptions, IReadFileStreamOptions, IResolveFileOptions, IResolveMetadataFileOptions, IWatchOptions, IWatchOptionsWithCorrelation, IWriteFileOptions, IWriteFileWithExpectedContentsOptions } from '../../../platform/files/common/files.js';
 import { AbstractLoggerService, ILogger, LogLevel, NullLogger } from '../../../platform/log/common/log.js';
 import { IMarker, IMarkerData, IMarkerService, IResourceMarker, MarkerStatistics } from '../../../platform/markers/common/markers.js';
 import product from '../../../platform/product/common/product.js';
@@ -42,7 +42,7 @@ import { IResourceEncoding } from '../../services/textfile/common/textfiles.js';
 import { IUserDataProfileService } from '../../services/userDataProfile/common/userDataProfile.js';
 import { IStoredFileWorkingCopySaveEvent } from '../../services/workingCopy/common/storedFileWorkingCopy.js';
 import { IWorkingCopy, IWorkingCopyBackup, WorkingCopyCapabilities } from '../../services/workingCopy/common/workingCopy.js';
-import { ICopyOperation, ICreateFileOperation, ICreateOperation, IDeleteOperation, IFileOperationUndoRedoInfo, IMoveOperation, IStoredFileWorkingCopySaveParticipant, IStoredFileWorkingCopySaveParticipantContext, IWorkingCopyFileOperationParticipant, IWorkingCopyFileService, WorkingCopyFileEvent } from '../../services/workingCopy/common/workingCopyFileService.js';
+import { ICopyOperation, ICreateFileOperation, ICreateOperation, IDeleteOperation, IFileOperationUndoRedoInfo, IMoveOperation, IStoredFileWorkingCopySaveParticipant, IStoredFileWorkingCopySaveParticipantContext, IWorkingCopyFileOperationParticipant, IWorkingCopyFileOperationPrecondition, IWorkingCopyFileService, WorkingCopyFileEvent } from '../../services/workingCopy/common/workingCopyFileService.js';
 
 export class TestLoggerService extends AbstractLoggerService {
 	constructor(logsHome?: URI) {
@@ -277,6 +277,7 @@ export class TestWorkingCopyFileService implements IWorkingCopyFileService {
 	readonly onDidRunWorkingCopyFileOperation: Event<WorkingCopyFileEvent> = Event.None;
 
 	addFileOperationParticipant(participant: IWorkingCopyFileOperationParticipant): IDisposable { return Disposable.None; }
+	addFileOperationPrecondition(precondition: IWorkingCopyFileOperationPrecondition): IDisposable { return Disposable.None; }
 
 	readonly hasSaveParticipants = false;
 	addSaveParticipant(participant: IStoredFileWorkingCopySaveParticipant): IDisposable { return Disposable.None; }
@@ -640,6 +641,10 @@ export class TestFileService implements IFileService {
 		}
 
 		return createFileStat(resource, this.readonly);
+	}
+
+	async writeFileWithExpectedContents(resource: URI, contents: VSBuffer, _expectedContents: VSBuffer | null, _options: IWriteFileWithExpectedContentsOptions): Promise<IFileStatWithMetadata> {
+		return this.writeFile(resource, contents);
 	}
 
 	move(_source: URI, _target: URI, _overwrite?: boolean): Promise<IFileStatWithMetadata> { return Promise.resolve(null!); }

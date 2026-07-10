@@ -165,6 +165,21 @@ export interface IFileService {
 	writeFile(resource: URI, bufferOrReadableOrStream: VSBuffer | VSBufferReadable | VSBufferReadableStream, options?: IWriteFileOptions): Promise<IFileStatWithMetadata>;
 
 	/**
+	 * Replaces a file only when its current contents still exactly match
+	 * `expectedContents`, or atomically publishes a complete new file only when
+	 * `expectedContents` is `null` and the target name is still absent.
+	 *
+	 * The exact-content check and commit are serialized with writes made through
+	 * this file-service instance. Existing files are staged beside the target
+	 * and atomically renamed after the final byte-for-byte check. This deliberately
+	 * does not claim a portable compare-and-swap guarantee against uncooperative
+	 * external processes: filesystems expose no cross-platform conditional rename,
+	 * so an external writer can still race the final check and rename. Providers
+	 * without atomic-write and atomic-exclusive-write capabilities are rejected.
+	 */
+	writeFileWithExpectedContents(resource: URI, contents: VSBuffer, expectedContents: VSBuffer | null, options: IWriteFileWithExpectedContentsOptions): Promise<IFileStatWithMetadata>;
+
+	/**
 	 * Moves the file/folder to a new path identified by the resource.
 	 *
 	 * The optional parameter overwrite can be set to replace an existing file at the location.
@@ -672,7 +687,13 @@ export const enum FileSystemProviderCapabilities {
 	/**
 	 * Provider support to append to files.
 	 */
-	FileAppend = 1 << 19
+	FileAppend = 1 << 19,
+
+	/**
+	 * Provider support to publish a complete new file atomically while failing
+	 * when the target name already exists.
+	 */
+	FileAtomicWriteExclusive = 1 << 20
 }
 
 export interface IFileSystemProvider {
@@ -785,6 +806,23 @@ export function hasFileAtomicWriteCapability(provider: IFileSystemProvider): pro
 	}
 
 	return !!(provider.capabilities & FileSystemProviderCapabilities.FileAtomicWrite);
+}
+
+export interface IFileSystemProviderWithFileAtomicWriteExclusiveCapability extends IFileSystemProvider {
+	/** Publish the complete contents atomically and fail with `FileExists` if
+	 *  the target name already exists. No partially initialized target may be
+	 *  observable. The returned metadata must be captured before or as part of
+	 *  publication: once the name has been published, the promise must not reject
+	 *  because a subsequent metadata lookup failed. */
+	writeFileExclusiveAtomic(resource: URI, contents: Uint8Array): Promise<IStat>;
+}
+
+export function hasFileAtomicWriteExclusiveCapability(provider: IFileSystemProvider): provider is IFileSystemProviderWithFileAtomicWriteExclusiveCapability {
+	if (!hasReadWriteCapability(provider)) {
+		return false;
+	}
+
+	return !!(provider.capabilities & FileSystemProviderCapabilities.FileAtomicWriteExclusive);
 }
 
 export interface IFileSystemProviderWithFileAtomicDeleteCapability extends IFileSystemProvider {
@@ -1417,6 +1455,16 @@ export interface IWriteFileOptions {
 	readonly append?: boolean;
 }
 
+export interface IWriteFileWithExpectedContentsOptions {
+
+	/**
+	 * A postfix used for the unique temporary file staged beside an existing
+	 * target. The file service appends a UUID so concurrent instances never
+	 * share the same staging resource.
+	 */
+	readonly atomic: IFileAtomicOptions;
+}
+
 export interface IResolveFileOptions {
 
 	/**
@@ -1454,7 +1502,7 @@ export class FileOperationError extends Error {
 	constructor(
 		message: string,
 		readonly fileOperationResult: FileOperationResult,
-		readonly options?: IReadFileOptions | IWriteFileOptions | ICreateFileOptions
+		readonly options?: IReadFileOptions | IWriteFileOptions | IWriteFileWithExpectedContentsOptions | ICreateFileOptions
 	) {
 		super(message);
 	}

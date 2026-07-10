@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync, promises } from 'fs';
+import { createReadStream, existsSync, lstatSync, readdirSync, readFileSync, statSync, writeFileSync, promises } from 'fs';
 import { tmpdir } from 'os';
 import { timeout } from '../../../../base/common/async.js';
 import { bufferToReadable, bufferToStream, streamToBuffer, streamToBufferReadableStream, VSBuffer, VSBufferReadable, VSBufferReadableStream } from '../../../../base/common/buffer.js';
@@ -16,7 +16,7 @@ import { joinPath } from '../../../../base/common/resources.js';
 import { URI } from '../../../../base/common/uri.js';
 import { Promises } from '../../../../base/node/pfs.js';
 import { flakySuite, getRandomTestPath } from '../../../../base/test/node/testUtils.js';
-import { etag, IFileAtomicReadOptions, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, hasFileAtomicReadCapability, hasOpenReadWriteCloseCapability, IFileStat, IFileStatWithMetadata, IReadFileOptions, IStat, NotModifiedSinceFileOperationError, TooLargeFileOperationError, IFileAtomicOptions } from '../../common/files.js';
+import { etag, IFileAtomicReadOptions, FileOperation, FileOperationError, FileOperationEvent, FileOperationResult, FilePermission, FileSystemProviderCapabilities, FileType, hasFileAtomicReadCapability, hasOpenReadWriteCloseCapability, IFileStat, IFileStatWithMetadata, IReadFileOptions, IStat, NotModifiedSinceFileOperationError, TooLargeFileOperationError, IFileAtomicOptions } from '../../common/files.js';
 import { FileService } from '../../common/fileService.js';
 import { DiskFileSystemProvider } from '../../node/diskFileSystemProvider.js';
 import { NullLogService } from '../../../log/common/log.js';
@@ -71,6 +71,7 @@ export class TestDiskFileSystemProvider extends DiskFileSystemProvider {
 				FileSystemProviderCapabilities.FileWriteUnlock |
 				FileSystemProviderCapabilities.FileAtomicRead |
 				FileSystemProviderCapabilities.FileAtomicWrite |
+				FileSystemProviderCapabilities.FileAtomicWriteExclusive |
 				FileSystemProviderCapabilities.FileAtomicDelete |
 				FileSystemProviderCapabilities.FileClone |
 				FileSystemProviderCapabilities.FileAppend |
@@ -1738,6 +1739,44 @@ flakySuite('Disk File Service', function () {
 
 	test('createFile (stream)', async () => {
 		return assertCreateFile(contents => bufferToStream(VSBuffer.fromString(contents)));
+	});
+
+	test('atomic exclusive provider create publishes one complete winner without overwrite', async () => {
+		const resource = URI.file(join(testDir, 'exclusive-create.yaml'));
+		const first = VSBuffer.fromString('first-complete-document');
+		const second = VSBuffer.fromString('second-complete-documen');
+		assert.strictEqual(first.byteLength, second.byteLength);
+
+		const outcomes = await Promise.allSettled([
+			fileProvider.writeFileExclusiveAtomic(resource, first.buffer),
+			testProvider.writeFileExclusiveAtomic(resource, second.buffer)
+		]);
+
+		assert.strictEqual(outcomes.filter(outcome => outcome.status === 'fulfilled').length, 1);
+		assert.strictEqual(outcomes.filter(outcome => outcome.status === 'rejected').length, 1);
+		const winner = outcomes.find((outcome): outcome is PromiseFulfilledResult<IStat> => outcome.status === 'fulfilled');
+		assert.ok(winner);
+		assert.strictEqual((winner.value.type & FileType.File) !== 0, true);
+		assert.strictEqual(winner.value.size, first.byteLength);
+		assert.ok(winner.value.ctime > 0);
+		assert.ok(winner.value.mtime > 0);
+		assert.ok(['first-complete-document', 'second-complete-documen'].includes(readFileSync(resource.fsPath, 'utf8')));
+		assert.deepStrictEqual(readdirSync(testDir).filter(name => name.includes('.exclusive-create.yaml.exclusive.')), []);
+	});
+
+	(isWindows ? test.skip : test)('writeFileWithExpectedContents refuses to replace a symbolic link', async () => {
+		const target = URI.file(join(testDir, 'conditional-target.yaml'));
+		const link = URI.file(join(testDir, 'conditional-link.yaml'));
+		writeFileSync(target.fsPath, 'original');
+		await promises.symlink(target.fsPath, link.fsPath);
+
+		await assert.rejects(
+			() => service.writeFileWithExpectedContents(link, VSBuffer.fromString('replaced'), VSBuffer.fromString('original'), { atomic: { postfix: '.commit-tmp' } }),
+			error => error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_OTHER_ERROR
+		);
+
+		assert.strictEqual(lstatSync(link.fsPath).isSymbolicLink(), true);
+		assert.strictEqual(readFileSync(target.fsPath, 'utf8'), 'original');
 	});
 
 	async function assertCreateFile(converter: (content: string) => VSBuffer | VSBufferReadable | VSBufferReadableStream): Promise<void> {
