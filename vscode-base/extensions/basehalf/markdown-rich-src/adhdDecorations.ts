@@ -39,7 +39,9 @@ function renderCheckbox(id: string, read: boolean): HTMLElement {
 	el.setAttribute('contenteditable', 'false');
 	el.setAttribute('role', 'checkbox');
 	el.setAttribute('aria-checked', read ? 'true' : 'false');
+	el.tabIndex = 0;
 	el.title = read ? 'Mark unread' : 'Mark read';
+	el.setAttribute('aria-label', el.title);
 	return el;
 }
 

@@ -145,13 +145,21 @@ body,
 	padding-right: 24px;
 }
 
-.basehalf-adhd-unread {
-	color: var(--vscode-editor-foreground);
+.basehalf-markdown-rich .basehalf-adhd-unread {
+	color: var(--vscode-editor-foreground, #d4d4d4);
 	transition: color 120ms ease;
 }
 
-.basehalf-adhd-read {
-	color: var(--vscode-disabledForeground);
+.basehalf-markdown-rich .basehalf-adhd-read {
+	/* Keep read prose visibly recessed even in themes that omit
+	 * `disabledForeground` or define it too close to editor text. Mixing the
+	 * theme's foreground into its background gives both light and dark themes
+	 * a stable contrast step without hard-coding one theme's gray. */
+	color: color-mix(
+		in srgb,
+		var(--vscode-editor-foreground, #d4d4d4) 42%,
+		var(--vscode-editor-background, #1e1e1e)
+	);
 	transition: color 120ms ease;
 }
 
@@ -179,38 +187,100 @@ body,
 
 .basehalf-adhd-check {
 	position: absolute;
-	top: 0.28em;
+	top: 0.24em;
 	right: 0;
 	box-sizing: border-box;
-	width: 15px;
-	height: 15px;
-	border: 1px solid var(--vscode-checkbox-border);
-	border-radius: 3px;
-	background: var(--vscode-checkbox-background);
+	width: 16px;
+	height: 16px;
+	border: 1.5px solid color-mix(
+		in srgb,
+		var(--vscode-editor-foreground, #d4d4d4) 44%,
+		var(--vscode-editor-background, #1e1e1e)
+	);
+	border-radius: 4px;
+	background: var(--vscode-checkbox-background, var(--vscode-editor-background, #1e1e1e));
+	box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 8%, transparent);
 	cursor: pointer;
 	user-select: none;
+	transition: transform 90ms ease, border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
 }
 
-.basehalf-adhd-check:hover {
+.basehalf-adhd-check::after {
+	content: "";
+	position: absolute;
+	left: 4.5px;
+	top: 1.5px;
+	box-sizing: border-box;
+	width: 5px;
+	height: 9px;
+	border: solid var(--vscode-button-foreground, #ffffff);
+	border-width: 0 2px 2px 0;
+	opacity: 0;
+	transform: rotate(45deg) scale(0.65);
+	transform-origin: center;
+	transition: opacity 100ms ease, transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.basehalf-adhd-check:not(.basehalf-adhd-check-checked):hover {
 	border-color: var(--vscode-focusBorder);
-	background: var(--vscode-toolbar-hoverBackground);
+	background: color-mix(
+		in srgb,
+		var(--vscode-focusBorder, #0078d4) 10%,
+		var(--vscode-checkbox-background, var(--vscode-editor-background, #1e1e1e))
+	);
 }
 
 .basehalf-adhd-check-checked {
-	border-color: var(--vscode-checkbox-selectBorder, var(--vscode-focusBorder));
-	background: var(--vscode-button-background);
+	border-color: var(--vscode-button-background, var(--vscode-focusBorder, #0078d4));
+	background: var(--vscode-button-background, var(--vscode-focusBorder, #0078d4));
+	box-shadow:
+		inset 0 1px 0 color-mix(in srgb, var(--vscode-button-foreground, #ffffff) 22%, transparent),
+		0 1px 2px color-mix(in srgb, var(--vscode-button-background, #0078d4) 28%, transparent);
 }
 
 .basehalf-adhd-check-checked::after {
-	content: "";
-	position: absolute;
-	left: 4px;
-	top: 1px;
-	width: 4px;
-	height: 8px;
-	border: solid var(--vscode-button-foreground);
-	border-width: 0 2px 2px 0;
-	transform: rotate(45deg);
+	opacity: 1;
+	transform: rotate(45deg) scale(1);
+}
+
+.basehalf-adhd-check-checked:hover {
+	border-color: color-mix(
+		in srgb,
+		var(--vscode-button-background, #0078d4) 86%,
+		var(--vscode-button-foreground, #ffffff)
+	);
+	background: color-mix(
+		in srgb,
+		var(--vscode-button-background, #0078d4) 86%,
+		var(--vscode-button-foreground, #ffffff)
+	);
+}
+
+.basehalf-adhd-check:active {
+	transform: scale(0.88);
+}
+
+.basehalf-adhd-check:focus-visible {
+	outline: 2px solid var(--vscode-focusBorder, #0078d4);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.basehalf-adhd-check,
+	.basehalf-adhd-check::after {
+		transition: none;
+	}
+}
+
+@media (forced-colors: active) {
+	.basehalf-adhd-check-checked {
+		border-color: Highlight;
+		background: Highlight;
+	}
+
+	.basehalf-adhd-check-checked::after {
+		border-color: HighlightText;
+	}
 }
 
 .basehalf-markdown-rich-context-menu {

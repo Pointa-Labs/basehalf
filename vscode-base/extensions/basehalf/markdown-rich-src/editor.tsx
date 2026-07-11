@@ -1400,16 +1400,15 @@ function MarkdownRichEditor(): JSX.Element {
 			return;
 		}
 
-		const onMouseDown = (event: MouseEvent): void => {
-			const checkbox = (event.target as HTMLElement | null)?.closest?.('.basehalf-adhd-check') as HTMLElement | null;
+		const toggleCheckbox = (checkbox: HTMLElement): boolean => {
 			const blockId = checkbox?.getAttribute('data-basehalf-adhd-block-id');
 			if (!blockId) {
-				return;
+				return false;
 			}
 
 			const state = session.current;
 			if (!state.ready || !state.readingModeEnabled || state.adhdError !== undefined) {
-				return;
+				return false;
 			}
 
 			const span = baseHalfMarkdownBlockReadSpan(
@@ -1419,20 +1418,42 @@ function MarkdownRichEditor(): JSX.Element {
 				countBaseHalfMarkdownNewlines(state.frontmatter)
 			);
 			if (!span) {
-				return;
+				return false;
 			}
 
-			event.preventDefault();
-			event.stopPropagation();
 			postAdhdCommand({
 				command: state.readBlockIds.has(blockId) ? 'markUnread' : 'markRead',
 				start: span.start,
 				end: span.end,
 			});
+			return true;
+		};
+
+		const onMouseDown = (event: MouseEvent): void => {
+			const checkbox = (event.target as HTMLElement | null)?.closest?.('.basehalf-adhd-check') as HTMLElement | null;
+			if (checkbox && toggleCheckbox(checkbox)) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
+		};
+
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.repeat || (event.key !== 'Enter' && event.key !== ' ')) {
+				return;
+			}
+			const checkbox = (event.target as HTMLElement | null)?.closest?.('.basehalf-adhd-check') as HTMLElement | null;
+			if (checkbox && toggleCheckbox(checkbox)) {
+				event.preventDefault();
+				event.stopPropagation();
+			}
 		};
 
 		dom.addEventListener('mousedown', onMouseDown, true);
-		return () => dom.removeEventListener('mousedown', onMouseDown, true);
+		dom.addEventListener('keydown', onKeyDown, true);
+		return () => {
+			dom.removeEventListener('mousedown', onMouseDown, true);
+			dom.removeEventListener('keydown', onKeyDown, true);
+		};
 	}, [editor, postAdhdCommand]);
 
 	useEffect(() => {

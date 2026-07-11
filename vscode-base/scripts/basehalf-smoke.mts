@@ -2944,6 +2944,37 @@ async function assertMarkdownRichReadingModeEnabledFromWorkspaceSettings(page) {
 	const frame = await activeMarkdownRichFrame(page);
 	await frame.locator('.basehalf-adhd-check').first().waitFor({ state: 'visible', timeout: 20_000 });
 	await frame.locator('.basehalf-adhd-keyword', { hasText: 'Smoke' }).first().waitFor({ state: 'visible', timeout: 20_000 });
+	const readStateAppearance = await frame.evaluate(() => {
+		const checked = document.querySelector('.basehalf-adhd-check-checked');
+		const unchecked = document.querySelector('.basehalf-adhd-check:not(.basehalf-adhd-check-checked)');
+		const read = document.querySelector('.basehalf-adhd-read');
+		const unread = document.querySelector('.basehalf-adhd-unread');
+		if (!(checked instanceof HTMLElement) || !(unchecked instanceof HTMLElement) || !(read instanceof HTMLElement) || !(unread instanceof HTMLElement)) {
+			return undefined;
+		}
+		const checkmarkStyle = getComputedStyle(checked, '::after');
+		return {
+			checkedBackground: getComputedStyle(checked).backgroundColor,
+			uncheckedBackground: getComputedStyle(unchecked).backgroundColor,
+			checkmarkOpacity: checkmarkStyle.opacity,
+			checkmarkBorderRightWidth: checkmarkStyle.borderRightWidth,
+			checkmarkBorderBottomWidth: checkmarkStyle.borderBottomWidth,
+			checkboxTabIndex: checked.tabIndex,
+			checkboxAriaLabel: checked.getAttribute('aria-label'),
+			readColor: getComputedStyle(read).color,
+			unreadColor: getComputedStyle(unread).color,
+		};
+	});
+	if (!readStateAppearance
+		|| readStateAppearance.checkedBackground === readStateAppearance.uncheckedBackground
+		|| readStateAppearance.readColor === readStateAppearance.unreadColor
+		|| readStateAppearance.checkmarkOpacity === '0'
+		|| readStateAppearance.checkmarkBorderRightWidth === '0px'
+		|| readStateAppearance.checkmarkBorderBottomWidth === '0px'
+		|| readStateAppearance.checkboxTabIndex !== 0
+		|| !readStateAppearance.checkboxAriaLabel) {
+		throw new Error(`ADHD read and unread states should have distinct checkbox and prose styles: ${JSON.stringify(readStateAppearance)}`);
+	}
 
 	const content = frame.locator('.bn-block-content', { hasText: 'Smoke README' }).first();
 	await content.waitFor({ state: 'visible', timeout: 20_000 });
