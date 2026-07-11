@@ -5,6 +5,7 @@
 
 import { FileAccess } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
+import { isHTMLElement } from '../../../base/browser/dom.js';
 import { localize } from '../../../nls.js';
 import {
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
@@ -504,6 +505,14 @@ function createCanvasSceneMount(
 
 		vendor.useLayoutEffect(() => {
 			const element = data.card.element;
+			if (lod !== 'full') {
+				const active = element.ownerDocument.activeElement;
+				if (isHTMLElement(active)
+					&& active.closest('.basehalf-canvas-card-badge-face')
+					&& element.contains(active)) {
+					active.blur();
+				}
+			}
 			element.classList.toggle('selected', selected);
 			element.dataset.lod = lod;
 			element.dataset.cardHeight = String(height);

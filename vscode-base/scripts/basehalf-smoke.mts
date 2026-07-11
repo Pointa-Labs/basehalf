@@ -155,6 +155,7 @@ try {
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('readme-card-detail-compact-header', () => assertCardDetailCompactHeader(page));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-save-status-hidden', () => assertMarkdownRichSaveStatusHidden(page));
 	await step('readme-rich-blockquote-editable', () => assertMarkdownRichBlockquoteEditable(page));
@@ -1311,6 +1312,55 @@ async function assertCardDetail(page, title) {
 	await page.locator('.basehalf-card-detail-surface.active').waitFor({ state: 'visible', timeout: 8_000 });
 }
 
+async function assertCardDetailCompactHeader(page) {
+	const chrome = await page.evaluate(() => {
+		const header = document.querySelector('.basehalf-card-detail-header');
+		const projections = document.querySelector('.basehalf-card-detail-projections.visible');
+		const buttons = Array.from(document.querySelectorAll('.basehalf-card-detail-projection'));
+		const activeButton = document.querySelector('.basehalf-card-detail-projection.checked');
+		const close = document.querySelector('.basehalf-card-detail-close');
+		if (!(header instanceof HTMLElement) || !(projections instanceof HTMLElement) || !(activeButton instanceof HTMLElement) || !(close instanceof HTMLElement) || buttons.length !== 3) {
+			throw new Error('Missing Markdown card detail header projection controls');
+		}
+
+		const projectionStyle = getComputedStyle(projections);
+		return {
+			headerHeight: header.getBoundingClientRect().height,
+			projectionBackground: projectionStyle.backgroundColor,
+			projectionBorderWidths: [projectionStyle.borderTopWidth, projectionStyle.borderRightWidth, projectionStyle.borderBottomWidth, projectionStyle.borderLeftWidth],
+			projectionPadding: [projectionStyle.paddingTop, projectionStyle.paddingRight, projectionStyle.paddingBottom, projectionStyle.paddingLeft],
+			projectionGap: projectionStyle.columnGap,
+			activeBackground: getComputedStyle(activeButton).backgroundColor,
+			closeMarginLeft: getComputedStyle(close).marginLeft,
+			buttonSizes: buttons.map(button => {
+				const rect = button.getBoundingClientRect();
+				return { width: rect.width, height: rect.height };
+			})
+		};
+	});
+
+	if (chrome.headerHeight > 36.5
+		|| chrome.projectionBackground !== 'rgba(0, 0, 0, 0)'
+		|| chrome.projectionBorderWidths.some(width => width !== '0px')
+		|| chrome.projectionPadding.some(padding => padding !== '0px')
+		|| chrome.projectionGap !== '0px'
+		|| chrome.activeBackground === 'rgba(0, 0, 0, 0)'
+		|| chrome.closeMarginLeft !== '2px'
+		|| chrome.buttonSizes.some(size => Math.abs(size.width - 24) > 0.5 || Math.abs(size.height - 24) > 0.5)) {
+		throw new Error(`Card detail header is not compact and unboxed: ${JSON.stringify(chrome)}`);
+	}
+
+	const hoverTarget = page.locator('.basehalf-card-detail-projection:not(.checked)').first();
+	await hoverTarget.hover();
+	const hoverOutline = await hoverTarget.evaluate(element => {
+		const style = getComputedStyle(element);
+		return { style: style.outlineStyle, width: style.outlineWidth };
+	});
+	if (hoverOutline.style !== 'none' && hoverOutline.width !== '0px') {
+		throw new Error(`Card detail projection hover must not look like keyboard focus: ${JSON.stringify(hoverOutline)}`);
+	}
+}
+
 // Workspace setup ran on open: the agent-protocol pointers exist on disk —
 // hint sections in CLAUDE.md/AGENTS.md, the agent-harness index, and the
 // .bh/cache/ gitignore line appended to the fixture's existing .gitignore.
@@ -1641,6 +1691,7 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
 	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
+	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
 	if (await resetZoom.isEnabled()) {
 		await resetZoom.click();
 	}
@@ -1650,15 +1701,169 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await centerCanvasCards(page, [readme]);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
+	const fullHeaderMetrics = await page.waitForFunction(() => {
+		const header = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-header');
+		if (!(header instanceof HTMLElement) || !header.isConnected || header.getBoundingClientRect().height <= 0) {
+			return false;
+		}
+		return { height: header.getBoundingClientRect().height, boxSizing: getComputedStyle(header).boxSizing };
+	}, null, { timeout: 10_000 }).then(handle => handle.jsonValue());
+	if (fullHeaderMetrics.boxSizing !== 'border-box' || fullHeaderMetrics.height > 45) {
+		throw new Error(`Expected compact 44px card header, got ${JSON.stringify(fullHeaderMetrics)}`);
+	}
 	await readme.locator('.basehalf-canvas-card-badge-toggle.lit:visible').waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
 	const badgePrompt = readme.locator('.basehalf-canvas-card-badge-prompt');
 	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-badge-prompt'), null, { timeout: 10_000 });
+	const compositionDraft = '中文组合输入尚未结束';
+	await badgePrompt.evaluate((prompt, value) => {
+		prompt.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+		prompt.value = value;
+		prompt.dispatchEvent(new InputEvent('input', {
+			bubbles: true,
+			data: value,
+			inputType: 'insertCompositionText',
+			isComposing: true
+		}));
+	}, compositionDraft);
+	await page.waitForTimeout(450);
+	if (fs.readFileSync(readmeBadgePath, 'utf8').includes(compositionDraft)) {
+		throw new Error('Canvas Badge persisted an unfinished IME composition');
+	}
+	await badgePrompt.evaluate((prompt, value) => prompt.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: value })), compositionDraft);
+	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes(compositionDraft), 'canvas Badge to persist a completed IME composition');
+	await badgePrompt.fill('Smoke file badge');
+	await badgePrompt.evaluate(prompt => prompt.blur());
+	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes('description: "Smoke file badge"'), 'canvas Badge to restore the fixture after IME composition');
+	await badgePrompt.focus();
+	await page.keyboard.press('Escape');
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		return document.activeElement?.classList.contains('basehalf-canvas-card-badge-toggle')
+			&& card?.contains(document.activeElement);
+	}, null, { timeout: 10_000 });
+	await page.keyboard.press('Enter');
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-badge-prompt'), null, { timeout: 10_000 });
 	const promptValue = await badgePrompt.inputValue();
 	if (promptValue !== 'Smoke file badge') {
 		throw new Error(`Expected card badge face to load prompt, got ${JSON.stringify(promptValue)}`);
 	}
+	await badgePrompt.fill('First prompt line');
+	await badgePrompt.press('Enter');
+	await page.keyboard.type('Second prompt line');
+	if (await badgePrompt.inputValue() !== 'First prompt line\nSecond prompt line'
+		|| await readme.getAttribute('data-projection') !== 'badge') {
+		throw new Error('Enter did not behave exclusively as a newline in the canvas Badge prompt');
+	}
+	await badgePrompt.evaluate(prompt => prompt.blur());
+	await waitUntil(() => {
+		const badgeYaml = fs.readFileSync(readmeBadgePath, 'utf8');
+		return badgeYaml.includes('First prompt line') && badgeYaml.includes('Second prompt line');
+	}, 'multiline canvas Badge prompt to persist');
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
+	try {
+		await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	} catch (error) {
+		const state = await readme.evaluate(card => ({
+			lod: card.getAttribute('data-lod'),
+			projection: card.getAttribute('data-projection'),
+			text: card.textContent,
+			activeElement: card.ownerDocument.activeElement?.className,
+			previewCount: card.querySelectorAll('.basehalf-canvas-card-preview').length,
+			badgeFaceCount: card.querySelectorAll('.basehalf-canvas-card-badge-face').length
+		}));
+		throw new Error(`Canvas Badge did not close after persisting a multiline prompt: ${JSON.stringify(state)}`, { cause: error });
+	}
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	const reloadedMultilinePrompt = await badgePrompt.evaluate(prompt => ({
+		value: prompt.value,
+		clientHeight: prompt.clientHeight,
+		scrollHeight: prompt.scrollHeight
+	}));
+	if (reloadedMultilinePrompt.value !== 'First prompt line\nSecond prompt line'
+		|| reloadedMultilinePrompt.clientHeight < 36
+		|| Math.abs(reloadedMultilinePrompt.scrollHeight - reloadedMultilinePrompt.clientHeight) > 1) {
+		throw new Error(`Reloaded canvas Badge prompt collapsed its multiline content: ${JSON.stringify(reloadedMultilinePrompt)}`);
+	}
+	await badgePrompt.fill(Array.from({ length: 12 }, (_, index) => `Long Badge prompt line ${index + 1}`).join('\n'));
+	const longPromptLayout = await badgePrompt.evaluate(prompt => {
+		const body = prompt.closest('.basehalf-canvas-card-badge-scroll');
+		return {
+			clientHeight: prompt.clientHeight,
+			scrollHeight: prompt.scrollHeight,
+			scrollable: prompt.classList.contains('scrollable'),
+			outlineStyle: getComputedStyle(prompt).outlineStyle,
+			bodyClientHeight: body?.clientHeight ?? 0,
+			bodyScrollHeight: body?.scrollHeight ?? 0
+		};
+	});
+	if (longPromptLayout.scrollable
+		|| Math.abs(longPromptLayout.scrollHeight - longPromptLayout.clientHeight) > 1
+		|| longPromptLayout.bodyScrollHeight <= longPromptLayout.bodyClientHeight
+		|| longPromptLayout.outlineStyle !== 'none') {
+		throw new Error(`Long canvas Badge prompt did not expand to its complete content: ${JSON.stringify(longPromptLayout)}`);
+	}
+	const addReferenceVisibleAfterLongPrompt = await readme.locator('.basehalf-canvas-card-add-reference').evaluate(button => {
+		const card = button.closest('.basehalf-canvas-card');
+		const body = button.closest('.basehalf-canvas-card-badge-scroll');
+		if (!(card instanceof HTMLElement) || !(body instanceof HTMLElement)) {
+			return false;
+		}
+		body.scrollTop = body.scrollHeight;
+		const buttonBox = button.getBoundingClientRect();
+		const cardBox = card.getBoundingClientRect();
+		return buttonBox.top >= cardBox.top && buttonBox.bottom <= cardBox.bottom;
+	});
+	if (!addReferenceVisibleAfterLongPrompt) {
+		throw new Error('The canvas Badge body could not scroll from a complete prompt to Add reference');
+	}
+	const canvasBadgeDraft = 'Canvas Badge prompt survives refresh and LOD';
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+	await page.keyboard.type(canvasBadgeDraft);
+	await badgePrompt.evaluate(prompt => prompt.setAttribute('data-smoke-editor-instance', 'retained'));
+	fs.appendFileSync(readmeBadgePath, '\n# trigger a background Badge refresh while the prompt is focused\n', 'utf8');
+	await page.waitForTimeout(750);
+	const retainedPromptState = await page.evaluate(expected => {
+		const prompt = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-prompt');
+		return prompt instanceof HTMLTextAreaElement
+			&& document.activeElement === prompt
+			&& prompt.getAttribute('data-smoke-editor-instance') === 'retained'
+			&& prompt.value === expected;
+	}, canvasBadgeDraft);
+	if (!retainedPromptState) {
+		throw new Error('Background Badge refresh replaced or unfocused the active canvas prompt');
+	}
+	for (let attempt = 0; attempt < 4 && await readme.getAttribute('data-lod') !== 'summary'; attempt++) {
+		await zoomOut.evaluate(button => button.click());
+		await page.waitForTimeout(80);
+	}
+	await page.waitForFunction(expected => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const detail = card?.querySelector('.basehalf-canvas-card-summary-detail');
+		const active = document.activeElement;
+		return card?.getAttribute('data-lod') === 'summary'
+			&& card.getAttribute('data-projection') === 'badge'
+			&& detail?.textContent?.includes(expected)
+			&& !(active instanceof HTMLTextAreaElement && card.contains(active));
+	}, canvasBadgeDraft, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes(canvasBadgeDraft), 'canvas Badge prompt to flush when LOD hides its editor');
+	await resetZoom.evaluate(button => button.click());
+	await page.waitForFunction(expected => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		const prompt = card?.querySelector('.basehalf-canvas-card-badge-prompt');
+		return card?.getAttribute('data-lod') === 'full'
+			&& prompt instanceof HTMLTextAreaElement
+			&& prompt.value === expected;
+	}, canvasBadgeDraft, { timeout: 10_000 });
+	await badgePrompt.fill('Smoke file badge');
+	await badgePrompt.evaluate(prompt => prompt.blur());
+	await page.waitForFunction(() => !document.activeElement?.classList.contains('basehalf-canvas-card-badge-prompt'), null, { timeout: 10_000 });
+	await waitUntil(() => fs.readFileSync(readmeBadgePath, 'utf8').includes('description: "Smoke file badge"'), 'canvas Badge prompt fixture value to be restored');
 	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
 
@@ -1841,7 +2046,8 @@ async function centerCanvasCards(page, cards) {
 		const canvasBox = await canvas.boundingBox();
 		const cardBoxes = await Promise.all(cards.map(card => card.boundingBox()));
 		if (!canvasBox || cardBoxes.some(box => !box)) {
-			throw new Error('Missing canvas card geometry while centering the smoke-test viewport');
+			await page.waitForTimeout(100);
+			continue;
 		}
 
 		const boxes = cardBoxes;
@@ -2362,8 +2568,12 @@ async function assertAgentReferenceDrawsEdge(page) {
 		&& fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), 'Repair to persist both reciprocal reference endpoints');
 	await repairIssue.waitFor({ state: 'detached', timeout: 10_000 });
 	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
-	await readme.locator('.basehalf-canvas-card-badge-row', { hasText: AGENT_CREATED_CARD_PATH })
-		.waitFor({ state: 'visible', timeout: 10_000 });
+	const repairedReferenceRow = readme.locator('.basehalf-canvas-card-badge-row', { hasText: AGENT_CREATED_CARD_PATH });
+	await repairedReferenceRow.waitFor({ state: 'visible', timeout: 10_000 });
+	const restingRemoveOpacity = Number(await repairedReferenceRow.locator('.basehalf-canvas-card-badge-remove').evaluate(button => getComputedStyle(button).opacity));
+	if (restingRemoveOpacity < 0.35) {
+		throw new Error(`Reference remove action was undiscoverable without hover, opacity=${restingRemoveOpacity}`);
+	}
 	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
 
 	// Manufacture another source-only pair while keeping the repaired relation.
@@ -2467,6 +2677,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await detailBadgeToggle.click();
 	const detailBadgeBody = page.locator('.basehalf-card-detail-badge-body');
 	await detailBadgeBody.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-badge-prompt'), null, { timeout: 10_000 });
 	const inboundToggle = detailBadgeBody.locator('.basehalf-canvas-card-inbound-toggle', { hasText: '← 1 referenced by' });
 	await inboundToggle.waitFor({ state: 'visible', timeout: 10_000 });
 

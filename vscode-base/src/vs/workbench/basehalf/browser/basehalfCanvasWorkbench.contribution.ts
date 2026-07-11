@@ -10,7 +10,7 @@ import { $, append, clearNode, isHTMLElement } from '../../../base/browser/dom.j
 import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
-import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
@@ -30,6 +30,7 @@ import { IWorkspaceContextService } from '../../../platform/workspace/common/wor
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { DEFAULT_EDITOR_ASSOCIATION, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
+import { ILifecycleService } from '../../services/lifecycle/common/lifecycle.js';
 import { IPathService } from '../../services/path/common/pathService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
@@ -93,10 +94,23 @@ type BaseHalfCanvasCardPreview =
 type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
-type BaseHalfBadgeEditorFocusTarget = 'add-reference' | 'inbound-toggle';
+type BaseHalfBadgeEditorFocusTarget = 'prompt' | 'add-reference' | 'inbound-toggle';
+type BaseHalfCanvasBadgeFocusTarget = BaseHalfBadgeEditorFocusTarget | 'toggle';
 interface IBaseHalfBadgeEditorControls {
+	readonly prompt?: HTMLTextAreaElement;
 	readonly addReference?: HTMLButtonElement;
 	readonly inboundToggle?: HTMLButtonElement;
+}
+interface IBaseHalfBadgeDescriptionDraft {
+	readonly node: IBaseHalfBadgeNode;
+	readonly guard: IBaseHalfCanvasMutationGuard;
+	value: string;
+}
+interface IBaseHalfBadgeDescriptionPending extends IBaseHalfBadgeDescriptionDraft {
+	delayReleased: boolean;
+	readonly delay: Promise<void>;
+	readonly releaseDelay: () => void;
+	write?: Promise<void>;
 }
 interface IBaseHalfCardDetailSurface {
 	readonly host: HTMLElement;
@@ -169,14 +183,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderSeq = 0;
 	private backgroundRenderTimer: number | undefined;
 	private readonly badgeDescriptionTimers = new Map<string, number>();
-	private readonly badgeDescriptionPending = new Map<string, {
-		readonly node: IBaseHalfBadgeNode;
-		readonly guard: IBaseHalfCanvasMutationGuard;
-		value: string;
-		delayReleased: boolean;
-		readonly delay: Promise<void>;
-		readonly releaseDelay: () => void;
-	}>();
+	private readonly badgeDescriptionDrafts = new Map<string, IBaseHalfBadgeDescriptionDraft>();
+	private readonly badgeDescriptionPending = new Map<string, IBaseHalfBadgeDescriptionPending>();
 	private readonly pendingCanvasWarnings: string[] = [];
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
 	private renderedBadgeProblems: ReadonlyMap<string, IBaseHalfBadgeReadProblem> = new Map();
@@ -188,6 +196,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private detailResourceMutationStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private readonly expandedInboundBadges = new Set<string>();
 	private readonly openBadgeFaces = new Set<string>();
+	private readonly canvasBadgeFocusRefresh: MutableDisposable<IDisposable>;
+	private canvasBadgeRefreshAfterFocusLeaves = false;
+	private pendingCanvasBadgeFocus: { readonly path: string; readonly target: BaseHalfCanvasBadgeFocusTarget } | undefined;
 	private renderedItemsByPath = new Map<string, IBaseHalfCanvasItem>();
 	private readonly richWebviewWarmup: BaseHalfMarkdownRichWebviewWarmup;
 	private readonly detailSurfaces = new Map<BaseHalfCardDetailProjection, IBaseHalfCardDetailSurface>();
@@ -232,10 +243,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IBaseHalfCanvasEditingService private readonly canvasEditingService: IBaseHalfCanvasEditingService,
 		@IBaseHalfCanvasActionContextService private readonly canvasActionContextService: IBaseHalfCanvasActionContextService,
-		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
+		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@ILifecycleService lifecycleService: ILifecycleService
 	) {
 		super();
 		this.detailBadgeDisposables = this._register(new DisposableStore());
+		this.canvasBadgeFocusRefresh = this._register(new MutableDisposable());
+		this._register(lifecycleService.onWillShutdown(event => event.join(
+			this.flushAllBadgeDescriptionWrites(),
+			{ id: 'join.basehalfBadgeDescriptions', label: localize('join.basehalfBadgeDescriptions', "Saving Badge prompts") }
+		)));
 
 		const editorContainer = this.layoutService.getContainer(mainWindow, Parts.EDITOR_PART);
 		if (!editorContainer) {
@@ -343,11 +360,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			for (const timer of this.badgeDescriptionTimers.values()) {
 				mainWindow.clearTimeout(timer);
 			}
-			for (const pending of this.badgeDescriptionPending.values()) {
-				pending.releaseDelay();
+			for (const [key, pending] of this.badgeDescriptionPending) {
+				this.flushBadgeDescriptionWrite(pending.node.workspaceFolder, pending.node.relativePath);
+				this.logService.trace(`Flushing Badge prompt during canvas teardown: ${key}`);
 			}
 			this.badgeDescriptionTimers.clear();
-			this.badgeDescriptionPending.clear();
 		}));
 
 		this.updateCanvasLayer();
@@ -404,8 +421,48 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				void this.renderDetailBadge(cardDetail);
 				return;
 			}
+			if (this.deferCanvasBadgeRefreshWhileFocused()) {
+				return;
+			}
 			this.requestRender();
 		}, 100);
+	}
+
+	private deferCanvasBadgeRefreshWhileFocused(): boolean {
+		const active = this.cards.ownerDocument.activeElement;
+		if (!isHTMLElement(active) || !this.cards.contains(active)) {
+			return false;
+		}
+		const face = active.closest<HTMLElement>('.basehalf-canvas-card-badge-face');
+		if (!face) {
+			return false;
+		}
+		if (this.canvasBadgeRefreshAfterFocusLeaves) {
+			return true;
+		}
+
+		this.canvasBadgeRefreshAfterFocusLeaves = true;
+		this.canvasBadgeFocusRefresh.value = this.addDisposableListener(face, 'focusout', () => {
+			mainWindow.setTimeout(() => {
+				if (!this.canvasBadgeRefreshAfterFocusLeaves) {
+					return;
+				}
+				const nextActive = this.cards.ownerDocument.activeElement;
+				if (isHTMLElement(nextActive) && face.contains(nextActive)) {
+					return;
+				}
+				this.resetCanvasBadgeDeferredRefresh();
+				if (!this.disposed) {
+					this.requestRender();
+				}
+			}, 0);
+		});
+		return true;
+	}
+
+	private resetCanvasBadgeDeferredRefresh(): void {
+		this.canvasBadgeRefreshAfterFocusLeaves = false;
+		this.canvasBadgeFocusRefresh.clear();
 	}
 
 	private addDisposableListener<K extends keyof HTMLElementEventMap>(node: HTMLElement | SVGElement, type: K, listener: (event: HTMLElementEventMap[K]) => void, useCaptureOrOptions?: boolean | AddEventListenerOptions): { dispose(): void };
@@ -455,6 +512,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
+			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			this.canvasScene.update({ key: 'no-folder', structuralEpoch: 0, revision: seq, cards: [], edges: [] });
 			this.renderEmpty('No folder');
@@ -481,6 +539,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
+			this.resetCanvasBadgeDeferredRefresh();
 			this.cardListeners.clear();
 			if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
 				return;
@@ -552,15 +611,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				this.inlineEdit = undefined;
 			}
 		}
+		this.resetCanvasBadgeDeferredRefresh();
 		this.cardListeners.clear();
 		const sceneCards = items.map((item, index) => {
 			const preview = previews.get(item.path);
 			const bounds = this.cardBoundsForPreview(item, index, items.length, preview);
+			const badge = this.badgeMetadataWithDraft(folder.workspaceFolder, item.path, item.badge);
+			const displayedItem = badge === item.badge ? item : { ...item, badge };
 			return {
 				path: item.path,
 				kind: item.kind,
 				...bounds,
-				element: this.createCard(item, bounds, preview, structuralStamp)
+				element: this.createCard(displayedItem, bounds, preview, structuralStamp)
 			};
 		});
 		const sceneEdges = model.edges.map(edge => {
@@ -1368,8 +1430,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		this.renderFolderCoverage(full, item, preview);
 		this.renderInlineRenameEditor(card, item);
+		this.restorePendingCanvasBadgeFocus(card, item.path);
 
 		this.cardListeners.add(this.addDisposableListener(card, 'keydown', event => {
+			if (event.target !== card) {
+				return;
+			}
 			if (event.key === 'F2') {
 				event.preventDefault();
 				event.stopPropagation();
@@ -1380,6 +1446,48 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}));
 		return card;
+	}
+
+	private restorePendingCanvasBadgeFocus(card: HTMLElement, path: string): void {
+		const pending = this.pendingCanvasBadgeFocus;
+		if (!pending || pending.path !== path) {
+			return;
+		}
+
+		this.pendingCanvasBadgeFocus = undefined;
+		let attempts = 0;
+		const focus = () => {
+			if (this.disposed) {
+				return;
+			}
+			if (!card.isConnected) {
+				if (attempts++ < 8) {
+					mainWindow.requestAnimationFrame(focus);
+				}
+				return;
+			}
+			let target: HTMLElement | null | undefined;
+			switch (pending.target) {
+				case 'prompt':
+					target = card.dataset.lod === 'full'
+						? card.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt')
+						: undefined;
+					break;
+				case 'add-reference':
+					target = card.dataset.lod === 'full'
+						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-add-reference')
+						: undefined;
+					break;
+				case 'inbound-toggle':
+					target = card.dataset.lod === 'full'
+						? card.querySelector<HTMLButtonElement>('.basehalf-canvas-card-inbound-toggle')
+						: undefined;
+					break;
+			}
+			const projection = card.dataset.lod === 'full' ? '.basehalf-canvas-card-full' : '.basehalf-canvas-card-summary';
+			(target ?? card.querySelector<HTMLButtonElement>(`${projection} .basehalf-canvas-card-badge-toggle`))?.focus();
+		};
+		mainWindow.requestAnimationFrame(focus);
 	}
 
 	private cardBoundsForPreview(
@@ -1577,8 +1685,17 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		face.classList.add('nowheel', 'nodrag');
 		face.setAttribute('data-testid', `card-badge-face-${item.path}`);
 		this.cardListeners.add(this.addDisposableListener(face, 'pointerdown', event => event.stopPropagation()));
+		this.cardListeners.add(this.addDisposableListener(face, 'mousedown', event => event.stopPropagation()));
 		this.cardListeners.add(this.addDisposableListener(face, 'dblclick', event => event.stopPropagation()));
 		this.cardListeners.add(this.addDisposableListener(face, 'wheel', event => event.stopPropagation()));
+		this.cardListeners.add(this.addDisposableListener(face, 'keydown', event => {
+			if (event.key !== 'Escape' || event.isComposing) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			this.toggleBadgeFace(item.path);
+		}, true));
 
 		const body = append(face, $('.basehalf-canvas-card-badge-scroll'));
 		const folder = this.getCurrentFolder();
@@ -1595,7 +1712,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}, item.badge, this.renderedBadges, this.renderedBadgeProblems, mutationGuard,
 		disposable => this.cardListeners.add(disposable),
 		() => this.referenceCandidates(item),
-		() => this.requestRender());
+		focusTarget => {
+			this.pendingCanvasBadgeFocus = { path: item.path, target: focusTarget };
+			this.requestRender();
+		});
 	}
 
 	/**
@@ -1649,17 +1769,36 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		prompt.spellcheck = false;
 		prompt.setAttribute('aria-label', `Badge prompt for ${node.relativePath}`);
 		this.fitBadgePrompt(prompt);
-		addListener(this.addDisposableListener(prompt, 'input', () => {
+		let composing = false;
+		const flushPrompt = () => {
+			composing = false;
+			const key = this.badgeDescriptionKey(node.workspaceFolder, node.relativePath);
+			if (this.badgeDescriptionDrafts.has(key) || prompt.value !== (badge?.description ?? '')) {
+				this.scheduleBadgeDescriptionWrite(node, prompt.value, mutationGuard);
+			}
+			this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
+		};
+		addListener(this.addDisposableListener(prompt, 'compositionstart', () => {
+			composing = true;
+		}));
+		addListener(this.addDisposableListener(prompt, 'compositionend', () => {
+			composing = false;
 			this.fitBadgePrompt(prompt);
 			this.scheduleBadgeDescriptionWrite(node, prompt.value, mutationGuard);
 		}));
-		addListener(this.addDisposableListener(prompt, 'blur', () => this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath)));
+		addListener(this.addDisposableListener(prompt, 'input', event => {
+			this.fitBadgePrompt(prompt);
+			if (!composing && !(event instanceof InputEvent && event.isComposing)) {
+				this.scheduleBadgeDescriptionWrite(node, prompt.value, mutationGuard);
+			}
+		}));
+		addListener(this.addDisposableListener(prompt, 'blur', () => {
+			flushPrompt();
+			this.scheduleBackgroundRender();
+		}));
 		addListener(this.addDisposableListener(prompt, 'keydown', event => {
-			if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-				event.preventDefault();
+			if (event.isComposing) {
 				event.stopPropagation();
-				this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
-				prompt.blur();
 				return;
 			}
 			if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -1822,11 +1961,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				addListener(this.addDisposableListener(remove, 'click', event => {
 					event.preventDefault();
 					event.stopPropagation();
+					if (remove.disabled) {
+						return;
+					}
+					remove.disabled = true;
+					row.setAttribute('aria-busy', 'true');
 					void this.removeBadgeReference(node, to, mutationGuard, targetStamp).then(changed => {
 						if (changed) {
 							refresh('add-reference');
 						}
-					}).catch(error => this.reportCanvasMutationError(error));
+					}).catch(error => this.reportCanvasMutationError(error)).finally(() => {
+						remove.disabled = false;
+						row.removeAttribute('aria-busy');
+					});
 				}));
 			}
 		}
@@ -1836,11 +1983,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		addListener(this.addDisposableListener(add, 'click', event => {
 			event.preventDefault();
 			event.stopPropagation();
+			if (add.disabled) {
+				return;
+			}
+			add.disabled = true;
+			add.setAttribute('aria-busy', 'true');
 			void this.addBadgeReference(node, refs, stampedCandidates, mutationGuard).then(changed => {
 				if (changed) {
 					refresh('add-reference');
 				}
-			}).catch(error => this.reportCanvasMutationError(error));
+			}).catch(error => this.reportCanvasMutationError(error)).finally(() => {
+				add.disabled = false;
+				add.removeAttribute('aria-busy');
+			});
 		}));
 
 		const inbound = relationships.referencedBy;
@@ -1879,12 +2034,19 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}
 		}
-		return { addReference: add, inboundToggle };
+		return { prompt, addReference: add, inboundToggle };
 	}
 
-	private fitBadgePrompt(prompt: HTMLTextAreaElement): void {
+	private fitBadgePrompt(prompt: HTMLTextAreaElement, mountAttempt = 0): void {
+		if (!prompt.isConnected) {
+			if (mountAttempt < 8) {
+				mainWindow.requestAnimationFrame(() => this.fitBadgePrompt(prompt, mountAttempt + 1));
+			}
+			return;
+		}
 		prompt.style.height = 'auto';
 		prompt.style.height = `${prompt.scrollHeight}px`;
+		prompt.classList.toggle('scrollable', prompt.scrollHeight > prompt.clientHeight + 1);
 	}
 
 	/** Open a workspace-relative path in BaseHalf navigation — via the rendered
@@ -1931,9 +2093,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 	private toggleBadgeFace(path: string): void {
 		if (this.openBadgeFaces.has(path)) {
+			const folder = this.getCurrentFolder();
+			if (folder) {
+				this.flushBadgeDescriptionWrite(folder.workspaceFolder, path);
+			}
 			this.openBadgeFaces.delete(path);
+			this.pendingCanvasBadgeFocus = { path, target: 'toggle' };
 		} else {
 			this.openBadgeFaces.add(path);
+			this.pendingCanvasBadgeFocus = { path, target: 'prompt' };
 		}
 		this.requestRender();
 	}
@@ -1947,11 +2115,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return `${workspaceFolder.toString()}\0${relativePath}`;
 	}
 
+	private badgeMetadataWithDraft(
+		workspaceFolder: URI,
+		relativePath: string,
+		badge: IBaseHalfCanvasBadgeMetadata | undefined
+	): IBaseHalfCanvasBadgeMetadata | undefined {
+		const draft = this.badgeDescriptionDrafts.get(this.badgeDescriptionKey(workspaceFolder, relativePath));
+		if (!draft) {
+			return badge;
+		}
+		return {
+			description: draft.value,
+			references: badge?.references ?? [],
+			referenced_by: badge?.referenced_by ?? [],
+			orphan: badge?.orphan
+		};
+	}
+
 	private scheduleBadgeDescriptionWrite(node: IBaseHalfBadgeNode, value: string, guard: IBaseHalfCanvasMutationGuard): void {
 		const key = this.badgeDescriptionKey(node.workspaceFolder, node.relativePath);
+		if (guard.workspaceKey !== node.workspaceFolder.toString()) {
+			return;
+		}
+		this.badgeDescriptionDrafts.set(key, { node, guard, value });
 		const existing = this.badgeDescriptionTimers.get(key);
 		if (existing !== undefined) {
 			mainWindow.clearTimeout(existing);
+			this.badgeDescriptionTimers.delete(key);
 		}
 		const current = this.badgeDescriptionPending.get(key);
 		if (current) {
@@ -1962,55 +2152,89 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		if (guard.workspaceKey !== node.workspaceFolder.toString()) {
-			return;
-		}
 		let releaseDelay!: () => void;
 		const delay = new Promise<void>(resolve => releaseDelay = resolve);
-		const pending = { node, guard, value, delayReleased: false, delay, releaseDelay };
+		const pending: IBaseHalfBadgeDescriptionPending = { node, guard, value, delayReleased: false, delay, releaseDelay };
 		this.badgeDescriptionPending.set(key, pending);
 		// Badge notes debounce at the same cadence as file auto-save so every
 		// user edit reaches disk with one perceived delay. The workspace FIFO is
 		// reserved NOW, so a later rename waits for this authored note and then
 		// carries it instead of letting a timer recreate the old path afterwards.
 		this.badgeDescriptionTimers.set(key, mainWindow.setTimeout(() => this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath), BASEHALF_AUTO_SAVE_DELAY_MS));
-		void guard.run(async lease => {
+		let writtenValue: string | undefined;
+		pending.write = guard.run(async lease => {
 			await delay;
 			if (this.badgeDescriptionPending.get(key) !== pending) {
 				return;
 			}
-			this.badgeDescriptionPending.delete(key);
-			this.badgeDescriptionTimers.delete(key);
+			writtenValue = pending.value;
 			const live = await this.resolveLiveWorkspaceNodes(node.workspaceFolder, [{ path: node.relativePath, kind: node.kind }]);
-			await this.badgeGraphService.updateDescription(live.get(node.relativePath)!, pending.value, lease);
-		}).then(() => this.scheduleBackgroundRender()).catch(error => {
+			await this.badgeGraphService.updateDescription(live.get(node.relativePath)!, writtenValue, lease);
+		}).then(() => {
 			if (this.badgeDescriptionPending.get(key) === pending) {
 				this.badgeDescriptionPending.delete(key);
-				const timer = this.badgeDescriptionTimers.get(key);
-				if (timer !== undefined) {
-					mainWindow.clearTimeout(timer);
-					this.badgeDescriptionTimers.delete(key);
-				}
 			}
+			this.clearBadgeDescriptionTimer(key);
+			const draft = this.badgeDescriptionDrafts.get(key);
+			if (writtenValue !== undefined && draft?.value === writtenValue) {
+				this.badgeDescriptionDrafts.delete(key);
+			} else if (draft) {
+				this.scheduleBadgeDescriptionWrite(draft.node, draft.value, draft.guard);
+			}
+			this.scheduleBackgroundRender();
+		}).catch(error => {
+			if (this.badgeDescriptionPending.get(key) === pending) {
+				this.badgeDescriptionPending.delete(key);
+			}
+			this.clearBadgeDescriptionTimer(key);
 			this.logService.error(error);
 			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
-			this.requestRender();
+			this.scheduleBackgroundRender();
 		});
 	}
 
-	private flushBadgeDescriptionWrite(workspaceFolder: URI, path: string): void {
-		const key = this.badgeDescriptionKey(workspaceFolder, path);
-		const pending = this.badgeDescriptionPending.get(key);
-		if (!pending) {
-			return;
-		}
+	private clearBadgeDescriptionTimer(key: string): void {
 		const timer = this.badgeDescriptionTimers.get(key);
 		if (timer !== undefined) {
 			mainWindow.clearTimeout(timer);
 			this.badgeDescriptionTimers.delete(key);
 		}
+	}
+
+	private flushBadgeDescriptionWrite(workspaceFolder: URI, path: string): void {
+		const key = this.badgeDescriptionKey(workspaceFolder, path);
+		let pending = this.badgeDescriptionPending.get(key);
+		if (!pending) {
+			const draft = this.badgeDescriptionDrafts.get(key);
+			if (draft) {
+				this.scheduleBadgeDescriptionWrite(draft.node, draft.value, draft.guard);
+				pending = this.badgeDescriptionPending.get(key);
+			}
+		}
+		if (!pending) {
+			return;
+		}
+		this.clearBadgeDescriptionTimer(key);
 		pending.delayReleased = true;
 		pending.releaseDelay();
+	}
+
+	private async flushAllBadgeDescriptionWrites(): Promise<void> {
+		for (const [key, draft] of this.badgeDescriptionDrafts) {
+			if (!this.badgeDescriptionPending.has(key)) {
+				this.scheduleBadgeDescriptionWrite(draft.node, draft.value, draft.guard);
+			}
+		}
+		while (this.badgeDescriptionPending.size > 0) {
+			const pending = [...this.badgeDescriptionPending.values()];
+			for (const write of pending) {
+				this.flushBadgeDescriptionWrite(write.node.workspaceFolder, write.node.relativePath);
+			}
+			await Promise.all(pending.map(write => write.write).filter((write): write is Promise<void> => !!write));
+			if (pending.every(write => this.badgeDescriptionPending.get(this.badgeDescriptionKey(write.node.workspaceFolder, write.node.relativePath)) === write)) {
+				break;
+			}
+		}
 	}
 
 	private async repairBadgeRelationshipIssue(
@@ -2592,6 +2816,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			|| !this.workspaceMutationCoordinator.isResourceStampCurrent(cardDetail.workspaceFolder, structuralStamp)) {
 			return;
 		}
+		const badgeForDisplay = this.badgeMetadataWithDraft(cardDetail.workspaceFolder, node.relativePath, badge ?? undefined);
 		// Never rebuild under the user's cursor during a background refresh. This
 		// protects textarea edits AND keyboard navigation among Badge controls.
 		// The collapsed toggle is the exception: it has no editable state, so its
@@ -2626,10 +2851,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		// The badge glyph is the toolbar action's identity: accent-toned once
 		// the file carries a note or references, ghost while empty.
-		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badge ?? undefined, badges, problems);
+		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badgeForDisplay, badges, problems);
 		const badgeIssueCount = relationships.issues.length + (problems.has(node.relativePath) ? 1 : 0);
 		const hasRelationships = relationships.references.length > 0 || relationships.referencedBy.length > 0;
-		const hasContent = !!badge?.description?.trim() || hasRelationships || badgeIssueCount > 0;
+		const hasContent = !!badgeForDisplay?.description?.trim() || hasRelationships || badgeIssueCount > 0;
 		toggle.classList.toggle('issue', badgeIssueCount > 0);
 		toggle.setAttribute('data-reference-issue-count', String(badgeIssueCount));
 		toggle.title = badgeIssueCount > 0
@@ -2654,11 +2879,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const inboundCount = relationships.referencedBy.length;
 			summary.textContent = badgeIssueCount > 0
 				? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}`
-				: badge?.description
+				: badgeForDisplay?.description
 				?? (hasRelationships
 					? `${relationships.references.length} reference${relationships.references.length === 1 ? '' : 's'}${inboundCount > 0 ? ` · ← ${inboundCount}` : ''}`
 					: 'What agents should know about this file');
-			summary.classList.toggle('empty', !badge?.description && !hasRelationships && badgeIssueCount === 0);
+			summary.classList.toggle('empty', !badgeForDisplay?.description && !hasRelationships && badgeIssueCount === 0);
 		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(toggle, 'click', () => {
 			if (open) {
@@ -2666,9 +2891,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				return;
 			}
 
-			const nextOpen = !open;
-			this.detailBadgeOpen = nextOpen;
-			void this.renderDetailBadge(cardDetail, nextOpen, !nextOpen);
+			this.detailBadgeOpen = true;
+			void this.renderDetailBadge(cardDetail, true, false, 'prompt');
 		}));
 		if (focusToggle || restoreCollapsedToggleFocus) {
 			mainWindow.setTimeout(() => {
@@ -2690,7 +2914,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const editorControls = this.renderBadgeEditorContent(
 			body,
 			node,
-			badge ?? undefined,
+			badgeForDisplay,
 			badges,
 			problems,
 			this.resourceMutationGuard(cardDetail.workspaceFolder, structuralStamp),
@@ -2711,8 +2935,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				if (this.disposed || seq !== this.detailBadgeSeq) {
 					return;
 				}
-				const target = (focusEditorControl === 'add-reference' ? editorControls.addReference : editorControls.inboundToggle) ?? toggle;
-				target?.focus();
+				const target = focusEditorControl === 'prompt'
+					? editorControls.prompt
+					: focusEditorControl === 'add-reference'
+						? editorControls.addReference
+						: editorControls.inboundToggle;
+				(target ?? toggle).focus();
 			}, 0);
 		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(body.ownerDocument, 'pointerdown', event => {
@@ -2723,7 +2951,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.closeDetailBadgePopover(cardDetail, false);
 		}, true));
 		this.detailBadgeDisposables.add(this.addDisposableListener(mainWindow, 'keydown', event => {
-			if (event.key !== 'Escape') {
+			if (event.key !== 'Escape' || event.isComposing) {
 				return;
 			}
 			event.preventDefault();
@@ -2772,6 +3000,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		const key = this.badgeDescriptionKey(cardDetail.workspaceFolder, cardDetail.relativePath);
+		const draft = this.badgeDescriptionDrafts.get(key);
+		const prompt = this.detailBadgeZone.querySelector<HTMLTextAreaElement>('.basehalf-canvas-card-badge-prompt');
+		if (draft && prompt) {
+			this.scheduleBadgeDescriptionWrite(draft.node, prompt.value, draft.guard);
+		}
 		this.flushBadgeDescriptionWrite(cardDetail.workspaceFolder, cardDetail.relativePath);
 		this.detailBadgeOpen = false;
 		this.hideDetailBadgePopoverNow();
