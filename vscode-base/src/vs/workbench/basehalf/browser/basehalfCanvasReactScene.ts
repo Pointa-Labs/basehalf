@@ -1470,7 +1470,7 @@ function createCanvasSceneMount(
 			selectionMode: vendor.SelectionMode.Partial,
 			panOnDrag: [1, 2],
 			multiSelectionKeyCode: 'Shift',
-			onlyRenderVisibleElements: true,
+			onlyRenderVisibleElements: !nodes.some(node => node.data.card.element.classList.contains('badge-open')),
 			proOptions: { hideAttribution: true },
 			defaultEdgeOptions: { type: 'basehalf-reference', animated: false },
 			fitView: false

@@ -423,7 +423,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
-	align-items: center;
+	align-items: flex-start;
 	padding: 12px 16px;
 	overflow: hidden;
 }
@@ -436,7 +436,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	width: calc(100% / var(--bh-summary-scale));
 	min-width: 0;
 	transform: scale(var(--bh-summary-scale));
-	transform-origin: left center;
+	transform-origin: left top;
 }
 
 .monaco-workbench .basehalf-canvas-card-summary-identity {
@@ -454,7 +454,7 @@ body.basehalf-canvas-edge-reconnecting * {
 
 .monaco-workbench .basehalf-canvas-card-summary-label {
 	min-width: 0;
-	flex: 0 1 auto;
+	flex: 1;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -480,14 +480,6 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-family: var(--monaco-monospace-font);
 	font-size: 11px;
 	line-height: 16px;
-}
-
-.monaco-workbench .basehalf-canvas-card-summary-badge-dot {
-	flex: none;
-	width: 5px;
-	height: 5px;
-	border-radius: 50%;
-	background: var(--bh-card-accent);
 }
 
 .monaco-workbench .basehalf-canvas-card-full {
@@ -586,15 +578,21 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid transparent;
 	border-radius: 6px;
 	cursor: pointer;
-	opacity: 0;
+	opacity: 0.56;
 	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-badge-toggle,
 .monaco-workbench .basehalf-canvas-card-badge-toggle:focus-visible,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.lit,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
 	opacity: 1;
+}
+
+.monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+.monaco-workbench .basehalf-canvas-card.selected .basehalf-canvas-card-badge-toggle {
+	border-color: var(--bh-card-border-strong);
 }
 
 .monaco-workbench .basehalf-canvas-card-badge-toggle:hover,

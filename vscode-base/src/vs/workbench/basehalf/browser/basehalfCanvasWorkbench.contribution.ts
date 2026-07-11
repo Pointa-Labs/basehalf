@@ -1309,9 +1309,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.setAttribute('role', 'button');
 		card.dataset.basehalfCardPath = item.path;
 		card.dataset.cardHeight = String(bounds.height);
+		const badgeOpen = this.openBadgeFaces.has(item.path);
 		card.dataset.lod = this.cardLod(bounds);
+		card.dataset.projection = badgeOpen ? 'badge' : 'preview';
 		card.classList.add(item.kind);
-		card.classList.toggle('badge-open', this.openBadgeFaces.has(item.path));
+		card.classList.toggle('badge-open', badgeOpen);
 		card.setAttribute('aria-label', `${item.name} card`);
 		card.title = item.kind === 'folder'
 			? `${item.path} - click to select; double-click to enter this folder`
@@ -1326,12 +1328,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		card.setAttribute('aria-label', `${item.name} card${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
 		const dirname = item.path.includes('/') ? item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1)) : '';
 		const content = append(card, $('.basehalf-canvas-card-content'));
+		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
 
 		const mini = append(content, $('.basehalf-canvas-card-mini'));
 		this.renderCardTitleChip(mini, type, item.name, orphan, bounds.height, badgeIssueCount);
 
 		const summary = append(content, $('.basehalf-canvas-card-summary'));
-		this.renderCardSummary(summary, type, item, preview, orphan, badgeIssueCount);
+		this.renderCardSummary(summary, type, item, preview, orphan, badgeRelationships, badgeIssueCount, canShowBadgeFace);
 
 		const full = append(content, $('.basehalf-canvas-card-full'));
 		const header = append(full, $('.basehalf-canvas-card-header'));
@@ -1345,41 +1348,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const count = append(titleRow, $('.basehalf-canvas-card-kind-chip.folder'));
 			count.textContent = folderCountLabel(preview.total);
 		}
-		const canShowBadgeFace = !(item.kind === 'folder' && orphan);
 		if (canShowBadgeFace) {
-			const badgeToggle = append(titleRow, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
-			badgeToggle.classList.add('nodrag', 'nopan', 'nowheel');
-			badgeToggle.type = 'button';
-			badgeToggle.title = badgeIssueCount > 0
-				? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - open Badge to resolve`
-				: this.openBadgeFaces.has(item.path) ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
-			badgeToggle.setAttribute('aria-label', `${this.openBadgeFaces.has(item.path) ? 'Hide' : 'Show'} badge for ${item.path}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
-			badgeToggle.setAttribute('aria-pressed', String(this.openBadgeFaces.has(item.path)));
-			badgeToggle.classList.toggle('lit', !!item.badge?.description || badgeIssueCount > 0);
-			badgeToggle.classList.toggle('issue', badgeIssueCount > 0);
-			badgeToggle.classList.toggle('pressed', this.openBadgeFaces.has(item.path));
-			this.renderGlyph(badgeToggle, 'badge', badgeIssueCount > 0 ? 'var(--bh-card-warning)' : item.badge?.description ? 'var(--bh-card-accent)' : 'var(--bh-card-text-tertiary)', 15);
-			if (badgeIssueCount > 0) {
-				const marker = append(badgeToggle, $('.basehalf-canvas-card-badge-dot.issue'));
-				marker.setAttribute('data-testid', 'card-reference-issue-marker');
-				marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
-				marker.setAttribute('aria-hidden', 'true');
-			} else if (item.badge?.description && (badgeRelationships.references.length > 0 || badgeRelationships.referencedBy.length > 0)) {
-				append(badgeToggle, $('.basehalf-canvas-card-badge-dot'));
-			}
-			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'pointerdown', event => {
-				event.stopPropagation();
-			}));
-			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'dblclick', event => {
-				event.preventDefault();
-				event.stopPropagation();
-			}));
-			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'click', event => {
-				event.preventDefault();
-				event.stopPropagation();
-				this.selectCard(item.path);
-				this.toggleBadgeFace(item.path);
-			}));
+			this.renderCardBadgeToggle(titleRow, item, badgeRelationships, badgeIssueCount);
 		}
 		if (orphan) {
 			const missing = append(titleRow, $('.basehalf-canvas-card-kind-chip.danger'));
@@ -1448,7 +1418,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		item: IBaseHalfCanvasItem,
 		preview: BaseHalfCanvasCardPreview | undefined,
 		orphan: boolean,
-		badgeIssueCount: number
+		badgeRelationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
+		badgeIssueCount: number,
+		canShowBadgeFace: boolean
 	): void {
 		const flow = append(container, $('.basehalf-canvas-card-summary-flow'));
 		const identity = append(flow, $('.basehalf-canvas-card-summary-identity'));
@@ -1457,18 +1429,56 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const label = append(identity, $('.basehalf-canvas-card-summary-label'));
 		label.textContent = item.name;
 		label.classList.toggle('danger', orphan);
-		if (badgeIssueCount > 0) {
-			const marker = append(identity, $('span.basehalf-reference-issue-marker'));
-			marker.setAttribute('data-testid', 'card-reference-issue-marker');
-			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
-			marker.setAttribute('aria-hidden', 'true');
-		} else if (item.badge?.description) {
-			const marker = append(identity, $('span.basehalf-canvas-card-summary-badge-dot'));
-			marker.setAttribute('aria-hidden', 'true');
+		if (canShowBadgeFace) {
+			this.renderCardBadgeToggle(identity, item, badgeRelationships, badgeIssueCount);
 		}
 
 		const detail = append(flow, $('.basehalf-canvas-card-summary-detail'));
-		detail.textContent = cardSummaryText(item, preview, orphan);
+		detail.textContent = this.openBadgeFaces.has(item.path)
+			? cardBadgeSummaryText(item, badgeRelationships, badgeIssueCount)
+			: cardSummaryText(item, preview, orphan);
+	}
+
+	private renderCardBadgeToggle(
+		container: HTMLElement,
+		item: IBaseHalfCanvasItem,
+		badgeRelationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
+		badgeIssueCount: number
+	): void {
+		const badgeOpen = this.openBadgeFaces.has(item.path);
+		const badgeToggle = append(container, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
+		badgeToggle.classList.add('nodrag', 'nopan', 'nowheel');
+		badgeToggle.type = 'button';
+		badgeToggle.title = badgeIssueCount > 0
+			? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - open Badge to resolve`
+			: badgeOpen ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
+		badgeToggle.setAttribute('aria-label', `${badgeOpen ? 'Hide' : 'Show'} badge for ${item.path}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
+		badgeToggle.setAttribute('aria-pressed', String(badgeOpen));
+		badgeToggle.classList.toggle('lit', !!item.badge?.description || badgeIssueCount > 0);
+		badgeToggle.classList.toggle('issue', badgeIssueCount > 0);
+		badgeToggle.classList.toggle('pressed', badgeOpen);
+		this.renderGlyph(badgeToggle, 'badge', badgeIssueCount > 0 ? 'var(--bh-card-warning)' : item.badge?.description ? 'var(--bh-card-accent)' : 'var(--bh-card-text-tertiary)', 15);
+		if (badgeIssueCount > 0) {
+			const marker = append(badgeToggle, $('.basehalf-canvas-card-badge-dot.issue'));
+			marker.setAttribute('data-testid', 'card-reference-issue-marker');
+			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+			marker.setAttribute('aria-hidden', 'true');
+		} else if (item.badge?.description && (badgeRelationships.references.length > 0 || badgeRelationships.referencedBy.length > 0)) {
+			append(badgeToggle, $('.basehalf-canvas-card-badge-dot'));
+		}
+		this.cardListeners.add(this.addDisposableListener(badgeToggle, 'pointerdown', event => {
+			event.stopPropagation();
+		}));
+		this.cardListeners.add(this.addDisposableListener(badgeToggle, 'dblclick', event => {
+			event.preventDefault();
+			event.stopPropagation();
+		}));
+		this.cardListeners.add(this.addDisposableListener(badgeToggle, 'click', event => {
+			event.preventDefault();
+			event.stopPropagation();
+			this.selectCard(item.path);
+			this.toggleBadgeFace(item.path);
+		}));
 	}
 
 	private renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
@@ -3144,6 +3154,24 @@ function cardSummaryText(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardP
 		.filter(Boolean)
 		.slice(0, 3);
 	return lines.length > 0 ? lines.join('\n') : 'Empty file';
+}
+
+function cardBadgeSummaryText(
+	item: IBaseHalfCanvasItem,
+	relationships: ReturnType<typeof baseHalfCanvasBadgeRelationships>,
+	issueCount: number
+): string {
+	const lines = [item.badge?.description?.trim() || 'No Badge prompt'];
+	if (issueCount > 0) {
+		lines.push(`${issueCount} metadata issue${issueCount === 1 ? '' : 's'}`);
+	}
+	if (relationships.references.length > 0) {
+		lines.push(`${relationships.references.length} reference${relationships.references.length === 1 ? '' : 's'}`);
+	}
+	if (relationships.referencedBy.length > 0) {
+		lines.push(`${relationships.referencedBy.length} referenced by`);
+	}
+	return lines.slice(0, 3).join('\n');
 }
 
 function canvasChildPath(parent: string, name: string): string {

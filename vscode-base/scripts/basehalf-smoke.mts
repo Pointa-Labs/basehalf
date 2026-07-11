@@ -1659,6 +1659,8 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	}
 
 	const resetZoom = page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]');
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	if (await resetZoom.isEnabled()) {
 		await resetZoom.click();
 	}
@@ -1668,17 +1670,64 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	await readme.waitFor({ state: 'visible', timeout: 20_000 });
 	await centerCanvasCards(page, [readme]);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
-	await readme.locator('.basehalf-canvas-card-badge-toggle.lit').waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-badge-toggle.lit:visible').waitFor({ state: 'visible', timeout: 10_000 });
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
-	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
 	const badgePrompt = readme.locator('.basehalf-canvas-card-badge-prompt');
 	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
 	const promptValue = await badgePrompt.inputValue();
 	if (promptValue !== 'Smoke file badge') {
 		throw new Error(`Expected card badge face to load prompt, got ${JSON.stringify(promptValue)}`);
 	}
-	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
 	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+
+	for (let attempt = 0; attempt < 4 && await readme.getAttribute('data-lod') !== 'summary'; attempt++) {
+		await zoomOut.click();
+		await page.waitForTimeout(80);
+	}
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'summary', null, { timeout: 10_000 });
+	const summaryLabel = readme.locator('.basehalf-canvas-card-summary-label:visible');
+	const summaryBadgeToggle = readme.locator('.basehalf-canvas-card-badge-toggle:visible');
+	const [summaryCardBox, summaryLabelBox, summaryBadgeBox] = await Promise.all([
+		readme.boundingBox(),
+		summaryLabel.boundingBox(),
+		summaryBadgeToggle.boundingBox()
+	]);
+	if (!summaryCardBox || !summaryLabelBox || !summaryBadgeBox) {
+		throw new Error('Missing summary card header geometry');
+	}
+	if (summaryLabelBox.y - summaryCardBox.y > summaryCardBox.height * 0.3) {
+		throw new Error('Summary filename did not stay in the card top row');
+	}
+	if (summaryCardBox.x + summaryCardBox.width - summaryBadgeBox.x - summaryBadgeBox.width > 18) {
+		throw new Error('Summary Badge toggle did not stay at the top-right edge');
+	}
+	const canvasBeforeProjectionToggle = fs.readFileSync(canvasPath, 'utf8');
+	await summaryBadgeToggle.click();
+	await page.waitForFunction(() => {
+		const card = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+		return card?.getAttribute('data-lod') === 'summary'
+			&& card.getAttribute('data-projection') === 'badge'
+			&& card.classList.contains('badge-open');
+	}, null, { timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-summary-detail:visible', { hasText: 'Smoke file badge' }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (await badgePrompt.isVisible()) {
+		throw new Error('Summary Badge projection mounted the full editor instead of following card LOD');
+	}
+	if (await readme.locator('.basehalf-canvas-card-badge-toggle:visible').getAttribute('aria-pressed') !== 'true') {
+		throw new Error('Summary Badge projection did not preserve the pressed toggle state');
+	}
+	if (await resetZoom.isEnabled()) {
+		await resetZoom.click();
+	}
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
+	await badgePrompt.waitFor({ state: 'visible', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').click();
+	await readme.locator('.basehalf-canvas-card-preview', { hasText: /Smoke README|needle-basehalf-routing/ }).waitFor({ state: 'visible', timeout: 10_000 });
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeProjectionToggle) {
+		throw new Error('Switching between preview and Badge projections changed persisted card geometry');
+	}
 
 	const readmeNode = page.locator('.react-flow__node', { has: readme });
 	const readmeHandles = readmeNode.locator(':scope > .basehalf-canvas-card-connect-handle');
@@ -1697,7 +1746,6 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 
 	const docs = page.locator('.basehalf-canvas-card[data-basehalf-card-path="docs"]');
 	const src = page.locator('.basehalf-canvas-card[data-basehalf-card-path="src"]');
-	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
 	for (let attempt = 0; attempt < 8 && (!await docs.isVisible() || !await src.isVisible()); attempt++) {
 		if (!await zoomOut.isEnabled()) {
 			break;
@@ -1726,7 +1774,6 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 		throw new Error('Missing React Flow connection geometry');
 	}
 
-	const canvasPath = path.join(workspacePath, '.bh', 'mirror', 'canvas.yaml');
 	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
 	const srcBadgePath = path.join(workspacePath, '.bh', 'mirror', 'src', 'badge.yaml');
 	const beforeCancelCanvas = fs.readFileSync(canvasPath, 'utf8');
@@ -2301,12 +2348,12 @@ async function assertAgentReferenceDrawsEdge(page) {
 		''
 	].join('\n'), 'utf8');
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-	const sourceIssueMarker = readme.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]');
+	const sourceIssueMarker = readme.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]:visible');
 	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
 	if (await sourceIssueMarker.getAttribute('data-reference-issue-count') !== '1') {
 		throw new Error('The source-only Agent write did not expose exactly one card-level reference issue');
 	}
-	await readme.locator('.basehalf-canvas-card-badge-toggle').evaluate(button => button.click());
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
 	const prompt = readme.locator('.basehalf-canvas-card-badge-prompt');
 	await page.waitForFunction(() => {
 		const input = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-prompt');
@@ -2367,7 +2414,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
 	await assertCanvasEdgeGone(page, 'README.md', 'docs');
 	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await readme.locator('.basehalf-canvas-card-badge-toggle').evaluate(button => button.click());
+	await readme.locator('.basehalf-canvas-card-badge-toggle:visible').evaluate(button => button.click());
 	await prompt.waitFor({ state: 'detached', timeout: 10_000 });
 
 	// Remove the target half again, then keep the prospective TARGET detail open
@@ -2479,7 +2526,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await detailBadgeBody.waitFor({ state: 'detached', timeout: 10_000 });
 	await closeCardDetailIfOpen(page);
 	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-dot')
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-dot:visible')
 		.waitFor({ state: 'visible', timeout: 10_000 });
 	await forceReadmeFull.evaluate(style => style.remove());
 }
