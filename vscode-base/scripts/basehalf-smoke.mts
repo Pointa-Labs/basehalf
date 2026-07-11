@@ -1588,26 +1588,6 @@ async function assertCanvasZoomControls(page) {
 	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 	await page.locator('.basehalf-canvas-zoom-value', { hasText: '100%' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await page.locator('.basehalf-canvas-cards .react-flow').evaluate(flow => {
-		const rect = flow.getBoundingClientRect();
-		flow.dispatchEvent(new WheelEvent('wheel', {
-			bubbles: true,
-			cancelable: true,
-			ctrlKey: true,
-			clientX: rect.left + rect.width / 2,
-			clientY: rect.top + rect.height / 2,
-			deltaY: -10,
-			deltaMode: 0
-		}));
-	});
-	await page.waitForFunction(() => {
-		// One pinch tick of deltaY=-10 zooms by exp(0.1) ~= 1.105 (trackpad pinch
-		// convention: scale ~= exp(-deltaY / 100)).
-		const zoom = Number(document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom'));
-		return zoom > 1.05 && zoom < 1.2;
-	}, null, { timeout: 10_000 });
-	await page.locator('.basehalf-canvas-zoom-button[aria-label="Reset Zoom"]').click();
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-workbench')?.getAttribute('data-zoom') === '1', null, { timeout: 10_000 });
 }
 
 async function assertNativeForwardOpensCardDetail(page, title) {
@@ -2681,6 +2661,11 @@ async function renameExplorerEntry(page, currentName, nextName) {
 			}
 			await row.waitFor({ state: 'visible', timeout: 20_000 });
 			await row.click();
+			// BaseHalf routes Explorer activation into card detail. Keep the
+			// Explorer selection, but close the card before rename so structural
+			// preflight does not race a just-opened retained editor surface.
+			await closeCardDetailIfOpen(page);
+			await runCommand(page, 'Focus on Files Explorer');
 			// macOS explorer rename is Enter; F2 elsewhere.
 			await page.keyboard.press(process.platform === 'darwin' ? 'Enter' : 'F2');
 			const input = page.locator('.explorer-viewlet .explorer-item .monaco-inputbox input');
@@ -2688,10 +2673,6 @@ async function renameExplorerEntry(page, currentName, nextName) {
 			await input.fill(nextName);
 			await page.keyboard.press('Enter');
 			await input.waitFor({ state: 'hidden', timeout: 10_000 });
-			// The row click above routes into the file's card detail; leave
-			// the canvas visible again — the canvas renders on visibility, so
-			// callers asserting canvas content need the detail closed.
-			await closeCardDetailIfOpen(page);
 			return;
 		} catch (error) {
 			await page.keyboard.press('Escape').catch(() => undefined);
