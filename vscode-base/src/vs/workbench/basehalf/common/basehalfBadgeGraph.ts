@@ -56,8 +56,9 @@ interface IBaseHalfCommittedBadgeStep extends IBaseHalfBadgeTransactionStep {
  * here so its invariants hold no matter which surface (canvas, card detail,
  * file-operation cascade) triggered it:
  *
- *  - A reference A→B is recorded on BOTH ends — A's `references` and B's
- *    `referenced_by` — so "who points at me?" is one read of one badge.yaml.
+ *  - A reference A→B means A's context flows into B. It is recorded on BOTH
+ *    ends — A's `references` and B's `referenced_by` — so B can discover its
+ *    upstream context with one read of one badge.yaml.
  *  - The overlay stays LOGICALLY SPARSE: a badge that carries no authored
  *    content (no description, no graph edges, not orphaned) reads as absent.
  *    Once materialized it retires to canonical empty YAML, which preserves a
@@ -78,13 +79,19 @@ export interface IBaseHalfBadgeGraphService {
 	/** Write the node's human-authored one-liner. An empty description on an
 	 *  otherwise-empty badge retires it to a logically absent tombstone. */
 	updateDescription(node: IBaseHalfBadgeNode, description: string, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfBadgeFile | null>;
-	/** Record source→target on both ends, materializing minimal badges as
-	 *  needed. Rejects self-references. Idempotent. */
+	/** Record source→target context flow on both ends, materializing minimal
+	 *  badges as needed. Rejects self-references. Idempotent. */
 	addReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<void>;
+	/** Repair source→target only while exactly one endpoint records it. A pair
+	 *  that became complete or absent after UI render is a safe no-op. */
+	repairIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
 	/** Remove source→target from both ends, pruning badges the removal
 	 *  emptied. Returns whether the canonical source edge still existed when
 	 *  the transaction acquired the graph mutex. */
 	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
+	/** Discard source→target only while exactly one endpoint records it. A pair
+	 *  that became complete or absent after UI render is a safe no-op. */
+	discardIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean>;
 	/** Replace one reference with another under one workspace transaction.
 	 *  Synchronous write failures restore every badge already changed. */
 	reconnectReference(
@@ -94,11 +101,12 @@ export interface IBaseHalfBadgeGraphService {
 		nextTarget: IBaseHalfBadgeNode,
 		lease?: IBaseHalfWorkspaceMutationLease
 	): Promise<BaseHalfReferenceReconnectResult>;
-	/** Run a derived-layer mutation only while the canonical semantic edge is
-	 * still present, under the same workspace graph mutex. */
-	runWithReference<T>(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, task: () => Promise<T>, lease?: IBaseHalfWorkspaceMutationLease): Promise<T>;
 	/** One node's badge, or null when it has none (delegates to the mirror). */
 	readBadge(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeFile | null>;
+	/** The node plus the raw outbound/inbound neighbours named by its badge.
+	 *  Corrupt neighbours are returned as problems instead of blanking the
+	 *  readable portion of this O(degree) snapshot. */
+	readBadgeNeighborhood(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeReadResult>;
 	/** Every badge in the workspace (delegates to the mirror walk). */
 	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult>;
 	/** Mark an existing badge orphan (disk node gone), preserving all content.
@@ -195,6 +203,35 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		});
 	}
 
+	repairIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean> {
+		if (source.relativePath === target.relativePath) {
+			throw new Error(`A badge cannot reference itself: ${source.relativePath}`);
+		}
+
+		this.assertOneWorkspace([source, target]);
+		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
+			return this.transactBadges([source, target], source.relativePath, current => {
+				const sourceBadge = current.get(source.relativePath) ?? null;
+				const targetBadge = current.get(target.relativePath) ?? null;
+				const hasForward = sourceBadge?.references.includes(target.relativePath) ?? false;
+				const hasBacklink = targetBadge?.referenced_by.includes(source.relativePath) ?? false;
+				if (hasForward === hasBacklink) {
+					return { result: false, updates: new Map() };
+				}
+
+				const nextSource = sourceBadge ?? emptyBadge(source.relativePath, source.kind);
+				const nextTarget = targetBadge ?? emptyBadge(target.relativePath, target.kind);
+				return {
+					result: true,
+					updates: new Map([
+						[source.relativePath, { ...nextSource, references: appendUnique(nextSource.references, target.relativePath) }],
+						[target.relativePath, { ...nextTarget, referenced_by: appendUnique(nextTarget.referenced_by, source.relativePath) }]
+					])
+				};
+			});
+		});
+	}
+
 	removeReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean> {
 		this.assertOneWorkspace([source, target]);
 		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
@@ -203,6 +240,33 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 				const targetBadge = current.get(target.relativePath) ?? null;
 				return {
 					result: sourceBadge?.references.includes(target.relativePath) ?? false,
+					updates: new Map([
+						[source.relativePath, sourceBadge ? pruneEmpty({ ...sourceBadge, references: sourceBadge.references.filter(candidate => candidate !== target.relativePath) }) : null],
+						[target.relativePath, targetBadge ? pruneEmpty({ ...targetBadge, referenced_by: targetBadge.referenced_by.filter(candidate => candidate !== source.relativePath) }) : null]
+					])
+				};
+			});
+		});
+	}
+
+	discardIncompleteReference(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<boolean> {
+		if (source.relativePath === target.relativePath) {
+			throw new Error(`A badge cannot reference itself: ${source.relativePath}`);
+		}
+
+		this.assertOneWorkspace([source, target]);
+		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
+			return this.transactBadges([source, target], source.relativePath, current => {
+				const sourceBadge = current.get(source.relativePath) ?? null;
+				const targetBadge = current.get(target.relativePath) ?? null;
+				const hadForward = sourceBadge?.references.includes(target.relativePath) ?? false;
+				const hadBacklink = targetBadge?.referenced_by.includes(source.relativePath) ?? false;
+				if (hadForward === hadBacklink) {
+					return { result: false, updates: new Map() };
+				}
+
+				return {
+					result: true,
 					updates: new Map([
 						[source.relativePath, sourceBadge ? pruneEmpty({ ...sourceBadge, references: sourceBadge.references.filter(candidate => candidate !== target.relativePath) }) : null],
 						[target.relativePath, targetBadge ? pruneEmpty({ ...targetBadge, referenced_by: targetBadge.referenced_by.filter(candidate => candidate !== source.relativePath) }) : null]
@@ -226,24 +290,31 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		this.assertOneWorkspace(nodes);
 		return this.runWorkspaceMutation(previousSource.workspaceFolder, lease, async () => {
 			const sameEdge = previousSource.relativePath === nextSource.relativePath && previousTarget.relativePath === nextTarget.relativePath;
-			if (sameEdge) {
-				return 'already-connected';
-			}
 			return this.transactBadges(nodes, previousSource.relativePath, current => {
-				const previousBadge = current.get(previousSource.relativePath) ?? null;
-				const nextBadge = current.get(nextSource.relativePath) ?? null;
-				const previousExists = previousBadge?.references.includes(previousTarget.relativePath) ?? false;
-				const nextExists = nextBadge?.references.includes(nextTarget.relativePath) ?? false;
-				if (!previousExists && nextExists) {
-					// A prior optimistic reconnect failed but the desired canonical pair
-					// already exists. Preserve its unrelated style; the scene refresh will
-					// roll the optimistic overlay back to the canonical snapshot.
+				const previousSourceBadge = current.get(previousSource.relativePath) ?? null;
+				const previousTargetBadge = current.get(previousTarget.relativePath) ?? null;
+				const nextSourceBadge = current.get(nextSource.relativePath) ?? null;
+				const nextTargetBadge = current.get(nextTarget.relativePath) ?? null;
+				const previousForward = previousSourceBadge?.references.includes(previousTarget.relativePath) ?? false;
+				const previousBacklink = previousTargetBadge?.referenced_by.includes(previousSource.relativePath) ?? false;
+				const nextForward = nextSourceBadge?.references.includes(nextTarget.relativePath) ?? false;
+				const nextBacklink = nextTargetBadge?.referenced_by.includes(nextSource.relativePath) ?? false;
+				const previousComplete = previousForward && previousBacklink;
+				const previousAbsent = !previousForward && !previousBacklink;
+				const nextComplete = nextForward && nextBacklink;
+				if (sameEdge && previousComplete) {
 					return { result: 'already-connected' as const, updates: new Map() };
 				}
-				if (!previousExists) {
+				if (!sameEdge && previousAbsent && nextComplete) {
+					// The operation may have committed before an acknowledgement or replay.
+					// Accept only the exact converged state: the old pair is fully absent and
+					// the desired pair is fully present. Any XOR remains a stale conflict.
+					return { result: 'already-connected' as const, updates: new Map() };
+				}
+				if (!previousComplete) {
 					throw new Error(`Cannot reconnect a stale reference: ${previousSource.relativePath} no longer references ${previousTarget.relativePath}.`);
 				}
-				if (nextExists) {
+				if (nextForward && nextBacklink) {
 					throw new Error(`Cannot reconnect onto an existing reference: ${nextSource.relativePath} already references ${nextTarget.relativePath}.`);
 				}
 
@@ -268,17 +339,6 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 				}
 				return { result: 'replaced' as const, updates };
 			});
-		});
-	}
-
-	runWithReference<T>(source: IBaseHalfBadgeNode, target: IBaseHalfBadgeNode, task: () => Promise<T>, lease?: IBaseHalfWorkspaceMutationLease): Promise<T> {
-		this.assertOneWorkspace([source, target]);
-		return this.runWorkspaceMutation(source.workspaceFolder, lease, async () => {
-			const current = await this.badgeMirrorService.readBadge(source);
-			if (!current?.references.includes(target.relativePath)) {
-				throw new Error(`The reference ${source.relativePath} → ${target.relativePath} no longer exists.`);
-			}
-			return task();
 		});
 	}
 
@@ -420,8 +480,50 @@ export class BaseHalfBadgeGraphService implements IBaseHalfBadgeGraphService {
 		return this.badgeMirrorService.readBadge(node);
 	}
 
-	listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult> {
-		return this.badgeMirrorService.listBadges(workspaceFolder);
+	async readBadgeNeighborhood(node: IBaseHalfBadgeNode): Promise<IBaseHalfBadgeReadResult> {
+		const currentRead = await this.badgeMirrorService.readBadges([node]);
+		const current = currentRead.badges.get(node.relativePath);
+		if (!current) {
+			return currentRead;
+		}
+
+		const neighbourPaths = new Set([...current.references, ...current.referenced_by]);
+		neighbourPaths.delete(node.relativePath);
+		if (neighbourPaths.size === 0) {
+			return currentRead;
+		}
+
+		const neighbours = await this.badgeMirrorService.readBadges(
+			[...neighbourPaths].map(path => this.node(node.workspaceFolder, path, 'file'))
+		);
+		return mergeBadgeReadResults(currentRead, neighbours);
+	}
+
+	async listBadges(workspaceFolder: URI): Promise<IBaseHalfBadgeReadResult> {
+		const initial = await this.badgeMirrorService.listBadges(workspaceFolder);
+		const resolvedPaths = new Set([
+			...initial.badges.keys(),
+			...initial.problems.map(problem => problem.relativePath)
+		]);
+		const missingEndpoints = new Set<string>();
+		for (const badge of initial.badges.values()) {
+			for (const endpoint of [...badge.references, ...badge.referenced_by]) {
+				if (!resolvedPaths.has(endpoint)) {
+					missingEndpoints.add(endpoint);
+				}
+			}
+		}
+		if (missingEndpoints.size === 0) {
+			return initial;
+		}
+
+		// The sparse walker deliberately skips symbolic-link node directories. Probe
+		// every named-but-unseen endpoint through the guarded point-read path so a
+		// hostile/unreadable mirror is distinguishable from a genuinely absent half.
+		const probed = await this.badgeMirrorService.readBadges(
+			[...missingEndpoints].map(path => this.node(workspaceFolder, path, 'file'))
+		);
+		return mergeBadgeReadResults(initial, probed);
 	}
 
 	async markOrphan(node: IBaseHalfBadgeNode, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
@@ -972,6 +1074,20 @@ function emptyBadge(relativePath: string, kind: BaseHalfBadgeKind): IBaseHalfBad
 	};
 }
 
+function mergeBadgeReadResults(...results: readonly IBaseHalfBadgeReadResult[]): IBaseHalfBadgeReadResult {
+	const badges = new Map<string, IBaseHalfBadgeFile>();
+	const problems = new Map<string, IBaseHalfBadgeReadResult['problems'][number]>();
+	for (const result of results) {
+		for (const [path, badge] of result.badges) {
+			badges.set(path, badge);
+		}
+		for (const problem of result.problems) {
+			problems.set(problem.relativePath, problem);
+		}
+	}
+	return { badges, problems: [...problems.values()] };
+}
+
 /** A badge with no human-authored content and no graph edges is logically
  *  absent — return null so patchBadge commits or retains its empty tombstone. */
 function pruneEmpty(badge: IBaseHalfBadgeFile): IBaseHalfBadgeFile | null {
@@ -983,7 +1099,7 @@ function pruneEmpty(badge: IBaseHalfBadgeFile): IBaseHalfBadgeFile | null {
 }
 
 function appendUnique(values: readonly string[], value: string): string[] {
-	return [...values.filter(candidate => candidate !== value), value];
+	return values.includes(value) ? [...values] : [...values, value];
 }
 
 function uniqueStrings(values: readonly string[]): string[] {

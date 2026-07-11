@@ -19,6 +19,7 @@ const product = JSON.parse(fs.readFileSync(path.join(root, 'product.json'), 'utf
 assertProductIdentity();
 
 const opts = parseArgs(process.argv.slice(2));
+const AGENT_CREATED_CARD_PATH = 'agent-angle.md';
 const runRoot = opts.output ?? fs.mkdtempSync(path.join(os.tmpdir(), 'basehalf-smoke-'));
 const logsPath = path.join(runRoot, 'logs');
 const crashesPath = path.join(runRoot, 'crashes');
@@ -101,9 +102,10 @@ try {
 		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
 		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
 		await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+		await step('agent-creates-card', () => assertAgentCreatesCard(page));
 		await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
-		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page));
-		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page));
+		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
+		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 		console.log(JSON.stringify({
 			ok: true,
@@ -115,6 +117,7 @@ try {
 				'canvas-derived-edge-visible',
 				'canvas-edge-follows-card-drag-live',
 				'canvas-edge-half-reconnect',
+				'agent-creates-card',
 				'agent-reference-draws-edge',
 				'edge-delete-scoped-to-canvas',
 				'edge-delete-removes-reference',
@@ -142,9 +145,10 @@ try {
 	await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
 	await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
 	await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+	await step('agent-creates-card', () => assertAgentCreatesCard(page));
 	await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
-	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page));
-	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page));
+	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
+	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
 	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
@@ -234,6 +238,7 @@ try {
 			'canvas-card-badge-preview-connectors',
 			'canvas-derived-edge-visible',
 			'canvas-edge-follows-card-drag-live',
+			'agent-creates-card',
 			'agent-reference-draws-edge',
 			'edge-delete-scoped-to-canvas',
 			'edge-delete-removes-reference',
@@ -1873,7 +1878,7 @@ async function assertCanvasEdgeFollowsCardDragLive(page) {
 	await waitUntil(() => fs.readFileSync(canvasPath, 'utf8') !== canvasBefore, 'dragged docs geometry to persist after pointer-up');
 }
 
-// A relationship line is itself the reconnect affordance: its first directed
+// A reference line is itself the reconnect affordance: its first directed
 // half owns the source endpoint and its second half owns the target endpoint.
 // Each preview must keep the opposite endpoint pinned. The target reconnect is
 // then committed through the real semantic graph and canvas style mirrors.
@@ -1949,50 +1954,96 @@ async function assertCanvasEdgeHalfReconnect(page) {
 		throw new Error('Escape committed an edge reconnect instead of cancelling it');
 	}
 
-	// A no-drag click selects only; the second click in a dblclick must still
-	// open the label input even though React has not necessarily committed the
-	// reconnect-state cleanup from pointerup yet.
+	// A no-drag click selects only. Reference edges have no relationship-label
+	// DOM at all, and their sole keyboard/screen-reader affordance is React
+	// Flow's focusable edge wrapper.
 	const clickGeometry = await canvasEdgeGestureGeometry(page, 'docs', 'src');
 	await page.mouse.click(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y);
 	await page.waitForFunction(edgeId => Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit.selected'))
 		.some(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId), `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
 	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
-		throw new Error('A single edge click opened the reference-note input');
+		throw new Error('A single reference-edge click opened Quick Input');
 	}
-	const canvasBeforeLabelCancel = fs.readFileSync(canvasPath, 'utf8');
-	await page.mouse.dblclick(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y, { delay: 40 });
-	const edgeLabelInput = visibleQuickInput(page);
-	await edgeLabelInput.waitFor({ state: 'visible', timeout: 10_000 });
-	if (await edgeLabelInput.getAttribute('placeholder') !== 'Say why these connect') {
-		throw new Error('Edge double-click opened the wrong quick input');
+	const edgeAccessibility = await page.evaluate(edgeId => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const wrapper = hit?.closest('.react-flow__edge');
+		return wrapper instanceof SVGElement ? {
+			labelElementCount: document.querySelectorAll('.basehalf-canvas-flow-edge-label').length,
+			tabIndex: wrapper.tabIndex,
+			role: wrapper.getAttribute('role'),
+			roleDescription: wrapper.getAttribute('aria-roledescription'),
+			ariaLabel: wrapper.getAttribute('aria-label')
+		} : undefined;
+	}, `docs${String.fromCharCode(0)}src`);
+	if (!edgeAccessibility || edgeAccessibility.labelElementCount !== 0) {
+		throw new Error('A reference edge rendered a relationship-label element');
 	}
-	await page.keyboard.press('Escape');
-	await edgeLabelInput.waitFor({ state: 'hidden', timeout: 10_000 });
-	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeLabelCancel) {
-		throw new Error('Cancelling the edge label input persisted a label');
+	if (edgeAccessibility.tabIndex !== 0 || edgeAccessibility.role !== 'group' || edgeAccessibility.roleDescription !== 'edge') {
+		throw new Error('The reference edge wrapper is not the sole keyboard-accessible edge target');
+	}
+	if (!edgeAccessibility.ariaLabel
+		|| !/^Context flows from /i.test(edgeAccessibility.ariaLabel)
+		|| !edgeAccessibility.ariaLabel.includes('docs')
+		|| !edgeAccessibility.ariaLabel.includes('src')
+		|| /label|note|why/i.test(edgeAccessibility.ariaLabel)) {
+		throw new Error(`Reference edge has the wrong accessible name: ${edgeAccessibility.ariaLabel ?? '<missing>'}`);
 	}
 
-	// The portal-rendered label is a real keyboard affordance: focus keeps it
-	// visible, selects its edge without stealing focus, and Enter opens editing.
+	// Double-click is deliberately inert after the clean break: it must neither
+	// revive Reference note Quick Input nor mutate the endpoint-and-anchor canvas row.
+	const canvasBeforeDoubleClick = fs.readFileSync(canvasPath, 'utf8');
+	await page.mouse.dblclick(clickGeometry.firstHalf.x, clickGeometry.firstHalf.y, { delay: 40 });
+	await page.waitForTimeout(250);
+	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
+		throw new Error('Double-clicking a reference edge opened Quick Input');
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeDoubleClick) {
+		throw new Error('Double-clicking a reference edge changed canvas.yaml');
+	}
+
+	// The wrapper supports the stock React Flow keyboard selection contract.
+	// First clear the mouse selection with Escape, then select it with Enter;
+	// neither action has a label-editing side effect.
 	await page.evaluate(edgeId => {
-		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
-			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
-		if (!(label instanceof HTMLButtonElement)) {
-			throw new Error('Missing keyboard-focusable edge label');
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const wrapper = hit?.closest('.react-flow__edge');
+		if (!(wrapper instanceof SVGElement) || wrapper.tabIndex !== 0) {
+			throw new Error('Missing keyboard-focusable reference edge wrapper');
 		}
-		label.focus();
+		wrapper.focus();
 	}, `docs${String.fromCharCode(0)}src`);
-	await page.waitForFunction(edgeId => {
-		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
-			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
-		return label instanceof HTMLButtonElement
-			&& document.activeElement === label
-			&& Number(getComputedStyle(label).opacity) > 0.5;
-	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
-	await page.keyboard.press('Enter');
-	await edgeLabelInput.waitFor({ state: 'visible', timeout: 10_000 });
 	await page.keyboard.press('Escape');
-	await edgeLabelInput.waitFor({ state: 'hidden', timeout: 10_000 });
+	await page.waitForFunction(edgeId => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		return hit?.closest('.react-flow__edge')?.classList.contains('selected') === false;
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	await page.evaluate(edgeId => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const wrapper = hit?.closest('.react-flow__edge');
+		if (!(wrapper instanceof SVGElement)) {
+			throw new Error('Missing reference edge wrapper for keyboard selection');
+		}
+		wrapper.focus();
+	}, `docs${String.fromCharCode(0)}src`);
+	await page.keyboard.press('Enter');
+	await page.waitForFunction(edgeId => {
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const wrapper = hit?.closest('.react-flow__edge');
+		return wrapper instanceof SVGElement
+			&& document.activeElement === wrapper
+			&& wrapper.classList.contains('selected');
+	}, `docs${String.fromCharCode(0)}src`, { timeout: 10_000 });
+	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
+		throw new Error('Keyboard-selecting a reference edge opened Quick Input');
+	}
+	if (fs.readFileSync(canvasPath, 'utf8') !== canvasBeforeDoubleClick) {
+		throw new Error('Keyboard-selecting a reference edge changed canvas.yaml');
+	}
 
 	// Releasing the source endpoint on its excluded opposite card is invalid,
 	// not blank. It cancels and preserves the semantic edge.
@@ -2160,29 +2211,226 @@ function pointDistance(a, b) {
 	return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// An AGENT (external process) writes a reference straight into badge.yaml —
-// no canvas.yaml edge, source side only. The canvas must notice the mirror
-// change and draw the derived edge without any UI action: the human and the
-// agent share one graph.
+// An AGENT creates a user file with its own tools. BaseHalf observes the real
+// file and projects it as a card without requiring a canvas.yaml geometry row.
+async function assertAgentCreatesCard(page) {
+	fs.writeFileSync(path.join(workspacePath, AGENT_CREATED_CARD_PATH), [
+		'# Agent angle',
+		'',
+		'Created externally as another context-consuming document.',
+		''
+	].join('\n'), 'utf8');
+
+	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${AGENT_CREATED_CARD_PATH}"]`)
+		.waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+// An AGENT (external process) writes one badge endpoint for an explicit
+// reference, without a canvas.yaml edge. The incomplete pair stays out of the
+// graph but remains discoverable and recoverable from the Badge UI: Repair
+// writes the reciprocal endpoint, while Discard scrubs the abandoned half.
 async function assertAgentReferenceDrawsEdge(page) {
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
+	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
+	const targetBadgeDirectory = path.join(workspacePath, '.bh', 'mirror', AGENT_CREATED_CARD_PATH);
+	const targetBadgePath = path.join(targetBadgeDirectory, 'badge.yaml');
 	fs.writeFileSync(readmeBadgePath, [
 		'path: "README.md"',
 		'kind: file',
-		'description: "Smoke file badge"',
+		'description: "Agent source write observed"',
 		'references:',
+		`  - "${AGENT_CREATED_CARD_PATH}"`,
+		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
+	const sourceIssueMarker = readme.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]');
+	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await sourceIssueMarker.getAttribute('data-reference-issue-count') !== '1') {
+		throw new Error('The source-only Agent write did not expose exactly one card-level reference issue');
+	}
+	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	const prompt = readme.locator('.basehalf-canvas-card-badge-prompt');
+	await page.waitForFunction(() => {
+		const input = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-prompt');
+		return input instanceof HTMLTextAreaElement && input.value === 'Agent source write observed';
+	}, null, { timeout: 10_000 });
+	if (await readme.locator('.basehalf-canvas-card-badge-row').count() !== 0) {
+		throw new Error('The badge face exposed a one-sided Agent reference as a real relationship');
+	}
+	const repairIssue = readme.locator(`[data-testid="reference-issue"][data-reference-from="README.md"][data-reference-to="${AGENT_CREATED_CARD_PATH}"]`);
+	await repairIssue.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await repairIssue.getAttribute('data-reference-reason') !== 'incomplete'
+		|| await repairIssue.getAttribute('data-reference-direction') !== 'outbound') {
+		throw new Error('The source-only Agent write rendered the wrong reference issue state');
+	}
+	if (await repairIssue.locator('[data-testid="reference-issue-repair"]').getAttribute('aria-label') !== `Repair reference README.md to ${AGENT_CREATED_CARD_PATH}`) {
+		throw new Error('The source-only Agent write did not expose the expected Repair action');
+	}
+	if (await page.evaluate(edgeId => Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+		.some(edge => edge.getAttribute('data-edge-id') === edgeId), `README.md${String.fromCharCode(0)}${AGENT_CREATED_CARD_PATH}`)) {
+		throw new Error('A one-sided Agent reference was drawn before its reciprocal backlink existed');
+	}
+
+	await repairIssue.locator('[data-testid="reference-issue-repair"]').click();
+	await waitUntil(() => fs.existsSync(targetBadgePath)
+		&& fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${AGENT_CREATED_CARD_PATH}"`)
+		&& fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), 'Repair to persist both reciprocal reference endpoints');
+	await repairIssue.waitFor({ state: 'detached', timeout: 10_000 });
+	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
+	await readme.locator('.basehalf-canvas-card-badge-row', { hasText: AGENT_CREATED_CARD_PATH })
+		.waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
+
+	// Manufacture another source-only pair while keeping the repaired relation.
+	// Discard must scrub either possible half without disturbing valid neighbors.
+	fs.writeFileSync(readmeBadgePath, [
+		'path: "README.md"',
+		'kind: file',
+		'description: "Agent source write observed"',
+		'references:',
+		`  - "${AGENT_CREATED_CARD_PATH}"`,
 		'  - "docs"',
 		'referenced_by: []',
 		''
 	].join('\n'), 'utf8');
+	const discardIssue = readme.locator('[data-testid="reference-issue"][data-reference-from="README.md"][data-reference-to="docs"]');
+	await discardIssue.waitFor({ state: 'visible', timeout: 10_000 });
+	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
+	await assertCanvasEdgeGone(page, 'README.md', 'docs');
+	await discardIssue.locator('[data-testid="reference-issue-discard"]').click();
+	await waitUntil(() => {
+		const readmeBadge = fs.readFileSync(readmeBadgePath, 'utf8');
+		const docsBadge = fs.existsSync(docsBadgePath) ? fs.readFileSync(docsBadgePath, 'utf8') : '';
+		return !readmeBadge.includes('- "docs"')
+			&& !docsBadge.includes('- "README.md"')
+			&& readmeBadge.includes(`- "${AGENT_CREATED_CARD_PATH}"`);
+	}, 'Discard to scrub both possible halves while preserving the repaired reference');
+	await discardIssue.waitFor({ state: 'detached', timeout: 10_000 });
+	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
+	await assertCanvasEdgeGone(page, 'README.md', 'docs');
+	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
+	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	await prompt.waitFor({ state: 'detached', timeout: 10_000 });
 
-	await assertCanvasEdgeVisible(page, 'README.md', 'docs');
+	// Remove the target half again, then keep the prospective TARGET detail open
+	// across an external reciprocal write. The collapsed toggle itself remains
+	// focused while its summary refreshes, so a background Agent write neither
+	// leaks an incomplete edge nor strands keyboard focus on a detached button.
+	fs.mkdirSync(targetBadgeDirectory, { recursive: true });
+	fs.writeFileSync(targetBadgePath, [
+		`path: "${AGENT_CREATED_CARD_PATH}"`,
+		'kind: file',
+		'references: []',
+		'referenced_by: []',
+		''
+	].join('\n'), 'utf8');
+	await assertCanvasEdgeGone(page, 'README.md', AGENT_CREATED_CARD_PATH);
+	await quickOpen(page, AGENT_CREATED_CARD_PATH);
+	await assertCardDetail(page, AGENT_CREATED_CARD_PATH);
+	await page.locator('[data-testid="card-detail-badge-toggle"]').waitFor({ state: 'visible', timeout: 10_000 });
+	const initialDetailBadge = await page.evaluate(() => {
+		const detail = document.querySelector('.basehalf-card-detail.visible');
+		const toggle = detail?.querySelector('[data-testid="card-detail-badge-toggle"]');
+		const summary = toggle?.querySelector('.basehalf-card-detail-badge-summary');
+		const glyph = toggle?.querySelector('.basehalf-file-glyph');
+		return {
+			expanded: toggle?.getAttribute('aria-expanded'),
+			bodyCount: detail?.querySelectorAll('.basehalf-card-detail-badge-body').length ?? -1,
+			summary: summary?.textContent?.trim(),
+			summaryEmpty: summary?.classList.contains('empty'),
+			glyphTone: glyph instanceof SVGElement ? glyph.style.color : undefined
+		};
+	});
+	if (initialDetailBadge.expanded !== 'false'
+		|| initialDetailBadge.bodyCount !== 0
+		|| initialDetailBadge.summary !== 'What agents should know about this file'
+		|| initialDetailBadge.summaryEmpty !== true
+		|| !initialDetailBadge.glyphTone?.includes('--basehalf-detail-badge-ghost')) {
+		throw new Error(`Open target detail exposed a one-sided Agent reference: ${JSON.stringify(initialDetailBadge)}`);
+	}
+
+	const detailBadgeToggle = page.locator('[data-testid="card-detail-badge-toggle"]');
+	await detailBadgeToggle.focus();
+	fs.writeFileSync(targetBadgePath, [
+		`path: "${AGENT_CREATED_CARD_PATH}"`,
+		'kind: file',
+		'references: []',
+		'referenced_by:',
+		'  - "README.md"',
+		''
+	].join('\n'), 'utf8');
+
+	// The same still-open detail must receive the reciprocal write through its
+	// live badge refresh path: collapsed summary/glyph become relational without
+	// a navigation round trip and focus returns to the replacement toggle.
+	await page.waitForFunction(expectedTitle => {
+		const detail = document.querySelector('.basehalf-card-detail.visible');
+		const title = detail?.querySelector('.basehalf-card-detail-title')?.textContent ?? '';
+		const toggle = detail?.querySelector('[data-testid="card-detail-badge-toggle"]');
+		const summary = toggle?.querySelector('.basehalf-card-detail-badge-summary');
+		const glyph = toggle?.querySelector('.basehalf-file-glyph');
+		return title.includes(expectedTitle)
+			&& toggle?.getAttribute('aria-expanded') === 'false'
+			&& detail?.querySelector('.basehalf-card-detail-badge-body') === null
+			&& summary?.textContent?.trim() === '0 references · ← 1'
+			&& !summary.classList.contains('empty')
+			&& toggle?.getAttribute('data-reference-issue-count') === '0'
+			&& document.activeElement === toggle
+			&& glyph instanceof SVGElement
+			&& glyph.style.color.includes('--vscode-textLink-foreground');
+	}, AGENT_CREATED_CARD_PATH, { timeout: 10_000 });
+	await detailBadgeToggle.click();
+	const detailBadgeBody = page.locator('.basehalf-card-detail-badge-body');
+	await detailBadgeBody.waitFor({ state: 'visible', timeout: 10_000 });
+	const inboundToggle = detailBadgeBody.locator('.basehalf-canvas-card-inbound-toggle', { hasText: '← 1 referenced by' });
+	await inboundToggle.waitFor({ state: 'visible', timeout: 10_000 });
+
+	// A background Agent write must not rebuild the Badge zone while keyboard
+	// focus Tabs among its controls. The explicit inbound action that follows
+	// must still force an immediate render and restore focus to its new button.
+	const detailPrompt = detailBadgeBody.locator('.basehalf-canvas-card-badge-prompt');
+	await detailPrompt.focus();
+	fs.writeFileSync(targetBadgePath, [
+		`path: "${AGENT_CREATED_CARD_PATH}"`,
+		'kind: file',
+		'description: "Agent refresh while Badge controls are focused"',
+		'references: []',
+		'referenced_by:',
+		'  - "README.md"',
+		''
+	].join('\n'), 'utf8');
+	await page.waitForTimeout(500);
+	await page.keyboard.press('Tab');
+	await page.waitForFunction(() => {
+		const active = document.activeElement;
+		const prompt = document.querySelector('.basehalf-card-detail.visible .basehalf-canvas-card-badge-prompt');
+		return active?.classList.contains('basehalf-canvas-card-add-reference')
+			&& prompt instanceof HTMLTextAreaElement
+			&& prompt.value === '';
+	}, null, { timeout: 10_000 });
+	await page.keyboard.press('Tab');
+	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-inbound-toggle'), null, { timeout: 10_000 });
+	await page.keyboard.press('Enter');
+	const reciprocalRow = detailBadgeBody.locator('.basehalf-canvas-card-badge-row', { hasText: 'README.md' });
+	await reciprocalRow.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.waitForFunction(() => document.activeElement?.classList.contains('basehalf-canvas-card-inbound-toggle'), null, { timeout: 10_000 });
+	if (await reciprocalRow.locator('.basehalf-canvas-card-badge-direction').textContent() !== '←') {
+		throw new Error('The reciprocal target detail rendered the Agent relationship with the wrong direction');
+	}
+	await detailBadgeToggle.click();
+	await detailBadgeBody.waitFor({ state: 'detached', timeout: 10_000 });
+	await closeCardDetailIfOpen(page);
+	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-dot')
+		.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 // Select the agent-drawn edge with the mouse and delete it with the keyboard:
 // the semantic reference is scrubbed from badge.yaml and the line disappears.
-async function assertEdgeDeleteScopedToCanvas(page) {
-	const point = await edgeScreenMidpoint(page, 'README.md', 'docs');
+async function assertEdgeDeleteScopedToCanvas(page, target) {
+	const point = await edgeScreenMidpoint(page, 'README.md', target);
 	await page.mouse.click(point.x, point.y);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
 	await page.evaluate(() => {
@@ -2199,30 +2447,45 @@ async function assertEdgeDeleteScopedToCanvas(page) {
 	await page.keyboard.press('Delete');
 	await page.waitForTimeout(200);
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	if (!fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"')) {
+	if (!fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${target}"`)) {
 		throw new Error('Delete outside the canvas removed the selected semantic edge');
 	}
-	await assertCanvasEdgeVisible(page, 'README.md', 'docs');
+	await assertCanvasEdgeVisible(page, 'README.md', target);
 }
 
-async function assertEdgeDeleteRemovesReference(page) {
-	const point = await edgeScreenMidpoint(page, 'README.md', 'docs');
+async function assertEdgeDeleteRemovesReference(page, target) {
+	const point = await edgeScreenMidpoint(page, 'README.md', target);
 
 	await page.mouse.click(point.x, point.y);
 	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-edge-hit.selected') !== null, null, { timeout: 10_000 });
 	await page.evaluate(edgeId => {
-		const label = Array.from(document.querySelectorAll('.basehalf-canvas-flow-edge-label'))
-			.find(candidate => candidate instanceof HTMLButtonElement && candidate.dataset.edgeId === edgeId);
-		if (!(label instanceof HTMLButtonElement)) {
-			throw new Error('Missing selected edge label for keyboard deletion');
+		const hit = Array.from(document.querySelectorAll('.basehalf-canvas-edge-hit'))
+			.find(candidate => candidate instanceof SVGPathElement && candidate.dataset.edgeId === edgeId);
+		const wrapper = hit?.closest('.react-flow__edge');
+		if (!(wrapper instanceof SVGElement) || wrapper.tabIndex !== 0) {
+			throw new Error('Missing focusable selected edge wrapper for keyboard deletion');
 		}
-		label.focus();
-	}, `README.md${String.fromCharCode(0)}docs`);
+		const ariaLabel = wrapper.getAttribute('aria-label');
+		if (!ariaLabel || /label|note|why/i.test(ariaLabel)) {
+			throw new Error(`Selected reference edge has the wrong accessible name: ${ariaLabel ?? '<missing>'}`);
+		}
+		wrapper.focus();
+		if (document.activeElement !== wrapper) {
+			throw new Error('Selected edge wrapper did not accept keyboard focus');
+		}
+	}, `README.md${String.fromCharCode(0)}${target}`);
 	await page.keyboard.press('Delete');
 
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
-	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes('- "docs"'), 'README badge reference to docs to be removed');
-	await assertCanvasEdgeGone(page, 'README.md', 'docs');
+	const targetBadgePath = path.join(workspacePath, '.bh', 'mirror', target, 'badge.yaml');
+	await waitUntil(() => !fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${target}"`), `README badge reference to ${target} to be removed`);
+	await waitUntil(() => !fs.existsSync(targetBadgePath) || !fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), `${target} backlink to README to be removed`);
+	await assertCanvasEdgeGone(page, 'README.md', target);
+	if (target === AGENT_CREATED_CARD_PATH) {
+		fs.rmSync(path.join(workspacePath, target));
+		await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${target}"]`)
+			.waitFor({ state: 'detached', timeout: 10_000 });
+	}
 }
 
 async function edgeScreenMidpoint(page, from, to) {

@@ -5,7 +5,7 @@
 
 import './media/basehalfCanvasWorkbench.css';
 
-import { $, append, clearNode } from '../../../base/browser/dom.js';
+import { $, append, clearNode, isHTMLElement } from '../../../base/browser/dom.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
 import { basename, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
@@ -17,22 +17,24 @@ import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
-import { SideBySideEditor } from '../../common/editor.js';
+import { DEFAULT_EDITOR_ASSOCIATION, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
+	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	IBaseHalfCanvasBadgeMetadata,
+	IBaseHalfCanvasBadgeRelationshipIssue,
 	IBaseHalfCanvasBounds,
 	IBaseHalfCanvasEdge,
 	IBaseHalfCanvasFile,
 	IBaseHalfCanvasItem
 } from '../common/basehalfCanvasModel.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
-import { IBaseHalfBadgeFile, IBaseHalfBadgeNode } from '../common/basehalfBadgeMirror.js';
+import { IBaseHalfBadgeFile, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } from '../common/basehalfBadgeMirror.js';
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
-import { baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
@@ -67,6 +69,11 @@ type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: '
 type BaseHalfCanvasCardLod = 'full' | 'mini';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
+type BaseHalfBadgeEditorFocusTarget = 'add-reference' | 'inbound-toggle';
+interface IBaseHalfBadgeEditorControls {
+	readonly addReference?: HTMLButtonElement;
+	readonly inboundToggle?: HTMLButtonElement;
+}
 interface IBaseHalfCardDetailSurface {
 	readonly host: HTMLElement;
 	readonly store: DisposableStore;
@@ -125,9 +132,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}>();
 	private readonly pendingCanvasWarnings: string[] = [];
 	private renderedBadges: ReadonlyMap<string, IBaseHalfBadgeFile> = new Map();
+	private renderedBadgeProblems: ReadonlyMap<string, IBaseHalfBadgeReadProblem> = new Map();
 	private readonly detailBadgeDisposables: DisposableStore;
 	private detailBadgeSeq = 0;
 	private detailBadgeOpen = false;
+	private detailBadgeRefreshAfterFocusLeaves = false;
 	private detailBadgeResourceKey: string | undefined;
 	private detailResourceMutationStamp: IBaseHalfWorkspaceResourceMutationStamp | undefined;
 	private readonly expandedInboundBadges = new Set<string>();
@@ -199,7 +208,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			connect: (sceneKey, structuralEpoch, connection) => this.connectSceneEdge(sceneKey, structuralEpoch, connection),
 			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
 			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
-			editEdgeLabel: (sceneKey, structuralEpoch, edge) => this.editSceneEdgeLabel(sceneKey, structuralEpoch, edge),
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
 			didEndInteraction: () => this.flushRenderQueuedBehindGesture(),
@@ -248,7 +256,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			// The folder's mirror node lives under `<workspace>/.bh/mirror/<rel>`,
 			// NOT under the folder resource itself — an agent editing badge.yaml
 			// for a SUBFOLDER canvas must still re-render it.
-			if ((event.affects(folder.resource) || event.affects(baseHalfMirrorRoot(folder.workspaceFolder))) && !this.isFocusMirrorOnlyChange(event, folder)) {
+			const affectsBadgeMirror = event.affects(baseHalfMirrorRoot(folder.workspaceFolder));
+			// While detail is open the document/editor owns normal user-file
+			// refreshes. Only mirror changes can affect its Badge projection; do
+			// not turn every Markdown auto-save into a graph read.
+			const affectsVisibleSurface = this.canvasNavigationService.state.cardDetail
+				? affectsBadgeMirror
+				: event.affects(folder.resource) || affectsBadgeMirror;
+			if (affectsVisibleSurface && !this.isFocusMirrorOnlyChange(event, folder)) {
 				this.scheduleBackgroundRender();
 			}
 		}));
@@ -375,6 +390,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
+			this.renderedBadges = new Map();
+			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
 			this.cardListeners.clear();
 			this.canvasScene.update({ key: 'no-folder', structuralEpoch: 0, revision: seq, cards: [], edges: [] });
@@ -396,6 +413,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.deferRenderForSceneInteraction()) {
 				return;
 			}
+			this.renderedBadges = new Map();
+			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
 			this.cardListeners.clear();
 			if (!this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, structuralStamp)) {
@@ -457,6 +476,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 
 		this.renderedBadges = badgeRead.badges;
+		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
 		this.cardListeners.clear();
 		const sceneCards = items.map((item, index) => {
@@ -660,21 +680,20 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					from: connection.from,
 					from_anchor: connection.fromAnchor,
 					to: connection.to,
-					to_anchor: connection.toAnchor,
-					...(previous.label !== undefined ? { label: previous.label } : {})
+					to_anchor: connection.toAnchor
 				};
-					const endpointsChanged = previous.from !== next.from || previous.to !== next.to;
-					if (endpointsChanged) {
-						const semanticResult = await this.badgeGraphService.reconnectReference(
-							live.get(previous.from)!,
+				const endpointsChanged = previous.from !== next.from || previous.to !== next.to;
+				if (endpointsChanged) {
+					const semanticResult = await this.badgeGraphService.reconnectReference(
+						live.get(previous.from)!,
 						live.get(previous.to)!,
 						live.get(next.from)!,
 						live.get(next.to)!,
-							lease
-						);
-						if (semanticResult === 'already-connected') {
-							return;
-						}
+						lease
+					);
+					if (semanticResult === 'already-connected') {
+						return;
+					}
 				}
 				try {
 					await this.canvasMirrorService.reconnectCanvasEdge(folder, previous, next, lease);
@@ -705,47 +724,6 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 					this.logService.warn(error);
 					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
 				}
-			}
-		);
-		this.requestRender();
-	}
-
-	private async editSceneEdgeLabel(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void> {
-		const queuedFolder = this.folderForSceneMutation(sceneKey);
-		const next = await this.quickInputService.input({
-			title: 'Reference note',
-			placeHolder: 'Say why these connect',
-			value: edge.label ?? ''
-		});
-		if (next === undefined) {
-			return;
-		}
-		await this.workspaceMutationCoordinator.runSceneMutation(
-			queuedFolder.workspaceFolder,
-			this.sceneMutationStamp(queuedFolder, structuralEpoch),
-			async lease => {
-				const folder = this.folderForSceneMutation(sceneKey);
-					const live = await this.resolveLiveCanvasNodes(sceneKey, folder, [
-						{ path: edge.from, kind: edge.fromKind },
-						{ path: edge.to, kind: edge.toKind }
-					]);
-					const label = next.trim() || undefined;
-					await this.badgeGraphService.runWithReference(live.get(edge.from)!, live.get(edge.to)!, async () => {
-						if (label === undefined) {
-							// Clearing a derived edge with no style is intentionally a no-op.
-							await this.canvasMirrorService.setCanvasEdgeLabel(folder, edge, undefined, lease);
-							return;
-						}
-						// A derived edge has no canvas row yet. Materialize its complete style
-						// from the scene anchors instead of silently mapping over an empty list.
-						await this.canvasMirrorService.upsertCanvasEdge(folder, {
-							from: edge.from,
-							from_anchor: edge.from_anchor,
-							to: edge.to,
-							to_anchor: edge.to_anchor,
-							label
-						}, lease);
-					}, lease);
 			}
 		);
 		this.requestRender();
@@ -786,17 +764,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		// canvas rebuild (folder resolve + preview reads) for those writes causes a
 		// visible hitch right after every gesture. Canvas/badge mirror changes and user
 		// file changes must still re-render.
-		let sawFolderChange = false;
+		let sawRelevantChange = false;
+		const mirrorRoot = baseHalfMirrorRoot(folder.workspaceFolder);
 		for (const resource of [...event.rawAdded, ...event.rawUpdated, ...event.rawDeleted]) {
-			if (!isEqualOrParent(resource, folder.resource)) {
+			if (!isEqualOrParent(resource, folder.resource) && !isEqualOrParent(resource, mirrorRoot)) {
 				continue;
 			}
-			sawFolderChange = true;
+			sawRelevantChange = true;
 			if (!isBaseHalfFocusMirrorResource(resource)) {
 				return false;
 			}
 		}
-		return sawFolderChange;
+		return sawRelevantChange;
 	}
 
 	private async readCardPreviews(items: readonly IBaseHalfCanvasItem[]): Promise<ReadonlyMap<string, BaseHalfCanvasCardPreview>> {
@@ -904,11 +883,16 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const type = badgeType(item.name, item.kind === 'folder');
 		const orphan = item.badge?.orphan === true;
+		const badgeRelationships = baseHalfCanvasBadgeRelationships(item.path, item.badge, this.renderedBadges, this.renderedBadgeProblems);
+		const badgeIssueCount = badgeRelationships.issues.length + (this.renderedBadgeProblems.has(item.path) ? 1 : 0);
+		card.classList.toggle('has-reference-issues', badgeIssueCount > 0);
+		card.dataset.referenceIssueCount = String(badgeIssueCount);
+		card.setAttribute('aria-label', `${item.name} card${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
 		const dirname = item.path.includes('/') ? item.path.slice(0, Math.max(0, item.path.length - item.name.length - 1)) : '';
 		const content = append(card, $('.basehalf-canvas-card-content'));
 
 		const mini = append(content, $('.basehalf-canvas-card-mini'));
-		this.renderCardTitleChip(mini, type, item.name, orphan, bounds.height);
+		this.renderCardTitleChip(mini, type, item.name, orphan, bounds.height, badgeIssueCount);
 
 		const full = append(content, $('.basehalf-canvas-card-full'));
 		const header = append(full, $('.basehalf-canvas-card-header'));
@@ -927,13 +911,21 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			const badgeToggle = append(titleRow, $('button.basehalf-canvas-card-badge-toggle')) as HTMLButtonElement;
 			badgeToggle.classList.add('nodrag', 'nopan', 'nowheel');
 			badgeToggle.type = 'button';
-			badgeToggle.title = this.openBadgeFaces.has(item.path) ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
-			badgeToggle.setAttribute('aria-label', `${this.openBadgeFaces.has(item.path) ? 'Hide' : 'Show'} badge for ${item.path}`);
+			badgeToggle.title = badgeIssueCount > 0
+				? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - open Badge to resolve`
+				: this.openBadgeFaces.has(item.path) ? 'Hide the badge - back to the preview' : item.badge?.description ? 'Has a badge - edit it' : 'Edit Badge';
+			badgeToggle.setAttribute('aria-label', `${this.openBadgeFaces.has(item.path) ? 'Hide' : 'Show'} badge for ${item.path}${badgeIssueCount > 0 ? `, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}` : ''}`);
 			badgeToggle.setAttribute('aria-pressed', String(this.openBadgeFaces.has(item.path)));
-			badgeToggle.classList.toggle('lit', !!item.badge?.description);
+			badgeToggle.classList.toggle('lit', !!item.badge?.description || badgeIssueCount > 0);
+			badgeToggle.classList.toggle('issue', badgeIssueCount > 0);
 			badgeToggle.classList.toggle('pressed', this.openBadgeFaces.has(item.path));
-			this.renderGlyph(badgeToggle, 'badge', item.badge?.description ? 'var(--bh-card-accent)' : 'var(--bh-card-text-tertiary)', 15);
-			if (item.badge?.description && (item.badge.references.length > 0 || item.badge.referenced_by.length > 0)) {
+			this.renderGlyph(badgeToggle, 'badge', badgeIssueCount > 0 ? 'var(--bh-card-warning)' : item.badge?.description ? 'var(--bh-card-accent)' : 'var(--bh-card-text-tertiary)', 15);
+			if (badgeIssueCount > 0) {
+				const marker = append(badgeToggle, $('.basehalf-canvas-card-badge-dot.issue'));
+				marker.setAttribute('data-testid', 'card-reference-issue-marker');
+				marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+				marker.setAttribute('aria-hidden', 'true');
+			} else if (item.badge?.description && (badgeRelationships.references.length > 0 || badgeRelationships.referencedBy.length > 0)) {
 				append(badgeToggle, $('.basehalf-canvas-card-badge-dot'));
 			}
 			this.cardListeners.add(this.addDisposableListener(badgeToggle, 'pointerdown', event => {
@@ -976,7 +968,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		return card;
 	}
 
-	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number): void {
+	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number, badgeIssueCount: number): void {
 		const capPx = Math.round(Math.max(MINI_LABEL_MIN_FLOW_PX, cardHeightPx * MINI_LABEL_CARD_HEIGHT_FRACTION));
 		container.style.setProperty('--bh-mini-label-cap', `${capPx}px`);
 		const flow = append(container, $('.basehalf-canvas-card-mini-flow'));
@@ -985,6 +977,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const label = append(flow, $('.basehalf-canvas-card-mini-label'));
 		label.textContent = name;
 		label.classList.toggle('danger', orphan);
+		if (badgeIssueCount > 0) {
+			const marker = append(label, $('span.basehalf-reference-issue-marker.mini'));
+			marker.setAttribute('data-testid', 'card-reference-issue-marker');
+			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+			marker.setAttribute('aria-hidden', 'true');
+		}
 	}
 
 	private renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
@@ -1098,7 +1096,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			workspaceFolder: folder.workspaceFolder,
 			relativePath: item.path,
 			kind: item.kind
-		}, item.badge, mutationGuard, disposable => this.cardListeners.add(disposable), () => this.referenceCandidates(item));
+		}, item.badge, this.renderedBadges, this.renderedBadgeProblems, mutationGuard,
+		disposable => this.cardListeners.add(disposable),
+		() => this.referenceCandidates(item),
+		() => this.requestRender());
 	}
 
 	/**
@@ -1112,10 +1113,39 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		body: HTMLElement,
 		node: IBaseHalfBadgeNode,
 		badge: IBaseHalfCanvasBadgeMetadata | undefined,
+		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
+		problems: ReadonlyMap<string, IBaseHalfBadgeReadProblem>,
 		mutationGuard: IBaseHalfCanvasMutationGuard,
 		addListener: (disposable: IDisposable) => void,
-		candidates: () => readonly IBaseHalfCanvasItem[]
-	): void {
+		candidates: () => readonly IBaseHalfCanvasItem[],
+		refresh: (focusTarget: BaseHalfBadgeEditorFocusTarget) => void
+	): IBaseHalfBadgeEditorControls {
+		const ownProblem = problems.get(node.relativePath);
+		if (ownProblem) {
+			const issueSection = append(body, $('.basehalf-canvas-card-badge-section.reference-issues'));
+			issueSection.setAttribute('data-testid', 'badge-metadata-issue');
+			const heading = append(issueSection, $('.basehalf-canvas-card-badge-issues-title'));
+			heading.textContent = 'Badge metadata issue';
+			const row = append(issueSection, $('.basehalf-canvas-card-badge-issue-row'));
+			const message = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
+			message.textContent = ownProblem.corrupt ? 'badge.yaml cannot be parsed' : 'badge.yaml cannot be read';
+			message.title = ownProblem.message;
+			const open = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
+			open.type = 'button';
+			open.textContent = 'Open metadata';
+			open.title = ownProblem.message;
+			addListener(this.addDisposableListener(open, 'click', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.openBadgeMetadata(node.workspaceFolder, ownProblem.relativePath, ownProblem.resource).catch(error => {
+					message.textContent = 'Metadata could not be opened safely';
+					message.title = error instanceof Error ? error.message : String(error);
+					this.reportCanvasMutationError(error);
+				});
+			}));
+			return {};
+		}
+
 		const prompt = append(body, $('textarea.basehalf-canvas-card-badge-prompt')) as HTMLTextAreaElement;
 		prompt.value = badge?.description ?? '';
 		prompt.placeholder = node.kind === 'folder' ? 'What agents should know about this folder...' : 'What agents should know about this file...';
@@ -1142,7 +1172,132 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			event.stopPropagation();
 		}));
 
-		const refs = badge?.references ?? [];
+		// External Agents update the reciprocal badge files sequentially. Treat a
+		// half-written pair as malformed input everywhere, not as a badge-only
+		// relationship that disagrees with the canvas projection.
+		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badge, badges, problems);
+		const refs = relationships.references;
+		if (relationships.issues.length > 0) {
+			const issueSection = append(body, $('.basehalf-canvas-card-badge-section.reference-issues'));
+			issueSection.setAttribute('data-testid', 'reference-issues');
+			const heading = append(issueSection, $('.basehalf-canvas-card-badge-issues-title'));
+			heading.textContent = `${relationships.issues.length} reference issue${relationships.issues.length === 1 ? '' : 's'}`;
+			for (const issue of relationships.issues) {
+				const counterpart = issue.direction === 'outbound' ? issue.to : issue.from;
+				const counterpartOrphan = badges.get(counterpart)?.orphan === true;
+				const issueResourceStamps = [issue.from, issue.to].map(path => this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, path));
+				const row = append(issueSection, $('.basehalf-canvas-card-badge-issue-row'));
+				row.setAttribute('data-testid', 'reference-issue');
+				row.setAttribute('data-reference-from', issue.from);
+				row.setAttribute('data-reference-to', issue.to);
+				row.setAttribute('data-reference-direction', issue.direction);
+				row.setAttribute('data-reference-reason', issue.reason);
+				const actionButtons: HTMLButtonElement[] = [];
+				let actionError: HTMLElement | undefined;
+				const runAction = (action: () => Promise<boolean>) => {
+					actionError?.remove();
+					actionError = undefined;
+					row.setAttribute('aria-busy', 'true');
+					for (const button of actionButtons) {
+						button.disabled = true;
+					}
+					void action().then(() => {
+						// A false result means the pair changed after this issue row was
+						// rendered (already complete or fully gone). Refresh the stale
+						// diagnosis without mutating that newer graph state.
+						refresh('add-reference');
+					}).catch(error => {
+						const alert = actionError = append(row, $('span.basehalf-canvas-card-badge-issue-error'));
+						alert.setAttribute('role', 'alert');
+						alert.setAttribute('data-testid', 'reference-issue-action-error');
+						alert.textContent = error instanceof Error ? error.message : String(error);
+						this.reportCanvasMutationError(error);
+					}).finally(() => {
+						row.removeAttribute('aria-busy');
+						for (const button of actionButtons) {
+							button.disabled = false;
+						}
+					});
+				};
+				const direction = append(row, $('span.basehalf-canvas-card-badge-direction.issue'));
+				direction.textContent = issue.direction === 'outbound' ? '→' : '←';
+				const label = append(row, $('button.basehalf-canvas-card-badge-link')) as HTMLButtonElement;
+				label.type = 'button';
+				label.textContent = baseHalfReferenceLabel(counterpart);
+				label.title = counterpart;
+				addListener(this.addDisposableListener(label, 'click', event => {
+					event.preventDefault();
+					event.stopPropagation();
+					this.openWorkspaceRelative(node.workspaceFolder, counterpart);
+				}));
+				const state = append(row, $('span.basehalf-canvas-card-badge-issue-message'));
+				state.textContent = issue.reason === 'unreadable'
+					? 'metadata unreadable'
+					: counterpartOrphan
+						? 'card is missing; restore it or discard'
+						: issue.direction === 'outbound' ? 'target is missing its backlink' : 'source is missing its reference';
+				state.title = issue.problem?.message ?? 'Only one side of this reference is recorded.';
+				if (issue.reason === 'incomplete') {
+					const repair = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
+					repair.type = 'button';
+					repair.textContent = 'Repair';
+					repair.setAttribute('data-testid', 'reference-issue-repair');
+					repair.setAttribute('aria-label', `Repair reference ${issue.from} to ${issue.to}`);
+					repair.disabled = counterpartOrphan;
+					if (counterpartOrphan) {
+						repair.title = `Restore ${counterpart} before repairing this reference`;
+					}
+					if (!counterpartOrphan) {
+						actionButtons.push(repair);
+					}
+					addListener(this.addDisposableListener(repair, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						runAction(() => this.repairBadgeRelationshipIssue(node, issue, mutationGuard, issueResourceStamps));
+					}));
+					const discard = append(row, $('button.basehalf-canvas-card-badge-issue-action.subtle')) as HTMLButtonElement;
+					discard.type = 'button';
+					discard.textContent = 'Discard';
+					discard.setAttribute('data-testid', 'reference-issue-discard');
+					discard.setAttribute('aria-label', `Discard incomplete reference ${issue.from} to ${issue.to}`);
+					actionButtons.push(discard);
+					addListener(this.addDisposableListener(discard, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						runAction(() => this.discardBadgeRelationshipIssue(node, issue, badges, mutationGuard, issueResourceStamps));
+					}));
+					const open = append(row, $('button.basehalf-canvas-card-badge-issue-action.subtle')) as HTMLButtonElement;
+					open.type = 'button';
+					open.textContent = 'Open metadata';
+					open.setAttribute('data-testid', 'reference-issue-open-yaml');
+					actionButtons.push(open);
+					addListener(this.addDisposableListener(open, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						void this.openBadgeMetadata(node.workspaceFolder, node.relativePath).catch(error => {
+							state.textContent = 'metadata could not be opened safely';
+							state.title = error instanceof Error ? error.message : String(error);
+							this.reportCanvasMutationError(error);
+						});
+					}));
+				} else if (issue.problem) {
+					const open = append(row, $('button.basehalf-canvas-card-badge-issue-action')) as HTMLButtonElement;
+					open.type = 'button';
+					open.textContent = 'Open metadata';
+					open.setAttribute('data-testid', 'reference-issue-open-yaml');
+					actionButtons.push(open);
+					addListener(this.addDisposableListener(open, 'click', event => {
+						event.preventDefault();
+						event.stopPropagation();
+						void this.openBadgeMetadata(node.workspaceFolder, issue.problem!.relativePath, issue.problem!.resource).catch(error => {
+							state.textContent = 'metadata could not be opened safely';
+							state.title = error instanceof Error ? error.message : String(error);
+							this.reportCanvasMutationError(error);
+						});
+					}));
+				}
+			}
+		}
 		const stampedCandidates: IBaseHalfStampedReferenceCandidate[] = candidates().map(candidate => ({
 			candidate,
 			stamp: this.workspaceMutationCoordinator.captureResource(node.workspaceFolder, candidate.path)
@@ -1171,7 +1326,11 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				addListener(this.addDisposableListener(remove, 'click', event => {
 					event.preventDefault();
 					event.stopPropagation();
-					void this.removeBadgeReference(node, to, mutationGuard, targetStamp).catch(error => this.reportCanvasMutationError(error));
+					void this.removeBadgeReference(node, to, mutationGuard, targetStamp).then(changed => {
+						if (changed) {
+							refresh('add-reference');
+						}
+					}).catch(error => this.reportCanvasMutationError(error));
 				}));
 			}
 		}
@@ -1181,13 +1340,18 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		addListener(this.addDisposableListener(add, 'click', event => {
 			event.preventDefault();
 			event.stopPropagation();
-			void this.addBadgeReference(node, badge?.references ?? [], stampedCandidates, mutationGuard).catch(error => this.reportCanvasMutationError(error));
+			void this.addBadgeReference(node, refs, stampedCandidates, mutationGuard).then(changed => {
+				if (changed) {
+					refresh('add-reference');
+				}
+			}).catch(error => this.reportCanvasMutationError(error));
 		}));
 
-		const inbound = badge?.referenced_by ?? [];
+		const inbound = relationships.referencedBy;
+		let inboundToggle: HTMLButtonElement | undefined;
 		if (inbound.length > 0) {
 			const inboundSection = append(body, $('.basehalf-canvas-card-badge-section'));
-			const toggle = append(inboundSection, $('button.basehalf-canvas-card-inbound-toggle')) as HTMLButtonElement;
+			const toggle = inboundToggle = append(inboundSection, $('button.basehalf-canvas-card-inbound-toggle')) as HTMLButtonElement;
 			toggle.type = 'button';
 			toggle.textContent = `← ${inbound.length} referenced by`;
 			toggle.setAttribute('aria-expanded', String(this.expandedInboundBadges.has(node.relativePath)));
@@ -1199,7 +1363,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				} else {
 					this.expandedInboundBadges.add(node.relativePath);
 				}
-				this.requestRender();
+				refresh('inbound-toggle');
 			}));
 			if (this.expandedInboundBadges.has(node.relativePath)) {
 				const list = append(inboundSection, $('.basehalf-canvas-card-badge-list.inbound'));
@@ -1219,6 +1383,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 				}
 			}
 		}
+		return { addReference: add, inboundToggle };
 	}
 
 	private fitBadgePrompt(prompt: HTMLTextAreaElement): void {
@@ -1355,14 +1520,114 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		pending.releaseDelay();
 	}
 
+	private async repairBadgeRelationshipIssue(
+		node: IBaseHalfBadgeNode,
+		issue: IBaseHalfCanvasBadgeRelationshipIssue,
+		guard: IBaseHalfCanvasMutationGuard,
+		relatedStamps: readonly IBaseHalfWorkspaceResourceMutationStamp[]
+	): Promise<boolean> {
+		if (issue.reason !== 'incomplete' || guard.workspaceKey !== node.workspaceFolder.toString()
+			|| (issue.from !== node.relativePath && issue.to !== node.relativePath)) {
+			return false;
+		}
+		this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
+		return guard.run(async lease => {
+			let live: ReadonlyMap<string, IBaseHalfBadgeNode>;
+			try {
+				live = await this.resolveLiveRelationshipNodes(node.workspaceFolder, issue.from, issue.to);
+			} catch (error) {
+				throw new Error(`Cannot repair ${issue.from} → ${issue.to} because one of its cards is unavailable. Restore or create both cards, then retry; otherwise Discard this incomplete reference.`, { cause: error });
+			}
+			return this.badgeGraphService.repairIncompleteReference(live.get(issue.from)!, live.get(issue.to)!, lease);
+		}, relatedStamps);
+	}
+
+	private async discardBadgeRelationshipIssue(
+		node: IBaseHalfBadgeNode,
+		issue: IBaseHalfCanvasBadgeRelationshipIssue,
+		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
+		guard: IBaseHalfCanvasMutationGuard,
+		relatedStamps: readonly IBaseHalfWorkspaceResourceMutationStamp[]
+	): Promise<boolean> {
+		if (issue.reason !== 'incomplete' || guard.workspaceKey !== node.workspaceFolder.toString()
+			|| (issue.from !== node.relativePath && issue.to !== node.relativePath)) {
+			return false;
+		}
+		this.flushBadgeDescriptionWrite(node.workspaceFolder, node.relativePath);
+		const canvasFolder = this.getCurrentFolder();
+		const source = this.badgeNodeForPath(node.workspaceFolder, issue.from, badges, issue.from === node.relativePath ? node.kind : undefined);
+		const target = this.badgeNodeForPath(node.workspaceFolder, issue.to, badges, issue.to === node.relativePath ? node.kind : undefined);
+		return guard.run(async lease => {
+			const changed = await this.badgeGraphService.discardIncompleteReference(source, target, lease);
+			if (changed && canvasFolder?.workspaceFolder.toString() === node.workspaceFolder.toString()) {
+				try {
+					await this.canvasMirrorService.removeCanvasEdge(canvasFolder, { from: issue.from, to: issue.to }, lease);
+				} catch (error) {
+					// The graph cleanup already succeeded. A stale anchor row is inert
+					// and can be reported without turning Discard into a false failure.
+					this.logService.warn(error);
+					this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+				}
+			}
+			return changed;
+		}, relatedStamps);
+	}
+
+	private async resolveLiveRelationshipNodes(
+		workspaceFolder: URI,
+		from: string,
+		to: string
+	): Promise<ReadonlyMap<string, IBaseHalfBadgeNode>> {
+		const live = new Map<string, IBaseHalfBadgeNode>();
+		for (const path of [from, to]) {
+			const resource = joinPath(workspaceFolder, ...path.split('/'));
+			const stat = await this.fileService.stat(resource);
+			if (!stat.isDirectory && !stat.isFile) {
+				throw new Error(`Reference endpoint is not a file or folder: ${path}`);
+			}
+			live.set(path, {
+				resource,
+				workspaceFolder,
+				relativePath: path,
+				kind: stat.isDirectory ? 'folder' : 'file'
+			});
+		}
+		return live;
+	}
+
+	private badgeNodeForPath(
+		workspaceFolder: URI,
+		path: string,
+		badges: ReadonlyMap<string, IBaseHalfBadgeFile>,
+		fallbackKind: IBaseHalfCanvasItem['kind'] = 'file'
+	): IBaseHalfBadgeNode {
+		return {
+			resource: joinPath(workspaceFolder, ...path.split('/')),
+			workspaceFolder,
+			relativePath: path,
+			kind: badges.get(path)?.kind ?? this.renderedItemsByPath.get(path)?.kind ?? fallbackKind
+		};
+	}
+
+	private async openBadgeMetadata(workspaceFolder: URI, relativePath: string, resource = baseHalfMirrorResource(workspaceFolder, relativePath, 'badge.yaml')): Promise<void> {
+		// Opening in the default text editor must honor the same no-symlink
+		// boundary as mirror reads/writes; otherwise a planted mirror ancestor
+		// could turn this diagnostic escape hatch into an outside-workspace read.
+		await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, resource);
+		await this.editorService.openEditor({
+			resource,
+			options: { pinned: true, override: DEFAULT_EDITOR_ASSOCIATION.id }
+		});
+	}
+
 	private async addBadgeReference(
 		source: IBaseHalfBadgeNode,
 		currentReferences: readonly string[],
 		allCandidates: readonly IBaseHalfStampedReferenceCandidate[],
 		guard: IBaseHalfCanvasMutationGuard
-	): Promise<void> {
+	): Promise<boolean> {
 		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
-			return;
+			return false;
 		}
 		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
 		const existing = new Set(currentReferences);
@@ -1371,7 +1636,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		const candidates = allCandidates.filter(({ candidate }) => candidate.path !== source.relativePath && !existing.has(candidate.path));
 		if (candidates.length === 0) {
 			await this.quickInputService.pick([{ label: 'Nothing else to reference here.' }], { placeHolder: 'Add a reference' });
-			return;
+			return false;
 		}
 
 		type RefPick = IQuickPickItem & IBaseHalfStampedReferenceCandidate;
@@ -1387,7 +1652,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			matchOnDetail: true
 		});
 		if (!picked) {
-			return;
+			return false;
 		}
 
 		await guard.run(async lease => {
@@ -1397,7 +1662,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			]);
 			await this.badgeGraphService.addReference(live.get(source.relativePath)!, live.get(picked.candidate.path)!, lease);
 		}, [picked.stamp]);
-		this.requestRender();
+		return true;
 	}
 
 	private referenceCandidates(item: IBaseHalfCanvasItem): IBaseHalfCanvasItem[] {
@@ -1422,9 +1687,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		to: string,
 		guard: IBaseHalfCanvasMutationGuard,
 		targetStamp: IBaseHalfWorkspaceResourceMutationStamp
-	): Promise<void> {
+	): Promise<boolean> {
 		if (guard.workspaceKey !== source.workspaceFolder.toString()) {
-			return;
+			return false;
 		}
 		const canvasFolder = this.getCurrentFolder();
 		this.flushBadgeDescriptionWrite(source.workspaceFolder, source.relativePath);
@@ -1441,12 +1706,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 			// Style cleanup only — with the edge set derived from references, the
 			// line is already gone; this just keeps canvas.yaml from hoarding stale
-			// anchor/label entries.
+			// anchor entries.
 			if (canvasFolder?.workspaceFolder.toString() === source.workspaceFolder.toString()) {
 				await this.canvasMirrorService.removeCanvasEdge(canvasFolder, { from: source.relativePath, to }, lease);
 			}
 		}, [targetStamp]);
-		this.requestRender();
+		return true;
 	}
 
 	private renderTruncated(heldBack: number): void {
@@ -1493,6 +1758,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detailResourceMutationStamp = undefined;
 		this.detailBadgeResourceKey = undefined;
 		this.detailBadgeOpen = false;
+		this.detailBadgeRefreshAfterFocusLeaves = false;
 		this.detailBadgeSeq++;
 		this.detailBadgeDisposables.clear();
 		clearNode(this.detailBadgeZone);
@@ -1568,6 +1834,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.detailIdentityPendingResourceKey = undefined;
 			const wasOpen = this.detailSurfaceResourceKey !== undefined;
 			this.detailBadgeOpen = false;
+			this.detailBadgeRefreshAfterFocusLeaves = false;
 			this.detailBadgeResourceKey = undefined;
 			this.detailResourceMutationStamp = undefined;
 			this.disposeDetailSurfaces();
@@ -1608,6 +1875,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderProjectionActions(cardDetail);
 		const detailBadgeResourceKey = resourceKey;
 		if (this.detailBadgeResourceKey !== detailBadgeResourceKey) {
+			// A detail switch owns a new badge focus/defer lifecycle. Retire the
+			// previous resource's listeners before its focused prompt can suppress
+			// the first render of the new badge.
+			this.detailBadgeSeq++;
+			this.detailBadgeDisposables.clear();
+			this.detailBadgeRefreshAfterFocusLeaves = false;
+			clearNode(this.detailBadgeZone);
 			this.detailBadgeResourceKey = detailBadgeResourceKey;
 			this.detailResourceMutationStamp = this.workspaceMutationCoordinator.captureResource(cardDetail.workspaceFolder, cardDetail.relativePath);
 			this.detailBadgeOpen = false;
@@ -1769,7 +2043,12 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	 * where "this file has a human note" stays visible without pushing the
 	 * document down, including who points at it.
 	 */
-	private async renderDetailBadge(cardDetail: IBaseHalfCardDetailState, openOverride?: boolean, focusToggle = false): Promise<void> {
+	private async renderDetailBadge(
+		cardDetail: IBaseHalfCardDetailState,
+		openOverride?: boolean,
+		focusToggle = false,
+		focusEditorControl?: BaseHalfBadgeEditorFocusTarget
+	): Promise<void> {
 		const seq = ++this.detailBadgeSeq;
 		const structuralStamp = this.detailResourceMutationStamp;
 		if (!structuralStamp || structuralStamp.relativePath !== cardDetail.relativePath
@@ -1784,24 +2063,57 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			kind: 'file'
 		};
 
-		let badge: IBaseHalfBadgeFile | null = null;
+		let badge: IBaseHalfBadgeFile | null;
+		let badges: ReadonlyMap<string, IBaseHalfBadgeFile>;
+		let problems: ReadonlyMap<string, IBaseHalfBadgeReadProblem>;
 		try {
-			badge = await this.badgeGraphService.readBadge(node);
+			const badgeRead = await this.badgeGraphService.readBadgeNeighborhood(node);
+			badges = badgeRead.badges;
+			badge = badges.get(node.relativePath) ?? null;
+			problems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
+			for (const problem of badgeRead.problems) {
+				this.logService.warn(`BaseHalf badge metadata issue for ${problem.relativePath}: ${problem.message}`);
+			}
 		} catch (error) {
-			this.logService.warn(`BaseHalf card detail badge unreadable for ${node.relativePath}`, error);
+			this.logService.warn(`BaseHalf card detail badge graph unreadable for ${node.relativePath}`, error);
+			// Keep the last rendered Badge intact. A transient provider failure
+			// must not turn a known-good graph snapshot into an empty UI.
+			if (!this.disposed && seq === this.detailBadgeSeq && !this.detailBadgeZone.hasChildNodes()
+				&& this.workspaceMutationCoordinator.isResourceStampCurrent(cardDetail.workspaceFolder, structuralStamp)) {
+				this.detailBadgeDisposables.clear();
+				this.detailBadgeOpen = false;
+				this.detailBadgeZone.classList.remove('open');
+				const retry = append(this.detailBadgeZone, $('button.basehalf-card-detail-badge-toggle.issue')) as HTMLButtonElement;
+				retry.type = 'button';
+				retry.title = 'Badge metadata unavailable - retry';
+				retry.setAttribute('aria-label', 'Badge metadata unavailable. Retry');
+				retry.setAttribute('aria-expanded', 'false');
+				retry.setAttribute('data-testid', 'card-detail-badge-toggle');
+				retry.setAttribute('data-badge-unavailable', 'true');
+				this.renderGlyph(retry, 'badge', 'var(--vscode-editorWarning-foreground)', 15);
+				this.detailBadgeDisposables.add(this.addDisposableListener(retry, 'click', () => void this.renderDetailBadge(cardDetail, false, true)));
+			}
+			return;
 		}
 		if (this.disposed || seq !== this.detailBadgeSeq
 			|| !this.workspaceMutationCoordinator.isResourceStampCurrent(cardDetail.workspaceFolder, structuralStamp)) {
 			return;
 		}
-		// Never rebuild under the user's cursor — a mirror change while they are
-		// typing in the prompt must not reset the textarea; the pending write
-		// wins and the zone refreshes on the next render after blur. Only the
-		// textarea blocks: a focused toggle button must not veto its own toggle.
+		// Never rebuild under the user's cursor during a background refresh. This
+		// protects textarea edits AND keyboard navigation among Badge controls.
+		// The collapsed toggle is the exception: it has no editable state, so its
+		// summary may refresh in place while keyboard focus is restored to the new
+		// toggle. Explicit open/close renders pass openOverride and may rebuild.
 		const active = this.detailBadgeZone.ownerDocument.activeElement;
-		if (active instanceof HTMLTextAreaElement && this.detailBadgeZone.contains(active)) {
+		const restoreCollapsedToggleFocus = openOverride === undefined
+			&& !this.detailBadgeOpen
+			&& isHTMLElement(active)
+			&& active.getAttribute('data-testid') === 'card-detail-badge-toggle';
+		if (openOverride === undefined && active && this.detailBadgeZone.contains(active) && !restoreCollapsedToggleFocus) {
+			this.refreshDetailBadgeAfterFocusLeaves(cardDetail);
 			return;
 		}
+		this.detailBadgeRefreshAfterFocusLeaves = false;
 
 		this.detailBadgeDisposables.clear();
 		clearNode(this.detailBadgeZone);
@@ -1821,20 +2133,39 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 		// The badge glyph is the toolbar action's identity: accent-toned once
 		// the file carries a note or references, ghost while empty.
-		const hasContent = !!badge?.description?.trim() || (badge?.references.length ?? 0) > 0 || (badge?.referenced_by.length ?? 0) > 0;
-		this.renderGlyph(toggle, 'badge', hasContent ? 'var(--vscode-textLink-foreground)' : 'var(--basehalf-detail-badge-ghost)', 15);
+		const relationships = baseHalfCanvasBadgeRelationships(node.relativePath, badge ?? undefined, badges, problems);
+		const badgeIssueCount = relationships.issues.length + (problems.has(node.relativePath) ? 1 : 0);
+		const hasRelationships = relationships.references.length > 0 || relationships.referencedBy.length > 0;
+		const hasContent = !!badge?.description?.trim() || hasRelationships || badgeIssueCount > 0;
+		toggle.classList.toggle('issue', badgeIssueCount > 0);
+		toggle.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+		toggle.title = badgeIssueCount > 0
+			? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'} - ${open ? 'hide' : 'show'} Badge`
+			: open ? 'Hide Badge' : 'Show Badge';
+		toggle.setAttribute('aria-label', badgeIssueCount > 0
+			? `${open ? 'Hide' : 'Show'} Badge, ${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}`
+			: open ? 'Hide Badge' : 'Show Badge');
+		this.renderGlyph(toggle, 'badge', badgeIssueCount > 0 ? 'var(--vscode-editorWarning-foreground)' : hasContent ? 'var(--vscode-textLink-foreground)' : 'var(--basehalf-detail-badge-ghost)', 15);
+		if (badgeIssueCount > 0) {
+			const marker = append(toggle, $('.basehalf-reference-issue-marker.detail'));
+			marker.setAttribute('data-testid', 'card-detail-reference-issue-marker');
+			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+			marker.setAttribute('aria-hidden', 'true');
+		}
 		const title = append(toggle, $('span.basehalf-card-detail-badge-title'));
 		title.textContent = 'Badge';
 		const chevron = append(toggle, $('span.basehalf-card-detail-badge-chevron.codicon.codicon-chevron-down'));
 		chevron.setAttribute('aria-hidden', 'true');
 		const summary = append(toggle, $('span.basehalf-card-detail-badge-summary'));
 		if (!open) {
-			const inboundCount = badge?.referenced_by.length ?? 0;
-			summary.textContent = badge?.description
-				?? (badge && badge.references.length + inboundCount > 0
-					? `${badge.references.length} reference${badge.references.length === 1 ? '' : 's'}${inboundCount > 0 ? ` · ← ${inboundCount}` : ''}`
+			const inboundCount = relationships.referencedBy.length;
+			summary.textContent = badgeIssueCount > 0
+				? `${badgeIssueCount} reference metadata issue${badgeIssueCount === 1 ? '' : 's'}`
+				: badge?.description
+				?? (hasRelationships
+					? `${relationships.references.length} reference${relationships.references.length === 1 ? '' : 's'}${inboundCount > 0 ? ` · ← ${inboundCount}` : ''}`
 					: 'What agents should know about this file');
-			summary.classList.toggle('empty', !badge?.description);
+			summary.classList.toggle('empty', !badge?.description && !hasRelationships && badgeIssueCount === 0);
 		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(toggle, 'click', () => {
 			if (open) {
@@ -1846,7 +2177,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.detailBadgeOpen = nextOpen;
 			void this.renderDetailBadge(cardDetail, nextOpen, !nextOpen);
 		}));
-		if (focusToggle) {
+		if (focusToggle || restoreCollapsedToggleFocus) {
 			mainWindow.setTimeout(() => {
 				if (!this.disposed && seq === this.detailBadgeSeq && this.detailBadgeZone.contains(toggle)) {
 					toggle.focus();
@@ -1863,14 +2194,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		body.tabIndex = -1;
 		body.setAttribute('role', 'dialog');
 		body.setAttribute('aria-label', 'Badge');
-		this.renderBadgeEditorContent(
+		const editorControls = this.renderBadgeEditorContent(
 			body,
 			node,
 			badge ?? undefined,
+			badges,
+			problems,
 			this.resourceMutationGuard(cardDetail.workspaceFolder, structuralStamp),
 			disposable => this.detailBadgeDisposables.add(disposable),
-			() => [...this.renderedItemsByPath.values()]
+			() => [...this.renderedItemsByPath.values()],
+			focusTarget => {
+				const current = this.canvasNavigationService.state.cardDetail;
+				if (!current || current.resource.toString() !== cardDetail.resource.toString()) {
+					this.requestRender();
+					return;
+				}
+				const open = this.detailBadgeOpen;
+				void this.renderDetailBadge(current, open, false, open ? focusTarget : undefined);
+			}
 		);
+		if (focusEditorControl) {
+			mainWindow.setTimeout(() => {
+				if (this.disposed || seq !== this.detailBadgeSeq) {
+					return;
+				}
+				const target = (focusEditorControl === 'add-reference' ? editorControls.addReference : editorControls.inboundToggle) ?? toggle;
+				target?.focus();
+			}, 0);
+		}
 		this.detailBadgeDisposables.add(this.addDisposableListener(body.ownerDocument, 'pointerdown', event => {
 			const target = event.target;
 			if (target instanceof Node && this.detailBadgeZone.contains(target)) {
@@ -1886,6 +2237,41 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			event.stopPropagation();
 			this.closeDetailBadgePopover(cardDetail, true);
 		}, true));
+	}
+
+	/** A disk refresh never replaces a focused control inside the Badge zone.
+	 * Keep one deferred refresh while the user Tabs between its controls, then
+	 * apply the latest graph snapshot once focus leaves the zone. If that exit
+	 * releases an authored description write, its completion already schedules
+	 * the canonical refresh. */
+	private refreshDetailBadgeAfterFocusLeaves(cardDetail: IBaseHalfCardDetailState): void {
+		if (this.detailBadgeRefreshAfterFocusLeaves) {
+			return;
+		}
+		this.detailBadgeRefreshAfterFocusLeaves = true;
+		const listener = this.addDisposableListener(this.detailBadgeZone, 'focusout', () => {
+			mainWindow.setTimeout(() => {
+				if (!this.detailBadgeRefreshAfterFocusLeaves) {
+					return;
+				}
+				const active = this.detailBadgeZone.ownerDocument.activeElement;
+				if (active && this.detailBadgeZone.contains(active)) {
+					return;
+				}
+				listener?.dispose();
+				this.detailBadgeRefreshAfterFocusLeaves = false;
+				if (this.badgeDescriptionPending.has(this.badgeDescriptionKey(cardDetail.workspaceFolder, cardDetail.relativePath))) {
+					return;
+				}
+				const current = this.canvasNavigationService.state.cardDetail;
+				if (!this.disposed && current
+					&& current.workspaceFolder.toString() === cardDetail.workspaceFolder.toString()
+					&& current.relativePath === cardDetail.relativePath) {
+					void this.renderDetailBadge(current);
+				}
+			}, 0);
+		});
+		this.detailBadgeDisposables.add(listener);
 	}
 
 	private closeDetailBadgePopover(cardDetail: IBaseHalfCardDetailState, restoreFocus: boolean): void {

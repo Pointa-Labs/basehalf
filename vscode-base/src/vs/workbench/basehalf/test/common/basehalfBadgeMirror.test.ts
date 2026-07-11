@@ -92,6 +92,120 @@ suite('BaseHalfBadgeMirrorService', () => {
 		);
 	});
 
+	test('rejects non-canonical outbound reference paths and reports the current badge as corrupt', async () => {
+		const invalidPaths = [
+			'../outside.md',
+			'/leading.md',
+			'trailing.md/',
+			'docs//double.md',
+			'docs/./dot.md',
+			'docs/../parent.md',
+			'docs\\windows.md'
+		];
+		const files = new Map<string, string>();
+		const nodes: IBaseHalfBadgeNode[] = [];
+		for (let index = 0; index < invalidPaths.length; index++) {
+			const relativePath = `bad-reference-${index}.md`;
+			files.set(`/work/.bh/mirror/${relativePath}/badge.yaml`, [
+				`path: ${relativePath}`,
+				'kind: file',
+				`references: [${JSON.stringify(invalidPaths[index])}]`,
+				'referenced_by: []',
+				''
+			].join('\n'));
+			nodes.push(node(relativePath, 'file'));
+		}
+		const service = createService(files);
+
+		for (const candidate of nodes) {
+			await assert.rejects(
+				() => service.readBadge(candidate),
+				error => error instanceof BaseHalfBadgeMirrorCorrupt
+					&& error.reason === 'references[0] must be a canonical workspace-relative path'
+			);
+		}
+		const result = await service.readBadges(nodes);
+		assert.strictEqual(result.badges.size, 0);
+		assert.strictEqual(result.problems.length, invalidPaths.length);
+		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
+	});
+
+	test('rejects non-canonical inbound reference paths and reports the current badge as corrupt', async () => {
+		const invalidPaths = [
+			'../outside.md',
+			'/leading.md',
+			'trailing.md/',
+			'docs//double.md',
+			'docs/./dot.md',
+			'docs/../parent.md',
+			'docs\\windows.md'
+		];
+		const files = new Map<string, string>();
+		const nodes: IBaseHalfBadgeNode[] = [];
+		for (let index = 0; index < invalidPaths.length; index++) {
+			const relativePath = `bad-backlink-${index}.md`;
+			files.set(`/work/.bh/mirror/${relativePath}/badge.yaml`, [
+				`path: ${relativePath}`,
+				'kind: file',
+				'references: []',
+				`referenced_by: [${JSON.stringify(invalidPaths[index])}]`,
+				''
+			].join('\n'));
+			nodes.push(node(relativePath, 'file'));
+		}
+		const service = createService(files);
+
+		for (const candidate of nodes) {
+			await assert.rejects(
+				() => service.readBadge(candidate),
+				error => error instanceof BaseHalfBadgeMirrorCorrupt
+					&& error.reason === 'referenced_by[0] must be a canonical workspace-relative path'
+			);
+		}
+		const result = await service.readBadges(nodes);
+		assert.strictEqual(result.badges.size, 0);
+		assert.strictEqual(result.problems.length, invalidPaths.length);
+		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
+	});
+
+	test('accepts the workspace root as a canonical reference endpoint', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/a.md/badge.yaml', 'path: a.md\nkind: file\nreferences: [""]\nreferenced_by: [""]\n']
+		]));
+
+		assert.deepStrictEqual(await service.readBadge(node('a.md', 'file')), {
+			path: 'a.md',
+			kind: 'file',
+			references: [''],
+			referenced_by: ['']
+		});
+	});
+
+	test('reports outbound and inbound self-references as corrupt current badges', async () => {
+		const service = createService(new Map([
+			['/work/.bh/mirror/outbound.md/badge.yaml', 'path: outbound.md\nkind: file\nreferences: ["outbound.md"]\nreferenced_by: []\n'],
+			['/work/.bh/mirror/inbound.md/badge.yaml', 'path: inbound.md\nkind: file\nreferences: []\nreferenced_by: ["inbound.md"]\n']
+		]));
+
+		await assert.rejects(
+			() => service.readBadge(node('outbound.md', 'file')),
+			error => error instanceof BaseHalfBadgeMirrorCorrupt
+				&& error.reason === 'references[0] cannot reference its own badge path'
+		);
+		await assert.rejects(
+			() => service.readBadge(node('inbound.md', 'file')),
+			error => error instanceof BaseHalfBadgeMirrorCorrupt
+				&& error.reason === 'referenced_by[0] cannot reference its own badge path'
+		);
+		const result = await service.readBadges([
+			node('outbound.md', 'file'),
+			node('inbound.md', 'file')
+		]);
+		assert.strictEqual(result.badges.size, 0);
+		assert.strictEqual(result.problems.length, 2);
+		assert.strictEqual(result.problems.every(problem => problem.corrupt), true);
+	});
+
 	test('trusts the stored kind over the caller guess (a reference target defaults to file)', async () => {
 		const service = createService(new Map([
 			['/work/.bh/mirror/docs/badge.yaml', 'path: docs\nkind: folder\nreferences: []\nreferenced_by: ["a.md"]\n']

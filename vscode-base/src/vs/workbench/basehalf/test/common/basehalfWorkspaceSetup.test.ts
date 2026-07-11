@@ -61,8 +61,15 @@ suite('BaseHalfWorkspaceSetup', () => {
 		});
 		assert.ok(fs.files.get('/work/CLAUDE.md')?.includes('.bh/current_focus.yaml'));
 		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('.bh/current_focus.yaml'));
+		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('A → B'));
+		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('context flows into B'));
+		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('one-sided pair is not live'));
+		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('Markdown links are ordinary navigation links'));
+		assert.ok(fs.files.get('/work/AGENTS.md')?.includes('create its real user file or folder'));
+		assert.ok(!fs.files.get('/work/AGENTS.md')?.includes('anchors + labels'));
 		assert.ok(fs.files.get('/work/.bh/agent-harness/index.md')?.startsWith('<!-- bh:agent-harness managed'));
 		assert.ok(fs.files.has('/work/.bh/agent-harness/scenarios/bh-mirror-writing.md'));
+		assert.ok(fs.files.get('/work/.bh/agent-harness/scenarios/bh-mirror-writing.md')?.includes('A context flows into B'));
 		assert.strictEqual(fs.files.has('/work/.gitignore'), false);
 
 		const second = await service.ensureSetup(workspaceFolder);

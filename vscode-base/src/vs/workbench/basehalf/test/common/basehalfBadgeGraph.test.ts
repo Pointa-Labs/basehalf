@@ -9,6 +9,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { FileOperationError, FileOperationResult, IFileService } from '../../../../platform/files/common/files.js';
 import { BaseHalfBadgeGraphService } from '../../common/basehalfBadgeGraph.js';
 import { BaseHalfBadgeKind, BaseHalfBadgeMirrorService, IBaseHalfBadgeNode } from '../../common/basehalfBadgeMirror.js';
+import { baseHalfCanvasBadgeRelationships } from '../../common/basehalfCanvasModel.js';
 import { BaseHalfWorkspaceMutationCoordinator } from '../../common/basehalfWorkspaceMutation.js';
 
 suite('BaseHalfBadgeGraphService', () => {
@@ -63,6 +64,47 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.throws(() => graph.addReference(node('a.md'), node('a.md')));
 	});
 
+	test('supports cycles and many-to-many context flow while keeping duplicate adds idempotent', async () => {
+		const { graph, fs } = createServices();
+
+		await graph.addReference(node('a.md'), node('b.md'));
+		await graph.addReference(node('a.md'), node('c.md'));
+		await graph.addReference(node('d.md'), node('b.md'));
+		await graph.addReference(node('b.md'), node('a.md'));
+		await graph.addReference(node('a.md'), node('b.md'));
+
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md', 'c.md'], referenced_by: ['b.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md', { references: ['a.md'], referenced_by: ['a.md', 'd.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { referenced_by: ['a.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('d.md')), badgeYaml('d.md', { references: ['b.md'] }));
+	});
+
+	test('repairIncompleteReference repairs either half and ignores a stale absent issue', async () => {
+		const sourceOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A', references: ['b.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { description: 'B' })
+		});
+
+		assert.strictEqual(await sourceOnly.graph.repairIncompleteReference(node('a.md'), node('b.md')), true);
+		assert.strictEqual(await sourceOnly.graph.repairIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(sourceOnly.fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A', references: ['b.md'] }));
+		assert.strictEqual(sourceOnly.fs.files.get(badgePath('b.md')), badgeYaml('b.md', { description: 'B', referenced_by: ['a.md'] }));
+
+		const targetOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A' }),
+			[badgePath('b.md')]: badgeYaml('b.md', { description: 'B', referenced_by: ['a.md'] })
+		});
+
+		assert.strictEqual(await targetOnly.graph.repairIncompleteReference(node('a.md'), node('b.md')), true);
+		assert.strictEqual(await targetOnly.graph.repairIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(targetOnly.fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A', references: ['b.md'] }));
+		assert.strictEqual(targetOnly.fs.files.get(badgePath('b.md')), badgeYaml('b.md', { description: 'B', referenced_by: ['a.md'] }));
+
+		const absent = createServices();
+		assert.strictEqual(await absent.graph.repairIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(absent.fs.files.size, 0);
+	});
+
 	test('addReference restores the source when writing the target backlink fails', async () => {
 		const { graph, fs } = createServices({
 			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A' })
@@ -103,6 +145,41 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
 	});
 
+	test('discardIncompleteReference removes either half idempotently', async () => {
+		const sourceOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A', references: ['b.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { description: 'B' })
+		});
+
+		assert.strictEqual(await sourceOnly.graph.discardIncompleteReference(node('a.md'), node('b.md')), true);
+		assert.strictEqual(await sourceOnly.graph.discardIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(sourceOnly.fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A' }));
+		assert.strictEqual(sourceOnly.fs.files.get(badgePath('b.md')), badgeYaml('b.md', { description: 'B' }));
+
+		const targetOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A' }),
+			[badgePath('b.md')]: badgeYaml('b.md', { description: 'B', referenced_by: ['a.md'] })
+		});
+
+		assert.strictEqual(await targetOnly.graph.discardIncompleteReference(node('a.md'), node('b.md')), true);
+		assert.strictEqual(await targetOnly.graph.discardIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(targetOnly.fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A' }));
+		assert.strictEqual(targetOnly.fs.files.get(badgePath('b.md')), badgeYaml('b.md', { description: 'B' }));
+	});
+
+	test('discardIncompleteReference does not delete a relation completed after issue render', async () => {
+		const source = badgeYaml('a.md', { description: 'A', references: ['b.md'] });
+		const target = badgeYaml('b.md', { description: 'B', referenced_by: ['a.md'] });
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: source,
+			[badgePath('b.md')]: target
+		});
+
+		assert.strictEqual(await graph.discardIncompleteReference(node('a.md'), node('b.md')), false);
+		assert.strictEqual(fs.files.get(badgePath('a.md')), source);
+		assert.strictEqual(fs.files.get(badgePath('b.md')), target);
+	});
+
 	test('reconnectReference replaces both graph directions as one transaction', async () => {
 		const { graph, fs } = createServices({
 			[badgePath('a.md')]: badgeYaml('a.md', { description: 'A', references: ['b.md'] }),
@@ -115,6 +192,53 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { description: 'A', references: ['c.md'] }));
 		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
 		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }));
+	});
+
+	test('reconnectReference repairs a source-only destination while replacing the previous pair', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md', 'c.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] }),
+			[badgePath('c.md')]: badgeYaml('c.md', { description: 'C' })
+		});
+
+		assert.strictEqual(await graph.reconnectReference(node('a.md'), node('b.md'), node('a.md'), node('c.md')), 'replaced');
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['c.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
+		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }));
+	});
+
+	test('reconnectReference repairs a target-only destination while replacing the previous pair', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] }),
+			[badgePath('c.md')]: badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] })
+		});
+
+		assert.strictEqual(await graph.reconnectReference(node('a.md'), node('b.md'), node('a.md'), node('c.md')), 'replaced');
+		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['c.md'] }));
+		assert.strictEqual(fs.files.get(badgePath('b.md')), badgeYaml('b.md'));
+		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }));
+	});
+
+	test('reconnectReference treats either incomplete previous half as stale', async () => {
+		const sourceOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md', 'c.md'] }),
+			[badgePath('c.md')]: badgeYaml('c.md', { referenced_by: ['a.md'] })
+		});
+		await assert.rejects(
+			() => sourceOnly.graph.reconnectReference(node('a.md'), node('b.md'), node('a.md'), node('c.md')),
+			/stale reference/
+		);
+
+		const targetOnly = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['c.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] }),
+			[badgePath('c.md')]: badgeYaml('c.md', { referenced_by: ['a.md'] })
+		});
+		await assert.rejects(
+			() => targetOnly.graph.reconnectReference(node('a.md'), node('b.md'), node('a.md'), node('c.md')),
+			/stale reference/
+		);
 	});
 
 	test('reconnectReference retries the whole graph after an equal-length source rewrite', async () => {
@@ -151,7 +275,7 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(fs.files.has(badgePath('d.md')), false);
 	});
 
-	test('reconnectReference refuses a canonical next collision and treats an already-desired pair as no-op', async () => {
+	test('reconnectReference refuses a complete next collision but accepts an exactly converged replay', async () => {
 		const { graph, fs } = createServices({
 			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md', 'c.md'] }),
 			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] }),
@@ -165,19 +289,6 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(await graph.reconnectReference(node('a.md'), node('missing.md'), node('a.md'), node('c.md')), 'already-connected');
 		assert.strictEqual(fs.files.get(badgePath('a.md')), badgeYaml('a.md', { references: ['b.md', 'c.md'] }));
 		assert.strictEqual(fs.files.get(badgePath('c.md')), badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }));
-	});
-
-	test('runWithReference rejects a label commit when the semantic edge disappeared during the prompt', async () => {
-		const { graph } = createServices();
-		await graph.addReference(node('a.md'), node('b.md'));
-		await graph.removeReference(node('a.md'), node('b.md'));
-		let derivedWrites = 0;
-
-		await assert.rejects(
-			() => graph.runWithReference(node('a.md'), node('b.md'), async () => { derivedWrites++; }),
-			/no longer exists/
-		);
-		assert.strictEqual(derivedWrites, 0);
 	});
 
 	test('reconnectReference rolls every badge back when a later write fails', async () => {
@@ -249,6 +360,38 @@ suite('BaseHalfBadgeGraphService', () => {
 			references: [],
 			referenced_by: ['a.md']
 		});
+	});
+
+	test('readBadgeNeighborhood returns only raw neighbours and isolates a corrupt endpoint', async () => {
+		const { graph } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['broken.md', 'c.md', 'c.md'], referenced_by: ['docs'] }),
+			[badgePath('broken.md')]: 'path: [unterminated',
+			[badgePath('c.md')]: badgeYaml('c.md', { description: 'C', referenced_by: ['a.md'] }),
+			[badgePath('docs')]: badgeYaml('docs', { kind: 'folder', description: 'Docs', references: ['a.md'] }),
+			[badgePath('unrelated.md')]: badgeYaml('unrelated.md', { description: 'Not in the neighbourhood' })
+		});
+
+		const result = await graph.readBadgeNeighborhood(node('a.md'));
+
+		assert.deepStrictEqual([...result.badges.keys()], ['a.md', 'c.md', 'docs']);
+		assert.strictEqual(result.badges.get('docs')?.kind, 'folder');
+		assert.strictEqual(result.badges.has('unrelated.md'), false);
+		assert.strictEqual(result.problems.length, 1);
+		assert.strictEqual(result.problems[0].relativePath, 'broken.md');
+		assert.strictEqual(result.problems[0].corrupt, true);
+	});
+
+	test('readBadgeNeighborhood reports an unreadable current badge without guessing neighbours', async () => {
+		const { graph } = createServices({
+			[badgePath('broken.md')]: 'path: [unterminated',
+			[badgePath('unrelated.md')]: badgeYaml('unrelated.md', { description: 'Unrelated' })
+		});
+
+		const result = await graph.readBadgeNeighborhood(node('broken.md'));
+
+		assert.deepStrictEqual([...result.badges.keys()], []);
+		assert.strictEqual(result.problems.length, 1);
+		assert.strictEqual(result.problems[0].relativePath, 'broken.md');
 	});
 
 	test('renameNode moves the badge, rewrites both graph directions, and drops the orphan flag', async () => {
@@ -641,6 +784,28 @@ suite('BaseHalfBadgeGraphService', () => {
 		assert.strictEqual(result.problems.length, 1);
 		assert.strictEqual(result.problems[0].relativePath, 'bad.md');
 	});
+
+	test('listBadges probes named endpoints skipped by the walker and classifies guarded failures as unreadable', async () => {
+		const { graph, fs } = createServices({
+			[badgePath('a.md')]: badgeYaml('a.md', { references: ['b.md', 'missing.md'] }),
+			[badgePath('b.md')]: badgeYaml('b.md', { referenced_by: ['a.md'] })
+		});
+		fs.markSymbolicLink('/work/.bh/mirror/b.md');
+
+		const result = await graph.listBadges(workspaceFolder);
+		const problems = new Map(result.problems.map(problem => [problem.relativePath, problem]));
+		const relationships = baseHalfCanvasBadgeRelationships('a.md', result.badges.get('a.md'), result.badges, problems);
+
+		assert.deepStrictEqual([...result.badges.keys()], ['a.md']);
+		assert.strictEqual(result.problems.length, 1);
+		assert.strictEqual(result.problems[0].relativePath, 'b.md');
+		assert.strictEqual(result.problems[0].corrupt, false);
+		assert.deepStrictEqual(relationships.references, []);
+		assert.deepStrictEqual(relationships.issues.map(issue => ({ to: issue.to, reason: issue.reason })), [
+			{ to: 'b.md', reason: 'unreadable' },
+			{ to: 'missing.md', reason: 'incomplete' }
+		]);
+	});
 });
 
 /**
@@ -655,6 +820,7 @@ class TestFileSystem {
 	private readonly externalWritesBeforeCommit = new Map<string, string>();
 	private readonly externalWritesAfterCommit = new Map<string, string>();
 	private readonly externalActionsBeforeCommit = new Map<string, () => void>();
+	private readonly symbolicLinks = new Set<string>();
 	private failingWrite: string | undefined;
 	private readonly caseInsensitive: boolean;
 
@@ -736,6 +902,10 @@ class TestFileSystem {
 		this.failingWrite = path;
 	}
 
+	markSymbolicLink(path: string): void {
+		this.symbolicLinks.add(path);
+	}
+
 	replaceExternallyBeforeNextCommit(path: string, contents: string): void {
 		this.externalWritesBeforeCommit.set(path, contents);
 	}
@@ -767,13 +937,13 @@ class TestFileSystem {
 		return this.files.has(path) || this.isDirectory(path);
 	}
 
-	async stat(resource: URI): Promise<{ isFile: boolean; isDirectory: boolean }> {
+	async stat(resource: URI): Promise<{ isFile: boolean; isDirectory: boolean; isSymbolicLink: boolean }> {
 		const path = this.actualPath(resource.fsPath);
 		if (this.files.has(path)) {
-			return { isFile: true, isDirectory: false };
+			return { isFile: true, isDirectory: false, isSymbolicLink: this.symbolicLinks.has(path) };
 		}
 		if (this.isDirectory(path)) {
-			return { isFile: false, isDirectory: true };
+			return { isFile: false, isDirectory: true, isSymbolicLink: this.symbolicLinks.has(path) };
 		}
 
 		throw new FileOperationError('missing', FileOperationResult.FILE_NOT_FOUND);
@@ -804,7 +974,7 @@ class TestFileSystem {
 				name,
 				isFile: !isDirectory,
 				isDirectory,
-				isSymbolicLink: false
+				isSymbolicLink: this.symbolicLinks.has(`${prefix}${name}`)
 			}))
 		};
 	}

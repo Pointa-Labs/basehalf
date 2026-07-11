@@ -13,7 +13,7 @@ import { createDecorator } from '../../../platform/instantiation/common/instanti
 import { IBaseHalfWorkspaceResource } from './basehalfCanvasNavigation.js';
 import { createKeyedMutex } from './basehalfKeyedMutex.js';
 import { baseHalfCommitMirrorFile } from './basehalfMirrorFileCommit.js';
-import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfWalkMirror } from './basehalfMirrorTree.js';
+import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorPathSegments, baseHalfMirrorResource, baseHalfWalkMirror } from './basehalfMirrorTree.js';
 
 export const IBaseHalfBadgeMirrorService = createDecorator<IBaseHalfBadgeMirrorService>('baseHalfBadgeMirrorService');
 
@@ -460,8 +460,8 @@ function normalizeBadgeFile(value: unknown, resource: URI, expectedPath: string)
 	}
 
 	const description = optionalStringField(record, 'description', resource);
-	const references = optionalStringArrayField(record, 'references', resource);
-	const referencedBy = optionalStringArrayField(record, 'referenced_by', resource);
+	const references = optionalWorkspaceRelativePathArrayField(record, 'references', resource, expectedPath);
+	const referencedBy = optionalWorkspaceRelativePathArrayField(record, 'referenced_by', resource, expectedPath);
 	const orphan = optionalBooleanField(record, 'orphan', resource);
 
 	return {
@@ -569,7 +569,7 @@ function optionalBooleanField(record: Record<string, unknown>, key: string, reso
 	return value;
 }
 
-function optionalStringArrayField(record: Record<string, unknown>, key: string, resource: URI): readonly string[] {
+function optionalWorkspaceRelativePathArrayField(record: Record<string, unknown>, key: string, resource: URI, expectedPath: string): readonly string[] {
 	const value = record[key];
 	if (value === undefined) {
 		return [];
@@ -584,6 +584,18 @@ function optionalStringArrayField(record: Record<string, unknown>, key: string, 
 		const item = value[i];
 		if (typeof item !== 'string') {
 			throw new BaseHalfBadgeMirrorCorrupt(resource, `${key}[${i}] must be a string`);
+		}
+		let canonical: string;
+		try {
+			canonical = baseHalfMirrorPathSegments(item).join('/');
+		} catch (error) {
+			throw new BaseHalfBadgeMirrorCorrupt(resource, `${key}[${i}] must be a canonical workspace-relative path`, { cause: error });
+		}
+		if (item.includes('\\') || canonical !== item) {
+			throw new BaseHalfBadgeMirrorCorrupt(resource, `${key}[${i}] must be a canonical workspace-relative path`);
+		}
+		if (item === expectedPath) {
+			throw new BaseHalfBadgeMirrorCorrupt(resource, `${key}[${i}] cannot reference its own badge path`);
 		}
 		if (!out.includes(item)) {
 			out.push(item);

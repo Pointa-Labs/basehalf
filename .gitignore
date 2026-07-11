@@ -38,3 +38,6 @@ reference/
 
 # Claude Code runtime state (scheduled task locks, etc.)
 .claude/
+
+# WorkBuddy local project state (memories, automations, skills — local only)
+.workbuddy/

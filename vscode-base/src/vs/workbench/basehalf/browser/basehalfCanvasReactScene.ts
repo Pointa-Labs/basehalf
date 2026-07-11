@@ -5,6 +5,7 @@
 
 import { FileAccess } from '../../../base/common/network.js';
 import { URI } from '../../../base/common/uri.js';
+import { localize } from '../../../nls.js';
 import {
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
@@ -53,7 +54,7 @@ import type {
 	ReactFlowProps,
 	Viewport
 } from '@xyflow/react';
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import type { Root } from 'react-dom/client';
 
 type BaseHalfCanvasReactVendor = typeof import('react') & typeof import('react-dom/client') & typeof import('@xyflow/react');
@@ -96,7 +97,6 @@ interface IBaseHalfCanvasEdgeInteraction {
 	select(flowEdge: BaseHalfCanvasFlowEdge, preserveFocus?: boolean): void;
 	reconnect(flowEdge: BaseHalfCanvasFlowEdge, connection: Connection): void;
 	remove(flowEdge: BaseHalfCanvasFlowEdge): void;
-	edit(flowEdge: BaseHalfCanvasFlowEdge): void;
 }
 
 interface IBaseHalfCanvasSceneRuntime {
@@ -713,22 +713,6 @@ function createCanvasSceneMount(
 			displayTarget,
 			displayTargetAnchor
 		) : staticPath;
-		const labelX = (displaySource.x + displayTarget.x) / 2;
-		const labelY = (displaySource.y + displayTarget.y) / 2 - 8;
-		const active = hover || props.selected || reconnecting;
-		const accessibleLabel = edge.label
-			? `Edit relationship label “${edge.label}” from ${edge.from} to ${edge.to}`
-			: `Add relationship label from ${edge.from} to ${edge.to}`;
-		const edit = (event: { preventDefault(): void; stopPropagation(): void }) => {
-			event.preventDefault();
-			event.stopPropagation();
-			// A click sequence can dispatch `dblclick` before React commits the
-			// null reconnect state from its second pointerup. The synchronous latch
-			// is the gesture authority; render state only draws the preview.
-			if (!reconnectInteractionActiveRef.current) {
-				interaction.edit(flowEdge);
-			}
-		};
 		const beginReconnect = (event: ReactPointerEvent<Element>) => {
 			if (event.button !== 0 || reconnect) {
 				return;
@@ -769,29 +753,8 @@ function createCanvasSceneMount(
 				'data-edge-id': edge.id,
 				onMouseEnter: () => setHover(true),
 				onMouseLeave: () => setHover(false),
-				onPointerDown: beginReconnect,
-				onDoubleClick: edit
-			}),
-			h(vendor.EdgeLabelRenderer, null,
-				h('button', {
-					type: 'button',
-					className: `basehalf-canvas-flow-edge-label nodrag nopan${active ? ' active' : ''}${edge.label ? '' : ' empty'}`,
-					'data-edge-id': edge.id,
-					style: {
-						transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`
-					} as CSSProperties,
-					onPointerDown: beginReconnect,
-					onDoubleClick: edit,
-					onFocus: () => interaction.select(flowEdge, true),
-					onClick: (event: { detail: number; preventDefault(): void; stopPropagation(): void }) => {
-						if (event.detail === 0) {
-							edit(event);
-						}
-					},
-					'aria-label': accessibleLabel,
-					title: edge.label ?? 'Double-click or press Enter to say why'
-				}, edge.label ?? 'Double-click to say why')
-		)
+				onPointerDown: beginReconnect
+			})
 		);
 	}
 
@@ -905,6 +868,7 @@ function createCanvasSceneMount(
 			sourceHandle: edge.from_anchor,
 			targetHandle: edge.to_anchor,
 			data: { edge, sceneKey, structuralEpoch },
+			ariaLabel: localize('basehalf.canvas.reference.contextFlow', "Context flows from {0} to {1}", edge.from, edge.to),
 			markerEnd: { type: vendor.MarkerType.ArrowClosed, width: 14, height: 14 },
 			deletable: true,
 			// The product reconnect gesture starts from either half of the line.
@@ -1169,8 +1133,7 @@ function createCanvasSceneMount(
 				from_anchor: next.fromAnchor,
 				to: next.to,
 				toKind: next.toKind,
-				to_anchor: next.toAnchor,
-				...(previous.label !== undefined ? { label: previous.label } : {})
+				to_anchor: next.toAnchor
 			};
 			if (nextEdge.id !== previous.id && edgesRef.current.some(candidate => candidate.id === nextEdge.id)) {
 				return;
@@ -1271,26 +1234,15 @@ function createCanvasSceneMount(
 				}
 				setLiveEdges(edgesRef.current.filter(candidate => candidate.id !== flowEdge.id));
 				removeEdges([flowEdge]);
-			},
-			edit(flowEdge): void {
-				if (!ownsCurrentEdge(flowEdge)) {
-					return;
-				}
-				const data = flowEdge.data!;
-				void delegate.editEdgeLabel(data.sceneKey, data.structuralEpoch, data.edge).catch(error => delegate.reportError(error));
 			}
 		}), [beginInteraction, endInteraction, optimisticReconnect, ownsCurrentEdge, removeEdges, setLiveEdges]);
 
 		vendor.useEffect(() => {
 			const onKeyDown = (event: KeyboardEvent) => {
 				const target = event.target;
-				const focusedEdgeLabelId = target instanceof Element && host.contains(target)
-					? target.closest<HTMLElement>('.basehalf-canvas-flow-edge-label')?.dataset.edgeId
-					: undefined;
-				const focusedSelectedEdge = target instanceof Element && host.contains(target) && (
-					!!target.closest('.react-flow__edge.selected')
-					|| (!!focusedEdgeLabelId && edgesRef.current.some(edge => edge.id === focusedEdgeLabelId && edge.selected))
-				);
+				const focusedSelectedEdge = target instanceof Element
+					&& host.contains(target)
+					&& !!target.closest('.react-flow__edge.selected');
 				if ((event.key !== 'Delete' && event.key !== 'Backspace') || (target !== host && !focusedSelectedEdge)) {
 					return;
 				}

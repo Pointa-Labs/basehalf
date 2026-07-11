@@ -96,10 +96,6 @@ export interface IBaseHalfCanvasMirrorService {
 	upsertCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	removeCanvasEdge(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
-	/** Set or CLEAR one edge's label (`undefined` removes it) without touching
-	 *  anchors — the upsert path deliberately preserves an existing label, so
-	 *  clearing needs its own verb. Missing edge is a no-op. */
-	setCanvasEdgeLabel(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, label: string | undefined, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile>;
 	/** A node moved `from` → `to`: re-root its own canvas subtree (a folder's
 	 *  child layouts), rewriting card paths and edge endpoints, and carry the
 	 *  PARENT folder's card for it — geometry kept on a same-parent rename,
@@ -165,17 +161,9 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 
 	reconnectCanvasEdge(folder: IBaseHalfCanvasFolderState, previous: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, edge: IBaseHalfCanvasEdge, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
 		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
-			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => {
-				// Reconnect expresses endpoint/anchor intent only. The authored label
-				// belongs to the latest persisted previous edge and must be re-derived
-				// on every conflict replay instead of being captured from a stale scene.
-				const current = existing.edges.find(candidate => candidate.from === previous.from && candidate.to === previous.to);
-				const { label: _staleLabel, ...endpointIntent } = edge;
-				return upsertCanvasEdge(removeCanvasEdge(existing, previous), {
-					...endpointIntent,
-					...(current?.label ? { label: current.label } : {})
-				});
-			})
+			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing =>
+				upsertCanvasEdge(removeCanvasEdge(existing, previous), edge)
+			)
 		);
 	}
 
@@ -183,21 +171,6 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () =>
 			this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => removeCanvasEdge(existing, edge))
 		);
-	}
-
-	setCanvasEdgeLabel(folder: IBaseHalfCanvasFolderState, edge: Pick<IBaseHalfCanvasEdge, 'from' | 'to'>, label: string | undefined, lease?: IBaseHalfWorkspaceMutationLease): Promise<IBaseHalfCanvasFile> {
-		const trimmed = label?.trim();
-		return this.runWorkspaceMutation(folder.workspaceFolder, lease, () => this.patchCanvas(folder.workspaceFolder, folder.relativePath, existing => ({
-			...existing,
-			edges: existing.edges.map(candidate => {
-				if (candidate.from !== edge.from || candidate.to !== edge.to) {
-					return candidate;
-				}
-
-				const { label: _label, ...rest } = candidate;
-				return trimmed ? { ...rest, label: trimmed } : rest;
-			})
-		})));
 	}
 
 	relocateNode(workspaceFolder: URI, from: string, to: string, options: IBaseHalfCanvasRelocateOptions = {}, lease?: IBaseHalfWorkspaceMutationLease): Promise<void> {
@@ -519,8 +492,8 @@ export class BaseHalfCanvasMirrorService implements IBaseHalfCanvasMirrorService
 				snapshot = await this.readCanvasAt(workspaceFolder, entry.resource, entry.relativePath);
 			} catch (error) {
 				if (error instanceof BaseHalfCanvasMirrorCorrupt) {
-					// Styling can contain authored edge labels. Preserve a corrupt file
-					// for recovery instead of turning a node delete into data loss.
+					// Preserve a corrupt layout file for recovery instead of turning a
+					// node delete into unrelated layout data loss.
 					continue;
 				}
 				throw error;
@@ -759,11 +732,7 @@ export function upsertCanvasEdge(canvas: IBaseHalfCanvasFile, edge: IBaseHalfCan
 	const edges = [...canvas.edges];
 	const index = edges.findIndex(existing => existing.from === edge.from && existing.to === edge.to);
 	if (index >= 0) {
-		const existing = edges[index];
-		edges[index] = {
-			...edge,
-			...(edge.label !== undefined ? { label: edge.label } : existing.label !== undefined ? { label: existing.label } : {})
-		};
+		edges[index] = edge;
 	} else {
 		edges.push(edge);
 	}
@@ -825,9 +794,6 @@ export function serializeCanvasFile(canvas: IBaseHalfCanvasFile): string {
 				`    to: ${yamlString(edge.to)}`,
 				`    to_anchor: ${edge.to_anchor}`
 			);
-			if (edge.label) {
-				lines.push(`    label: ${yamlString(edge.label)}`);
-			}
 		}
 	}
 
@@ -897,14 +863,12 @@ function normalizeCanvasEdge(value: unknown, resource: URI, index: number): IBas
 	const record = asRecord(value, resource, `edges[${index}] must be an object`);
 	const fromAnchor = anchorField(record, 'from_anchor', resource, index);
 	const toAnchor = anchorField(record, 'to_anchor', resource, index);
-	const label = typeof record.label === 'string' && record.label.length > 0 ? record.label : undefined;
 
 	return {
 		from: stringField(record, 'from', resource),
 		from_anchor: fromAnchor,
 		to: stringField(record, 'to', resource),
-		to_anchor: toAnchor,
-		...(label ? { label } : {})
+		to_anchor: toAnchor
 	};
 }
 

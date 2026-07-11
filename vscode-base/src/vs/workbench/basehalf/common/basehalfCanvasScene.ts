@@ -55,6 +55,8 @@ export interface IBaseHalfCanvasSceneGeometry extends IBaseHalfCanvasBounds {
 }
 
 export interface IBaseHalfCanvasSceneConnection {
+	/** Directed context flow: the source card's context becomes available to
+	 *  the target card. */
 	readonly from: string;
 	readonly fromKind: BaseHalfCanvasItemKind;
 	readonly fromAnchor: IBaseHalfCanvasEdge['from_anchor'];
@@ -83,7 +85,6 @@ export interface IBaseHalfCanvasSceneDelegate {
 	connect(sceneKey: string, structuralEpoch: number, connection: IBaseHalfCanvasSceneConnection): Promise<void>;
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
-	editEdgeLabel(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
 	didEndInteraction(): void;

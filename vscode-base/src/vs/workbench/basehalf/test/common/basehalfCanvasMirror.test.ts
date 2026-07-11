@@ -56,7 +56,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: east',
 				'    to: docs/b.md',
 				'    to_anchor: west',
-				'    label: continues',
 				''
 			].join('\n')]
 		]));
@@ -71,8 +70,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 				from: 'docs/a.md',
 				from_anchor: 'east',
 				to: 'docs/b.md',
-				to_anchor: 'west',
-				label: 'continues'
+				to_anchor: 'west'
 			}]
 		});
 	});
@@ -130,7 +128,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'    from_anchor: south',
 			'    to: "b.md"',
 			'    to_anchor: north',
-			'    label: "last"',
 			''
 		].join('\n')]]));
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -138,7 +135,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		assert.deepStrictEqual(await service.readCanvas(folder('')), {
 			path: '',
 			cards: [{ path: 'a.md', kind: 'file', x: 9, y: 10, width: 240, height: 120 }],
-			edges: [{ from: 'a.md', from_anchor: 'south', to: 'b.md', to_anchor: 'north', label: 'last' }]
+			edges: [{ from: 'a.md', from_anchor: 'south', to: 'b.md', to_anchor: 'north' }]
 		});
 		await service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 40, y: 50, width: 240, height: 120 });
 		assert.strictEqual((fileService.files.get(canvasPath)?.match(/- path: "a\.md"/g) ?? []).length, 1);
@@ -172,7 +169,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 			path: 'docs',
 			size: { width: 1200.12345, height: 800 },
 			cards: [{ path: 'docs/a.md', kind: 'file', x: -10.12345, y: -20, width: 260, height: 140 }],
-			edges: [{ from: 'docs/a.md', from_anchor: 'east', to: 'docs/b.md', to_anchor: 'west', label: 'continues' }]
+			edges: [{ from: 'docs/a.md', from_anchor: 'east', to: 'docs/b.md', to_anchor: 'west' }]
 		}), [
 			'path: "docs"',
 			'size:',
@@ -190,7 +187,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'    from_anchor: east',
 			'    to: "docs/b.md"',
 			'    to_anchor: west',
-			'    label: "continues"',
 			''
 		].join('\n'));
 		assert.strictEqual(serializeCanvasFile({ path: '', cards: [], edges: [] }), [
@@ -273,7 +269,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: east',
 				'    to: b.md',
 				'    to_anchor: west',
-				'    label: next',
 				''
 			].join('\n')]
 		]));
@@ -305,7 +300,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'    from_anchor: east',
 			'    to: "b.md"',
 			'    to_anchor: west',
-			'    label: "next"',
 			''
 		].join('\n'));
 	});
@@ -335,7 +329,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: east',
 				'    to: "untouched.md"',
 				'    to_anchor: west',
-				'    label: "kept"',
 				''
 			].join('\n')]
 		]));
@@ -355,7 +348,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 				{ path: 'untouched.md', kind: 'file', x: 300, y: 20, width: 220, height: 112 },
 				{ path: 'new.md', kind: 'file', x: 600, y: 70, width: 260, height: 140 }
 			],
-			edges: [{ from: 'a.md', from_anchor: 'east', to: 'untouched.md', to_anchor: 'west', label: 'kept' }]
+			edges: [{ from: 'a.md', from_anchor: 'east', to: 'untouched.md', to_anchor: 'west' }]
 		});
 		assert.deepStrictEqual(await service.readCanvas(folder('')), updated);
 	});
@@ -451,10 +444,9 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'    from_anchor: east',
 			'    to: "b.md"',
 			'    to_anchor: west',
-			'    label: "AAAA"',
 			''
 		].join('\n');
-		const external = initial.replace('AAAA', 'BBBB');
+		const external = initial.replace('from_anchor: east', 'from_anchor: west');
 		assert.strictEqual(VSBuffer.fromString(initial).byteLength, VSBuffer.fromString(external).byteLength);
 		const fileService = new TestFileService(new Map([[canvasPath, initial]]));
 		fileService.editExternallyOnNextWrite(canvasPath, () => external);
@@ -463,7 +455,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		await service.updateCardGeometry(folder(''), { path: 'a.md', kind: 'file', x: 40, y: 50, width: 220, height: 112 });
 
 		const updated = await service.readCanvas(folder(''));
-		assert.strictEqual(updated?.edges[0].label, 'BBBB');
+		assert.deepStrictEqual(updated?.edges[0], { from: 'a.md', from_anchor: 'west', to: 'b.md', to_anchor: 'west' });
 		assert.deepStrictEqual(updated?.cards[0], { path: 'a.md', kind: 'file', x: 40, y: 50, width: 220, height: 112 });
 		assert.strictEqual(fileService.writeCount, 2);
 	});
@@ -485,7 +477,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 			'    from_anchor: east',
 			'    to: "target.md"',
 			'    to_anchor: west',
-			'    label: "external edge"',
 			''
 		].join('\n'));
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -501,87 +492,65 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 		const canvas = await service.readCanvas(folder(''));
 		assert.deepStrictEqual(canvas?.cards.map(card => card.path), ['external.md', 'local.md']);
-		assert.strictEqual(canvas?.edges[0].label, 'external edge');
+		assert.deepStrictEqual(canvas?.edges[0], { from: 'external.md', from_anchor: 'east', to: 'target.md', to_anchor: 'west' });
 		assert.strictEqual(fileService.createCount, 1);
 		assert.strictEqual(fileService.writeCount, 1);
 	});
 
-	test('setCanvasEdgeLabel sets and clears a label without touching anchors', async () => {
-		const files = new Map([
-			['/work/.bh/mirror/canvas.yaml', [
-				'path: ""',
-				'cards: []',
-				'edges:',
-				'  - from: "a.md"',
-				'    from_anchor: east',
-				'    to: "b.md"',
-				'    to_anchor: west',
-				'    label: "old note"',
-				''
-			].join('\n')]
-		]);
-		const service = createService(files);
-
-		await service.setCanvasEdgeLabel(folder(''), { from: 'a.md', to: 'b.md' }, 'why these connect');
-		assert.strictEqual((await service.readCanvas(folder('')))?.edges[0].label, 'why these connect');
-
-		await service.setCanvasEdgeLabel(folder(''), { from: 'a.md', to: 'b.md' }, undefined);
-		const cleared = (await service.readCanvas(folder('')))?.edges[0];
-		assert.strictEqual(cleared?.label, undefined);
-		assert.strictEqual(cleared?.from_anchor, 'east');
-	});
-
-	test('reconnect replays endpoint intent without overwriting a latest external label', async () => {
+	test('reconnect replays endpoint intent while preserving a latest unrelated geometry edit', async () => {
 		const canvasPath = '/work/.bh/mirror/canvas.yaml';
 		const initial = [
 			'path: ""',
-			'cards: []',
+			'cards:',
+			'  - path: "unrelated.md"',
+			'    kind: file',
+			'    x: 1',
+			'    y: 2',
+			'    width: 220',
+			'    height: 112',
 			'edges:',
 			'  - from: "a.md"',
 			'    from_anchor: east',
 			'    to: "b.md"',
 			'    to_anchor: west',
-			'    label: "AAAA"',
 			''
 		].join('\n');
 		const fileService = new TestFileService(new Map([[canvasPath, initial]]));
-		fileService.editExternallyOnNextWrite(canvasPath, raw => raw.replace('label: "AAAA"', 'label: "BBBB"'));
+		fileService.editExternallyOnNextWrite(canvasPath, raw => raw.replace('    x: 1', '    x: 9'));
 		const service = mirrorService(fileService as unknown as IFileService);
 
 		await service.reconnectCanvasEdge(folder(''), { from: 'a.md', to: 'b.md' }, {
 			from: 'a.md',
 			from_anchor: 'south',
 			to: 'c.md',
-			to_anchor: 'north',
-			label: 'AAAA'
+			to_anchor: 'north'
 		});
 
-		assert.deepStrictEqual((await service.readCanvas(folder('')))?.edges, [{
+		const updated = await service.readCanvas(folder(''));
+		assert.strictEqual(updated?.cards[0].x, 9);
+		assert.deepStrictEqual(updated?.edges, [{
 			from: 'a.md',
 			from_anchor: 'south',
 			to: 'c.md',
-			to_anchor: 'north',
-			label: 'BBBB'
+			to_anchor: 'north'
 		}]);
 	});
 
-	test('a derived semantic edge can materialize its first authored label with complete anchors', async () => {
+	test('upserts an edge with complete endpoints and anchors', async () => {
 		const service = createService(new Map());
 
 		await service.upsertCanvasEdge(folder(''), {
 			from: 'a.md',
 			from_anchor: 'south',
 			to: 'b.md',
-			to_anchor: 'north',
-			label: 'depends on'
+			to_anchor: 'north'
 		});
 
 		assert.deepStrictEqual((await service.readCanvas(folder('')))?.edges, [{
 			from: 'a.md',
 			from_anchor: 'south',
 			to: 'b.md',
-			to_anchor: 'north',
-			label: 'depends on'
+			to_anchor: 'north'
 		}]);
 	});
 
@@ -656,7 +625,6 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: east',
 				'    to: "b.md"',
 				'    to_anchor: west',
-				'    label: "kept"',
 				''
 			].join('\n')]
 		]);
@@ -666,7 +634,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 		const canvas = await service.readCanvas(folder(''));
 		assert.deepStrictEqual(canvas?.cards[0], { path: 'new.md', kind: 'file', x: 10, y: 20, width: 260, height: 140 });
-		assert.deepStrictEqual(canvas?.edges[0], { from: 'new.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'kept' });
+		assert.deepStrictEqual(canvas?.edges[0], { from: 'new.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' });
 	});
 
 	test('same-parent overwrite retires destination styling, deduplicates the target, and preserves incoming geometry', async () => {
@@ -691,12 +659,10 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: south',
 				'    to: "keep.md"',
 				'    to_anchor: north',
-				'    label: "incoming geometry"',
 				'  - from: "new.md"',
 				'    from_anchor: east',
 				'    to: "keep.md"',
 				'    to_anchor: west',
-				'    label: "retired target"',
 				'  - from: "keep.md"',
 				'    from_anchor: east',
 				'    to: "new.md"',
@@ -714,8 +680,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 			from: 'new.md',
 			from_anchor: 'south',
 			to: 'keep.md',
-			to_anchor: 'north',
-			label: 'incoming geometry'
+			to_anchor: 'north'
 		}]);
 	});
 
@@ -742,12 +707,10 @@ suite('BaseHalfCanvasMirrorService', () => {
 				'    from_anchor: south',
 				'    to: "keep.md"',
 				'    to_anchor: north',
-				'    label: "incoming"',
 				'  - from: "notes"',
 				'    from_anchor: east',
 				'    to: "keep.md"',
 				'    to_anchor: west',
-				'    label: "orphan target"',
 				''
 			].join('\n')],
 			['/work/.bh/mirror/docs/canvas.yaml', 'path: "docs"\ncards:\n  - path: "docs/legacy"\n    kind: folder\n    x: 1\n    y: 2\n    width: 260\n    height: 140\nedges: []\n'],
@@ -765,8 +728,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 			from: 'notes',
 			from_anchor: 'south',
 			to: 'keep.md',
-			to_anchor: 'north',
-			label: 'incoming'
+			to_anchor: 'north'
 		}]);
 		assert.strictEqual((await service.readCanvas(folder('notes')))?.cards[0].path, 'notes/legacy');
 		assert.strictEqual(await service.readCanvas(folder('notes/legacy')), null);
@@ -840,9 +802,9 @@ suite('BaseHalfCanvasMirrorService', () => {
 		const targetOnlyPath = '/work/.bh/mirror/notes/retired-only/canvas.yaml';
 		const initial = new Map([
 			[rootPath, 'path: ""\ncards:\n  - path: "docs"\n    kind: folder\n    x: 1\n    y: 2\n    width: 260\n    height: 140\n  - path: "notes"\n    kind: folder\n    x: 9\n    y: 10\n    width: 300\n    height: 180\nedges: []\n'],
-			[sourcePath, 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "source root"\n'],
+			[sourcePath, 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n'],
 			[sourceChildPath, 'path: "docs/chapter"\ncards:\n  - path: "docs/chapter/a.md"\n    kind: file\n    x: 3\n    y: 4\n    width: 260\n    height: 140\nedges: []\n'],
-			[targetPath, 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n    label: "retired root"\n'],
+			[targetPath, 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n'],
 			[targetChildPath, 'path: "notes/chapter"\ncards:\n  - path: "notes/chapter/old.md"\n    kind: file\n    x: 99\n    y: 100\n    width: 260\n    height: 140\nedges: []\n'],
 			[targetOnlyPath, 'path: "notes/retired-only"\ncards:\n  - path: "notes/retired-only/old.md"\n    kind: file\n    x: 101\n    y: 102\n    width: 260\n    height: 140\nedges: []\n']
 		]);
@@ -863,8 +825,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 	test('relocateNode compensates and replays a source canvas changed after the target commit', async () => {
 		const sourcePath = '/work/.bh/mirror/docs/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/notes/canvas.yaml';
-		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "moved snapshot"\n';
-		const external = initial.replace('moved snapshot', 'external latest');
+		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const external = initial.replace('from_anchor: east', 'from_anchor: west');
 		const fileService = new TestFileService(new Map([[sourcePath, initial]]));
 		fileService.writeExternallyAfterNextCreate(targetPath, () => fileService.replaceExternally(sourcePath, external));
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -873,7 +835,12 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 		assert.strictEqual(fileService.files.get(sourcePath), 'path: "docs"\ncards: []\nedges: []\n');
 		assert.strictEqual(await service.readCanvas(folder('docs')), null);
-		assert.strictEqual((await service.readCanvas(folder('notes')))?.edges[0].label, 'external latest');
+		assert.deepStrictEqual((await service.readCanvas(folder('notes')))?.edges[0], {
+			from: 'notes/a.md',
+			from_anchor: 'west',
+			to: 'notes/b.md',
+			to_anchor: 'west'
+		});
 	});
 
 	test('relocateNode validates a skipped already-desired target snapshot before retiring its source', async () => {
@@ -881,11 +848,11 @@ suite('BaseHalfCanvasMirrorService', () => {
 		const sourcePath = '/work/.bh/mirror/docs/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/notes/canvas.yaml';
 		const root = 'path: ""\ncards:\n  - path: "docs"\n    kind: folder\n    x: 1\n    y: 2\n    width: 260\n    height: 140\nedges: []\n';
-		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "already desired"\n';
+		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
 		const alreadyDesired = source
 			.replace('path: "docs"', 'path: "notes"')
 			.replaceAll('docs/', 'notes/');
-		const external = alreadyDesired.replace('already desired', 'external latest');
+		const external = alreadyDesired.replace('from_anchor: east', 'from_anchor: west');
 		const fileService = new TestFileService(new Map([
 			[rootPath, root],
 			[sourcePath, source],
@@ -929,10 +896,10 @@ suite('BaseHalfCanvasMirrorService', () => {
 	test('relocateNode fails closed when target compensation meets an external rewrite', async () => {
 		const sourcePath = '/work/.bh/mirror/docs/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/notes/canvas.yaml';
-		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "source old"\n';
-		const sourceLatest = initial.replace('source old', 'source new');
+		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const sourceLatest = initial.replace('from_anchor: east', 'from_anchor: west');
 		const targetInitial = 'path: "notes"\ncards: []\nedges: []\n';
-		const targetLatest = 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n    label: "target latest"\n';
+		const targetLatest = 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n';
 		const fileService = new TestFileService(new Map([
 			[sourcePath, initial],
 			[targetPath, targetInitial]
@@ -953,8 +920,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 	test('relocateNode restores its source and fails closed when target changes after commit', async () => {
 		const sourcePath = '/work/.bh/mirror/docs/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/notes/canvas.yaml';
-		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "source"\n';
-		const targetLatest = 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n    label: "target latest"\n';
+		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const targetLatest = 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n';
 		const fileService = new TestFileService(new Map([
 			[sourcePath, source],
 			[targetPath, 'path: "notes"\ncards: []\nedges: []\n']
@@ -976,12 +943,12 @@ suite('BaseHalfCanvasMirrorService', () => {
 		const targetChildPath = '/work/.bh/mirror/notes/chapter/canvas.yaml';
 		const initial = new Map([
 			[rootPath, 'path: ""\ncards:\n  - path: "docs"\n    kind: folder\n    x: 1\n    y: 2\n    width: 260\n    height: 140\n  - path: "notes"\n    kind: folder\n    x: 9\n    y: 10\n    width: 300\n    height: 180\nedges: []\n'],
-			[sourcePath, 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "source root"\n'],
+			[sourcePath, 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n'],
 			[sourceChildPath, 'path: "docs/chapter"\ncards:\n  - path: "docs/chapter/a.md"\n    kind: file\n    x: 3\n    y: 4\n    width: 260\n    height: 140\nedges: []\n'],
-			[targetPath, 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n    label: "target root"\n'],
+			[targetPath, 'path: "notes"\ncards: []\nedges:\n  - from: "notes/x.md"\n    from_anchor: east\n    to: "notes/y.md"\n    to_anchor: west\n'],
 			[targetChildPath, 'path: "notes/chapter"\ncards:\n  - path: "notes/chapter/old.md"\n    kind: file\n    x: 99\n    y: 100\n    width: 260\n    height: 140\nedges: []\n']
 		]);
-		const externalTarget = initial.get(targetPath)!.replace('target root', 'external latest');
+		const externalTarget = initial.get(targetPath)!.replace('from_anchor: east', 'from_anchor: west');
 		const fileService = new TestFileService(new Map(initial));
 		fileService.writeExternallyAfterNextWrite(targetPath, externalTarget);
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -1002,8 +969,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 	test('relocateNode restores its target and fails closed when source is recreated after retirement', async () => {
 		const sourcePath = '/work/.bh/mirror/docs/canvas.yaml';
 		const targetPath = '/work/.bh/mirror/notes/canvas.yaml';
-		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "source"\n';
-		const sourceLatest = source.replace('label: "source"', 'label: "latest"');
+		const source = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const sourceLatest = source.replace('from_anchor: east', 'from_anchor: west');
 		const target = 'path: "notes"\ncards: []\nedges: []\n';
 		const fileService = new TestFileService(new Map([
 			[sourcePath, source],
@@ -1086,8 +1053,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 	test('same-resource identity relocation replays an equal-length external rewrite', async () => {
 		const ownPath = '/work/.bh/mirror/Docs/canvas.yaml';
-		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "AAAA"\n';
-		const external = initial.replace('AAAA', 'BBBB');
+		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const external = initial.replace('from_anchor: east', 'from_anchor: west');
 		const fileService = new TestFileService(new Map([[ownPath, initial]]));
 		fileService.editExternallyOnNextWrite(ownPath, () => external);
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -1095,7 +1062,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		await service.relocateNodeIdentity(workspaceFolder, 'docs', 'Docs');
 
 		assert.match(fileService.files.get(ownPath) ?? '', /^path: "Docs"/);
-		assert.match(fileService.files.get(ownPath) ?? '', /label: "BBBB"/);
+		assert.match(fileService.files.get(ownPath) ?? '', /from_anchor: west/);
 	});
 
 	test('purgeNode drops the subtree canvases plus the parent card and touching edges', async () => {
@@ -1137,8 +1104,8 @@ suite('BaseHalfCanvasMirrorService', () => {
 
 	test('purgeNode preserves a subtree canvas changed after its snapshot', async () => {
 		const canvasPath = '/work/.bh/mirror/docs/canvas.yaml';
-		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n    label: "purge snapshot"\n';
-		const external = initial.replace('purge snapshot', 'external latest');
+		const initial = 'path: "docs"\ncards: []\nedges:\n  - from: "docs/a.md"\n    from_anchor: east\n    to: "docs/b.md"\n    to_anchor: west\n';
+		const external = initial.replace('from_anchor: east', 'from_anchor: west');
 		const fileService = new TestFileService(new Map([[canvasPath, initial]]));
 		fileService.writeExternallyAfterNextRead(canvasPath, external);
 		const service = mirrorService(fileService as unknown as IFileService);
@@ -1146,7 +1113,7 @@ suite('BaseHalfCanvasMirrorService', () => {
 		await service.purgeNode(workspaceFolder, 'docs');
 
 		assert.strictEqual(fileService.files.get(canvasPath), external);
-		assert.strictEqual((await service.readCanvas(folder('docs')))?.edges[0].label, 'external latest');
+		assert.strictEqual((await service.readCanvas(folder('docs')))?.edges[0].from_anchor, 'west');
 	});
 
 	function folder(relativePath: string): IBaseHalfCanvasFolderState {

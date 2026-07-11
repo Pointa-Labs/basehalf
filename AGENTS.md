@@ -123,6 +123,7 @@ Current public decision index:
 - D21 — Right side is Agent Area, not Terminal panel.
 - D22 — Sidebar, extension allowlist, and file-open remapping.
 - D23 — Module-complete migration, not MVP or intermediate shell.
+- D24 — References are explicit directed context flow; Markdown links only navigate.
 
 Current private decision index:
 
@@ -154,6 +155,8 @@ Current private decision index:
 - [open-source-and-free-until-mature.md](private-docs/decisions/open-source-and-free-until-mature.md) — open source and free until mature.
 - [overturn-event-log-truth-md-files-content-truth.md](private-docs/decisions/overturn-event-log-truth-md-files-content-truth.md) — overturn event-log truth; MD files are content truth.
 - [protocol-not-prompt-injection.md](private-docs/decisions/protocol-not-prompt-injection.md) — compound mechanism is protocol, not prompt injection.
+- [reference-edges-are-context-flow-topology.md](private-docs/decisions/reference-edges-are-context-flow-topology.md) — explicit references form a general directed context-flow graph; Markdown links only navigate and canvas edges have no relationship prose.
+- [rich-editor-agent-native-hardening.md](private-docs/decisions/rich-editor-agent-native-hardening.md) — external writes merge incrementally with remote-author undo semantics; byte fidelity is a gate; Markdown links are authored for navigation without mutating references.
 - [right-side-agent-area-hosts-tui-and-extension-agents.md](private-docs/decisions/right-side-agent-area-hosts-tui-and-extension-agents.md) — right side is Agent Area for TUI and extension agents.
 - [screen-attention-economy.md](private-docs/decisions/screen-attention-economy.md) — screen attention economy strategy.
 - [target-user-curious-learner-ai-augmented.md](private-docs/decisions/target-user-curious-learner-ai-augmented.md) — target user is curious learner using AI.
@@ -205,6 +208,12 @@ that point instead of relying on this guide.
 - **Canvas-first open model.** Card open, close, breadcrumb, focus, and history
   behavior belongs to BaseHalf's product layer. Do not let standard VS Code
   tabbed editor groups become the default card interaction.
+- **Reference graph is explicit context flow.** `A → B` means A's context flows
+  into B. This is a general directed graph, not a hierarchy: many-to-many
+  relationships and cycles are valid, while self-references are not. Only an
+  explicit user or Agent action creates cards or references; Markdown links
+  only navigate. Canvas edges persist endpoints and anchors, never relationship
+  labels or notes. Retired label data is a clean break with no migration.
 - **Markdown projections share one truth.** Rich, source, and preview modes for
   `.md` files must operate on one Markdown working copy. Block/rich editor state
   is a YJS-backed projection; the file text remains content truth for git, diff,

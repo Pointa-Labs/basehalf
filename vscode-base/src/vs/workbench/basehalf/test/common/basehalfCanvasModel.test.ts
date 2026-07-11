@@ -11,6 +11,7 @@ import {
 	baseHalfCanvasAnchorPoint,
 	baseHalfCanvasEdgeLayouts,
 	baseHalfCanvasEdgePath,
+	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
@@ -120,7 +121,110 @@ suite('BaseHalfCanvasModel', () => {
 		});
 	});
 
-	test('derives edges from badge references, styled by canvas.yaml where available', () => {
+	test('exposes a relation after the latest badge snapshot completes its reciprocal pair', () => {
+		const badges = new Map([
+			['a.md', { references: ['b.md'], referenced_by: [] as string[] }],
+			['b.md', { references: [] as string[], referenced_by: [] as string[] }]
+		]);
+
+		assert.deepStrictEqual(baseHalfCanvasBadgeRelationships('a.md', badges.get('a.md'), badges), {
+			references: [],
+			referencedBy: [],
+			issues: [{ direction: 'outbound', from: 'a.md', to: 'b.md', reason: 'incomplete' }]
+		});
+
+		// An Agent commonly writes the two badge files sequentially while detail is
+		// open. Re-evaluating against the latest workspace snapshot must reveal the
+		// relation as soon as the target backlink lands.
+		badges.set('b.md', { references: [], referenced_by: ['a.md'] });
+		assert.deepStrictEqual(baseHalfCanvasBadgeRelationships('a.md', badges.get('a.md'), badges), {
+			references: ['b.md'],
+			referencedBy: [],
+			issues: []
+		});
+	});
+
+	test('does not count one-sided raw references in badge presentation state', () => {
+		const badge = {
+			references: ['outbound-half.md', 'outbound-complete.md'],
+			referenced_by: ['inbound-half.md', 'inbound-complete.md']
+		};
+		const badges = new Map([
+			['a.md', badge],
+			['outbound-half.md', { references: [] as string[], referenced_by: [] as string[] }],
+			['outbound-complete.md', { references: [] as string[], referenced_by: ['a.md'] }],
+			['inbound-half.md', { references: [] as string[], referenced_by: [] as string[] }],
+			['inbound-complete.md', { references: ['a.md'], referenced_by: [] as string[] }]
+		]);
+
+		const oneSidedOnly = baseHalfCanvasBadgeRelationships('a.md', {
+			references: ['outbound-half.md'],
+			referenced_by: ['inbound-half.md']
+		}, badges);
+		assert.deepStrictEqual(oneSidedOnly, {
+			references: [],
+			referencedBy: [],
+			issues: [
+				{ direction: 'outbound', from: 'a.md', to: 'outbound-half.md', reason: 'incomplete' },
+				{ direction: 'inbound', from: 'inbound-half.md', to: 'a.md', reason: 'incomplete' }
+			]
+		});
+		assert.strictEqual(oneSidedOnly.references.length > 0 || oneSidedOnly.referencedBy.length > 0, false);
+
+		const relations = baseHalfCanvasBadgeRelationships('a.md', badge, badges);
+		assert.deepStrictEqual(relations, {
+			references: ['outbound-complete.md'],
+			referencedBy: ['inbound-complete.md'],
+			issues: [
+				{ direction: 'outbound', from: 'a.md', to: 'outbound-half.md', reason: 'incomplete' },
+				{ direction: 'inbound', from: 'inbound-half.md', to: 'a.md', reason: 'incomplete' }
+			]
+		});
+		assert.strictEqual(relations.references.length + relations.referencedBy.length, 2);
+	});
+
+	test('distinguishes unreadable relationship endpoints and removes duplicate or self issues', () => {
+		const outboundProblem = {
+			relativePath: 'outbound-broken.md',
+			resource: URI.file('/workspace/.bh/mirror/outbound-broken.md/badge.yaml'),
+			message: 'Invalid YAML',
+			corrupt: true
+		};
+		const inboundProblem = {
+			relativePath: 'inbound-broken.md',
+			resource: URI.file('/workspace/.bh/mirror/inbound-broken.md/badge.yaml'),
+			message: 'Unable to read',
+			corrupt: false
+		};
+		const badge = {
+			references: ['outbound-half.md', 'outbound-half.md', 'outbound-broken.md', 'outbound-complete.md', 'a.md'],
+			referenced_by: ['inbound-half.md', 'inbound-half.md', 'inbound-broken.md', 'inbound-complete.md', 'a.md']
+		};
+		const badges = new Map([
+			['a.md', badge],
+			['outbound-half.md', { references: [] as string[], referenced_by: [] as string[] }],
+			['outbound-complete.md', { references: [] as string[], referenced_by: ['a.md'] }],
+			['inbound-half.md', { references: [] as string[], referenced_by: [] as string[] }],
+			['inbound-complete.md', { references: ['a.md'], referenced_by: [] as string[] }]
+		]);
+		const relationships = baseHalfCanvasBadgeRelationships('a.md', badge, badges, new Map([
+			[outboundProblem.relativePath, outboundProblem],
+			[inboundProblem.relativePath, inboundProblem]
+		]));
+
+		assert.deepStrictEqual(relationships, {
+			references: ['outbound-complete.md'],
+			referencedBy: ['inbound-complete.md'],
+			issues: [
+				{ direction: 'outbound', from: 'a.md', to: 'outbound-half.md', reason: 'incomplete' },
+				{ direction: 'outbound', from: 'a.md', to: 'outbound-broken.md', reason: 'unreadable', problem: outboundProblem },
+				{ direction: 'inbound', from: 'inbound-half.md', to: 'a.md', reason: 'incomplete' },
+				{ direction: 'inbound', from: 'inbound-broken.md', to: 'a.md', reason: 'unreadable', problem: inboundProblem }
+			]
+		});
+	});
+
+	test('derives mutually recorded reference edges, anchored by canvas.yaml where available', () => {
 		const root = folder('/workspace', [
 			file('/workspace/a.md'),
 			file('/workspace/b.md'),
@@ -130,16 +234,18 @@ suite('BaseHalfCanvasModel', () => {
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
 			badges: new Map([
-				// a→b styled below; a→c has no styling (drawn with default anchors);
+				// a→b is anchored below; a→c has no saved anchors (drawn with defaults);
 				// a→docs/far.md is cross-canvas (not drawable here); a→a is a
 				// hand-planted self-reference (never drawn).
-				['a.md', { references: ['b.md', 'c.md', 'docs/far.md', 'a.md'], referenced_by: [] }]
+				['a.md', { references: ['b.md', 'c.md', 'docs/far.md', 'a.md'], referenced_by: [] }],
+				['b.md', { references: [], referenced_by: ['a.md'] }],
+				['c.md', { references: [], referenced_by: ['a.md'] }]
 			]),
 			canvas: {
 				path: '',
 				cards: [],
 				edges: [
-					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
 					// A stale style entry without a live reference draws nothing.
 					{ from: 'b.md', from_anchor: 'south', to: 'c.md', to_anchor: 'north' }
 				]
@@ -147,9 +253,22 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(model.edges, [
-			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+			{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
 			{ from: 'a.md', from_anchor: 'east', to: 'c.md', to_anchor: 'west' }
 		]);
+	});
+
+	test('does not draw a one-sided reference as a real relationship', () => {
+		const root = folder('/workspace', [file('/workspace/a.md'), file('/workspace/b.md')]);
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			badges: new Map([
+				['a.md', { references: ['b.md'], referenced_by: [] }],
+				['b.md', { references: [], referenced_by: [] }]
+			])
+		});
+
+		assert.deepStrictEqual(model.edges, []);
 	});
 
 	test('computes card bounds from saved geometry or the stable grid fallback', () => {
@@ -199,16 +318,17 @@ suite('BaseHalfCanvasModel', () => {
 		);
 	});
 
-	test('lays out edge paths and labels for visible endpoints', () => {
+	test('lays out edge paths for visible endpoints', () => {
 		const root = folder('/workspace', [
 			file('/workspace/a.md'),
 			file('/workspace/b.md')
 		]);
 		const model = baseHalfCanvasModelFromStat(root, {
 			rootLevel: true,
-			// The edge derives from the reference; canvas.yaml supplies its styling.
+			// The edge derives from the reciprocal reference pair; canvas.yaml supplies anchors.
 			badges: new Map([
-				['a.md', { references: ['b.md'], referenced_by: [] }]
+				['a.md', { references: ['b.md'], referenced_by: [] }],
+				['b.md', { references: [], referenced_by: ['a.md'] }]
 			]),
 			canvas: {
 				path: '',
@@ -217,7 +337,7 @@ suite('BaseHalfCanvasModel', () => {
 					{ path: 'b.md', kind: 'file', x: 320, y: 20, width: 200, height: 100 }
 				],
 				edges: [
-					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' }
+					{ from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' }
 				]
 			}
 		});
@@ -225,11 +345,10 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(baseHalfCanvasEdgeLayouts(model.edges, model.items), {
 			dropped: 0,
 			edges: [{
-				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west', label: 'next' },
+				edge: { from: 'a.md', from_anchor: 'east', to: 'b.md', to_anchor: 'west' },
 				from: { x: 210, y: 70 },
 				to: { x: 320, y: 70 },
-				path: 'M 210 70 C 265 70 265 70 320 70',
-				label: { text: 'next', x: 265, y: 70 }
+				path: 'M 210 70 C 265 70 265 70 320 70'
 			}]
 		});
 	});

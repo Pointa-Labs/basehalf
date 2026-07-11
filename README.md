@@ -127,12 +127,20 @@ complete and more useful to agents:
 - `.bh/current_focus.yaml` points to the active node's `focus.yaml`.
 - `.bh/mirror/<path>/badge.yaml` stores a file or folder description plus
   `references` and `referenced_by`.
-- `.bh/mirror/<folder>/canvas.yaml` stores card geometry and edge metadata for
-  that folder canvas.
+- `.bh/mirror/<folder>/canvas.yaml` stores card geometry plus reference-edge
+  endpoints and anchors for that folder canvas.
 - `.bh/mirror/<path>/focus.yaml` mirrors the current file projection, cursor or
   visible lines, or a folder canvas viewport.
 - `.bh/mirror/<file>/adhd.yaml` stores per-file reading aids such as highlights
   and read ranges.
+
+References are an explicit directed context-flow graph: `A → B` means A's
+context flows into B. The graph is not a tree; many-to-many relationships and
+cycles are valid, while self-references are not. Users and Agents create cards
+and references explicitly. Markdown links remain ordinary document navigation
+and never create a BaseHalf reference automatically. Canvas edges visualize the
+same graph with endpoints and anchors only, without relationship labels or
+notes.
 
 User files remain content truth. `.bh/` is a local derived mirror, and automated
 BaseHalf services observe/reconcile unless the user triggers a concrete write.
@@ -144,8 +152,9 @@ Agents edit files with their own tools.
 - Browse Files, Git, and Search using VS Code-backed side views.
 - Open folders as canvases and files as BaseHalf card detail instead of editor
   tabs.
-- Drag cards, persist positions, connect cards with labeled anchored edges, and
-  use snap guides.
+- Drag cards, persist positions, explicitly connect directed context-flow
+  references with anchored edges, use snap guides, and explicitly repair or
+  discard incomplete Agent-written reference pairs from the Badge surface.
 - Use Quick Open and Quick Text Search while result activation still routes
   back into BaseHalf card detail.
 - Edit Markdown in rich mode, switch to source or preview, and keep Markdown as

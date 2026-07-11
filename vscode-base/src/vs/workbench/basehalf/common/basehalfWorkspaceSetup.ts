@@ -156,9 +156,15 @@ const AGENT_HARNESS_FILES: ReadonlyArray<{ readonly relPath: string; readonly co
 			'',
 			'User files are the source of truth. .bh files are derived BaseHalf state.',
 			'',
-			'Before modifying a .bh file, read the latest version from disk. Match the',
-			'existing YAML shape. Do not write data that is derivable from paths, line',
-			'numbers, or the reference graph. Never replace .bh/current_focus.yaml with a',
+			'Before modifying a .bh file, read the latest version from disk and match its',
+			'YAML shape. A reference A -> B means A context flows into B: write B to A\'s',
+			'`references` and A to B\'s `referenced_by`. The graph is directed, not a tree.',
+			'BaseHalf does not treat a one-sided pair as live; an explicit action must repair or discard it.',
+			'Canvas edge rows store endpoints and anchor placement only; Markdown links are',
+			'navigation only and never create references.',
+			'To create a card, create the requested user file or folder first; a canvas card',
+			'row stores geometry only. Never replace',
+			'.bh/current_focus.yaml with a',
 			'regular file; it must remain a symlink.'
 		])
 	}
@@ -194,24 +200,32 @@ focus file of the node the user is looking at right now:
 The \`.bh/mirror/\` tree holds up to four YAML files per node (sparse — only what's
 been annotated):
 - \`.bh/mirror/<path>/badge.yaml\` — a node's one-line \`description\`, outbound
-  \`references\` (paths) and inbound \`referenced_by\` (paths).
+  \`references\` (paths) and inbound \`referenced_by\` (paths). \`A → B\` means A's
+  context flows into B: B is in A's \`references\`, and A is in B's \`referenced_by\`.
+  This is a general directed graph, not a tree or parent/child hierarchy.
+  A one-sided pair is not live; BaseHalf surfaces it for explicit Repair or Discard.
 - \`.bh/mirror/<folder>/canvas.yaml\` — a folder's canvas: child card positions and
-  \`edges\` (connections with anchors + labels) between them.
+  optional \`edges\` with endpoints and anchor placement for badge references.
+  The badge graph is relationship truth; a canvas edge never creates a separate relation.
 - \`.bh/mirror/<path>/focus.yaml\` — a node's viewport (\`current_focus\` points at
   the live one).
 - \`.bh/mirror/<file>/adhd.yaml\` — per-file reading aids: \`highlight_keywords\` and
   read line-ranges (\`read_paragraphs\`).
 
-To answer or edit, start from the focused node, then follow its \`references\` /
-\`referenced_by\` and the \`canvas.yaml\` structure for context. Only modify the
-user's own files when they explicitly ask.
+To answer or edit, start from the focused node. Its incoming \`referenced_by\` nodes
+are upstream context; follow either direction when more graph context is useful.
+Markdown links are ordinary navigation links and never create reference edges.
+To create a card, create its real user file or folder; a canvas card row stores only
+geometry.
+Only modify or create the user's own files when they explicitly ask.
 
-When asked, you can GENERATE or update these \`.bh/\` files from content (a
-badge.yaml/canvas.yaml for a folder, an adhd.yaml for a file). Match the existing
-YAML shape; read the latest version before editing so you don't overwrite what the
-app or the user just wrote; don't store anything derivable from paths, line numbers,
-or the reference graph. \`.bh/current_focus.yaml\` is a symlink — never replace it
-with a regular file.
+When asked, you can GENERATE or update these \`.bh/\` files from content, including
+creating references. Update both badge endpoints; the canvas derives the relation
+from that graph. Use \`canvas.yaml\` only for card geometry and edge endpoints/anchors.
+Match the existing YAML shape and read the latest version before editing so you
+don't overwrite what
+the app or user just wrote. \`.bh/current_focus.yaml\` is a symlink — never replace
+it with a regular file.
 
 For BaseHalf-specific workflows, use \`${AGENT_HARNESS_INDEX_REL}\` as the
 progressive-disclosure index. Load only the matching scenario, such as focused-file
@@ -219,7 +233,8 @@ rewrites, cursor/viewport questions, or \`.bh/\` mirror writes, when that behavi
 matters.
 
 The user's files are the source of truth; \`.bh/\` is derived. Edit user files with
-your own tools; the app owns \`.bh/\`. \`.bh/cache/\` is gitignored and rebuildable;
+your own tools; edit \`.bh/\` only on explicit request — otherwise the app owns it.
+\`.bh/cache/\` is gitignored and rebuildable;
 the rest of \`.bh/\` stays in git so the map travels with the folder.`;
 
 const HINT_BLOCK = `${HINT_MARKER}\n${HINT_BODY}\n${HINT_END_MARKER}`;

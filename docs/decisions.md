@@ -8,7 +8,7 @@ Short ADR-style record of the calls that shaped this project, and *why* — so w
 > **MD = content truth + `.bh/` = local derived mirror + git = user-file history**. D5
 > (CLI-first over one core) was later superseded by the Electron desktop path
 > and the 2026-06 VS Code-base migration. D8's library picks have also evolved
-> (see notes inline). D12–D23 capture the current direction.
+> (see notes inline). D12–D24 capture the current direction.
 >
 > The full reasoning for the pivot lives in `private-docs/` (internal: IR-v2,
 > SR-v0, 架构宪法). This file keeps a one-paragraph summary per decision plus
@@ -272,7 +272,7 @@ a Markdown focus brief, and a separate reverse index:
 - `.bh/mirror/<path>/badge.yaml` — a node's `description`, outbound `references`
   (plain paths), and the **embedded** `referenced_by` reverse index.
 - `.bh/mirror/<folder>/canvas.yaml` — the visual layer split out of the badge:
-  child card positions + `edges` (anchors + labels).
+  child card positions + `edges` (endpoints + anchors).
 - `.bh/mirror/<path>/focus.yaml` + `.bh/current_focus.yaml` (a symlink) — focus
   flips from a hand-curated active-file list to a **real-time viewport mirror**:
   whatever node the user is looking at IS the focus, and the symlink is the
@@ -423,3 +423,38 @@ search/quick input, Markdown/rich editor, Agent Area/terminal/extension agents,
 extension allowlist/auth/secrets, `.bh` mirror integration, theming/layout, and
 packaging/dev loop. Each track can be parallelized, but it should exit only
 when the module is coherent enough to be kept, not merely demonstrated.
+
+## D24 — References are explicit directed context flow; Markdown links only navigate (NEW, 2026-07-11)
+
+**Decision.** BaseHalf's reference graph is a general directed context-flow
+graph. `A → B` means that A's context flows into B: A's outbound `references`
+contains B, and B's `referenced_by` contains A. This is not a containment tree.
+Many-to-many relationships and directed cycles are valid; self-references are
+not. A relationship is complete only when both mirror endpoints agree.
+
+References are created only by an explicit user or Agent action. A Markdown
+link is ordinary document navigation and does not create, remove, or otherwise
+mutate a BaseHalf reference. Users and Agents may explicitly create cards and
+reference relationships independently of the links inside those files.
+
+`canvas.yaml` is only the visual projection of that semantic graph. Its edge
+rows store endpoints and anchors, with no relationship `label`, `note`, or type.
+If explanatory prose is useful, it belongs in an authored document, not in a
+second hidden metadata field on the edge.
+
+**Why.** Giving every edge one stable meaning makes the graph legible to people
+and Agents without asking either to interpret free-form edge copy. It also keeps
+Markdown content, navigation links, semantic context flow, and canvas geometry
+as separate concerns instead of allowing one representation to silently create
+or duplicate another.
+
+**Consequences.** Relationship-label input, display, editing, APIs, and
+persistence are removed. This is a clean break: legacy label-bearing mirror
+data and label-specific fixtures are not compatibility contracts, and no
+migration runs for them. Readers ignore retired label fields; canonical future
+writes contain only endpoints and anchors. A one-sided external mirror write
+fails closed: BaseHalf does not draw it or list it as a live relationship. The
+Badge surface instead marks the incomplete pair and offers explicit Repair and
+Discard actions. If the other endpoint cannot be read, BaseHalf reports that
+metadata problem without guessing whether the pair is incomplete. Automated
+services do not silently rewrite either case.

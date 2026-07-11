@@ -264,8 +264,8 @@ function shiftedRect(rect: DOMRect, x: number): DOMRect {
 }
 
 // Wires the `[[` gesture to workspace file search: picking a file inserts a
-// plain Markdown link (relative href), so references written while typing are
-// ordinary links for git, agents, and the reference graph. The menu triggers
+// plain Markdown link (relative href). It is navigation for people and Agents;
+// the explicit BaseHalf reference graph is intentionally untouched. The menu triggers
 // on `[` with a same-character lookbehind — the suggestion plugin's own
 // multi-character matching only works at a block start — and the leftover
 // opening bracket is removed when a file is picked.
