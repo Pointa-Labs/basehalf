@@ -7,7 +7,7 @@ import { Event } from '../../../base/common/event.js';
 import { Disposable, DisposableStore } from '../../../base/common/lifecycle.js';
 import { relativePath as getRelativePath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
-import { FileOperation, FileOperationError, FileOperationResult, IFileService } from '../../../platform/files/common/files.js';
+import { FileOperation, FileOperationResult, IFileService, toFileOperationResult } from '../../../platform/files/common/files.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { INotificationHandle, INotificationService, Severity } from '../../../platform/notification/common/notification.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
@@ -18,7 +18,7 @@ import { IBaseHalfAdhdMirrorService } from '../common/basehalfAdhdMirror.js';
 import { IBaseHalfBadgeGraphService } from '../common/basehalfBadgeGraph.js';
 import { BaseHalfBadgeKind } from '../common/basehalfBadgeMirror.js';
 import { IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
-import { IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasNavigationService, IBaseHalfWorkspaceResource } from '../common/basehalfCanvasNavigation.js';
 import {
 	baseHalfIsMirrorSubtree,
 	baseHalfAssertMirrorPathComponentsNotSymbolicLink,
@@ -30,7 +30,6 @@ import {
 } from '../common/basehalfMirrorTree.js';
 import { BaseHalfMirrorCascadeStageError, baseHalfMirrorCascadeCompletedMutations, baseHalfMoveCrossesWorkspaceRoots, baseHalfOrderCascadeStages, baseHalfPrepareStructuralDetail, baseHalfRunRequiredCascadeStages, baseHalfShouldRepublishCascadeRecoveryPrompt, baseHalfStructuralOperationAffectsResource } from '../common/basehalfMirrorCascadeOperation.js';
 import { IBaseHalfStructuralMutationReservation, IBaseHalfWorkspaceMutationCoordinator, IBaseHalfWorkspaceMutationLease } from '../common/basehalfWorkspaceMutation.js';
-import { IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfStructuralEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 
 interface IBaseHalfPreparedStructuralOperation {
@@ -453,7 +452,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			await this.fileService.move(source, target);
 			await baseHalfAssertMirrorPathComponentsNotSymbolicLink(this.fileService, workspaceFolder, target);
 		} catch (error) {
-			if (!(error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
+			if (!isFileNotFound(error)) {
 				throw error;
 			}
 			// The mirror is sparse. A node with no mirror directory has no identity
@@ -711,7 +710,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 		try {
 			await this.fileService.del(resource);
 		} catch (error) {
-			if (!(error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
+			if (!isFileNotFound(error)) {
 				throw error;
 			}
 		}
@@ -752,7 +751,7 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 				kinds.set(key, stat.isDirectory ? 'folder' : 'file');
 				continue;
 			} catch (error) {
-				if (!(error instanceof FileOperationError && error.fileOperationResult === FileOperationResult.FILE_NOT_FOUND)) {
+				if (!isFileNotFound(error)) {
 					throw error;
 				}
 			}
@@ -816,6 +815,10 @@ class BaseHalfMirrorCascadeContribution extends Disposable implements IWorkbench
 			.then(task)
 			.catch(error => this.logService.error('BaseHalf mirror cascade step failed', error));
 	}
+}
+
+function isFileNotFound(error: unknown): boolean {
+	return error instanceof Error && toFileOperationResult(error) === FileOperationResult.FILE_NOT_FOUND;
 }
 
 registerWorkbenchContribution2(BaseHalfMirrorCascadeContribution.ID, BaseHalfMirrorCascadeContribution, WorkbenchPhase.AfterRestored);

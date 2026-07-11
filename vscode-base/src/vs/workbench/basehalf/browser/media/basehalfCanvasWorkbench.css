@@ -41,23 +41,23 @@
 .monaco-workbench .basehalf-canvas-workbench {
 	--basehalf-canvas-chrome-height: 0px;
 	--basehalf-canvas-zoom-bottom-offset: 48px;
-	--bh-card-bg: #171717;
-	--bh-card-surface: #202020;
-	--bh-card-surface-muted: #141414;
-	--bh-card-text-primary: #cccccc;
-	--bh-card-text-secondary: #9d9d9d;
-	--bh-card-text-tertiary: #808080;
-	--bh-card-text-ghost: #6e6e6e;
-	--bh-card-border: #292929;
-	--bh-card-border-strong: #3a3a3a;
+	--bh-card-bg: #161718;
+	--bh-card-surface: #222426;
+	--bh-card-surface-muted: #191a1b;
+	--bh-card-text-primary: #e1e2e3;
+	--bh-card-text-secondary: #b0b3b5;
+	--bh-card-text-tertiary: #898d90;
+	--bh-card-text-ghost: #666a6d;
+	--bh-card-border: #343638;
+	--bh-card-border-strong: #4a4d50;
 	--bh-card-accent: #0078d4;
 	--bh-card-accent-soft: #04395e;
 	--bh-card-warning: #cca700;
 	--bh-card-danger: #f14c4c;
 	--bh-card-danger-soft: #5a1d1d;
-	--bh-card-folder: #222222;
-	--bh-card-folder-border: #3d382c;
-	--bh-card-folder-glyph: #bba76a;
+	--bh-card-folder: #252524;
+	--bh-card-folder-border: #494437;
+	--bh-card-folder-glyph: #c5ad69;
 	--basehalf-detail-badge-ghost: color-mix(in srgb, var(--vscode-descriptionForeground) 64%, transparent);
 
 	position: absolute;
@@ -150,6 +150,28 @@
 	min-height: 0;
 }
 
+.monaco-workbench .basehalf-canvas-inline-edit-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	pointer-events: none;
+}
+
+.monaco-workbench .basehalf-canvas-inline-create-card {
+	position: absolute;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	width: min(280px, calc(100% - 24px));
+	height: 44px;
+	padding: 7px 9px;
+	background: var(--bh-card-surface);
+	border: 1px solid var(--bh-card-accent);
+	border-radius: 6px;
+	box-shadow: 0 4px 14px rgb(7 8 9 / 42%);
+	pointer-events: auto;
+}
+
 /*
  * The scene host is a keyboard-event sink, not a selectable canvas object.
  * Keep it programmatically focusable without inheriting the workbench-wide
@@ -233,8 +255,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-primary);
 	background: var(--bh-card-surface);
 	border: 1px solid var(--bh-card-border);
-	border-radius: 8px;
-	box-shadow: 0 1px 2px rgb(0 0 0 / 40%);
+	border-radius: 6px;
+	box-shadow: 0 1px 3px rgb(7 8 9 / 46%), 0 6px 18px rgb(7 8 9 / 12%);
 	cursor: grab;
 	touch-action: none;
 	user-select: none;
@@ -243,16 +265,61 @@ body.basehalf-canvas-edge-reconnecting * {
 	transition: box-shadow 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.monaco-workbench .basehalf-canvas-card.inline-editing {
+	cursor: default;
+}
+
+.monaco-workbench .basehalf-canvas-card.inline-editing > .basehalf-canvas-card-content {
+	visibility: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-editor {
+	position: absolute;
+	inset: 0;
+	z-index: 3;
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	padding: 8px 10px;
+	background: inherit;
+	border-radius: inherit;
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-editor,
+.monaco-workbench .basehalf-canvas-inline-create-card {
+	gap: 7px;
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-icon {
+	flex: none;
+	color: var(--bh-card-text-secondary);
+	font-size: 16px;
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-input {
+	flex: 1;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-inline-name-input .monaco-inputbox {
+	width: 100%;
+}
+
 .monaco-workbench .basehalf-canvas-card.folder {
 	background: var(--bh-card-folder);
 	border-color: var(--bh-card-folder-border);
 }
 
-.monaco-workbench .basehalf-canvas-card:hover,
+.monaco-workbench .basehalf-canvas-card:hover {
+	border-color: var(--bh-card-border-strong);
+	box-shadow: 0 2px 5px rgb(7 8 9 / 52%), 0 8px 24px rgb(7 8 9 / 18%);
+}
+
 .monaco-workbench .basehalf-canvas-card:focus-visible,
 .monaco-workbench .basehalf-canvas-card.selected {
 	border-color: var(--bh-card-accent);
-	box-shadow: 0 0 0 1px rgb(0 120 212 / 70%), 0 2px 8px rgb(0 0 0 / 50%);
+	box-shadow: 0 0 0 1px rgb(0 120 212 / 58%), 0 4px 14px rgb(7 8 9 / 34%);
 	outline: none;
 }
 
@@ -277,7 +344,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
-	border-radius: 8px;
+	border-radius: 6px;
 }
 
 .monaco-workbench .basehalf-canvas-card-mini {
@@ -285,6 +352,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
+	align-items: center;
 	padding: 8px 12px;
 	overflow: hidden;
 }
@@ -293,6 +361,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	display: flex;
 }
 
+.monaco-workbench .basehalf-canvas-card[data-lod="summary"] .basehalf-canvas-card-summary {
+	display: flex;
+}
+
+.monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-summary,
+.monaco-workbench .basehalf-canvas-card[data-lod="summary"] .basehalf-canvas-card-full,
 .monaco-workbench .basehalf-canvas-card[data-lod="mini"] .basehalf-canvas-card-full {
 	display: none;
 }
@@ -308,22 +382,25 @@ body.basehalf-canvas-edge-reconnecting * {
 	   12px caption, capped at a fraction of the card's own height (per-card
 	   --bh-mini-label-cap) so the label can never overrun a shrinking card. The
 	   layout width is widened by the inverse factor so the scaled block still
-	   fills the card, which keeps wrap points for long names where they were. */
+	   fills the card; long names stay on one stable, ellipsized line. */
 	--bh-mini-label-scale: calc(clamp(12px, calc(13px / var(--basehalf-canvas-zoom, 1)), var(--bh-mini-label-cap, 22px)) / 13px);
-	display: flow-root;
+	display: flex;
+	align-items: center;
+	gap: 0.42em;
 	min-width: 0;
+	overflow: hidden;
+	flex: none;
 	font-size: 13px;
 	width: calc(100% / var(--bh-mini-label-scale));
 	transform: scale(var(--bh-mini-label-scale));
-	transform-origin: 0 0;
+	transform-origin: left center;
 }
 
 .monaco-workbench .basehalf-canvas-card-mini-icon {
-	float: left;
+	flex: none;
 	display: flex;
 	align-items: center;
 	height: 1.35em;
-	margin-right: 0.4em;
 }
 
 .monaco-workbench .basehalf-canvas-card-mini-label {
@@ -331,12 +408,86 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 1em;
 	font-weight: 600;
 	line-height: 1.35;
-	overflow-wrap: anywhere;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	letter-spacing: 0;
 }
 
 .monaco-workbench .basehalf-canvas-card-mini-label.danger {
 	color: var(--bh-card-danger);
+}
+
+.monaco-workbench .basehalf-canvas-card-summary {
+	display: none;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	align-items: center;
+	padding: 12px 16px;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-flow {
+	--bh-summary-scale: calc(clamp(14px, calc(14px / var(--basehalf-canvas-zoom, 1)), 24px) / 14px);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	width: calc(100% / var(--bh-summary-scale));
+	min-width: 0;
+	transform: scale(var(--bh-summary-scale));
+	transform-origin: left center;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-identity {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-icon {
+	flex: none;
+	display: flex;
+	align-items: center;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-label {
+	min-width: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--bh-card-text-primary);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	letter-spacing: 0;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-label.danger {
+	color: var(--bh-card-danger);
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-detail {
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	white-space: pre-line;
+	overflow-wrap: anywhere;
+	color: var(--bh-card-text-tertiary);
+	font-family: var(--monaco-monospace-font);
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.monaco-workbench .basehalf-canvas-card-summary-badge-dot {
+	flex: none;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--bh-card-accent);
 }
 
 .monaco-workbench .basehalf-canvas-card-full {
@@ -353,8 +504,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	gap: 8px;
 	min-width: 0;
 	flex: none;
-	min-height: 42px;
-	padding: 8px 12px;
+	min-height: 44px;
+	padding: 10px 12px 9px;
 	border-bottom: 1px solid var(--bh-card-border);
 }
 
@@ -387,7 +538,7 @@ body.basehalf-canvas-edge-reconnecting * {
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	color: var(--bh-card-text-primary);
-	font-size: 14px;
+	font-size: 13px;
 	font-weight: 600;
 	line-height: 20px;
 	letter-spacing: 0;
@@ -435,11 +586,12 @@ body.basehalf-canvas-edge-reconnecting * {
 	border: 1px solid transparent;
 	border-radius: 6px;
 	cursor: pointer;
-	opacity: 0.56;
+	opacity: 0;
 	transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), border-color 150ms cubic-bezier(0.16, 1, 0.3, 1), background 150ms cubic-bezier(0.16, 1, 0.3, 1), color 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .monaco-workbench .basehalf-canvas-card:hover .basehalf-canvas-card-badge-toggle,
+.monaco-workbench .basehalf-canvas-card-badge-toggle:focus-visible,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.lit,
 .monaco-workbench .basehalf-canvas-card-badge-toggle.pressed {
 	opacity: 1;
@@ -508,8 +660,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	color: var(--bh-card-text-secondary);
 	background: transparent;
 	font-family: var(--monaco-monospace-font);
-	font-size: 11px;
-	line-height: 1.45;
+	font-size: 12px;
+	line-height: 1.5;
 	mask-image: linear-gradient(to bottom, #000 70%, transparent);
 	-webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
 }
@@ -847,8 +999,8 @@ body.basehalf-canvas-edge-reconnecting * {
 	position: absolute;
 	left: 50%;
 	top: 50%;
-	width: 15px;
-	height: 15px;
+	width: 11px;
+	height: 11px;
 	box-sizing: border-box;
 	border: 2px solid var(--bh-card-text-tertiary);
 	border-radius: 50%;
@@ -859,7 +1011,6 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .react-flow__node:hover > .basehalf-canvas-card-connect-handle,
-.monaco-workbench .react-flow__node.selected > .basehalf-canvas-card-connect-handle,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingfrom,
 .monaco-workbench .basehalf-canvas-card-connect-handle.connectingto {
 	opacity: 1;
@@ -911,16 +1062,23 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-line {
-	border-color: var(--bh-card-accent) !important;
+	border-color: transparent !important;
 }
 
 .monaco-workbench .basehalf-canvas-node-resizer-handle {
-	width: 8px !important;
-	height: 8px !important;
+	width: 7px !important;
+	height: 7px !important;
 	box-sizing: border-box;
 	background: var(--bh-card-surface) !important;
 	border: 1px solid var(--bh-card-accent) !important;
 	border-radius: 2px;
+}
+
+.monaco-workbench .basehalf-canvas-node-resizer-handle.top:not(.left):not(.right),
+.monaco-workbench .basehalf-canvas-node-resizer-handle.bottom:not(.left):not(.right),
+.monaco-workbench .basehalf-canvas-node-resizer-handle.left:not(.top):not(.bottom),
+.monaco-workbench .basehalf-canvas-node-resizer-handle.right:not(.top):not(.bottom) {
+	display: none;
 }
 
 .monaco-workbench .basehalf-file-glyph {

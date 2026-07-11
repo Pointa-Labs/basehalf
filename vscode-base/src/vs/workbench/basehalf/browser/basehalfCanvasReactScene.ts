@@ -14,6 +14,7 @@ import {
 	BaseHalfCanvasAnchor,
 	baseHalfCanvasEdgePath
 } from '../common/basehalfCanvasModel.js';
+import { baseHalfCanvasCardLod } from '../common/basehalfCanvasCardLod.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM } from '../common/basehalfConfiguration.js';
 import {
 	BASEHALF_CANVAS_SNAP_GUIDE_SCREEN_THRESHOLD,
@@ -31,6 +32,7 @@ import { IBaseHalfCanvasSnapGuide } from '../common/basehalfCanvasSnap.js';
 import {
 	IBaseHalfCanvasSceneCard,
 	IBaseHalfCanvasSceneConnection,
+	BaseHalfCanvasSceneContextMenuRequest,
 	IBaseHalfCanvasSceneDelegate,
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneFitOptions,
@@ -54,7 +56,7 @@ import type {
 	ReactFlowProps,
 	Viewport
 } from '@xyflow/react';
-import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react';
 import type { Root } from 'react-dom/client';
 
 type BaseHalfCanvasReactVendor = typeof import('react') & typeof import('react-dom/client') & typeof import('@xyflow/react');
@@ -106,6 +108,7 @@ interface IBaseHalfCanvasSceneRuntime {
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;
 	fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void>;
 	reveal(path: string): Promise<void>;
+	screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number };
 	select(selection: IBaseHalfCanvasSceneSelection): void;
 	getViewport(): IBaseHalfCanvasSceneViewport;
 	isInteracting(): boolean;
@@ -114,8 +117,6 @@ interface IBaseHalfCanvasSceneRuntime {
 const CANVAS_REACT_VENDOR_ROOT = 'vs/../../extensions/basehalf/canvas-react-vendor-out';
 const CANVAS_REACT_VENDOR_SCRIPT = 'canvasReactVendor.js';
 const CANVAS_REACT_VENDOR_STYLES = 'canvasReactVendor.css';
-const CARD_LOD_MIN_HEIGHT_PX = 150;
-const CARD_LOD_MIN_ZOOM = 0.5;
 const MINI_LABEL_MIN_FLOW_PX = 12;
 const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const EDGE_RECONNECT_DRAG_THRESHOLD = 4;
@@ -298,6 +299,17 @@ export class BaseHalfCanvasReactScene implements IBaseHalfCanvasSceneRenderer {
 		return this.run(runtime => runtime.reveal(path));
 	}
 
+	screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number } {
+		if (this.runtime) {
+			return this.runtime.screenToCanvasPosition(x, y);
+		}
+		const rect = this.host.getBoundingClientRect();
+		return {
+			x: (x - rect.left - this.latestViewport.x) / this.latestViewport.zoom,
+			y: (y - rect.top - this.latestViewport.y) / this.latestViewport.zoom
+		};
+	}
+
 	select(selection: IBaseHalfCanvasSceneSelection): void {
 		if (this.runtime) {
 			this.runtime.select(selection);
@@ -475,7 +487,7 @@ function createCanvasSceneMount(
 			const node = state.nodeLookup.get(id);
 			return node?.measured.height ?? node?.height ?? data.card.height;
 		});
-		const lod = height < CARD_LOD_MIN_HEIGHT_PX || zoom < CARD_LOD_MIN_ZOOM ? 'mini' : 'full';
+		const lod = baseHalfCanvasCardLod(height, zoom);
 
 		vendor.useLayoutEffect(() => {
 			const mount = hostRef.current;
@@ -1340,6 +1352,9 @@ function createCanvasSceneMount(
 					});
 				}
 			},
+			screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number } {
+				return flowRef.current?.screenToFlowPosition({ x, y }) ?? { x, y };
+			},
 			select(selection: IBaseHalfCanvasSceneSelection): void {
 				const selectedCards = new Set(selection.cardPaths ?? []);
 				setLiveNodes(nodesRef.current.map(node => ({ ...node, selected: selectedCards.has(node.id) })));
@@ -1350,6 +1365,36 @@ function createCanvasSceneMount(
 		}), [runViewportCommand, setLiveEdges, setLiveNodes, updateSnapshot]);
 
 		vendor.useEffect(() => ready(runtime), [runtime]);
+
+		const showContextMenu = vendor.useCallback((request: BaseHalfCanvasSceneContextMenuRequest) => {
+			delegate.showContextMenu(sceneKeyRef.current, structuralEpochRef.current, request);
+		}, []);
+		const contextMenuAnchor = vendor.useCallback((event: { readonly clientX: number; readonly clientY: number }, fallback: HTMLElement): HTMLElement | { readonly x: number; readonly y: number } => {
+			return event.clientX === 0 && event.clientY === 0 ? fallback : { x: event.clientX, y: event.clientY };
+		}, []);
+		const onNodeContextMenu = vendor.useCallback((event: ReactMouseEvent<Element>, node: BaseHalfCanvasFlowNode) => {
+			event.preventDefault();
+			event.stopPropagation();
+			host.focus({ preventScroll: true });
+			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: candidate.id === node.id })));
+			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			showContextMenu({
+				kind: 'card',
+				path: node.id,
+				anchor: contextMenuAnchor(event, node.data.card.element)
+			});
+		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
+		const onPaneContextMenu = vendor.useCallback((event: globalThis.MouseEvent | ReactMouseEvent<Element>) => {
+			event.preventDefault();
+			event.stopPropagation();
+			host.focus({ preventScroll: true });
+			setLiveNodes(nodesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			setLiveEdges(edgesRef.current.map(candidate => ({ ...candidate, selected: false })));
+			showContextMenu({
+				kind: 'pane',
+				anchor: contextMenuAnchor(event, host)
+			});
+		}, [contextMenuAnchor, setLiveEdges, setLiveNodes, showContextMenu]);
 
 		const flowProps: ReactFlowProps<BaseHalfCanvasFlowNode, BaseHalfCanvasFlowEdge> = {
 			nodes,
@@ -1375,6 +1420,8 @@ function createCanvasSceneMount(
 			onSelectionStart: beginInteraction,
 			onSelectionEnd: endInteraction,
 			onNodeDoubleClick: (_event, node) => delegate.openCard(node.data.sceneKey, node.data.structuralEpoch, node.id),
+			onNodeContextMenu,
+			onPaneContextMenu,
 			onEdgeClick: () => host.focus({ preventScroll: true }),
 			onInit: flow => {
 				flowRef.current = flow;
@@ -1433,9 +1480,9 @@ function createCanvasSceneMount(
 			h(ReactFlowComponent, flowProps,
 				h(vendor.Background, {
 					variant: vendor.BackgroundVariant.Lines,
-					gap: 32,
+					gap: 40,
 					size: 1,
-					color: 'color-mix(in srgb, var(--vscode-foreground) 4%, transparent)'
+					color: 'color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)'
 				}),
 				h(SnapGuides, { guides, zoom: viewportRef.current.zoom })
 			)

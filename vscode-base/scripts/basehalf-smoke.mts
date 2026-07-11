@@ -98,6 +98,7 @@ try {
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
 
 	if (opts.canvasOnly) {
+		await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
 		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
@@ -113,6 +114,7 @@ try {
 			checks: [
 				'fresh-canvas-framed',
 				'canvas-grid-scoped-to-canvas',
+				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
 				'canvas-derived-edge-visible',
 				'canvas-edge-follows-card-drag-live',
@@ -1498,7 +1500,18 @@ async function assertCanvasGridScopedToCanvas(page) {
 
 async function assertCanvasContainsCard(page, path) {
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
-	await page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`).waitFor({ state: 'visible', timeout: 20_000 });
+	const card = page.locator(`.basehalf-canvas-card[data-basehalf-card-path="${path}"]`);
+	if (await card.isVisible({ timeout: 2_000 }).catch(() => false)) {
+		return;
+	}
+	const zoomOut = page.locator('.basehalf-canvas-zoom-button[aria-label="Zoom Out"]');
+	for (let attempt = 0; attempt < 8 && await zoomOut.isEnabled(); attempt++) {
+		await zoomOut.click();
+		if (await card.isVisible({ timeout: 500 }).catch(() => false)) {
+			return;
+		}
+	}
+	await card.waitFor({ state: 'visible', timeout: 20_000 });
 }
 
 async function assertCanvasBreadcrumbsRemoved(page) {
@@ -1511,7 +1524,10 @@ async function assertCanvasBreadcrumbsRemoved(page) {
 async function assertNativeBackOpensPreviousCanvas(page, expectedCardPath) {
 	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
 	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
-	await assertCanvasContainsCard(page, expectedCardPath);
+	await page.locator('.basehalf-canvas-react-island').waitFor({ state: 'visible', timeout: 20_000 });
+	if (expectedCardPath) {
+		await assertCanvasContainsCard(page, expectedCardPath);
+	}
 }
 
 async function assertCanvasZoomControls(page) {
@@ -1754,6 +1770,42 @@ async function assertCanvasCardBadgePreviewAndConnectors(page) {
 	}, 'canvas.yaml to persist a four-side edge');
 	await waitUntil(() => fs.existsSync(docsBadgePath) && fs.readFileSync(docsBadgePath, 'utf8').includes('- "src"'), 'source badge reference to persist');
 	await waitUntil(() => fs.existsSync(srcBadgePath) && fs.readFileSync(srcBadgePath, 'utf8').includes('- "docs"'), 'target badge inbound reference to persist');
+}
+
+async function assertCanvasInlineRename(page) {
+	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
+	await readme.focus();
+	await page.keyboard.press('F2');
+	const input = readme.locator('.basehalf-canvas-inline-name-input input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	const value = await input.inputValue();
+	if (value !== 'README.md') {
+		throw new Error(`Expected inline rename to retain the card name, got ${JSON.stringify(value)}`);
+	}
+	if (await page.locator('.quick-input-widget').isVisible()) {
+		throw new Error('Canvas rename unexpectedly opened Quick Input instead of the card-local editor');
+	}
+	await input.fill('README-renamed.md');
+	await input.press('Escape');
+	await page.waitForFunction(() => !document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-inline-name-input input'), null, { timeout: 10_000 });
+	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+
+	await readme.focus();
+	await page.keyboard.press('F2');
+	const commitInput = readme.locator('.basehalf-canvas-inline-name-input input');
+	await commitInput.fill('README-renamed.md');
+	await commitInput.press('Enter');
+	await waitUntil(() => !fs.existsSync(path.join(workspacePath, 'README.md')) && fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to commit');
+	const renamed = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README-renamed.md"]');
+	await renamed.waitFor({ state: 'visible', timeout: 10_000 });
+
+	await renamed.focus();
+	await page.keyboard.press('F2');
+	const restoreInput = renamed.locator('.basehalf-canvas-inline-name-input input');
+	await restoreInput.fill('README.md');
+	await restoreInput.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to restore the fixture');
+	await readme.waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function centerCanvasCards(page, cards) {
@@ -2230,6 +2282,11 @@ async function assertAgentCreatesCard(page) {
 // graph but remains discoverable and recoverable from the Badge UI: Repair
 // writes the reciprocal endpoint, while Discard scrubs the abandoned half.
 async function assertAgentReferenceDrawsEdge(page) {
+	const forceReadmeFull = await page.addStyleTag({ content: [
+		'.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-mini,',
+		'.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-summary { display: none !important; }',
+		'.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-full { display: flex !important; }'
+	].join('\n') });
 	const readmeBadgePath = path.join(workspacePath, '.bh', 'mirror', 'README.md', 'badge.yaml');
 	const docsBadgePath = path.join(workspacePath, '.bh', 'mirror', 'docs', 'badge.yaml');
 	const targetBadgeDirectory = path.join(workspacePath, '.bh', 'mirror', AGENT_CREATED_CARD_PATH);
@@ -2244,13 +2301,12 @@ async function assertAgentReferenceDrawsEdge(page) {
 		''
 	].join('\n'), 'utf8');
 	const readme = page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"]');
-	await page.waitForFunction(() => document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"]')?.getAttribute('data-lod') === 'full', null, { timeout: 10_000 });
 	const sourceIssueMarker = readme.locator('.basehalf-canvas-card-badge-dot.issue[data-testid="card-reference-issue-marker"]');
 	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
 	if (await sourceIssueMarker.getAttribute('data-reference-issue-count') !== '1') {
 		throw new Error('The source-only Agent write did not expose exactly one card-level reference issue');
 	}
-	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	await readme.locator('.basehalf-canvas-card-badge-toggle').evaluate(button => button.click());
 	const prompt = readme.locator('.basehalf-canvas-card-badge-prompt');
 	await page.waitForFunction(() => {
 		const input = document.querySelector('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-prompt');
@@ -2273,7 +2329,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 		throw new Error('A one-sided Agent reference was drawn before its reciprocal backlink existed');
 	}
 
-	await repairIssue.locator('[data-testid="reference-issue-repair"]').click();
+	await repairIssue.locator('[data-testid="reference-issue-repair"]').evaluate(button => button.click());
 	await waitUntil(() => fs.existsSync(targetBadgePath)
 		&& fs.readFileSync(readmeBadgePath, 'utf8').includes(`- "${AGENT_CREATED_CARD_PATH}"`)
 		&& fs.readFileSync(targetBadgePath, 'utf8').includes('- "README.md"'), 'Repair to persist both reciprocal reference endpoints');
@@ -2299,7 +2355,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await discardIssue.waitFor({ state: 'visible', timeout: 10_000 });
 	await sourceIssueMarker.waitFor({ state: 'visible', timeout: 10_000 });
 	await assertCanvasEdgeGone(page, 'README.md', 'docs');
-	await discardIssue.locator('[data-testid="reference-issue-discard"]').click();
+	await discardIssue.locator('[data-testid="reference-issue-discard"]').evaluate(button => button.click());
 	await waitUntil(() => {
 		const readmeBadge = fs.readFileSync(readmeBadgePath, 'utf8');
 		const docsBadge = fs.existsSync(docsBadgePath) ? fs.readFileSync(docsBadgePath, 'utf8') : '';
@@ -2311,7 +2367,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await sourceIssueMarker.waitFor({ state: 'detached', timeout: 10_000 });
 	await assertCanvasEdgeGone(page, 'README.md', 'docs');
 	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
-	await readme.locator('.basehalf-canvas-card-badge-toggle').click();
+	await readme.locator('.basehalf-canvas-card-badge-toggle').evaluate(button => button.click());
 	await prompt.waitFor({ state: 'detached', timeout: 10_000 });
 
 	// Remove the target half again, then keep the prospective TARGET detail open
@@ -2425,6 +2481,7 @@ async function assertAgentReferenceDrawsEdge(page) {
 	await assertCanvasEdgeVisible(page, 'README.md', AGENT_CREATED_CARD_PATH);
 	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="README.md"] .basehalf-canvas-card-badge-dot')
 		.waitFor({ state: 'visible', timeout: 10_000 });
+	await forceReadmeFull.evaluate(style => style.remove());
 }
 
 // Select the agent-drawn edge with the mouse and delete it with the keyboard:

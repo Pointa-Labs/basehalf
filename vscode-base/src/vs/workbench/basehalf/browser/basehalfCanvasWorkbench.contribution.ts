@@ -5,25 +5,41 @@
 
 import './media/basehalfCanvasWorkbench.css';
 
+import * as DOM from '../../../base/browser/dom.js';
 import { $, append, clearNode, isHTMLElement } from '../../../base/browser/dom.js';
+import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBox.js';
+import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
+import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, toDisposable } from '../../../base/common/lifecycle.js';
-import { basename, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
+import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
+import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
+import { localize } from '../../../nls.js';
 import { FileChangesEvent, IFileService, IFileStat } from '../../../platform/files/common/files.js';
 import { IConfigurationService } from '../../../platform/configuration/common/configuration.js';
 import { IInstantiationService } from '../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../platform/log/common/log.js';
 import { IQuickInputService, IQuickPickItem } from '../../../platform/quickinput/common/quickInput.js';
+import { IContextMenuService, IContextViewService } from '../../../platform/contextview/browser/contextView.js';
+import { defaultInputBoxStyles } from '../../../platform/theme/browser/defaultStyles.js';
+import { IUriIdentityService } from '../../../platform/uriIdentity/common/uriIdentity.js';
 import { IWorkbenchLayoutService, Parts } from '../../services/layout/browser/layoutService.js';
+import { IExplorerService } from '../../contrib/files/browser/files.js';
+import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
 import { IWorkspaceContextService } from '../../../platform/workspace/common/workspace.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../common/contributions.js';
 import { DEFAULT_EDITOR_ASSOCIATION, SideBySideEditor } from '../../common/editor.js';
 import { IEditorService } from '../../services/editor/common/editorService.js';
+import { IPathService } from '../../services/path/common/pathService.js';
 import { mainWindow } from '../../../base/browser/window.js';
 import {
 	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
+	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
+	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT,
+	BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH,
 	IBaseHalfCanvasBadgeMetadata,
 	IBaseHalfCanvasBadgeRelationshipIssue,
 	IBaseHalfCanvasBounds,
@@ -36,8 +52,15 @@ import { IBaseHalfBadgeFile, IBaseHalfBadgeNode, IBaseHalfBadgeReadProblem } fro
 import { BaseHalfCanvasMirrorCorrupt, IBaseHalfCanvasMirrorService } from '../common/basehalfCanvasMirror.js';
 import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResource, baseHalfMirrorRoot } from '../common/basehalfMirrorTree.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
+import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
+import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
 import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
+import {
+	baseHalfCanvasCardLod,
+	BASEHALF_CANVAS_CARD_FULL_MIN_HEIGHT,
+	BaseHalfCanvasCardLod
+} from '../common/basehalfCanvasCardLod.js';
 import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdownPreviewCardDetail.js';
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
@@ -47,12 +70,14 @@ import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, no
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../common/basehalfEditorFlush.js';
 import {
+	BaseHalfCanvasSceneContextMenuRequest,
 	IBaseHalfCanvasSceneConnection,
 	IBaseHalfCanvasSceneEdge,
 	IBaseHalfCanvasSceneGeometry,
 	IBaseHalfCanvasSceneReconnect,
 	IBaseHalfCanvasSceneViewport
 } from '../common/basehalfCanvasScene.js';
+import { BASEHALF_CANVAS_CARD_CONTEXT_MENU, BASEHALF_CANVAS_PANE_CONTEXT_MENU } from './basehalfCanvasContextMenu.js';
 import {
 	BaseHalfStructuralResourceOutcome,
 	baseHalfStructuralResourceOutcome,
@@ -66,7 +91,6 @@ type BaseHalfCanvasCardPreview =
 	| { readonly kind: 'folder'; readonly total: number; readonly items: readonly BaseHalfCanvasFolderPreviewItem[] }
 	| { readonly kind: 'text' | 'code' | 'markdown' | 'media' | 'empty' | 'unavailable'; readonly text: string };
 type BaseHalfCanvasFolderPreviewItem = { readonly name: string; readonly kind: 'file' | 'folder' };
-type BaseHalfCanvasCardLod = 'full' | 'mini';
 type BaseHalfCanvasGlyphType = 'folder' | 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'code' | 'generic' | 'badge';
 type BaseHalfCardDetailSaveStatus = 'saving' | 'saved' | 'error';
 type BaseHalfBadgeEditorFocusTarget = 'add-reference' | 'inbound-toggle';
@@ -88,8 +112,29 @@ interface IBaseHalfStampedReferenceCandidate {
 	readonly candidate: IBaseHalfCanvasItem;
 	readonly stamp: IBaseHalfWorkspaceResourceMutationStamp;
 }
-const CARD_LOD_MIN_HEIGHT_PX = 150;
-const CARD_LOD_MIN_ZOOM = 0.5;
+type BaseHalfCanvasInlineEdit =
+	| {
+		readonly kind: 'rename';
+		readonly context: IBaseHalfCanvasActionContext;
+		readonly resource: URI;
+		readonly parent: URI;
+		readonly path: string;
+		readonly initialValue: string;
+		value: string;
+		selectionPending: boolean;
+	}
+	| {
+		readonly kind: 'create';
+		readonly context: IBaseHalfCanvasActionContext;
+		readonly parent: URI;
+		readonly folder: boolean;
+		readonly initialValue: string;
+		readonly anchor: { readonly x: number; readonly y: number };
+		readonly canvasPosition: { readonly x: number; readonly y: number };
+		value: string;
+		selectionPending: boolean;
+	};
+
 const MINI_LABEL_MIN_FLOW_PX = 12;
 const MINI_LABEL_CARD_HEIGHT_FRACTION = 0.18;
 const TEXT_PREVIEW_MAX_BYTES = 8192;
@@ -104,6 +149,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly zoomValue: HTMLElement;
 	private readonly surface: HTMLElement;
 	private readonly cards: HTMLElement;
+	private readonly inlineEditLayer: HTMLElement;
 	private readonly canvasOverlay: HTMLElement;
 	private readonly canvasScene: BaseHalfCanvasReactScene;
 	private readonly detail: HTMLElement;
@@ -117,6 +163,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private readonly detailBody: HTMLElement;
 	private readonly editorContainer: HTMLElement;
 	private readonly cardListeners = this._register(new DisposableStore());
+	private readonly inlineEditListeners = this._register(new DisposableStore());
 	private readonly detailChromeDisposables = this._register(new DisposableStore());
 
 	private renderSeq = 0;
@@ -160,6 +207,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private restoredFolderFocusKey: string | undefined;
 	private canvasZoom = 1;
 	private renderQueuedBehindGesture = false;
+	private inlineEdit: BaseHalfCanvasInlineEdit | undefined;
+	private lastCanvasContextMenu: { readonly context: IBaseHalfCanvasActionContext; readonly request: BaseHalfCanvasSceneContextMenuRequest } | undefined;
 	private disposed = false;
 
 	constructor(
@@ -176,6 +225,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfWorkspaceMutationCoordinator private readonly workspaceMutationCoordinator: IBaseHalfWorkspaceMutationCoordinator,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
 		@IQuickInputService private readonly quickInputService: IQuickInputService,
+		@IContextMenuService private readonly contextMenuService: IContextMenuService,
+		@IContextViewService private readonly contextViewService: IContextViewService,
+		@IExplorerService private readonly explorerService: IExplorerService,
+		@IPathService private readonly pathService: IPathService,
+		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
+		@IBaseHalfCanvasEditingService private readonly canvasEditingService: IBaseHalfCanvasEditingService,
+		@IBaseHalfCanvasActionContextService private readonly canvasActionContextService: IBaseHalfCanvasActionContextService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService
 	) {
 		super();
@@ -188,27 +244,29 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		this.editorContainer = editorContainer;
 		this.editorContainer.classList.add('basehalf-canvas-host');
-		this.root = $('.basehalf-canvas-workbench');
+		this.root = DOM.$('.basehalf-canvas-workbench');
 		this.root.setAttribute('aria-label', 'BaseHalf canvas');
 		// Focusable (not tabbable) for canvas keyboard shortcuts. Edge deletion is
 		// scoped more narrowly to the React Flow scene host.
 		this.root.tabIndex = -1;
 
-		this.chrome = append(this.root, $('.basehalf-canvas-chrome'));
-		const zoomControls = append(this.chrome, $('.basehalf-canvas-zoom-controls'));
+		this.chrome = DOM.append(this.root, DOM.$('.basehalf-canvas-chrome'));
+		const zoomControls = DOM.append(this.chrome, DOM.$('.basehalf-canvas-zoom-controls'));
 		this.zoomOut = this.createZoomButton(zoomControls, 'Zoom Out', 'codicon-remove', () => this.zoomBy(-1));
-		this.zoomValue = append(zoomControls, $('.basehalf-canvas-zoom-value'));
+		this.zoomValue = DOM.append(zoomControls, DOM.$('.basehalf-canvas-zoom-value'));
 		this.zoomReset = this.createZoomButton(zoomControls, 'Reset Zoom', 'codicon-debug-restart', () => this.setCanvasZoom(1));
 		this.zoomIn = this.createZoomButton(zoomControls, 'Zoom In', 'codicon-add', () => this.zoomBy(1));
-		this.surface = append(this.root, $('.basehalf-canvas-surface'));
-		this.cards = append(this.surface, $('.basehalf-canvas-cards'));
-		this.canvasOverlay = append(this.surface, $('.basehalf-canvas-overlay'));
+		this.surface = DOM.append(this.root, DOM.$('.basehalf-canvas-surface'));
+		this.cards = DOM.append(this.surface, DOM.$('.basehalf-canvas-cards'));
+		this.inlineEditLayer = DOM.append(this.surface, DOM.$('.basehalf-canvas-inline-edit-layer'));
+		this.canvasOverlay = DOM.append(this.surface, DOM.$('.basehalf-canvas-overlay'));
 		this.canvasScene = this._register(new BaseHalfCanvasReactScene(this.cards, {
 			commitGeometry: (sceneKey, structuralEpoch, geometries) => this.commitSceneGeometry(sceneKey, structuralEpoch, geometries),
 			connect: (sceneKey, structuralEpoch, connection) => this.connectSceneEdge(sceneKey, structuralEpoch, connection),
 			reconnect: (sceneKey, structuralEpoch, intent) => this.reconnectSceneEdge(sceneKey, structuralEpoch, intent),
 			removeEdge: (sceneKey, structuralEpoch, edge) => this.removeEdgeFromScene(sceneKey, structuralEpoch, edge),
 			openCard: (sceneKey, structuralEpoch, path) => this.openSceneCard(sceneKey, structuralEpoch, path),
+			showContextMenu: (sceneKey, structuralEpoch, request) => this.showSceneContextMenu(sceneKey, structuralEpoch, request),
 			reportViewport: (sceneKey, viewport, final) => this.onSceneViewport(sceneKey, viewport, final),
 			didEndInteraction: () => this.flushRenderQueuedBehindGesture(),
 			reportError: error => {
@@ -218,7 +276,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			}
 		}));
 
-		this.detail = append(this.root, $('.basehalf-card-detail'));
+		this.detail = DOM.append(this.root, DOM.$('.basehalf-card-detail'));
 		const detailHeader = append(this.detail, $('.basehalf-card-detail-header'));
 		const detailTitleBlock = append(detailHeader, $('.basehalf-card-detail-title-block'));
 		this.detailTitle = append(detailTitleBlock, $('.basehalf-card-detail-title'));
@@ -247,6 +305,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.prepend(this.root);
 
 		this._register(this.canvasNavigationService.onDidChangeState(() => this.requestRender()));
+		this._register(this.canvasEditingService.onDidRequestEdit(request => void this.beginCanvasInlineEdit(request)));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
 			if (!folder) {
@@ -386,10 +445,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.renderQueuedBehindGesture = false;
 
 		const seq = ++this.renderSeq;
-		clearNode(this.canvasOverlay);
 		const folder = this.getCurrentFolder();
 
 		if (!folder) {
+			clearNode(this.canvasOverlay);
+			clearNode(this.inlineEditLayer);
+			this.inlineEditListeners.clear();
+			this.inlineEdit = undefined;
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
@@ -413,6 +475,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.deferRenderForSceneInteraction()) {
 				return;
 			}
+			clearNode(this.canvasOverlay);
+			clearNode(this.inlineEditLayer);
+			this.inlineEditListeners.clear();
 			this.renderedBadges = new Map();
 			this.renderedBadgeProblems = new Map();
 			this.renderedItemsByPath = new Map();
@@ -475,17 +540,27 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
+		clearNode(this.canvasOverlay);
+		clearNode(this.inlineEditLayer);
+		this.inlineEditListeners.clear();
 		this.renderedBadges = badgeRead.badges;
 		this.renderedBadgeProblems = new Map(badgeRead.problems.map(problem => [problem.relativePath, problem]));
 		this.renderedItemsByPath = new Map(items.map(item => [item.path, item]));
+		if (this.inlineEdit?.kind === 'rename') {
+			const editedItem = this.renderedItemsByPath.get(this.inlineEdit.path);
+			if (!editedItem || !this.uriIdentityService.extUri.isEqual(editedItem.stat.resource, this.inlineEdit.resource)) {
+				this.inlineEdit = undefined;
+			}
+		}
 		this.cardListeners.clear();
 		const sceneCards = items.map((item, index) => {
-			const bounds = baseHalfCanvasItemBounds(item, index, items.length);
+			const preview = previews.get(item.path);
+			const bounds = this.cardBoundsForPreview(item, index, items.length, preview);
 			return {
 				path: item.path,
 				kind: item.kind,
 				...bounds,
-				element: this.createCard(item, index, items.length, previews.get(item.path), structuralStamp)
+				element: this.createCard(item, bounds, preview, structuralStamp)
 			};
 		});
 		const sceneEdges = model.edges.map(edge => {
@@ -508,6 +583,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			cards: sceneCards,
 			edges: sceneEdges
 		});
+		this.renderInlineCreateEditor(folder);
 		if (items.length === 0) {
 			this.renderEmpty('No files');
 		} else {
@@ -741,6 +817,52 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		}
 	}
 
+	private showSceneContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.sceneKey(folder) !== sceneKey
+			|| !this.workspaceMutationCoordinator.isStampCurrent(folder.workspaceFolder, this.sceneMutationStamp(folder, structuralEpoch))) {
+			return;
+		}
+		const item = request.kind === 'card' ? this.renderedItemsByPath.get(request.path) : undefined;
+		const resource = item?.stat.resource ?? (request.kind === 'pane' ? folder.resource : undefined);
+		const relativePath = item?.path ?? folder.relativePath;
+		if (!resource) {
+			return;
+		}
+
+		mainWindow.setTimeout(async () => {
+			const current = this.getCurrentFolder();
+			if (this.disposed || !current || this.sceneKey(current) !== sceneKey
+				|| !this.workspaceMutationCoordinator.isStampCurrent(current.workspaceFolder, this.sceneMutationStamp(current, structuralEpoch))) {
+				return;
+			}
+			let context: IBaseHalfCanvasActionContext;
+			try {
+				context = await this.canvasActionContextService.capture(resource, folder.workspaceFolder, relativePath);
+			} catch (error) {
+				this.logService.warn(error);
+				return;
+			}
+			const latest = this.getCurrentFolder();
+			if (this.disposed || !latest || this.sceneKey(latest) !== sceneKey
+				|| !this.workspaceMutationCoordinator.isStampCurrent(latest.workspaceFolder, this.sceneMutationStamp(latest, structuralEpoch))) {
+				return;
+			}
+			this.lastCanvasContextMenu = { context, request };
+			const menuId = request.kind === 'card' ? BASEHALF_CANVAS_CARD_CONTEXT_MENU : BASEHALF_CANVAS_PANE_CONTEXT_MENU;
+			this.contextMenuService.showContextMenu({
+				menuId,
+				menuActionOptions: { arg: context },
+				getAnchor: () => request.anchor,
+				onHide: wasCancelled => {
+					if (wasCancelled) {
+						this.cards.focus({ preventScroll: true });
+					}
+				}
+			});
+		}, 0);
+	}
+
 	private onSceneViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void {
 		if (!this.isCurrentSceneKey(sceneKey)) {
 			return;
@@ -860,14 +982,328 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.editorContainer.classList.toggle('basehalf-canvas-on-top', this.editorService.visibleEditors.length === 0);
 	}
 
+	private async beginCanvasInlineEdit(request: BaseHalfCanvasEditingRequest): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder || this.canvasNavigationService.state.cardDetail) {
+			return;
+		}
+		try {
+			await this.canvasActionContextService.assertCurrent(request.context);
+		} catch (error) {
+			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+			this.requestRender();
+			return;
+		}
+
+		if (request.kind === 'rename') {
+			const item = [...this.renderedItemsByPath.values()]
+				.find(candidate => candidate.path === request.context.relativePath
+					&& this.uriIdentityService.extUri.isEqual(candidate.stat.resource, request.context.resource));
+			if (!item) {
+				return;
+			}
+			this.inlineEdit = {
+				kind: 'rename',
+				context: request.context,
+				resource: item.stat.resource,
+				parent: dirname(item.stat.resource),
+				path: item.path,
+				initialValue: basename(item.stat.resource),
+				value: basename(item.stat.resource),
+				selectionPending: true
+			};
+			this.requestRender();
+			return;
+		}
+
+		if (!this.uriIdentityService.extUri.isEqual(request.context.resource, folder.resource)) {
+			return;
+		}
+		const menu = this.lastCanvasContextMenu;
+		const surfaceRect = this.surface.getBoundingClientRect();
+		const anchor = menu && menu.context === request.context && menu.request.kind === 'pane'
+			? isHTMLElement(menu.request.anchor)
+				? (() => {
+					const rect = menu.request.anchor.getBoundingClientRect();
+					return { x: rect.left + Math.min(rect.width / 2, 180), y: rect.top + Math.min(rect.height / 2, 90) };
+				})()
+				: menu.request.anchor
+			: { x: surfaceRect.left + surfaceRect.width / 2, y: surfaceRect.top + surfaceRect.height / 2 };
+		const canvasPosition = this.canvasScene.screenToCanvasPosition(anchor.x, anchor.y);
+		this.inlineEdit = {
+			kind: 'create',
+			context: request.context,
+			parent: request.context.resource,
+			folder: request.folder,
+			initialValue: request.folder ? 'untitled folder' : 'untitled.md',
+			anchor: { x: anchor.x - surfaceRect.left, y: anchor.y - surfaceRect.top },
+			canvasPosition,
+			value: request.folder ? 'untitled folder' : 'untitled.md',
+			selectionPending: true
+		};
+		this.requestRender();
+	}
+
+	private renderInlineRenameEditor(card: HTMLElement, item: IBaseHalfCanvasItem): void {
+		const edit = this.inlineEdit;
+		if (!edit || edit.kind !== 'rename' || edit.path !== item.path
+			|| !this.uriIdentityService.extUri.isEqual(edit.resource, item.stat.resource)) {
+			return;
+		}
+		card.classList.add('inline-editing');
+		const host = append(card, $('.basehalf-canvas-inline-name-editor'));
+		this.renderInlineNameInput(host, edit, item.kind === 'folder');
+	}
+
+	private renderInlineCreateEditor(folder: IBaseHalfCanvasFolderState): void {
+		const edit = this.inlineEdit;
+		if (!edit) {
+			return;
+		}
+		if (!this.uriIdentityService.extUri.isEqual(edit.parent, folder.resource)) {
+			this.inlineEdit = undefined;
+			return;
+		}
+		if (edit.kind !== 'create') {
+			return;
+		}
+		const host = append(this.inlineEditLayer, $('.basehalf-canvas-inline-create-card'));
+		host.style.left = `${Math.max(12, Math.min(edit.anchor.x, this.surface.clientWidth - 292))}px`;
+		host.style.top = `${Math.max(12, Math.min(edit.anchor.y, this.surface.clientHeight - 64))}px`;
+		this.renderInlineNameInput(host, edit, edit.folder);
+	}
+
+	private renderInlineNameInput(host: HTMLElement, edit: BaseHalfCanvasInlineEdit, folder: boolean): void {
+		host.classList.add('nodrag', 'nopan', 'nowheel');
+		const icon = append(host, $(`span.basehalf-canvas-inline-name-icon.codicon.${folder ? 'codicon-folder' : 'codicon-file'}`));
+		icon.setAttribute('aria-hidden', 'true');
+		const inputHost = append(host, $('.basehalf-canvas-inline-name-input'));
+		const inputBox = new InputBox(inputHost, this.contextViewService, {
+			ariaLabel: folder
+				? localize('basehalf.canvas.folderNameInput', "Folder name. Press Enter to confirm or Escape to cancel.")
+				: localize('basehalf.canvas.fileNameInput', "File name. Press Enter to confirm or Escape to cancel."),
+			inputBoxStyles: defaultInputBoxStyles
+		});
+		this.inlineEditListeners.add(inputBox);
+		inputBox.value = edit.value;
+		const extension = folder ? '' : extname(URI.file(edit.initialValue));
+		const selectionEnd = extension.length > 0 && extension.length < edit.initialValue.length
+			? edit.initialValue.length - extension.length
+			: edit.initialValue.length;
+		let validationSequence = 0;
+		let finishing = false;
+
+		const refreshValidation = async () => {
+			const sequence = ++validationSequence;
+			const candidate = inputBox.value;
+			let result: { readonly content: string; readonly type: MessageType } | undefined;
+			try {
+				result = await this.validateCanvasEntryName(edit.parent, candidate, edit.kind === 'rename' ? edit.resource : undefined);
+			} catch (error) {
+				result = { content: error instanceof Error ? error.message : String(error), type: MessageType.ERROR };
+			}
+			if (sequence !== validationSequence || this.inlineEdit !== edit) {
+				return;
+			}
+			if (result) {
+				inputBox.showMessage({ content: result.content, type: result.type });
+			} else {
+				inputBox.hideMessage();
+			}
+		};
+
+		const finish = async (keepOpenOnError: boolean) => {
+			if (finishing || this.inlineEdit !== edit) {
+				return;
+			}
+			finishing = true;
+			const name = inputBox.value;
+			edit.value = name;
+			inputBox.disable();
+			let validation: { readonly content: string; readonly type: MessageType } | undefined;
+			try {
+				validation = await this.validateCanvasEntryName(edit.parent, name, edit.kind === 'rename' ? edit.resource : undefined);
+			} catch (error) {
+				validation = { content: error instanceof Error ? error.message : String(error), type: MessageType.ERROR };
+			}
+			if (this.inlineEdit !== edit) {
+				return;
+			}
+			if (validation?.type === MessageType.ERROR) {
+				finishing = false;
+				if (keepOpenOnError) {
+					inputBox.enable();
+					inputBox.showMessage({ content: validation.content, type: validation.type }, true);
+					inputBox.focus();
+				} else {
+					this.cancelCanvasInlineEdit(edit);
+				}
+				return;
+			}
+			if (edit.kind === 'rename' && name === edit.initialValue) {
+				this.cancelCanvasInlineEdit(edit);
+				return;
+			}
+			this.inlineEdit = undefined;
+			try {
+				await this.commitCanvasInlineEdit(edit, name);
+				this.lastCanvasContextMenu = undefined;
+				this.requestRender();
+			} catch (error) {
+				this.inlineEdit = edit;
+				finishing = false;
+				if (inputBox.element.isConnected) {
+					inputBox.enable();
+					inputBox.showMessage({
+						content: error instanceof Error ? error.message : String(error),
+						type: MessageType.ERROR
+					}, true);
+					inputBox.focus();
+				} else {
+					this.requestRender();
+				}
+			}
+		};
+
+		this.inlineEditListeners.add(inputBox.onDidChange(value => {
+			edit.value = value;
+			void refreshValidation();
+		}));
+		this.inlineEditListeners.add(DOM.addStandardDisposableListener(inputBox.inputElement, DOM.EventType.KEY_DOWN, (event: IKeyboardEvent) => {
+			event.stopPropagation();
+			const browserEvent = event.browserEvent;
+			const enter = event.equals(KeyCode.Enter) || browserEvent.key === 'Enter' || browserEvent.code === 'Enter';
+			const escape = event.equals(KeyCode.Escape) || browserEvent.key === 'Escape' || browserEvent.key === 'Esc' || browserEvent.code === 'Escape';
+			const action = baseHalfCanvasInlineEditKeyAction({
+				key: enter ? 'Enter' : escape ? 'Escape' : '',
+				isComposing: browserEvent.isComposing,
+				keyCode: browserEvent.keyCode
+			});
+			if (action === undefined) {
+				return;
+			}
+			if (action === 'accept') {
+				event.preventDefault();
+				void finish(true);
+			} else {
+				event.preventDefault();
+				this.cancelCanvasInlineEdit(edit);
+			}
+		}));
+		this.inlineEditListeners.add(this.addDisposableListener(inputBox.inputElement, 'blur', () => {
+			mainWindow.setTimeout(() => {
+				if (!finishing && this.inlineEdit === edit && inputBox.inputElement.ownerDocument.activeElement !== inputBox.inputElement) {
+					void finish(false);
+				}
+			}, 0);
+		}));
+		mainWindow.setTimeout(() => {
+			if (this.inlineEdit === edit && inputBox.element.isConnected) {
+				inputBox.focus();
+				if (edit.selectionPending) {
+					edit.selectionPending = false;
+					inputBox.select({ start: 0, end: selectionEnd });
+				}
+				void refreshValidation();
+			}
+		}, 0);
+	}
+
+	private cancelCanvasInlineEdit(edit: BaseHalfCanvasInlineEdit): void {
+		if (this.inlineEdit !== edit) {
+			return;
+		}
+		this.inlineEdit = undefined;
+		this.lastCanvasContextMenu = undefined;
+		this.requestRender();
+		mainWindow.setTimeout(() => this.cards.focus({ preventScroll: true }), 0);
+	}
+
+	private async validateCanvasEntryName(parent: URI, name: string, current?: URI): Promise<{ readonly content: string; readonly type: MessageType } | undefined> {
+		if (name.length === 0 || /^\s+$/.test(name)) {
+			return { content: localize('basehalf.canvas.name.empty', "A file or folder name is required."), type: MessageType.ERROR };
+		}
+		if (name === '.' || name === '..' || /[\\/]/.test(name)) {
+			return { content: localize('basehalf.canvas.name.singleSegment', "Enter a name without path separators."), type: MessageType.ERROR };
+		}
+		if (!(await this.pathService.hasValidBasename(parent, name))) {
+			return { content: localize('basehalf.canvas.name.invalid', "This name is not valid on the current file system."), type: MessageType.ERROR };
+		}
+		const target = joinPath(parent, name);
+		if ((!current || !this.uriIdentityService.extUri.isEqual(target, current)) && await this.fileService.exists(target)) {
+			return { content: localize('basehalf.canvas.name.exists', "A file or folder with this name already exists."), type: MessageType.ERROR };
+		}
+		if (/^\s|\s$/.test(name)) {
+			return { content: localize('basehalf.canvas.name.whitespace', "Leading or trailing whitespace will be preserved."), type: MessageType.WARNING };
+		}
+		return undefined;
+	}
+
+	private async commitCanvasInlineEdit(edit: BaseHalfCanvasInlineEdit, name: string): Promise<void> {
+		await this.canvasActionContextService.assertCurrent(edit.context);
+		const target = joinPath(edit.parent, name);
+		if (edit.kind === 'rename') {
+			await this.fileService.stat(edit.resource);
+			await this.explorerService.applyBulkEdit([new ResourceFileEdit(edit.resource, target)], {
+				undoLabel: localize('basehalf.canvas.rename.undo', "Rename {0} to {1}", edit.initialValue, name),
+				progressLabel: localize('basehalf.canvas.rename.progress', "Renaming {0}", edit.initialValue),
+				confirmBeforeUndo: this.confirmExplorerUndo()
+			});
+			return;
+		}
+		await this.explorerService.applyBulkEdit([new ResourceFileEdit(undefined, target, { folder: edit.folder })], {
+			undoLabel: edit.folder
+				? localize('basehalf.canvas.newFolder.undo', "Create Folder {0}", name)
+				: localize('basehalf.canvas.newFile.undo', "Create File {0}", name),
+			progressLabel: edit.folder
+				? localize('basehalf.canvas.newFolder.progress', "Creating folder {0}", name)
+				: localize('basehalf.canvas.newFile.progress', "Creating file {0}", name),
+			confirmBeforeUndo: this.confirmExplorerUndo()
+		});
+		const folder = this.getCurrentFolder();
+		if (folder && this.uriIdentityService.extUri.isEqual(folder.resource, edit.parent)) {
+			const path = canvasChildPath(folder.relativePath, name);
+			try {
+				await this.canvasMirrorService.updateCardGeometry(folder, {
+					path,
+					kind: edit.folder ? 'folder' : 'file',
+					x: edit.canvasPosition.x,
+					y: edit.canvasPosition.y,
+					width: edit.folder ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH : BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
+					height: edit.folder ? BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT : BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT
+				});
+			} catch (error) {
+				this.logService.warn(error);
+				this.queueCanvasWarning(localize('basehalf.canvas.createGeometryFailed', "The item was created, but its canvas position could not be saved."));
+			}
+		}
+		await this.canvasNavigationService.openResource(target, { source: 'api', pinned: true });
+	}
+
+	private confirmExplorerUndo(): boolean {
+		return this.configurationService.getValue<IFilesConfiguration>().explorer.confirmUndo === UndoConfirmLevel.Verbose;
+	}
+
+	private async requestInlineRename(item: IBaseHalfCanvasItem): Promise<void> {
+		const folder = this.getCurrentFolder();
+		if (!folder) {
+			return;
+		}
+		try {
+			const context = await this.canvasActionContextService.capture(item.stat.resource, folder.workspaceFolder, item.path);
+			this.canvasEditingService.requestRename(context);
+		} catch (error) {
+			this.queueCanvasWarning(error instanceof Error ? error.message : String(error));
+			this.requestRender();
+		}
+	}
+
 	private createCard(
 		item: IBaseHalfCanvasItem,
-		index: number,
-		total: number,
+		bounds: IBaseHalfCanvasBounds,
 		preview: BaseHalfCanvasCardPreview | undefined,
 		structuralStamp: IBaseHalfWorkspaceMutationStamp
 	): HTMLElement {
-		const bounds = baseHalfCanvasItemBounds(item, index, total);
 		const card = $('.basehalf-canvas-card');
 		card.tabIndex = 0;
 		card.setAttribute('role', 'button');
@@ -893,6 +1329,9 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 
 		const mini = append(content, $('.basehalf-canvas-card-mini'));
 		this.renderCardTitleChip(mini, type, item.name, orphan, bounds.height, badgeIssueCount);
+
+		const summary = append(content, $('.basehalf-canvas-card-summary'));
+		this.renderCardSummary(summary, type, item, preview, orphan, badgeIssueCount);
 
 		const full = append(content, $('.basehalf-canvas-card-full'));
 		const header = append(full, $('.basehalf-canvas-card-header'));
@@ -958,14 +1397,32 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderCardPreview(body, item, preview, orphan);
 		}
 		this.renderFolderCoverage(full, item, preview);
+		this.renderInlineRenameEditor(card, item);
 
 		this.cardListeners.add(this.addDisposableListener(card, 'keydown', event => {
-			if (event.key === 'Enter' || event.key === ' ') {
+			if (event.key === 'F2') {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.requestInlineRename(item);
+			} else if (event.key === 'Enter' || event.key === ' ') {
 				event.preventDefault();
 				void this.canvasNavigationService.openResource(item.stat.resource, { source: 'api', pinned: true });
 			}
 		}));
 		return card;
+	}
+
+	private cardBoundsForPreview(
+		item: IBaseHalfCanvasItem,
+		index: number,
+		total: number,
+		preview: BaseHalfCanvasCardPreview | undefined
+	): IBaseHalfCanvasBounds {
+		const bounds = baseHalfCanvasItemBounds(item, index, total);
+		if (item.card || (preview?.kind !== 'empty' && !(preview?.kind === 'folder' && preview.total === 0))) {
+			return bounds;
+		}
+		return { ...bounds, height: BASEHALF_CANVAS_CARD_FULL_MIN_HEIGHT };
 	}
 
 	private renderCardTitleChip(container: HTMLElement, type: BaseHalfCanvasGlyphType, name: string, orphan: boolean, cardHeightPx: number, badgeIssueCount: number): void {
@@ -983,6 +1440,35 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
 			marker.setAttribute('aria-hidden', 'true');
 		}
+	}
+
+	private renderCardSummary(
+		container: HTMLElement,
+		type: BaseHalfCanvasGlyphType,
+		item: IBaseHalfCanvasItem,
+		preview: BaseHalfCanvasCardPreview | undefined,
+		orphan: boolean,
+		badgeIssueCount: number
+	): void {
+		const flow = append(container, $('.basehalf-canvas-card-summary-flow'));
+		const identity = append(flow, $('.basehalf-canvas-card-summary-identity'));
+		const icon = append(identity, $('.basehalf-canvas-card-summary-icon'));
+		this.renderGlyph(icon, type, glyphTone(type, orphan), 15);
+		const label = append(identity, $('.basehalf-canvas-card-summary-label'));
+		label.textContent = item.name;
+		label.classList.toggle('danger', orphan);
+		if (badgeIssueCount > 0) {
+			const marker = append(identity, $('span.basehalf-reference-issue-marker'));
+			marker.setAttribute('data-testid', 'card-reference-issue-marker');
+			marker.setAttribute('data-reference-issue-count', String(badgeIssueCount));
+			marker.setAttribute('aria-hidden', 'true');
+		} else if (item.badge?.description) {
+			const marker = append(identity, $('span.basehalf-canvas-card-summary-badge-dot'));
+			marker.setAttribute('aria-hidden', 'true');
+		}
+
+		const detail = append(flow, $('.basehalf-canvas-card-summary-detail'));
+		detail.textContent = cardSummaryText(item, preview, orphan);
 	}
 
 	private renderGlyph(container: Element, type: BaseHalfCanvasGlyphType, tone: string, size: number | string): void {
@@ -1443,10 +1929,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private cardLod(bounds: IBaseHalfCanvasBounds): BaseHalfCanvasCardLod {
-		if (bounds.height < CARD_LOD_MIN_HEIGHT_PX) {
-			return 'mini';
-		}
-		return this.canvasZoom >= CARD_LOD_MIN_ZOOM ? 'full' : 'mini';
+		return baseHalfCanvasCardLod(bounds.height, this.canvasZoom);
 	}
 
 
@@ -2642,6 +3125,25 @@ function edgeId(from: string, to: string): string {
 
 function folderCountLabel(total: number): string {
 	return total === 0 ? 'empty' : total === 1 ? '1 item' : `${total} items`;
+}
+
+function cardSummaryText(item: IBaseHalfCanvasItem, preview: BaseHalfCanvasCardPreview | undefined, orphan: boolean): string {
+	if (orphan) {
+		return item.kind === 'folder' ? item.badge?.description ?? 'Missing folder' : 'Missing file';
+	}
+	if (!preview) {
+		return 'Preview unavailable';
+	}
+	if (preview.kind === 'folder') {
+		const count = folderCountLabel(preview.total);
+		const firstNames = preview.items.slice(0, 2).map(child => child.kind === 'folder' ? `${child.name}/` : child.name);
+		return firstNames.length > 0 ? `${count}\n${firstNames.join(', ')}` : count;
+	}
+	const lines = preview.text.split(/\r?\n/)
+		.map(line => stripMarkdownInline(line.trim().replace(/^\s{0,3}#{1,6}\s+/, '').replace(/^\s{0,3}>\s?/, '')))
+		.filter(Boolean)
+		.slice(0, 3);
+	return lines.length > 0 ? lines.join('\n') : 'Empty file';
 }
 
 function canvasChildPath(parent: string, name: string): string {

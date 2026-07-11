@@ -75,6 +75,17 @@ export interface IBaseHalfCanvasSceneSelection {
 	readonly edgeId?: string;
 }
 
+export type BaseHalfCanvasSceneContextMenuRequest =
+	| {
+		readonly kind: 'card';
+		readonly path: string;
+		readonly anchor: HTMLElement | { readonly x: number; readonly y: number };
+	}
+	| {
+		readonly kind: 'pane';
+		readonly anchor: HTMLElement | { readonly x: number; readonly y: number };
+	};
+
 export interface IBaseHalfCanvasSceneFitOptions {
 	readonly maxZoom?: number;
 	readonly padding?: number;
@@ -86,6 +97,7 @@ export interface IBaseHalfCanvasSceneDelegate {
 	reconnect(sceneKey: string, structuralEpoch: number, intent: IBaseHalfCanvasSceneReconnect): Promise<void>;
 	removeEdge(sceneKey: string, structuralEpoch: number, edge: IBaseHalfCanvasSceneEdge): Promise<void>;
 	openCard(sceneKey: string, structuralEpoch: number, path: string): void;
+	showContextMenu(sceneKey: string, structuralEpoch: number, request: BaseHalfCanvasSceneContextMenuRequest): void;
 	reportViewport(sceneKey: string, viewport: IBaseHalfCanvasSceneViewport, final: boolean): void;
 	didEndInteraction(): void;
 	reportError(error: unknown): void;
@@ -98,6 +110,7 @@ export interface IBaseHalfCanvasSceneRenderer {
 	setViewportCenter(x: number, y: number, zoom?: number): Promise<void>;
 	fit(paths?: readonly string[], options?: IBaseHalfCanvasSceneFitOptions): Promise<void>;
 	reveal(path: string): Promise<void>;
+	screenToCanvasPosition(x: number, y: number): { readonly x: number; readonly y: number };
 	select(selection: IBaseHalfCanvasSceneSelection): void;
 	getViewport(): IBaseHalfCanvasSceneViewport;
 	isInteracting(): boolean;
