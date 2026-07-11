@@ -1674,6 +1674,7 @@ class BaseHalfAgentAreaService extends Disposable implements IBaseHalfAgentAreaS
 				const onUp = () => {
 					doc.removeEventListener('mousemove', onMove);
 					doc.removeEventListener('mouseup', onUp);
+					el.classList.remove('dragging');
 					doc.body.style.cursor = '';
 					doc.body.style.userSelect = '';
 				};

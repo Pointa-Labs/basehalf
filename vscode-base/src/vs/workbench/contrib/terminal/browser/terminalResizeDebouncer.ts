@@ -9,33 +9,30 @@ import { Disposable, MutableDisposable } from '../../../../base/common/lifecycle
 import type { XtermTerminal } from './xterm/xtermTerminal.js';
 
 const enum Constants {
-	/**
-	 * The _normal_ buffer length threshold at which point resizing starts being debounced.
-	 */
-	StartDebouncingThreshold = 200,
-	DebounceResizeXDelay = 100,
+	// Ghostty treats resize as a source-agnostic size stream and consumes the
+	// latest value on a fixed 25ms cadence. Mouse state never crosses this layer.
+	ResizeInterval = 25,
 }
 
 export class TerminalResizeDebouncer extends Disposable {
 	private _latestX: number = 0;
 	private _latestY: number = 0;
+	private _resizePending = false;
 
-	private readonly _resizeXJob = this._register(new MutableDisposable());
-	private readonly _resizeYJob = this._register(new MutableDisposable());
+	private readonly _hiddenResizeJob = this._register(new MutableDisposable());
 
 	// Owned by the disposable store so the pending timer is cancelled on dispose,
 	// avoiding callbacks that fire against a torn-down xterm renderer.
-	private readonly _debounceResizeXScheduler = this._register(new RunOnceScheduler(
-		() => this._resizeXCallback(this._latestX),
-		Constants.DebounceResizeXDelay,
+	private readonly _resizeScheduler = this._register(new RunOnceScheduler(
+		() => this._commitLatestSize(),
+		Constants.ResizeInterval,
 	));
 
 	constructor(
 		private readonly _isVisible: () => boolean,
 		private readonly _getXterm: () => XtermTerminal | undefined,
 		private readonly _resizeBothCallback: (cols: number, rows: number) => void,
-		private readonly _resizeXCallback: (cols: number) => void,
-		private readonly _resizeYCallback: (rows: number) => void,
+		private readonly _resizeLiveCallback: (cols: number, rows: number) => boolean,
 	) {
 		super();
 	}
@@ -47,55 +44,89 @@ export class TerminalResizeDebouncer extends Disposable {
 		this._latestX = cols;
 		this._latestY = rows;
 
-		// Resize immediately if requested explicitly or if the buffer is small
-		if (immediate || this._getXterm()!.raw.buffer.normal.length < Constants.StartDebouncingThreshold) {
-			this._resizeXJob.clear();
-			this._resizeYJob.clear();
-			this._debounceResizeXScheduler.cancel();
+		// An explicit immediate resize is used for lifecycle transitions where the
+		// caller needs the pty dimensions synchronously.
+		if (immediate) {
+			this._hiddenResizeJob.clear();
+			this._resizeScheduler.cancel();
+			this._resizePending = false;
 			this._resizeBothCallback(cols, rows);
 			return;
 		}
 
-		// Resize in an idle callback if the terminal is not visible
+		this._resizePending = true;
+
+		// Hidden terminals do not need frame-cadence work, but dimensions remain
+		// one atomic pair. Splitting X and Y into independent idle jobs can expose
+		// a mixed revision to the pty when a tab becomes visible midway through.
 		const win = getWindow(this._getXterm()!.raw.element);
 		if (win && !this._isVisible()) {
-			if (!this._resizeXJob.value) {
-				this._resizeXJob.value = runWhenWindowIdle(win, async () => {
+			this._resizeScheduler.cancel();
+			if (!this._hiddenResizeJob.value) {
+				this._hiddenResizeJob.value = runWhenWindowIdle(win, () => {
 					if (this._store.isDisposed) {
 						return;
 					}
-					this._resizeXCallback(this._latestX);
-					this._resizeXJob.clear();
-				});
-			}
-			if (!this._resizeYJob.value) {
-				this._resizeYJob.value = runWhenWindowIdle(win, async () => {
-					if (this._store.isDisposed) {
-						return;
-					}
-					this._resizeYCallback(this._latestY);
-					this._resizeYJob.clear();
+					this._hiddenResizeJob.clear();
+					this._commitLatestSize();
 				});
 			}
 			return;
 		}
 
-		// Update dimensions independently as vertical resize is cheap and horizontal resize is
-		// expensive due to reflow.
-		this._resizeYCallback(rows);
-		this._latestX = cols;
-		this._debounceResizeXScheduler.schedule();
+		this._hiddenResizeJob.clear();
+		if (!this._resizeScheduler.isScheduled()) {
+			this._resizeScheduler.schedule();
+		}
 	}
 
 	flush(): void {
 		if (this._store.isDisposed) {
 			return;
 		}
-		if (this._resizeXJob.value || this._resizeYJob.value || this._debounceResizeXScheduler.isScheduled()) {
-			this._resizeXJob.clear();
-			this._resizeYJob.clear();
-			this._debounceResizeXScheduler.cancel();
+		if (this._hiddenResizeJob.value || this._resizeScheduler.isScheduled() || this._resizePending) {
+			this._hiddenResizeJob.clear();
+			this._resizeScheduler.cancel();
+			this._commitLatestSize();
+		}
+	}
+
+	private _commitLatestSize(): void {
+		if (!this._resizePending) {
+			return;
+		}
+		this._resizePending = false;
+		if (!this._resizeLiveCallback(this._latestX, this._latestY)) {
 			this._resizeBothCallback(this._latestX, this._latestY);
 		}
 	}
+}
+
+/**
+ * Builds a local-only sequence that blanks every visible row occupied by the
+ * current semantic prompt while preserving the emulator cursor position.
+ */
+export function getPromptClearSequence(promptStartLine: number, baseY: number, cursorY: number, rows: number): string | undefined {
+	const cursorLine = baseY + cursorY;
+	const lastVisibleLine = baseY + rows - 1;
+	if (rows <= 0 || promptStartLine < baseY || promptStartLine > cursorLine || cursorLine > lastVisibleLine) {
+		return undefined;
+	}
+	const rowsUp = cursorLine - promptStartLine;
+	let sequence = '\x1b7\r';
+	if (rowsUp > 0) {
+		sequence += `\x1b[${rowsUp}A`;
+	}
+	// Ghostty clears from the semantic prompt start through the rest of the
+	// active screen, not merely through the cursor row. A shell editor can move
+	// the cursor back into the middle of wrapped input; clearing only to that row
+	// would leave the lower half of the old prompt behind after reflow.
+	const rowsToClear = lastVisibleLine - promptStartLine + 1;
+	for (let row = 0; row < rowsToClear; row++) {
+		sequence += '\x1b[2K';
+		if (row < rowsToClear - 1) {
+			sequence += '\x1b[1B\r';
+		}
+	}
+	return `${sequence}\x1b8`;
 }

@@ -84,7 +84,7 @@ import type { IMarker, Terminal as XTermTerminal, IBufferLine } from '@xterm/xte
 import { AccessibilityCommandId } from '../../accessibility/common/accessibilityCommands.js';
 import { terminalStrings } from '../common/terminalStrings.js';
 import { TerminalIconPicker } from './terminalIconPicker.js';
-import { TerminalResizeDebouncer } from './terminalResizeDebouncer.js';
+import { getPromptClearSequence, TerminalResizeDebouncer } from './terminalResizeDebouncer.js';
 import { openContextMenu } from './terminalContextMenu.js';
 import type { IMenu } from '../../../../platform/actions/common/actions.js';
 import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
@@ -815,27 +815,8 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		this._resizeDebouncer = this._register(new TerminalResizeDebouncer(
 			() => this._isVisible,
 			() => xterm,
-			async (cols, rows) => {
-				if (this.isDisposed) {
-					return;
-				}
-				xterm.resize(cols, rows);
-				await this._updatePtyDimensions(xterm.raw);
-			},
-			async (cols) => {
-				if (this.isDisposed) {
-					return;
-				}
-				xterm.resize(cols, xterm.raw.rows);
-				await this._updatePtyDimensions(xterm.raw);
-			},
-			async (rows) => {
-				if (this.isDisposed) {
-					return;
-				}
-				xterm.resize(xterm.raw.cols, rows);
-				await this._updatePtyDimensions(xterm.raw);
-			}
+			(cols, rows) => this._resizePtyFinal(xterm, cols, rows),
+			(cols, rows) => this._resizePtyLive(xterm, cols, rows),
 		));
 		this._register(toDisposable(() => this._resizeDebouncer = undefined));
 		this.updateAccessibilitySupport();
@@ -2080,6 +2061,62 @@ export class TerminalInstance extends Disposable implements ITerminalInstance {
 		const roundedPixelWidth = pixelWidth ? Math.round(pixelWidth) : undefined;
 		const roundedPixelHeight = pixelHeight ? Math.round(pixelHeight) : undefined;
 		await this._processManager.setDimensions(rawXterm.cols, rawXterm.rows, undefined, roundedPixelWidth, roundedPixelHeight);
+	}
+
+	private _resizePtyFinal(xterm: XtermTerminal, cols: number, rows: number): void {
+		if (this.isDisposed) {
+			return;
+		}
+		xterm.resize(cols, rows);
+		void this._updatePtyDimensions(xterm.raw);
+	}
+
+	private _resizePtyLive(xterm: XtermTerminal, cols: number, rows: number): boolean {
+		if (this.isDisposed) {
+			return false;
+		}
+		const raw = xterm.raw;
+		if (raw.cols === cols && raw.rows === rows) {
+			// Pixel movement inside the same cell dimensions must be a strict no-op.
+			// node-pty intentionally omits SIGWINCH when the cell grid did not change.
+			return true;
+		}
+		if (raw.buffer.active.type === 'alternate') {
+			xterm.resize(cols, rows);
+			void this._updatePtyDimensions(raw);
+			return true;
+		}
+
+		const currentCommand = this.capabilities.get(TerminalCapability.CommandDetection)?.currentCommand;
+		if (currentCommand?.commandExecutedMarker) {
+			// A running normal-buffer command has no editable prompt to preserve.
+			xterm.resize(cols, rows);
+			void this._updatePtyDimensions(raw);
+			return true;
+		}
+
+		const promptStartMarker = currentCommand?.promptStartMarker;
+		if (!promptStartMarker || promptStartMarker.isDisposed) {
+			return false;
+		}
+		const clearSequence = getPromptClearSequence(
+			promptStartMarker.line,
+			raw.buffer.active.baseY,
+			raw.buffer.active.cursorY,
+			raw.rows,
+		);
+		if (!clearSequence) {
+			return false;
+		}
+
+		// Match Ghostty's critical section: queue the semantic prompt clear directly
+		// before resize/reflow. xterm's resize() synchronously flushes its write buffer
+		// before mutating dimensions, so both model changes complete in this JS turn
+		// and the renderer observes only the final resized buffer.
+		xterm.write(clearSequence);
+		xterm.resize(cols, rows);
+		void this._updatePtyDimensions(raw);
+		return true;
 	}
 
 	setShellType(shellType: TerminalShellType | undefined) {
