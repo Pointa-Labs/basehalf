@@ -72,6 +72,69 @@
 	overflow: hidden;
 }
 
+.monaco-workbench .basehalf-canvas-create-button {
+	position: absolute;
+	top: 12px;
+	right: 14px;
+	z-index: 6;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	color: var(--vscode-icon-foreground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-create-button.hidden {
+	display: none;
+}
+
+.monaco-workbench .basehalf-canvas-create-button:hover,
+.monaco-workbench .basehalf-canvas-create-button:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	border-color: var(--vscode-focusBorder);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-create-button:active {
+	transform: translateY(1px);
+}
+
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::before {
+	position: absolute;
+	inset: 8px;
+	z-index: 7;
+	content: '';
+	pointer-events: none;
+	background-color: color-mix(in srgb, var(--bh-card-accent-soft) 42%, transparent);
+	border: 1px dashed var(--bh-card-accent);
+	border-radius: 6px;
+}
+
+.monaco-workbench .basehalf-canvas-workbench.basehalf-canvas-file-dragging::after {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	z-index: 8;
+	box-sizing: border-box;
+	padding: 8px 12px;
+	content: attr(data-file-drop-label);
+	pointer-events: none;
+	color: var(--vscode-input-foreground);
+	background-color: var(--vscode-input-background);
+	border: 1px solid var(--vscode-focusBorder);
+	border-radius: 4px;
+	box-shadow: 0 4px 14px rgb(0 0 0 / 28%);
+	font-size: 12px;
+	font-weight: 600;
+	transform: translate(-50%, -50%);
+}
+
 .monaco-workbench .basehalf-canvas-chrome {
 	position: absolute;
 	top: auto;
@@ -1136,6 +1199,67 @@ body.basehalf-canvas-edge-reconnecting * {
 	font-size: 13px;
 }
 
+.monaco-workbench .basehalf-canvas-empty-state {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8px;
+	pointer-events: auto;
+	transform: translate(-50%, -50%);
+}
+
+.monaco-workbench .basehalf-canvas-empty-title {
+	color: var(--vscode-descriptionForeground);
+	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-canvas-empty-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.monaco-workbench .basehalf-canvas-empty-note,
+.monaco-workbench .basehalf-canvas-empty-import {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 26px;
+	padding: 3px 8px;
+	color: var(--vscode-foreground);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-canvas-empty-note .codicon {
+	font-size: 14px;
+}
+
+.monaco-workbench .basehalf-canvas-empty-note-label {
+	font-weight: 500;
+}
+
+.monaco-workbench .basehalf-canvas-empty-note:hover,
+.monaco-workbench .basehalf-canvas-empty-note:focus-visible,
+.monaco-workbench .basehalf-canvas-empty-import:hover,
+.monaco-workbench .basehalf-canvas-empty-import:focus-visible {
+	background-color: var(--vscode-toolbar-hoverBackground);
+	border-color: var(--vscode-focusBorder);
+	outline: none;
+}
+
+.monaco-workbench .basehalf-canvas-empty-note:active,
+.monaco-workbench .basehalf-canvas-empty-import:active {
+	transform: translateY(1px);
+}
+
 .monaco-workbench .basehalf-canvas-truncated {
 	position: absolute;
 	left: 48px;
@@ -1194,9 +1318,43 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-card-detail-title {
 	display: flex;
 	align-items: center;
+	min-width: 0;
 	overflow: hidden;
 	font-size: 13px;
 	font-weight: 600;
+}
+
+.monaco-workbench .basehalf-card-detail-title-button {
+	min-width: 0;
+	max-width: 100%;
+	padding: 2px 4px;
+	overflow: hidden;
+	color: inherit;
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	font: inherit;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: text;
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:hover {
+	background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.monaco-workbench .basehalf-card-detail-title-button:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+.monaco-workbench .basehalf-card-detail-title-input {
+	width: min(360px, 42vw);
+	min-width: 120px;
+}
+
+.monaco-workbench .basehalf-card-detail-title-input .monaco-inputbox {
+	width: 100%;
 }
 
 .monaco-workbench .basehalf-card-detail-meta {

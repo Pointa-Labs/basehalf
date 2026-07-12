@@ -128,16 +128,20 @@ class TestCanvasNavigationService implements IBaseHalfCanvasNavigationService {
 	declare readonly _serviceBrand: undefined;
 
 	readonly onDidChangeState = Event.None;
+	readonly onDidChangeSurfaceActive = Event.None;
 	readonly state: IBaseHalfCanvasNavigationState = {
 		canvasFolder: undefined,
 		cardDetail: undefined
 	};
 	readonly canGoBack = false;
 	readonly canGoForward = false;
+	readonly isSurfaceActive = false;
 
 	readonly opened: Array<{ resource: URI; options: IBaseHalfOpenResourceOptions }> = [];
 
 	constructor(private readonly result: BaseHalfNavigationResult) { }
+
+	setSurfaceActive(): void { }
 
 	async openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
 		this.opened.push({ resource, options });

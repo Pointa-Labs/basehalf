@@ -21,6 +21,10 @@ export interface IBaseHalfEditorFlushOptions {
 	/** Only the currently visible authoring projection may serialize. Retained
 	 *  hidden projections can lag the shared TextModel. */
 	readonly activeProjection?: BaseHalfCardDetailProjection;
+	/** Structural flushes run inside a resource-mutation fence. Active
+	 *  projection filtering is also useful for ordinary navigation preflight,
+	 *  so it must not imply a structural operation by itself. */
+	readonly structural?: boolean;
 }
 
 const BASEHALF_STRUCTURAL_EDITOR_FLUSH_OPTIONS: Readonly<IBaseHalfEditorFlushOptions> = {
@@ -28,11 +32,22 @@ const BASEHALF_STRUCTURAL_EDITOR_FLUSH_OPTIONS: Readonly<IBaseHalfEditorFlushOpt
 	// A rename/delete is not consent to overwrite a newer TextModel/disk edit.
 	// Rich save conflict detection must remain active and veto the operation.
 	forceWrite: false,
-	rejectOnError: true
+	rejectOnError: true,
+	structural: true
 };
 
 export function baseHalfStructuralEditorFlushOptions(activeProjection: BaseHalfCardDetailProjection): IBaseHalfEditorFlushOptions {
 	return { ...BASEHALF_STRUCTURAL_EDITOR_FLUSH_OPTIONS, activeProjection };
+}
+
+export function baseHalfActiveEditorFlushOptions(activeProjection: BaseHalfCardDetailProjection): IBaseHalfEditorFlushOptions {
+	return {
+		forceSerialize: true,
+		forceWrite: false,
+		rejectOnError: true,
+		activeProjection,
+		structural: false
+	};
 }
 
 export function baseHalfEditorProjectionCanFlush(owner: BaseHalfCardDetailProjection, visible: boolean, options: IBaseHalfEditorFlushOptions): boolean {

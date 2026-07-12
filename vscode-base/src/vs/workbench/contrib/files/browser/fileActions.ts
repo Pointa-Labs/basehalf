@@ -62,7 +62,9 @@ import { ILocalizedString } from '../../../../platform/action/common/action.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { getPathForFile } from '../../../../platform/dnd/browser/dnd.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { IBaseHalfCanvasEditingService } from '../../../basehalf/common/basehalfCanvasEditing.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { baseHalfActiveEditorFlushOptions, BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from '../../../basehalf/common/basehalfEditorFlush.js';
 
 export const NEW_FILE_COMMAND_ID = 'explorer.newFile';
 export const NEW_FILE_LABEL = nls.localize2('newFile', "New File...");
@@ -322,16 +324,26 @@ function containsBothDirectoryAndFile(distinctElements: ExplorerItem[]): boolean
 
 
 export async function findValidPasteFileTarget(
-	explorerService: IExplorerService,
+	_explorerService: IExplorerService,
 	fileService: IFileService,
 	dialogService: IDialogService,
 	targetFolder: ExplorerItem,
 	fileToPaste: { resource: URI | string; isDirectory?: boolean; allowOverwrite: boolean },
 	incrementalNaming: 'simple' | 'smart' | 'disabled'
 ): Promise<URI | undefined> {
+	return findValidPasteFileTargetForResource(fileService, dialogService, targetFolder.resource, fileToPaste, incrementalNaming);
+}
+
+export async function findValidPasteFileTargetForResource(
+	fileService: IFileService,
+	dialogService: IDialogService,
+	targetFolder: URI,
+	fileToPaste: { resource: URI | string; isDirectory?: boolean; allowOverwrite: boolean },
+	incrementalNaming: 'simple' | 'smart' | 'disabled'
+): Promise<URI | undefined> {
 
 	let name = typeof fileToPaste.resource === 'string' ? fileToPaste.resource : resources.basenameOrAuthority(fileToPaste.resource);
-	let candidate = resources.joinPath(targetFolder.resource, name);
+	let candidate = resources.joinPath(targetFolder, name);
 
 	// In the disabled case we must ask if it's ok to overwrite the file if it exists
 	if (incrementalNaming === 'disabled') {
@@ -342,14 +354,14 @@ export async function findValidPasteFileTarget(
 	}
 
 	while (true && !fileToPaste.allowOverwrite) {
-		if (!explorerService.findClosest(candidate)) {
+		if (!await fileService.exists(candidate)) {
 			break;
 		}
 
 		if (incrementalNaming !== 'disabled') {
 			name = incrementFileName(name, !!fileToPaste.isDirectory, incrementalNaming);
 		}
-		candidate = resources.joinPath(targetFolder.resource, name);
+		candidate = resources.joinPath(targetFolder, name);
 	}
 
 	return candidate;
@@ -908,11 +920,13 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 	const filesConfigService = accessor.get(IFilesConfigurationService);
 	const editorService = accessor.get(IEditorService);
 	const baseHalfCanvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
+	const baseHalfCanvasEditingService = accessor.get(IBaseHalfCanvasEditingService);
 	const viewsService = accessor.get(IViewsService);
 	const notificationService = accessor.get(INotificationService);
 	const remoteAgentService = accessor.get(IRemoteAgentService);
 	const commandService = accessor.get(ICommandService);
 	const pathService = accessor.get(IPathService);
+	const baseHalfEditorFlushService = accessor.get(IBaseHalfEditorFlushService);
 
 	const explorerViewId = explorerService.getViewId() ?? VIEW_ID;
 	const wasHidden = !viewsService.isViewVisible(explorerViewId);
@@ -949,6 +963,10 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 
 	const onSuccess = async (value: string): Promise<void> => {
 		try {
+			const cardDetail = baseHalfCanvasNavigationService.state.cardDetail;
+			if (cardDetail && !await baseHalfEditorFlushService.flushPane(BASEHALF_CARD_DETAIL_PANE_ID, baseHalfActiveEditorFlushOptions(cardDetail.projection))) {
+				throw new Error(nls.localize('basehalf.create.flushBlocked', "Save or resolve this file's changes before creating another item."));
+			}
 			const resourceToCreate = resources.joinPath(folder.resource, value);
 			if (value.endsWith('/')) {
 				isFolder = true;
@@ -962,7 +980,8 @@ async function openExplorerAndCreate(accessor: ServicesAccessor, isFolder: boole
 
 			if (isFolder) {
 				await explorerService.select(resourceToCreate, true);
-				await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resourceToCreate, { source: 'fileCommand' });
+				await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, folder.resource, { source: 'fileCommand' });
+				await baseHalfCanvasEditingService.requestSelection(folder.resource, [resourceToCreate]);
 			} else {
 				const result = await tryOpenBaseHalfResource(baseHalfCanvasNavigationService, resourceToCreate, {
 					source: 'fileCommand',
@@ -1062,6 +1081,31 @@ export const deleteFileHandler = async (accessor: ServicesAccessor) => {
 };
 
 let pasteShouldMove = false;
+export function explorerFileClipboardShouldMove(): boolean {
+	return pasteShouldMove;
+}
+
+export async function setExplorerFileClipboard(explorerService: IExplorerService, resourcesToCopy: readonly URI[], cut: boolean): Promise<boolean> {
+	const rootKeys = new Set(explorerService.roots.map(root => root.resource.toString()));
+	const resources = [...new Map(resourcesToCopy
+		.filter(resource => !rootKeys.has(resource.toString()))
+		.map(resource => [resource.toString(), resource])).values()];
+	if (resources.length === 0) {
+		return false;
+	}
+	await explorerService.setResourcesToCopy(resources, cut);
+	pasteShouldMove = cut;
+	return true;
+}
+
+export async function clearExplorerFileClipboardCut(explorerService: IExplorerService): Promise<void> {
+	if (!pasteShouldMove) {
+		return;
+	}
+	await explorerService.setResourcesToCopy([], false);
+	pasteShouldMove = false;
+}
+
 export const copyFileHandler = async (accessor: ServicesAccessor) => {
 	const explorerService = accessor.get(IExplorerService);
 	const stats = explorerService.getContext(true);

@@ -198,7 +198,7 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		kind: 'command',
 		area: 'canvas',
 		source: 'src/vs/workbench/contrib/files/browser/fileActions.ts',
-		reason: 'New folders should become the active BaseHalf canvas after the Explorer create flow completes.'
+		reason: 'New folders should remain selected on their parent BaseHalf canvas after the Explorer create flow completes.'
 	},
 	{
 		id: 'explorer.upload',
@@ -220,13 +220,6 @@ export const BASEHALF_REMAPPED_SURFACES = [
 		area: 'canvas',
 		source: 'src/vs/workbench/contrib/files/browser/fileActions.contribution.ts',
 		reason: 'Explorer preserve-focus activation should still use BaseHalf card detail for single workspace files.'
-	},
-	{
-		id: 'workbench.action.files.newUntitledFile',
-		kind: 'command',
-		area: 'canvas',
-		source: 'src/vs/workbench/contrib/files/browser/fileCommands.ts',
-		reason: 'BaseHalf is folder-first, so untitled-file creation is remapped to the save-backed New File flow.'
 	},
 	{
 		id: 'search.action.openResult',

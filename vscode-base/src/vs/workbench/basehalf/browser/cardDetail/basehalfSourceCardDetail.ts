@@ -176,6 +176,10 @@ export class BaseHalfSourceCardDetail extends Disposable {
 		// layer is hidden; nothing to suspend.
 	}
 
+	focus(): void {
+		this.editor?.focus();
+	}
+
 	applySelection(selection: ITextEditorSelection | undefined, scrollType: ScrollType = ScrollType.Smooth): void {
 		if (!selection || !this.editor?.hasModel()) {
 			return;

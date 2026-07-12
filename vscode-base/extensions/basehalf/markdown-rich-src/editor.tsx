@@ -357,6 +357,7 @@ function MarkdownRichEditor(): JSX.Element {
 	const saveTimer = useRef<number | undefined>(undefined);
 	const liveUndoManager = useRef<UndoManager | undefined>(undefined);
 	const composing = useRef(false);
+	const pendingEditorCommands = useRef<BaseHalfMarkdownRichEditorCommand[]>([]);
 	const compositionSettledWaiters = useRef(new Set<() => void>());
 	const pendingSaveSettledWaiters = useRef(new Set<() => void>());
 	const pendingInit = useRef<IIncomingInit | undefined>(undefined);
@@ -480,6 +481,9 @@ function MarkdownRichEditor(): JSX.Element {
 	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string) => {
 		const state = session.current;
 		const isNewResource = state.key !== key || state.resource !== resource;
+		// A deferred command belongs to the projection generation that received
+		// it. Never let an IME-era undo cross a full document reload.
+		pendingEditorCommands.current.length = 0;
 		state.loading = true;
 		state.key = key;
 		state.resource = resource;
@@ -590,19 +594,30 @@ function MarkdownRichEditor(): JSX.Element {
 		});
 	}, [vscode]);
 
-	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand) => {
+	const executeEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
+		ensureLiveUndoManager();
+		return command === 'undo' ? editor.undo() : editor.redo();
+	}, [editor, ensureLiveUndoManager]);
+
+	const runEditorCommand = useCallback((command: BaseHalfMarkdownRichEditorCommand): boolean => {
 		const state = session.current;
 		if (!state.ready || state.loading || !state.editable || state.structuralFrozen || state.conflictDisk !== undefined || state.writeError !== undefined) {
-			return;
+			return false;
 		}
 
-		ensureLiveUndoManager();
-		if (command === 'undo') {
-			editor.undo();
-		} else {
-			editor.redo();
+		if (composing.current || !!editor.prosemirrorView?.composing) {
+			pendingEditorCommands.current.push(command);
+			return true;
 		}
-	}, [editor, ensureLiveUndoManager]);
+		return executeEditorCommand(command);
+	}, [editor, executeEditorCommand]);
+
+	const flushPendingEditorCommands = useCallback((): void => {
+		const commands = pendingEditorCommands.current.splice(0);
+		for (const command of commands) {
+			runEditorCommand(command);
+		}
+	}, [runEditorCommand]);
 
 	const waitForCompositionSettled = useCallback(async (): Promise<void> => {
 		while (composing.current || !!editor.prosemirrorView?.composing) {
@@ -1008,10 +1023,15 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			compositionSettledWaiters.current.clear();
 			const pending = pendingInit.current;
-			if (pending) {
-				pendingInit.current = undefined;
-				window.setTimeout(() => void handleIncomingInit(pending).catch(reportError), 0);
-			}
+			pendingInit.current = undefined;
+			window.setTimeout(() => {
+				// compositionend precedes ProseMirror's final transaction. Undo only
+				// after that transaction so one shortcut removes the committed IME edit.
+				flushPendingEditorCommands();
+				if (pending) {
+					void handleIncomingInit(pending).catch(reportError);
+				}
+			}, 0);
 		};
 		window.addEventListener('compositionstart', onCompositionStart, true);
 		window.addEventListener('compositionend', onCompositionEnd, true);
@@ -1019,7 +1039,7 @@ function MarkdownRichEditor(): JSX.Element {
 			window.removeEventListener('compositionstart', onCompositionStart, true);
 			window.removeEventListener('compositionend', onCompositionEnd, true);
 		};
-	}, [handleIncomingInit, reportError]);
+	}, [flushPendingEditorCommands, handleIncomingInit, reportError]);
 
 	useEffect(() => {
 		const updateListener = (update: Uint8Array, origin: unknown) => {
@@ -1487,7 +1507,7 @@ function MarkdownRichEditor(): JSX.Element {
 		// workbench Edit menu reaches the same command over the message
 		// protocol instead.
 		const onKeyDown = (event: KeyboardEvent) => {
-			if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.isComposing) {
+			if ((!event.metaKey && !event.ctrlKey) || event.altKey) {
 				return;
 			}
 

@@ -35,6 +35,7 @@ export interface IExplorerService {
 	findClosestRoot(resource: URI): ExplorerItem | null;
 	refresh(): Promise<void>;
 	setToCopy(stats: ExplorerItem[], cut: boolean): Promise<void>;
+	setResourcesToCopy(resources: readonly URI[], cut: boolean): Promise<void>;
 	isCut(stat: ExplorerItem): boolean;
 	applyBulkEdit(edit: ResourceFileEdit[], options: { undoLabel: string; progressLabel: string; confirmBeforeUndo?: boolean; progressLocation?: ProgressLocation.Explorer | ProgressLocation.Window }): Promise<void>;
 

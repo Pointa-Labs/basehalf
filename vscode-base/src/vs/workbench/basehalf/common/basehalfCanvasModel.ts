@@ -348,6 +348,15 @@ export function baseHalfCanvasPosition(index: number, total: number): IBaseHalfC
 	};
 }
 
+/** Places a group imported at one pointer location as a readable compact grid. */
+export function baseHalfCanvasTransferPosition(origin: IBaseHalfCanvasPosition, index: number, total: number): IBaseHalfCanvasPosition {
+	const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(Math.max(1, total)))));
+	return {
+		x: roundCanvasNumber(origin.x + (index % cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP)),
+		y: roundCanvasNumber(origin.y + Math.floor(index / cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP))
+	};
+}
+
 export function baseHalfCanvasItemBounds(item: IBaseHalfCanvasItem, index: number, total: number): IBaseHalfCanvasBounds {
 	const fallbackPosition = baseHalfCanvasPosition(index, total);
 	return {

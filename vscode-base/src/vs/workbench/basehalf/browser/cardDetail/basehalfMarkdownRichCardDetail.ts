@@ -316,6 +316,10 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
+	focus(): void {
+		this.webview?.focus();
+	}
+
 	/**
 	 * The host DOM's `inert` attribute cannot fence an iframe. Structural file
 	 * operations therefore hold an explicit editor-side freeze from preflight
@@ -348,7 +352,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 	}
 
 	private async flush(options: IBaseHalfEditorFlushOptions = {}): Promise<boolean> {
-		const structural = options.activeProjection !== undefined;
+		const structural = options.structural === true;
 		if (!this.bridge) {
 			return !structural;
 		}
@@ -437,12 +441,13 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
 				// the source projection with the block's lines selected.
-				await this.canvasNavigationService.openCardDetail(state.resource, {
-					source: 'api',
-					projection: 'source',
-					selection: message.selection,
-					pinned: state.pinned
-				});
+					await this.canvasNavigationService.openCardDetail(state.resource, {
+						source: 'api',
+						projection: 'source',
+						selection: message.selection,
+						pinned: state.pinned,
+						history: 'replace'
+					});
 				break;
 			case 'basehalf.markdownRich.adhdCommand':
 				await this.handleAdhdCommand(state, message.command);

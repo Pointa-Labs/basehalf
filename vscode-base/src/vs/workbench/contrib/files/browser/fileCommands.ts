@@ -54,6 +54,8 @@ import { ExplorerView } from './views/explorerView.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 import { shouldFallbackToVSCodeEditorAfterBaseHalfRouting, shouldRouteSingleResourceThroughBaseHalf, tryOpenBaseHalfResource } from '../../../basehalf/common/basehalfOpenRouting.js';
+import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID } from '../../../basehalf/common/basehalfCanvasEditing.js';
+import { BaseHalfSurfaceActiveContext } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 export const openWindowCommand = (accessor: ServicesAccessor, toOpen: IWindowOpenable[], options?: IOpenWindowOptions) => {
 	if (Array.isArray(toOpen)) {
@@ -738,6 +740,13 @@ KeybindingsRegistry.registerCommandAndKeybindingRule({
 	handler: async (accessor, args?: { languageId?: string; viewType?: string }) => {
 		await accessor.get(ICommandService).executeCommand(NEW_FILE_COMMAND_ID, args);
 	}
+});
+
+KeybindingsRegistry.registerKeybindingRule({
+	weight: KeybindingWeight.WorkbenchContrib + 10,
+	when: ContextKeyExpr.has(BaseHalfSurfaceActiveContext),
+	primary: KeyMod.CtrlCmd | KeyCode.KeyN,
+	id: BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID
 });
 
 CommandsRegistry.registerCommand({

@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
-import { baseHalfEditorProjectionCanFlush, baseHalfStructuralEditorFlushOptions, BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
+import { baseHalfActiveEditorFlushOptions, baseHalfEditorProjectionCanFlush, baseHalfStructuralEditorFlushOptions, BaseHalfEditorFlushFn, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfEditorFlushService', () => {
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
@@ -15,12 +15,23 @@ suite('BaseHalfEditorFlushService', () => {
 			forceSerialize: true,
 			forceWrite: false,
 			rejectOnError: true,
+			structural: true,
 			activeProjection: 'preview'
 		});
 		assert.strictEqual(baseHalfEditorProjectionCanFlush('rich', true, baseHalfStructuralEditorFlushOptions('rich')), true);
 		assert.strictEqual(baseHalfEditorProjectionCanFlush('rich', false, baseHalfStructuralEditorFlushOptions('source')), false);
 		assert.strictEqual(baseHalfEditorProjectionCanFlush('source', false, baseHalfStructuralEditorFlushOptions('preview')), false);
 		assert.strictEqual(baseHalfEditorProjectionCanFlush('preview', true, baseHalfStructuralEditorFlushOptions('preview')), true);
+	});
+
+	test('active navigation flush filters retained projections without claiming a structural fence', () => {
+		assert.deepStrictEqual(baseHalfActiveEditorFlushOptions('rich'), {
+			forceSerialize: true,
+			forceWrite: false,
+			rejectOnError: true,
+			activeProjection: 'rich',
+			structural: false
+		});
 	});
 
 	test('flushes a registered pane and unregisters it with disposal', async () => {

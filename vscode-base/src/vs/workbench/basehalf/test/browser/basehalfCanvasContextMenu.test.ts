@@ -16,8 +16,10 @@ suite('BaseHalf canvas context menu', () => {
 
 	test('registers card commands without Explorer selection commands', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_CARD_CONTEXT_MENU), [
+			['5_cutcopypaste', 'basehalf.canvas.copy'],
 			['6_copypath', 'basehalf.canvas.copyPath'],
 			['6_copypath', 'basehalf.canvas.copyRelativePath'],
+			['5_cutcopypaste', 'basehalf.canvas.cut'],
 			['7_modification', 'basehalf.canvas.moveResourceToTrash'],
 			['navigation', 'basehalf.canvas.openResource'],
 			['7_modification', 'basehalf.canvas.renameResource'],
@@ -27,8 +29,11 @@ suite('BaseHalf canvas context menu', () => {
 
 	test('registers pane creation commands', () => {
 		assert.deepStrictEqual(menuCommands(BASEHALF_CANVAS_PANE_CONTEXT_MENU), [
+			['5_transfer', 'basehalf.canvas.importFiles'],
 			['1_new', 'basehalf.canvas.newFile'],
-			['1_new', 'basehalf.canvas.newFolder']
+			['1_new', 'basehalf.canvas.newFolder'],
+			['1_new', 'basehalf.canvas.newNote'],
+			['5_transfer', 'basehalf.canvas.paste']
 		]);
 	});
 });

@@ -39,7 +39,7 @@ import { IProgressService, ProgressLocation } from '../../../../platform/progres
 import { resolveCommandsContext } from './editorCommandsContext.js';
 import { IListService } from '../../../../platform/list/browser/listService.js';
 import { prepareMoveCopyEditors } from './editor.js';
-import { BaseHalfCanNavigateBackContext, BaseHalfCanNavigateForwardContext, IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
+import { BaseHalfCanNavigateBackContext, BaseHalfCanNavigateForwardContext, BaseHalfSurfaceActiveContext, IBaseHalfCanvasNavigationService } from '../../../basehalf/common/basehalfCanvasNavigation.js';
 
 class ExecuteCommandAction extends Action2 {
 
@@ -1433,7 +1433,10 @@ export class NavigateForwardAction extends Action2 {
 			},
 			f1: true,
 			icon: Codicon.arrowRight,
-			precondition: ContextKeyExpr.or(ContextKeyExpr.has('canNavigateForward'), ContextKeyExpr.has(BaseHalfCanNavigateForwardContext)),
+			precondition: ContextKeyExpr.or(
+				ContextKeyExpr.has(BaseHalfCanNavigateForwardContext),
+				ContextKeyExpr.and(ContextKeyExpr.not(BaseHalfSurfaceActiveContext), ContextKeyExpr.has('canNavigateForward'))
+			),
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
 				win: { primary: KeyMod.Alt | KeyCode.RightArrow, secondary: [KeyCode.BrowserForward] },
@@ -1449,7 +1452,8 @@ export class NavigateForwardAction extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const canvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
-		if (await canvasNavigationService.goForward()) {
+		if (canvasNavigationService.isSurfaceActive) {
+			await canvasNavigationService.goForward();
 			return;
 		}
 
@@ -1472,7 +1476,10 @@ export class NavigateBackwardsAction extends Action2 {
 				mnemonicTitle: localize({ key: 'miBack', comment: ['&& denotes a mnemonic'] }, "&&Back")
 			},
 			f1: true,
-			precondition: ContextKeyExpr.or(ContextKeyExpr.has('canNavigateBack'), ContextKeyExpr.has(BaseHalfCanNavigateBackContext)),
+			precondition: ContextKeyExpr.or(
+				ContextKeyExpr.has(BaseHalfCanNavigateBackContext),
+				ContextKeyExpr.and(ContextKeyExpr.not(BaseHalfSurfaceActiveContext), ContextKeyExpr.has('canNavigateBack'))
+			),
 			icon: Codicon.arrowLeft,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
@@ -1489,7 +1496,8 @@ export class NavigateBackwardsAction extends Action2 {
 
 	async run(accessor: ServicesAccessor): Promise<void> {
 		const canvasNavigationService = accessor.get(IBaseHalfCanvasNavigationService);
-		if (await canvasNavigationService.goBack()) {
+		if (canvasNavigationService.isSurfaceActive) {
+			await canvasNavigationService.goBack();
 			return;
 		}
 

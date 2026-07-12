@@ -17,6 +17,7 @@ import {
 	IBaseHalfCanvasNavigationService,
 	IBaseHalfCanvasNavigationState,
 	IBaseHalfCardDetailState,
+	IBaseHalfNavigationHistoryOptions,
 	IBaseHalfOpenResourceOptions
 } from './basehalfCanvasNavigation.js';
 import { normalizeBaseHalfCardDetailProjection } from './basehalfCardDetail.js';
@@ -27,16 +28,20 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 
 	private readonly _onDidChangeState = this._register(new Emitter<IBaseHalfCanvasNavigationState>());
 	readonly onDidChangeState: Event<IBaseHalfCanvasNavigationState> = this._onDidChangeState.event;
+	private readonly _onDidChangeSurfaceActive = this._register(new Emitter<boolean>());
+	readonly onDidChangeSurfaceActive: Event<boolean> = this._onDidChangeSurfaceActive.event;
 	private readonly backStack: IBaseHalfCanvasNavigationState[] = [];
 	private readonly forwardStack: IBaseHalfCanvasNavigationState[] = [];
+	private _isSurfaceActive = false;
 
-	private _state: IBaseHalfCanvasNavigationState = {
-		canvasFolder: undefined,
-		cardDetail: undefined
-	};
+	private _state: IBaseHalfCanvasNavigationState;
 
 	get state(): IBaseHalfCanvasNavigationState {
 		return this._state;
+	}
+
+	get isSurfaceActive(): boolean {
+		return this._isSurfaceActive;
 	}
 
 	get canGoBack(): boolean {
@@ -55,6 +60,18 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		@INotificationService private readonly notificationService: INotificationService
 	) {
 		super();
+		this._state = this.initialVisibleCanvasState() ?? {
+			canvasFolder: undefined,
+			cardDetail: undefined
+		};
+	}
+
+	setSurfaceActive(active: boolean): void {
+		if (this._isSurfaceActive === active) {
+			return;
+		}
+		this._isSurfaceActive = active;
+		this._onDidChangeSurfaceActive.fire(active);
 	}
 
 	async openResource(resource: URI, options: IBaseHalfOpenResourceOptions): Promise<BaseHalfNavigationResult> {
@@ -97,6 +114,9 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		this.updateState({
 			canvasFolder,
 			cardDetail: undefined
+		}, {
+			recordHistory: options.history !== 'replace',
+			collapseHistoryBoundary: options.history === 'replace'
 		});
 		return { handled: true, target: 'canvasFolder', state: canvasFolder };
 	}
@@ -126,11 +146,14 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		this.updateState({
 			canvasFolder,
 			cardDetail
+		}, {
+			recordHistory: options.history !== 'replace',
+			collapseHistoryBoundary: options.history === 'replace'
 		});
 		return { handled: true, target: 'cardDetail', state: cardDetail };
 	}
 
-	async closeCardDetail(): Promise<boolean> {
+	async closeCardDetail(options: IBaseHalfNavigationHistoryOptions = {}): Promise<boolean> {
 		if (!this._state.cardDetail) {
 			return true;
 		}
@@ -141,6 +164,9 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		this.updateState({
 			canvasFolder: this._state.canvasFolder,
 			cardDetail: undefined
+		}, {
+			recordHistory: options.history !== 'replace',
+			collapseHistoryBoundary: options.history === 'replace'
 		});
 		return true;
 	}
@@ -193,9 +219,15 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		return flushed;
 	}
 
-	private updateState(state: IBaseHalfCanvasNavigationState, options: { readonly recordHistory: boolean } = { recordHistory: true }): void {
+	private updateState(
+		state: IBaseHalfCanvasNavigationState,
+		options: { readonly recordHistory: boolean; readonly collapseHistoryBoundary?: boolean } = { recordHistory: true }
+	): void {
 		if (this.statesEqual(this._state, state)) {
 			this._state = state;
+			if (options.collapseHistoryBoundary) {
+				this.collapseHistoryBoundary();
+			}
 			this._onDidChangeState.fire(state);
 			return;
 		}
@@ -205,6 +237,9 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			this.forwardStack.length = 0;
 		}
 		this._state = state;
+		if (options.collapseHistoryBoundary) {
+			this.collapseHistoryBoundary();
+		}
 		this._onDidChangeState.fire(state);
 	}
 
@@ -214,6 +249,15 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			return;
 		}
 		stack.push(state);
+	}
+
+	private collapseHistoryBoundary(): void {
+		while (this.backStack.length > 0 && this.statesEqual(this.backStack[this.backStack.length - 1], this._state)) {
+			this.backStack.pop();
+		}
+		while (this.forwardStack.length > 0 && this.statesEqual(this.forwardStack[this.forwardStack.length - 1], this._state)) {
+			this.forwardStack.pop();
+		}
 	}
 
 	private isNavigableState(state: IBaseHalfCanvasNavigationState): boolean {
@@ -257,19 +301,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		}
 		return this.uriIdentityService.extUri.isEqual(left.resource, right.resource)
 			&& this.uriIdentityService.extUri.isEqual(left.workspaceFolder, right.workspaceFolder)
-			&& left.relativePath === right.relativePath
-			&& left.projection === right.projection
-			&& this.selectionsEqual(left.selection, right.selection);
-	}
-
-	private selectionsEqual(left: IBaseHalfCardDetailState['selection'], right: IBaseHalfCardDetailState['selection']): boolean {
-		if (!left || !right) {
-			return left === right;
-		}
-		return left.startLineNumber === right.startLineNumber
-			&& left.startColumn === right.startColumn
-			&& left.endLineNumber === right.endLineNumber
-			&& left.endColumn === right.endColumn;
+			&& left.relativePath === right.relativePath;
 	}
 
 	private toWorkspaceResource(resource: URI): { resource: URI; workspaceFolder: URI; relativePath: string } | undefined {

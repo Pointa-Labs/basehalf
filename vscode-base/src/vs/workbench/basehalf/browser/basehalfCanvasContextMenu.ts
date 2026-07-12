@@ -15,10 +15,11 @@ import { FileSystemProviderCapabilities, IFileService } from '../../../platform/
 import { ICommandService } from '../../../platform/commands/common/commands.js';
 import { ServicesAccessor } from '../../../platform/instantiation/common/instantiation.js';
 import { IBaseHalfCanvasNavigationService } from '../common/basehalfCanvasNavigation.js';
-import { IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
+import { BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContextService, isBaseHalfCanvasActionContext } from '../common/basehalfCanvasActionContext.js';
 import { COPY_PATH_COMMAND_ID, COPY_RELATIVE_PATH_COMMAND_ID, REVEAL_IN_EXPLORER_COMMAND_ID } from '../../contrib/files/browser/fileConstants.js';
 import { IExplorerService } from '../../contrib/files/browser/files.js';
+import { setExplorerFileClipboard } from '../../contrib/files/browser/fileActions.js';
 import { IFilesConfiguration, UndoConfirmLevel } from '../../contrib/files/common/files.js';
 
 export const BASEHALF_CANVAS_CARD_CONTEXT_MENU = MenuId.for('BaseHalfCanvasCardContext');
@@ -27,11 +28,15 @@ export const BASEHALF_CANVAS_PANE_CONTEXT_MENU = MenuId.for('BaseHalfCanvasPaneC
 const BASEHALF_CANVAS_OPEN_COMMAND_ID = 'basehalf.canvas.openResource';
 const BASEHALF_CANVAS_NEW_FILE_COMMAND_ID = 'basehalf.canvas.newFile';
 const BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID = 'basehalf.canvas.newFolder';
+const BASEHALF_CANVAS_PASTE_COMMAND_ID = 'basehalf.canvas.paste';
+const BASEHALF_CANVAS_IMPORT_COMMAND_ID = 'basehalf.canvas.importFiles';
 const BASEHALF_CANVAS_RENAME_COMMAND_ID = 'basehalf.canvas.renameResource';
 const BASEHALF_CANVAS_DELETE_COMMAND_ID = 'basehalf.canvas.moveResourceToTrash';
 const BASEHALF_CANVAS_REVEAL_COMMAND_ID = 'basehalf.canvas.revealInFiles';
 const BASEHALF_CANVAS_COPY_PATH_COMMAND_ID = 'basehalf.canvas.copyPath';
 const BASEHALF_CANVAS_COPY_RELATIVE_PATH_COMMAND_ID = 'basehalf.canvas.copyRelativePath';
+const BASEHALF_CANVAS_CUT_COMMAND_ID = 'basehalf.canvas.cut';
+const BASEHALF_CANVAS_COPY_COMMAND_ID = 'basehalf.canvas.copy';
 const MAX_UNDO_FILE_SIZE = 5_000_000;
 
 interface IBaseHalfCanvasFileActionServices {
@@ -62,21 +67,39 @@ registerAction2(class BaseHalfCanvasOpenResourceAction extends Action2 {
 	}
 });
 
-registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
+registerAction2(class BaseHalfCanvasNewNoteAction extends Action2 {
 	constructor() {
 		super({
-			id: BASEHALF_CANVAS_NEW_FILE_COMMAND_ID,
-			title: localize2('basehalf.canvas.context.newFile', "New File..."),
+			id: BASEHALF_CANVAS_NEW_NOTE_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.newNote', "New Note"),
+			f1: true,
 			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 10 }
 		});
 	}
 
 	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+		const editingService = accessor.get(IBaseHalfCanvasEditingService);
+		if (!isBaseHalfCanvasActionContext(argument)) {
+			await editingService.requestCreate(undefined, 'note');
+			return;
+		}
+		await editingService.requestCreate(argument, 'note');
+	}
+});
+
+registerAction2(class BaseHalfCanvasNewFileAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_CANVAS_NEW_FILE_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.newFile', "New File..."),
+			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 20 }
+		});
+	}
+
+	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
 		if (isBaseHalfCanvasActionContext(argument)) {
-			const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
 			const editingService = accessor.get(IBaseHalfCanvasEditingService);
-			await actionContextService.assertCurrent(argument);
-			editingService.requestCreate(argument, false);
+			await editingService.requestCreate(argument, 'file');
 		}
 	}
 });
@@ -86,17 +109,49 @@ registerAction2(class BaseHalfCanvasNewFolderAction extends Action2 {
 		super({
 			id: BASEHALF_CANVAS_NEW_FOLDER_COMMAND_ID,
 			title: localize2('basehalf.canvas.context.newFolder', "New Folder..."),
-			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 20 }
+			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '1_new', order: 30 }
 		});
 	}
 
 	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
 		if (isBaseHalfCanvasActionContext(argument)) {
-			const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
 			const editingService = accessor.get(IBaseHalfCanvasEditingService);
-			await actionContextService.assertCurrent(argument);
-			editingService.requestCreate(argument, true);
+			await editingService.requestCreate(argument, 'folder');
 		}
+	}
+});
+
+registerAction2(class BaseHalfCanvasPasteAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_CANVAS_PASTE_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.paste', "Paste"),
+			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '5_transfer', order: 10 }
+		});
+	}
+
+	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+		if (!isBaseHalfCanvasActionContext(argument)) {
+			return;
+		}
+		await accessor.get(IBaseHalfCanvasEditingService).requestPaste(argument);
+	}
+});
+
+registerAction2(class BaseHalfCanvasImportAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_CANVAS_IMPORT_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.importFiles', "Import Files..."),
+			menu: { id: BASEHALF_CANVAS_PANE_CONTEXT_MENU, group: '5_transfer', order: 20 }
+		});
+	}
+
+	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+		if (!isBaseHalfCanvasActionContext(argument)) {
+			return;
+		}
+		await accessor.get(IBaseHalfCanvasEditingService).requestImport(argument);
 	}
 });
 
@@ -114,7 +169,7 @@ registerAction2(class BaseHalfCanvasRenameResourceAction extends Action2 {
 			const actionContextService = accessor.get(IBaseHalfCanvasActionContextService);
 			const editingService = accessor.get(IBaseHalfCanvasEditingService);
 			await actionContextService.assertCurrent(argument);
-			editingService.requestRename(argument);
+			await editingService.requestRename(argument);
 		}
 	}
 });
@@ -200,6 +255,42 @@ registerAction2(class BaseHalfCanvasRevealResourceAction extends Action2 {
 		const commandService = accessor.get(ICommandService);
 		await actionContextService.assertCurrent(argument);
 		await commandService.executeCommand(REVEAL_IN_EXPLORER_COMMAND_ID, argument.resource);
+	}
+});
+
+registerAction2(class BaseHalfCanvasCutResourceAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_CANVAS_CUT_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.cut', "Cut"),
+			menu: { id: BASEHALF_CANVAS_CARD_CONTEXT_MENU, group: '5_cutcopypaste', order: 10 }
+		});
+	}
+
+	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+		if (!isBaseHalfCanvasActionContext(argument)) {
+			return;
+		}
+		await accessor.get(IBaseHalfCanvasActionContextService).assertCurrent(argument);
+		await setExplorerFileClipboard(accessor.get(IExplorerService), [argument.resource], true);
+	}
+});
+
+registerAction2(class BaseHalfCanvasCopyResourceAction extends Action2 {
+	constructor() {
+		super({
+			id: BASEHALF_CANVAS_COPY_COMMAND_ID,
+			title: localize2('basehalf.canvas.context.copy', "Copy"),
+			menu: { id: BASEHALF_CANVAS_CARD_CONTEXT_MENU, group: '5_cutcopypaste', order: 20 }
+		});
+	}
+
+	override async run(accessor: ServicesAccessor, argument: unknown): Promise<void> {
+		if (!isBaseHalfCanvasActionContext(argument)) {
+			return;
+		}
+		await accessor.get(IBaseHalfCanvasActionContextService).assertCurrent(argument);
+		await setExplorerFileClipboard(accessor.get(IExplorerService), [argument.resource], false);
 	}
 });
 

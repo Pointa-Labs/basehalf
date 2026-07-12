@@ -16,6 +16,7 @@ import {
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
 	baseHalfCanvasPosition,
+	baseHalfCanvasTransferPosition,
 	isBaseHalfCanvasEntry
 } from '../../common/basehalfCanvasModel.js';
 
@@ -47,6 +48,14 @@ suite('BaseHalfCanvasModel', () => {
 	test('returns stable grid positions', () => {
 		assert.deepStrictEqual(baseHalfCanvasPosition(0, 8), { x: 370, y: 550 });
 		assert.deepStrictEqual(baseHalfCanvasPosition(5, 8), { x: 370, y: 830 });
+	});
+
+	test('lays out imported groups as a compact grid from the drop point', () => {
+		const origin = { x: 100, y: 200 };
+		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 0, 5), { x: 100, y: 200 });
+		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 1, 5), { x: 440, y: 200 });
+		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 2, 5), { x: 780, y: 200 });
+		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 3, 5), { x: 100, y: 480 });
 	});
 
 	test('merges saved canvas card geometry by workspace-relative path', () => {

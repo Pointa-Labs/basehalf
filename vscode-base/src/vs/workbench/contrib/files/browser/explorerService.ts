@@ -37,7 +37,7 @@ export class ExplorerService implements IExplorerService {
 	private readonly disposables = new DisposableStore();
 	private editable: { stat: ExplorerItem; data: IEditableData } | undefined;
 	private config: IFilesConfiguration['explorer'];
-	private cutItems: ExplorerItem[] | undefined;
+	private cutResources: readonly URI[] | undefined;
 	private view: IExplorerView | undefined;
 	private model: ExplorerModel;
 	private onFileChangesScheduler: RunOnceScheduler;
@@ -257,15 +257,23 @@ export class ExplorerService implements IExplorerService {
 	}
 
 	async setToCopy(items: ExplorerItem[], cut: boolean): Promise<void> {
-		const previouslyCutItems = this.cutItems;
-		this.cutItems = cut ? items : undefined;
-		await this.clipboardService.writeResources(items.map(s => s.resource));
+		await this.setResourcesToCopy(items.map(item => item.resource), cut);
+	}
 
+	async setResourcesToCopy(resources: readonly URI[], cut: boolean): Promise<void> {
+		const previouslyCutItems = (this.cutResources ?? [])
+			.map(resource => this.findClosest(resource))
+			.filter((item): item is ExplorerItem => !!item);
+		this.cutResources = cut ? [...resources] : undefined;
+		await this.clipboardService.writeResources([...resources]);
+		const items = resources
+			.map(resource => this.findClosest(resource))
+			.filter((item): item is ExplorerItem => !!item);
 		this.view?.itemsCopied(items, cut, previouslyCutItems);
 	}
 
 	isCut(item: ExplorerItem): boolean {
-		return !!this.cutItems && this.cutItems.some(i => this.uriIdentityService.extUri.isEqual(i.resource, item.resource));
+		return !!this.cutResources && this.cutResources.some(resource => this.uriIdentityService.extUri.isEqual(resource, item.resource));
 	}
 
 	getEditable(): { stat: ExplorerItem; data: IEditableData } | undefined {

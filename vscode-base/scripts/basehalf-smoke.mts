@@ -31,6 +31,16 @@ for (const dir of [logsPath, crashesPath, userDataDir, extensionsDir, workspaceP
 	fs.mkdirSync(dir, { recursive: true });
 }
 
+// Playwright cannot inspect a native macOS context menu. The smoke profile is
+// disposable, so use VS Code's custom renderer here to exercise the same menu
+// registrations and commands without changing product or user settings.
+fs.mkdirSync(path.join(userDataDir, 'User'), { recursive: true });
+fs.writeFileSync(
+	path.join(userDataDir, 'User', 'settings.json'),
+	JSON.stringify({ 'window.menuStyle': 'custom' }, null, '\t'),
+	'utf8'
+);
+
 createFixtureWorkspace(workspacePath);
 
 const electronPath = getDevElectronPath();
@@ -95,25 +105,29 @@ try {
 	await page.locator('.monaco-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await page.locator('.basehalf-canvas-workbench').waitFor({ state: 'visible', timeout: 60_000 });
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
+	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
+	await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
 
-	if (opts.canvasOnly) {
-		await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
-		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
-		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
-		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
-		await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
-		await step('agent-creates-card', () => assertAgentCreatesCard(page));
-		await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
-		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
-		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
-		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+		if (opts.canvasOnly) {
+			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
+			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+			await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
+			await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+			await step('agent-creates-card', () => assertAgentCreatesCard(page));
+			await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+			await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
+			await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
+			await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 		console.log(JSON.stringify({
 			ok: true,
 			workspace: workspacePath,
 			checks: [
 				'fresh-canvas-framed',
+				'root-titlebar-breadcrumb',
 				'canvas-grid-scoped-to-canvas',
+				'canvas-create-note-file-folder',
 				'canvas-inline-rename',
 				'canvas-card-badge-preview-connectors',
 				'canvas-derived-edge-visible',
@@ -137,24 +151,25 @@ try {
 	await step('agent-area-tui-session-process-semantics', () => assertAgentAreaTuiSession(page));
 	await step('toggle-panel-remaps-to-agent-area', () => assertTogglePanelRemapsToAgentArea(page));
 	await step('agent-area-tabs-and-splits', () => assertAgentAreaTabsAndSplits(page));
-	await step('source-control-git-provider', () => assertSourceControlPanel(page));
-	commitFixtureChanges(workspacePath, 'smoke changes');
-	await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
-	await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
-	await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
+		await step('source-control-git-provider', () => assertSourceControlPanel(page));
+		commitFixtureChanges(workspacePath, 'smoke changes');
+		await step('git-refresh', () => runCommand(page, 'Git: Refresh'));
+		await step('source-control-publish-branch-action', () => assertSourceControlPublishBranchAction(page));
+		await step('git-branch-checkout-quickpick', () => assertGitBranchCheckoutQuickPick(page));
 
-	await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
-	await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
-	await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
-	await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
-	await step('agent-creates-card', () => assertAgentCreatesCard(page));
-	await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
-	await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
-	await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
-	await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
+		await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
+		await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
+		await step('canvas-edge-follows-card-drag-live', () => assertCanvasEdgeFollowsCardDragLive(page));
+		await step('canvas-edge-half-reconnect', () => assertCanvasEdgeHalfReconnect(page));
+		await step('agent-creates-card', () => assertAgentCreatesCard(page));
+		await step('agent-reference-draws-edge', () => assertAgentReferenceDrawsEdge(page));
+		await step('edge-delete-scoped-to-canvas', () => assertEdgeDeleteScopedToCanvas(page, AGENT_CREATED_CARD_PATH));
+		await step('edge-delete-removes-reference', () => assertEdgeDeleteRemovesReference(page, AGENT_CREATED_CARD_PATH));
+		await step('canvas-snap-guides', () => assertCanvasSnapGuides(page));
 	await step('canvas-scroll-before-card-detail', () => scrollCanvasWorkbenchForCardDetail(page));
 	await step('quick-open-readme', () => quickOpen(page, 'README.md'));
 	await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+	await step('readme-titlebar-breadcrumbs', () => assertBaseHalfTitlebarBreadcrumbs(page));
 	await step('readme-card-detail-compact-header', () => assertCardDetailCompactHeader(page));
 	await step('readme-card-detail-covers-scrolled-canvas', () => assertCardDetailCoversCanvasViewport(page));
 	await step('readme-rich-save-status-hidden', () => assertMarkdownRichSaveStatusHidden(page));
@@ -173,6 +188,7 @@ try {
 	await step('readme-rich-external-merge-preserves-cursor', () => assertMarkdownRichExternalMergePreservesCursor(page));
 	await step('readme-rich-context-menu-rich-clipboard', () => assertMarkdownRichContextMenuClipboard(page));
 	await step('readme-rich-composition-defers-autosave', () => assertMarkdownRichCompositionDefersAutosave(page));
+	await step('readme-rich-composition-queues-single-undo', () => assertMarkdownRichCompositionQueuesSingleUndo(page));
 	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
@@ -225,7 +241,9 @@ try {
 			'product-identity-basehalf',
 			'canvas-visible',
 			'fresh-canvas-framed',
+			'root-titlebar-breadcrumb',
 			'canvas-grid-scoped-to-canvas',
+			'canvas-create-note-file-folder',
 			'open-editors-hidden',
 			'competing-view-containers-hidden',
 			'statusbar-curated',
@@ -254,7 +272,12 @@ try {
 			'markdown-rich-slash-menu-themed-portal',
 			'markdown-rich-reading-mode-settings-toggle',
 			'quick-open-card-detail',
+			'basehalf-titlebar-breadcrumbs',
 			'markdown-rich-editor-edit-save',
+			'markdown-rich-undo-redo-single-trigger',
+			'markdown-rich-undo-stops-at-load',
+			'markdown-rich-menu-undo-single-trigger',
+			'markdown-rich-composition-queues-single-undo',
 			'workspace-setup-agent-protocol-files',
 			'card-detail-badge-zone',
 			'badge-quick-access-note-search',
@@ -1231,6 +1254,9 @@ async function assertBaseHalfReleaseNotesSystemPage(page) {
 	await frame.locator('body', { hasText: 'BaseHalf is moving onto a real VS Code substrate' }).waitFor({ state: 'visible', timeout: 20_000 });
 	await frame.locator('body', { hasText: 'Release Notes open as a system page' }).waitFor({ state: 'visible', timeout: 20_000 });
 	await assertNoEditorTabFor(page, 'Release Notes');
+	if (await page.locator('.basehalf-command-center-breadcrumbs').isVisible().catch(() => false)) {
+		throw new Error('BaseHalf file breadcrumbs remained visible over a system page');
+	}
 }
 
 async function activeReleaseNotesFrame(page) {
@@ -1310,6 +1336,62 @@ async function assertCardDetail(page, title) {
 	// bound must stay below the workbench's 10s wedged-boot fallback swap,
 	// or a broken rendered ack would still pass here.
 	await page.locator('.basehalf-card-detail-surface.active').waitFor({ state: 'visible', timeout: 8_000 });
+}
+
+async function assertBaseHalfRootTitlebarBreadcrumb(page) {
+	const breadcrumbs = page.locator('.basehalf-command-center-breadcrumbs');
+	await breadcrumbs.waitFor({ state: 'visible', timeout: 15_000 });
+	const labels = (await breadcrumbs.locator('.basehalf-command-center-breadcrumb-segment').allTextContents()).map(label => label.trim());
+	const workspaceName = path.basename(workspacePath);
+	if (labels.length !== 1 || labels[0] !== workspaceName) {
+		throw new Error(`Unexpected root canvas breadcrumb path: ${JSON.stringify(labels)}`);
+	}
+	const current = breadcrumbs.locator('[aria-current="page"]');
+	if (await current.textContent() !== workspaceName) {
+		throw new Error('The workspace root is not the current breadcrumb segment');
+	}
+	await page.locator('.basehalf-command-center-search[aria-label]').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertBaseHalfTitlebarBreadcrumbs(page) {
+	const breadcrumbs = page.locator('.basehalf-command-center-breadcrumbs');
+	await breadcrumbs.waitFor({ state: 'visible', timeout: 15_000 });
+	const labels = (await breadcrumbs.locator('.basehalf-command-center-breadcrumb-segment').allTextContents()).map(label => label.trim());
+	if (labels.length !== 2 || labels[0] !== path.basename(workspacePath) || labels[1] !== 'README.md') {
+		throw new Error(`Unexpected README breadcrumb path: ${JSON.stringify(labels)}`);
+	}
+	const current = breadcrumbs.locator('[aria-current="page"]');
+	if (await current.textContent() !== 'README.md') {
+		throw new Error('The current breadcrumb segment is not README.md');
+	}
+	const search = page.locator('.basehalf-command-center-search[aria-label]');
+	await search.waitFor({ state: 'visible', timeout: 10_000 });
+
+	// Passive breadcrumb chrome must never bubble into the parent Quick Open
+	// action, whether activated by pointer or by the ActionBar keyboard path.
+	const quickInput = visibleQuickInput(page);
+	await current.click();
+	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
+	await breadcrumbs.locator('.basehalf-command-center-breadcrumb-separator').first().click();
+	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
+	const locationGroup = page.locator('.command-center-quick-pick.basehalf-location-mode');
+	await locationGroup.focus();
+	await page.keyboard.press('Enter');
+	await quickInput.waitFor({ state: 'hidden', timeout: 1_000 });
+	await assertCardDetail(page, 'README.md');
+
+	// Search remains an explicit action inside the otherwise passive group.
+	await search.click();
+	await quickInput.waitFor({ state: 'visible', timeout: 10_000 });
+	await page.keyboard.press('Escape');
+	await quickInput.waitFor({ state: 'hidden', timeout: 10_000 });
+
+	await breadcrumbs.locator('button.basehalf-command-center-breadcrumb-segment').first().click();
+	await page.locator('.basehalf-card-detail.visible').waitFor({ state: 'hidden', timeout: 20_000 });
+	await page.locator('.basehalf-canvas-cards').waitFor({ state: 'visible', timeout: 15_000 });
+
+	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
+	await assertCardDetail(page, 'README.md');
 }
 
 async function assertCardDetailCompactHeader(page) {
@@ -1420,7 +1502,7 @@ async function assertCardDetailBadgeZone(page) {
 // hanging around until a second click.
 async function assertBadgeClosesOnRichEditorActivation(page) {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+W' : 'Control+W');
-	await page.waitForTimeout(150);
+	await page.waitForTimeout(1_000);
 	await quickOpen(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
 	const rich = page.locator('.basehalf-card-detail-projection[aria-label="Rich"]');
@@ -1646,24 +1728,13 @@ async function assertNativeForwardOpensCardDetail(page, title) {
 }
 
 async function clickCommandCenterNavigationButton(page, codicon, label) {
-	const selector = `.command-center .action-label.codicon-${codicon}`;
-	const button = page.locator(selector).first();
+	const selector = `.command-center .action-item:not(.disabled) .action-label.codicon-${codicon}:not(.disabled):not([aria-disabled="true"])`;
+	const button = page.locator(selector).filter({ visible: true }).last();
 	await button.waitFor({ state: 'visible', timeout: 15_000 });
-	await page.waitForFunction(({ codicon, label }) => {
-		const buttons = Array.from(document.querySelectorAll('.command-center .action-label'));
-		return buttons.some(candidate => {
-			const element = candidate;
-			const actionItem = element.closest('.action-item');
-			const rect = element.getBoundingClientRect();
-			const ariaLabel = element.getAttribute('aria-label') ?? '';
-			return (element.classList.contains(`codicon-${codicon}`) || ariaLabel.startsWith(label))
-				&& rect.width > 0
-				&& rect.height > 0
-				&& !element.classList.contains('disabled')
-				&& element.getAttribute('aria-disabled') !== 'true'
-				&& !actionItem?.classList.contains('disabled');
-		});
-	}, { codicon, label }, { timeout: 15_000 });
+	const ariaLabel = await button.getAttribute('aria-label');
+	if (ariaLabel && !ariaLabel.startsWith(label)) {
+		throw new Error(`Expected ${label} navigation control, got ${ariaLabel}`);
+	}
 	await button.click();
 }
 
@@ -2038,6 +2109,85 @@ async function assertCanvasInlineRename(page) {
 	await restoreInput.press('Enter');
 	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'README.md')) && !fs.existsSync(path.join(workspacePath, 'README-renamed.md')), 'canvas inline rename to restore the fixture');
 	await readme.waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+async function assertCanvasCreateNoteFileAndFolder(page) {
+	const createButton = page.locator('.basehalf-canvas-create-button');
+	await createButton.waitFor({ state: 'visible', timeout: 10_000 });
+
+	await clickCanvasCreateAction(page, 'New File...');
+	let input = page.locator('.basehalf-canvas-inline-create-card input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await input.inputValue() !== '' || await input.getAttribute('placeholder') !== 'filename.ext') {
+		throw new Error('New File did not start with an empty exact-name input');
+	}
+	await input.fill('smoke-data.json');
+	await input.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-data.json')), 'canvas New File to create the exact extension');
+	await assertCardDetail(page, 'smoke-data.json');
+	if (fs.existsSync(path.join(workspacePath, 'smoke-data.json.md'))) {
+		throw new Error('Canvas New File appended .md to an explicitly named JSON file');
+	}
+	await page.locator('.basehalf-card-detail-close').click();
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"]').waitFor({ state: 'visible', timeout: 10_000 });
+
+	await clickCanvasCreateAction(page, 'New Folder...');
+	input = page.locator('.basehalf-canvas-inline-create-card input');
+	await input.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await input.inputValue() !== '' || await input.getAttribute('placeholder') !== 'Folder name') {
+		throw new Error('New Folder did not start with an empty folder-name input');
+	}
+	await input.fill('smoke-folder');
+	await input.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-folder')) && fs.statSync(path.join(workspacePath, 'smoke-folder')).isDirectory(), 'canvas New Folder to create a real folder');
+	const folderCard = page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-folder"]');
+	await folderCard.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await page.locator('.basehalf-card-detail.visible').isVisible().catch(() => false)) {
+		throw new Error('Canvas New Folder navigated away from its parent canvas');
+	}
+	if (!await folderCard.evaluate(element => element.classList.contains('selected'))) {
+		throw new Error('Canvas New Folder did not select the new folder on its parent canvas');
+	}
+
+	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+N' : 'Control+N');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'untitled.md')), 'global New Note to create an untitled Markdown file');
+	const titleInput = page.locator('.basehalf-card-detail-title-input input');
+	await titleInput.waitFor({ state: 'visible', timeout: 15_000 });
+	if (await titleInput.inputValue() !== 'untitled.md') {
+		throw new Error(`New Note did not focus the real filename, got ${JSON.stringify(await titleInput.inputValue())}`);
+	}
+	// Renaming is a structural edit and must flush the newly opened rich
+	// working copy first. Wait for that working copy to finish attaching.
+	await activeMarkdownRichFrame(page);
+	await titleInput.fill('smoke-note.md');
+	await titleInput.press('Enter');
+	await waitUntil(() => fs.existsSync(path.join(workspacePath, 'smoke-note.md')) && !fs.existsSync(path.join(workspacePath, 'untitled.md')), 'new-note title rename to move the real file');
+	await assertCardDetail(page, 'smoke-note.md');
+	await page.locator('.basehalf-card-detail-surface.active .basehalf-card-detail-markdown-rich').waitFor({ state: 'visible', timeout: 15_000 });
+	await page.locator('.basehalf-card-detail-close').click();
+	await page.locator('.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]').waitFor({ state: 'visible', timeout: 10_000 });
+
+	for (const relativePath of ['smoke-data.json', 'smoke-folder', 'smoke-note.md']) {
+		fs.rmSync(path.join(workspacePath, relativePath), { recursive: true, force: true });
+	}
+	await page.waitForFunction(() => !document.querySelector(
+		'.basehalf-canvas-card[data-basehalf-card-path="smoke-data.json"],'
+		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-folder"],'
+		+ '.basehalf-canvas-card[data-basehalf-card-path="smoke-note.md"]'
+	), null, { timeout: 10_000 });
+}
+
+async function clickCanvasCreateAction(page, label) {
+	const createButton = page.locator('.basehalf-canvas-create-button');
+	await createButton.focus();
+	await page.keyboard.press('Enter');
+	const action = page.getByRole('menuitem', { name: label, exact: true }).filter({ visible: true }).last();
+	await action.waitFor({ state: 'visible', timeout: 10_000 });
+	// VS Code intentionally attaches menu mouse-up listeners after a 100 ms
+	// guard against the pointer event that opened the menu. Let the real widget
+	// settle, then use a normal Playwright click through its public interaction.
+	await page.waitForTimeout(150);
+	await action.click();
 }
 
 async function centerCanvasCards(page, cards) {
@@ -3365,15 +3515,13 @@ async function typeMarkdownRichMarker(page, frame, marker) {
 	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), `rich editor to persist "${marker}"`, 15_000);
 }
 
-async function pressMarkdownRichKeyUntil(page, key, predicate, description) {
-	for (let attempt = 0; attempt < 8; attempt++) {
-		await page.keyboard.press(key);
-		await page.waitForTimeout(150);
-		if (await predicate()) {
-			return;
-		}
+async function pressMarkdownRichKeyOnce(page, key, predicate, description) {
+	await page.keyboard.press(key);
+	await page.waitForTimeout(250);
+	if (await predicate()) {
+		return;
 	}
-	throw new Error(`Timed out waiting for ${description}`);
+	throw new Error(`A single ${key} did not ${description}`);
 }
 
 async function assertMarkdownRichUndoRedoRoundtrip(page) {
@@ -3382,7 +3530,7 @@ async function assertMarkdownRichUndoRedoRoundtrip(page) {
 	const frame = await activeMarkdownRichFrame(page);
 	await typeMarkdownRichMarker(page, frame, marker);
 
-	await pressMarkdownRichKeyUntil(
+	await pressMarkdownRichKeyOnce(
 		page,
 		markdownRichUndoRedoKey('undo'),
 		async () => !(await markdownRichEditorHasText(frame, marker)),
@@ -3390,7 +3538,7 @@ async function assertMarkdownRichUndoRedoRoundtrip(page) {
 	);
 	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes(marker), 'undo to persist the marker removal', 15_000);
 
-	await pressMarkdownRichKeyUntil(
+	await pressMarkdownRichKeyOnce(
 		page,
 		markdownRichUndoRedoKey('redo'),
 		() => markdownRichEditorHasText(frame, marker),
@@ -3460,7 +3608,7 @@ async function assertMarkdownRichExternalMergePreservesCursor(page) {
 	}
 
 	// Undo must revert the user's own edit, never the external change.
-	await pressMarkdownRichKeyUntil(
+	await pressMarkdownRichKeyOnce(
 		page,
 		markdownRichUndoRedoKey('undo'),
 		async () => !(await markdownRichEditorHasText(frame, 'MERGEMARK')),
@@ -3509,15 +3657,53 @@ async function assertMarkdownRichCompositionDefersAutosave(page) {
 	await target.click();
 	await page.keyboard.press('End');
 
-	await frame.evaluate(() => window.dispatchEvent(new CompositionEvent('compositionstart')));
+	await dispatchMarkdownRichComposition(frame, 'compositionstart');
 	await page.keyboard.insertText(` ${marker}`);
 	await page.waitForTimeout(2_500);
 	if (fs.readFileSync(readmePath, 'utf8').includes(marker)) {
 		throw new Error('Autosave serialized the document mid-composition');
 	}
 
-	await frame.evaluate(() => window.dispatchEvent(new CompositionEvent('compositionend')));
+	await dispatchMarkdownRichComposition(frame, 'compositionend');
 	await waitUntil(() => fs.readFileSync(readmePath, 'utf8').includes(marker), 'post-composition autosave to persist', 15_000);
+}
+
+async function assertMarkdownRichCompositionQueuesSingleUndo(page) {
+	const marker = `imeundosmoke${Date.now()}`;
+	const readmePath = path.join(workspacePath, 'README.md');
+	const frame = await activeMarkdownRichFrame(page);
+	const target = frame.locator('.bn-block-content', { hasText: 'External merge target paragraph' }).first();
+	await target.click();
+	await page.keyboard.press('End');
+
+	await dispatchMarkdownRichComposition(frame, 'compositionstart');
+	await page.keyboard.insertText(` ${marker}`);
+	await page.keyboard.press(markdownRichUndoRedoKey('undo'));
+	if (!(await markdownRichEditorHasText(frame, marker))) {
+		throw new Error('Undo ran before the active IME composition committed');
+	}
+
+	await dispatchMarkdownRichComposition(frame, 'compositionend');
+	await page.waitForTimeout(250);
+	if (await markdownRichEditorHasText(frame, marker)) {
+		throw new Error('The single queued undo did not remove the committed IME edit');
+	}
+	await page.waitForTimeout(1_800);
+	if (fs.readFileSync(readmePath, 'utf8').includes(marker)) {
+		throw new Error('The IME edit removed by queued undo was later persisted');
+	}
+}
+
+async function dispatchMarkdownRichComposition(frame, type) {
+	await frame.evaluate(eventType => {
+		const active = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+		const target = active?.closest('.ProseMirror[contenteditable="true"], .bn-editor[contenteditable="true"]')
+			?? document.querySelector('.ProseMirror[contenteditable="true"], .bn-editor[contenteditable="true"]');
+		if (!(target instanceof HTMLElement)) {
+			throw new Error('The active rich editor DOM target was unavailable for IME composition');
+		}
+		target.dispatchEvent(new CompositionEvent(eventType, { bubbles: true, cancelable: true }));
+	}, type);
 }
 
 async function assertMarkdownRichFileLinkAutocomplete(page) {
@@ -3574,9 +3760,9 @@ async function assertMarkdownRichPassthroughEditInSource(page) {
 		return content.includes('projection: source') && line >= islandLine && line <= islandLine + 1;
 	}, `focus.yaml to record the source selection at the raw island (line ${islandLine})`);
 
-	// Unwind the projection hop with native back so later history assertions
-	// see the original navigation stack (and back works across projections).
-	await clickCommandCenterNavigationButton(page, 'arrow-left', 'Go Back');
+	// Projection changes are view state, not location history. Return through
+	// the in-card projection control so Back remains reserved for visited places.
+	await page.locator('.basehalf-card-detail-projection[title="Rich"]').click();
 	await activeMarkdownRichFrame(page);
 }
 
@@ -3614,17 +3800,12 @@ async function assertMarkdownRichMenuUndoRoutesToEditor(page) {
 		(BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.focus();
 	});
 
-	for (let attempt = 0; attempt < 8; attempt++) {
-		await focusWindow();
-		await page.waitForTimeout(150);
-		await clickMenuUndo();
-		await page.waitForTimeout(200);
-		if (!(await markdownRichEditorHasText(frame, marker))) {
-			break;
-		}
-	}
+	await focusWindow();
+	await page.waitForTimeout(150);
+	await clickMenuUndo();
+	await page.waitForTimeout(250);
 	if (await markdownRichEditorHasText(frame, marker)) {
-		throw new Error('Edit > Undo did not reach the rich editor');
+		throw new Error('A single Edit > Undo did not reach the rich editor');
 	}
 	await waitUntil(() => !fs.readFileSync(readmePath, 'utf8').includes(marker), 'menu undo to persist the marker removal', 15_000);
 }

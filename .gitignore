@@ -41,3 +41,6 @@ reference/
 
 # WorkBuddy local project state (memories, automations, skills — local only)
 .workbuddy/
+
+# BaseHalf derived cache (rebuildable; the rest of .bh/ stays in git)
+.bh/cache/
