@@ -1,84 +1,75 @@
 # BaseHalf AI Video
 
-The first official BaseHalf domain plugin is a local, provider-neutral
-production workflow canvas for creative briefs, scripts, storyboards,
-execution prompts, and generation runs.
+BaseHalf AI Video is the first official BaseHalf domain plugin. It gives the
+user's existing Agent a local, readable workflow contract for arranging scripts,
+prompts, references, image generation, individual video clips, audio, and clip
+playback order.
 
-Use **BaseHalf: Create AI Video Project...** or open a `.aivideo` file. Saving,
-Agent handoff, and running are explicit actions. The project JSON and generated
-artifacts stay beside the user's files; disabling the plugin leaves them
-readable and Git-manageable.
+Use **BaseHalf: Create AI Video Project...** or open a `.aivideo` file. The
+project JSON and generated artifacts remain ordinary files beside the user's
+project. Disabling the plugin leaves those files readable and Git-manageable.
 
-## Production workflow
+## Product model
 
-`.aivideo` version 3 stores ordinary project data, visible node positions, and
-directed workflow edges in one readable JSON file. Version 1 and version 2
-projects migrate in memory and are upgraded on their next explicit save.
+The canvas has exactly four media node kinds:
 
-- **Brief** defines the objective, audience, format, frame, duration, and
-  language.
-- **Script** contains story beats, action, dialogue, and narration.
-- **Character**, **Scene**, and **Visual direction** provide reusable continuity
-  context.
-- **Shot** is the executable production unit. It keeps storyboard intent,
-  camera, motion, duration, first/last frame paths, dialogue, sound direction,
-  and provider-neutral execution prompts together without conflating them.
-- A dashed context edge passes creative input downstream. A solid Shot to Shot
-  edge passes only prior-shot result and sequence continuity, so a previous
-  scene cannot silently replace the current Shot's one scene binding.
-- **Run pending** executes draft, failed, and interrupted Shot nodes in
-  topological order.
+- **Text** — brief, script, storyboard, image prompt, video prompt, dialogue, or note.
+- **Image** — generated image, imported reference, or frame.
+- **Video** — one generated or imported clip.
+- **Audio** — voice, music, sound effect, or reference.
 
-The schema is published with the extension at
-[`schemas/aivideo.schema.json`](schemas/aivideo.schema.json). It is also
-registered as VS Code JSON validation for source-mode and Agent editing.
+Providers and models are node settings, not extra node kinds. A **Shot Group**
+visually contains the nodes that collaborate to produce one clip. **Sequence**
+orders the selected results of Video nodes for playback. It does not trim,
+transition, mix, or combine them into an edited movie.
+
+The `.aivideo` contract is version 4, and the plugin accepts that contract only.
+The schema is shipped at
+[`schemas/aivideo.schema.json`](schemas/aivideo.schema.json) and registered for
+source-mode and Agent editing.
 
 ## Build with Agent
 
-**Build with Agent** explicitly saves the current project, copies a complete
-workflow-authoring brief to the clipboard, and opens a new session using the
-user's configured BaseHalf Agent Area default. The brief tells the Agent to:
+**Ask Agent** explicitly saves the current project, copies a schema-bound
+workflow-authoring brief, and opens a BaseHalf Agent Area session. The Agent is
+asked to modify that same local `.aivideo` file, arrange one Shot Group per
+intended clip, fill storyboard and execution prompts, preserve run history, and
+place final Video nodes into playback order.
 
-1. Read and modify the current `.aivideo` file directly.
-2. Build the brief, script, reusable context, storyboard, and execution prompts.
-3. Preserve stable ids, prior outputs, semantic edge kinds, and an acyclic graph.
-4. Leave provider execution to an explicit user request.
+BaseHalf does not insert a hidden model or store the Agent prompt. External
+Agent edits reload the canvas when there are no conflicting local UI edits.
 
-BaseHalf does not insert a hidden model or retain the prompt. The user's Agent
-subscription supplies the intelligence, while the ordinary project file is the
-handoff contract. External file changes reload the canvas when there are no
-conflicting unsaved UI edits.
+## Running and history
 
-## Local text previsualization
+Executable Image, Video, and Audio nodes use connected upstream results and Text
+content. A workflow run follows graph order, so an Image result can be produced
+before the Video node that consumes it. Each run appends an immutable local
+record containing the provider, model, prompt snapshot, input paths, time,
+status, and output paths. Selecting an older result marks only downstream work
+stale; it never deletes prior results.
 
-Until a video connector is configured, the built-in **Text previsualization
-(local)** provider creates two files for every executed shot:
+The built-in **Local previsualization** provider keeps the entire path usable
+without model credentials:
 
-- `request.json` contains the resolved provider handoff and every reachable
-  workflow input.
-- `shot.md` describes the intended on-screen action, camera, motion,
-  continuity, dialogue, sound, and execution prompt.
+- Image nodes create a clearly labelled local storyboard placeholder and the
+  provider request.
+- Video and Audio nodes create readable text handoffs and the provider request.
+- A run refreshes `sequence-preview.md`, which describes clip order without
+  claiming that a final movie was rendered.
 
-Every explicit run also refreshes `<project>.outputs/text-preview.md`, a single
-ordered textual stand-in for the complete video. These files are honest local
-production artifacts, not claims that media was generated.
+The checked-in example pairs
+[`last-bus-home.aivideo`](examples/last-bus-home.aivideo) with its generated
+[`sequence-preview.md`](examples/last-bus-home.outputs/sequence-preview.md).
 
-The checked-in end-to-end example pairs the editable
-[`last-bus-home.aivideo`](examples/last-bus-home.aivideo) workflow with its
-generated [`text-preview.md`](examples/last-bus-home.outputs/text-preview.md),
-so the full brief-to-shot result can be reviewed without a model credential.
+## Model-service API
 
-## Connector API
+This extension currently exposes a reviewed, extension-exported
+`AIMediaGenerationProvider` registry. A provider declares its supported Image,
+Video, and Audio kinds plus capabilities such as native video audio. It receives
+only the current node, graph-reachable inputs, an assigned output directory, and
+a cancellation token. Returned files must remain inside that directory.
 
-A reviewed connector activates this extension, obtains its exported API, and
-registers an `AIVideoGenerationProvider`, an
-`AIVideoVoiceGenerationProvider`, or both. Providers receive the project,
-selected shot, only the inputs reachable through the workflow graph, an output
-directory, and a cancellation token. Voice providers also receive the local
-video-provider outputs for the same Shot. They must write outputs inside the
-assigned project folder and return their local URIs. Credentials belong in
-secret storage or the provider's authenticated client, not in `.aivideo` files.
-
-This API remains extension-export based and first-party. It can be promoted to
-a stable connector API after real video and voice connectors validate the
-shape.
+Credentials never belong in `.aivideo`. The shared BaseHalf model-service
+settings will own authentication; this plugin only stores the selected provider
+and model ids. The registry remains first-party until real model connectors
+validate a stable host-level API.

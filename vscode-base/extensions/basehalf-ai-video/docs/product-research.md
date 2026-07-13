@@ -2,7 +2,7 @@
 
 Research date: 2026-07-13
 
-This note records the product evidence behind the version 3 workflow canvas.
+This note records the product evidence behind the current workflow canvas.
 It focuses on the AI Video plugin and does not change the BaseHalf host.
 
 ## What creators are actually managing
@@ -95,12 +95,12 @@ These patterns map to the plugin as follows:
 
 | Evidence | Plugin decision |
 | --- | --- |
-| Reusable references improve continuity | Character, Scene, and Visual direction are first-class context nodes |
-| Text and image generation modes need different prompt information | Shot keeps storyboard, camera, motion, prompt, frames, and audio as separate fields |
-| Partial execution reduces iteration cost | Every Shot is independently executable; Run pending uses graph order |
-| Frozen upstream output helps debugging | Prior local outputs remain visible when downstream state becomes draft |
-| Ports and edge semantics reduce invalid graphs | Context edges are dashed; Shot sequence edges are solid, sequence results do not leak prior scene inputs, and one Shot has at most one current Scene |
-| Natural-language builders still require review | Build with Agent saves and hands off an explicit file contract; it never silently runs a provider |
+| Reusable references improve continuity | Reusable Text and Image nodes feed any number of clip pipelines |
+| Text and image generation modes need different prompt information | Storyboard, image prompt, generated frame, video prompt, and generated clip remain separate nodes |
+| Partial execution reduces iteration cost | Image, Video, and Audio nodes are independently executable; workflow run follows graph order |
+| Frozen upstream output helps debugging | Every run remains selectable inside its producing node |
+| Ports and edge semantics reduce invalid graphs | Edges carry one of four media kinds and reject incompatible or cyclic connections |
+| Natural-language builders still require review | Ask Agent saves and hands off an explicit file contract; execution remains a separate action |
 | Credentials should not enter the workflow definition | `.aivideo` stores provider ids only; connectors own authentication |
 
 ## Design audit
@@ -108,20 +108,23 @@ These patterns map to the plugin as follows:
 Preserved:
 
 - React Flow as the live scene and VS Code theme tokens as the visual system.
-- A compact left node library, central canvas, and right inspector.
-- Explicit Save, Run shot, Run pending, Cancel, and local output actions.
+- A central canvas, an on-demand four-item node menu, and a selection inspector.
+- Autosave, explicit Agent handoff, reviewed workflow execution, cancel, and local output actions.
 - A readable project file, external-change reconciliation, and local result
   paths.
 
 Retired or corrected:
 
-- The Shot node no longer uses one prompt field as both storyboard and provider
-  instruction.
-- Generic dependency edges are split into creative context and shot sequence.
-- The built-in local provider no longer emits only an opaque request. It creates
-  readable shot and full-production text previews.
+- One oversized Shot node is replaced by cooperating Text, Image, Video, and
+  Audio nodes inside a visual Shot Group.
+- Workflow data dependencies and clip playback Sequence are separate structures.
+- The built-in local provider creates in-node storyboard results plus readable
+  media and full-sequence previews.
 - Agent authoring is no longer an undocumented possibility. The plugin provides
   a schema-bound, user-triggered handoff to the existing Agent Area.
+
+The canvas does not provide editing or final rendering. Its temporal contract is
+only an ordered list of independently generated Video-node results.
 
 The UI stays dense and restrained. It does not introduce a second design
 system, floating tool chrome, decorative gradients, or a competing global

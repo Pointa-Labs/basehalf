@@ -1,8 +1,8 @@
 {
   "name": "basehalf-ai-video",
   "displayName": "BaseHalf AI Video",
-  "description": "A local-first production workflow canvas for creative briefs, scripts, storyboards, execution prompts, and provider-neutral AI video generation.",
-  "version": "0.3.0",
+  "description": "An Agent-authored local workflow canvas for scripts, images, audio, individual video clips, and playback order.",
+  "version": "0.4.0",
   "publisher": "pointa",
   "license": "Apache-2.0",
   "repository": {

@@ -3,111 +3,83 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
  *--------------------------------------------------------------------------------------------*/
 
-import { AIProject, AIProjectCharacter, AIProjectScene, AIProjectShot, AIProjectStyle, topologicalWorkflowNodeIds } from './model';
-
-export interface AIProjectPreviewInputs {
-	readonly characters: readonly AIProjectCharacter[];
-	readonly scenes: readonly AIProjectScene[];
-	readonly styles: readonly AIProjectStyle[];
-}
+import { AIProject, AIProjectExecutableNode, nodePrompt, orderedSequenceVideoNodes, selectedOutputPaths, selectedRun } from './model';
+import type { AIMediaWorkflowInputs } from './workflow';
 
 export function renderProjectTextPrevisualization(project: AIProject): string {
-	const orderedShotIds = topologicalWorkflowNodeIds(project).filter(id => project.shots.some(shot => shot.id === id));
-	const orderedShots = orderedShotIds.map(id => project.shots.find(shot => shot.id === id)!);
+	const sequence = orderedSequenceVideoNodes(project);
 	const lines = [
-		`# Text previsualization: ${project.title}`,
+		`# Production sequence: ${project.title}`,
 		'',
-		'> This is a local textual stand-in for generated video. It preserves the intended sequence, prompts, sound, and provider handoff without claiming that media was generated.',
+		'> This local document previews clip order and generation handoffs. It does not claim that a final edited movie was rendered.',
 		'',
-		'## Creative brief',
+		`- Workflow nodes: ${project.nodes.length}`,
+		`- Shot groups: ${project.groups.length}`,
+		`- Ordered clips: ${sequence.length}`,
 		'',
-		`- Objective: ${project.brief.objective || 'Not set'}`,
-		`- Audience: ${project.brief.audience || 'Not set'}`,
-		`- Format: ${project.brief.format || 'Not set'}`,
-		`- Frame: ${project.brief.aspectRatio || 'Not set'}`,
-		`- Target duration: ${project.brief.targetDurationSeconds} seconds`,
-		`- Language: ${project.brief.language || 'Not set'}`,
-		'',
-		'## Script',
-		'',
-		project.script.trim() || 'No script supplied.',
-		'',
-		'## Shot sequence',
+		'## Clip order',
 		''
 	];
-	for (const [index, shot] of orderedShots.entries()) {
+	for (const [index, node] of sequence.entries()) {
+		const group = node.groupId ? project.groups.find(candidate => candidate.id === node.groupId) : undefined;
+		const run = selectedRun(node);
 		lines.push(
-			`### ${index + 1}. ${shot.title}`,
+			`### ${index + 1}. ${group?.title ?? node.title}`,
 			'',
-			`**On screen:** ${shot.storyboard || 'Not described.'}`,
+			`- Video node: ${node.title}`,
+			`- Duration: ${node.durationSeconds} seconds`,
+			`- Frame: ${node.aspectRatio}`,
+			`- Audio: ${node.audioMode}`,
+			`- Provider: ${node.provider}; model ${node.model}`,
+			`- Selected result: ${run?.id ?? 'none'}`,
+			`- Local outputs: ${selectedOutputPaths(node).join(', ') || 'none'}`,
 			'',
-			`**Camera:** ${shot.camera || 'Not specified.'}`,
+			'**Prompt**',
 			'',
-			`**Motion:** ${shot.motion || 'Not specified.'}`,
-			'',
-			`**Duration:** ${shot.durationSeconds} seconds`,
-			'',
-			`**Dialogue:** ${shot.dialogue || 'None.'}`,
-			'',
-			`**Sound:** ${shot.audio || 'None specified.'}`,
-			'',
-			'**Execution prompt**',
-			'',
-			shot.prompt.trim() || 'No execution prompt supplied.',
-			'',
-			`**Avoid:** ${shot.negativePrompt || 'No negative guidance.'}`,
-			'',
-			`**Local state:** ${shot.status}; provider ${shot.videoProvider}`,
+			nodePrompt(project, node.id) || 'No video prompt supplied.',
 			''
 		);
 	}
 	return `${lines.join('\n').trimEnd()}\n`;
 }
 
-export function renderShotTextPrevisualization(project: AIProject, shot: AIProjectShot, inputs: AIProjectPreviewInputs): string {
+export function renderMediaNodeTextPrevisualization(project: AIProject, node: AIProjectExecutableNode, inputs: AIMediaWorkflowInputs): string {
 	const lines = [
-		`# ${shot.title}`,
+		`# ${node.title}`,
 		'',
-		'> Text previsualization for one executable shot.',
+		`> Local ${node.kind} previsualization for one workflow node.`,
 		'',
-		'## Project frame',
+		'## Prompt',
 		'',
-		`- Aspect ratio: ${project.brief.aspectRatio}`,
-		`- Language: ${project.brief.language}`,
+		nodePrompt(project, node.id) || 'No prompt supplied.',
 		'',
-		'## On screen',
+		`Avoid: ${node.negativePrompt || 'No negative guidance.'}`,
 		'',
-		shot.storyboard || 'Not described.',
+		'## Connected text',
 		'',
-		'## Camera and motion',
+		...renderList(inputs.text.map(item => `${item.title}: ${item.content}`)),
 		'',
-		`- Camera: ${shot.camera || 'Not specified'}`,
-		`- Motion: ${shot.motion || 'Not specified'}`,
-		`- Duration: ${shot.durationSeconds} seconds`,
-		`- First frame: ${shot.startFrame || 'Not supplied'}`,
-		`- Last frame: ${shot.endFrame || 'Not supplied'}`,
+		'## Connected media',
 		'',
-		'## Continuity context',
+		`- Images: ${inputs.image.join(', ') || 'none'}`,
+		`- Videos: ${inputs.video.join(', ') || 'none'}`,
+		`- Audio: ${inputs.audio.join(', ') || 'none'}`,
 		'',
-		...renderContextList('Character', inputs.characters.map(item => `${item.name}: ${item.description}`)),
-		...renderContextList('Scene', inputs.scenes.map(item => `${item.name}: ${item.description}${item.continuity ? ` Continuity: ${item.continuity}` : ''}`)),
-		...renderContextList('Visual direction', inputs.styles.map(item => `${item.name}: ${item.prompt || item.description}`)),
+		'## Model handoff',
 		'',
-		'## Dialogue and sound',
-		'',
-		`- Dialogue or narration: ${shot.dialogue || 'None'}`,
-		`- Sound direction: ${shot.audio || 'None specified'}`,
-		'',
-		'## Execution prompt',
-		'',
-		shot.prompt || 'No execution prompt supplied.',
-		'',
-		`Avoid: ${shot.negativePrompt || 'No negative guidance.'}`,
-		''
+		`- Provider: ${node.provider}`,
+		`- Model: ${node.model}`
 	];
+	if (node.kind === 'video') {
+		lines.push(`- Duration: ${node.durationSeconds} seconds`, `- Frame: ${node.aspectRatio}`, `- Audio mode: ${node.audioMode}`);
+	} else if (node.kind === 'image') {
+		lines.push(`- Frame: ${node.aspectRatio}`, `- Requested results: ${node.count}`);
+	} else {
+		lines.push(`- Duration: ${node.durationSeconds} seconds`, `- Voice: ${node.voice}`);
+	}
 	return `${lines.join('\n').trimEnd()}\n`;
 }
 
-function renderContextList(label: string, values: readonly string[]): string[] {
-	return values.length ? values.map(value => `- ${label}: ${value}`) : [`- ${label}: none connected`];
+function renderList(values: readonly string[]): string[] {
+	return values.length ? values.map(value => `- ${value}`) : ['- none'];
 }

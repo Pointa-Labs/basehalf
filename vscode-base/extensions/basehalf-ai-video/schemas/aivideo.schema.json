@@ -1,182 +1,195 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://plugins.basehalf.com/schemas/aivideo-v3.schema.json",
+  "$id": "https://plugins.basehalf.com/schemas/aivideo-v4.schema.json",
   "title": "BaseHalf AI Video project",
-  "description": "A local, provider-neutral AI video production workflow.",
+  "description": "A local, Agent-authored workflow made from Text, Image, Video, and Audio nodes.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "version",
-    "title",
-    "brief",
-    "script",
-    "characters",
-    "scenes",
-    "styles",
-    "shots",
-    "workflow",
-    "outputs"
-  ],
+  "required": ["version", "title", "nodes", "edges", "groups", "sequence", "outputs"],
   "properties": {
-    "version": { "const": 3 },
+    "version": { "const": 4 },
     "title": { "type": "string" },
-    "brief": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["objective", "audience", "format", "aspectRatio", "targetDurationSeconds", "language"],
-      "properties": {
-        "objective": { "type": "string" },
-        "audience": { "type": "string" },
-        "format": { "type": "string" },
-        "aspectRatio": { "type": "string" },
-        "targetDurationSeconds": { "type": "number", "minimum": 1, "maximum": 3600 },
-        "language": { "type": "string" }
-      }
-    },
-    "script": { "type": "string" },
-    "characters": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/character" }
-    },
-    "scenes": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/scene" }
-    },
-    "styles": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/style" }
-    },
-    "shots": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/shot" }
-    },
-    "workflow": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["nodes", "edges"],
-      "properties": {
-        "nodes": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/node" }
-        },
-        "edges": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/edge" }
-        }
-      }
-    },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "groups": { "type": "array", "items": { "$ref": "#/$defs/group" } },
+    "sequence": { "type": "array", "items": { "$ref": "#/$defs/sequenceItem" } },
     "outputs": { "$ref": "#/$defs/paths" }
   },
   "$defs": {
-    "paths": {
-      "type": "array",
-      "items": { "type": "string" }
-    },
-    "character": {
+    "position": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "description", "referenceFiles"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "referenceFiles": { "$ref": "#/$defs/paths" }
-      }
+      "required": ["x", "y"],
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
     },
-    "scene": {
+    "paths": { "type": "array", "items": { "type": "string" } },
+    "baseNodeProperties": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "name", "description", "continuity"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "continuity": { "type": "string" }
-      }
-    },
-    "style": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "name", "description", "prompt", "negativePrompt", "referenceFiles"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string" },
-        "description": { "type": "string" },
-        "prompt": { "type": "string" },
-        "negativePrompt": { "type": "string" },
-        "referenceFiles": { "$ref": "#/$defs/paths" }
-      }
-    },
-    "shot": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "title",
-        "sceneId",
-        "storyboard",
-        "camera",
-        "motion",
-        "prompt",
-        "negativePrompt",
-        "dialogue",
-        "audio",
-        "durationSeconds",
-        "startFrame",
-        "endFrame",
-        "videoProvider",
-        "voiceProvider",
-        "status",
-        "outputs"
-      ],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "title": { "type": "string" },
-        "sceneId": { "type": "string" },
-        "storyboard": { "type": "string" },
-        "camera": { "type": "string" },
-        "motion": { "type": "string" },
+        "position": { "$ref": "#/$defs/position" },
+        "groupId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "createdAt", "provider", "model", "status", "prompt", "inputPaths", "outputs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "createdAt": { "type": "string", "minLength": 1 },
+        "provider": { "type": "string", "minLength": 1 },
+        "model": { "type": "string" },
+        "status": { "enum": ["prepared", "complete"] },
+        "prompt": { "type": "string" },
+        "inputPaths": { "$ref": "#/$defs/paths" },
+        "outputs": { "$ref": "#/$defs/paths" }
+      }
+    },
+    "executableProperties": {
+      "type": "object",
+      "properties": {
+        "source": { "enum": ["generate", "local"] },
         "prompt": { "type": "string" },
         "negativePrompt": { "type": "string" },
-        "dialogue": { "type": "string" },
-        "audio": { "type": "string" },
-        "durationSeconds": { "type": "number", "minimum": 1, "maximum": 120 },
-        "startFrame": { "type": "string" },
-        "endFrame": { "type": "string" },
-        "videoProvider": { "type": "string", "minLength": 1 },
-        "voiceProvider": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["draft", "prepared", "running", "complete", "error"] },
-        "outputs": { "$ref": "#/$defs/paths" },
+        "inputFiles": { "$ref": "#/$defs/paths" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "status": { "enum": ["draft", "ready", "running", "prepared", "complete", "error", "stale"] },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+        "selectedRunId": { "type": "string", "minLength": 1 },
         "error": { "type": "string" }
       }
     },
-    "node": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "kind", "position"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "kind": { "enum": ["brief", "script", "character", "scene", "style", "shot"] },
-        "position": {
+    "textNode": {
+      "allOf": [
+        { "$ref": "#/$defs/baseNodeProperties" },
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["x", "y"],
+          "required": ["id", "kind", "role", "title", "content", "position"],
           "properties": {
-            "x": { "type": "number" },
-            "y": { "type": "number" }
+            "id": { "type": "string", "minLength": 1 },
+            "kind": { "const": "text" },
+            "role": { "enum": ["brief", "script", "storyboard", "imagePrompt", "videoPrompt", "dialogue", "note"] },
+            "title": { "type": "string" },
+            "content": { "type": "string" },
+            "position": { "$ref": "#/$defs/position" },
+            "groupId": { "type": "string", "minLength": 1 }
           }
         }
+      ]
+    },
+    "imageNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "role", "title", "position", "source", "prompt", "negativePrompt", "inputFiles", "provider", "model", "status", "runs", "aspectRatio", "count"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "image" },
+        "role": { "enum": ["generate", "reference", "frame"] },
+        "title": { "type": "string" },
+        "position": { "$ref": "#/$defs/position" },
+        "groupId": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["generate", "local"] },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" },
+        "inputFiles": { "$ref": "#/$defs/paths" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "status": { "enum": ["draft", "ready", "running", "prepared", "complete", "error", "stale"] },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+        "selectedRunId": { "type": "string", "minLength": 1 },
+        "error": { "type": "string" },
+        "aspectRatio": { "type": "string" },
+        "count": { "type": "number", "minimum": 1, "maximum": 16 }
       }
     },
+    "videoNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "role", "title", "position", "source", "prompt", "negativePrompt", "inputFiles", "provider", "model", "status", "runs", "durationSeconds", "aspectRatio", "audioMode"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "video" },
+        "role": { "enum": ["generate", "reference"] },
+        "title": { "type": "string" },
+        "position": { "$ref": "#/$defs/position" },
+        "groupId": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["generate", "local"] },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" },
+        "inputFiles": { "$ref": "#/$defs/paths" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "status": { "enum": ["draft", "ready", "running", "prepared", "complete", "error", "stale"] },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+        "selectedRunId": { "type": "string", "minLength": 1 },
+        "error": { "type": "string" },
+        "durationSeconds": { "type": "number", "minimum": 1, "maximum": 120 },
+        "aspectRatio": { "type": "string" },
+        "audioMode": { "enum": ["auto", "generate", "none"] }
+      }
+    },
+    "audioNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "role", "title", "position", "source", "prompt", "negativePrompt", "inputFiles", "provider", "model", "status", "runs", "durationSeconds", "voice"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "audio" },
+        "role": { "enum": ["voice", "music", "effect", "reference"] },
+        "title": { "type": "string" },
+        "position": { "$ref": "#/$defs/position" },
+        "groupId": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["generate", "local"] },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" },
+        "inputFiles": { "$ref": "#/$defs/paths" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "status": { "enum": ["draft", "ready", "running", "prepared", "complete", "error", "stale"] },
+        "runs": { "type": "array", "items": { "$ref": "#/$defs/run" } },
+        "selectedRunId": { "type": "string", "minLength": 1 },
+        "error": { "type": "string" },
+        "durationSeconds": { "type": "number", "minimum": 1, "maximum": 3600 },
+        "voice": { "type": "string" }
+      }
+    },
+    "node": { "oneOf": [{ "$ref": "#/$defs/textNode" }, { "$ref": "#/$defs/imageNode" }, { "$ref": "#/$defs/videoNode" }, { "$ref": "#/$defs/audioNode" }] },
     "edge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "source", "target", "kind"],
+      "required": ["id", "source", "target", "media"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "source": { "type": "string", "minLength": 1 },
         "target": { "type": "string", "minLength": 1 },
-        "kind": { "enum": ["context", "sequence"] }
+        "media": { "enum": ["text", "image", "video", "audio"] }
+      }
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "position", "width", "height", "nodeIds"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "position": { "$ref": "#/$defs/position" },
+        "width": { "type": "number", "minimum": 480, "maximum": 2400 },
+        "height": { "type": "number", "minimum": 220, "maximum": 1600 },
+        "nodeIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "sequenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "videoNodeId"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "videoNodeId": { "type": "string", "minLength": 1 }
       }
     }
   }

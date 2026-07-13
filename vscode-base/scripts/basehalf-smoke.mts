@@ -545,22 +545,26 @@ function createFixtureWorkspace(workspace) {
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'textbook.pdf'), createMinimalPdfFixture());
 	fs.writeFileSync(path.join(workspace, 'docs', 'episode.aivideo'), JSON.stringify({
-		version: 1,
+		version: 4,
 		title: 'Episode',
-		script: 'A short local-first scene.',
-		characters: [{ id: 'character-smoke', name: 'Mira', description: 'The protagonist.' }],
-		scenes: [{ id: 'scene-smoke', name: 'Rooftop', description: 'Blue hour.' }],
-		shots: [{
-			id: 'shot-smoke',
-			title: 'Opening shot',
-			sceneId: 'scene-smoke',
-			prompt: 'Wide rooftop shot at blue hour.',
-			dialogue: 'We begin here.',
-			videoProvider: 'prompt-package',
-			voiceProvider: 'none',
-			status: 'draft',
-			outputs: []
-		}]
+		nodes: [
+			{ id: 'intent', kind: 'text', role: 'brief', title: 'Creative brief', content: 'A short local-first scene.', position: { x: 80, y: 120 } },
+			{ id: 'storyboard-smoke', kind: 'text', role: 'storyboard', title: 'Storyboard', content: 'Mira crosses a rooftop at blue hour.', position: { x: 28, y: 74 }, groupId: 'group-smoke' },
+			{ id: 'image-prompt-smoke', kind: 'text', role: 'imagePrompt', title: 'Image prompt', content: 'Vertical cinematic rooftop frame at blue hour.', position: { x: 258, y: 74 }, groupId: 'group-smoke' },
+			{ id: 'image-smoke', kind: 'image', role: 'generate', title: 'Storyboard image', position: { x: 488, y: 74 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], aspectRatio: '9:16', count: 1 },
+			{ id: 'video-prompt-smoke', kind: 'text', role: 'videoPrompt', title: 'Video prompt', content: 'Slow push in as Mira looks over the city.', position: { x: 258, y: 204 }, groupId: 'group-smoke' },
+			{ id: 'video-smoke', kind: 'video', role: 'generate', title: 'Opening clip', position: { x: 808, y: 74 }, groupId: 'group-smoke', source: 'generate', prompt: '', negativePrompt: '', inputFiles: [], provider: 'local-preview', model: 'auto', status: 'draft', runs: [], durationSeconds: 5, aspectRatio: '9:16', audioMode: 'none' }
+		],
+		edges: [
+			{ id: 'edge-storyboard-image-prompt', source: 'storyboard-smoke', target: 'image-prompt-smoke', media: 'text' },
+			{ id: 'edge-image-prompt-image', source: 'image-prompt-smoke', target: 'image-smoke', media: 'text' },
+			{ id: 'edge-storyboard-video-prompt', source: 'storyboard-smoke', target: 'video-prompt-smoke', media: 'text' },
+			{ id: 'edge-video-prompt-video', source: 'video-prompt-smoke', target: 'video-smoke', media: 'text' },
+			{ id: 'edge-image-video', source: 'image-smoke', target: 'video-smoke', media: 'image' }
+		],
+		groups: [{ id: 'group-smoke', title: 'Opening shot', description: 'One clip pipeline.', position: { x: 420, y: 100 }, width: 1120, height: 330, nodeIds: ['storyboard-smoke', 'image-prompt-smoke', 'image-smoke', 'video-prompt-smoke', 'video-smoke'] }],
+		sequence: [{ id: 'sequence-smoke', videoNodeId: 'video-smoke' }],
+		outputs: []
 	}, null, 2) + '\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n', 'utf8');
@@ -1591,64 +1595,83 @@ async function assertAIVideoProject(page) {
 		throw new Error('The .aivideo resource did not select the plugin projection by default');
 	}
 	const frame = await findAIVideoFrame(page);
-	await frame.locator('.react-flow__node-workflow').first().waitFor({ state: 'visible', timeout: 10_000 });
-	if (await frame.locator('.workflow-node.kind-script').count() !== 1 || await frame.locator('.workflow-node.kind-scene').count() < 1 || await frame.locator('.workflow-node.kind-shot').count() < 1) {
-		throw new Error('The AI Video workflow canvas did not render its Script, Scene, and Shot nodes');
+	await frame.locator('.react-flow__node-media').first().waitFor({ state: 'visible', timeout: 10_000 });
+	if (await frame.locator('.media-node.kind-text').count() < 3 || await frame.locator('.media-node.kind-image').count() !== 1 || await frame.locator('.media-node.kind-video').count() !== 1) {
+		throw new Error('The AI Video workflow canvas did not render its Text, Image, and Video nodes');
 	}
-	if (await frame.locator('.react-flow__edge').count() < 2) {
+	if (!/0\s+blocked/.test((await frame.locator('.readiness-bar').innerText()).replace(/\s+/g, ' '))) {
+		throw new Error('Schedulable downstream media was incorrectly presented as blocked');
+	}
+	await frame.locator('.sequence-main').first().click();
+	if (await frame.locator('.inspector').count() !== 0) {
+		throw new Error('Sequence navigation opened node settings instead of only focusing the shot');
+	}
+	if (await frame.locator('.react-flow__edge').count() < 5) {
 		throw new Error('The AI Video workflow canvas did not render its dependency edges');
 	}
+	await frame.locator('.toolbar-button', { hasText: 'Show all' }).click();
+	await page.waitForTimeout(350);
 	const edgeCount = await frame.locator('.react-flow__edge').count();
-	const characterOutput = await frame.locator('.workflow-node.kind-character .react-flow__handle-right').first().boundingBox();
-	const shotInput = await frame.locator('.workflow-node.kind-shot .react-flow__handle-left').first().boundingBox();
-	if (!characterOutput || !shotInput) {
+	const textOutput = await frame.locator('.media-node.kind-text .react-flow__handle-right').first().boundingBox();
+	const imageInput = await frame.locator('.media-node.kind-image .react-flow__handle-left').first().boundingBox();
+	if (!textOutput || !imageInput) {
 		throw new Error('The AI Video workflow nodes did not expose connectable input and output ports');
 	}
-	await page.mouse.move(characterOutput.x + characterOutput.width / 2, characterOutput.y + characterOutput.height / 2);
+	await page.mouse.move(textOutput.x + textOutput.width / 2, textOutput.y + textOutput.height / 2);
 	await page.mouse.down();
-	await page.mouse.move(shotInput.x + shotInput.width / 2, shotInput.y + shotInput.height / 2, { steps: 16 });
+	await page.mouse.move(imageInput.x + imageInput.width / 2, imageInput.y + imageInput.height / 2, { steps: 16 });
 	await page.mouse.up();
 	await frame.locator('.react-flow__edge').nth(edgeCount).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.save-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.save-status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function assertAIVideoLocalWorkflow(page) {
 	const frame = await findAIVideoFrame(page);
-	await frame.locator('.workflow-node.kind-shot .node-run').first().click();
-	const output = path.join(workspacePath, 'docs', 'episode.outputs', 'shot-smoke', 'request.json');
+	await frame.locator('.topbar-actions .button.primary', { hasText: 'Run' }).click();
+	const panel = frame.locator('.run-panel');
+	await panel.waitFor({ state: 'visible', timeout: 10_000 });
+	await panel.locator('.button.primary', { hasText: 'Run 2 nodes' }).click();
 	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
-	const started = Date.now();
-	while (Date.now() - started < 20_000) {
-		if (fs.existsSync(output)) {
-			const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
-			if (project.shots?.[0]?.status === 'prepared' && project.shots[0].outputs?.[0] === 'episode.outputs/shot-smoke/request.json') {
-				const request = JSON.parse(fs.readFileSync(output, 'utf8'));
-				if (request.shot?.id !== 'shot-smoke' || request.project !== 'Episode' || request.inputs?.script !== 'A short local-first scene.' || request.inputs?.characters?.[0]?.id !== 'character-smoke' || request.inputs?.scenes?.[0]?.id !== 'scene-smoke') {
-					throw new Error('The local prompt-package output did not preserve project and shot context');
-				}
-				return;
-			}
+	await waitUntil(() => {
+		let project;
+		try {
+			project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
+		} catch {
+			return false;
 		}
-		await page.waitForTimeout(100);
-	}
-	throw new Error('AI Video workflow did not persist its project state and local output file');
+		const image = project.nodes?.find(node => node.id === 'image-smoke');
+		const video = project.nodes?.find(node => node.id === 'video-smoke');
+		const imageOutput = image?.runs?.[0]?.outputs?.find(output => output.endsWith('/storyboard.svg'));
+		const videoRequest = video?.runs?.[0]?.outputs?.find(output => output.endsWith('/request.json'));
+		if (image?.status !== 'prepared' || video?.status !== 'prepared' || !imageOutput || !videoRequest) {
+			return false;
+		}
+		const requestPath = path.join(workspacePath, 'docs', videoRequest);
+		const sequencePath = path.join(workspacePath, 'docs', 'episode.outputs', 'sequence-preview.md');
+		if (!fs.existsSync(path.join(workspacePath, 'docs', imageOutput)) || !fs.existsSync(requestPath) || !fs.existsSync(sequencePath)) {
+			return false;
+		}
+		const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
+		return request.nodeId === 'video-smoke' && request.inputs?.image?.includes(imageOutput);
+	}, 'AI Video workflow to persist ordered Image and Video runs', 20_000);
 }
 
 async function assertAIVideoDirtyNavigationGuard(page) {
 	const frame = await findAIVideoFrame(page);
+	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
 	const title = frame.locator('.project-title');
 	await title.fill('Episode with unsaved UI edit');
 	await frame.locator('.save-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
-	await frame.locator('.workflow-node.kind-shot .node-status', { hasText: 'draft' }).first().waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.media-node.kind-video').first().waitFor({ state: 'visible', timeout: 10_000 });
 	// Let the webview dirty signal cross the extension-host boundary before
 	// attempting a BaseHalf navigation operation.
 	await page.waitForTimeout(250);
 	await openExplorerRow(page, 'README.md');
 	await assertCardDetail(page, 'episode.aivideo');
 
-	await frame.locator('.topbar-actions .button.primary', { hasText: 'Save' }).click();
+	await waitUntil(() => fs.readFileSync(projectPath, 'utf8').includes('Episode with unsaved UI edit'), 'AI Video autosave to reach disk');
 	await frame.locator('.save-status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
-	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
-	await waitUntil(() => fs.readFileSync(projectPath, 'utf8').includes('Episode with unsaved UI edit'), 'AI Video explicit save to reach disk');
 	await openExplorerRow(page, 'README.md');
 	await assertCardDetail(page, 'README.md');
 }
