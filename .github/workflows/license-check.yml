@@ -1,8 +1,9 @@
 name: license-check
 
 # Enforces docs/dependency-policy.md: fails the PR if any production dependency
-# carries a license outside the permissive allowlist. The reference impl is
-# zero-dependency, so this passes trivially today and guards future additions.
+# carries a license outside the permissive allowlist. Each pnpm workspace
+# package is checked from its own manifest so private workspace packages do not
+# hide their production dependencies.
 #
 # To add a "review needed" license (e.g. MPL-2.0), append it to --onlyAllow
 # below in the same PR, with a justification in the PR description.
@@ -20,14 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: "20.19"
+          cache: "pnpm"
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: pnpm install --frozen-lockfile
       - name: Check dependency licenses
         run: |
-          npx --yes license-checker@^25 \
+          pnpm -r exec npx --yes license-checker@^25 \
             --production \
             --excludePrivatePackages \
             --onlyAllow "MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;CC0-1.0;Unlicense;BlueOak-1.0.0;Python-2.0" \
