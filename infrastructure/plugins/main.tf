@@ -209,7 +209,7 @@ data "aws_iam_policy_document" "publisher" {
     resources = [aws_s3_bucket.plugins.arn]
   }
   statement {
-    actions   = ["kms:GetPublicKey", "kms:Sign"]
+    actions   = ["kms:GetPublicKey", "kms:Sign", "kms:Verify"]
     resources = [aws_kms_key.catalog.arn]
   }
   statement {
