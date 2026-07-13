@@ -44,21 +44,32 @@ jobs:
       - run: pnpm -r test
       - run: pnpm -r --if-present lint
 
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - run: terraform fmt -check -recursive infrastructure/plugins
+      - run: terraform -chdir=infrastructure/plugins init -backend=false -input=false
+      - run: terraform -chdir=infrastructure/plugins validate
+
   # Single fan-in status check so branch protection only needs ONE name.
-  # `needs: [test]` waits for every matrix shard; `if: always()` lets us
-  # report a real failure when any shard fails (otherwise GitHub would
+  # `needs` waits for every matrix shard and infrastructure validation;
+  # `if: always()` lets us report a real failure when any job fails (otherwise GitHub would
   # mark the summary as "skipped" and protection would consider it
   # missing). The result-check step turns a skip/failure of `test` into
   # an explicit non-zero exit.
   ci-summary:
-    needs: [test]
+    needs: [test, terraform]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check matrix result
         run: |
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "::error::test matrix did not succeed (result=${{ needs.test.result }})"
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.terraform.result }}" != "success" ]; then
+            echo "::error::required jobs did not succeed (test=${{ needs.test.result }}, terraform=${{ needs.terraform.result }})"
             exit 1
           fi
-          echo "All test matrix shards passed."
+          echo "All required jobs passed."

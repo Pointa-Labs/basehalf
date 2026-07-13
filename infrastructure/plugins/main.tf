@@ -18,17 +18,25 @@ resource "aws_s3_bucket_public_access_block" "plugins" {
 
 resource "aws_s3_bucket_ownership_controls" "plugins" {
   bucket = aws_s3_bucket.plugins.id
-  rule { object_ownership = "BucketOwnerEnforced" }
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
 }
 
 resource "aws_s3_bucket_versioning" "plugins" {
   bucket = aws_s3_bucket.plugins.id
-  versioning_configuration { status = "Enabled" }
+  versioning_configuration {
+    status = "Enabled"
+  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "plugins" {
   bucket = aws_s3_bucket.plugins.id
-  rule { apply_server_side_encryption_by_default { sse_algorithm = "AES256" } }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
 resource "aws_kms_key" "catalog" {
@@ -60,9 +68,15 @@ resource "aws_cloudfront_cache_policy" "catalog" {
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = true
     enable_accept_encoding_gzip   = true
-    cookies_config { cookie_behavior = "none" }
-    headers_config { header_behavior = "none" }
-    query_strings_config { query_string_behavior = "none" }
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
   }
 }
 
@@ -74,9 +88,15 @@ resource "aws_cloudfront_cache_policy" "immutable" {
   parameters_in_cache_key_and_forwarded_to_origin {
     enable_accept_encoding_brotli = true
     enable_accept_encoding_gzip   = true
-    cookies_config { cookie_behavior = "none" }
-    headers_config { header_behavior = "none" }
-    query_strings_config { query_string_behavior = "none" }
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
   }
 }
 
@@ -121,7 +141,11 @@ resource "aws_cloudfront_distribution" "plugins" {
     compress               = true
   }
 
-  restrictions { geo_restriction { restriction_type = "none" } }
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
   viewer_certificate {
     acm_certificate_arn      = var.acm_certificate_arn
     ssl_support_method       = "sni-only"
@@ -133,7 +157,10 @@ data "aws_iam_policy_document" "bucket" {
   statement {
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.plugins.arn}/*"]
-    principals { type = "Service", identifiers = ["cloudfront.amazonaws.com"] }
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
@@ -150,7 +177,10 @@ resource "aws_s3_bucket_policy" "plugins" {
 data "aws_iam_policy_document" "github_assume" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
-    principals { type = "Federated", identifiers = [var.github_oidc_provider_arn] }
+    principals {
+      type        = "Federated"
+      identifiers = [var.github_oidc_provider_arn]
+    }
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
