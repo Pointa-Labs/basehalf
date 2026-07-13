@@ -8,21 +8,23 @@
 import {
 	Background,
 	BackgroundVariant,
+	ConnectionMode,
 	ConnectionLineType,
-	Controls,
 	Handle,
 	MarkerType,
 	MiniMap,
 	Position,
 	ReactFlow,
 	ReactFlowProvider,
+	SelectionMode,
 	useReactFlow,
 	type Connection,
 	type Edge,
 	type Node,
 	type NodeProps,
 	type NodeTypes,
-	type ReactFlowInstance
+	type ReactFlowInstance,
+	type Viewport
 } from '@xyflow/react';
 import '@xyflow/react/dist/base.css';
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
@@ -63,6 +65,29 @@ interface InitialState {
 	readonly mediaUris: Readonly<Record<string, string>>;
 }
 
+interface PersistedCanvasState {
+	readonly viewport?: Viewport;
+	readonly focusedVideoId?: string;
+}
+
+interface CanvasContextMenuState {
+	readonly left: number;
+	readonly top: number;
+	readonly flowPosition: AIProjectWorkflowPosition;
+}
+
+interface CanvasNodeContextMenuState {
+	readonly left: number;
+	readonly top: number;
+	readonly nodeId: string;
+}
+
+interface CanvasEdgeContextMenuState {
+	readonly left: number;
+	readonly top: number;
+	readonly edgeId: string;
+}
+
 interface MediaNodeData extends Record<string, unknown> {
 	readonly node: AIProjectNode;
 	readonly readiness: string;
@@ -82,12 +107,16 @@ type WorkflowFlowEdge = Edge;
 type ProjectMutation = (project: AIProject) => void;
 type StatusTone = 'normal' | 'running' | 'error';
 
-const vscode = acquireVsCodeApi();
+const vscode = acquireVsCodeApi<PersistedCanvasState>();
 const rootElement = document.getElementById('root');
 if (!rootElement) {
 	throw new Error('AI Video workflow root is missing.');
 }
 const initialState = JSON.parse(rootElement.dataset.initialState ?? '') as InitialState;
+const persistedCanvasState = vscode.getState();
+const initialFocusedVideoId = persistedCanvasState?.focusedVideoId && initialState.project.sequence.some(item => item.videoNodeId === persistedCanvasState.focusedVideoId)
+	? persistedCanvasState.focusedVideoId
+	: initialState.project.sequence[0]?.videoNodeId;
 const nodeTypes: NodeTypes = { media: MediaNodeCard, shotGroup: ShotGroupCard };
 
 function App(): JSX.Element {
@@ -105,12 +134,16 @@ function WorkflowEditor(): JSX.Element {
 	const [status, setStatus] = useState<{ label: string; tone: StatusTone }>({ label: 'Saved locally', tone: 'normal' });
 	const [banner, setBanner] = useState<{ message: string; action?: 'reload' }>();
 	const [notice, setNotice] = useState<string>();
-	const [selectedNodeId, setSelectedNodeId] = useState<string>();
+	const [selectedNodeIds, setSelectedNodeIds] = useState<readonly string[]>([]);
 	const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
-	const [focusedVideoId, setFocusedVideoId] = useState<string | undefined>(initialState.project.sequence[0]?.videoNodeId);
+	const [focusedVideoId, setFocusedVideoId] = useState<string | undefined>(initialFocusedVideoId);
 	const [addMenuOpen, setAddMenuOpen] = useState(false);
+	const [contextAddMenu, setContextAddMenu] = useState<CanvasContextMenuState>();
+	const [contextNodeMenu, setContextNodeMenu] = useState<CanvasNodeContextMenuState>();
+	const [contextEdgeMenu, setContextEdgeMenu] = useState<CanvasEdgeContextMenuState>();
 	const [runPanelOpen, setRunPanelOpen] = useState(false);
 	const [sequencePreviewOpen, setSequencePreviewOpen] = useState(false);
+	const [canvasZoom, setCanvasZoom] = useState(validViewport(persistedCanvasState?.viewport)?.zoom ?? 1);
 	const [past, setPast] = useState<AIProject[]>([]);
 	const [future, setFuture] = useState<AIProject[]>([]);
 	const canvasRef = useRef<HTMLDivElement>(null);
@@ -122,6 +155,7 @@ function WorkflowEditor(): JSX.Element {
 	const reactFlow = useReactFlow<WorkflowFlowNode, WorkflowFlowEdge>();
 	const running = runningNodeId !== undefined;
 	const locked = running || agentPending;
+	const selectedNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : undefined;
 	projectRef.current = project;
 	revisionRef.current = revision;
 	dirtyRef.current = dirty;
@@ -217,10 +251,19 @@ function WorkflowEditor(): JSX.Element {
 				case 'project': {
 					const incoming = message.project as AIProject;
 					setProject(incoming);
-					setFocusedVideoId(current => incoming.sequence.some(item => item.videoNodeId === current) ? current : incoming.sequence[0]?.videoNodeId);
+					setFocusedVideoId(current => {
+						const next = incoming.sequence.some(item => item.videoNodeId === current) ? current : incoming.sequence[0]?.videoNodeId;
+						persistCanvasState({ focusedVideoId: next });
+						return next;
+					});
 					setRevision(String(message.revision ?? ''));
 					setProviders((message.providers as readonly AIMediaProviderOption[] | undefined) ?? []);
 					setMediaUris((message.mediaUris as Readonly<Record<string, string>> | undefined) ?? {});
+					setSelectedNodeIds(current => current.filter(id => incoming.nodes.some(node => node.id === id)));
+					setSelectedEdgeId(current => incoming.edges.some(edge => edge.id === current) ? current : undefined);
+					setContextAddMenu(undefined);
+					setContextNodeMenu(undefined);
+					setContextEdgeMenu(undefined);
 					setPast([]);
 					setFuture([]);
 					updateDirty(false);
@@ -269,6 +312,11 @@ function WorkflowEditor(): JSX.Element {
 			} else if (!locked && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
 				event.preventDefault();
 				event.shiftKey ? redo() : undo();
+			} else if (event.key === 'Escape') {
+				setAddMenuOpen(false);
+				setContextAddMenu(undefined);
+				setContextNodeMenu(undefined);
+				setContextEdgeMenu(undefined);
 			}
 		};
 		window.addEventListener('keydown', listener);
@@ -293,13 +341,13 @@ function WorkflowEditor(): JSX.Element {
 				type: 'media',
 				position: node.position,
 				...(node.groupId ? { parentId: node.groupId, extent: 'parent' as const } : {}),
-				selected: selectedNodeId === node.id,
+				selected: selectedNodeIds.includes(node.id),
 				data: { node, readiness: nodeReadiness(project, node.id).label, summary: node.kind === 'text' ? node.content : nodePrompt(project, node.id), previewUri: previewPath ? mediaUris[previewPath] : undefined, previewKind: previewPath ? node.kind : undefined },
 				zIndex: 2
 			};
 		});
 		return [...groups, ...nodes];
-	}, [mediaUris, project, selectedNodeId]);
+	}, [mediaUris, project, selectedNodeIds]);
 
 	const flowEdges = useMemo<WorkflowFlowEdge[]>(() => project.edges.map(edge => ({
 		id: edge.id,
@@ -309,6 +357,7 @@ function WorkflowEditor(): JSX.Element {
 		className: `workflow-edge edge-${edge.media}`,
 		selected: selectedEdgeId === edge.id,
 		animated: edge.target === runningNodeId,
+		interactionWidth: 20,
 		markerEnd: { type: MarkerType.ArrowClosed },
 		ariaLabel: `${nodeById(project, edge.source)?.title ?? edge.source} provides ${edge.media} to ${nodeById(project, edge.target)?.title ?? edge.target}`
 	})), [project, runningNodeId, selectedEdgeId]);
@@ -319,15 +368,18 @@ function WorkflowEditor(): JSX.Element {
 	}, [reactFlow]);
 
 	const addMedia = useCallback((kind: AIProjectMediaKind): void => {
-		const node = createMediaNode(kind, viewportCenter());
+		const node = createMediaNode(kind, contextAddMenu?.flowPosition ?? viewportCenter());
 		editProject(next => next.nodes.push(node));
 		setSelectedEdgeId(undefined);
-		setSelectedNodeId(node.id);
+		setSelectedNodeIds([node.id]);
 		setAddMenuOpen(false);
-	}, [editProject, viewportCenter]);
+		setContextAddMenu(undefined);
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+	}, [contextAddMenu, editProject, viewportCenter]);
 
 	const addShot = useCallback((): void => {
-		const center = viewportCenter();
+		const center = contextAddMenu?.flowPosition ?? viewportCenter();
 		const group = createShotGroup(projectRef.current.groups.length + 1, { x: center.x - 520, y: center.y - 150 });
 		const storyboard: AIProjectTextNode = { id: createId('text'), kind: 'text', role: 'storyboard', title: 'Storyboard', content: '', position: { x: 28, y: 74 }, groupId: group.id };
 		const imagePrompt: AIProjectTextNode = { id: createId('text'), kind: 'text', role: 'imagePrompt', title: 'Image prompt', content: '', position: { x: 258, y: 74 }, groupId: group.id };
@@ -345,14 +397,19 @@ function WorkflowEditor(): JSX.Element {
 			}
 			next.sequence.push({ id: createId('sequence'), videoNodeId: video.id });
 		});
-		setSelectedNodeId(storyboard.id);
+		setSelectedNodeIds([storyboard.id]);
 		setFocusedVideoId(video.id);
+		persistCanvasState({ focusedVideoId: video.id });
 		setSelectedEdgeId(undefined);
 		setAddMenuOpen(false);
-	}, [editProject, viewportCenter]);
+		setContextAddMenu(undefined);
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+	}, [contextAddMenu, editProject, viewportCenter]);
 
 	const removeNodes = useCallback((ids: readonly string[]): void => {
 		const removed = new Set(ids);
+		const fallbackVideoId = projectRef.current.sequence.find(item => !removed.has(item.videoNodeId))?.videoNodeId;
 		editProject(next => {
 			next.nodes = next.nodes.filter(node => !removed.has(node.id));
 			next.edges = next.edges.filter(edge => !removed.has(edge.source) && !removed.has(edge.target));
@@ -362,9 +419,16 @@ function WorkflowEditor(): JSX.Element {
 			}
 			next.groups = next.groups.filter(group => group.nodeIds.length > 0);
 		});
-		setSelectedNodeId(undefined);
+		setSelectedNodeIds([]);
 		setSelectedEdgeId(undefined);
-		setFocusedVideoId(current => removed.has(current ?? '') ? undefined : current);
+		setFocusedVideoId(current => {
+			const next = removed.has(current ?? '') ? fallbackVideoId : current;
+			persistCanvasState({ focusedVideoId: next });
+			return next;
+		});
+		setContextAddMenu(undefined);
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
 	}, [editProject]);
 
 	const removeEdges = useCallback((ids: readonly string[]): void => {
@@ -375,6 +439,7 @@ function WorkflowEditor(): JSX.Element {
 			invalidateDownstreamNodes(next, targets);
 		});
 		setSelectedEdgeId(undefined);
+		setContextEdgeMenu(undefined);
 	}, [editProject]);
 
 	const connect = useCallback((connection: Connection): void => {
@@ -392,16 +457,18 @@ function WorkflowEditor(): JSX.Element {
 		});
 	}, [editProject]);
 
-	const moveNode = useCallback((id: string, position: AIProjectWorkflowPosition): void => {
+	const moveNodes = useCallback((movedNodes: readonly WorkflowFlowNode[]): void => {
 		editProject(next => {
-			const node = nodeById(next, id);
-			if (node) {
-				node.position = position;
-				return;
-			}
-			const group = next.groups.find(candidate => candidate.id === id);
-			if (group) {
-				group.position = position;
+			for (const movedNode of movedNodes) {
+				const node = nodeById(next, movedNode.id);
+				if (node) {
+					node.position = movedNode.position;
+					continue;
+				}
+				const group = next.groups.find(candidate => candidate.id === movedNode.id);
+				if (group) {
+					group.position = movedNode.position;
+				}
 			}
 		});
 	}, [editProject]);
@@ -412,38 +479,108 @@ function WorkflowEditor(): JSX.Element {
 		const readiness = nodeReadiness(project, node.id);
 		return !readiness.ready && !(isExecutableNode(node) && schedulable.has(node.id));
 	}).length;
-	const focusShot = useCallback((videoNodeId: string, instance: ReactFlowInstance<WorkflowFlowNode, WorkflowFlowEdge> = reactFlow): void => {
+	const rememberViewport = useCallback((viewport: Viewport): void => {
+		setCanvasZoom(viewport.zoom);
+		persistCanvasState({ viewport });
+	}, []);
+	const focusShot = useCallback(async (videoNodeId: string, instance: ReactFlowInstance<WorkflowFlowNode, WorkflowFlowEdge> = reactFlow): Promise<void> => {
 		const video = nodeById(projectRef.current, videoNodeId);
 		const group = video?.groupId ? instance.getNode(video.groupId) : undefined;
 		const target = group ?? instance.getNode(videoNodeId);
 		if (target) {
-			void instance.fitView({ nodes: [target], padding: group ? 0.1 : 0.7, minZoom: 0.55, maxZoom: 1.05, duration: 240 });
+			await instance.fitView({ nodes: [target], padding: group ? 0.1 : 0.7, minZoom: 0.55, maxZoom: 1.05, duration: 0 });
+			rememberViewport(instance.getViewport());
 		}
-	}, [reactFlow]);
+	}, [reactFlow, rememberViewport]);
 	const selectedNode = selectedNodeId ? nodeById(project, selectedNodeId) : undefined;
 	const selectedShotVideoId = selectedNode?.groupId
 		? project.sequence.find(item => nodeById(project, item.videoNodeId)?.groupId === selectedNode.groupId)?.videoNodeId
+		: undefined;
+	const contextNode = contextNodeMenu ? nodeById(project, contextNodeMenu.nodeId) : undefined;
+	const contextEdge = contextEdgeMenu ? project.edges.find(edge => edge.id === contextEdgeMenu.edgeId) : undefined;
+	const contextNodeCanRun = contextNode !== undefined && isExecutableNode(contextNode) && contextNode.source !== 'local' && nodeReadiness(project, contextNode.id).ready && !locked;
+	const contextShotVideoId = contextNode?.groupId
+		? project.sequence.find(item => nodeById(project, item.videoNodeId)?.groupId === contextNode.groupId)?.videoNodeId
 		: undefined;
 	const initializeViewport = useCallback((instance: ReactFlowInstance<WorkflowFlowNode, WorkflowFlowEdge>): void => {
 		if (initialViewportSetRef.current) {
 			return;
 		}
 		initialViewportSetRef.current = true;
-		const firstVideoId = projectRef.current.sequence[0]?.videoNodeId;
+		const savedViewport = validViewport(persistedCanvasState?.viewport);
+		const firstVideoId = initialFocusedVideoId ?? projectRef.current.sequence[0]?.videoNodeId;
 		window.requestAnimationFrame(() => {
-			if (firstVideoId) {
-				focusShot(firstVideoId, instance);
+			if (savedViewport) {
+				void instance.setViewport(savedViewport, { duration: 0 }).then(() => rememberViewport(instance.getViewport()));
+			} else if (firstVideoId) {
+				void focusShot(firstVideoId, instance);
 			} else {
-				void instance.fitView({ padding: 0.16, maxZoom: 1.08 });
+				void instance.fitView({ padding: 0.16, maxZoom: 1.08, duration: 0 }).then(() => rememberViewport(instance.getViewport()));
 			}
 		});
-	}, [focusShot]);
+	}, [focusShot, rememberViewport]);
 	const navigateToShot = useCallback((videoNodeId: string): void => {
 		setFocusedVideoId(videoNodeId);
-		setSelectedNodeId(undefined);
+		persistCanvasState({ focusedVideoId: videoNodeId });
+		setSelectedNodeIds([]);
 		setSelectedEdgeId(undefined);
-		window.requestAnimationFrame(() => window.requestAnimationFrame(() => focusShot(videoNodeId)));
+		setContextAddMenu(undefined);
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+		window.requestAnimationFrame(() => window.requestAnimationFrame(() => { void focusShot(videoNodeId); }));
 	}, [focusShot]);
+	const setCanvasZoomLevel = useCallback(async (requestedZoom: number): Promise<void> => {
+		const bounds = canvasRef.current?.getBoundingClientRect();
+		if (!bounds) {
+			return;
+		}
+		const zoom = Math.min(4, Math.max(0.2, requestedZoom));
+		const center = reactFlow.screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 });
+		await reactFlow.setCenter(center.x, center.y, { zoom, duration: 0 });
+		rememberViewport(reactFlow.getViewport());
+	}, [reactFlow, rememberViewport]);
+	const showAll = useCallback(async (): Promise<void> => {
+		await reactFlow.fitView({ padding: 0.12, maxZoom: 0.95, duration: 0 });
+		rememberViewport(reactFlow.getViewport());
+	}, [reactFlow, rememberViewport]);
+	const positionMenu = useCallback((clientX: number, clientY: number, width: number, height: number, reserveInspector = false): { readonly left: number; readonly top: number } => {
+		const bounds = canvasRef.current?.getBoundingClientRect();
+		if (!bounds) {
+			return { left: 8, top: 8 };
+		}
+		const availableWidth = Math.max(width + 16, bounds.width - (reserveInspector ? 352 : 0));
+		return {
+			left: Math.min(Math.max(clientX - bounds.left, 8), Math.max(8, availableWidth - width - 8)),
+			top: Math.min(Math.max(clientY - bounds.top, 8), Math.max(8, bounds.height - height - 8))
+		};
+	}, []);
+	const runNode = useCallback((nodeId: string): void => {
+		setContextNodeMenu(undefined);
+		setContextEdgeMenu(undefined);
+		setRunningNodeId(nodeId);
+		setStatus({ label: 'Starting run', tone: 'running' });
+		vscode.postMessage({ type: 'runNode', project: projectRef.current, revision: revisionRef.current, nodeId });
+	}, []);
+
+	useEffect(() => {
+		const listener = (event: KeyboardEvent): void => {
+			if (!(event.metaKey || event.ctrlKey)) {
+				return;
+			}
+			if (event.key === '+' || event.key === '=') {
+				event.preventDefault();
+				void setCanvasZoomLevel(reactFlow.getZoom() + 0.1);
+			} else if (event.key === '-') {
+				event.preventDefault();
+				void setCanvasZoomLevel(reactFlow.getZoom() - 0.1);
+			} else if (event.key === '0') {
+				event.preventDefault();
+				void setCanvasZoomLevel(1);
+			}
+		};
+		window.addEventListener('keydown', listener);
+		return () => window.removeEventListener('keydown', listener);
+	}, [reactFlow, setCanvasZoomLevel]);
 
 	return (
 		<div className="workflow-app">
@@ -473,15 +610,15 @@ function WorkflowEditor(): JSX.Element {
 			{banner && <div className="banner" role="alert"><span>{banner.message}</span>{banner.action === 'reload' && <button className="button secondary" onClick={() => vscode.postMessage({ type: 'reload' })}>Reload disk version</button>}<button className="icon-button" aria-label="Dismiss message" onClick={() => setBanner(undefined)}>×</button></div>}
 			<div className={`workspace${selectedNodeId || selectedEdgeId ? ' has-inspector' : ''}`} aria-busy={locked}>
 				<main className="canvas" ref={canvasRef}>
-					<div className="canvas-toolbar">
-						<div className="add-control">
-							<button className="button secondary" onClick={() => setAddMenuOpen(value => !value)}>Add</button>
-							{addMenuOpen && <AddMenu onAdd={addMedia} onAddShot={addShot} />}
-						</div>
+					<div className="canvas-history-controls" aria-label="Canvas history">
 						<button className="toolbar-button" disabled={!past.length} onClick={undo}>Undo</button>
 						<button className="toolbar-button" disabled={!future.length} onClick={redo}>Redo</button>
 						{selectedShotVideoId && <button className="toolbar-button" onClick={() => focusShot(selectedShotVideoId)}>Focus shot</button>}
-						<button className="toolbar-button" onClick={() => void reactFlow.fitView({ padding: 0.12, maxZoom: 0.95, duration: 240 })}>Show all</button>
+						{selectedNodeIds.length > 1 && <span className="selection-count">{selectedNodeIds.length} selected</span>}
+					</div>
+					<div className="canvas-create-control">
+						<button className="canvas-create-button" aria-label="Add to workflow" aria-expanded={addMenuOpen} onClick={() => { setAddMenuOpen(value => !value); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}>+</button>
+						{addMenuOpen && <AddMenu onAdd={addMedia} onAddShot={addShot} />}
 					</div>
 					<ReactFlow<WorkflowFlowNode, WorkflowFlowEdge>
 						nodes={flowNodes}
@@ -489,39 +626,108 @@ function WorkflowEditor(): JSX.Element {
 						nodeTypes={nodeTypes}
 						onInit={initializeViewport}
 						minZoom={0.2}
-						maxZoom={1.8}
+						maxZoom={4}
 						snapToGrid
 						snapGrid={[16, 16]}
+						connectionMode={ConnectionMode.Strict}
 						connectionLineType={ConnectionLineType.SmoothStep}
+						connectOnClick={false}
+						connectionRadius={48}
 						deleteKeyCode={locked ? null : ['Backspace', 'Delete']}
 						nodesDraggable={!locked}
 						nodesConnectable={!locked}
+						panOnScroll
+						panOnScrollSpeed={1}
+						zoomOnScroll={false}
+						zoomOnPinch
+						zoomOnDoubleClick={false}
+						selectionOnDrag={!locked}
+						selectionMode={SelectionMode.Partial}
+						panOnDrag={[1, 2]}
+						multiSelectionKeyCode="Shift"
+						onMoveEnd={(_, viewport) => rememberViewport(viewport)}
 						onConnect={connect}
-						onNodeClick={(_, node) => {
+						onNodeClick={(event, node) => {
 							if (node.type === 'media') {
-								setSelectedNodeId(node.id);
+								setSelectedNodeIds(current => event.shiftKey ? toggleSelectedId(current, node.id) : [node.id]);
 								setSelectedEdgeId(undefined);
 								const selected = nodeById(projectRef.current, node.id);
 								const shotVideo = selected?.groupId ? projectRef.current.sequence.find(item => nodeById(projectRef.current, item.videoNodeId)?.groupId === selected.groupId) : undefined;
 								if (shotVideo) {
 									setFocusedVideoId(shotVideo.videoNodeId);
+									persistCanvasState({ focusedVideoId: shotVideo.videoNodeId });
 								}
 							}
 						}}
-						onEdgeClick={(_, edge) => { setSelectedEdgeId(edge.id); setSelectedNodeId(undefined); }}
-						onPaneClick={() => { setSelectedNodeId(undefined); setSelectedEdgeId(undefined); setAddMenuOpen(false); }}
-						onNodeDragStop={(_, node) => moveNode(node.id, node.position)}
+						onEdgeClick={(_, edge) => { setSelectedNodeIds([]); setSelectedEdgeId(edge.id); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onPaneClick={() => { setSelectedNodeIds([]); setSelectedEdgeId(undefined); setAddMenuOpen(false); setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onPaneContextMenu={event => {
+							event.preventDefault();
+							const menu = positionMenu(event.clientX, event.clientY, 250, 338);
+							setSelectedNodeIds([]);
+							setSelectedEdgeId(undefined);
+							setAddMenuOpen(false);
+							setContextNodeMenu(undefined);
+							setContextEdgeMenu(undefined);
+							setContextAddMenu({ ...menu, flowPosition: reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }) });
+						}}
+						onNodeContextMenu={(event, node) => {
+							event.preventDefault();
+							if (node.type !== 'media') {
+								return;
+							}
+							const menu = positionMenu(event.clientX, event.clientY, 190, 160, !selectedNodeId && !selectedEdgeId);
+							setSelectedNodeIds([node.id]);
+							setSelectedEdgeId(undefined);
+							setAddMenuOpen(false);
+							setContextAddMenu(undefined);
+							setContextEdgeMenu(undefined);
+							setContextNodeMenu({ ...menu, nodeId: node.id });
+						}}
+						onEdgeContextMenu={(event, edge) => {
+							event.preventDefault();
+							const menu = positionMenu(event.clientX, event.clientY, 190, 100, !selectedNodeId && !selectedEdgeId);
+							setSelectedNodeIds([]);
+							setSelectedEdgeId(edge.id);
+							setAddMenuOpen(false);
+							setContextAddMenu(undefined);
+							setContextNodeMenu(undefined);
+							setContextEdgeMenu({ ...menu, edgeId: edge.id });
+						}}
+						onNodeDragStop={(_, node, nodes) => moveNodes(nodes.length ? nodes : [node])}
 						onNodesDelete={nodes => removeNodes(nodes.filter(node => node.type === 'media').map(node => node.id))}
 						onEdgesDelete={edges => removeEdges(edges.map(edge => edge.id))}
+						onPaneScroll={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onMoveStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onConnectStart={() => { setContextAddMenu(undefined); setContextNodeMenu(undefined); setContextEdgeMenu(undefined); }}
+						onNodeDragStart={() => { setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
+						onSelectionStart={() => { setContextNodeMenu(undefined); setContextAddMenu(undefined); setContextEdgeMenu(undefined); }}
+						onSelectionEnd={() => {
+							const nodeIds = reactFlow.getNodes().filter(node => node.type === 'media' && node.selected).map(node => node.id);
+							setSelectedNodeIds(current => sameStringArray(current, nodeIds) ? current : nodeIds);
+							setSelectedEdgeId(undefined);
+						}}
+						edgesReconnectable={false}
+						elementsSelectable
+						onlyRenderVisibleElements
 						proOptions={{ hideAttribution: true }}
 					>
-						<Background variant={BackgroundVariant.Dots} gap={24} size={1} />
-						<Controls showInteractive={false} position="bottom-left" />
-						{project.nodes.length > 12 && <MiniMap position="bottom-right" pannable zoomable nodeColor={node => node.type === 'shotGroup' ? 'var(--vscode-editorWidget-border)' : kindColor((node.data as MediaNodeData).node.kind)} maskColor="color-mix(in srgb, var(--vscode-editor-background) 82%, transparent)" />}
+						<Background variant={BackgroundVariant.Lines} gap={40} size={1} color="color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent)" />
+						{project.nodes.length > 12 && <MiniMap position="bottom-left" pannable zoomable nodeColor={node => node.type === 'shotGroup' ? 'var(--vscode-editorWidget-border)' : kindColor((node.data as MediaNodeData).node.kind)} maskColor="color-mix(in srgb, var(--vscode-editor-background) 82%, transparent)" />}
 					</ReactFlow>
+					<div className="canvas-zoom-controls" aria-label="Canvas zoom">
+						<button className="canvas-zoom-button" aria-label="Zoom out" onClick={() => void setCanvasZoomLevel(reactFlow.getZoom() - 0.1)}>−</button>
+						<span className="canvas-zoom-value" aria-live="polite">{Math.round(canvasZoom * 100)}%</span>
+						<button className="canvas-zoom-button reset" aria-label="Reset zoom to 100%" onClick={() => void setCanvasZoomLevel(1)}>1:1</button>
+						<button className="canvas-zoom-button" aria-label="Zoom in" onClick={() => void setCanvasZoomLevel(reactFlow.getZoom() + 0.1)}>+</button>
+						<button className="canvas-fit-button" onClick={() => void showAll()}>Show all</button>
+					</div>
+					{contextAddMenu && <AddMenu contextPosition={{ left: contextAddMenu.left, top: contextAddMenu.top }} onAdd={addMedia} onAddShot={addShot} />}
+					{contextNodeMenu && contextNode && <NodeContextMenu position={{ left: contextNodeMenu.left, top: contextNodeMenu.top }} node={contextNode} canRun={contextNodeCanRun} onRun={() => runNode(contextNode.id)} onFocus={contextShotVideoId ? () => { setContextNodeMenu(undefined); void focusShot(contextShotVideoId); } : undefined} onOpen={() => setContextNodeMenu(undefined)} onDelete={() => removeNodes([contextNode.id])} />}
+					{contextEdgeMenu && contextEdge && <EdgeContextMenu position={{ left: contextEdgeMenu.left, top: contextEdgeMenu.top }} onOpen={() => setContextEdgeMenu(undefined)} onDelete={() => removeEdges([contextEdge.id])} />}
 					{notice && <div className="canvas-notice" role="status"><span>{notice}</span><button className="icon-button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button></div>}
 				</main>
-				{(selectedNodeId || selectedEdgeId) && <Inspector project={project} providers={providers} selectedNodeId={selectedNodeId} selectedEdgeId={selectedEdgeId} editProject={editProject} running={locked} onRunNode={nodeId => { setRunningNodeId(nodeId); setStatus({ label: 'Starting run', tone: 'running' }); vscode.postMessage({ type: 'runNode', project: projectRef.current, revision: revisionRef.current, nodeId }); }} onImportFiles={nodeId => vscode.postMessage({ type: 'importFiles', project: projectRef.current, revision: revisionRef.current, nodeId })} onRemoveNode={id => removeNodes([id])} onRemoveEdge={id => removeEdges([id])} onOpenOutput={path => vscode.postMessage({ type: 'openOutput', path })} />}
+				{(selectedNodeId || selectedEdgeId) && <Inspector project={project} providers={providers} selectedNodeId={selectedNodeId} selectedEdgeId={selectedEdgeId} editProject={editProject} running={locked} onRunNode={runNode} onImportFiles={nodeId => vscode.postMessage({ type: 'importFiles', project: projectRef.current, revision: revisionRef.current, nodeId })} onRemoveNode={id => removeNodes([id])} onRemoveEdge={id => removeEdges([id])} onOpenOutput={path => vscode.postMessage({ type: 'openOutput', path })} />}
 			</div>
 			<SequenceBar project={project} mediaUris={mediaUris} selectedNodeId={selectedNodeId} focusedVideoId={focusedVideoId} locked={locked} onSelect={navigateToShot} onPreview={() => setSequencePreviewOpen(true)} editProject={editProject} />
 			{runPanelOpen && <RunPanel project={project} nodeIds={runReady} providers={providers} onClose={() => setRunPanelOpen(false)} onRun={() => { setRunPanelOpen(false); setRunningNodeId('workflow'); setStatus({ label: 'Starting workflow', tone: 'running' }); vscode.postMessage({ type: 'runReady', project: projectRef.current, revision: revisionRef.current }); }} />}
@@ -536,7 +742,7 @@ function MediaNodeCard({ data, selected }: NodeProps<MediaFlowNode>): JSX.Elemen
 	return <div className={`media-node kind-${node.kind}${selected ? ' selected' : ''}${status === 'running' ? ' running' : ''}`}>
 		<Handle type="target" position={Position.Left} aria-label={`${mediaKindLabel(node.kind)} input`} title="Input" />
 		<div className="node-header"><span className="media-kind">{mediaKindLabel(node.kind)}</span><span className={`node-status status-${status.replace(/\s+/g, '-').toLowerCase()}`}>{status}</span></div>
-		{data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <div className={`media-placeholder placeholder-${node.kind}`}>{node.kind === 'text' ? 'T' : node.kind === 'image' ? 'IMG' : node.kind === 'video' ? 'VID' : 'AUD'}</div>}
+		{node.kind !== 'text' && (data.previewUri ? <MediaPreview uri={data.previewUri} kind={data.previewKind ?? node.kind} title={node.title} /> : <div className={`media-placeholder placeholder-${node.kind}`}>{node.kind === 'image' ? 'IMG' : node.kind === 'video' ? 'VID' : 'AUD'}</div>)}
 		<div className="node-title">{node.title}</div>
 		<div className="node-summary">{nodeSummary(node, data.summary)}</div>
 		<div className="node-footer"><span>{nodeRole(node)}</span><span>{nodeMetric(node)}</span></div>
@@ -561,12 +767,42 @@ function MediaPreview({ uri, kind, title }: { readonly uri: string; readonly kin
 	return <div className="media-placeholder placeholder-text">T</div>;
 }
 
-function AddMenu({ onAdd, onAddShot }: { readonly onAdd: (kind: AIProjectMediaKind) => void; readonly onAddShot: () => void }): JSX.Element {
-	return <div className="add-menu" role="menu">
+function AddMenu({ onAdd, onAddShot, contextPosition }: { readonly onAdd: (kind: AIProjectMediaKind) => void; readonly onAddShot: () => void; readonly contextPosition?: { readonly left: number; readonly top: number } }): JSX.Element {
+	return <div className={`add-menu${contextPosition ? ' context' : ''}`} style={contextPosition} role="menu">
 		<div className="menu-label">Media</div>
 		{(['text', 'image', 'video', 'audio'] as const).map(kind => <button key={kind} role="menuitem" onClick={() => onAdd(kind)}><span className={`menu-kind kind-${kind}`}>{kind === 'text' ? 'T' : kind === 'image' ? 'I' : kind === 'video' ? 'V' : 'A'}</span><span><strong>{mediaKindLabel(kind)}</strong><small>{addDescription(kind)}</small></span></button>)}
 		<div className="menu-label structure-label">Structure</div>
 		<button role="menuitem" onClick={onAddShot}><span className="menu-kind">S</span><span><strong>Shot Group</strong><small>Storyboard to one ordered clip</small></span></button>
+	</div>;
+}
+
+function NodeContextMenu({ position, node, canRun, onOpen, onRun, onFocus, onDelete }: {
+	readonly position: { readonly left: number; readonly top: number };
+	readonly node: AIProjectNode;
+	readonly canRun: boolean;
+	readonly onOpen: () => void;
+	readonly onRun: () => void;
+	readonly onFocus?: () => void;
+	readonly onDelete: () => void;
+}): JSX.Element {
+	return <div className="node-context-menu" style={position} role="menu" aria-label={`${node.title} actions`}>
+		<button role="menuitem" onClick={onOpen}>Edit details</button>
+		{onFocus && <button role="menuitem" onClick={onFocus}>Focus shot</button>}
+		{canRun && <button role="menuitem" onClick={onRun}>Run node</button>}
+		<div className="context-separator" />
+		<button className="danger" role="menuitem" onClick={onDelete}>Delete node</button>
+	</div>;
+}
+
+function EdgeContextMenu({ position, onOpen, onDelete }: {
+	readonly position: { readonly left: number; readonly top: number };
+	readonly onOpen: () => void;
+	readonly onDelete: () => void;
+}): JSX.Element {
+	return <div className="node-context-menu" style={position} role="menu" aria-label="Connection actions">
+		<button role="menuitem" onClick={onOpen}>Inspect connection</button>
+		<div className="context-separator" />
+		<button className="danger" role="menuitem" onClick={onDelete}>Remove connection</button>
 	</div>;
 }
 
@@ -779,6 +1015,28 @@ function lines(value: string): string[] {
 function numberInput(value: string, fallback: number): number {
 	const parsed = value.trim() ? Number(value) : Number.NaN;
 	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function validViewport(value: unknown): Viewport | undefined {
+	if (!value || typeof value !== 'object') {
+		return undefined;
+	}
+	const candidate = value as Partial<Viewport>;
+	return Number.isFinite(candidate.x) && Number.isFinite(candidate.y) && Number.isFinite(candidate.zoom) && candidate.zoom! >= 0.2 && candidate.zoom! <= 4
+		? { x: candidate.x!, y: candidate.y!, zoom: candidate.zoom! }
+		: undefined;
+}
+
+function persistCanvasState(patch: Partial<PersistedCanvasState>): void {
+	vscode.setState({ ...(vscode.getState() ?? {}), ...patch });
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+	return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function toggleSelectedId(current: readonly string[], id: string): readonly string[] {
+	return current.includes(id) ? current.filter(candidate => candidate !== id) : [...current, id];
 }
 
 createRoot(rootElement).render(<StrictMode><App /></StrictMode>);

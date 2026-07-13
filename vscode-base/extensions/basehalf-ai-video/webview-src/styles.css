@@ -51,7 +51,8 @@ button {
 .topbar-actions,
 .readiness-bar,
 .banner,
-.canvas-toolbar,
+.canvas-history-controls,
+.canvas-zoom-controls,
 .node-header,
 .node-footer,
 .inspector-header,
@@ -137,12 +138,16 @@ button {
 .button,
 .icon-button,
 .toolbar-button,
+.canvas-create-button,
+.canvas-zoom-button,
+.canvas-fit-button,
 .output-link,
 .text-button,
 .run-select,
 .sequence-main,
 .sequence-actions button,
-.add-menu button {
+.add-menu button,
+.node-context-menu button {
 	border: 0;
 	cursor: pointer;
 }
@@ -205,12 +210,16 @@ button {
 .button:focus-visible,
 .icon-button:focus-visible,
 .toolbar-button:focus-visible,
+.canvas-create-button:focus-visible,
+.canvas-zoom-button:focus-visible,
+.canvas-fit-button:focus-visible,
 .output-link:focus-visible,
 .text-button:focus-visible,
 .run-select:focus-visible,
 .sequence-main:focus-visible,
 .sequence-actions button:focus-visible,
-.add-menu button:focus-visible {
+.add-menu button:focus-visible,
+.node-context-menu button:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 1px;
 }
@@ -300,6 +309,14 @@ button {
 	background: var(--vscode-toolbar-hoverBackground);
 }
 
+.button:active:not(:disabled),
+.toolbar-button:active:not(:disabled),
+.canvas-create-button:active,
+.canvas-zoom-button:active,
+.canvas-fit-button:active {
+	transform: translateY(1px);
+}
+
 .workspace {
 	position: relative;
 	display: grid;
@@ -327,7 +344,7 @@ button {
 	background: var(--vscode-editor-background);
 }
 
-.canvas-toolbar {
+.canvas-history-controls {
 	position: absolute;
 	top: 10px;
 	left: 10px;
@@ -338,6 +355,13 @@ button {
 	border-radius: 4px;
 	background: var(--workflow-surface);
 	box-shadow: 0 3px 12px color-mix(in srgb, var(--vscode-widget-shadow, #000) 22%, transparent);
+}
+
+.selection-count {
+	padding: 0 7px;
+	font-size: 10px;
+	color: var(--vscode-descriptionForeground);
+	font-variant-numeric: tabular-nums;
 }
 
 .toolbar-button {
@@ -353,14 +377,36 @@ button {
 	background: var(--vscode-toolbar-hoverBackground);
 }
 
-.add-control {
-	position: relative;
+.canvas-create-control {
+	position: absolute;
+	top: 10px;
+	right: 14px;
+	z-index: 9;
+}
+
+.canvas-create-button {
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 1px solid var(--workflow-widget-border);
+	border-radius: 4px;
+	font-size: 20px;
+	line-height: 1;
+	color: var(--vscode-icon-foreground, var(--vscode-foreground));
+	background: var(--workflow-surface);
+	box-shadow: 0 2px 8px color-mix(in srgb, var(--vscode-widget-shadow, #000) 22%, transparent);
+}
+
+.canvas-create-button:hover {
+	background: var(--vscode-toolbar-hoverBackground);
 }
 
 .add-menu {
 	position: absolute;
 	top: 32px;
-	left: -3px;
+	right: 0;
 	z-index: 12;
 	width: 250px;
 	padding: 5px;
@@ -368,6 +414,11 @@ button {
 	border-radius: 4px;
 	background: var(--vscode-menu-background, var(--workflow-surface));
 	box-shadow: 0 8px 24px color-mix(in srgb, var(--vscode-widget-shadow, #000) 36%, transparent);
+}
+
+.add-menu.context {
+	top: auto;
+	right: auto;
 }
 
 .add-menu button {
@@ -417,6 +468,43 @@ button {
 	margin-top: 4px;
 	padding-top: 7px;
 	border-top: 1px solid var(--workflow-border);
+}
+
+.node-context-menu {
+	position: absolute;
+	z-index: 13;
+	width: 190px;
+	padding: 5px;
+	border: 1px solid var(--workflow-widget-border);
+	border-radius: 4px;
+	background: var(--vscode-menu-background, var(--workflow-surface));
+	box-shadow: 0 8px 24px color-mix(in srgb, var(--vscode-widget-shadow, #000) 36%, transparent);
+}
+
+.node-context-menu button {
+	display: block;
+	width: 100%;
+	padding: 6px 8px;
+	border-radius: 3px;
+	text-align: left;
+	font-size: 11px;
+	color: var(--vscode-menu-foreground, var(--vscode-foreground));
+	background: transparent;
+}
+
+.node-context-menu button:hover {
+	color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+	background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+}
+
+.node-context-menu button.danger {
+	color: var(--vscode-errorForeground);
+}
+
+.context-separator {
+	height: 1px;
+	margin: 4px 3px;
+	background: var(--workflow-border);
 }
 
 .menu-kind,
@@ -660,6 +748,16 @@ button {
 	height: 10px;
 	border: 2px solid var(--vscode-editor-background);
 	background: var(--node-kind-color, var(--vscode-focusBorder));
+	opacity: 0.28;
+	transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.react-flow__node-media:hover .react-flow__handle,
+.react-flow__node-media.selected .react-flow__handle,
+.react-flow__handle.connectingfrom,
+.react-flow__handle.connectingto {
+	opacity: 1;
+	transform: scale(1.08);
 }
 
 .react-flow__handle-left {
@@ -674,6 +772,7 @@ button {
 .react-flow__connection-path {
 	stroke: var(--vscode-descriptionForeground);
 	stroke-width: 1.5;
+	transition: stroke 150ms cubic-bezier(0.16, 1, 0.3, 1), stroke-width 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .react-flow__edge.edge-text .react-flow__edge-path {
@@ -692,32 +791,73 @@ button {
 	stroke: var(--kind-audio);
 }
 
-.react-flow__edge.selected .react-flow__edge-path {
+.react-flow__edge:hover .react-flow__edge-path,
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus-visible .react-flow__edge-path {
 	stroke-width: 2.4;
 }
 
-.react-flow__controls {
-	overflow: hidden;
+.react-flow__selection,
+.react-flow__nodesselection-rect {
+	border: 1px dashed var(--vscode-focusBorder);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 8%, transparent);
+}
+
+.canvas-zoom-controls {
+	position: absolute;
+	right: 10px;
+	bottom: 10px;
+	z-index: 8;
+	gap: 2px;
+	height: 28px;
+	padding: 2px;
 	border: 1px solid var(--workflow-widget-border);
 	border-radius: 4px;
-	box-shadow: none;
+	background: color-mix(in srgb, var(--workflow-surface) 92%, transparent);
+	box-shadow: 0 2px 8px color-mix(in srgb, var(--vscode-widget-shadow, #000) 22%, transparent);
 }
 
-.react-flow__controls-button {
-	border-bottom-color: var(--workflow-widget-border);
-	color: var(--vscode-foreground);
-	background: var(--workflow-surface);
+.canvas-zoom-button,
+.canvas-fit-button {
+	height: 22px;
+	padding: 0;
+	border-radius: 3px;
+	color: var(--vscode-icon-foreground, var(--vscode-foreground));
+	background: transparent;
 }
 
-.react-flow__controls-button:hover {
+.canvas-zoom-button {
+	width: 22px;
+}
+
+.canvas-zoom-button.reset {
+	width: 30px;
+	font-size: 10px;
+}
+
+.canvas-fit-button {
+	padding: 0 7px;
+	border-left: 1px solid var(--workflow-border);
+	border-radius: 0 3px 3px 0;
+	font-size: 10px;
+}
+
+.canvas-zoom-button:hover,
+.canvas-fit-button:hover {
 	background: var(--vscode-toolbar-hoverBackground);
 }
 
-.react-flow__controls-button svg {
-	fill: currentColor;
+.canvas-zoom-value {
+	width: 38px;
+	text-align: center;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	color: var(--vscode-descriptionForeground);
 }
 
 .react-flow__minimap {
+	bottom: 10px;
+	left: 10px;
 	border: 1px solid var(--workflow-widget-border);
 	border-radius: 4px;
 	background: var(--workflow-surface);
@@ -1267,5 +1407,11 @@ button {
 @media (prefers-reduced-motion: reduce) {
 	.react-flow__edge.animated path {
 		animation: none;
+	}
+
+	.react-flow__handle,
+	.react-flow__edge-path,
+	.react-flow__connection-path {
+		transition: none;
 	}
 }

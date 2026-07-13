@@ -1606,11 +1606,61 @@ async function assertAIVideoProject(page) {
 	if (await frame.locator('.inspector').count() !== 0) {
 		throw new Error('Sequence navigation opened node settings instead of only focusing the shot');
 	}
+	await frame.waitForFunction(() => document.querySelectorAll('.react-flow__edge').length >= 5, undefined, { timeout: 5_000 });
 	if (await frame.locator('.react-flow__edge').count() < 5) {
 		throw new Error('The AI Video workflow canvas did not render its dependency edges');
 	}
-	await frame.locator('.toolbar-button', { hasText: 'Show all' }).click();
-	await page.waitForTimeout(350);
+	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
+	await page.waitForTimeout(150);
+
+	const viewport = frame.locator('.react-flow__viewport');
+	const transformBeforeScroll = await viewport.evaluate(element => getComputedStyle(element).transform);
+	const scaleBeforeScroll = await viewport.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).a);
+	await frame.locator('.react-flow__pane').hover({ position: { x: 420, y: 280 } });
+	await page.mouse.wheel(0, 180);
+	await page.waitForTimeout(120);
+	const transformAfterScroll = await viewport.evaluate(element => getComputedStyle(element).transform);
+	const scaleAfterScroll = await viewport.evaluate(element => new DOMMatrix(getComputedStyle(element).transform).a);
+	if (transformBeforeScroll === transformAfterScroll || Math.abs(scaleBeforeScroll - scaleAfterScroll) > 0.001) {
+		throw new Error('AI Video canvas wheel input must pan without changing zoom');
+	}
+
+	const zoomLabel = frame.locator('.canvas-zoom-value');
+	const zoomBefore = await zoomLabel.textContent();
+	await frame.locator('.canvas-zoom-button[aria-label="Zoom in"]').click();
+	await frame.waitForFunction(previous => document.querySelector('.canvas-zoom-value')?.textContent !== previous, zoomBefore, { timeout: 5_000 });
+	if (await zoomLabel.textContent() === zoomBefore) {
+		throw new Error('AI Video canvas zoom control did not update the viewport');
+	}
+	await frame.locator('.canvas-zoom-button.reset').click();
+	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
+	await page.waitForTimeout(100);
+
+	const pane = frame.locator('.react-flow__pane');
+	const paneBox = await pane.boundingBox();
+	if (!paneBox) {
+		throw new Error('AI Video canvas pane has no visible bounds');
+	}
+	await pane.click({ button: 'right', position: { x: 24, y: paneBox.height - 24 } });
+	await frame.locator('.add-menu.context').waitFor({ state: 'visible', timeout: 5_000 });
+	await page.keyboard.press('Escape');
+	await frame.locator('.add-menu.context').waitFor({ state: 'detached', timeout: 5_000 });
+
+	const firstTextNode = frame.locator('.react-flow__node-media', { has: frame.locator('.media-node.kind-text') }).first();
+	await firstTextNode.click();
+	await frame.locator('.react-flow__node-media', { has: frame.locator('.media-node.kind-image') }).first().click({ modifiers: ['Shift'] });
+	if (await frame.locator('.react-flow__node-media.selected').count() !== 2 || !/2 selected/.test(await frame.locator('.selection-count').innerText())) {
+		throw new Error('AI Video canvas Shift multi-selection did not preserve both nodes');
+	}
+	await frame.locator('.react-flow__pane').click({ position: { x: 24, y: 300 } });
+	await firstTextNode.click({ button: 'right' });
+	const nodeMenu = frame.locator('.node-context-menu[aria-label$="actions"]');
+	await nodeMenu.waitFor({ state: 'visible', timeout: 5_000 });
+	await nodeMenu.locator('button', { hasText: 'Edit details' }).click();
+	await frame.locator('.inspector').waitFor({ state: 'visible', timeout: 5_000 });
+	await frame.locator('.react-flow__pane').click({ position: { x: 24, y: 300 } });
+	await frame.locator('.canvas-fit-button', { hasText: 'Show all' }).click();
+	await page.waitForTimeout(100);
 	const edgeCount = await frame.locator('.react-flow__edge').count();
 	const textOutput = await frame.locator('.media-node.kind-text .react-flow__handle-right').first().boundingBox();
 	const imageInput = await frame.locator('.media-node.kind-image .react-flow__handle-left').first().boundingBox();
