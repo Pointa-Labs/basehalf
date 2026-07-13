@@ -1,8 +1,8 @@
 {
   "name": "basehalf-ai-video",
   "displayName": "BaseHalf AI Video",
-  "description": "A local-first node workflow canvas for scripts, characters, scenes, shots, and provider-neutral AI video generation.",
-  "version": "0.2.1",
+  "description": "A local-first production workflow canvas for creative briefs, scripts, storyboards, execution prompts, and provider-neutral AI video generation.",
+  "version": "0.3.0",
   "publisher": "pointa",
   "license": "Apache-2.0",
   "repository": {
@@ -48,6 +48,12 @@
         "command": "basehalf.aiVideo.createProject",
         "title": "Create AI Video Project…",
         "category": "BaseHalf"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": "*.aivideo",
+        "url": "./schemas/aivideo.schema.json"
       }
     ]
   }

@@ -31,8 +31,8 @@ button {
 }
 
 .workflow-app {
-	display: grid;
-	grid-template-rows: 50px auto minmax(0, 1fr);
+	display: flex;
+	flex-direction: column;
 	width: 100%;
 	height: 100%;
 	background: var(--vscode-editor-background);
@@ -40,9 +40,11 @@ button {
 
 .topbar {
 	display: grid;
-	grid-template-columns: minmax(240px, 1fr) auto minmax(240px, 1fr);
+	grid-template-columns: minmax(240px, 1fr) auto minmax(360px, 1fr);
+	flex: none;
 	align-items: center;
 	gap: 16px;
+	height: 50px;
 	padding: 0 12px 0 16px;
 	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
 	background: var(--vscode-titleBar-activeBackground, var(--vscode-editor-background));
@@ -54,7 +56,9 @@ button {
 .node-footer,
 .shot-run-row,
 .connection-row,
-.banner {
+.banner,
+.section-heading,
+.production-strip {
 	display: flex;
 	align-items: center;
 }
@@ -66,7 +70,7 @@ button {
 
 .product-label {
 	flex: none;
-	font-size: 11px;
+	font-size: 10px;
 	font-weight: 700;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
@@ -78,7 +82,7 @@ button {
 	max-width: 520px;
 	padding: 4px 6px;
 	border: 1px solid transparent;
-	border-radius: 4px;
+	border-radius: 3px;
 	font-size: 14px;
 	font-weight: 600;
 	color: var(--vscode-foreground);
@@ -122,21 +126,23 @@ button {
 
 .topbar-actions {
 	justify-content: flex-end;
-	gap: 8px;
+	gap: 7px;
 }
 
 .button,
 .icon-button,
 .palette-item,
 .node-run,
-.output-link {
+.output-link,
+.preview-link,
+.text-button {
 	border: 0;
 	cursor: pointer;
 }
 
 .button {
 	min-height: 28px;
-	padding: 4px 11px;
+	padding: 4px 10px;
 	border-radius: 3px;
 }
 
@@ -158,6 +164,16 @@ button {
 	background: var(--vscode-button-secondaryHoverBackground);
 }
 
+.button.agent-action {
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+	box-shadow: inset 0 0 0 1px var(--vscode-button-secondaryBackground);
+}
+
+.button.agent-action:hover:not(:disabled) {
+	background: var(--vscode-toolbar-hoverBackground);
+}
+
 .button.danger {
 	color: var(--vscode-errorForeground);
 	background: color-mix(in srgb, var(--vscode-errorForeground) 9%, transparent);
@@ -169,7 +185,7 @@ button {
 
 .button.full {
 	width: 100%;
-	margin-top: 12px;
+	margin-top: 14px;
 }
 
 .button:disabled,
@@ -182,12 +198,59 @@ button {
 .icon-button:focus-visible,
 .palette-item:focus-visible,
 .node-run:focus-visible,
-.output-link:focus-visible {
+.output-link:focus-visible,
+.preview-link:focus-visible,
+.text-button:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
 	outline-offset: 2px;
 }
 
+.production-strip {
+	flex: none;
+	gap: 0;
+	min-height: 32px;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
+	font-size: 10px;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 68%, var(--vscode-editor-background));
+}
+
+.production-strip > span {
+	padding: 0 12px;
+	border-left: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
+}
+
+.production-strip > span:first-child {
+	padding-left: 0;
+	border-left: 0;
+}
+
+.production-strip strong {
+	font-size: 11px;
+	font-weight: 650;
+	color: var(--vscode-foreground);
+}
+
+.preview-link,
+.text-button {
+	padding: 2px 0;
+	color: var(--vscode-textLink-foreground);
+	background: transparent;
+}
+
+.preview-link {
+	margin-left: auto;
+}
+
+.preview-link:hover,
+.text-button:hover {
+	color: var(--vscode-textLink-activeForeground);
+	text-decoration: underline;
+}
+
 .banner {
+	flex: none;
 	gap: 10px;
 	min-height: 38px;
 	padding: 5px 10px 5px 16px;
@@ -202,6 +265,7 @@ button {
 .icon-button {
 	display: inline-grid;
 	place-items: center;
+	flex: none;
 	width: 24px;
 	height: 24px;
 	padding: 0;
@@ -219,7 +283,8 @@ button {
 .workspace {
 	position: relative;
 	display: grid;
-	grid-template-columns: 184px minmax(320px, 1fr) minmax(286px, 336px);
+	grid-template-columns: 188px minmax(320px, 1fr) minmax(300px, 352px);
+	flex: 1;
 	min-height: 0;
 }
 
@@ -243,6 +308,7 @@ button {
 	flex-direction: column;
 	padding: 14px 10px 12px;
 	border-right: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
+	overflow: auto;
 }
 
 .inspector {
@@ -261,7 +327,9 @@ button {
 .empty-inspector p,
 .palette-help p,
 .connections h3,
-.output-list h3 {
+.output-list h3,
+.palette-group h3,
+.section-heading h3 {
 	margin: 0;
 }
 
@@ -284,9 +352,28 @@ button {
 	margin-top: 4px;
 }
 
+.palette-group + .palette-group {
+	margin-top: 15px;
+}
+
+.palette-group h3,
+.section-heading h3,
+.connections h3,
+.output-list h3 {
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}
+
+.palette-group h3 {
+	padding: 0 7px 5px;
+}
+
 .palette-list {
 	display: grid;
-	gap: 6px;
+	gap: 3px;
 }
 
 .palette-item {
@@ -295,9 +382,9 @@ button {
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	padding: 8px;
+	padding: 7px;
 	border: 1px solid transparent;
-	border-radius: 5px;
+	border-radius: 4px;
 	text-align: left;
 	background: transparent;
 }
@@ -313,12 +400,13 @@ button {
 }
 
 .palette-item strong {
-	font-size: 12px;
+	font-size: 11px;
 }
 
 .palette-item small {
 	margin-top: 2px;
-	font-size: 10px;
+	font-size: 9px;
+	line-height: 1.3;
 	color: var(--vscode-descriptionForeground);
 }
 
@@ -337,7 +425,7 @@ button {
 .node-kind-key {
 	width: 28px;
 	height: 24px;
-	border-radius: 4px;
+	border-radius: 3px;
 	font-size: 9px;
 }
 
@@ -350,7 +438,7 @@ button {
 .palette-help strong {
 	display: block;
 	margin-bottom: 4px;
-	font-size: 11px;
+	font-size: 10px;
 }
 
 .canvas {
@@ -369,18 +457,28 @@ button {
 }
 
 .react-flow__node-workflow {
-	width: 252px;
+	width: 260px;
 	border-radius: 6px;
 }
 
 .workflow-node {
 	position: relative;
-	width: 252px;
+	width: 260px;
 	padding: 10px;
 	border: 1px solid var(--vscode-widget-border, var(--vscode-editorGroup-border));
 	border-radius: 6px;
 	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-	box-shadow: 0 3px 10px color-mix(in srgb, var(--vscode-widget-shadow, #000) 22%, transparent);
+	box-shadow: 0 3px 10px color-mix(in srgb, var(--vscode-widget-shadow, #000) 20%, transparent);
+}
+
+.workflow-node::before {
+	position: absolute;
+	top: -1px;
+	left: 9px;
+	width: 36px;
+	height: 2px;
+	background: var(--vscode-focusBorder);
+	content: "";
 }
 
 .workflow-node:hover {
@@ -389,7 +487,7 @@ button {
 
 .workflow-node.selected {
 	border-color: var(--vscode-focusBorder);
-	box-shadow: 0 0 0 1px var(--vscode-focusBorder), 0 5px 18px color-mix(in srgb, var(--vscode-widget-shadow, #000) 28%, transparent);
+	box-shadow: 0 0 0 1px var(--vscode-focusBorder), 0 5px 18px color-mix(in srgb, var(--vscode-widget-shadow, #000) 26%, transparent);
 }
 
 .workflow-node.running {
@@ -402,9 +500,9 @@ button {
 }
 
 .node-kind-label {
-	font-size: 10px;
-	font-weight: 600;
-	letter-spacing: 0.04em;
+	font-size: 9px;
+	font-weight: 650;
+	letter-spacing: 0.05em;
 	text-transform: uppercase;
 	color: var(--vscode-descriptionForeground);
 }
@@ -425,7 +523,8 @@ button {
 	background: var(--vscode-progressBar-background);
 }
 
-.node-status.status-complete {
+.node-status.status-complete,
+.node-status.status-prepared {
 	color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
 	background: color-mix(in srgb, var(--vscode-testing-iconPassed, var(--vscode-foreground)) 12%, transparent);
 }
@@ -457,11 +556,17 @@ button {
 	color: var(--vscode-descriptionForeground);
 }
 
+.node-readiness {
+	margin-top: 7px;
+	font-size: 9px;
+	color: var(--vscode-textLink-foreground);
+}
+
 .node-footer {
 	justify-content: space-between;
 	gap: 8px;
 	min-height: 25px;
-	margin-top: 10px;
+	margin-top: 8px;
 	padding-top: 8px;
 	border-top: 1px solid var(--vscode-editorWidget-border, var(--vscode-editorGroup-border));
 	font-size: 10px;
@@ -501,9 +606,18 @@ button {
 	stroke-width: 1.5;
 }
 
+.react-flow__edge.edge-context .react-flow__edge-path {
+	stroke-dasharray: 5 4;
+}
+
+.react-flow__edge.edge-sequence .react-flow__edge-path {
+	stroke: color-mix(in srgb, var(--vscode-focusBorder) 82%, var(--vscode-descriptionForeground));
+	stroke-width: 1.8;
+}
+
 .react-flow__edge.selected .react-flow__edge-path {
 	stroke: var(--vscode-focusBorder);
-	stroke-width: 2;
+	stroke-width: 2.3;
 }
 
 .react-flow__arrowhead polyline {
@@ -537,6 +651,42 @@ button {
 	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 }
 
+.edge-legend {
+	position: absolute;
+	right: 12px;
+	bottom: 12px;
+	z-index: 4;
+	display: flex;
+	gap: 12px;
+	padding: 5px 8px;
+	border: 1px solid var(--vscode-widget-border, var(--vscode-editorGroup-border));
+	border-radius: 4px;
+	font-size: 9px;
+	color: var(--vscode-descriptionForeground);
+	background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+}
+
+.edge-legend span {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.edge-legend i {
+	display: inline-block;
+	width: 18px;
+	height: 0;
+	border-top: 1.5px solid var(--vscode-descriptionForeground);
+}
+
+.edge-legend i.context-line {
+	border-top-style: dashed;
+}
+
+.edge-legend i.sequence-line {
+	border-top-color: var(--vscode-focusBorder);
+}
+
 .canvas-notice {
 	position: absolute;
 	top: 12px;
@@ -545,7 +695,7 @@ button {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	max-width: min(520px, calc(100% - 40px));
+	max-width: min(540px, calc(100% - 40px));
 	padding: 7px 7px 7px 11px;
 	border: 1px solid var(--vscode-widget-border, var(--vscode-editorGroup-border));
 	border-radius: 5px;
@@ -571,22 +721,46 @@ button {
 }
 
 .node-inspector-heading p {
-	max-width: 230px;
+	max-width: 240px;
 	overflow: hidden;
 	font-family: var(--vscode-editor-font-family, monospace);
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
+.inspector-section {
+	padding: 0 0 14px;
+}
+
+.inspector-section + .inspector-section {
+	padding-top: 14px;
+	border-top: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
+}
+
+.section-heading {
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.text-button {
+	font-size: 10px;
+}
+
 .field {
 	display: block;
-	margin-bottom: 12px;
+	min-width: 0;
+	margin-bottom: 11px;
+}
+
+.field:last-child {
+	margin-bottom: 0;
 }
 
 .field > span {
 	display: block;
 	margin-bottom: 5px;
-	font-size: 11px;
+	font-size: 10px;
 	font-weight: 600;
 }
 
@@ -616,6 +790,12 @@ button {
 	outline-offset: -1px;
 }
 
+.field-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 76px;
+	gap: 8px;
+}
+
 .shot-run-row {
 	justify-content: space-between;
 	gap: 10px;
@@ -636,7 +816,7 @@ button {
 
 .connections,
 .output-list {
-	margin-top: 18px;
+	margin-top: 16px;
 	padding-top: 12px;
 	border-top: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
 }
@@ -644,11 +824,6 @@ button {
 .connections h3,
 .output-list h3 {
 	margin-bottom: 7px;
-	font-size: 10px;
-	font-weight: 700;
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-	color: var(--vscode-descriptionForeground);
 }
 
 .connections h3:not(:first-child) {
@@ -659,7 +834,7 @@ button {
 	justify-content: space-between;
 	gap: 7px;
 	min-height: 28px;
-	padding-left: 7px;
+	padding-left: 6px;
 	border-radius: 3px;
 	background: var(--vscode-list-inactiveSelectionBackground);
 }
@@ -668,10 +843,28 @@ button {
 	margin-top: 4px;
 }
 
-.connection-row > span {
+.connection-row > span:nth-child(2) {
+	flex: 1;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.connection-kind {
+	display: inline-grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 2px;
+	font-size: 8px;
+	font-weight: 700;
+	color: var(--vscode-descriptionForeground);
+	background: color-mix(in srgb, var(--vscode-descriptionForeground) 12%, transparent);
+}
+
+.connection-kind.edge-sequence {
+	color: var(--vscode-textLink-foreground);
+	background: color-mix(in srgb, var(--vscode-focusBorder) 14%, transparent);
 }
 
 .muted {
@@ -710,7 +903,7 @@ button {
 
 .dependency-card > div {
 	display: grid;
-	grid-template-columns: 42px minmax(0, 1fr);
+	grid-template-columns: 48px minmax(0, 1fr);
 	gap: 7px;
 }
 
@@ -743,21 +936,22 @@ button {
 }
 
 .empty-inspector p {
-	max-width: 210px;
+	max-width: 220px;
 	margin-top: 5px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1050px) {
 	.workspace {
-		grid-template-columns: 150px minmax(280px, 1fr) 276px;
+		grid-template-columns: 158px minmax(280px, 1fr) 300px;
 	}
 
 	.topbar {
-		grid-template-columns: minmax(180px, 1fr) auto;
+		grid-template-columns: minmax(180px, 1fr) auto minmax(0, auto);
+		gap: 8px;
 	}
 
-	.save-status {
-		display: none;
+	.palette {
+		padding-inline: 7px;
 	}
 }
 

@@ -4,12 +4,15 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { AIProject, AIProjectCharacter, AIProjectScene, AIProjectShot, AI_VIDEO_SCRIPT_NODE_ID, upstreamWorkflowNodeIds } from './model';
+import { AIProject, AIProjectBrief, AIProjectCharacter, AIProjectScene, AIProjectShot, AIProjectStyle, AI_VIDEO_BRIEF_NODE_ID, AI_VIDEO_SCRIPT_NODE_ID, priorShotIds, upstreamContextNodeIds } from './model';
+import { renderShotTextPrevisualization } from './preview';
 
 export interface AIVideoWorkflowInputs {
+	readonly brief?: AIProjectBrief;
 	readonly script?: string;
 	readonly characters: readonly AIProjectCharacter[];
 	readonly scenes: readonly AIProjectScene[];
+	readonly styles: readonly AIProjectStyle[];
 	readonly priorShots: readonly AIProjectShot[];
 }
 
@@ -96,29 +99,40 @@ export class AIVideoVoiceGenerationProviderRegistry extends AIVideoProviderRegis
 export function createPromptPackageProvider(): AIVideoGenerationProvider {
 	return {
 		id: 'prompt-package',
-		label: 'Prompt package (local)',
+		label: 'Text previsualization (local)',
 		async generate(context) {
 			if (context.token.isCancellationRequested) {
 				throw new vscode.CancellationError();
 			}
 			await vscode.workspace.fs.createDirectory(context.outputDirectory);
-			const output = vscode.Uri.joinPath(context.outputDirectory, 'request.json');
+			const requestOutput = vscode.Uri.joinPath(context.outputDirectory, 'request.json');
+			const previewOutput = vscode.Uri.joinPath(context.outputDirectory, 'shot.md');
 			const payload = {
-				version: 1,
+				version: 2,
 				project: context.project.title,
+				brief: context.project.brief,
 				shot: {
 					id: context.shot.id,
 					title: context.shot.title,
+					storyboard: context.shot.storyboard,
+					camera: context.shot.camera,
+					motion: context.shot.motion,
 					prompt: context.shot.prompt,
+					negativePrompt: context.shot.negativePrompt,
 					dialogue: context.shot.dialogue,
+					audio: context.shot.audio,
+					durationSeconds: context.shot.durationSeconds,
+					startFrame: context.shot.startFrame,
+					endFrame: context.shot.endFrame,
 					videoProvider: context.shot.videoProvider,
 					voiceProvider: context.shot.voiceProvider
 				},
 				inputs: context.inputs,
 				createdAt: new Date().toISOString()
 			};
-			await vscode.workspace.fs.writeFile(output, new TextEncoder().encode(`${JSON.stringify(payload, null, 2)}\n`));
-			return { outputs: [output], status: 'prepared' };
+			await vscode.workspace.fs.writeFile(requestOutput, new TextEncoder().encode(`${JSON.stringify(payload, null, 2)}\n`));
+			await vscode.workspace.fs.writeFile(previewOutput, new TextEncoder().encode(renderShotTextPrevisualization(context.project, context.shot, context.inputs)));
+			return { outputs: [requestOutput, previewOutput], status: 'prepared' };
 		}
 	};
 }
@@ -134,14 +148,18 @@ export function createNoVoiceProvider(): AIVideoVoiceGenerationProvider {
 }
 
 export function resolveAIVideoWorkflowInputs(project: AIProject, shotId: string): AIVideoWorkflowInputs {
-	const upstream = upstreamWorkflowNodeIds(project, shotId);
+	const upstream = upstreamContextNodeIds(project, shotId);
+	const prior = priorShotIds(project, shotId);
 	const characters = new Map(project.characters.map(character => [character.id, character]));
 	const scenes = new Map(project.scenes.map(scene => [scene.id, scene]));
+	const styles = new Map(project.styles.map(style => [style.id, style]));
 	const shots = new Map(project.shots.map(shot => [shot.id, shot]));
 	return {
+		brief: upstream.includes(AI_VIDEO_BRIEF_NODE_ID) ? project.brief : undefined,
 		script: upstream.includes(AI_VIDEO_SCRIPT_NODE_ID) ? project.script : undefined,
 		characters: upstream.flatMap(id => characters.get(id) ?? []),
 		scenes: upstream.flatMap(id => scenes.get(id) ?? []),
-		priorShots: upstream.flatMap(id => id === shotId ? [] : (shots.get(id) ?? []))
+		styles: upstream.flatMap(id => styles.get(id) ?? []),
+		priorShots: prior.flatMap(id => shots.get(id) ?? [])
 	};
 }

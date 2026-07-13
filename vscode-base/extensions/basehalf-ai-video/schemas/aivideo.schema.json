@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugins.basehalf.com/schemas/aivideo-v3.schema.json",
+  "title": "BaseHalf AI Video project",
+  "description": "A local, provider-neutral AI video production workflow.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "title",
+    "brief",
+    "script",
+    "characters",
+    "scenes",
+    "styles",
+    "shots",
+    "workflow",
+    "outputs"
+  ],
+  "properties": {
+    "version": { "const": 3 },
+    "title": { "type": "string" },
+    "brief": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "audience", "format", "aspectRatio", "targetDurationSeconds", "language"],
+      "properties": {
+        "objective": { "type": "string" },
+        "audience": { "type": "string" },
+        "format": { "type": "string" },
+        "aspectRatio": { "type": "string" },
+        "targetDurationSeconds": { "type": "number", "minimum": 1, "maximum": 3600 },
+        "language": { "type": "string" }
+      }
+    },
+    "script": { "type": "string" },
+    "characters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/character" }
+    },
+    "scenes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scene" }
+    },
+    "styles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/style" }
+    },
+    "shots": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/shot" }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" }
+        },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/edge" }
+        }
+      }
+    },
+    "outputs": { "$ref": "#/$defs/paths" }
+  },
+  "$defs": {
+    "paths": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "referenceFiles"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "referenceFiles": { "$ref": "#/$defs/paths" }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "continuity"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "continuity": { "type": "string" }
+      }
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "prompt", "negativePrompt", "referenceFiles"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" },
+        "referenceFiles": { "$ref": "#/$defs/paths" }
+      }
+    },
+    "shot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "sceneId",
+        "storyboard",
+        "camera",
+        "motion",
+        "prompt",
+        "negativePrompt",
+        "dialogue",
+        "audio",
+        "durationSeconds",
+        "startFrame",
+        "endFrame",
+        "videoProvider",
+        "voiceProvider",
+        "status",
+        "outputs"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "sceneId": { "type": "string" },
+        "storyboard": { "type": "string" },
+        "camera": { "type": "string" },
+        "motion": { "type": "string" },
+        "prompt": { "type": "string" },
+        "negativePrompt": { "type": "string" },
+        "dialogue": { "type": "string" },
+        "audio": { "type": "string" },
+        "durationSeconds": { "type": "number", "minimum": 1, "maximum": 120 },
+        "startFrame": { "type": "string" },
+        "endFrame": { "type": "string" },
+        "videoProvider": { "type": "string", "minLength": 1 },
+        "voiceProvider": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["draft", "prepared", "running", "complete", "error"] },
+        "outputs": { "$ref": "#/$defs/paths" },
+        "error": { "type": "string" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "position"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["brief", "script", "character", "scene", "style", "shot"] },
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "target", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["context", "sequence"] }
+      }
+    }
+  }
+}

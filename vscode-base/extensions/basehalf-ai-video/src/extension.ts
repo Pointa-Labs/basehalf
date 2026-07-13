@@ -6,7 +6,9 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { createAIVideoAgentBrief } from './agent';
 import { AIProject, createAIProject, parseAIProject, pendingShotIdsInWorkflowOrder, serializeAIProject } from './model';
+import { renderProjectTextPrevisualization } from './preview';
 import { aiProjectWebviewHtml } from './webview';
 import { AIVideoGenerationProvider, AIVideoGenerationProviderRegistry, AIVideoVoiceGenerationProvider, AIVideoVoiceGenerationProviderRegistry, createNoVoiceProvider, createPromptPackageProvider, resolveAIVideoWorkflowInputs } from './workflow';
 
@@ -138,6 +140,9 @@ class AIProjectController implements vscode.Disposable {
 				case 'reload':
 					await this.reload();
 					break;
+				case 'prepareAgent':
+					await this.prepareAgent(message);
+					break;
 				case 'runShot':
 					await this.runFromMessage(message, typeof message.shotId === 'string' ? [message.shotId] : []);
 					break;
@@ -170,6 +175,28 @@ class AIProjectController implements vscode.Disposable {
 		await this.post({ type: 'saved', revision: this.revision });
 	}
 
+	private async prepareAgent(message: Record<string, unknown>): Promise<void> {
+		if (this.running) {
+			throw new Error('Wait for the active workflow run to finish or cancel it before handing the project to an Agent.');
+		}
+		const project = projectFromMessage(message);
+		await this.writeProject(project, stringProperty(message, 'revision'));
+		await vscode.env.clipboard.writeText(createAIVideoAgentBrief(this.resource.fsPath, project));
+		let agentAreaOpened = true;
+		try {
+			await vscode.commands.executeCommand('basehalf.agentArea.newTab');
+		} catch {
+			agentAreaOpened = false;
+		}
+		await this.post({
+			type: 'agentReady',
+			revision: this.revision,
+			message: agentAreaOpened
+				? 'Agent build brief copied. Paste it into the new Agent tab.'
+				: 'Agent build brief copied. Paste it into your Agent.'
+		});
+	}
+
 	private async runFromMessage(message: Record<string, unknown>, requestedShotIds?: readonly string[]): Promise<void> {
 		if (this.running) {
 			throw new Error('A workflow is already running for this project.');
@@ -189,6 +216,7 @@ class AIProjectController implements vscode.Disposable {
 				this.throwIfCancelled(true);
 				await this.runShot(shotId);
 			}
+			await this.writeProjectTextPreview();
 		} finally {
 			this.running = false;
 			await this.postProject();
@@ -273,6 +301,16 @@ class AIProjectController implements vscode.Disposable {
 		await this.postProject();
 	}
 
+	private async writeProjectTextPreview(): Promise<void> {
+		const project = this.requireProject();
+		const root = outputRoot(this.resource);
+		await vscode.workspace.fs.createDirectory(root);
+		const output = vscode.Uri.joinPath(root, 'text-preview.md');
+		await vscode.workspace.fs.writeFile(output, new TextEncoder().encode(renderProjectTextPrevisualization(project)));
+		project.outputs = [portableOutputPath(this.resource, root, output)];
+		await this.writeProject(project, this.revision);
+	}
+
 	private async reload(): Promise<void> {
 		const state = await this.readProject();
 		this.project = state.project;
@@ -346,6 +384,7 @@ class AIProjectController implements vscode.Disposable {
 			type: 'project',
 			project: this.requireProject(),
 			revision: this.revision,
+			running: this.running,
 			videoProviders: this.videoProviders.list(),
 			voiceProviders: this.voiceProviders.list()
 		});

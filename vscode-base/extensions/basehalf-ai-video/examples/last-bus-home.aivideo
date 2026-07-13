@@ -1,0 +1,193 @@
+{
+  "version": 3,
+  "title": "末班车上的一封信",
+  "brief": {
+    "objective": "用一个克制的雨夜偶遇，讲清楚陌生人之间微小但真实的善意。结尾留下温暖，而不是煽情。",
+    "audience": "习惯在手机上观看叙事短视频的年轻观众",
+    "format": "竖屏微短片",
+    "aspectRatio": "9:16",
+    "targetDurationSeconds": 30,
+    "language": "普通话"
+  },
+  "script": "雨夜。林遥在末班车站台避雨，发现长椅下压着一封被雨水打湿的信。信封上写着‘沈岚收’，末班车恰好进站。林遥带着信上车，在最后一排找到沈岚，把信递给她。沈岚认出那是已故丈夫多年前写下、一直没有寄到的信。她没有拆开，只把信贴在胸口。车辆驶入城市雨幕。",
+  "characters": [
+    {
+      "id": "character-linyao",
+      "name": "林遥",
+      "description": "二十多岁的年轻女性，短黑发，暗红色防水外套，深灰双肩包。动作克制，观察细致。所有镜头保持同一外套、发型和背包。",
+      "referenceFiles": []
+    },
+    {
+      "id": "character-shenlan",
+      "name": "沈岚",
+      "description": "六十岁左右的女性，银灰短发，墨绿色呢子大衣，手里握着旧木柄雨伞。神情疲惫但温和。",
+      "referenceFiles": []
+    }
+  ],
+  "scenes": [
+    {
+      "id": "scene-bus-stop",
+      "name": "雨夜站台",
+      "description": "城市边缘的旧公交站。湿漉漉的深色混凝土地面，一盏偏暖的顶灯，长椅位于画面右侧，背景是被雨雾软化的道路灯光。",
+      "continuity": "雨势稳定。长椅始终在画面右侧。信封是米白色，右下角有一块明显水渍。林遥的外套和背包保持不变。"
+    },
+    {
+      "id": "scene-last-bus",
+      "name": "末班车内",
+      "description": "老式城市公交车内部，暖白顶灯，蓝灰色织物座椅，车窗布满雨痕，窗外路灯形成缓慢流动的暖色光斑。",
+      "continuity": "沈岚坐在最后一排靠窗位置。车辆持续向前，窗外光斑从右向左滑过。信封水渍和折痕保持一致。"
+    }
+  ],
+  "styles": [
+    {
+      "id": "style-rain-nocturne",
+      "name": "克制的雨夜写实",
+      "description": "安静、写实、近距离观察人物的夜间短片。画面不追求夸张奇观，情绪来自细节和停顿。",
+      "prompt": "Cinematic live action, restrained natural performances, cool blue rain shadows balanced by practical warm lights, subtle 35mm grain, realistic wet surfaces, gentle highlight bloom, natural skin texture, shallow depth of field only on close shots.",
+      "negativePrompt": "No fantasy glow, no exaggerated crying, no rapid montage, no text overlays, no wardrobe changes, no face drift, no extra fingers, no sudden weather change.",
+      "referenceFiles": []
+    }
+  ],
+  "shots": [
+    {
+      "id": "shot-envelope",
+      "title": "雨中的信",
+      "sceneId": "scene-bus-stop",
+      "storyboard": "镜头贴近地面。一封米白色信封被风从长椅下吹出半截，雨水落在右下角的旧水渍上。远处一双穿深色运动鞋的脚停住。",
+      "camera": "低机位近景，85mm 质感，锁定机位",
+      "motion": "信封边角被风轻轻掀动两次。雨滴持续落下。林遥的脚从画面左侧进入后停住，不切镜。",
+      "prompt": "Low locked close shot at wet pavement level beneath an old bus-stop bench. A worn ivory envelope with a dark water stain slides halfway out in the wind. Rain strikes the paper and concrete. A young woman's dark sneakers enter from frame left and stop beside it. Cool rain shadows, one warm practical lamp, realistic live action, subtle film grain. Continuous seamless five-second shot.",
+      "negativePrompt": "No camera movement, no cuts, no floating paper, no readable added text, no dry pavement, no duplicate feet.",
+      "dialogue": "",
+      "audio": "稳定雨声，远处车辆压过积水的声音，纸张轻擦地面。",
+      "durationSeconds": 5,
+      "startFrame": "",
+      "endFrame": "",
+      "videoProvider": "prompt-package",
+      "voiceProvider": "none",
+      "status": "draft",
+      "outputs": []
+    },
+    {
+      "id": "shot-pickup",
+      "title": "她捡起信",
+      "sceneId": "scene-bus-stop",
+      "storyboard": "林遥蹲下捡起信，用袖口轻轻擦掉表面雨水。她看到收件人姓名时停顿，背景道路上出现末班车的两束灯光。",
+      "camera": "中近景，略低角度，缓慢向前推进",
+      "motion": "林遥一次完成蹲下、拾起、擦拭和抬眼。镜头只推进很短距离。公交灯光在动作末尾进入背景焦外。",
+      "prompt": "Medium close shot from a slightly low angle. Lin Yao, a young woman with short black hair, a dark red rain jacket and charcoal backpack, crouches once and picks up the wet ivory envelope. She gently wipes rain from it with her sleeve, reads the recipient name, then pauses. A pair of approaching bus headlights blooms softly in the rainy background. The camera makes one slow restrained push in. Natural performance, cool blue rain shadows, warm practical light, realistic skin and wet fabric. Continuous six-second shot.",
+      "negativePrompt": "No wardrobe change, no face drift, no exaggerated surprise, no extra envelope, no fast zoom, no cuts.",
+      "dialogue": "林遥轻声念：沈岚。",
+      "audio": "雨声持续，衣料摩擦，远处公交发动机逐渐接近。",
+      "durationSeconds": 6,
+      "startFrame": "",
+      "endFrame": "",
+      "videoProvider": "prompt-package",
+      "voiceProvider": "none",
+      "status": "draft",
+      "outputs": []
+    },
+    {
+      "id": "shot-decision",
+      "title": "末班车到站",
+      "sceneId": "scene-bus-stop",
+      "storyboard": "林遥站在打开的车门前，一手护住信封。她先看信，再看车内，随后迈上车。车门边缘的暖光把她从蓝色雨幕中分离出来。",
+      "camera": "侧后方中景，35mm，轻微手持跟随",
+      "motion": "公交车门在画面右侧打开。林遥完成一次看信、抬头和上车动作。镜头跟随两步后停在门外。",
+      "prompt": "Medium shot from behind and slightly to the side. The last city bus opens its door at frame right, spilling warm interior light into cool blue rain. Lin Yao in the same dark red rain jacket protects the worn ivory envelope with one hand, looks down at it once, looks into the bus, and steps aboard. A restrained handheld camera follows for two steps and stops outside the door. Realistic wet street, subtle 35mm grain, natural movement. Continuous five-second shot.",
+      "negativePrompt": "No jump cut, no running, no wardrobe change, no duplicate bus, no dramatic lens flare, no camera entering the bus.",
+      "dialogue": "司机在车内说：最后一班了。",
+      "audio": "车门气动声，雨声，发动机怠速，车内提示音很轻。",
+      "durationSeconds": 5,
+      "startFrame": "",
+      "endFrame": "",
+      "videoProvider": "prompt-package",
+      "voiceProvider": "none",
+      "status": "draft",
+      "outputs": []
+    },
+    {
+      "id": "shot-recipient",
+      "title": "找到收件人",
+      "sceneId": "scene-last-bus",
+      "storyboard": "林遥沿过道走到最后一排。沈岚靠窗坐着，木柄雨伞立在膝边。林遥把信封递入画面，沈岚先看见姓名，再缓慢抬头。",
+      "camera": "过道方向中长焦跟随，最后停成双人中景",
+      "motion": "镜头在林遥身后平稳前移。到达最后一排后停住。林遥递信，沈岚只完成低头看信和抬头两个动作。",
+      "prompt": "A steady aisle tracking shot inside an old night bus. Lin Yao, unchanged in her dark red rain jacket and charcoal backpack, walks toward the last row holding the same wet ivory envelope. Shen Lan, a sixty-year-old woman with short silver hair and a dark green wool coat, sits by the rain-streaked window with an old wooden-handle umbrella beside her knee. The camera stops in a balanced two-shot as Lin Yao offers the envelope. Shen Lan sees her name on it, then slowly raises her eyes. Warm bus light, cool moving reflections, restrained natural acting, realistic live action. Continuous seven-second shot.",
+      "negativePrompt": "No extra passengers crossing frame, no face drift, no costume changes, no sudden camera orbit, no exaggerated crying, no cuts.",
+      "dialogue": "林遥说：请问，您是沈岚吗？这封信在站台下面。",
+      "audio": "低沉发动机声，雨刷节奏，车厢轻微震动，人物说话保持克制。",
+      "durationSeconds": 7,
+      "startFrame": "",
+      "endFrame": "",
+      "videoProvider": "prompt-package",
+      "voiceProvider": "none",
+      "status": "draft",
+      "outputs": []
+    },
+    {
+      "id": "shot-handoff",
+      "title": "信终于抵达",
+      "sceneId": "scene-last-bus",
+      "storyboard": "沈岚双手接过信，看见熟悉的字迹。她没有拆开，只把信轻轻贴在胸口，对林遥点头。车窗外的城市灯光继续向后流动。",
+      "camera": "手部特写起始，缓慢抬升到沈岚近景",
+      "motion": "双手完成一次交接。镜头缓慢抬升。沈岚把信贴到胸口，停顿一秒，轻轻点头。窗外光斑持续横向滑动。",
+      "prompt": "Begin on a close shot of two pairs of hands completing one careful handoff of the same wet ivory envelope. The camera slowly tilts up to Shen Lan in the same dark green wool coat. She recognizes the handwriting, holds the unopened letter softly against her chest, pauses for one second, and gives Lin Yao a small grateful nod. Rain-streaked bus windows behind her carry warm city lights drifting from right to left. Restrained emotion, realistic skin and hands, warm practical light against cool reflections, subtle film grain. Continuous seven-second shot.",
+      "negativePrompt": "No opening the envelope, no tears, no embrace, no added text, no extra fingers, no face drift, no camera cut, no stationary exterior lights.",
+      "dialogue": "沈岚轻声说：谢谢你。",
+      "audio": "雨刷规律摆动，发动机低鸣，短暂安静后一句很轻的谢谢。",
+      "durationSeconds": 7,
+      "startFrame": "",
+      "endFrame": "",
+      "videoProvider": "prompt-package",
+      "voiceProvider": "none",
+      "status": "draft",
+      "outputs": []
+    }
+  ],
+  "workflow": {
+    "nodes": [
+      { "id": "brief", "kind": "brief", "position": { "x": 80, "y": 180 } },
+      { "id": "script", "kind": "script", "position": { "x": 400, "y": 180 } },
+      { "id": "character-linyao", "kind": "character", "position": { "x": 400, "y": 430 } },
+      { "id": "character-shenlan", "kind": "character", "position": { "x": 400, "y": 650 } },
+      { "id": "style-rain-nocturne", "kind": "style", "position": { "x": 400, "y": 870 } },
+      { "id": "scene-bus-stop", "kind": "scene", "position": { "x": 720, "y": 120 } },
+      { "id": "scene-last-bus", "kind": "scene", "position": { "x": 720, "y": 570 } },
+      { "id": "shot-envelope", "kind": "shot", "position": { "x": 1060, "y": 60 } },
+      { "id": "shot-pickup", "kind": "shot", "position": { "x": 1380, "y": 60 } },
+      { "id": "shot-decision", "kind": "shot", "position": { "x": 1060, "y": 340 } },
+      { "id": "shot-recipient", "kind": "shot", "position": { "x": 1380, "y": 340 } },
+      { "id": "shot-handoff", "kind": "shot", "position": { "x": 1220, "y": 620 } }
+    ],
+    "edges": [
+      { "id": "edge-brief-script", "source": "brief", "target": "script", "kind": "context" },
+      { "id": "edge-brief-style", "source": "brief", "target": "style-rain-nocturne", "kind": "context" },
+      { "id": "edge-script-linyao", "source": "script", "target": "character-linyao", "kind": "context" },
+      { "id": "edge-script-shenlan", "source": "script", "target": "character-shenlan", "kind": "context" },
+      { "id": "edge-script-stop", "source": "script", "target": "scene-bus-stop", "kind": "context" },
+      { "id": "edge-script-bus", "source": "script", "target": "scene-last-bus", "kind": "context" },
+      { "id": "edge-stop-envelope", "source": "scene-bus-stop", "target": "shot-envelope", "kind": "context" },
+      { "id": "edge-stop-pickup", "source": "scene-bus-stop", "target": "shot-pickup", "kind": "context" },
+      { "id": "edge-stop-decision", "source": "scene-bus-stop", "target": "shot-decision", "kind": "context" },
+      { "id": "edge-bus-recipient", "source": "scene-last-bus", "target": "shot-recipient", "kind": "context" },
+      { "id": "edge-bus-handoff", "source": "scene-last-bus", "target": "shot-handoff", "kind": "context" },
+      { "id": "edge-linyao-pickup", "source": "character-linyao", "target": "shot-pickup", "kind": "context" },
+      { "id": "edge-linyao-decision", "source": "character-linyao", "target": "shot-decision", "kind": "context" },
+      { "id": "edge-linyao-recipient", "source": "character-linyao", "target": "shot-recipient", "kind": "context" },
+      { "id": "edge-linyao-handoff", "source": "character-linyao", "target": "shot-handoff", "kind": "context" },
+      { "id": "edge-shenlan-recipient", "source": "character-shenlan", "target": "shot-recipient", "kind": "context" },
+      { "id": "edge-shenlan-handoff", "source": "character-shenlan", "target": "shot-handoff", "kind": "context" },
+      { "id": "edge-style-envelope", "source": "style-rain-nocturne", "target": "shot-envelope", "kind": "context" },
+      { "id": "edge-style-pickup", "source": "style-rain-nocturne", "target": "shot-pickup", "kind": "context" },
+      { "id": "edge-style-decision", "source": "style-rain-nocturne", "target": "shot-decision", "kind": "context" },
+      { "id": "edge-style-recipient", "source": "style-rain-nocturne", "target": "shot-recipient", "kind": "context" },
+      { "id": "edge-style-handoff", "source": "style-rain-nocturne", "target": "shot-handoff", "kind": "context" },
+      { "id": "edge-sequence-1-2", "source": "shot-envelope", "target": "shot-pickup", "kind": "sequence" },
+      { "id": "edge-sequence-2-3", "source": "shot-pickup", "target": "shot-decision", "kind": "sequence" },
+      { "id": "edge-sequence-3-4", "source": "shot-decision", "target": "shot-recipient", "kind": "sequence" },
+      { "id": "edge-sequence-4-5", "source": "shot-recipient", "target": "shot-handoff", "kind": "sequence" }
+    ]
+  },
+  "outputs": []
+}

@@ -27,7 +27,9 @@ import '@xyflow/react/dist/base.css';
 import { StrictMode, useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+	AI_VIDEO_BRIEF_NODE_ID,
 	AI_VIDEO_SCRIPT_NODE_ID,
+	composeShotPrompt,
 	createId,
 	createWorkflowEdgeId,
 	invalidateDownstreamShots,
@@ -36,6 +38,7 @@ import {
 	workflowNodeKind,
 	type AIProject,
 	type AIProjectShotStatus,
+	type AIProjectWorkflowEdgeKind,
 	type AIProjectWorkflowNodeKind,
 	type AIProjectWorkflowPosition
 } from '../src/model';
@@ -59,8 +62,8 @@ interface WorkflowNodeData extends Record<string, unknown> {
 	readonly title: string;
 	readonly summary: string;
 	readonly metadata: string;
+	readonly readiness?: string;
 	readonly status?: AIProjectShotStatus;
-	readonly outputCount: number;
 	readonly running: boolean;
 	readonly workflowRunning: boolean;
 	readonly onRun: (nodeId: string) => void;
@@ -94,7 +97,7 @@ function WorkflowEditor(): JSX.Element {
 	const [status, setStatus] = useState<{ label: string; tone: StatusTone }>({ label: 'Saved', tone: 'normal' });
 	const [banner, setBanner] = useState<{ message: string; action?: 'reload' } | undefined>();
 	const [notice, setNotice] = useState<string | undefined>();
-	const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(AI_VIDEO_SCRIPT_NODE_ID);
+	const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(AI_VIDEO_BRIEF_NODE_ID);
 	const [selectedEdgeId, setSelectedEdgeId] = useState<string | undefined>();
 	const canvasRef = useRef<HTMLDivElement>(null);
 	const projectRef = useRef(project);
@@ -136,6 +139,11 @@ function WorkflowEditor(): JSX.Element {
 		vscode.postMessage({ type: 'runPending', project: projectRef.current, revision: revisionRef.current });
 	}, []);
 
+	const prepareAgent = useCallback((): void => {
+		vscode.postMessage({ type: 'prepareAgent', project: projectRef.current, revision: revisionRef.current });
+		setStatus({ label: 'Preparing Agent', tone: 'running' });
+	}, []);
+
 	useEffect(() => {
 		const listener = (event: MessageEvent): void => {
 			const message = event.data as Record<string, unknown>;
@@ -145,13 +153,20 @@ function WorkflowEditor(): JSX.Element {
 					updateDirty(false);
 					setRunningShotId(undefined);
 					break;
+				case 'agentReady':
+					setRevision(String(message.revision ?? ''));
+					updateDirty(false);
+					setNotice(String(message.message ?? 'Agent build brief copied.'));
+					break;
 				case 'project':
 					setProject(message.project as AIProject);
 					setRevision(String(message.revision ?? ''));
 					setVideoProviders((message.videoProviders as readonly ProviderOption[] | undefined) ?? initialState.videoProviders);
 					setVoiceProviders((message.voiceProviders as readonly ProviderOption[] | undefined) ?? initialState.voiceProviders);
 					updateDirty(false);
-					setRunningShotId(undefined);
+					if (message.running !== true) {
+						setRunningShotId(undefined);
+					}
 					setBanner(undefined);
 					break;
 				case 'providers':
@@ -215,32 +230,47 @@ function WorkflowEditor(): JSX.Element {
 		source: edge.source,
 		target: edge.target,
 		type: 'smoothstep',
+		className: `workflow-edge edge-${edge.kind}`,
 		selected: selectedEdgeId === edge.id,
+		animated: edge.target === runningShotId,
 		markerEnd: { type: MarkerType.ArrowClosed },
-		ariaLabel: `${nodeLabel(project, edge.source)} provides context to ${nodeLabel(project, edge.target)}`
-	})), [project, selectedEdgeId]);
+		ariaLabel: edge.kind === 'sequence'
+			? `${nodeLabel(project, edge.source)} continues into ${nodeLabel(project, edge.target)}`
+			: `${nodeLabel(project, edge.source)} provides context to ${nodeLabel(project, edge.target)}`
+	})), [project, runningShotId, selectedEdgeId]);
 
-	const addNode = useCallback((kind: Exclude<AIProjectWorkflowNodeKind, 'script'>): void => {
+	const addNode = useCallback((kind: Exclude<AIProjectWorkflowNodeKind, 'brief' | 'script'>): void => {
 		const bounds = canvasRef.current?.getBoundingClientRect();
 		const position = bounds
 			? reactFlow.screenToFlowPosition({ x: bounds.left + bounds.width * 0.52, y: bounds.top + bounds.height * 0.42 })
-			: { x: 420, y: 220 };
+			: { x: 520, y: 260 };
 		const nodeId = createId(kind);
 		editProject(next => {
 			switch (kind) {
 				case 'character':
-					next.characters.push({ id: nodeId, name: `Character ${next.characters.length + 1}`, description: '' });
+					next.characters.push({ id: nodeId, name: `Character ${next.characters.length + 1}`, description: '', referenceFiles: [] });
 					break;
 				case 'scene':
-					next.scenes.push({ id: nodeId, name: `Scene ${next.scenes.length + 1}`, description: '' });
+					next.scenes.push({ id: nodeId, name: `Scene ${next.scenes.length + 1}`, description: '', continuity: '' });
+					break;
+				case 'style':
+					next.styles.push({ id: nodeId, name: `Visual direction ${next.styles.length + 1}`, description: '', prompt: '', negativePrompt: '', referenceFiles: [] });
 					break;
 				case 'shot':
 					next.shots.push({
 						id: nodeId,
 						title: `Shot ${next.shots.length + 1}`,
 						sceneId: '',
+						storyboard: '',
+						camera: '',
+						motion: '',
 						prompt: '',
+						negativePrompt: '',
 						dialogue: '',
+						audio: '',
+						durationSeconds: 5,
+						startFrame: '',
+						endFrame: '',
 						videoProvider: videoProviders[0]?.id ?? 'prompt-package',
 						voiceProvider: 'none',
 						status: 'draft',
@@ -255,9 +285,9 @@ function WorkflowEditor(): JSX.Element {
 	}, [editProject, reactFlow, videoProviders]);
 
 	const removeNodes = useCallback((ids: readonly string[]): void => {
-		const removable = new Set(ids.filter(id => id !== AI_VIDEO_SCRIPT_NODE_ID));
+		const removable = new Set(ids.filter(id => id !== AI_VIDEO_BRIEF_NODE_ID && id !== AI_VIDEO_SCRIPT_NODE_ID));
 		if (!removable.size) {
-			setNotice('The Script node is required and cannot be removed.');
+			setNotice('Brief and Script are required workflow nodes.');
 			return;
 		}
 		editProject(next => {
@@ -266,6 +296,7 @@ function WorkflowEditor(): JSX.Element {
 				.map(edge => edge.target);
 			next.characters = next.characters.filter(item => !removable.has(item.id));
 			next.scenes = next.scenes.filter(item => !removable.has(item.id));
+			next.styles = next.styles.filter(item => !removable.has(item.id));
 			next.shots = next.shots.filter(item => !removable.has(item.id));
 			next.workflow.nodes = next.workflow.nodes.filter(node => !removable.has(node.id));
 			next.workflow.edges = next.workflow.edges.filter(edge => !removable.has(edge.source) && !removable.has(edge.target));
@@ -277,7 +308,14 @@ function WorkflowEditor(): JSX.Element {
 	}, [editProject]);
 
 	const removeEdges = useCallback((ids: readonly string[]): void => {
-		const removed = new Set(ids);
+		const protectedIds = new Set(projectRef.current.workflow.edges
+			.filter(edge => edge.source === AI_VIDEO_BRIEF_NODE_ID && edge.target === AI_VIDEO_SCRIPT_NODE_ID)
+			.map(edge => edge.id));
+		const removed = new Set(ids.filter(id => !protectedIds.has(id)));
+		if (!removed.size) {
+			setNotice('The Creative brief to Script connection is required.');
+			return;
+		}
 		editProject(next => {
 			const affectedTargets = next.workflow.edges.filter(edge => removed.has(edge.id)).map(edge => edge.target);
 			next.workflow.edges = next.workflow.edges.filter(edge => !removed.has(edge.id));
@@ -292,7 +330,7 @@ function WorkflowEditor(): JSX.Element {
 			return;
 		}
 		const validation = validateWorkflowConnection(projectRef.current, connection.source, connection.target);
-		if (!validation.valid) {
+		if (!validation.valid || !validation.kind) {
 			setNotice(validation.reason ?? 'This connection is not valid.');
 			return;
 		}
@@ -300,7 +338,8 @@ function WorkflowEditor(): JSX.Element {
 			next.workflow.edges.push({
 				id: createWorkflowEdgeId(connection.source!, connection.target!),
 				source: connection.source!,
-				target: connection.target!
+				target: connection.target!,
+				kind: validation.kind!
 			});
 			synchronizeShotSceneIds(next);
 			invalidateDownstreamShots(next, [connection.target!]);
@@ -334,10 +373,12 @@ function WorkflowEditor(): JSX.Element {
 				<div className={`save-status tone-${status.tone}`}>{status.label}</div>
 				<div className="topbar-actions">
 					{running && <button className="button danger" onClick={() => vscode.postMessage({ type: 'cancel' })}>Cancel</button>}
+					<button className="button secondary agent-action" disabled={running} onClick={prepareAgent}>Build with Agent</button>
 					<button className="button secondary" disabled={running} onClick={runPending}>Run pending</button>
 					<button className="button primary" disabled={!dirty || running} onClick={save}>Save</button>
 				</div>
 			</header>
+			<ProductionStrip project={project} onOpenOutput={path => vscode.postMessage({ type: 'openOutput', path })} />
 			{banner && (
 				<div className="banner" role="alert">
 					<span>{banner.message}</span>
@@ -353,7 +394,7 @@ function WorkflowEditor(): JSX.Element {
 						edges={flowEdges}
 						nodeTypes={nodeTypes}
 						fitView
-						fitViewOptions={{ padding: 0.24, maxZoom: 1 }}
+						fitViewOptions={{ padding: 0.2, maxZoom: 0.95 }}
 						minZoom={0.25}
 						maxZoom={1.8}
 						snapToGrid
@@ -381,6 +422,10 @@ function WorkflowEditor(): JSX.Element {
 							maskColor="color-mix(in srgb, var(--vscode-editor-background) 78%, transparent)"
 						/>
 					</ReactFlow>
+					<div className="edge-legend" aria-label="Connection legend">
+						<span><i className="context-line" />Context</span>
+						<span><i className="sequence-line" />Shot order</span>
+					</div>
 					{notice && <div className="canvas-notice" role="status"><span>{notice}</span><button className="icon-button" aria-label="Dismiss notice" onClick={() => setNotice(undefined)}>×</button></div>}
 				</main>
 				<Inspector
@@ -401,10 +446,25 @@ function WorkflowEditor(): JSX.Element {
 	);
 }
 
+function ProductionStrip({ project, onOpenOutput }: { readonly project: AIProject; readonly onOpenOutput: (path: string) => void }): JSX.Element {
+	const storyboardReady = project.shots.filter(shot => shot.storyboard.trim()).length;
+	const promptReady = project.shots.filter(shot => shot.prompt.trim()).length;
+	const outputs = project.shots.reduce((total, shot) => total + shot.outputs.length, 0);
+	return (
+		<div className="production-strip" aria-label="Production status">
+			<span><strong>{project.shots.length}</strong> shots</span>
+			<span><strong>{storyboardReady}</strong> storyboarded</span>
+			<span><strong>{promptReady}</strong> prompt ready</span>
+			<span><strong>{outputs}</strong> local outputs</span>
+			{project.outputs[0] && <button className="preview-link" onClick={() => onOpenOutput(project.outputs[0])}>Open text preview</button>}
+		</div>
+	);
+}
+
 function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowFlowNode>): JSX.Element {
 	return (
 		<div className={`workflow-node kind-${data.kind}${selected ? ' selected' : ''}${data.running ? ' running' : ''}`}>
-			{data.kind !== 'script' && <Handle type="target" position={Position.Left} aria-label="Input" />}
+			{data.kind !== 'brief' && <Handle type="target" position={Position.Left} aria-label="Context input" title="Context input" />}
 			<div className="node-header">
 				<span className="node-kind-key" aria-hidden="true">{nodeKindKey(data.kind)}</span>
 				<span className="node-kind-label">{nodeKindLabel(data.kind)}</span>
@@ -412,6 +472,7 @@ function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowFlowNode>): JSX.
 			</div>
 			<div className="node-title">{data.title}</div>
 			<div className="node-summary">{data.summary}</div>
+			{data.readiness && <div className="node-readiness">{data.readiness}</div>}
 			<div className="node-footer">
 				<span>{data.metadata}</span>
 				{data.kind === 'shot' && (
@@ -420,36 +481,43 @@ function WorkflowNodeCard({ data, selected }: NodeProps<WorkflowFlowNode>): JSX.
 					</button>
 				)}
 			</div>
-			<Handle type="source" position={Position.Right} aria-label="Output" />
+			<Handle type="source" position={Position.Right} aria-label={data.kind === 'shot' ? 'Context or shot sequence output' : 'Context output'} title="Output" />
 		</div>
 	);
 }
 
-function NodePalette({ onAdd }: { readonly onAdd: (kind: Exclude<AIProjectWorkflowNodeKind, 'script'>) => void }): JSX.Element {
+function NodePalette({ onAdd }: { readonly onAdd: (kind: Exclude<AIProjectWorkflowNodeKind, 'brief' | 'script'>) => void }): JSX.Element {
 	return (
 		<aside className="palette" aria-label="Workflow node library">
 			<div className="panel-heading">
-				<h2>Nodes</h2>
-				<p>Add context or executable work.</p>
+				<h2>Workflow</h2>
+				<p>Plan once. Reuse context across shots.</p>
 			</div>
-			<div className="palette-list">
-				<PaletteButton kind="character" label="Character" description="Identity and continuity" onAdd={onAdd} />
-				<PaletteButton kind="scene" label="Scene" description="Place, time, and mood" onAdd={onAdd} />
-				<PaletteButton kind="shot" label="Shot" description="Prompt and generation" onAdd={onAdd} />
-			</div>
+			<PaletteGroup label="Story">
+				<PaletteButton kind="character" label="Character" description="Identity and references" onAdd={onAdd} />
+				<PaletteButton kind="scene" label="Scene" description="Place and continuity" onAdd={onAdd} />
+				<PaletteButton kind="shot" label="Shot" description="Storyboard and execution" onAdd={onAdd} />
+			</PaletteGroup>
+			<PaletteGroup label="Direction">
+				<PaletteButton kind="style" label="Visual direction" description="Reusable look and constraints" onAdd={onAdd} />
+			</PaletteGroup>
 			<div className="palette-help">
-				<strong>Connect context</strong>
-				<p>Drag from a node's right port to another node's left port. Dependencies run from left to right.</p>
+				<strong>How nodes collaborate</strong>
+				<p>Context edges carry reusable creative input. Shot-to-shot edges preserve order and continuity.</p>
 			</div>
 		</aside>
 	);
 }
 
+function PaletteGroup({ label, children }: { readonly label: string; readonly children: ReactNode }): JSX.Element {
+	return <section className="palette-group"><h3>{label}</h3><div className="palette-list">{children}</div></section>;
+}
+
 function PaletteButton({ kind, label, description, onAdd }: {
-	readonly kind: Exclude<AIProjectWorkflowNodeKind, 'script'>;
+	readonly kind: Exclude<AIProjectWorkflowNodeKind, 'brief' | 'script'>;
 	readonly label: string;
 	readonly description: string;
-	readonly onAdd: (kind: Exclude<AIProjectWorkflowNodeKind, 'script'>) => void;
+	readonly onAdd: (kind: Exclude<AIProjectWorkflowNodeKind, 'brief' | 'script'>) => void;
 }): JSX.Element {
 	return (
 		<button className="palette-item" onClick={() => onAdd(kind)}>
@@ -476,12 +544,13 @@ function Inspector({ project, videoProviders, voiceProviders, selectedNodeId, se
 	if (edge) {
 		return (
 			<aside className="inspector">
-				<div className="panel-heading"><h2>Dependency</h2><p>Context flows into the target node.</p></div>
+				<div className="panel-heading"><h2>{edge.kind === 'sequence' ? 'Shot order' : 'Context flow'}</h2><p>{edge.kind === 'sequence' ? 'The target shot follows and may reuse the prior result.' : 'Reusable project context flows into the target.'}</p></div>
 				<div className="dependency-card">
 					<div><span>From</span><strong>{nodeLabel(project, edge.source)}</strong></div>
 					<div><span>To</span><strong>{nodeLabel(project, edge.target)}</strong></div>
+					<div><span>Meaning</span><strong>{edge.kind === 'sequence' ? 'Continuity' : 'Context'}</strong></div>
 				</div>
-				<button className="button danger full" onClick={() => onRemoveEdge(edge.id)}>Remove dependency</button>
+				<button className="button danger full" onClick={() => onRemoveEdge(edge.id)}>Remove connection</button>
 			</aside>
 		);
 	}
@@ -491,7 +560,7 @@ function Inspector({ project, videoProviders, voiceProviders, selectedNodeId, se
 			<aside className="inspector empty-inspector">
 				<div className="empty-mark" aria-hidden="true">+</div>
 				<h2>Select a node</h2>
-				<p>Edit its content, inspect dependencies, or run a shot.</p>
+				<p>Edit its creative content, inspect its inputs, or run one shot.</p>
 			</aside>
 		);
 	}
@@ -508,11 +577,11 @@ function Inspector({ project, videoProviders, voiceProviders, selectedNodeId, se
 				<NodeFields project={project} videoProviders={videoProviders} voiceProviders={voiceProviders} nodeId={selectedNodeId} kind={kind} editProject={editProject} onRunShot={onRunShot} running={running} onOpenOutput={onOpenOutput} />
 				<div className="connections">
 					<h3>Inputs</h3>
-					{incoming.length ? incoming.map(item => <ConnectionRow key={item.id} label={nodeLabel(project, item.source)} onRemove={() => onRemoveEdge(item.id)} />) : <p className="muted">No incoming context.</p>}
+					{incoming.length ? incoming.map(item => <ConnectionRow key={item.id} label={nodeLabel(project, item.source)} kind={item.kind} onRemove={() => onRemoveEdge(item.id)} />) : <p className="muted">No incoming context.</p>}
 					<h3>Outputs</h3>
-					{outgoing.length ? outgoing.map(item => <ConnectionRow key={item.id} label={nodeLabel(project, item.target)} onRemove={() => onRemoveEdge(item.id)} />) : <p className="muted">No downstream nodes.</p>}
+					{outgoing.length ? outgoing.map(item => <ConnectionRow key={item.id} label={nodeLabel(project, item.target)} kind={item.kind} onRemove={() => onRemoveEdge(item.id)} />) : <p className="muted">No downstream nodes.</p>}
 				</div>
-				{kind !== 'script' && <button className="button danger full" onClick={() => onRemoveNode(selectedNodeId)}>Delete node</button>}
+				{kind !== 'brief' && kind !== 'script' && <button className="button danger full" onClick={() => onRemoveNode(selectedNodeId)}>Delete node</button>}
 			</div>
 		</aside>
 	);
@@ -529,96 +598,194 @@ function NodeFields({ project, videoProviders, voiceProviders, nodeId, kind, edi
 	readonly running: boolean;
 	readonly onOpenOutput: (path: string) => void;
 }): JSX.Element {
+	if (kind === 'brief') {
+		return <>
+			<InspectorSection title="Intent">
+				<Field label="Objective"><textarea rows={6} value={project.brief.objective} placeholder="What should this video make the audience feel or understand?" onChange={event => editProject(next => {
+					next.brief.objective = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="Audience"><input value={project.brief.audience} placeholder="Who is this for?" onChange={event => editProject(next => {
+					next.brief.audience = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+			</InspectorSection>
+			<InspectorSection title="Delivery">
+				<Field label="Format"><input value={project.brief.format} onChange={event => editProject(next => {
+					next.brief.format = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<div className="field-row">
+					<Field label="Frame"><select value={project.brief.aspectRatio} onChange={event => editProject(next => {
+						next.brief.aspectRatio = event.target.value;
+						invalidateDownstreamShots(next, [nodeId]);
+					})}><option value="9:16">9:16</option><option value="16:9">16:9</option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="21:9">21:9</option></select></Field>
+					<Field label="Seconds"><input type="number" min="1" max="3600" value={project.brief.targetDurationSeconds} onChange={event => editProject(next => {
+						next.brief.targetDurationSeconds = numberInput(event.target.value, 30);
+						invalidateDownstreamShots(next, [nodeId]);
+					})} /></Field>
+				</div>
+				<Field label="Language"><input value={project.brief.language} onChange={event => editProject(next => {
+					next.brief.language = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+			</InspectorSection>
+		</>;
+	}
 	if (kind === 'script') {
-		return <Field label="Script"><textarea rows={14} value={project.script} placeholder="Write or paste the episode script." onChange={event => editProject(next => {
+		return <InspectorSection title="Story"><Field label="Script"><textarea rows={18} value={project.script} placeholder="Write the beats, action, dialogue, and narration." onChange={event => editProject(next => {
 			next.script = event.target.value;
 			invalidateDownstreamShots(next, [nodeId]);
-		})} /></Field>;
+		})} /></Field></InspectorSection>;
 	}
 	if (kind === 'character') {
 		const character = project.characters.find(item => item.id === nodeId)!;
 		return <>
-			<Field label="Name"><input value={character.name} onChange={event => editProject(next => {
-				next.characters.find(item => item.id === nodeId)!.name = event.target.value;
+			<InspectorSection title="Identity">
+				<Field label="Name"><input value={character.name} onChange={event => editProject(next => {
+					next.characters.find(item => item.id === nodeId)!.name = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="Continuity description"><textarea rows={8} value={character.description} placeholder="Stable appearance, wardrobe, manner, and identity cues." onChange={event => editProject(next => {
+					next.characters.find(item => item.id === nodeId)!.description = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+			</InspectorSection>
+			<InspectorSection title="References"><PathListField value={character.referenceFiles} onChange={value => editProject(next => {
+				next.characters.find(item => item.id === nodeId)!.referenceFiles = value;
 				invalidateDownstreamShots(next, [nodeId]);
-			})} /></Field>
-			<Field label="Description"><textarea rows={8} value={character.description} placeholder="Appearance, identity, and continuity notes." onChange={event => editProject(next => {
-				next.characters.find(item => item.id === nodeId)!.description = event.target.value;
-				invalidateDownstreamShots(next, [nodeId]);
-			})} /></Field>
+			})} /></InspectorSection>
 		</>;
 	}
 	if (kind === 'scene') {
 		const scene = project.scenes.find(item => item.id === nodeId)!;
 		return <>
-			<Field label="Name"><input value={scene.name} onChange={event => editProject(next => {
-				next.scenes.find(item => item.id === nodeId)!.name = event.target.value;
+			<InspectorSection title="Setting">
+				<Field label="Name"><input value={scene.name} onChange={event => editProject(next => {
+					next.scenes.find(item => item.id === nodeId)!.name = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="What the audience sees"><textarea rows={8} value={scene.description} placeholder="Place, time, atmosphere, lighting, and spatial layout." onChange={event => editProject(next => {
+					next.scenes.find(item => item.id === nodeId)!.description = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+			</InspectorSection>
+			<InspectorSection title="Continuity"><Field label="Keep stable across shots"><textarea rows={5} value={scene.continuity} placeholder="Objects, weather, screen direction, and state that must not drift." onChange={event => editProject(next => {
+				next.scenes.find(item => item.id === nodeId)!.continuity = event.target.value;
 				invalidateDownstreamShots(next, [nodeId]);
-			})} /></Field>
-			<Field label="Description"><textarea rows={8} value={scene.description} placeholder="Place, time, mood, and visual continuity." onChange={event => editProject(next => {
-				next.scenes.find(item => item.id === nodeId)!.description = event.target.value;
+			})} /></Field></InspectorSection>
+		</>;
+	}
+	if (kind === 'style') {
+		const style = project.styles.find(item => item.id === nodeId)!;
+		return <>
+			<InspectorSection title="Visual system">
+				<Field label="Name"><input value={style.name} onChange={event => editProject(next => {
+					next.styles.find(item => item.id === nodeId)!.name = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="Creative direction"><textarea rows={6} value={style.description} placeholder="The visual principles behind the look." onChange={event => editProject(next => {
+					next.styles.find(item => item.id === nodeId)!.description = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="Reusable prompt"><textarea rows={6} value={style.prompt} placeholder="Lighting, texture, palette, lens character, and finish." onChange={event => editProject(next => {
+					next.styles.find(item => item.id === nodeId)!.prompt = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+				<Field label="Avoid"><textarea rows={3} value={style.negativePrompt} placeholder="Provider-neutral exclusions or failure modes." onChange={event => editProject(next => {
+					next.styles.find(item => item.id === nodeId)!.negativePrompt = event.target.value;
+					invalidateDownstreamShots(next, [nodeId]);
+				})} /></Field>
+			</InspectorSection>
+			<InspectorSection title="References"><PathListField value={style.referenceFiles} onChange={value => editProject(next => {
+				next.styles.find(item => item.id === nodeId)!.referenceFiles = value;
 				invalidateDownstreamShots(next, [nodeId]);
-			})} /></Field>
+			})} /></InspectorSection>
 		</>;
 	}
 	const shot = project.shots.find(item => item.id === nodeId)!;
 	return <>
-		<Field label="Title"><input value={shot.title} onChange={event => editProject(next => {
-			next.shots.find(item => item.id === nodeId)!.title = event.target.value;
-			invalidateDownstreamShots(next, [nodeId]);
-		})} /></Field>
-		<Field label="Visual prompt"><textarea rows={7} value={shot.prompt} placeholder="Camera, action, composition, lighting, and continuity." onChange={event => editProject(next => {
-			next.shots.find(candidate => candidate.id === nodeId)!.prompt = event.target.value;
-			invalidateDownstreamShots(next, [nodeId]);
-		})} /></Field>
-		<Field label="Dialogue or narration"><textarea rows={5} value={shot.dialogue} placeholder="Dialogue, narration, or voice direction." onChange={event => editProject(next => {
-			next.shots.find(candidate => candidate.id === nodeId)!.dialogue = event.target.value;
-			invalidateDownstreamShots(next, [nodeId]);
-		})} /></Field>
-		<Field label="Generation provider"><select value={shot.videoProvider} onChange={event => editProject(next => {
-			next.shots.find(candidate => candidate.id === nodeId)!.videoProvider = event.target.value;
-			invalidateDownstreamShots(next, [nodeId]);
-		})}>{videoProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></Field>
-		<Field label="Voice provider"><select value={shot.voiceProvider} onChange={event => editProject(next => {
-			next.shots.find(item => item.id === nodeId)!.voiceProvider = event.target.value;
-			invalidateDownstreamShots(next, [nodeId]);
-		})}>{voiceProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></Field>
+		<InspectorSection title="Storyboard">
+			<Field label="Shot title"><input value={shot.title} onChange={event => editProject(next => updateShot(next, nodeId, value => { value.title = event.target.value; }))} /></Field>
+			<Field label="What happens on screen"><textarea rows={7} value={shot.storyboard} placeholder="One clear visual beat. Describe the start, action, and end state." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.storyboard = event.target.value; }))} /></Field>
+			<div className="field-row">
+				<Field label="Camera"><input value={shot.camera} placeholder="Medium tracking shot" onChange={event => editProject(next => updateShot(next, nodeId, value => { value.camera = event.target.value; }))} /></Field>
+				<Field label="Seconds"><input type="number" min="1" max="120" value={shot.durationSeconds} onChange={event => editProject(next => updateShot(next, nodeId, value => { value.durationSeconds = numberInput(event.target.value, 5); }))} /></Field>
+			</div>
+			<Field label="Motion and timing"><textarea rows={4} value={shot.motion} placeholder="Subject action, environmental motion, camera movement, direction, and pace." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.motion = event.target.value; }))} /></Field>
+		</InspectorSection>
+		<InspectorSection title="Execution prompt" action={<button className="text-button" onClick={() => editProject(next => updateShot(next, nodeId, value => { value.prompt = composeShotPrompt(next, nodeId); }))}>Compose from context</button>}>
+			<Field label="Prompt"><textarea rows={9} value={shot.prompt} placeholder="Direct visual and motion instructions for the selected provider." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.prompt = event.target.value; }))} /></Field>
+			<Field label="Avoid"><textarea rows={3} value={shot.negativePrompt} placeholder="Unwanted content or motion. Connectors may translate this for provider support." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.negativePrompt = event.target.value; }))} /></Field>
+			<Field label="First frame file"><input value={shot.startFrame} placeholder="Optional local project path" onChange={event => editProject(next => updateShot(next, nodeId, value => { value.startFrame = event.target.value; }))} /></Field>
+			<Field label="Last frame file"><input value={shot.endFrame} placeholder="Optional local project path" onChange={event => editProject(next => updateShot(next, nodeId, value => { value.endFrame = event.target.value; }))} /></Field>
+			<Field label="Generation provider"><select value={shot.videoProvider} onChange={event => editProject(next => updateShot(next, nodeId, value => { value.videoProvider = event.target.value; }))}>{videoProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></Field>
+		</InspectorSection>
+		<InspectorSection title="Dialogue and sound">
+			<Field label="Dialogue or narration"><textarea rows={5} value={shot.dialogue} placeholder="Exact spoken content and delivery direction." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.dialogue = event.target.value; }))} /></Field>
+			<Field label="Sound direction"><textarea rows={4} value={shot.audio} placeholder="Ambient sound, effects, rhythm, and silence." onChange={event => editProject(next => updateShot(next, nodeId, value => { value.audio = event.target.value; }))} /></Field>
+			<Field label="Voice provider"><select value={shot.voiceProvider} onChange={event => editProject(next => updateShot(next, nodeId, value => { value.voiceProvider = event.target.value; }))}>{voiceProviders.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select></Field>
+		</InspectorSection>
 		<div className="shot-run-row"><span className={`node-status status-${shot.status}`}>{shot.status}</span><button className="button primary" disabled={running} onClick={() => onRunShot(nodeId)}>Run shot</button></div>
 		{shot.error && <div className="inline-error">{shot.error}</div>}
 		{shot.outputs.length > 0 && <div className="output-list"><h3>Local outputs</h3>{shot.outputs.map(output => <button key={output} className="output-link" title={output} onClick={() => onOpenOutput(output)}>{output}</button>)}</div>}
 	</>;
 }
 
+function InspectorSection({ title, action, children }: { readonly title: string; readonly action?: ReactNode; readonly children: ReactNode }): JSX.Element {
+	return <section className="inspector-section"><div className="section-heading"><h3>{title}</h3>{action}</div>{children}</section>;
+}
+
 function Field({ label, children }: { readonly label: string; readonly children: ReactNode }): JSX.Element {
 	return <label className="field"><span>{label}</span>{children}</label>;
 }
 
-function ConnectionRow({ label, onRemove }: { readonly label: string; readonly onRemove: () => void }): JSX.Element {
-	return <div className="connection-row"><span>{label}</span><button className="icon-button" aria-label={`Remove connection to ${label}`} onClick={onRemove}>×</button></div>;
+function PathListField({ value, onChange }: { readonly value: readonly string[]; readonly onChange: (value: string[]) => void }): JSX.Element {
+	return <Field label="Local project paths"><textarea rows={5} value={value.join('\n')} placeholder="One relative file path per line" onChange={event => onChange(event.target.value.split('\n').map(item => item.trim()).filter(Boolean))} /></Field>;
+}
+
+function ConnectionRow({ label, kind, onRemove }: { readonly label: string; readonly kind: AIProjectWorkflowEdgeKind; readonly onRemove: () => void }): JSX.Element {
+	return <div className="connection-row"><span className={`connection-kind edge-${kind}`} title={kind}>{kind === 'sequence' ? 'S' : 'C'}</span><span>{label}</span><button className="icon-button" aria-label={`Remove connection to ${label}`} onClick={onRemove}>×</button></div>;
+}
+
+function updateShot(project: AIProject, nodeId: string, mutation: (shot: AIProject['shots'][number]) => void): void {
+	const shot = project.shots.find(item => item.id === nodeId);
+	if (shot) {
+		mutation(shot);
+		invalidateDownstreamShots(project, [nodeId]);
+	}
 }
 
 function workflowNodeData(project: AIProject, nodeId: string, runningShotId: string | undefined, onRun: (nodeId: string) => void): WorkflowNodeData {
 	const kind = workflowNodeKind(project, nodeId)!;
+	if (kind === 'brief') {
+		return { nodeId, kind, title: project.title, summary: summarize(project.brief.objective, 'Define the objective and delivery constraints.'), metadata: `${project.brief.aspectRatio} · ${project.brief.targetDurationSeconds}s`, readiness: project.brief.objective ? 'Creative intent set' : 'Needs objective', running: false, workflowRunning: runningShotId !== undefined, onRun };
+	}
 	if (kind === 'script') {
-		return { nodeId, kind, title: 'Project script', summary: summarize(project.script, 'Add the story and structure.'), metadata: `${project.script.length} characters`, outputCount: 0, running: false, workflowRunning: runningShotId !== undefined, onRun };
+		return { nodeId, kind, title: 'Project script', summary: summarize(project.script, 'Write the beats, action, and dialogue.'), metadata: `${project.script.length} characters`, readiness: project.script.trim() ? 'Story source ready' : 'Needs script', running: false, workflowRunning: runningShotId !== undefined, onRun };
 	}
 	if (kind === 'character') {
 		const item = project.characters.find(candidate => candidate.id === nodeId)!;
-		return { nodeId, kind, title: item.name, summary: summarize(item.description, 'Describe identity and continuity.'), metadata: 'Context', outputCount: 0, running: false, workflowRunning: runningShotId !== undefined, onRun };
+		return { nodeId, kind, title: item.name, summary: summarize(item.description, 'Describe stable identity and appearance.'), metadata: item.referenceFiles.length ? `${item.referenceFiles.length} references` : 'Context', readiness: item.description.trim() ? 'Continuity ready' : 'Needs identity', running: false, workflowRunning: runningShotId !== undefined, onRun };
 	}
 	if (kind === 'scene') {
 		const item = project.scenes.find(candidate => candidate.id === nodeId)!;
-		return { nodeId, kind, title: item.name, summary: summarize(item.description, 'Describe place, time, and mood.'), metadata: 'Context', outputCount: 0, running: false, workflowRunning: runningShotId !== undefined, onRun };
+		return { nodeId, kind, title: item.name, summary: summarize(item.description, 'Describe place, time, and atmosphere.'), metadata: item.continuity ? 'Continuity set' : 'Context', readiness: item.description.trim() ? 'Setting ready' : 'Needs setting', running: false, workflowRunning: runningShotId !== undefined, onRun };
+	}
+	if (kind === 'style') {
+		const item = project.styles.find(candidate => candidate.id === nodeId)!;
+		return { nodeId, kind, title: item.name, summary: summarize(item.prompt || item.description, 'Define a reusable visual system.'), metadata: item.referenceFiles.length ? `${item.referenceFiles.length} references` : 'Context', readiness: item.prompt.trim() ? 'Prompt reusable' : 'Needs direction', running: false, workflowRunning: runningShotId !== undefined, onRun };
 	}
 	const item = project.shots.find(candidate => candidate.id === nodeId)!;
+	const readiness = item.storyboard.trim() && item.prompt.trim() ? 'Ready to run' : item.storyboard.trim() ? 'Needs execution prompt' : 'Needs storyboard';
 	return {
 		nodeId,
 		kind,
 		title: item.title,
-		summary: summarize(item.prompt, 'Add a visual prompt.'),
-		metadata: item.outputs.length ? `${item.outputs.length} local output${item.outputs.length === 1 ? '' : 's'}` : item.videoProvider,
+		summary: summarize(item.storyboard, 'Describe one visual beat.'),
+		metadata: item.outputs.length ? `${item.outputs.length} local output${item.outputs.length === 1 ? '' : 's'}` : `${item.durationSeconds}s · ${item.videoProvider}`,
+		readiness,
 		status: item.status,
-		outputCount: item.outputs.length,
 		running: runningShotId === nodeId,
 		workflowRunning: runningShotId !== undefined,
 		onRun
@@ -627,6 +794,9 @@ function workflowNodeData(project: AIProject, nodeId: string, runningShotId: str
 
 function nodeLabel(project: AIProject, nodeId: string): string {
 	const kind = workflowNodeKind(project, nodeId);
+	if (kind === 'brief') {
+		return 'Creative brief';
+	}
 	if (kind === 'script') {
 		return 'Project script';
 	}
@@ -636,6 +806,9 @@ function nodeLabel(project: AIProject, nodeId: string): string {
 	if (kind === 'scene') {
 		return project.scenes.find(item => item.id === nodeId)?.name ?? nodeId;
 	}
+	if (kind === 'style') {
+		return project.styles.find(item => item.id === nodeId)?.name ?? nodeId;
+	}
 	if (kind === 'shot') {
 		return project.shots.find(item => item.id === nodeId)?.title ?? nodeId;
 	}
@@ -643,16 +816,21 @@ function nodeLabel(project: AIProject, nodeId: string): string {
 }
 
 function nodeKindKey(kind: AIProjectWorkflowNodeKind): string {
-	return kind === 'script' ? 'S' : kind === 'character' ? 'C' : kind === 'scene' ? 'SC' : 'SH';
+	return kind === 'brief' ? 'B' : kind === 'script' ? 'S' : kind === 'character' ? 'C' : kind === 'scene' ? 'SC' : kind === 'style' ? 'V' : 'SH';
 }
 
 function nodeKindLabel(kind: AIProjectWorkflowNodeKind): string {
-	return kind === 'script' ? 'Script' : kind === 'character' ? 'Character' : kind === 'scene' ? 'Scene' : 'Shot';
+	return kind === 'brief' ? 'Brief' : kind === 'script' ? 'Script' : kind === 'character' ? 'Character' : kind === 'scene' ? 'Scene' : kind === 'style' ? 'Visual direction' : 'Shot';
 }
 
 function summarize(value: string, fallback: string): string {
 	const compact = value.trim().replace(/\s+/g, ' ');
 	return compact ? (compact.length > 120 ? `${compact.slice(0, 117)}...` : compact) : fallback;
+}
+
+function numberInput(value: string, fallback: number): number {
+	const parsed = value.trim() ? Number(value) : Number.NaN;
+	return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 createRoot(rootElement).render(<StrictMode><App /></StrictMode>);
