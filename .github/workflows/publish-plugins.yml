@@ -101,6 +101,7 @@ jobs:
         working-directory: vscode-base
         run: |
           npm run gulp compile-extension:basehalf-ai-video
+          node extensions/basehalf-ai-video/esbuild.webview.mts
           npm run basehalf:plugin:package -- --output "$GITHUB_WORKSPACE/release"
           node -e 'const fs=require("fs"),path=require("path"),crypto=require("crypto");const dir=process.argv[1],file=fs.readdirSync(dir).find(x=>x.endsWith(".vsix"));if(!file)throw Error("VSIX missing");const p=path.join(dir,file),m=require("./extensions/basehalf-ai-video/package.json"),b=fs.readFileSync(p),h=crypto.createHash("sha256").update(b).digest("hex");fs.writeFileSync(path.join(dir,"metadata.json"),JSON.stringify({extensionId:`${m.publisher}.${m.name}`.toLowerCase(),version:m.version,assetPath:`${m.publisher}.${m.name}/${m.version}/${h}.vsix`,sha256:h,size:b.length,vsixPath:p}))' "$GITHUB_WORKSPACE/release"
 

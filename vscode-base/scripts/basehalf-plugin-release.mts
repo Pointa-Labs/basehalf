@@ -34,6 +34,11 @@ export async function packagePlugin(options: { root: string; outputDirectory: st
 	if (!fs.existsSync(path.join(extensionRoot, 'out', 'extension.js'))) {
 		throw new Error('AI Video is not compiled. Run the extension compile task before packaging.');
 	}
+	for (const asset of ['main.js', 'main.css']) {
+		if (!fs.existsSync(path.join(extensionRoot, 'dist', asset))) {
+			throw new Error(`AI Video webview asset '${asset}' is missing. Run its webview build before packaging.`);
+		}
+	}
 	fs.mkdirSync(options.outputDirectory, { recursive: true });
 	const vsixPath = path.join(options.outputDirectory, `${extensionId}-${manifest.version}.vsix`);
 	await createVSIX({ cwd: extensionRoot, packagePath: vsixPath, dependencies: false });
@@ -101,7 +106,7 @@ export function createCatalog(options: {
 		plugins: [{
 			extensionId: options.metadata.extensionId,
 			label: 'AI Video',
-			description: 'Scripts, characters, scenes, shots, and provider-neutral local generation workflows.',
+			description: 'A node workflow canvas for scripts, characters, scenes, shots, and provider-neutral local generation.',
 			category: 'Domain',
 			versions: nextVersions
 		}, ...otherPlugins]

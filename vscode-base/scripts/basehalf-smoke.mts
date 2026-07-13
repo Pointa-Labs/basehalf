@@ -1379,7 +1379,7 @@ async function assertCuratedPluginManager(page) {
 	const sidebarRow = pluginsView.locator('[data-extension-id="pointa.basehalf-ai-video"]', { hasText: 'AI Video' }).first();
 	await sidebarRow.waitFor({ state: 'visible', timeout: 15_000 });
 	const sidebarText = (await pluginsView.textContent()) ?? '';
-	if (!sidebarText.includes('Scripts, characters, scenes, shots') || sidebarText.includes('Marketplace')) {
+	if (!sidebarText.includes('node workflow canvas') || sidebarText.includes('Marketplace')) {
 		throw new Error(`The native Plugins view exposed an unexpected catalog: ${sidebarText.replace(/\s+/g, ' ').trim()}`);
 	}
 	if (!await sidebarRow.locator('.extension-list-item').count()) {
@@ -1407,7 +1407,7 @@ async function assertCuratedPluginManager(page) {
 	const row = library.locator('.basehalf-plugin-library-row', { hasText: 'AI Video' }).first();
 	await row.waitFor({ state: 'visible', timeout: 15_000 });
 	const allText = (await library.textContent()) ?? '';
-	if (!allText.includes('Scripts, characters, scenes, shots')) {
+	if (!allText.includes('node workflow canvas')) {
 		throw new Error('The Plugin Library did not describe the AI Video domain plugin');
 	}
 	if (allText.includes('Marketplace')) {
@@ -1590,12 +1590,30 @@ async function assertAIVideoProject(page) {
 	if (await pressed.getAttribute('aria-pressed') !== 'true') {
 		throw new Error('The .aivideo resource did not select the plugin projection by default');
 	}
-	await findAIVideoFrame(page);
+	const frame = await findAIVideoFrame(page);
+	await frame.locator('.react-flow__node-workflow').first().waitFor({ state: 'visible', timeout: 10_000 });
+	if (await frame.locator('.workflow-node.kind-script').count() !== 1 || await frame.locator('.workflow-node.kind-scene').count() < 1 || await frame.locator('.workflow-node.kind-shot').count() < 1) {
+		throw new Error('The AI Video workflow canvas did not render its Script, Scene, and Shot nodes');
+	}
+	if (await frame.locator('.react-flow__edge').count() < 2) {
+		throw new Error('The AI Video workflow canvas did not render its dependency edges');
+	}
+	const edgeCount = await frame.locator('.react-flow__edge').count();
+	const characterOutput = await frame.locator('.workflow-node.kind-character .react-flow__handle-right').first().boundingBox();
+	const shotInput = await frame.locator('.workflow-node.kind-shot .react-flow__handle-left').first().boundingBox();
+	if (!characterOutput || !shotInput) {
+		throw new Error('The AI Video workflow nodes did not expose connectable input and output ports');
+	}
+	await page.mouse.move(characterOutput.x + characterOutput.width / 2, characterOutput.y + characterOutput.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(shotInput.x + shotInput.width / 2, shotInput.y + shotInput.height / 2, { steps: 16 });
+	await page.mouse.up();
+	await frame.locator('.react-flow__edge').nth(edgeCount).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 async function assertAIVideoLocalWorkflow(page) {
 	const frame = await findAIVideoFrame(page);
-	await frame.locator('button[data-action="run-shot"]').first().click();
+	await frame.locator('.workflow-node.kind-shot .node-run').first().click();
 	const output = path.join(workspacePath, 'docs', 'episode.outputs', 'shot-smoke', 'request.json');
 	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
 	const started = Date.now();
@@ -1604,7 +1622,7 @@ async function assertAIVideoLocalWorkflow(page) {
 			const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
 			if (project.shots?.[0]?.status === 'prepared' && project.shots[0].outputs?.[0] === 'episode.outputs/shot-smoke/request.json') {
 				const request = JSON.parse(fs.readFileSync(output, 'utf8'));
-				if (request.shot?.id !== 'shot-smoke' || request.project !== 'Episode') {
+				if (request.shot?.id !== 'shot-smoke' || request.project !== 'Episode' || request.inputs?.script !== 'A short local-first scene.' || request.inputs?.characters?.[0]?.id !== 'character-smoke' || request.inputs?.scenes?.[0]?.id !== 'scene-smoke') {
 					throw new Error('The local prompt-package output did not preserve project and shot context');
 				}
 				return;
@@ -1617,17 +1635,18 @@ async function assertAIVideoLocalWorkflow(page) {
 
 async function assertAIVideoDirtyNavigationGuard(page) {
 	const frame = await findAIVideoFrame(page);
-	const title = frame.locator('[data-project-field="title"]');
+	const title = frame.locator('.project-title');
 	await title.fill('Episode with unsaved UI edit');
-	await frame.locator('#status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.save-status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.workflow-node.kind-shot .node-status', { hasText: 'draft' }).first().waitFor({ state: 'visible', timeout: 10_000 });
 	// Let the webview dirty signal cross the extension-host boundary before
 	// attempting a BaseHalf navigation operation.
 	await page.waitForTimeout(250);
 	await openExplorerRow(page, 'README.md');
 	await assertCardDetail(page, 'episode.aivideo');
 
-	await frame.locator('button[data-action="save"]').click();
-	await frame.locator('#status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	await frame.locator('.topbar-actions .button.primary', { hasText: 'Save' }).click();
+	await frame.locator('.save-status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
 	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
 	await waitUntil(() => fs.readFileSync(projectPath, 'utf8').includes('Episode with unsaved UI edit'), 'AI Video explicit save to reach disk');
 	await openExplorerRow(page, 'README.md');
@@ -1638,7 +1657,7 @@ async function findAIVideoFrame(page) {
 	const started = Date.now();
 	while (Date.now() - started < 15_000) {
 		for (const frame of page.frames()) {
-			if (await frame.locator('h2', { hasText: 'Shots & workflow' }).count().catch(() => 0) > 0) {
+			if (await frame.locator('.workflow-app').count().catch(() => 0) > 0) {
 				return frame;
 			}
 		}

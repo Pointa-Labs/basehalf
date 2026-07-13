@@ -4,12 +4,20 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { AIProject, AIProjectShot } from './model';
+import { AIProject, AIProjectCharacter, AIProjectScene, AIProjectShot, AI_VIDEO_SCRIPT_NODE_ID, upstreamWorkflowNodeIds } from './model';
+
+export interface AIVideoWorkflowInputs {
+	readonly script?: string;
+	readonly characters: readonly AIProjectCharacter[];
+	readonly scenes: readonly AIProjectScene[];
+	readonly priorShots: readonly AIProjectShot[];
+}
 
 export interface AIVideoGenerationContext {
 	readonly projectUri: vscode.Uri;
 	readonly project: AIProject;
 	readonly shot: AIProjectShot;
+	readonly inputs: AIVideoWorkflowInputs;
 	readonly outputDirectory: vscode.Uri;
 	readonly token: vscode.CancellationToken;
 }
@@ -25,12 +33,32 @@ export interface AIVideoGenerationProvider {
 	generate(context: AIVideoGenerationContext): vscode.ProviderResult<AIVideoGenerationResult>;
 }
 
-export class AIVideoGenerationProviderRegistry implements vscode.Disposable {
-	private readonly providers = new Map<string, AIVideoGenerationProvider>();
+export interface AIVideoVoiceGenerationContext extends AIVideoGenerationContext {
+	readonly videoOutputs: readonly vscode.Uri[];
+}
+
+export interface AIVideoVoiceGenerationResult {
+	readonly outputs: readonly vscode.Uri[];
+	readonly status?: 'prepared' | 'complete';
+}
+
+export interface AIVideoVoiceGenerationProvider {
+	readonly id: string;
+	readonly label: string;
+	generate(context: AIVideoVoiceGenerationContext): vscode.ProviderResult<AIVideoVoiceGenerationResult>;
+}
+
+interface AIVideoProviderIdentity {
+	readonly id: string;
+	readonly label: string;
+}
+
+class AIVideoProviderRegistry<T extends AIVideoProviderIdentity> implements vscode.Disposable {
+	private readonly providers = new Map<string, T>();
 	private readonly changeEmitter = new vscode.EventEmitter<void>();
 	readonly onDidChangeProviders = this.changeEmitter.event;
 
-	register(provider: AIVideoGenerationProvider): vscode.Disposable {
+	register(provider: T): vscode.Disposable {
 		if (!/^[a-z][a-z0-9.-]*$/.test(provider.id)) {
 			throw new Error(`Invalid AI Video generation provider id '${provider.id}'.`);
 		}
@@ -47,11 +75,11 @@ export class AIVideoGenerationProviderRegistry implements vscode.Disposable {
 		});
 	}
 
-	get(id: string): AIVideoGenerationProvider | undefined {
+	get(id: string): T | undefined {
 		return this.providers.get(id);
 	}
 
-	list(): readonly Pick<AIVideoGenerationProvider, 'id' | 'label'>[] {
+	list(): readonly Pick<T, 'id' | 'label'>[] {
 		return [...this.providers.values()].map(({ id, label }) => ({ id, label }));
 	}
 
@@ -60,6 +88,10 @@ export class AIVideoGenerationProviderRegistry implements vscode.Disposable {
 		this.changeEmitter.dispose();
 	}
 }
+
+export class AIVideoGenerationProviderRegistry extends AIVideoProviderRegistry<AIVideoGenerationProvider> { }
+
+export class AIVideoVoiceGenerationProviderRegistry extends AIVideoProviderRegistry<AIVideoVoiceGenerationProvider> { }
 
 export function createPromptPackageProvider(): AIVideoGenerationProvider {
 	return {
@@ -71,24 +103,45 @@ export function createPromptPackageProvider(): AIVideoGenerationProvider {
 			}
 			await vscode.workspace.fs.createDirectory(context.outputDirectory);
 			const output = vscode.Uri.joinPath(context.outputDirectory, 'request.json');
-			const scene = context.project.scenes.find(candidate => candidate.id === context.shot.sceneId);
 			const payload = {
 				version: 1,
 				project: context.project.title,
 				shot: {
 					id: context.shot.id,
 					title: context.shot.title,
-					scene: scene ? { id: scene.id, name: scene.name, description: scene.description } : undefined,
 					prompt: context.shot.prompt,
 					dialogue: context.shot.dialogue,
 					videoProvider: context.shot.videoProvider,
 					voiceProvider: context.shot.voiceProvider
 				},
-				characters: context.project.characters,
+				inputs: context.inputs,
 				createdAt: new Date().toISOString()
 			};
 			await vscode.workspace.fs.writeFile(output, new TextEncoder().encode(`${JSON.stringify(payload, null, 2)}\n`));
 			return { outputs: [output], status: 'prepared' };
 		}
+	};
+}
+
+export function createNoVoiceProvider(): AIVideoVoiceGenerationProvider {
+	return {
+		id: 'none',
+		label: 'No voice generation',
+		generate() {
+			return { outputs: [] };
+		}
+	};
+}
+
+export function resolveAIVideoWorkflowInputs(project: AIProject, shotId: string): AIVideoWorkflowInputs {
+	const upstream = upstreamWorkflowNodeIds(project, shotId);
+	const characters = new Map(project.characters.map(character => [character.id, character]));
+	const scenes = new Map(project.scenes.map(scene => [scene.id, scene]));
+	const shots = new Map(project.shots.map(shot => [shot.id, shot]));
+	return {
+		script: upstream.includes(AI_VIDEO_SCRIPT_NODE_ID) ? project.script : undefined,
+		characters: upstream.flatMap(id => characters.get(id) ?? []),
+		scenes: upstream.flatMap(id => scenes.get(id) ?? []),
+		priorShots: upstream.flatMap(id => id === shotId ? [] : (shots.get(id) ?? []))
 	};
 }

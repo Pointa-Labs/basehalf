@@ -101,7 +101,7 @@ export const BASEHALF_CURATED_PLUGINS: readonly IBaseHalfCuratedPlugin[] = [{
 	extensionId: 'pointa.basehalf-ai-video',
 	galleryUuid: 'a7e47f42-807f-4ac0-93e7-65d03c42c7df',
 	label: 'AI Video',
-	description: 'Scripts, characters, scenes, shots, and provider-neutral local generation workflows.',
+	description: 'A node workflow canvas for scripts, characters, scenes, shots, and provider-neutral local generation.',
 	category: 'Domain',
 	bundledPath: 'plugins/basehalf-ai-video',
 	primaryCommand: 'basehalf.aiVideo.createProject',

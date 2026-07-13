@@ -6,35 +6,49 @@
 import { createHash } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AIProject, createAIProject, parseAIProject, serializeAIProject } from './model';
+import { AIProject, createAIProject, parseAIProject, pendingShotIdsInWorkflowOrder, serializeAIProject } from './model';
 import { aiProjectWebviewHtml } from './webview';
-import { AIVideoGenerationProvider, AIVideoGenerationProviderRegistry, createPromptPackageProvider } from './workflow';
+import { AIVideoGenerationProvider, AIVideoGenerationProviderRegistry, AIVideoVoiceGenerationProvider, AIVideoVoiceGenerationProviderRegistry, createNoVoiceProvider, createPromptPackageProvider, resolveAIVideoWorkflowInputs } from './workflow';
 
 const PROJECTION_ID = 'pointa.basehalf-ai-video.project';
 
 export interface BaseHalfAIVideoApi {
 	registerGenerationProvider(provider: AIVideoGenerationProvider): vscode.Disposable;
 	listGenerationProviders(): readonly Pick<AIVideoGenerationProvider, 'id' | 'label'>[];
+	registerVoiceGenerationProvider(provider: AIVideoVoiceGenerationProvider): vscode.Disposable;
+	listVoiceGenerationProviders(): readonly Pick<AIVideoVoiceGenerationProvider, 'id' | 'label'>[];
 }
 
 export function activate(context: vscode.ExtensionContext): BaseHalfAIVideoApi {
-	const providers = new AIVideoGenerationProviderRegistry();
-	context.subscriptions.push(providers, providers.register(createPromptPackageProvider()));
+	const videoProviders = new AIVideoGenerationProviderRegistry();
+	const voiceProviders = new AIVideoVoiceGenerationProviderRegistry();
+	context.subscriptions.push(
+		videoProviders,
+		videoProviders.register(createPromptPackageProvider()),
+		voiceProviders,
+		voiceProviders.register(createNoVoiceProvider())
+	);
 	context.subscriptions.push(vscode.commands.registerCommand('basehalf.aiVideo.createProject', () => createProject()));
 	context.subscriptions.push(vscode.basehalf.registerCardProjectionProvider(PROJECTION_ID, {
 		async resolveCardProjection(resource, view, token) {
-			const controller = new AIProjectController(resource, view, providers, token);
+			const controller = new AIProjectController(resource, view, videoProviders, voiceProviders, context.extensionUri, token);
 			await controller.open();
 		}
 	}, { retainContextWhenHidden: true }));
 
 	return {
 		registerGenerationProvider: provider => {
-			const registration = providers.register(provider);
+			const registration = videoProviders.register(provider);
 			context.subscriptions.push(registration);
 			return registration;
 		},
-		listGenerationProviders: () => providers.list()
+		listGenerationProviders: () => videoProviders.list(),
+		registerVoiceGenerationProvider: provider => {
+			const registration = voiceProviders.register(provider);
+			context.subscriptions.push(registration);
+			return registration;
+		},
+		listVoiceGenerationProviders: () => voiceProviders.list()
 	};
 }
 
@@ -67,7 +81,9 @@ class AIProjectController implements vscode.Disposable {
 	constructor(
 		private readonly resource: vscode.Uri,
 		private readonly view: vscode.basehalf.CardProjectionView,
-		private readonly providers: AIVideoGenerationProviderRegistry,
+		private readonly videoProviders: AIVideoGenerationProviderRegistry,
+		private readonly voiceProviders: AIVideoVoiceGenerationProviderRegistry,
+		private readonly extensionUri: vscode.Uri,
 		private readonly openingToken: vscode.CancellationToken
 	) {
 		this.disposables.push(view.onDidDispose(() => this.dispose()));
@@ -80,15 +96,17 @@ class AIProjectController implements vscode.Disposable {
 		this.revision = state.revision;
 		this.view.webview.options = {
 			enableScripts: true,
-			localResourceRoots: [parentUri(this.resource)]
+			localResourceRoots: [parentUri(this.resource), this.extensionUri]
 		};
-		this.view.webview.html = aiProjectWebviewHtml(this.view.webview, {
+		this.view.webview.html = aiProjectWebviewHtml(this.view.webview, this.extensionUri, {
 			project: state.project,
 			revision: state.revision,
-			providers: this.providers.list()
+			videoProviders: this.videoProviders.list(),
+			voiceProviders: this.voiceProviders.list()
 		});
 		this.disposables.push(this.view.webview.onDidReceiveMessage(message => this.handleMessage(message)));
-		this.disposables.push(this.providers.onDidChangeProviders(() => { void this.postProviders(); }));
+		this.disposables.push(this.videoProviders.onDidChangeProviders(() => { void this.postProviders(); }));
+		this.disposables.push(this.voiceProviders.onDidChangeProviders(() => { void this.postProviders(); }));
 		this.installWatcher();
 	}
 
@@ -138,11 +156,14 @@ class AIProjectController implements vscode.Disposable {
 				await this.post({ type: 'cancelled' });
 				return;
 			}
-			await this.post({ type: 'error', message: errorMessage(error) });
+			await this.post({ type: 'error', message: errorMessage(error), running: this.running });
 		}
 	}
 
 	private async saveFromMessage(message: Record<string, unknown>): Promise<void> {
+		if (this.running) {
+			throw new Error('Wait for the active workflow run to finish or cancel it before saving.');
+		}
 		const project = projectFromMessage(message);
 		const expectedRevision = stringProperty(message, 'revision');
 		await this.writeProject(project, expectedRevision);
@@ -153,20 +174,17 @@ class AIProjectController implements vscode.Disposable {
 		if (this.running) {
 			throw new Error('A workflow is already running for this project.');
 		}
-		this.runCancellation.dispose();
-		this.runCancellation = new vscode.CancellationTokenSource();
 		const project = projectFromMessage(message);
-		await this.writeProject(project, stringProperty(message, 'revision'));
-		const shotIds = requestedShotIds ?? project.shots
-			.filter(shot => shot.status === 'draft' || shot.status === 'error')
-			.map(shot => shot.id);
-		if (!shotIds.length) {
-			await this.post({ type: 'error', message: 'There are no pending shots to run.' });
-			return;
-		}
-
 		this.running = true;
 		try {
+			this.runCancellation.dispose();
+			this.runCancellation = new vscode.CancellationTokenSource();
+			await this.writeProject(project, stringProperty(message, 'revision'));
+			const shotIds = requestedShotIds ?? pendingShotIdsInWorkflowOrder(project);
+			if (!shotIds.length) {
+				await this.post({ type: 'error', message: 'There are no pending shots to run.', running: true });
+				return;
+			}
 			for (const shotId of shotIds) {
 				this.throwIfCancelled(true);
 				await this.runShot(shotId);
@@ -183,10 +201,17 @@ class AIProjectController implements vscode.Disposable {
 		if (!shot) {
 			throw new Error(`Shot '${shotId}' no longer exists.`);
 		}
-		const provider = this.providers.get(shot.videoProvider);
-		if (!provider) {
+		const videoProvider = this.videoProviders.get(shot.videoProvider);
+		if (!videoProvider) {
 			shot.status = 'error';
-			shot.error = `Generation provider '${shot.videoProvider}' is not installed or active.`;
+			shot.error = `Video provider '${shot.videoProvider}' is not installed or active.`;
+			await this.writeProject(project, this.revision);
+			return;
+		}
+		const voiceProvider = this.voiceProviders.get(shot.voiceProvider);
+		if (!voiceProvider) {
+			shot.status = 'error';
+			shot.error = `Voice provider '${shot.voiceProvider}' is not installed or active.`;
 			await this.writeProject(project, this.revision);
 			return;
 		}
@@ -194,34 +219,45 @@ class AIProjectController implements vscode.Disposable {
 		shot.status = 'running';
 		delete shot.error;
 		await this.writeProject(project, this.revision);
-		await this.post({ type: 'running', label: `Running ${shot.title} with ${provider.label}…` });
+		await this.post({ type: 'running', shotId: shot.id, label: `Running ${shot.title} with ${videoProvider.label}…` });
 
 		try {
 			const outputDirectory = vscode.Uri.joinPath(outputRoot(this.resource), safeSegment(shot.id));
-			const result = await provider.generate({
+			const inputs = resolveAIVideoWorkflowInputs(project, shot.id);
+			const videoResult = await videoProvider.generate({
 				projectUri: this.resource,
 				project,
 				shot,
+				inputs,
 				outputDirectory,
 				token: this.runCancellation.token
 			});
 			this.throwIfCancelled(true);
-			if (!result) {
-				throw new Error(`Generation provider '${provider.label}' returned no result.`);
+			if (!videoResult) {
+				throw new Error(`Video provider '${videoProvider.label}' returned no result.`);
 			}
-			if (!result.outputs.length) {
-				throw new Error(`Generation provider '${provider.label}' returned no local output files.`);
+			const videoOutputPaths = await collectProviderOutputPaths(this.resource, outputDirectory, videoProvider.label, videoResult.outputs, true);
+
+			const voiceOutputDirectory = vscode.Uri.joinPath(outputDirectory, 'voice');
+			if (voiceProvider.id !== 'none') {
+				await this.post({ type: 'running', shotId: shot.id, label: `Generating voice for ${shot.title} with ${voiceProvider.label}…` });
 			}
-			const outputPaths: string[] = [];
-			for (const output of result.outputs) {
-				const stat = await vscode.workspace.fs.stat(output);
-				if ((stat.type & vscode.FileType.Directory) !== 0) {
-					throw new Error(`Generation provider '${provider.label}' returned a directory instead of an output file.`);
-				}
-				outputPaths.push(portableOutputPath(this.resource, outputDirectory, output));
+			const voiceResult = await voiceProvider.generate({
+				projectUri: this.resource,
+				project,
+				shot,
+				inputs,
+				outputDirectory: voiceOutputDirectory,
+				videoOutputs: videoResult.outputs,
+				token: this.runCancellation.token
+			});
+			this.throwIfCancelled(true);
+			if (!voiceResult) {
+				throw new Error(`Voice provider '${voiceProvider.label}' returned no result.`);
 			}
-			shot.outputs = outputPaths;
-			shot.status = result.status ?? 'complete';
+			const voiceOutputPaths = await collectProviderOutputPaths(this.resource, voiceOutputDirectory, voiceProvider.label, voiceResult.outputs, voiceProvider.id !== 'none');
+			shot.outputs = [...videoOutputPaths, ...voiceOutputPaths];
+			shot.status = videoResult.status === 'prepared' || voiceResult.status === 'prepared' ? 'prepared' : 'complete';
 			delete shot.error;
 		} catch (error) {
 			if (error instanceof vscode.CancellationError || this.runCancellation.token.isCancellationRequested) {
@@ -310,12 +346,17 @@ class AIProjectController implements vscode.Disposable {
 			type: 'project',
 			project: this.requireProject(),
 			revision: this.revision,
-			providers: this.providers.list()
+			videoProviders: this.videoProviders.list(),
+			voiceProviders: this.voiceProviders.list()
 		});
 	}
 
 	private async postProviders(): Promise<void> {
-		await this.post({ type: 'providers', providers: this.providers.list() });
+		await this.post({
+			type: 'providers',
+			videoProviders: this.videoProviders.list(),
+			voiceProviders: this.voiceProviders.list()
+		});
 	}
 
 	private async post(message: unknown): Promise<void> {
@@ -356,6 +397,27 @@ function parentUri(resource: vscode.Uri): vscode.Uri {
 function outputRoot(resource: vscode.Uri): vscode.Uri {
 	const base = path.posix.basename(resource.path, path.posix.extname(resource.path));
 	return vscode.Uri.joinPath(parentUri(resource), `${safeSegment(base)}.outputs`);
+}
+
+async function collectProviderOutputPaths(
+	project: vscode.Uri,
+	outputDirectory: vscode.Uri,
+	providerLabel: string,
+	outputs: readonly vscode.Uri[],
+	requireOutput: boolean
+): Promise<string[]> {
+	if (requireOutput && !outputs.length) {
+		throw new Error(`Provider '${providerLabel}' returned no local output files.`);
+	}
+	const outputPaths: string[] = [];
+	for (const output of outputs) {
+		const stat = await vscode.workspace.fs.stat(output);
+		if ((stat.type & vscode.FileType.Directory) !== 0) {
+			throw new Error(`Provider '${providerLabel}' returned a directory instead of an output file.`);
+		}
+		outputPaths.push(portableOutputPath(project, outputDirectory, output));
+	}
+	return outputPaths;
 }
 
 function portableOutputPath(project: vscode.Uri, outputDirectory: vscode.Uri, output: vscode.Uri): string {

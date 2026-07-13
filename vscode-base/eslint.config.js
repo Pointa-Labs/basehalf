@@ -149,12 +149,13 @@ export default defineConfig(
 		files: [
 			'build/basehalf/**/*.{js,mjs,ts,mts}',
 			'extensions/basehalf/**/*.{js,mjs,ts,mts,tsx}',
-			'extensions/basehalf-ai-video/**/*.{js,mjs,ts,mts}',
+			'extensions/basehalf-ai-video/**/*.{js,mjs,ts,mts,tsx}',
 			'scripts/basehalf-*.{js,mjs,ts,mts}',
 			'src/vs/platform/basehalf/**/*.{js,mjs,ts,mts}',
 			'src/vs/workbench/basehalf/**/*.{js,mjs,ts,mts}',
 			'src/vs/workbench/api/browser/mainThreadBaseHalf.ts',
 			'src/vs/workbench/api/common/extHostBaseHalf.ts',
+			'src/vscode-dts/vscode.proposed.basehalfDomainPlugins.d.ts',
 		],
 		rules: {
 			'header/header': [
