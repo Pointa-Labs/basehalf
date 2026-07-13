@@ -63,7 +63,10 @@ jobs:
 
       - name: Install fixed release toolchain
         working-directory: vscode-base
-        run: npm ci
+        # Publishing only needs the TypeScript/Gulp/VSCE toolchain. Skipping
+        # repository-wide native addon install scripts keeps the Linux runner
+        # independent from desktop-only Kerberos, keychain, and PTY headers.
+        run: npm ci --ignore-scripts
 
       - name: Fetch and verify the previous catalog
         run: |
