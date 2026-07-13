@@ -24,5 +24,12 @@
   "dependencies": {
     "chokidar": "^5.0.0",
     "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22",
+    "tsup": "8.3.5",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
   }
 }
