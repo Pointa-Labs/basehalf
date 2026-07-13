@@ -2,7 +2,7 @@
 
 The first official BaseHalf domain plugin provides a local, provider-neutral
 node workflow canvas for scripts, characters, scenes, shots, and generation
-runs. It is intentionally smaller and more domain-specific than ComfyUI:
+runs. It deliberately focuses on a clear, domain-specific authoring flow:
 creators arrange story nodes, connect context from left to right, inspect one
 node at a time, and explicitly run individual or pending shot nodes.
 

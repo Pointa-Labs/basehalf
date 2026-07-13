@@ -2,7 +2,7 @@
   "name": "basehalf-ai-video",
   "displayName": "BaseHalf AI Video",
   "description": "A local-first node workflow canvas for scripts, characters, scenes, shots, and provider-neutral AI video generation.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "pointa",
   "license": "Apache-2.0",
   "repository": {
