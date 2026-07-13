@@ -164,7 +164,20 @@
 		"serviceUrl": "https://open-vsx.org/vscode/gallery",
 		"itemUrl": "https://open-vsx.org/vscode/item",
 		"resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
-		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json"
+		"controlUrl": "https://raw.githubusercontent.com/EclipseFdn/publish-extensions/master/extension-control/extensions.json",
+		"additionalControlUrls": [
+			"https://plugins.basehalf.com/v1/extensions-control.json"
+		]
+	},
+	"extensionEnabledApiProposals": {
+		"pointa.basehalf-ai-video": [
+			"basehalfDomainPlugins"
+		]
+	},
+	"basehalfPlugins": {
+		"catalogIndexUrl": "https://plugins.basehalf.com/v1/catalog-index.json",
+		"assetBaseUrl": "https://plugins.basehalf.com/",
+		"publicKeys": []
 	},
 	"onboardingKeymaps": [
 		{

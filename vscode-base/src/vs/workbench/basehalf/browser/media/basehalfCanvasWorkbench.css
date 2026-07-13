@@ -1730,9 +1730,29 @@ body.basehalf-canvas-edge-reconnecting * {
 }
 
 .monaco-workbench .basehalf-card-detail-status {
+	display: flex;
+	align-items: center;
+	gap: 12px;
 	padding: 18px 22px;
 	color: var(--vscode-descriptionForeground);
 	font-size: 13px;
+}
+
+.monaco-workbench .basehalf-card-detail-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry {
+	padding: 4px 10px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 2px;
+	color: var(--vscode-button-foreground);
+	background: var(--vscode-button-background);
+	cursor: pointer;
+}
+
+.monaco-workbench .basehalf-card-detail-status-retry:hover {
+	background: var(--vscode-button-hoverBackground);
 }
 
 .monaco-workbench .basehalf-card-detail-source {
@@ -1854,6 +1874,15 @@ body.basehalf-canvas-edge-reconnecting * {
 .monaco-workbench .basehalf-card-detail-markdown-rich-webview {
 	position: relative;
 	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.monaco-workbench .basehalf-card-detail-media,
+.monaco-workbench .basehalf-card-detail-media-webview {
+	position: relative;
+	width: 100%;
+	height: 100%;
 	min-height: 0;
 	overflow: hidden;
 }

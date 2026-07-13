@@ -254,8 +254,9 @@ packages/                            historical BaseHalf core/desktop material
    activation into BaseHalf folder canvases and card detail.
 4. **Agent Area owns the right.** Terminal APIs and extension-created terminals
    render as Agent Area sessions, not the stock terminal panel.
-5. **Curated extensions first.** Git, GitHub auth, Codex, and Claude are the
-   initial extension families. The full marketplace surface stays hidden.
+5. **Fixed shell, open center.** Curated domain plugins can add project modes
+   and center/card projections without replacing BaseHalf navigation, the
+   sidebar, or Agent Area. See the [plugin architecture](docs/plugin-architecture.md).
 6. **Markdown shares one truth.** Rich, source, and preview projections operate
    over the same Markdown working copy.
 7. **BaseHalf does not secretly edit user files.** Automated services publish

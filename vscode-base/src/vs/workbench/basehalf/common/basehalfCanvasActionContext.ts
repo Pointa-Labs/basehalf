@@ -48,10 +48,17 @@ export function isBaseHalfCanvasActionContext(value: unknown): value is IBaseHal
 }
 
 export function sameBaseHalfCanvasResourceSnapshot(snapshot: IBaseHalfCanvasResourceSnapshot, stat: IFileStatWithPartialMetadata): boolean {
-	return snapshot.isFile === stat.isFile
+	const sameKind = snapshot.isFile === stat.isFile
 		&& snapshot.isDirectory === stat.isDirectory
-		&& snapshot.isSymbolicLink === stat.isSymbolicLink
-		&& optionalMetadataMatches(snapshot.mtime, stat.mtime)
+		&& snapshot.isSymbolicLink === stat.isSymbolicLink;
+	if (!sameKind || snapshot.isDirectory) {
+		// A directory's mtime, size and provider etag normally change whenever a
+		// child is added or removed. Those are canvas contents, not a replacement
+		// of the folder identity captured for an open action. Structural moves and
+		// deletes are already guarded by the resource mutation stamp above.
+		return sameKind;
+	}
+	return optionalMetadataMatches(snapshot.mtime, stat.mtime)
 		&& optionalMetadataMatches(snapshot.ctime, stat.ctime)
 		&& optionalMetadataMatches(snapshot.size, stat.size)
 		&& optionalMetadataMatches(snapshot.etag, stat.etag);

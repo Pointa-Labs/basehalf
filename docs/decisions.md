@@ -77,9 +77,11 @@ old `bh <cmd>` product path as current architecture.
 
 ## D6 — Local-first now; collaboration deferred but pre-wired (still active)
 
-**Decision.** No real-time collaboration / Yjs / sync server in v0/v1. Pre-wire
-the seams that make it possible later: globally-unique IDs, soft-delete
-tombstones (in `.bh/`), git as the conflict-resolution layer.
+**Decision.** No multi-user real-time collaboration or sync server in v0/v1.
+The rich Markdown projection may use one local, per-file YJS document so edits
+merge incrementally and the collaboration seam exists without making YJS a
+second content truth. Markdown files remain truth and git remains the external
+conflict-resolution layer.
 
 ## D7 — ~~Event tiering + compaction~~ (no longer applicable — no event log)
 
@@ -91,17 +93,18 @@ writes to MD on save, not per-keystroke.
 
 ## D8 — Stack: TS + SQLite-when-needed; build on existing OSS (updated)
 
-**Decision.** TypeScript + Node + Electron for the production stack. Start
-with **flat JSON files** in `.bh/`; swap to SQLite (+ FTS5) only when search /
-list performance demands it (rough trigger: > 5k files in a workspace).
+**Decision.** TypeScript + Node + Electron for the production stack, with VS
+Code as the desktop substrate. User files hold content truth and sparse YAML
+under `.bh/mirror/` holds derived product metadata. Add SQLite (+ FTS5) only
+when a measured local index or search workload demands it.
 
 **Library picks** (the ones we actually use):
 
 - **Block editor:** **BlockNote** — closest to Notion experience; React-native; MIT
 - **Canvas:** **React Flow** (`@xyflow/react`) — free-position + edges, MIT
-- **PDF:** **pdf.js** — the de-facto in-browser PDF renderer
-- **File watcher:** **chokidar** — wraps FSEvents on macOS
-- **Renderer state:** **Zustand**
+- **PDF:** **EmbedPDF** (`@embedpdf/snippet`) — ready viewer UI on self-hosted PDFium WASM; MIT
+- **Rich projection:** **YJS** — local per-file live document; Markdown stays truth; MIT
+- **Files, watching, workbench state:** VS Code-native services
 
 **Library picks that did *not* survive vetting:**
 
@@ -111,6 +114,11 @@ list performance demands it (rough trigger: > 5k files in a workspace).
   our use case
 - ~~ProseMirror + Tiptap from scratch~~ — too much UI to build vs picking
   BlockNote which is already Notion-shaped
+- ~~pdf.js with a hand-built viewer shell~~ — excellent low-level renderer, but
+  recreating search, outline, selection, zoom, virtualization, and accessibility
+  is unnecessary while EmbedPDF provides a permissive ready-made viewer
+- ~~standalone chokidar / Zustand desktop orchestration~~ — superseded by the
+  real VS Code workbench, file, working-copy, and contribution services
 
 Rust sidecars (Tantivy / notify-rs) are deferred per the architecture
 constitution — only profile-driven, not pre-built.
@@ -358,22 +366,24 @@ views, chat panels, sessions welcome surfaces, status items, or commands should
 ship unless they are intentionally remapped into BaseHalf's Agent Area. Their
 services and APIs can remain as compatibility plumbing for extensions.
 
-## D22 — Sidebar, extension allowlist, and file-open remapping (NEW, 2026-06-30)
+## D22 — Sidebar, extension allowlist, and file-open remapping (REVISED, 2026-07-13)
 
-**Decision.** BaseHalf's left sidebar has exactly three product areas: Files,
-Git, and Search. Reuse VS Code's Explorer/Search/SCM view containers and their
-mature interaction model where possible, including context menus, tree state,
-drag/drop, and SCM behavior. Do not add Agent to the sidebar. File activation
-from Explorer/Search must remap into BaseHalf navigation: folders open canvases,
-files open card detail, and VS Code editor tabs remain fallback/advanced
-behavior.
+**Decision.** BaseHalf's left sidebar has exactly four product areas: Files,
+Git, Search, and a BaseHalf-owned Plugins library. Reuse VS Code's native
+Activity Bar/view-container lifecycle, Explorer/Search/SCM mechanics, the
+native extension-row renderer and ActionBar, context menus, settings, tree
+state, drag/drop, and SCM behavior. Plugins is a curated BaseHalf catalog, not
+the stock Extensions Marketplace. Do not add Agent or
+plugin-defined global sidebars. File activation from Explorer/Search must remap
+into BaseHalf navigation: folders open canvases, files open card detail, and VS
+Code editor tabs remain fallback/advanced behavior.
 
 The initial BaseHalf product profile uses a curated extension allowlist, not the
 full marketplace. The allowed extension families are Git, GitHub, GitHub
 authentication, Codex, and Claude.
 
 **Why.** VS Code's sidebar infrastructure is better than BaseHalf's hand-rolled
-sidebar for Files, Git, Search, and right-click workflows, so reusing it reduces
+sidebar for Files, Git, Search, Plugins, and right-click workflows, so reusing it reduces
 product risk. But BaseHalf's differentiator is the folder-as-canvas model, not
 VS Code's generic editor workspace. Similarly, VS Code extension compatibility
 is valuable for GitHub auth and Codex/Claude, but exposing the whole marketplace
@@ -381,10 +391,13 @@ would force product and trust decisions before the BaseHalf product surface is
 ready.
 
 **Consequences.** Implement a BaseHalf window/contribution profile instead of
-importing the stock VS Code desktop workbench wholesale. Keep Explorer/Search/SCM
-visible, hide generic Extensions/Marketplace and VS Code-native Agent/Chat
-surfaces, and route `open`/file-selection commands through BaseHalf's
-folder/canvas/card-detail state machine.
+importing the stock VS Code desktop workbench wholesale. Keep
+Explorer/Search/SCM and the BaseHalf Plugins container visible, hide generic
+Extensions/Marketplace and VS Code-native Agent/Chat surfaces, and route
+`open`/file-selection commands through BaseHalf's folder/canvas/card-detail
+state machine. The Plugins container may reuse native menus, settings, and
+extension-management services, but only the signed client-admitted catalog is
+shown or installable.
 
 ## D23 — Module-complete migration, not MVP or intermediate shell (NEW, 2026-06-30)
 
@@ -458,3 +471,104 @@ Badge surface instead marks the incomplete pair and offers explicit Repair and
 Discard actions. If the other endpoint cannot be read, BaseHalf reports that
 metadata problem without guessing whether the pair is incomplete. Automated
 services do not silently rewrite either case.
+
+## D25 — Plugin platform: fixed shell, open center (NEW, 2026-07-12)
+
+**Decision.** BaseHalf is a general AI-native file manager with a formal plugin
+ecosystem. Its product shell stays fixed: Files/Git/Search/Plugins on the left,
+BaseHalf-owned navigation around the center, and Agent Area on the right.
+The Plugins entry is the BaseHalf-owned manager for that ecosystem; individual
+plugins cannot add Activity Bar entries. Plugins may add project types, central project surfaces, canvases, storyboards,
+workflows, card previews, and card-detail projections inside that shell. They
+may not add competing global product areas, restore tab-first navigation, or
+change BaseHalf reference semantics.
+
+**Why.** The useful analogy is a game mod: a plugin can add a substantial new
+mode inside a protected engine contract without rewriting the launcher, save
+system, or global controls. This keeps BaseHalf extensible without dissolving
+its product identity into a generic VS Code distribution.
+
+**Consequences.** The plugin system reuses VS Code's extension host and
+extension lifecycle beneath BaseHalf-specific provider APIs. The first code
+plugins are first-party and curated; the generic Marketplace remains hidden.
+Reviewed domain-plugin payloads are installed into the user's extension profile
+on demand instead of being pre-scanned system extensions. Disabling a plugin
+falls back to ordinary BaseHalf folder/file surfaces.
+
+## D26 — Code plugins are trusted local software (NEW, 2026-07-12)
+
+**Decision.** BaseHalf follows VS Code's trust model for executable plugins:
+publisher identity, allowlists, workspace trust, package verification,
+enablement, and lifecycle management. A Node extension is honestly treated as
+trusted local software, not presented as a finely sandboxed capability.
+
+**Why.** Rebuilding an extension runtime would duplicate mature VS Code
+infrastructure without removing the fundamental authority of executable local
+code. BaseHalf can be stricter at admission instead: only official code plugins
+initially, then curated/reviewed third-party plugins when the ecosystem is
+ready. Declarative content packs can open earlier.
+
+**Consequences.** BaseHalf core remains passive and contains no embedded LLM or
+agent loop. A plugin's use of AI is its own disclosed product policy. Arbitrary
+Marketplace extensions are not enabled merely because the underlying VS Code
+extension host can run them.
+
+## D27 — Plugin workflow output is local user-owned data (NEW, 2026-07-12)
+
+**Decision.** Users and their Agents may explicitly execute plugin workflows.
+Workflow definitions, project files, and generated artifacts are ordinary
+local user files. BaseHalf and official plugins do not retain a BaseHalf-cloud
+copy of project content; external providers receive the inputs submitted to
+their operations.
+
+**Why.** An open-center plugin surface is useful only if it can produce real
+work, while BaseHalf's local-first promise requires that work to remain in the
+user's project instead of an opaque service or extension database.
+
+**Consequences.** Domain content truth never lives in `.bh/mirror`; `.bh/`
+remains derived mirror/cache state. Explicit workflow execution is compatible
+with D13's prohibition on unprompted automated writes. Uninstalling a plugin
+does not remove or lock the files it produced.
+
+## D28 — AI Video is the first official domain plugin (NEW, 2026-07-12)
+
+**Decision.** After the plugin platform is ready, AI Video is the first official
+domain plugin. It covers scripts, characters/scenes, storyboards and shot tasks,
+Agent-assisted authoring, and connections to user-chosen video and voice
+providers. Generated media returns to the local project.
+
+**Why.** AI video work exposes the exact cross-tool, local-asset, workflow, and
+Agent-context problems the plugin platform is intended to solve, while keeping
+the general BaseHalf product independent of one vertical.
+
+**Consequences.** The plugin stays provider-neutral and does not become a
+timeline editor, compositor, grading tool, or final-cut application. Those jobs
+remain with mature external editing products. The initial official plugin is
+free and open source; connector packaging and automation policy remain
+plugin-level decisions.
+
+## D29 — Official plugin distribution uses a signed static catalog (NEW, 2026-07-13)
+
+**Decision.** BaseHalf distributes its initial official plugins through a
+product-owned, ECDSA P-256/SHA-256 signed catalog and immutable VSIX objects in
+private S3 behind CloudFront. Client code owns admission: a server catalog may
+publish versions only for extension IDs already allowed by that client build.
+The generic Marketplace and arbitrary VSIX installation remain hidden.
+
+**Why.** This keeps the first distribution plane small, cacheable, auditable,
+and independent of the existing web application servers. VS Code already owns
+profile installation, scanning, enablement, Extension Host lifecycle, and
+uninstall; BaseHalf needs only authenticated discovery and package delivery,
+not a second extension runtime or a premature Open VSX deployment.
+
+**Consequences.** A single short-cache index points to one immutable
+catalog/signature pair under `catalogs/<sequence>/`, preventing CDN publication
+tearing. The client verifies exact catalog bytes, index/sequence agreement,
+monotonic sequence, allowlist, compatibility, SHA-256, VSIX identity/version,
+and HTTPS origin in that order. Verified catalog cache is usable offline; code
+updates remain an explicit user action. Production packaging fails unless a
+pinned P-256 public key is stamped into the client. CI signs through a
+non-exportable AWS KMS key and never overwrites a VSIX. Rollback and withdrawal
+publish a higher catalog sequence.
+Open VSX, third-party publishing, payment, ratings, and the current EC2 stack
+remain outside this decision.

@@ -1,0 +1,300 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+import { disposableTimeout } from '../../../base/common/async.js';
+import { CancellationError, getErrorMessage } from '../../../base/common/errors.js';
+import { Emitter } from '../../../base/common/event.js';
+import { Disposable } from '../../../base/common/lifecycle.js';
+import { FileAccess } from '../../../base/common/network.js';
+import { gt } from '../../../base/common/semver/semver.js';
+import { generateUuid } from '../../../base/common/uuid.js';
+import { joinPath } from '../../../base/common/resources.js';
+import { URI } from '../../../base/common/uri.js';
+import { CancellationTokenSource } from '../../../base/common/cancellation.js';
+import { IChecksumService } from '../../../platform/checksum/common/checksumService.js';
+import { ICommandService } from '../../../platform/commands/common/commands.js';
+import { INativeEnvironmentService } from '../../../platform/environment/common/environment.js';
+import { IFileService } from '../../../platform/files/common/files.js';
+import { InstantiationType, registerSingleton } from '../../../platform/instantiation/common/extensions.js';
+import { ILogService } from '../../../platform/log/common/log.js';
+import { IProductService } from '../../../platform/product/common/productService.js';
+import { IRequestService, isSuccess, readHeader } from '../../../platform/request/common/request.js';
+import { EnablementState, IWorkbenchExtensionEnablementService, IWorkbenchExtensionManagementService } from '../../services/extensionManagement/common/extensionManagement.js';
+import { BASEHALF_CURATED_PLUGINS, IBaseHalfResolvedPlugin, resolveBaseHalfPluginAsset } from './basehalfPluginCatalog.js';
+import { IBaseHalfPluginCatalogService } from './basehalfPluginCatalogService.js';
+import { sha256HexToChecksumBase64 } from './basehalfPluginCatalogSecurity.js';
+import { IBaseHalfManagedPlugin, IBaseHalfPluginCatalogStatus, IBaseHalfPluginManagementService, IBaseHalfPluginOperationResult } from './basehalfPluginManagement.js';
+
+type Operation = 'installing' | 'updating';
+
+export class BaseHalfPluginManagementService extends Disposable implements IBaseHalfPluginManagementService {
+	declare readonly _serviceBrand: undefined;
+
+	private readonly _onDidChange = this._register(new Emitter<void>());
+	readonly onDidChange = this._onDidChange.event;
+	private readonly operations = new Map<string, Operation>();
+	private readonly cancellations = new Map<string, CancellationTokenSource>();
+	private readonly errors = new Map<string, string>();
+	private readonly queues = new Map<string, Promise<unknown>>();
+
+	constructor(
+		@IBaseHalfPluginCatalogService private readonly catalogService: IBaseHalfPluginCatalogService,
+		@IWorkbenchExtensionManagementService private readonly extensionManagementService: IWorkbenchExtensionManagementService,
+		@IWorkbenchExtensionEnablementService private readonly enablementService: IWorkbenchExtensionEnablementService,
+		@IFileService private readonly fileService: IFileService,
+		@IRequestService private readonly requestService: IRequestService,
+		@IChecksumService private readonly checksumService: IChecksumService,
+		@INativeEnvironmentService private readonly environmentService: INativeEnvironmentService,
+		@IProductService private readonly productService: IProductService,
+		@ICommandService private readonly commandService: ICommandService,
+		@ILogService private readonly logService: ILogService
+	) {
+		super();
+		this._register(this.catalogService.onDidChange(() => this._onDidChange.fire()));
+		this._register(this.extensionManagementService.onDidInstallExtensions(() => this._onDidChange.fire()));
+		this._register(this.extensionManagementService.onDidUninstallExtension(() => this._onDidChange.fire()));
+		this._register(this.enablementService.onEnablementChanged(() => this._onDidChange.fire()));
+	}
+
+	async getPlugins(): Promise<readonly IBaseHalfManagedPlugin[]> {
+		const [snapshot, installed] = await Promise.all([
+			this.catalogService.getSnapshot(),
+			this.extensionManagementService.getInstalled()
+		]);
+		return Promise.all(snapshot.plugins.map(async plugin => {
+			const extension = installed.find(candidate => candidate.identifier.id.toLowerCase() === plugin.extensionId.toLowerCase());
+			const bundledAvailable = await this.fileService.exists(pluginPayloadLocation(plugin));
+			const installedVersion = extension?.manifest.version;
+			const enabled = !!extension && this.enablementService.isEnabled(extension);
+			const operation = this.operations.get(plugin.extensionId);
+			const allRemoteVersionsWithdrawn = isPluginWithdrawn(plugin);
+			let state: IBaseHalfManagedPlugin['state'];
+			if (operation) {
+				state = operation;
+			} else if (this.errors.has(plugin.extensionId)) {
+				state = 'error';
+			} else if (!extension && allRemoteVersionsWithdrawn) {
+				state = 'withdrawn';
+			} else if (extension && plugin.remoteVersion && gt(plugin.remoteVersion.version, installedVersion!)) {
+				state = 'updateAvailable';
+			} else if (extension) {
+				state = enabled ? 'enabled' : 'disabled';
+			} else if (plugin.remote && !plugin.remoteVersion && !bundledAvailable) {
+				state = 'incompatible';
+			} else {
+				state = 'available';
+			}
+			return {
+				...plugin,
+				state,
+				installedVersion,
+				availableVersion: plugin.remoteVersion?.version,
+				bundledAvailable,
+					enabled,
+					busy: !!operation,
+					cancellable: this.cancellations.has(plugin.extensionId),
+					hasConfiguration: !!extension?.manifest.contributes?.configuration,
+				error: this.errors.get(plugin.extensionId)
+			};
+		}));
+	}
+
+	async refreshCatalog(): Promise<void> {
+		await this.catalogService.refresh();
+	}
+
+	async getCatalogStatus(): Promise<IBaseHalfPluginCatalogStatus> {
+		const { source, sequence, generatedAt, error } = await this.catalogService.getSnapshot();
+		return { source, sequence, generatedAt, error };
+	}
+
+	install(extensionId: string): Promise<IBaseHalfPluginOperationResult> {
+		return this.runExclusive(extensionId, 'installing', async plugin => {
+			if (isPluginWithdrawn(plugin)) {
+				throw new Error('This plugin has been withdrawn and cannot be newly installed.');
+			}
+			if (plugin.remoteVersion) {
+				await this.installRemote(plugin);
+			} else {
+				const location = pluginPayloadLocation(plugin);
+				if (!await this.fileService.exists(location)) {
+					throw new Error('This official plugin is not included in the current build and no compatible remote version is available.');
+				}
+				await this.extensionManagementService.installFromLocation(location);
+			}
+			return { restartRequired: false };
+		});
+	}
+
+	update(extensionId: string): Promise<IBaseHalfPluginOperationResult> {
+		return this.runExclusive(extensionId, 'updating', async plugin => {
+			if (!plugin.remoteVersion) {
+				throw new Error('No compatible remote update is available.');
+			}
+			await this.installRemote(plugin);
+			return { restartRequired: false };
+		});
+	}
+
+	enable(extensionId: string): Promise<IBaseHalfPluginOperationResult> {
+		return this.withInstalled(extensionId, async extension => ({
+			restartRequired: (await this.enablementService.setEnablement([extension], EnablementState.EnabledGlobally)).some(Boolean)
+		}));
+	}
+
+	disable(extensionId: string): Promise<IBaseHalfPluginOperationResult> {
+		return this.withInstalled(extensionId, async extension => ({
+			restartRequired: (await this.enablementService.setEnablement([extension], EnablementState.DisabledGlobally)).some(Boolean)
+		}));
+	}
+
+	uninstall(extensionId: string): Promise<IBaseHalfPluginOperationResult> {
+		return this.withInstalled(extensionId, async extension => {
+			await this.extensionManagementService.uninstall(extension);
+			return { restartRequired: false };
+		});
+	}
+
+	async executePrimary(extensionId: string): Promise<void> {
+		const plugin = BASEHALF_CURATED_PLUGINS.find(candidate => candidate.extensionId === extensionId.toLowerCase());
+		if (!plugin?.primaryCommand) {
+			throw new Error('This plugin does not expose a primary action.');
+		}
+		await this.commandService.executeCommand(plugin.primaryCommand);
+	}
+
+	cancel(extensionId: string): void {
+		this.cancellations.get(extensionId.toLowerCase())?.cancel();
+	}
+
+	private runExclusive(
+		extensionId: string,
+		operation: Operation,
+		run: (plugin: IBaseHalfResolvedPlugin) => Promise<IBaseHalfPluginOperationResult>
+	): Promise<IBaseHalfPluginOperationResult> {
+		const id = extensionId.toLowerCase();
+		const previous = this.queues.get(id) ?? Promise.resolve();
+		const next = previous.catch(() => undefined).then(async () => {
+			this.operations.set(id, operation);
+			this.errors.delete(id);
+			this._onDidChange.fire();
+			try {
+				const snapshot = await this.catalogService.getSnapshot();
+				const plugin = snapshot.plugins.find(candidate => candidate.extensionId === id);
+				if (!plugin) {
+					throw new Error(`Plugin '${id}' is not admitted by this BaseHalf build.`);
+				}
+				return await run(plugin);
+			} catch (error) {
+				if (error instanceof CancellationError) {
+					throw error;
+				}
+				const message = getErrorMessage(error);
+				this.errors.set(id, message);
+				this.logService.error(`BaseHalf plugin operation failed for ${id}: ${message}`);
+				throw error;
+			} finally {
+				this.operations.delete(id);
+				this.cancellations.get(id)?.dispose();
+				this.cancellations.delete(id);
+				this._onDidChange.fire();
+			}
+		});
+		this.queues.set(id, next);
+		void next.then(() => {
+			if (this.queues.get(id) === next) {
+				this.queues.delete(id);
+			}
+		}, () => {
+			if (this.queues.get(id) === next) {
+				this.queues.delete(id);
+			}
+		});
+		return next;
+	}
+
+	private async withInstalled(
+		extensionId: string,
+		run: (extension: Awaited<ReturnType<IWorkbenchExtensionManagementService['getInstalled']>>[number]) => Promise<IBaseHalfPluginOperationResult>
+	): Promise<IBaseHalfPluginOperationResult> {
+		const id = extensionId.toLowerCase();
+		return this.runExclusive(id, 'updating', async () => {
+			const extension = (await this.extensionManagementService.getInstalled()).find(candidate => candidate.identifier.id.toLowerCase() === id);
+			if (!extension) {
+				throw new Error(`Plugin '${id}' is not installed.`);
+			}
+			return run(extension);
+		});
+	}
+
+	private async installRemote(plugin: IBaseHalfResolvedPlugin): Promise<void> {
+		const config = this.productService.basehalfPlugins;
+		const version = plugin.remoteVersion;
+		if (!config || !version) {
+			throw new Error('Remote plugin distribution is not configured.');
+		}
+		const asset = resolveBaseHalfPluginAsset(config.assetBaseUrl, version.assetPath);
+		const cancellation = new CancellationTokenSource();
+		const requestTimeout = disposableTimeout(() => cancellation.cancel(), 120_000);
+		this.cancellations.set(plugin.extensionId, cancellation);
+		this._onDidChange.fire();
+		const directory = joinPath(this.environmentService.tmpDir, `basehalf-plugin-${generateUuid()}`);
+		const partial = joinPath(directory, 'download.partial');
+		const vsix = joinPath(directory, 'plugin.vsix');
+		try {
+			await this.fileService.createFolder(directory);
+			const context = await this.requestService.request({ type: 'GET', url: asset.href, callSite: 'basehalfPluginManagementService.download' }, cancellation.token);
+			if (!isSuccess(context)) {
+				throw new Error(`Plugin download returned ${context.res.statusCode}.`);
+			}
+			const contentLength = readHeader(context.res.headers, 'content-length');
+			if (contentLength !== undefined && Number(contentLength) !== version.size) {
+				throw new Error(`Plugin download Content-Length mismatch: expected ${version.size}, received ${contentLength}.`);
+			}
+			await this.fileService.writeFile(partial, context.stream);
+			if (cancellation.token.isCancellationRequested) {
+				throw new CancellationError();
+			}
+			const stat = await this.fileService.resolve(partial);
+			if (stat.size !== version.size) {
+				throw new Error(`Plugin download size mismatch: expected ${version.size}, received ${stat.size}.`);
+			}
+			const checksum = await this.checksumService.checksum(partial);
+			if (checksum !== sha256HexToChecksumBase64(version.sha256)) {
+				throw new Error('Plugin download failed SHA-256 verification.');
+			}
+			if (cancellation.token.isCancellationRequested) {
+				throw new CancellationError();
+			}
+			await this.fileService.move(partial, vsix, true);
+			const manifest = await this.extensionManagementService.getManifest(vsix);
+			const manifestId = `${manifest.publisher}.${manifest.name}`.toLowerCase();
+			if (manifestId !== plugin.extensionId || manifest.version !== version.version) {
+				throw new Error(`Plugin package manifest mismatch: expected ${plugin.extensionId}@${version.version}, received ${manifestId}@${manifest.version}.`);
+			}
+			if (cancellation.token.isCancellationRequested) {
+				throw new CancellationError();
+			}
+			await this.extensionManagementService.installVSIX(vsix, manifest);
+		} finally {
+			requestTimeout.dispose();
+			try {
+				await this.fileService.del(directory, { recursive: true });
+			} catch (error) {
+				this.logService.warn(`Could not remove BaseHalf plugin download directory: ${getErrorMessage(error)}`);
+			}
+		}
+	}
+}
+
+function isPluginWithdrawn(plugin: IBaseHalfResolvedPlugin): boolean {
+	return !!plugin.remote?.versions.length && plugin.remote.versions.every(version => version.status === 'withdrawn');
+}
+
+function pluginPayloadLocation(plugin: IBaseHalfResolvedPlugin): URI {
+	return joinPath(FileAccess.asFileUri(''), ...plugin.bundledPath.split('/'));
+}
+
+registerSingleton(IBaseHalfPluginManagementService, BaseHalfPluginManagementService, InstantiationType.Delayed);

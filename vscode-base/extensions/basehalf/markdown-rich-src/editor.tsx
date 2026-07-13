@@ -9,9 +9,13 @@ import './editor.css';
 
 import { BlockNoteSchema, createBlockSpec, defaultBlockSpecs } from '@blocknote/core';
 import { SideMenuExtension } from '@blocknote/core/extensions';
-import { BlockNoteView } from '@blocknote/mantine';
+import { BlockNoteView, type Theme } from '@blocknote/mantine';
 import {
 	GenericPopover,
+	ReactAudioBlock,
+	ReactFileBlock,
+	ReactImageBlock,
+	ReactVideoBlock,
 	SideMenu,
 	SuggestionMenuController,
 	useBlockNoteEditor,
@@ -62,6 +66,7 @@ import {
 } from './adhdDecorations.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WARMUP_KEY,
+	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	isBaseHalfMarkdownRichHostMessage,
 	type BaseHalfMarkdownRichEditorCommand,
 	type BaseHalfMarkdownRichWebviewMessage,
@@ -86,6 +91,28 @@ const BLOCKNOTE_FRAGMENT_NAME = 'bn';
 const AUTOSAVE_MS = 250;
 const FOCUS_DEBOUNCE_MS = 180;
 const SIDE_MENU_GUTTER_GAP = 8;
+
+const baseHalfBlockNoteTheme: Theme = {
+	colors: {
+		editor: { text: 'var(--vscode-editor-foreground)', background: 'transparent' },
+		menu: { text: 'var(--vscode-menu-foreground)', background: 'var(--vscode-menu-background)' },
+		tooltip: { text: 'var(--vscode-editorHoverWidget-foreground)', background: 'var(--vscode-editorHoverWidget-background)' },
+		hovered: { text: 'var(--vscode-menu-selectionForeground)', background: 'var(--vscode-menu-selectionBackground)' },
+		selected: { text: 'var(--vscode-list-activeSelectionForeground)', background: 'var(--vscode-list-activeSelectionBackground)' },
+		disabled: { text: 'var(--vscode-disabledForeground)', background: 'transparent' },
+		shadow: '0 4px 18px rgb(0 0 0 / 28%)',
+		border: 'var(--vscode-widget-border)',
+		sideMenu: 'var(--vscode-descriptionForeground)',
+	},
+	borderRadius: 4,
+	fontFamily: 'var(--vscode-font-family)',
+};
+
+function workbenchColorScheme(): 'light' | 'dark' {
+	return document.body.classList.contains('vscode-light') || document.body.classList.contains('vscode-high-contrast-light')
+		? 'light'
+		: 'dark';
+}
 
 interface PassthroughProps {
 	raw?: string;
@@ -143,6 +170,10 @@ const rawPassthroughSpec = createBlockSpec(
 const schema = BlockNoteSchema.create({
 	blockSpecs: {
 		...defaultBlockSpecs,
+		audio: ReactAudioBlock(),
+		file: ReactFileBlock(),
+		image: ReactImageBlock(),
+		video: ReactVideoBlock(),
 		[BASEHALF_RAW_PASSTHROUGH_BLOCK]: rawPassthroughSpec,
 	},
 });
@@ -150,6 +181,7 @@ const schema = BlockNoteSchema.create({
 interface SessionState {
 	key: string;
 	resource: string;
+	baseUri: string;
 	frontmatter: string;
 	byId: Map<string, IBaseHalfMarkdownReuseEntry>;
 	adhd: IBaseHalfAdhdFile | null;
@@ -173,6 +205,7 @@ interface IIncomingInit {
 	readonly editable: boolean;
 	readonly key: string;
 	readonly resource: string;
+	readonly baseUri: string;
 	readonly selection?: IBaseHalfMarkdownRichTextSelection;
 	/** Arrival order; a payload older than the latest arrival is stale. */
 	readonly generation: number;
@@ -195,6 +228,7 @@ function createSessionState(key = ''): SessionState {
 	return {
 		key,
 		resource: '',
+		baseUri: '',
 		frontmatter: '',
 		byId: new Map(),
 		adhd: null,
@@ -364,15 +398,65 @@ function MarkdownRichEditor(): JSX.Element {
 	const initGeneration = useRef(0);
 	const renderedAnnounced = useRef(false);
 	const pendingFileSearches = useRef(new Map<string, (files: readonly IBaseHalfMarkdownRichFileLink[]) => void>());
+	const pendingAttachmentUploads = useRef(new Map<string, {
+		readonly resolve: (url: string) => void;
+		readonly reject: (error: Error) => void;
+		readonly timer: number;
+	}>());
 	const focusTimer = useRef<number | undefined>(undefined);
 	const revealTimer = useRef<number | undefined>(undefined);
 	const adhdExtension = useMemo(() => makeBaseHalfAdhdDecorationExtension(), []);
 	const [contextMenu, setContextMenu] = useState<ContextMenuState | undefined>(undefined);
 	const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
 	const [version, setVersion] = useState(0);
+	const [colorScheme, setColorScheme] = useState<'light' | 'dark'>(workbenchColorScheme);
+
+	useEffect(() => {
+		const observer = new MutationObserver(() => setColorScheme(workbenchColorScheme()));
+		observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+		return () => observer.disconnect();
+	}, []);
+
+	const uploadFile = useCallback((file: File): Promise<string> => asyncMutationBarrier.run(async () => {
+		const state = session.current;
+		if (!state.key || !state.ready || !state.editable || state.structuralFrozen) {
+			throw new Error('This document is read-only.');
+		}
+		if (file.size > BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES) {
+			throw new Error(`Files larger than ${BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB cannot be inserted.`);
+		}
+
+		const data = await file.arrayBuffer();
+		const requestId = `attachment-${nextRequestId()}`;
+		return new Promise<string>((resolve, reject) => {
+			const timer = window.setTimeout(() => {
+				pendingAttachmentUploads.current.delete(requestId);
+				reject(new Error('The attachment took too long to save.'));
+			}, 30_000);
+			pendingAttachmentUploads.current.set(requestId, { resolve, reject, timer });
+			vscode.postMessage({
+				type: 'basehalf.markdownRich.attachmentUpload',
+				key: state.key,
+				requestId,
+				name: file.name,
+				mediaType: file.type,
+				data,
+			}, [data]);
+		});
+	}), [asyncMutationBarrier, vscode]);
+
+	const resolveFileUrl = useCallback(async (url: string): Promise<string> => {
+		if (!url || /^(?:[a-z][a-z0-9+.-]*:|#)/i.test(url)) {
+			return url;
+		}
+		const baseUri = session.current.baseUri;
+		return baseUri ? new URL(url, baseUri).toString() : url;
+	}, []);
 
 	const editor = useCreateBlockNote({
 		schema,
+		uploadFile,
+		resolveFileUrl,
 		extensions: [adhdExtension],
 		collaboration: {
 			fragment: fragment as XmlFragment,
@@ -478,7 +562,7 @@ function MarkdownRichEditor(): JSX.Element {
 		return new Set(baseHalfMarkdownLinesToBlockIds(blocks, state.byId, frontmatterLines, adhd.read_paragraphs ?? []));
 	}, [editor]);
 
-	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string) => {
+	const applyContent = useCallback(async (content: string, editable: boolean, key: string, resource: string, baseUri: string) => {
 		const state = session.current;
 		const isNewResource = state.key !== key || state.resource !== resource;
 		// A deferred command belongs to the projection generation that received
@@ -487,6 +571,7 @@ function MarkdownRichEditor(): JSX.Element {
 		state.loading = true;
 		state.key = key;
 		state.resource = resource;
+		state.baseUri = baseUri;
 		state.editable = editable;
 		state.conflictDisk = undefined;
 		state.writeError = undefined;
@@ -992,6 +1077,7 @@ function MarkdownRichEditor(): JSX.Element {
 		}
 
 		pendingInit.current = undefined;
+		session.current.baseUri = payload.baseUri;
 		const merged = await applyExternalContent(payload.content, payload.editable, payload.key, payload.resource)
 			.catch(() => false);
 		if (!merged) {
@@ -1007,7 +1093,7 @@ function MarkdownRichEditor(): JSX.Element {
 			}
 			// Full rebuild; only this path re-reveals the host's navigation
 			// selection — a merge keeps the user's spot.
-			await applyContent(payload.content, payload.editable, payload.key, payload.resource);
+			await applyContent(payload.content, payload.editable, payload.key, payload.resource, payload.baseUri);
 			revealSelection(payload.selection);
 		}
 	}, [applyContent, applyExternalContent, editor, revealSelection]);
@@ -1090,6 +1176,7 @@ function MarkdownRichEditor(): JSX.Element {
 						editable: message.editable,
 						key: message.key,
 						resource: message.resource,
+						baseUri: message.baseUri,
 						generation: ++initGeneration.current,
 						...(message.selection ? { selection: message.selection } : {})
 					}).catch(reportError);
@@ -1142,6 +1229,20 @@ function MarkdownRichEditor(): JSX.Element {
 					const pending = pendingFileSearches.current.get(message.requestId);
 					pendingFileSearches.current.delete(message.requestId);
 					pending?.(message.files);
+					break;
+				}
+				case 'basehalf.markdownRich.attachmentResult': {
+					const pending = pendingAttachmentUploads.current.get(message.requestId);
+					pendingAttachmentUploads.current.delete(message.requestId);
+					if (!pending) {
+						break;
+					}
+					window.clearTimeout(pending.timer);
+					if (message.url) {
+						pending.resolve(message.url);
+					} else {
+						pending.reject(new Error(message.error ?? 'The attachment could not be saved.'));
+					}
 					break;
 				}
 				case 'basehalf.markdownRich.save':
@@ -1231,6 +1332,14 @@ function MarkdownRichEditor(): JSX.Element {
 		pushBaseHalfAdhdDecorations(editor, { enabled: false, readBlockIds: [], keywords: [] });
 	}, [editor]);
 
+	useEffect(() => () => {
+		for (const pending of pendingAttachmentUploads.current.values()) {
+			window.clearTimeout(pending.timer);
+			pending.reject(new Error('The editor was closed before the attachment finished saving.'));
+		}
+		pendingAttachmentUploads.current.clear();
+	}, []);
+
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;
 		if (!dom) {
@@ -1249,8 +1358,15 @@ function MarkdownRichEditor(): JSX.Element {
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: window.getSelection()?.toString() ?? '').trim();
 			const canPaste = !!view && state.editable && !state.structuralFrozen && state.conflictDisk === undefined && state.writeError === undefined;
+			const clickedBlockId = (event.target as HTMLElement | null)?.closest?.('[data-id]')?.getAttribute('data-id');
+			const clickedBlock = clickedBlockId ? editor.getBlock(clickedBlockId) : undefined;
+			const clickedFileUrl = clickedBlock
+				&& (clickedBlock.type === 'file' || clickedBlock.type === 'image' || clickedBlock.type === 'audio' || clickedBlock.type === 'video')
+				&& typeof clickedBlock.props.url === 'string'
+				? clickedBlock.props.url
+				: undefined;
 			// Without a selection the menu still offers Paste at the cursor.
-			if (selected.length === 0 && !canPaste) {
+			if (selected.length === 0 && !canPaste && !clickedFileUrl) {
 				return;
 			}
 
@@ -1259,6 +1375,13 @@ function MarkdownRichEditor(): JSX.Element {
 				? view.state.doc.textBetween(selection.from, selection.to, '\n', '\n')
 				: selected;
 			const items: ContextMenuItem[] = [];
+			if (clickedFileUrl) {
+				items.push({
+					id: 'open-file',
+					label: 'Open in Card Detail',
+					run: () => vscode.postMessage({ type: 'basehalf.markdownRich.openResource', key: state.key, href: clickedFileUrl }),
+				});
+			}
 			const mutationKey = state.key;
 			const canApplyAsyncMutation = (): boolean => {
 				const current = session.current;
@@ -1371,7 +1494,36 @@ function MarkdownRichEditor(): JSX.Element {
 
 		dom.addEventListener('contextmenu', onContextMenu);
 		return () => dom.removeEventListener('contextmenu', onContextMenu);
-	}, [asyncMutationBarrier, editor, postAdhdCommand]);
+	}, [asyncMutationBarrier, editor, postAdhdCommand, vscode]);
+
+	useEffect(() => {
+		const dom = editor.prosemirrorView?.dom;
+		if (!dom) {
+			return;
+		}
+
+		const onDoubleClick = (event: MouseEvent): void => {
+			const target = event.target as HTMLElement | null;
+			if (!target?.closest('.bn-file-name-with-icon, .bn-visual-media')) {
+				return;
+			}
+			const blockId = target.closest('[data-id]')?.getAttribute('data-id');
+			const block = blockId ? editor.getBlock(blockId) : undefined;
+			if (!block || !('url' in block.props) || typeof block.props.url !== 'string' || !block.props.url) {
+				return;
+			}
+			const state = session.current;
+			if (!state.key) {
+				return;
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			vscode.postMessage({ type: 'basehalf.markdownRich.openResource', key: state.key, href: block.props.url });
+		};
+
+		dom.addEventListener('dblclick', onDoubleClick, true);
+		return () => dom.removeEventListener('dblclick', onDoubleClick, true);
+	}, [editor, vscode]);
 
 	useEffect(() => {
 		const dom = editor.prosemirrorView?.dom;
@@ -1608,7 +1760,7 @@ function MarkdownRichEditor(): JSX.Element {
 		if (disk === undefined) {
 			return;
 		}
-		void applyContent(disk, state.editable, state.key, state.resource).catch(reportError);
+		void applyContent(disk, state.editable, state.key, state.resource, state.baseUri).catch(reportError);
 	};
 	const retryWrite = () => {
 		state.writeError = undefined;
@@ -1616,7 +1768,7 @@ function MarkdownRichEditor(): JSX.Element {
 		void serializeAndRequestSave(nextRequestId(), true, false);
 	};
 	const discardLocal = () => {
-		void applyContent(state.lastDisk, state.editable, state.key, state.resource).catch(reportError);
+		void applyContent(state.lastDisk, state.editable, state.key, state.resource, state.baseUri).catch(reportError);
 	};
 
 	return (
@@ -1628,9 +1780,9 @@ function MarkdownRichEditor(): JSX.Element {
 		>
 			<div
 				ref={setPortalElement}
-				className="basehalf-markdown-rich-portal bn-root bn-mantine dark"
-				data-color-scheme="dark"
-				data-mantine-color-scheme="dark"
+				className="basehalf-markdown-rich-portal bn-root bn-mantine"
+				data-color-scheme={colorScheme}
+				data-mantine-color-scheme={colorScheme}
 			/>
 			{state.conflictDisk !== undefined && (
 				<div className="basehalf-markdown-rich-banner warning">
@@ -1680,7 +1832,7 @@ function MarkdownRichEditor(): JSX.Element {
 					<BlockNoteView
 						editor={editor}
 						editable={canEdit}
-						theme="dark"
+						theme={baseHalfBlockNoteTheme}
 						sideMenu={false}
 						portalElements={portalElements}
 					>

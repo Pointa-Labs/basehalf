@@ -27,6 +27,7 @@ suite('BaseHalfConfiguration', () => {
 		const keys = Object.values(BaseHalfSetting);
 		assert.deepStrictEqual(keys, [
 			'basehalf.editor.readingMode',
+			'basehalf.editor.attachmentsDirectory',
 			'basehalf.canvas.defaultZoom',
 			'basehalf.agent.defaultSession'
 		]);
@@ -41,6 +42,8 @@ suite('BaseHalfConfiguration', () => {
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.EditorReadingMode].default, false);
 		assert.ok(properties[BaseHalfSetting.EditorReadingMode].description?.includes('ADHD'));
+		assert.strictEqual(properties[BaseHalfSetting.AttachmentsDirectory].scope, ConfigurationScope.RESOURCE);
+		assert.strictEqual(properties[BaseHalfSetting.AttachmentsDirectory].default, 'attachments');
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].scope, ConfigurationScope.RESOURCE);
 		assert.strictEqual(properties[BaseHalfSetting.CanvasDefaultZoom].default, BASEHALF_CANVAS_DEFAULT_ZOOM);
 		assert.strictEqual(properties[BaseHalfSetting.AgentDefaultSession].scope, ConfigurationScope.WINDOW);

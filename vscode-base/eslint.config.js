@@ -143,6 +143,32 @@ export default defineConfig(
 			]
 		},
 	},
+	// BaseHalf-owned product and official-plugin sources retain Pointa Labs'
+	// Apache-2.0 header while the unmodified VS Code substrate stays MIT.
+	{
+		files: [
+			'build/basehalf/**/*.{js,mjs,ts,mts}',
+			'extensions/basehalf/**/*.{js,mjs,ts,mts,tsx}',
+			'extensions/basehalf-ai-video/**/*.{js,mjs,ts,mts}',
+			'scripts/basehalf-*.{js,mjs,ts,mts}',
+			'src/vs/platform/basehalf/**/*.{js,mjs,ts,mts}',
+			'src/vs/workbench/basehalf/**/*.{js,mjs,ts,mts}',
+			'src/vs/workbench/api/browser/mainThreadBaseHalf.ts',
+			'src/vs/workbench/api/common/extHostBaseHalf.ts',
+		],
+		rules: {
+			'header/header': [
+				2,
+				'block',
+				[
+					'---------------------------------------------------------------------------------------------',
+					' *  Copyright (c) Pointa Labs. All rights reserved.',
+					' *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.',
+					' *--------------------------------------------------------------------------------------------'
+				]
+			]
+		}
+	},
 	// TS
 	{
 		files: [
@@ -1765,6 +1791,22 @@ export default defineConfig(
 					]
 				},
 				{
+					'target': 'src/vs/workbench/basehalf/~',
+					'restrictions': [
+						'vs/base/~',
+						'vs/base/parts/*/~',
+						'vs/platform/*/~',
+						'vs/editor/~',
+						'vs/editor/contrib/*/~',
+						'vs/workbench/~',
+						'vs/workbench/services/*/~',
+						'vs/workbench/contrib/*/~',
+						'vs/workbench/basehalf/~',
+						'assert',
+						'crypto'
+					]
+				},
+				{
 					'target': 'src/vs/workbench/~',
 					'restrictions': [
 						'vs/base/~',
@@ -1794,7 +1836,8 @@ export default defineConfig(
 						'vs/workbench/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
-						'vs/workbench/contrib/terminalContrib/*/~'
+						'vs/workbench/contrib/terminalContrib/*/~',
+						'vs/workbench/basehalf/~'
 					]
 				},
 				{
@@ -1969,6 +2012,7 @@ export default defineConfig(
 						'vs/workbench/api/~',
 						'vs/workbench/services/*/~',
 						'vs/workbench/contrib/*/~',
+						'vs/workbench/basehalf/~',
 						'vs/workbench/contrib/terminal/terminal.all.js',
 						'vs/sessions/common/theme.js', // side-effect import for color registry
 						'vs/sessions/common/sizes.js' // side-effect import for size registry

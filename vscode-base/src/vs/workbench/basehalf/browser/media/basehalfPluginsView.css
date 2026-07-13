@@ -1,0 +1,62 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.basehalf-plugins-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	color: var(--vscode-foreground);
+}
+
+.basehalf-plugins-view-search {
+	padding: 8px 12px 6px;
+}
+
+.basehalf-plugins-view-search .monaco-inputbox {
+	width: 100%;
+}
+
+.basehalf-plugins-view-catalog-status {
+	padding: 0 12px 8px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 11px;
+	line-height: 16px;
+}
+
+.basehalf-plugins-view-catalog-status.error,
+.basehalf-plugins-view-empty.error {
+	color: var(--vscode-errorForeground);
+}
+
+.basehalf-plugins-view-list {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding-bottom: 8px;
+}
+
+.basehalf-plugins-view-section-title {
+	margin: 0;
+	padding: 8px 12px 5px;
+	color: var(--vscode-sideBarSectionHeader-foreground);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.basehalf-plugins-view-section > .extensions-list {
+	width: 100%;
+	overflow: hidden;
+}
+
+.basehalf-plugins-view-empty {
+	padding: 20px 16px;
+	color: var(--vscode-descriptionForeground);
+	font-size: 12px;
+	line-height: 18px;
+	text-align: center;
+}

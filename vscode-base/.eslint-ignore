@@ -34,6 +34,8 @@
 **/extensions/terminal-suggest/src/completions/upstream/**
 **/extensions/terminal-suggest/src/shell/zshBuiltinsCache.ts
 **/extensions/terminal-suggest/src/shell/fishBuiltinsCache.ts
+**/extensions/basehalf/*-out/**
+**/extensions/**/*-out/**
 **/extensions/terminal-suggest/third_party/**
 **/extensions/typescript-language-features/test-workspace/**
 **/extensions/typescript-language-features/package-manager/node-maintainer/**
@@ -60,3 +62,4 @@
 # Vendored third-party libraries
 src/vs/base/common/lit-html/**
 src/vs/base/common/signals-core/**
+src/vs/workbench/basehalf/common/vendor/**

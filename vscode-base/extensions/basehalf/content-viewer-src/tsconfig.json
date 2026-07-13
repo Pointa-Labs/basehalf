@@ -1,0 +1,17 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"lib": [
+			"es2024",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"skipLibCheck": true,
+		"noEmit": true
+	},
+	"include": [
+		"./**/*.ts"
+	]
+}

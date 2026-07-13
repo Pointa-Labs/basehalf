@@ -1,0 +1,54 @@
+{
+  "name": "basehalf-ai-video",
+  "displayName": "BaseHalf AI Video",
+  "description": "Local-first scripts, scenes, storyboards, shot workflows, and provider-neutral AI video generation for BaseHalf.",
+  "version": "0.1.0",
+  "publisher": "pointa",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Pointa-Labs/basehalf.git",
+    "directory": "vscode-base/extensions/basehalf-ai-video"
+  },
+  "engines": {
+    "vscode": "^1.128.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "enabledApiProposals": [
+    "basehalfDomainPlugins"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "AI Video workflows may write user-approved local output files and call configured providers."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "basehalfCardProjections": [
+      {
+        "id": "pointa.basehalf-ai-video.project",
+        "label": "AI Video",
+        "icon": "device-camera-video",
+        "extensions": [
+          ".aivideo"
+        ],
+        "order": 400,
+        "defaultPriority": 400
+      }
+    ],
+    "commands": [
+      {
+        "command": "basehalf.aiVideo.createProject",
+        "title": "Create AI Video Project…",
+        "category": "BaseHalf"
+      }
+    ]
+  }
+}

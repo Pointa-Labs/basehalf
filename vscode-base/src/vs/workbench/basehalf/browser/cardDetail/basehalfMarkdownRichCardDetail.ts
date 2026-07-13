@@ -11,7 +11,7 @@ import { toErrorMessage } from '../../../../base/common/errorMessage.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { FileAccess } from '../../../../base/common/network.js';
 import { posix } from '../../../../base/common/path.js';
-import { basename, isEqual, relativePath } from '../../../../base/common/resources.js';
+import { basename, dirname, isEqual, joinPath, relativePath } from '../../../../base/common/resources.js';
 import { escape } from '../../../../base/common/strings.js';
 import { URI } from '../../../../base/common/uri.js';
 import { generateUuid } from '../../../../base/common/uuid.js';
@@ -23,6 +23,7 @@ import { IConfigurationService } from '../../../../platform/configuration/common
 import { TooLargeFileOperationError } from '../../../../platform/files/common/files.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ILogService } from '../../../../platform/log/common/log.js';
+import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
 import { ISearchService } from '../../../services/search/common/search.js';
 import { QueryBuilder } from '../../../services/search/common/queryBuilder.js';
 import { ITextFileService, TextFileOperationError, TextFileOperationResult } from '../../../services/textfile/common/textfiles.js';
@@ -44,6 +45,7 @@ import {
 } from '../../common/basehalfMarkdownRichTextModel.js';
 import {
 	BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE,
+	BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES,
 	BaseHalfMarkdownRichEditorCommand,
 	BaseHalfMarkdownRichWorkbenchCommand,
 	isBaseHalfMarkdownRichWebviewMessage
@@ -56,6 +58,7 @@ import {
 import { IBaseHalfAdhdCommand } from '../../common/basehalfAdhd.js';
 import { BaseHalfAdhdMirrorCorrupt, IBaseHalfAdhdMirrorService } from '../../common/basehalfAdhdMirror.js';
 import { BaseHalfSetting } from '../../common/basehalfConfiguration.js';
+import { IBaseHalfMarkdownAttachmentService } from '../../common/basehalfMarkdownAttachment.js';
 
 const markdownRichDocuments = new BaseHalfMarkdownRichLiveDocumentRegistry();
 
@@ -113,7 +116,7 @@ export function baseHalfMarkdownRichWebviewHtml(key: string): string {
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webviewGenericCspSource} data: blob: https:; media-src ${webviewGenericCspSource} data: blob: https:; font-src ${webviewGenericCspSource}; style-src ${webviewGenericCspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<link nonce="${nonce}" rel="stylesheet" href="${styles}">
 </head>
@@ -165,6 +168,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		@ISearchService private readonly searchService: ISearchService,
 		@IInstantiationService private readonly instantiationService: IInstantiationService,
 		@IBaseHalfCanvasNavigationService private readonly canvasNavigationService: IBaseHalfCanvasNavigationService,
+		@IBaseHalfMarkdownAttachmentService private readonly attachmentService: IBaseHalfMarkdownAttachmentService,
+		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@ILogService private readonly logService: ILogService
 	) {
 		super();
@@ -217,6 +222,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 				this.webview.mountTo(this.webviewHost, mainWindow);
 				this.webview.setHtml(baseHalfMarkdownRichWebviewHtml(this.documentKey));
 			}
+			this.webview.localResourcesRoot = [markdownRichMediaRoot, state.workspaceFolder];
 
 			this._register(UndoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('undo')));
 			this._register(RedoCommand.addImplementation(MARKDOWN_RICH_UNDO_REDO_PRIORITY, 'basehalfMarkdownRich', () => this.dispatchEditorCommand('redo')));
@@ -438,6 +444,12 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 			case 'basehalf.markdownRich.fileSearch':
 				await this.handleFileSearch(state, message.requestId, message.query);
 				break;
+			case 'basehalf.markdownRich.attachmentUpload':
+				await this.handleAttachmentUpload(state, message.requestId, message.name, message.data);
+				break;
+			case 'basehalf.markdownRich.openResource':
+				await this.handleOpenResource(state, message.href);
+				break;
 			case 'basehalf.markdownRich.openSource':
 				// The escape hatch for passthrough blocks: reopen this card in
 				// the source projection with the block's lines selected.
@@ -568,6 +580,43 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 	}
 
+	private async handleAttachmentUpload(state: IBaseHalfCardDetailState, requestId: string, name: string, data: ArrayBuffer): Promise<void> {
+		if (!this.isEditable() || this.structuralFrozen) {
+			await this.bridge?.sendAttachmentResult(requestId, { error: 'This document is read-only.' });
+			return;
+		}
+		if (data.byteLength > BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES) {
+			await this.bridge?.sendAttachmentResult(requestId, { error: `Files larger than ${BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES / 1024 / 1024} MB cannot be inserted.` });
+			return;
+		}
+
+		try {
+			const stored = await this.attachmentService.store(state.resource, name, data);
+			await this.bridge?.sendAttachmentResult(requestId, { url: stored.href });
+		} catch (error) {
+			this.logService.error('[BaseHalf] rich Markdown attachment write failed', error);
+			await this.bridge?.sendAttachmentResult(requestId, { error: toErrorMessage(error) });
+		}
+	}
+
+	private async handleOpenResource(state: IBaseHalfCardDetailState, href: string): Promise<void> {
+		const path = href.split(/[?#]/, 1)[0];
+		if (!path || path.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(path)) {
+			return;
+		}
+		let decoded: string;
+		try {
+			decoded = decodeURIComponent(path);
+		} catch {
+			return;
+		}
+		const resource = joinPath(dirname(state.resource), decoded);
+		if (!this.uriIdentityService.extUri.isEqualOrParent(resource, state.workspaceFolder)) {
+			return;
+		}
+		await this.canvasNavigationService.openResource(resource, { source: 'api' });
+	}
+
 	private async handleWorkbenchCommand(command: BaseHalfMarkdownRichWorkbenchCommand): Promise<void> {
 		switch (command) {
 			case 'quickOpen':
@@ -600,9 +649,14 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private async sendDocumentState(state: IBaseHalfCardDetailState): Promise<void> {
 		const content = this.lastSentContent ?? this.model?.getValue() ?? '';
-		await this.bridge?.sendInit(state.resource.toString(), content, this.isEditable(), state.selection);
+		await this.bridge?.sendInit(state.resource.toString(), this.webviewBaseUri(state.resource), content, this.isEditable(), state.selection);
 		this.writeSelectionFocus(state);
 		await this.sendAdhdState(state);
+	}
+
+	private webviewBaseUri(resource: URI): string {
+		const directory = dirname(resource);
+		return asWebviewUri(directory.with({ path: `${directory.path.replace(/\/$/, '')}/` })).toString(true);
 	}
 
 	private writeSelectionFocus(state: IBaseHalfCardDetailState): void {
@@ -698,7 +752,8 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 
 	private forwardModelContent(): void {
 		const model = this.model;
-		if (!model) {
+		const state = this.state;
+		if (!model || !state) {
 			return;
 		}
 		const content = model.getValue();
@@ -707,7 +762,7 @@ export class BaseHalfMarkdownRichCardDetail extends Disposable {
 		}
 
 		this.lastSentContent = content;
-		void this.bridge?.sendInit(model.uri.toString(), content, this.isEditable(), this.state?.selection);
+		void this.bridge?.sendInit(model.uri.toString(), this.webviewBaseUri(model.uri), content, this.isEditable(), state.selection);
 	}
 
 	private updateEditable(): void {

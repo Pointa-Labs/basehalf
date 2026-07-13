@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
 /**
  * Release-side half of BaseHalf self-update: sign the packaged .zip with the
  * project's Ed25519 update key and emit the feed manifest the app polls.

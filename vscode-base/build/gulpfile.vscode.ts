@@ -30,6 +30,8 @@ import { compileNonNativeExtensionsBuildTask, compileNativeExtensionsBuildTask, 
 import { copyCodiconsTask } from './lib/compilation.ts';
 import { ensureCopilotPlatformPackage, getCopilotExcludeFilter, getCopilotRuntimePrebuildFiles, getCopilotTgrepExcludeFilter, getRipgrepExcludeFilter, prepareBuiltInCopilotRipgrepShim } from './lib/copilot.ts';
 import { readAgentSdkResults } from './agent-sdk/common.ts';
+import { resolveBaseHalfPluginCatalogPublicKeys } from './basehalf/pluginCatalogKeys.ts';
+import type { IBaseHalfPluginCatalogPublicKey } from './basehalf/pluginCatalogKeys.ts';
 import { useEsbuildTranspile } from './buildConfig.ts';
 import { promisify } from 'util';
 import globCallback from 'glob';
@@ -167,6 +169,7 @@ const sourceMappingURLBase = `https://main.vscode-cdn.net/sourcemaps/${commit}`;
 const isCI = !!process.env['CI'] || !!process.env['BUILD_ARTIFACTSTAGINGDIRECTORY'] || !!process.env['GITHUB_WORKSPACE'];
 const useCdnSourceMapsForPackagingTasks = isCI;
 const stripSourceMapsInPackagingTasks = isCI;
+
 const minifyVSCodeTask = task.define('minify-vscode', task.series(
 	bundleVSCodeTask,
 	util.rimraf('out-vscode-min'),
@@ -271,14 +274,21 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 		// BaseHalf: the bundled Copilot Chat extension is not part of the curated
 		// extension set (the Agent Area hosts Codex/Claude instead) and would add
 		// ~440MB to the package — keep it out of the shipped app.
-		const basehalfExcludedBuiltInExtensions = ['!.build/extensions/copilot/**'];
+		const basehalfExcludedBuiltInExtensions = [
+			'!.build/extensions/copilot/**',
+			// Domain plugins are reviewed payloads installed from Manage Plugins,
+			// not pre-scanned system extensions.
+			'!.build/extensions/basehalf-ai-video/**'
+		];
 
 		const extensions = gulp.src(['.build/extensions/**', ...basehalfExcludedBuiltInExtensions, ...platformSpecificBuiltInExtensionsExclusions], { base: '.build', dot: true });
+		const basehalfPluginPayloads = gulp.src('.build/extensions/basehalf-ai-video/**', { base: '.build/extensions', dot: true })
+			.pipe(rename(file => file.dirname = `plugins/${file.dirname}`));
 
 		const sourceFilterPattern = stripSourceMapsInPackagingTasks
 			? ['**', '!**/*.{js,css}.map']
 			: ['**'];
-		const sources = es.merge(src, extensions)
+		const sources = es.merge(src, extensions, basehalfPluginPayloads)
 			.pipe(filter(sourceFilterPattern, { dot: true }));
 
 		let version = packageJson.version;
@@ -316,6 +326,13 @@ function packageTask(platform: string, arch: string, sourceFolderName: string, d
 				const agentSdks = readAgentSdkResults();
 				if (Object.keys(agentSdks).length > 0) {
 					json.agentSdks = agentSdks;
+				}
+				const basehalfPlugins = json.basehalfPlugins as { readonly publicKeys?: readonly IBaseHalfPluginCatalogPublicKey[] } | undefined;
+				if (basehalfPlugins) {
+					json.basehalfPlugins = {
+						...basehalfPlugins,
+						publicKeys: resolveBaseHalfPluginCatalogPublicKeys(basehalfPlugins.publicKeys ?? [])
+					};
 				}
 				return json;
 			}))

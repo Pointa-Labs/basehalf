@@ -20,7 +20,7 @@ import {
 	IBaseHalfNavigationHistoryOptions,
 	IBaseHalfOpenResourceOptions
 } from './basehalfCanvasNavigation.js';
-import { normalizeBaseHalfCardDetailProjection } from './basehalfCardDetail.js';
+import { IBaseHalfCardProjectionRegistryService } from './basehalfCardDetail.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, IBaseHalfEditorFlushService } from './basehalfEditorFlush.js';
 
 export class BaseHalfCanvasNavigationService extends Disposable implements IBaseHalfCanvasNavigationService {
@@ -57,6 +57,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 		@IWorkspaceContextService private readonly workspaceContextService: IWorkspaceContextService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@IBaseHalfCardProjectionRegistryService private readonly cardProjectionRegistryService: IBaseHalfCardProjectionRegistryService,
 		@INotificationService private readonly notificationService: INotificationService
 	) {
 		super();
@@ -141,7 +142,7 @@ export class BaseHalfCanvasNavigationService extends Disposable implements IBase
 			selection: options.selection,
 			preserveFocus: options.preserveFocus,
 			pinned: options.pinned,
-			projection: normalizeBaseHalfCardDetailProjection(resource, options.projection)
+			projection: this.cardProjectionRegistryService.normalizeProjection(resource, options.projection)
 		};
 		this.updateState({
 			canvasFolder,

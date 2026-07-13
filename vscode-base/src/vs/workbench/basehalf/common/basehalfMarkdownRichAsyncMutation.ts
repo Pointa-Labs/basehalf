@@ -6,11 +6,11 @@
 /** Tracks clipboard and other promise-backed editor commands whose eventual
  * DOM transaction can otherwise arrive after a structural freeze snapshot. */
 export class BaseHalfMarkdownRichAsyncMutationBarrier {
-	private readonly inFlight = new Set<Promise<void>>();
+	private readonly inFlight = new Set<Promise<unknown>>();
 	private readonly idleWaiters = new Set<() => void>();
 
-	run(task: () => Promise<void>): Promise<void> {
-		let operation!: Promise<void>;
+	run<T>(task: () => Promise<T>): Promise<T> {
+		let operation!: Promise<T>;
 		operation = task().finally(() => {
 			this.inFlight.delete(operation);
 			if (this.inFlight.size === 0) {

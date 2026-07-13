@@ -34,7 +34,7 @@ export class BaseHalfAllowedExtensionsService extends AllowedExtensionsService i
 		if (!isBaseHalfAllowedProductExtension(extensionId)) {
 			return new MarkdownString(nls.localize(
 				'basehalf.extensionNotAllowed',
-				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated Git, GitHub, GitHub Authentication, Codex, and Claude Code extensions."
+				"This extension is outside the BaseHalf product profile. BaseHalf currently allows only curated source-control, Agent Area, and official domain-plugin extensions."
 			));
 		}
 

@@ -11,6 +11,7 @@ import { InputBox, MessageType } from '../../../base/browser/ui/inputbox/inputBo
 import { IKeyboardEvent } from '../../../base/browser/keyboardEvent.js';
 import { KeyCode } from '../../../base/common/keyCodes.js';
 import { Disposable, DisposableStore, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { VSBuffer } from '../../../base/common/buffer.js';
 import { basename, dirname, extname, isEqualOrParent, joinPath } from '../../../base/common/resources.js';
 import { URI } from '../../../base/common/uri.js';
 import { ResourceFileEdit } from '../../../editor/browser/services/bulkEditService.js';
@@ -41,6 +42,7 @@ import {
 	baseHalfCanvasBadgeRelationships,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	baseHalfCanvasOpenPosition,
 	baseHalfCanvasTransferPosition,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT,
 	BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH,
@@ -60,8 +62,10 @@ import { baseHalfAssertMirrorPathComponentsNotSymbolicLink, baseHalfMirrorResour
 import { IBaseHalfCanvasFolderState, IBaseHalfCanvasNavigationService, IBaseHalfCardDetailState } from '../common/basehalfCanvasNavigation.js';
 import { baseHalfCanvasInlineEditKeyAction, BaseHalfCanvasCreateKind, BaseHalfCanvasEditingRequest, IBaseHalfCanvasEditingService } from '../common/basehalfCanvasEditing.js';
 import { IBaseHalfCanvasActionContext, IBaseHalfCanvasActionContextService } from '../common/basehalfCanvasActionContext.js';
-import { BaseHalfCardDetailProjection, isBaseHalfMarkdownResource } from '../common/basehalfCardDetail.js';
+import { BaseHalfCardDetailProjection, IBaseHalfCardProjectionRegistryService } from '../common/basehalfCardDetail.js';
 import { IBaseHalfFocusMirrorService } from '../common/basehalfFocusMirrorService.js';
+import { IBaseHalfPdfSelection } from '../common/basehalfMediaViewState.js';
+import { baseHalfPdfBranchBaseName, baseHalfPdfBranchMarkdown } from '../common/basehalfPdfBranch.js';
 import {
 	baseHalfCanvasCardLod,
 	BASEHALF_CANVAS_CARD_FULL_MIN_HEIGHT,
@@ -71,6 +75,8 @@ import { BaseHalfMarkdownPreviewCardDetail } from './cardDetail/basehalfMarkdown
 import { BaseHalfMarkdownRichCardDetail } from './cardDetail/basehalfMarkdownRichCardDetail.js';
 import { BaseHalfMarkdownRichWebviewWarmup } from './cardDetail/basehalfMarkdownRichWebviewWarmup.js';
 import { BaseHalfSourceCardDetail } from './cardDetail/basehalfSourceCardDetail.js';
+import { IBaseHalfCardDetailSurfaceInstance, IBaseHalfCardDetailSurfaceRegistryService } from './cardDetail/basehalfCardDetailSurface.js';
+import { BaseHalfMediaCardDetail } from './cardDetail/basehalfMediaCardDetail.js';
 import { BaseHalfCanvasReactScene } from './basehalfCanvasReactScene.js';
 import { BASEHALF_CANVAS_MAX_ZOOM, BASEHALF_CANVAS_MIN_ZOOM, BaseHalfSetting, normalizeBaseHalfCanvasZoom } from '../common/basehalfConfiguration.js';
 import { BASEHALF_AUTO_SAVE_DELAY_MS } from '../common/basehalfWorkbenchProfile.js';
@@ -120,7 +126,7 @@ interface IBaseHalfBadgeDescriptionPending extends IBaseHalfBadgeDescriptionDraf
 interface IBaseHalfCardDetailSurface {
 	readonly host: HTMLElement;
 	readonly store: DisposableStore;
-	readonly instance: BaseHalfSourceCardDetail | BaseHalfMarkdownRichCardDetail | BaseHalfMarkdownPreviewCardDetail;
+	readonly instance: IBaseHalfCardDetailSurfaceInstance;
 	readonly whenRendered: Promise<unknown>;
 }
 interface IBaseHalfCanvasMutationGuard {
@@ -227,6 +233,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderQueuedBehindGesture = false;
 	private inlineEdit: BaseHalfCanvasInlineEdit | undefined;
 	private pendingCanvasSelection: { readonly sceneKey: string; readonly paths: readonly string[] } | undefined;
+	private pendingCanvasFit: { readonly sceneKey: string; readonly paths: readonly string[] } | undefined;
 	private pendingDetailNameEditResourceKey: string | undefined;
 	private pendingDetailEditorFocusResourceKey: string | undefined;
 	private fileDragDepth = 0;
@@ -262,6 +269,8 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		@IBaseHalfCanvasEditingService private readonly canvasEditingService: IBaseHalfCanvasEditingService,
 		@IBaseHalfCanvasActionContextService private readonly canvasActionContextService: IBaseHalfCanvasActionContextService,
 		@IBaseHalfEditorFlushService private readonly editorFlushService: IBaseHalfEditorFlushService,
+		@IBaseHalfCardProjectionRegistryService private readonly cardProjectionRegistryService: IBaseHalfCardProjectionRegistryService,
+		@IBaseHalfCardDetailSurfaceRegistryService private readonly cardDetailSurfaceRegistryService: IBaseHalfCardDetailSurfaceRegistryService,
 		@ILifecycleService lifecycleService: ILifecycleService
 	) {
 		super();
@@ -348,10 +357,13 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this._register(this.addDisposableListener(close, 'click', () => void this.canvasNavigationService.closeCardDetail()));
 		this.detailBody = append(this.detail, $('.basehalf-card-detail-body'));
 		this.richWebviewWarmup = this._register(this.instantiationService.createInstance(BaseHalfMarkdownRichWebviewWarmup, this.detailBody));
+		this.registerCardDetailSurfaceProviders();
 
 		this.editorContainer.prepend(this.root);
 
 		this._register(this.canvasNavigationService.onDidChangeState(() => this.requestRender()));
+		this._register(this.cardProjectionRegistryService.onDidChangeProjections(() => this.reconcileCardProjectionRegistrations()));
+		this._register(this.cardDetailSurfaceRegistryService.onDidChangeProviders(() => this.reconcileCardProjectionRegistrations()));
 		this._register(this.canvasEditingService.registerHandler(request => this.beginCanvasInlineEdit(request)));
 		this._register(this.fileService.onDidFilesChange(event => {
 			const folder = this.getCurrentFolder();
@@ -702,7 +714,24 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			this.renderCanvasWarning(warning);
 		}
 
-		this.restoreOrWriteFolderFocus(folder, seq);
+		const pendingFit = this.pendingCanvasFit?.sceneKey === currentSceneKey && !this.canvasNavigationService.state.cardDetail
+			? this.pendingCanvasFit
+			: undefined;
+		if (pendingFit) {
+			this.pendingCanvasFit = undefined;
+			mainWindow.requestAnimationFrame(() => {
+				if (!this.isCurrentSceneKey(pendingFit.sceneKey) || this.canvasNavigationService.state.cardDetail) {
+					this.pendingCanvasFit ??= pendingFit;
+					return;
+				}
+				void this.canvasScene.fit(pendingFit.paths, {
+					maxZoom: Math.min(1, this.defaultCanvasZoom(folder)),
+					padding: 0.16
+				}).then(() => this.scheduleFolderFocusWrite(0)).catch(error => this.logService.error(error));
+			});
+		} else {
+			this.restoreOrWriteFolderFocus(folder, seq);
+		}
 	}
 
 	private sceneKey(folder: IBaseHalfCanvasFolderState): string {
@@ -1233,7 +1262,10 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			return;
 		}
 
-		const placement = this.canvasCreatePlacement(placementContext ?? context);
+		const initialPlacement = this.canvasCreatePlacement(placementContext ?? context);
+		const placement = request.kind === 'create'
+			? this.avoidCanvasCreateOverlap(initialPlacement, request.createKind)
+			: initialPlacement;
 		if (request.kind === 'paste') {
 			const resources = await this.clipboardService.readResources();
 			if (resources.length === 0) {
@@ -1313,6 +1345,34 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		};
 	}
 
+	private avoidCanvasCreateOverlap(
+		placement: { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } },
+		kind: BaseHalfCanvasCreateKind
+	): { readonly screenPosition: { readonly x: number; readonly y: number }; readonly canvasPosition: { readonly x: number; readonly y: number } } {
+		const items = [...this.renderedItemsByPath.values()];
+		const occupied = items.map((item, index) => baseHalfCanvasItemBounds(item, index, items.length));
+		const size = kind === 'folder'
+			? { width: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FOLDER_CARD_HEIGHT }
+			: { width: BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH, height: BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT };
+		const surface = this.surface.getBoundingClientRect();
+		const viewportStart = this.canvasScene.screenToCanvasPosition(surface.left + 24, surface.top + 24);
+		const viewportEnd = this.canvasScene.screenToCanvasPosition(surface.right - 24, surface.bottom - 24);
+		const viewport = {
+			x: viewportStart.x,
+			y: viewportStart.y,
+			width: Math.max(0, viewportEnd.x - viewportStart.x),
+			height: Math.max(0, viewportEnd.y - viewportStart.y)
+		};
+		const canvasPosition = baseHalfCanvasOpenPosition(placement.canvasPosition, size, occupied, viewport);
+		return {
+			canvasPosition,
+			screenPosition: {
+				x: placement.screenPosition.x + (canvasPosition.x - placement.canvasPosition.x) * this.canvasZoom,
+				y: placement.screenPosition.y + (canvasPosition.y - placement.canvasPosition.y) * this.canvasZoom
+			}
+		};
+	}
+
 	private async createUntitledNote(
 		folder: IBaseHalfCanvasFolderState,
 		context: IBaseHalfCanvasActionContext,
@@ -1338,6 +1398,106 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			throw new Error(localize('basehalf.canvas.newNote.exhausted', "Too many untitled notes. Rename one before creating another."));
 		}
 		await this.createCanvasEntry(folder, context, name, 'file', canvasPosition, { open: true, focusName: true });
+	}
+
+	private async createPdfBranch(resource: URI, selection: IBaseHalfPdfSelection): Promise<void> {
+		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		const folder = this.getCurrentFolder();
+		if (!cardDetail || !folder
+			|| !this.uriIdentityService.extUri.isEqual(cardDetail.resource, resource)
+			|| !this.uriIdentityService.extUri.isEqual(dirname(resource), folder.resource)) {
+			throw new Error(localize('basehalf.pdf.branch.stale', "The PDF or its canvas changed before the branch could be created."));
+		}
+
+		const renderedItems = [...this.renderedItemsByPath.values()];
+		const sourceItem = this.renderedItemsByPath.get(cardDetail.relativePath);
+		const sourceIndex = sourceItem ? renderedItems.indexOf(sourceItem) : -1;
+		const sourceBounds = sourceItem && sourceIndex >= 0
+			? baseHalfCanvasItemBounds(sourceItem, sourceIndex, renderedItems.length)
+			: undefined;
+		if (sourceItem && sourceBounds && !sourceItem.card) {
+			// Persist the source's currently visible fallback geometry before adding a
+			// sibling. Otherwise the fallback grid changes and the PDF appears to move.
+			await this.canvasMirrorService.updateCardGeometry(folder, {
+				path: sourceItem.path,
+				kind: sourceItem.kind,
+				...sourceBounds
+			});
+		}
+
+		const context = await this.canvasActionContextService.capture(folder.resource, folder.workspaceFolder, folder.relativePath);
+		const sourceName = basename(resource);
+		const baseName = baseHalfPdfBranchBaseName(sourceName);
+		let name: string | undefined;
+		for (let index = 0; index < 1000; index++) {
+			const candidate = `${baseName}${index === 0 ? '' : `-${index + 1}`}.md`;
+			if (!await this.fileService.exists(joinPath(folder.resource, candidate))) {
+				name = candidate;
+				break;
+			}
+		}
+		if (!name) {
+			throw new Error(localize('basehalf.pdf.branch.exhausted', "Too many notes already use this PDF's branch name."));
+		}
+
+		const defaultPlacement = this.canvasCreatePlacement(undefined);
+		const initialCanvasPosition = sourceBounds
+			? { x: sourceBounds.x + sourceBounds.width + 72, y: sourceBounds.y }
+			: defaultPlacement.canvasPosition;
+		const placement = this.avoidCanvasCreateOverlap({
+			screenPosition: defaultPlacement.screenPosition,
+			canvasPosition: initialCanvasPosition
+		}, 'note');
+		const contents = VSBuffer.fromString(baseHalfPdfBranchMarkdown(sourceName, selection));
+		const target = await this.createCanvasEntry(folder, context, name, 'file', placement.canvasPosition, {
+			open: false,
+			contents
+		});
+
+		const targetPath = canvasChildPath(folder.relativePath, name);
+		let sourceNode: IBaseHalfBadgeNode;
+		try {
+			const nodes = await this.resolveLiveWorkspaceNodes(folder.workspaceFolder, [
+				{ path: cardDetail.relativePath, kind: 'file' },
+				{ path: targetPath, kind: 'file' }
+			]);
+			const resolvedSource = nodes.get(cardDetail.relativePath);
+			const resolvedTarget = nodes.get(targetPath);
+			if (!resolvedSource || !resolvedTarget) {
+				throw new Error('The PDF branch nodes could not be resolved.');
+			}
+			sourceNode = resolvedSource;
+			await this.badgeGraphService.addReference(sourceNode, resolvedTarget);
+		} catch (error) {
+			// The user-owned note already exists. Keep it reachable even if the
+			// derived reference graph could not complete its two-sided write.
+			try {
+				await this.canvasNavigationService.openResource(target, { source: 'api', pinned: true, projection: 'rich' });
+			} catch (openError) {
+				this.logService.error('[BaseHalf] failed to open a PDF branch after its reference write failed', openError);
+			}
+			throw new Error(localize(
+				'basehalf.pdf.branch.referenceFailed',
+				"The note was created, but its reference from {0} could not be saved: {1}",
+				sourceName,
+				error instanceof Error ? error.message : String(error)
+			));
+		}
+
+		let fittedPaths: readonly string[] = [cardDetail.relativePath, targetPath];
+		try {
+			const sourceBadge = await this.badgeGraphService.readBadge(sourceNode);
+			fittedPaths = [...new Set([cardDetail.relativePath, ...(sourceBadge?.references ?? []), targetPath])];
+		} catch (error) {
+			// Framing is a view concern and must not turn a successful graph write
+			// into an apparent action failure.
+			this.logService.warn('[BaseHalf] failed to read PDF branch references for canvas framing', error);
+		}
+		this.pendingCanvasFit = {
+			sceneKey: this.sceneKey(folder),
+			paths: fittedPaths
+		};
+		await this.canvasNavigationService.openResource(target, { source: 'api', pinned: true, projection: 'rich' });
 	}
 
 	private renderInlineRenameEditor(card: HTMLElement, item: IBaseHalfCanvasItem): void {
@@ -1566,11 +1726,14 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		name: string,
 		kind: 'file' | 'folder',
 		canvasPosition: { readonly x: number; readonly y: number },
-		options: { readonly open: boolean; readonly focusName?: boolean }
+		options: { readonly open: boolean; readonly focusName?: boolean; readonly contents?: VSBuffer }
 	): Promise<URI> {
 		await this.canvasActionContextService.assertCurrent(context);
 		const target = joinPath(folder.resource, name);
-		await this.explorerService.applyBulkEdit([new ResourceFileEdit(undefined, target, { folder: kind === 'folder' })], {
+		await this.explorerService.applyBulkEdit([new ResourceFileEdit(undefined, target, {
+			folder: kind === 'folder',
+			contents: options.contents ? Promise.resolve(options.contents) : undefined
+		})], {
 			undoLabel: kind === 'folder'
 				? localize('basehalf.canvas.newFolder.undo', "Create Folder {0}", name)
 				: localize('basehalf.canvas.newFile.undo', "Create File {0}", name),
@@ -2825,7 +2988,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderCanvasEmptyState(folder: IBaseHalfCanvasFolderState): void {
 		const empty = append(this.canvasOverlay, $('.basehalf-canvas-empty-state'));
 		const title = append(empty, $('span.basehalf-canvas-empty-title'));
-		title.textContent = localize('basehalf.canvas.empty.title', "This folder is empty");
+		title.textContent = localize('basehalf.canvas.empty.title', "No content cards yet");
 		const actions = append(empty, $('.basehalf-canvas-empty-actions'));
 		const note = append(actions, $('button.basehalf-canvas-empty-note')) as HTMLButtonElement;
 		note.type = 'button';
@@ -3015,6 +3178,33 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.focusPendingDetailEditor(cardDetail);
 	}
 
+	private reconcileCardProjectionRegistrations(): void {
+		if (this.disposed) {
+			return;
+		}
+		const cardDetail = this.canvasNavigationService.state.cardDetail;
+		if (!cardDetail) {
+			this.requestRender();
+			return;
+		}
+
+		const normalized = this.cardProjectionRegistryService.normalizeProjection(cardDetail.resource, cardDetail.projection);
+		const projection = this.cardDetailSurfaceRegistryService.hasProvider(normalized) ? normalized : 'source';
+		if (projection === cardDetail.projection) {
+			this.requestRender();
+			return;
+		}
+
+		void this.canvasNavigationService.openCardDetail(cardDetail.resource, {
+			source: 'api',
+			selection: cardDetail.selection,
+			preserveFocus: cardDetail.preserveFocus,
+			pinned: cardDetail.pinned,
+			projection,
+			history: 'replace'
+		});
+	}
+
 	private renderDetailTitle(cardDetail: IBaseHalfCardDetailState): void {
 		this.detailTitleDisposables.clear();
 		clearNode(this.detailTitle);
@@ -3170,9 +3360,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 			if (this.canvasNavigationService.state.cardDetail?.resource.toString() !== resourceKey) {
 				return;
 			}
-			if (surface.instance instanceof BaseHalfMarkdownRichCardDetail || surface.instance instanceof BaseHalfSourceCardDetail) {
-				surface.instance.focus();
-			}
+			surface.instance.focus?.();
 		});
 	}
 
@@ -3182,9 +3370,7 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 		this.detail.inert = fenced;
 		this.detail.toggleAttribute('aria-busy', fenced);
 		for (const surface of this.detailSurfaces.values()) {
-			if (surface.instance instanceof BaseHalfMarkdownRichCardDetail) {
-				surface.instance.setStructuralFrozen(fenced);
-			}
+			surface.instance.setStructuralFrozen?.(fenced);
 		}
 	}
 
@@ -3243,42 +3429,74 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	}
 
 	private createDetailSurface(projection: BaseHalfCardDetailProjection, cardDetail: IBaseHalfCardDetailState): IBaseHalfCardDetailSurface {
-		// The prewarmed shell's layer already sits in the detail body (its
-		// iframe must never reparent); adopting it makes that layer THE
-		// surface host for this card.
-		const prewarmed = projection === 'rich' ? this.richWebviewWarmup.take() : undefined;
-		const host = prewarmed ? prewarmed.host : append(this.detailBody, $('.basehalf-card-detail-surface'));
+		const created = this.cardDetailSurfaceRegistryService.create(projection, this.detailBody, cardDetail);
+		const { host, instance } = created;
 		const store = new DisposableStore();
 		store.add(toDisposable(() => host.remove()));
-
-		let instance: IBaseHalfCardDetailSurface['instance'];
-		if (projection === 'rich') {
-			instance = store.add(this.instantiationService.createInstance(
-				BaseHalfMarkdownRichCardDetail,
-				host,
-				() => this.closeDetailBadgePopover(cardDetail, false),
-				status => this.setDetailSaveStatus(status),
-				prewarmed
-			));
-		} else if (projection === 'preview') {
-			instance = store.add(this.instantiationService.createInstance(
-				BaseHalfMarkdownPreviewCardDetail,
-				host,
-				status => this.setDetailSaveStatus(status)
-			));
-		} else {
-			instance = store.add(this.instantiationService.createInstance(
-				BaseHalfSourceCardDetail,
-				host,
-				status => this.setDetailSaveStatus(status)
-			));
-		}
+		store.add(instance);
 
 		const whenRendered = instance.open(cardDetail).catch(error => this.logService.error(error));
-		if (instance instanceof BaseHalfMarkdownRichCardDetail) {
-			instance.setStructuralFrozen(this.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
-		}
+		instance.setStructuralFrozen?.(this.workspaceMutationCoordinator.isResourceMutationFenced(cardDetail.workspaceFolder, cardDetail.relativePath));
 		return { host, store, instance, whenRendered };
+	}
+
+	private registerCardDetailSurfaceProviders(): void {
+		this._register(this.cardDetailSurfaceRegistryService.registerProvider('rich', {
+			create: (parent, state) => {
+				const prewarmed = this.richWebviewWarmup.take();
+				const host = prewarmed?.host ?? append(parent, $('.basehalf-card-detail-surface'));
+				return {
+					host,
+					instance: this.instantiationService.createInstance(
+						BaseHalfMarkdownRichCardDetail,
+						host,
+						() => this.closeDetailBadgePopover(state, false),
+						status => this.setDetailSaveStatus(status),
+						prewarmed
+					)
+				};
+			}
+		}));
+		this._register(this.cardDetailSurfaceRegistryService.registerProvider('preview', {
+			create: parent => {
+				const host = append(parent, $('.basehalf-card-detail-surface'));
+				return {
+					host,
+					instance: this.instantiationService.createInstance(
+						BaseHalfMarkdownPreviewCardDetail,
+						host,
+						status => this.setDetailSaveStatus(status)
+					)
+				};
+			}
+		}));
+		this._register(this.cardDetailSurfaceRegistryService.registerProvider('media', {
+			create: parent => {
+				const host = append(parent, $('.basehalf-card-detail-surface'));
+				this.setDetailSaveStatus('saved');
+				return {
+					host,
+					instance: this.instantiationService.createInstance(
+						BaseHalfMediaCardDetail,
+						host,
+						(resource, selection) => this.createPdfBranch(resource, selection)
+					)
+				};
+			}
+		}));
+		this._register(this.cardDetailSurfaceRegistryService.registerProvider('source', {
+			create: parent => {
+				const host = append(parent, $('.basehalf-card-detail-surface'));
+				return {
+					host,
+					instance: this.instantiationService.createInstance(
+						BaseHalfSourceCardDetail,
+						host,
+						status => this.setDetailSaveStatus(status)
+					)
+				};
+			}
+		}));
 	}
 
 	private setActiveDetailSurface(projection: BaseHalfCardDetailProjection): void {
@@ -3601,14 +3819,15 @@ class BaseHalfCanvasWorkbenchContribution extends Disposable implements IWorkben
 	private renderProjectionActions(cardDetail: IBaseHalfCardDetailState): void {
 		this.detailChromeDisposables.clear();
 		clearNode(this.detailProjectionActions);
-		this.detailProjectionActions.classList.toggle('visible', isBaseHalfMarkdownResource(cardDetail.resource));
-		if (!isBaseHalfMarkdownResource(cardDetail.resource)) {
+		const projections = this.cardProjectionRegistryService.getProjections(cardDetail.resource);
+		this.detailProjectionActions.classList.toggle('visible', projections.length > 1);
+		if (projections.length <= 1) {
 			return;
 		}
 
-		this.renderProjectionButton(cardDetail, 'rich', 'Rich', 'codicon-edit');
-		this.renderProjectionButton(cardDetail, 'preview', 'Preview', 'codicon-preview');
-		this.renderProjectionButton(cardDetail, 'source', 'Source', 'codicon-code');
+		for (const projection of projections) {
+			this.renderProjectionButton(cardDetail, projection.id, projection.label, projection.icon);
+		}
 	}
 
 	private renderProjectionButton(cardDetail: IBaseHalfCardDetailState, projection: BaseHalfCardDetailProjection, title: string, icon: string): void {

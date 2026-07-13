@@ -1,4 +1,5 @@
 canvas-react-vendor-out/
+content-viewer-out/
 markdown-rich-out/
 node_modules/
 *.tsbuildinfo

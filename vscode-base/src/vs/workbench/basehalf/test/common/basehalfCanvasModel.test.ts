@@ -4,6 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as assert from 'assert';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { URI } from '../../../../base/common/uri.js';
 import { FileType, IFileStat } from '../../../../platform/files/common/files.js';
 import {
@@ -15,12 +16,15 @@ import {
 	baseHalfCanvasItemsFromStat,
 	baseHalfCanvasItemBounds,
 	baseHalfCanvasModelFromStat,
+	baseHalfCanvasOpenPosition,
 	baseHalfCanvasPosition,
 	baseHalfCanvasTransferPosition,
 	isBaseHalfCanvasEntry
 } from '../../common/basehalfCanvasModel.js';
 
 suite('BaseHalfCanvasModel', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('filters tooling folders, junk files, and root agent hints', () => {
 		const root = folder('/workspace', [
 			folder('/workspace/src'),
@@ -56,6 +60,33 @@ suite('BaseHalfCanvasModel', () => {
 		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 1, 5), { x: 440, y: 200 });
 		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 2, 5), { x: 780, y: 200 });
 		assert.deepStrictEqual(baseHalfCanvasTransferPosition(origin, 3, 5), { x: 100, y: 480 });
+	});
+
+	test('places sequential new cards around the preferred point without overlap', () => {
+		const size = { width: 300, height: 220 };
+		const preferred = { x: 500, y: 400 };
+		const source = { ...preferred, ...size };
+		const first = baseHalfCanvasOpenPosition(preferred, size, [source]);
+		const second = baseHalfCanvasOpenPosition(preferred, size, [source, { ...first, ...size }]);
+		const third = baseHalfCanvasOpenPosition(preferred, size, [source, { ...first, ...size }, { ...second, ...size }]);
+
+		assert.deepStrictEqual(first, { x: 840, y: 400 });
+		assert.deepStrictEqual(second, { x: 500, y: 680 });
+		assert.deepStrictEqual(third, { x: 500, y: 120 });
+	});
+
+	test('keeps non-overlapping create positions inside the visible canvas when possible', () => {
+		const size = { width: 300, height: 220 };
+		const preferred = { x: 500, y: 400 };
+		const viewport = { x: 160, y: 100, width: 640, height: 800 };
+		const source = { ...preferred, ...size };
+		const first = baseHalfCanvasOpenPosition(preferred, size, [source], viewport);
+		const second = baseHalfCanvasOpenPosition(preferred, size, [source, { ...first, ...size }], viewport);
+		const third = baseHalfCanvasOpenPosition(preferred, size, [source, { ...first, ...size }, { ...second, ...size }], viewport);
+
+		assert.deepStrictEqual(first, { x: 500, y: 680 });
+		assert.deepStrictEqual(second, { x: 500, y: 120 });
+		assert.deepStrictEqual(third, { x: 160, y: 400 });
 	});
 
 	test('merges saved canvas card geometry by workspace-relative path', () => {
@@ -278,6 +309,29 @@ suite('BaseHalfCanvasModel', () => {
 		});
 
 		assert.deepStrictEqual(model.edges, []);
+	});
+
+	test('chooses default edge anchors from relative card geometry', () => {
+		const root = folder('/workspace', [file('/workspace/a.md'), file('/workspace/b.md')]);
+		const model = baseHalfCanvasModelFromStat(root, {
+			rootLevel: true,
+			badges: new Map([
+				['a.md', { references: ['b.md'], referenced_by: [] }],
+				['b.md', { references: [], referenced_by: ['a.md'] }]
+			]),
+			canvas: {
+				path: '',
+				cards: [
+					{ path: 'a.md', kind: 'file', x: 400, y: 400, width: 300, height: 220 },
+					{ path: 'b.md', kind: 'file', x: 400, y: 100, width: 300, height: 220 }
+				],
+				edges: []
+			}
+		});
+
+		assert.deepStrictEqual(model.edges, [
+			{ from: 'a.md', from_anchor: 'north', to: 'b.md', to_anchor: 'south' }
+		]);
 	});
 
 	test('computes card bounds from saved geometry or the stable grid fallback', () => {

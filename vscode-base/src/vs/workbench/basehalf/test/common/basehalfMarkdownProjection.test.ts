@@ -12,6 +12,7 @@ import {
 	IBaseHalfMarkdownEditorApi,
 	IBaseHalfMarkdownSegment,
 	joinBaseHalfMarkdownFrontmatter,
+	projectBaseHalfStandaloneFileLink,
 	segmentBaseHalfMarkdownBody,
 	spliceBaseHalfMarkdownSave,
 	splitBaseHalfMarkdownFrontmatter
@@ -132,6 +133,33 @@ suite('BaseHalfMarkdownProjection', () => {
 
 			assert.deepStrictEqual(segments.map(segment => segment.source), ['# T', 'para one', '- a', '- b']);
 			assert.deepStrictEqual(segments.map(segment => segment.sep), ['\r\n\r\n', '\r\n\r\n', '\r\n', '\r\n']);
+		});
+	});
+
+	test('projects standalone local file links as rich file blocks without changing Markdown', async () => {
+		const editor = new FakeMarkdownEditor();
+		const source = '[Lecture slides](attachments/lecture%201.pdf)';
+		const parsed = editor.tryParseMarkdownToBlocks(source);
+		const projected = projectBaseHalfStandaloneFileLink(source, parsed) as Array<{ readonly type: string; readonly props: { readonly name: string; readonly url: string } }>;
+
+		assert.deepStrictEqual(projected.map(block => ({ type: block.type, name: block.props.name, url: block.props.url })), [{
+			type: 'file',
+			name: 'Lecture slides',
+			url: 'attachments/lecture%201.pdf'
+		}]);
+		assert.strictEqual(await spliceBaseHalfMarkdownSave(editor, projected, '', new Map()), `${source}\n`);
+		assert.strictEqual(projectBaseHalfStandaloneFileLink('[Guide](guide.md)', parsed), parsed);
+		assert.strictEqual(projectBaseHalfStandaloneFileLink('[Site](https://example.com/file.pdf)', parsed), parsed);
+		const withParagraphProps = projectBaseHalfStandaloneFileLink(source, [{
+			id: 'file-link',
+			type: 'paragraph',
+			props: { backgroundColor: 'red', textAlignment: 'center', textColor: 'blue' }
+		}]) as Array<{ readonly props: Record<string, string> }>;
+		assert.deepStrictEqual(withParagraphProps[0].props, {
+			backgroundColor: 'red',
+			name: 'Lecture slides',
+			url: 'attachments/lecture%201.pdf',
+			caption: ''
 		});
 	});
 

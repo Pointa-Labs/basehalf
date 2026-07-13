@@ -12,6 +12,7 @@ import { Testing } from '../../contrib/testing/common/constants.js';
 import { TERMINAL_VIEW_ID } from '../../contrib/terminal/common/terminal.js';
 import { VIEWLET_ID as EXTENSIONS_VIEW_CONTAINER_ID } from '../../contrib/extensions/common/extensions.js';
 import { VIEWLET_ID as SEARCH_VIEW_CONTAINER_ID, VIEW_ID as SEARCH_VIEW_ID } from '../../services/search/common/search.js';
+import { BASEHALF_PLUGINS_VIEW_CONTAINER_ID, BASEHALF_PLUGINS_VIEW_ID } from './basehalfPluginCatalog.js';
 
 export const BASEHALF_PRODUCT_PROFILE_ID = 'basehalf.canvasWorkbench';
 export const BASEHALF_ACTIVITY_PINNED_VIEW_CONTAINERS_STORAGE_KEY = 'workbench.activity.pinnedViewlets2';
@@ -22,7 +23,7 @@ export const BASEHALF_HIDDEN_STATUSBAR_ENTRIES_STORAGE_KEY = 'workbench.statusba
 
 export type BaseHalfSurfaceKind = 'viewContainer' | 'view' | 'panel' | 'command' | 'statusbarEntry';
 export type BaseHalfSurfaceDisposition = 'primary' | 'remapped' | 'hidden';
-export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
+export type BaseHalfProductArea = 'files' | 'git' | 'search' | 'plugins' | 'canvas' | 'agent-area' | 'extensions' | 'debug' | 'testing' | 'problems' | 'remote' | 'chat';
 
 export interface IBaseHalfWorkbenchSurface {
 	readonly id: string;
@@ -53,6 +54,13 @@ export const BASEHALF_PRIMARY_VIEW_CONTAINERS = [
 		area: 'search',
 		source: 'src/vs/workbench/services/search/common/search.ts',
 		reason: 'Search uses VS Code search services and quick access, with BaseHalf result activation remapped into canvas/card navigation.'
+	},
+	{
+		id: BASEHALF_PLUGINS_VIEW_CONTAINER_ID,
+		kind: 'viewContainer',
+		area: 'plugins',
+		source: 'src/vs/workbench/basehalf/browser/basehalfPluginsView.ts',
+		reason: 'Plugins uses the native Activity Bar and view-container lifecycle while exposing only the BaseHalf-reviewed catalog.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -91,6 +99,13 @@ export const BASEHALF_PRIMARY_VIEWS = [
 		area: 'search',
 		source: 'src/vs/workbench/services/search/common/search.ts',
 		reason: 'Search view remains visible; result open behavior is remapped by the BaseHalf navigation module.'
+	},
+	{
+		id: BASEHALF_PLUGINS_VIEW_ID,
+		kind: 'view',
+		area: 'plugins',
+		source: 'src/vs/workbench/basehalf/browser/basehalfPluginsView.ts',
+		reason: 'The curated plugin list reuses workbench search, view title actions, context menus, settings, and extension-management services without exposing Marketplace.'
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
@@ -415,7 +430,7 @@ export const BASEHALF_HIDDEN_SURFACES = [
 	}
 ] as const satisfies readonly IBaseHalfWorkbenchSurface[];
 
-export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude';
+export type BaseHalfExtensionFamily = 'git' | 'github' | 'github-authentication' | 'codex' | 'claude' | 'domain-plugins';
 
 // Mirrors Ghostty's built-in "Dark Modern" terminal theme, which matches
 // BaseHalf's neutral dark surface and blue product accent.
@@ -470,6 +485,14 @@ export const BASEHALF_CONFIGURATION_DEFAULTS = {
 	// read the disk, so files auto-save like the rich Markdown card detail.
 	'files.autoSave': 'afterDelay',
 	'files.autoSaveDelay': BASEHALF_AUTO_SAVE_DELAY_MS,
+	// Mirror metadata and the root agent protocol files are infrastructure, not
+	// learning material. They remain ordinary workspace files and users can
+	// reveal them by overriding these Explorer defaults.
+	'files.exclude': {
+		'.bh': true,
+		'AGENTS.md': true,
+		'CLAUDE.md': true
+	},
 	'workbench.startupEditor': 'welcomePageInEmptyWorkbench',
 	'workbench.welcomePage.walkthroughs.openOnInstall': false,
 	'workbench.welcomePage.experimentalOnboarding': false,
@@ -627,6 +650,14 @@ export const BASEHALF_ALLOWED_EXTENSION_FAMILIES = [
 		externalSlotIds: ['basehalf.agentArea.extension.claude'],
 		source: 'VS Code Marketplace extension id anthropic.claude-code; BaseHalf Agent Area extension-host slot',
 		reason: 'Claude Code extension sessions are allowed only through the curated Agent Area extension-agent path.'
+	},
+	{
+		family: 'domain-plugins',
+		builtInExtensionIds: [],
+		externalExtensionIds: ['pointa.basehalf-ai-video'],
+		externalSlotIds: [],
+		source: 'extensions/basehalf-ai-video/package.json; BaseHalf curated domain-plugin catalog',
+		reason: 'The first-party AI Video plugin validates the fixed-shell, open-center domain-plugin contract.'
 	}
 ] as const satisfies readonly IBaseHalfAllowedExtensionFamily[];
 

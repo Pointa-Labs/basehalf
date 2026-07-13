@@ -24,8 +24,6 @@ export class CSSDevelopmentService implements ICSSDevelopmentService {
 
 	declare _serviceBrand: undefined;
 
-	private _cssModules?: Promise<string[]>;
-
 	constructor(
 		@IEnvironmentService private readonly envService: IEnvironmentService,
 		@ILogService private readonly logService: ILogService
@@ -36,8 +34,11 @@ export class CSSDevelopmentService implements ICSSDevelopmentService {
 	}
 
 	getCssModules(): Promise<string[]> {
-		this._cssModules ??= this.computeCssModules();
-		return this._cssModules;
+		// A development session can add a new stylesheet while the Electron main
+		// process stays alive. Re-scan for every workbench window configuration so
+		// Reload Window also refreshes the CSS import map instead of attempting to
+		// execute an unlisted .css file as a JavaScript module.
+		return this.computeCssModules();
 	}
 
 	private async computeCssModules(): Promise<string[]> {

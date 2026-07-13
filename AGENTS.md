@@ -31,12 +31,13 @@ search/brief logic, the canvas-first navigation model, and the right-side Agent
 Area product surface.
 
 The left sidebar product surface is intentionally small: **Files**, **Git**,
-and **Search**. Prefer VS Code's Explorer/Search/SCM view containers, tree
-state, context menus, drag/drop, and SCM behavior, but do not add Agent to the
+**Search**, and the BaseHalf-owned **Plugins** library. Prefer VS Code's native
+view-container, Activity Bar, Explorer/Search/SCM, menu, and settings mechanics,
+but do not expose the stock Extensions Marketplace and do not add Agent to the
 sidebar. File activation from Explorer/Search must route back into BaseHalf's
-folder/canvas/card-detail navigation: folders open canvases, files open
-BaseHalf card detail, and standard VS Code editor tabs are only fallback or
-advanced behavior.
+folder/canvas/card-detail navigation: folders open canvases, files open BaseHalf
+card detail, and standard VS Code editor tabs are only fallback or advanced
+behavior. Individual plugins cannot register competing global sidebars.
 
 The extension ecosystem starts curated, not marketplace-open. The initial
 BaseHalf product profile should allow only the extension families needed for
@@ -124,9 +125,15 @@ Current public decision index:
 - D22 — Sidebar, extension allowlist, and file-open remapping.
 - D23 — Module-complete migration, not MVP or intermediate shell.
 - D24 — References are explicit directed context flow; Markdown links only navigate.
+- D25 — Plugin platform uses a fixed shell and an open center.
+- D26 — Executable plugins are curated trusted local software.
+- D27 — Plugin workflow output is local user-owned data.
+- D28 — AI Video is the first official domain plugin.
+- D29 — Official plugins use a signed static catalog and immutable VSIX distribution.
 
 Current private decision index:
 
+- [card-detail-content-rendering-and-rich-attachments.md](private-docs/decisions/card-detail-content-rendering-and-rich-attachments.md) — Card Detail owns direct rendering; rich attachments stay local files and Markdown links.
 - [agent-observations-not-badge-flags.md](private-docs/decisions/agent-observations-not-badge-flags.md) — agent write-back is independent observations; badge stays human-written.
 - [agent-self-navigates-graph.md](private-docs/decisions/agent-self-navigates-graph.md) — Agent self-navigates graph with token budget and reference depth.
 - [ai-native-file-manager-ambition.md](private-docs/decisions/ai-native-file-manager-ambition.md) — BaseHalf ambition as AI-native file manager.
@@ -198,13 +205,21 @@ that point instead of relying on this guide.
   commits, each commit should complete a named coherent submodule; do not land
   user-visible dead ends, disabled controls, fake data, or detached UI that only
   reserves space for a later pass.
-- **Sidebar is Files/Git/Search.** Reuse VS Code Explorer/Search/SCM mechanics
-  where possible, including context menus and tree behavior, but keep Agent out
-  of the sidebar and remap file activation into BaseHalf's canvas/card-detail
-  navigation.
+- **Sidebar is Files/Git/Search/Plugins.** Reuse VS Code view-container,
+  Activity Bar, Explorer/Search/SCM, context-menu, and settings mechanics. The
+  Plugins entry is BaseHalf-owned and curated; it is not the stock Marketplace.
+  Keep Agent and plugin-defined global sidebars out, and remap file activation
+  into BaseHalf's canvas/card-detail navigation.
 - **Curated extensions first.** During the VS Code-base migration, expose only
   the Git/GitHub/GitHub-auth/Codex/Claude extension families needed for SCM and
   Agent Area. Keep the full marketplace and generic Extensions UI hidden.
+- **Fixed shell, open center.** Plugins may add project types, central project
+  surfaces, canvases, workflows, card previews, and card-detail projections.
+  They must not add competing global sidebars/panels, replace Agent Area, make
+  editor tabs primary, or change BaseHalf reference semantics.
+- **Plugin output is user data.** Explicit user/Agent workflow runs may create
+  ordinary project files and media. Keep domain truth out of `.bh/mirror` and
+  extension-private databases; plugin removal must leave user files readable.
 - **Canvas-first open model.** Card open, close, breadcrumb, focus, and history
   behavior belongs to BaseHalf's product layer. Do not let standard VS Code
   tabbed editor groups become the default card interaction.

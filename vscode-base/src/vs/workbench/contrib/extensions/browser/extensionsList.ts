@@ -12,7 +12,7 @@ import { IInstantiationService } from '../../../../platform/instantiation/common
 import { IListVirtualDelegate } from '../../../../base/browser/ui/list/list.js';
 import { IPagedRenderer } from '../../../../base/browser/ui/list/listPaging.js';
 import { IExtension, ExtensionContainers, ExtensionState, IExtensionsWorkbenchService, IExtensionsViewState } from '../common/extensions.js';
-import { ManageExtensionAction, ExtensionStatusLabelAction, RemoteInstallAction, ExtensionStatusAction, LocalInstallAction, ButtonWithDropDownExtensionAction, InstallDropdownAction, InstallingLabelAction, ButtonWithDropdownExtensionActionViewItem, DropDownExtensionAction, WebInstallAction, MigrateDeprecatedExtensionAction, SetLanguageAction, ClearLanguageAction, UpdateAction } from './extensionsActions.js';
+import { ManageExtensionAction, ExtensionStatusLabelAction, RemoteInstallAction, ExtensionStatusAction, LocalInstallAction, ButtonWithDropDownExtensionAction, InstallDropdownAction, InstallingLabelAction, ButtonWithDropdownExtensionActionViewItem, DropDownExtensionAction, WebInstallAction, MigrateDeprecatedExtensionAction, SetLanguageAction, ClearLanguageAction, UpdateAction, ExtensionAction } from './extensionsActions.js';
 import { areSameExtensions } from '../../../../platform/extensionManagement/common/extensionManagementUtil.js';
 import { RatingsWidget, InstallCountWidget, RecommendationWidget, RemoteBadgeWidget, ExtensionPackCountWidget as ExtensionPackBadgeWidget, SyncIgnoredWidget, ExtensionHoverWidget, ExtensionRuntimeStatusWidget, ExtensionRestartRequiredWidget, PreReleaseBookmarkWidget, PublisherWidget, ExtensionKindIndicatorWidget, ExtensionIconWidget } from './extensionsWidgets.js';
 import { IExtensionService } from '../../../services/extensions/common/extensions.js';
@@ -50,6 +50,18 @@ export type ExtensionListRendererOptions = {
 	hoverOptions: {
 		position: () => HoverPosition;
 	};
+	/**
+	 * Allows product-owned curated extension surfaces to reuse the native
+	 * extension row without also inheriting Marketplace install actions.
+	 * The default Extensions view intentionally keeps the existing action set.
+	 */
+	actionFactory?: (extensionStatusAction: ExtensionAction | undefined) => ExtensionAction[];
+	/**
+	 * The native status/hover links to the stock Extension Editor. Curated
+	 * product surfaces can opt out while preserving the row, list, focus and
+	 * action-bar mechanics. Defaults to true for the standard Extensions view.
+	 */
+	includeDefaultStatusAndHover?: boolean;
 };
 
 export class Renderer implements IPagedRenderer<IExtension, ITemplateData> {
@@ -112,8 +124,10 @@ export class Renderer implements IPagedRenderer<IExtension, ITemplateData> {
 		actionbar.setFocusable(false);
 		const actionBarListener = actionbar.onDidRun(({ error }) => error && this.notificationService.error(error));
 
-		const extensionStatusIconAction = this.instantiationService.createInstance(ExtensionStatusAction);
-		const actions = [
+		const extensionStatusIconAction = this.options.actionFactory && this.options.includeDefaultStatusAndHover === false
+			? undefined
+			: this.instantiationService.createInstance(ExtensionStatusAction);
+		const actions = this.options.actionFactory ? this.options.actionFactory(extensionStatusIconAction) : [
 			this.instantiationService.createInstance(ExtensionStatusLabelAction),
 			this.instantiationService.createInstance(MigrateDeprecatedExtensionAction, true),
 			this.instantiationService.createInstance(UpdateAction, false),
@@ -124,10 +138,12 @@ export class Renderer implements IPagedRenderer<IExtension, ITemplateData> {
 			this.instantiationService.createInstance(RemoteInstallAction, false),
 			this.instantiationService.createInstance(LocalInstallAction),
 			this.instantiationService.createInstance(WebInstallAction),
-			extensionStatusIconAction,
+			extensionStatusIconAction!,
 			this.instantiationService.createInstance(ManageExtensionAction)
 		];
-		const extensionHoverWidget = this.instantiationService.createInstance(ExtensionHoverWidget, { target: root, position: this.options.hoverOptions.position }, extensionStatusIconAction);
+		const extensionHoverWidget = extensionStatusIconAction
+			? this.instantiationService.createInstance(ExtensionHoverWidget, { target: root, position: this.options.hoverOptions.position }, extensionStatusIconAction)
+			: undefined;
 
 		const widgets = [
 			iconWidget,
@@ -136,7 +152,7 @@ export class Renderer implements IPagedRenderer<IExtension, ITemplateData> {
 			iconRemoteBadgeWidget,
 			extensionPackBadgeWidget,
 			publisherWidget,
-			extensionHoverWidget,
+			...(extensionHoverWidget ? [extensionHoverWidget] : []),
 			this.instantiationService.createInstance(SyncIgnoredWidget, syncIgnore),
 			this.instantiationService.createInstance(ExtensionRestartRequiredWidget, restartRequired),
 			this.instantiationService.createInstance(ExtensionRuntimeStatusWidget, this.extensionViewState, activationStatus),

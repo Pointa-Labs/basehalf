@@ -5,10 +5,13 @@
 
 import * as assert from 'assert';
 import { URI } from '../../../../base/common/uri.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
 import { IFileStatWithPartialMetadata } from '../../../../platform/files/common/files.js';
 import { IBaseHalfCanvasResourceSnapshot, sameBaseHalfCanvasResourceSnapshot } from '../../common/basehalfCanvasActionContext.js';
 
 suite('BaseHalfCanvasActionContext', () => {
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('accepts the same resource identity', () => {
 		assert.strictEqual(sameBaseHalfCanvasResourceSnapshot(snapshot(), stat()), true);
 	});
@@ -20,6 +23,13 @@ suite('BaseHalfCanvasActionContext', () => {
 
 	test('compares only metadata captured by the provider', () => {
 		assert.strictEqual(sameBaseHalfCanvasResourceSnapshot(snapshot({ mtime: undefined, ctime: undefined, size: undefined, etag: undefined }), stat({ mtime: 99, ctime: 88, size: 77, etag: 'later' })), true);
+	});
+
+	test('keeps a folder action current when only its child listing changes', () => {
+		assert.strictEqual(sameBaseHalfCanvasResourceSnapshot(
+			snapshot({ isFile: false, isDirectory: true, mtime: 10, ctime: 5, size: 2, etag: 'two-children' }),
+			stat({ isFile: false, isDirectory: true, mtime: 11, ctime: 6, size: 4, etag: 'four-children' })
+		), true);
 	});
 });
 

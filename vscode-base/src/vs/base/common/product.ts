@@ -117,6 +117,12 @@ export interface IProductConfiguration {
 	 *  feed manifest is compared against; independent of the upstream
 	 *  `version` in package.json. */
 	readonly basehalfVersion?: string;
+	readonly basehalfPlugins?: {
+		/** Atomic pointer to an immutable catalog/signature pair. */
+		readonly catalogIndexUrl: string;
+		readonly assetBaseUrl: string;
+		readonly publicKeys: readonly { readonly keyId: string; readonly publicKey: string }[];
+	};
 	readonly webUrl?: string;
 	readonly webEndpointUrlTemplate?: string;
 	readonly webviewContentExternalBaseUrlTemplate?: string;
@@ -135,6 +141,8 @@ export interface IProductConfiguration {
 	readonly extensionsGallery?: {
 		readonly serviceUrl: string;
 		readonly controlUrl: string;
+		/** Additional product-owned blocklists merged with the gallery control manifest. */
+		readonly additionalControlUrls?: readonly string[];
 		readonly extensionUrlTemplate: string;
 		readonly resourceUrlTemplate: string;
 		readonly nlsBaseUrl: string;

@@ -606,6 +606,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 	declare readonly _serviceBrand: undefined;
 
 	private readonly extensionsControlUrl: string | undefined;
+	private readonly additionalExtensionsControlUrls: readonly string[];
 	private readonly unpkgResourceApi: string | undefined;
 
 	private readonly commonHeadersPromise: Promise<IHeaders>;
@@ -623,6 +624,7 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 		@IExtensionGalleryManifestService private readonly extensionGalleryManifestService: IExtensionGalleryManifestService,
 	) {
 		this.extensionsControlUrl = productService.extensionsGallery?.controlUrl;
+		this.additionalExtensionsControlUrls = productService.extensionsGallery?.additionalControlUrls ?? [];
 		this.unpkgResourceApi = productService.extensionsGallery?.extensionUrlTemplate;
 		this.commonHeadersPromise = resolveMarketplaceHeaders(
 			productService.version,
@@ -1926,33 +1928,54 @@ export abstract class AbstractExtensionGalleryService implements IExtensionGalle
 	}
 
 	async getExtensionsControlManifest(): Promise<IExtensionsControlManifest> {
-		const manifest = await this.extensionGalleryManifestService.getExtensionGalleryManifest();
-		if (!manifest) {
-			throw new Error('No extension gallery service configured.');
-		}
-
-
 		if (!this.extensionsControlUrl) {
 			return { malicious: [], deprecated: {}, search: [], autoUpdate: {} };
 		}
 
-		const context = await this.requestService.request({
-			type: 'GET',
-			url: this.extensionsControlUrl,
-			timeout: this.getRequestTimeout(),
-			callSite: 'extensionGalleryService.getExtensionsControlManifest'
-		}, CancellationToken.None);
-
-		if (context.res.statusCode !== 200) {
-			throw new Error('Could not get extensions report.');
+		const results: IRawExtensionsControlManifest[] = [];
+		const urls = [this.extensionsControlUrl, ...this.additionalExtensionsControlUrls];
+		let firstError: unknown;
+		for (const [index, url] of urls.entries()) {
+			try {
+				const context = await this.requestService.request({
+					type: 'GET',
+					url,
+					timeout: this.getRequestTimeout(),
+					callSite: index === 0 ? 'extensionGalleryService.getExtensionsControlManifest' : 'extensionGalleryService.getAdditionalExtensionsControlManifest'
+				}, CancellationToken.None);
+				if (context.res.statusCode !== 200) {
+					throw new Error(`Extension control endpoint returned ${context.res.statusCode}.`);
+				}
+				const result = await asJson<IRawExtensionsControlManifest>(context);
+				if (result) {
+					results.push(result);
+				}
+			} catch (error) {
+				firstError ??= error;
+				if (index === 0) {
+					if (this.additionalExtensionsControlUrls.length) {
+						// Product-owned emergency controls must remain available when the
+						// upstream gallery report is temporarily unreachable.
+						this.logService.warn(`Primary extension control manifest '${url}' was ignored: ${getErrorMessage(error)}`);
+						continue;
+					}
+					throw error;
+				}
+				// A BaseHalf-owned emergency blocklist augments rather than replaces
+				// the gallery's protection. Its temporary outage must not erase the
+				// primary control manifest or block extension management startup.
+				this.logService.warn(`Additional extension control manifest '${url}' was ignored: ${getErrorMessage(error)}`);
+			}
 		}
-
-		const result = await asJson<IRawExtensionsControlManifest>(context);
+		if (!results.length && firstError) {
+			throw firstError;
+		}
 		const malicious: Array<MaliciousExtensionInfo> = [];
 		const deprecated: IStringDictionary<IDeprecationInfo> = {};
 		const search: ISearchPrefferedResults[] = [];
-		const autoUpdate: IStringDictionary<string> = result?.autoUpdate ?? {};
-		if (result) {
+		const autoUpdate: IStringDictionary<string> = {};
+		for (const result of results) {
+			Object.assign(autoUpdate, result.autoUpdate);
 			for (const id of result.malicious) {
 				if (!isString(id)) {
 					continue;

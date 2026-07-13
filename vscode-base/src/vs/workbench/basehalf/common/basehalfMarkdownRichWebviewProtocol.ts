@@ -8,6 +8,7 @@ import { IBaseHalfAdhdCommand, IBaseHalfAdhdFile, isBaseHalfAdhdFile } from './b
 
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_VIEW_TYPE = 'basehalf.markdownRich';
 export const BASEHALF_MARKDOWN_RICH_WEBVIEW_MESSAGE_PREFIX = 'basehalf.markdownRich';
+export const BASEHALF_MARKDOWN_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
 
 export interface IBaseHalfMarkdownRichTextSelection {
 	readonly startLineNumber: number;
@@ -68,6 +69,7 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly type: 'basehalf.markdownRich.init';
 		readonly key: string;
 		readonly resource: string;
+		readonly baseUri: string;
 		readonly content: string;
 		readonly editable: boolean;
 		readonly selection?: IBaseHalfMarkdownRichTextSelection;
@@ -106,6 +108,13 @@ export type BaseHalfMarkdownRichHostMessage =
 		readonly key: string;
 		readonly requestId: string;
 		readonly files: readonly IBaseHalfMarkdownRichFileLink[];
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.attachmentResult';
+		readonly key: string;
+		readonly requestId: string;
+		readonly url?: string;
+		readonly error?: string;
 	}
 	| {
 		readonly type: 'basehalf.markdownRich.save';
@@ -195,6 +204,19 @@ export type BaseHalfMarkdownRichWebviewMessage =
 		readonly query: string;
 	}
 	| {
+		readonly type: 'basehalf.markdownRich.attachmentUpload';
+		readonly key: string;
+		readonly requestId: string;
+		readonly name: string;
+		readonly mediaType: string;
+		readonly data: ArrayBuffer;
+	}
+	| {
+		readonly type: 'basehalf.markdownRich.openResource';
+		readonly key: string;
+		readonly href: string;
+	}
+	| {
 		readonly type: 'basehalf.markdownRich.openSource';
 		readonly key: string;
 		readonly selection: IBaseHalfMarkdownRichTextSelection;
@@ -227,6 +249,8 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 			return true;
 		case 'basehalf.markdownRich.init':
 			return typeof candidate.resource === 'string'
+				&& typeof candidate.baseUri === 'string'
+				&& candidate.baseUri.length > 0
 				&& typeof candidate.content === 'string'
 				&& typeof candidate.editable === 'boolean'
 				&& (candidate.selection === undefined || isBaseHalfMarkdownRichSelection(candidate.selection));
@@ -247,6 +271,12 @@ export function isBaseHalfMarkdownRichHostMessage(message: unknown): message is 
 				&& candidate.requestId.length > 0
 				&& Array.isArray(candidate.files)
 				&& candidate.files.every(isBaseHalfMarkdownRichFileLink);
+		case 'basehalf.markdownRich.attachmentResult':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& (typeof candidate.url === 'string' || typeof candidate.error === 'string')
+				&& (candidate.url === undefined || candidate.url.length > 0)
+				&& (candidate.error === undefined || candidate.error.length > 0);
 		case 'basehalf.markdownRich.save':
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
@@ -307,6 +337,15 @@ export function isBaseHalfMarkdownRichWebviewMessage(message: unknown): message 
 			return typeof candidate.requestId === 'string'
 				&& candidate.requestId.length > 0
 				&& typeof candidate.query === 'string';
+		case 'basehalf.markdownRich.attachmentUpload':
+			return typeof candidate.requestId === 'string'
+				&& candidate.requestId.length > 0
+				&& typeof candidate.name === 'string'
+				&& candidate.name.length > 0
+				&& typeof candidate.mediaType === 'string'
+				&& candidate.data instanceof ArrayBuffer;
+		case 'basehalf.markdownRich.openResource':
+			return typeof candidate.href === 'string' && candidate.href.length > 0;
 		case 'basehalf.markdownRich.openSource':
 			return isBaseHalfMarkdownRichSelection(candidate.selection);
 		case 'basehalf.markdownRich.adhdCommand':

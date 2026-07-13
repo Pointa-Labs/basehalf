@@ -40,11 +40,12 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 		this._register(toDisposable(() => this.doc.off('update', this.onDocUpdate)));
 	}
 
-	sendInit(resource: string, content: string, editable: boolean, selection?: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
+	sendInit(resource: string, baseUri: string, content: string, editable: boolean, selection?: IBaseHalfMarkdownRichTextSelection): Promise<boolean> {
 		return this.transport.postMessage({
 			type: 'basehalf.markdownRich.init',
 			key: this.key,
 			resource,
+			baseUri,
 			content,
 			editable,
 			...(selection ? { selection } : {})
@@ -90,6 +91,16 @@ export class BaseHalfMarkdownRichWebviewBridge extends Disposable {
 			key: this.key,
 			requestId,
 			files
+		});
+	}
+
+	sendAttachmentResult(requestId: string, result: { readonly url?: string; readonly error?: string }): Promise<boolean> {
+		return this.transport.postMessage({
+			type: 'basehalf.markdownRich.attachmentResult',
+			key: this.key,
+			requestId,
+			...(result.url ? { url: result.url } : {}),
+			...(result.error ? { error: result.error } : {})
 		});
 	}
 

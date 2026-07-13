@@ -14,6 +14,7 @@ import { IWorkspace, IWorkspaceContextService, WorkbenchState } from '../../../.
 import { TestWorkspace } from '../../../../platform/workspace/test/common/testWorkspace.js';
 import { IBaseHalfCanvasFolderState, IBaseHalfCardDetailState } from '../../common/basehalfCanvasNavigation.js';
 import { BaseHalfCanvasNavigationService } from '../../common/basehalfCanvasNavigationService.js';
+import { BaseHalfCardProjectionRegistryService } from '../../common/basehalfCardDetail.js';
 import { BASEHALF_CARD_DETAIL_PANE_ID, BaseHalfEditorFlushService } from '../../common/basehalfEditorFlush.js';
 
 suite('BaseHalfCanvasNavigationService', () => {
@@ -469,6 +470,7 @@ suite('BaseHalfCanvasNavigationService', () => {
 				}) as IWorkspace
 			} as Partial<IWorkspaceContextService> as IWorkspaceContextService,
 			editorFlushService,
+			disposables.add(new BaseHalfCardProjectionRegistryService()),
 			new TestNotificationService()
 		));
 	}

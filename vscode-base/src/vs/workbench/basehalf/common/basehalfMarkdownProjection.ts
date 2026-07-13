@@ -126,6 +126,7 @@ export async function projectBaseHalfMarkdownSegment(
 	} catch {
 		parsed = [];
 	}
+	parsed = projectBaseHalfStandaloneFileLink(segment.source, parsed);
 
 	if (isDropped(parsed)) {
 		return { blocks: [passthroughBlock(segment)], entries: [] };
@@ -161,6 +162,70 @@ export async function projectBaseHalfMarkdownSegment(
 	}
 
 	return { blocks: parsed, entries };
+}
+
+/**
+ * Projects a standalone local Markdown file link as a BlockNote file block.
+ * The source stays ordinary `[name](relative/path.ext)` Markdown; this is a
+ * rich-only view over the same bytes, not a BaseHalf-specific file format.
+ */
+export function projectBaseHalfStandaloneFileLink(source: string, parsed: unknown[]): unknown[] {
+	if (parsed.length !== 1) {
+		return parsed;
+	}
+	const tokens = lexer(source).filter(token => token.type !== 'space');
+	if (tokens.length !== 1 || tokens[0].type !== 'paragraph') {
+		return parsed;
+	}
+	const paragraph = tokens[0] as Tokens.Paragraph;
+	const inline = paragraph.tokens.filter(token => token.type !== 'space');
+	if (inline.length !== 1 || inline[0].type !== 'link') {
+		return parsed;
+	}
+	const link = inline[0] as Tokens.Link;
+	if (paragraph.text.trim() !== link.raw.trim() || !isBaseHalfLocalFileHref(link.href)) {
+		return parsed;
+	}
+
+	const original = isRecord(parsed[0]) ? parsed[0] : {};
+	const originalProps = isRecord(original.props) ? original.props : {};
+	return [{
+		...original,
+		type: 'file',
+		props: {
+			backgroundColor: typeof originalProps.backgroundColor === 'string' ? originalProps.backgroundColor : 'default',
+			name: link.text || attachmentNameFromHref(link.href),
+			url: link.href,
+			caption: ''
+		},
+		content: undefined,
+		children: []
+	}];
+}
+
+function isBaseHalfLocalFileHref(href: string): boolean {
+	if (!href || href.startsWith('/') || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) {
+		return false;
+	}
+	const path = href.split(/[?#]/, 1)[0];
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	const dot = name.lastIndexOf('.');
+	const extension = dot > 0 ? name.slice(dot).toLowerCase() : '';
+	return !!extension && extension !== '.md' && extension !== '.markdown';
+}
+
+function attachmentNameFromHref(href: string): string {
+	const path = href.split(/[?#]/, 1)[0];
+	const name = path.slice(path.lastIndexOf('/') + 1);
+	try {
+		return decodeURIComponent(name);
+	} catch {
+		return name;
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }
 
 export async function buildBaseHalfMarkdownLoadProjection(

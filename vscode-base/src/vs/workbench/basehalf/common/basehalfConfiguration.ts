@@ -9,6 +9,7 @@ import { BASEHALF_AGENT_SESSION_CHOICES, BaseHalfAgentSessionKind, baseHalfAgent
 
 export const BaseHalfSetting = {
 	EditorReadingMode: 'basehalf.editor.readingMode',
+	AttachmentsDirectory: 'basehalf.editor.attachmentsDirectory',
 	CanvasDefaultZoom: 'basehalf.canvas.defaultZoom',
 	AgentDefaultSession: 'basehalf.agent.defaultSession'
 } as const;
@@ -35,6 +36,12 @@ export const BASEHALF_CONFIGURATION_NODE: IConfigurationNode = {
 			default: false,
 			scope: ConfigurationScope.RESOURCE,
 			description: localize('basehalf.editor.readingMode', 'Controls whether BaseHalf ADHD reading aids are enabled in rich Markdown documents.')
+		},
+		[BaseHalfSetting.AttachmentsDirectory]: {
+			type: 'string',
+			default: 'attachments',
+			scope: ConfigurationScope.RESOURCE,
+			description: localize('basehalf.editor.attachmentsDirectory', 'Controls the folder, relative to a Markdown document, where files inserted from the rich editor are stored.')
 		},
 		[BaseHalfSetting.CanvasDefaultZoom]: {
 			type: 'number',

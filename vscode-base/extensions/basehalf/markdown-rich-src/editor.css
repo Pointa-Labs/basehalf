@@ -118,6 +118,38 @@ body,
 	transition: none;
 }
 
+.basehalf-markdown-rich .bn-file-block-content-wrapper {
+	box-sizing: border-box;
+	border: 1px solid var(--vscode-widget-border);
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 72%, transparent);
+}
+
+.basehalf-markdown-rich .bn-file-name-with-icon {
+	min-height: 48px;
+	padding: 8px 10px;
+	cursor: pointer;
+}
+
+.basehalf-markdown-rich .bn-file-name {
+	color: var(--vscode-textLink-foreground);
+	font-size: 13px;
+	font-weight: 500;
+}
+
+.basehalf-markdown-rich .bn-file-icon {
+	color: var(--vscode-icon-foreground);
+}
+
+.basehalf-markdown-rich .bn-visual-media {
+	border-radius: 4px;
+}
+
+.basehalf-markdown-rich .bn-file-loading-preview {
+	min-height: 48px;
+	color: var(--vscode-descriptionForeground);
+}
+
 .basehalf-markdown-rich .bn-block-group .bn-block-group {
 	margin-left: 18px;
 }

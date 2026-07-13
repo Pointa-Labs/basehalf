@@ -300,6 +300,7 @@ function deriveCanvasEdges(
 	badges: ReadonlyMap<string, IBaseHalfCanvasBadgeMetadata>
 ): IBaseHalfCanvasEdge[] {
 	const itemPaths = new Set(items.map(item => item.path));
+	const boundsByPath = new Map(items.map((item, index) => [item.path, baseHalfCanvasItemBounds(item, index, items.length)]));
 	const styleByPair = new Map(styled.map(edge => [edgePairKey(edge.from, edge.to), edge]));
 	const edges: IBaseHalfCanvasEdge[] = [];
 	for (const item of items) {
@@ -310,16 +311,25 @@ function deriveCanvasEdges(
 				continue;
 			}
 
-			edges.push(styleByPair.get(edgePairKey(item.path, to)) ?? {
-				from: item.path,
-				from_anchor: 'east',
-				to,
-				to_anchor: 'west'
-			});
+			const styledEdge = styleByPair.get(edgePairKey(item.path, to));
+			edges.push(styledEdge ?? baseHalfCanvasDefaultEdge(item.path, to, boundsByPath.get(item.path)!, boundsByPath.get(to)!));
 		}
 	}
 
 	return edges;
+}
+
+function baseHalfCanvasDefaultEdge(from: string, to: string, fromBounds: IBaseHalfCanvasBounds, toBounds: IBaseHalfCanvasBounds): IBaseHalfCanvasEdge {
+	const deltaX = toBounds.x + toBounds.width / 2 - (fromBounds.x + fromBounds.width / 2);
+	const deltaY = toBounds.y + toBounds.height / 2 - (fromBounds.y + fromBounds.height / 2);
+	if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+		return deltaX >= 0
+			? { from, from_anchor: 'east', to, to_anchor: 'west' }
+			: { from, from_anchor: 'west', to, to_anchor: 'east' };
+	}
+	return deltaY >= 0
+		? { from, from_anchor: 'south', to, to_anchor: 'north' }
+		: { from, from_anchor: 'north', to, to_anchor: 'south' };
 }
 
 function edgePairKey(from: string, to: string): string {
@@ -355,6 +365,56 @@ export function baseHalfCanvasTransferPosition(origin: IBaseHalfCanvasPosition, 
 		x: roundCanvasNumber(origin.x + (index % cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_WIDTH + BASEHALF_CANVAS_GRID_COLUMN_GAP)),
 		y: roundCanvasNumber(origin.y + Math.floor(index / cols) * (BASEHALF_CANVAS_DEFAULT_FILE_CARD_HEIGHT + BASEHALF_CANVAS_GRID_ROW_GAP))
 	};
+}
+
+/**
+ * Finds a readable position for a newly created card without moving existing
+ * user-authored geometry. Candidates grow to the right first because default
+ * context-flow edges leave a source card from its east anchor.
+ */
+export function baseHalfCanvasOpenPosition(
+	preferred: IBaseHalfCanvasPosition,
+	size: { readonly width: number; readonly height: number },
+	occupied: readonly IBaseHalfCanvasBounds[],
+	viewport?: IBaseHalfCanvasBounds
+): IBaseHalfCanvasPosition {
+	const columnStep = size.width + BASEHALF_CANVAS_GRID_COLUMN_GAP;
+	const rowStep = size.height + BASEHALF_CANVAS_GRID_ROW_GAP;
+	const offsets: [number, number][] = [[0, 0]];
+	for (let ring = 1; ring < 32; ring++) {
+		offsets.push(
+			[ring, 0], [0, ring], [0, -ring], [-ring, 0],
+			[ring, ring], [ring, -ring], [-ring, ring], [-ring, -ring]
+		);
+	}
+	for (const [column, row] of offsets) {
+			const candidate = {
+				x: roundCanvasNumber(preferred.x + column * columnStep),
+				y: roundCanvasNumber(preferred.y + row * rowStep)
+			};
+			const bounds = { ...candidate, ...size };
+			if ((!viewport || canvasBoundsContain(viewport, bounds)) && occupied.every(other => !canvasBoundsOverlap(bounds, other))) {
+				return candidate;
+			}
+	}
+	return {
+		x: roundCanvasNumber(preferred.x + (occupied.length + 1) * columnStep),
+		y: preferred.y
+	};
+}
+
+function canvasBoundsContain(container: IBaseHalfCanvasBounds, child: IBaseHalfCanvasBounds): boolean {
+	return child.x >= container.x
+		&& child.y >= container.y
+		&& child.x + child.width <= container.x + container.width
+		&& child.y + child.height <= container.y + container.height;
+}
+
+function canvasBoundsOverlap(a: IBaseHalfCanvasBounds, b: IBaseHalfCanvasBounds): boolean {
+	return a.x < b.x + b.width + BASEHALF_CANVAS_GRID_COLUMN_GAP
+		&& a.x + a.width + BASEHALF_CANVAS_GRID_COLUMN_GAP > b.x
+		&& a.y < b.y + b.height + BASEHALF_CANVAS_GRID_ROW_GAP
+		&& a.y + a.height + BASEHALF_CANVAS_GRID_ROW_GAP > b.y;
 }
 
 export function baseHalfCanvasItemBounds(item: IBaseHalfCanvasItem, index: number, total: number): IBaseHalfCanvasBounds {

@@ -1,0 +1,285 @@
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Pointa Labs. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0. See LICENSE in the repository root.
+ *--------------------------------------------------------------------------------------------*/
+
+.basehalf-plugin-library {
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 28px 34px 34px;
+	overflow: hidden;
+	color: var(--vscode-foreground);
+	background: var(--vscode-editor-background);
+}
+
+.basehalf-plugin-library-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 24px;
+}
+
+.basehalf-plugin-library-heading h1 {
+	margin: 0;
+	font-size: 26px;
+	font-weight: 650;
+}
+
+.basehalf-plugin-library-heading p {
+	margin: 7px 0 0;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-heading .basehalf-plugin-library-catalog-status {
+	margin-top: 4px;
+	font-size: 12px;
+}
+
+.basehalf-plugin-library-catalog-status.error {
+	color: var(--vscode-errorForeground);
+}
+
+.basehalf-plugin-library-header-actions,
+.basehalf-plugin-library-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.basehalf-plugin-library-search {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: 520px;
+	height: 34px;
+	margin: 26px 0 18px;
+	padding: 0 10px;
+	border: 1px solid var(--vscode-input-border, transparent);
+	border-radius: 6px;
+	background: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+}
+
+.basehalf-plugin-library-search:focus-within {
+	border-color: var(--vscode-focusBorder);
+}
+
+.basehalf-plugin-library-search input {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+}
+
+.basehalf-plugin-library-content {
+	display: grid;
+	grid-template-columns: minmax(260px, 360px) minmax(360px, 720px);
+	min-height: 0;
+	flex: 1;
+	gap: 28px;
+}
+
+.basehalf-plugin-library-list,
+.basehalf-plugin-library-detail {
+	min-height: 0;
+	overflow: auto;
+}
+
+.basehalf-plugin-library-list {
+	padding-right: 10px;
+}
+
+.basehalf-plugin-library-section-title {
+	margin: 18px 8px 8px;
+	font-size: 11px;
+	font-weight: 650;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-row {
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr) auto;
+	align-items: center;
+	width: 100%;
+	gap: 10px;
+	padding: 11px 10px;
+	border: 1px solid transparent;
+	border-radius: 7px;
+	text-align: left;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+.basehalf-plugin-library-row:hover {
+	background: var(--vscode-list-hoverBackground);
+}
+
+.basehalf-plugin-library-row.selected {
+	border-color: var(--vscode-focusBorder);
+	background: var(--vscode-list-activeSelectionBackground);
+	color: var(--vscode-list-activeSelectionForeground);
+}
+
+.basehalf-plugin-library-row-icon,
+.basehalf-plugin-library-detail-icon {
+	display: grid;
+	place-items: center;
+	border-radius: 7px;
+	background: color-mix(in srgb, var(--vscode-button-background) 18%, transparent);
+	color: var(--vscode-button-background);
+}
+
+.basehalf-plugin-library-row-icon {
+	width: 32px;
+	height: 32px;
+}
+
+.basehalf-plugin-library-row-title {
+	font-weight: 650;
+}
+
+.basehalf-plugin-library-row-description {
+	margin-top: 3px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-status {
+	padding: 3px 7px;
+	border-radius: 999px;
+	font-size: 11px;
+	background: var(--vscode-badge-background);
+	color: var(--vscode-badge-foreground);
+}
+
+.basehalf-plugin-library-detail {
+	box-sizing: border-box;
+	padding: 24px 26px;
+	border: 1px solid var(--vscode-widget-border, transparent);
+	border-radius: 10px;
+	background: var(--vscode-sideBar-background);
+}
+
+.basehalf-plugin-library-detail-hero {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.basehalf-plugin-library-detail-icon {
+	width: 48px;
+	height: 48px;
+	font-size: 23px;
+}
+
+.basehalf-plugin-library-detail-copy h2 {
+	margin: 0 0 5px;
+	font-size: 20px;
+}
+
+.basehalf-plugin-library-detail-copy code {
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-detail-description {
+	margin: 20px 0;
+	line-height: 1.55;
+}
+
+.basehalf-plugin-library-meta {
+	display: grid;
+	gap: 8px;
+	padding: 16px 0;
+	border-top: 1px solid var(--vscode-widget-border, transparent);
+	border-bottom: 1px solid var(--vscode-widget-border, transparent);
+}
+
+.basehalf-plugin-library-meta-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 18px;
+}
+
+.basehalf-plugin-library-meta-row span {
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-trust {
+	display: flex;
+	gap: 12px;
+	margin: 18px 0;
+	padding: 13px;
+	border-radius: 7px;
+	background: color-mix(in srgb, var(--vscode-testing-iconPassed) 10%, transparent);
+}
+
+.basehalf-plugin-library-trust p {
+	margin: 4px 0 0;
+	line-height: 1.45;
+	color: var(--vscode-descriptionForeground);
+}
+
+.basehalf-plugin-library-error {
+	margin: 12px 0;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-inputValidation-errorBorder);
+	border-radius: 6px;
+	background: var(--vscode-inputValidation-errorBackground);
+	color: var(--vscode-inputValidation-errorForeground);
+}
+
+.basehalf-plugin-library-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 5px 10px;
+	border: 1px solid var(--vscode-button-border, transparent);
+	border-radius: 5px;
+	background: var(--vscode-button-secondaryBackground);
+	color: var(--vscode-button-secondaryForeground);
+	cursor: pointer;
+}
+
+.basehalf-plugin-library-button:hover {
+	background: var(--vscode-button-secondaryHoverBackground);
+}
+
+.basehalf-plugin-library-button.primary {
+	background: var(--vscode-button-background);
+	color: var(--vscode-button-foreground);
+}
+
+.basehalf-plugin-library-button.primary:hover {
+	background: var(--vscode-button-hoverBackground);
+}
+
+.basehalf-plugin-library-empty {
+	padding: 22px 8px;
+	color: var(--vscode-descriptionForeground);
+}
+
+@media (max-width: 780px) {
+	.basehalf-plugin-library {
+		padding: 20px;
+	}
+
+	.basehalf-plugin-library-content {
+		grid-template-columns: 1fr;
+		overflow: auto;
+	}
+
+	.basehalf-plugin-library-list,
+	.basehalf-plugin-library-detail {
+		overflow: visible;
+	}
+}

@@ -29,9 +29,8 @@ gets considered.
 |---|---|---|---|
 | **React Flow** (`@xyflow/react`) | Canvas (free-position + edges) | MIT | ✅ Locked in |
 | **BlockNote** | Block editor (Notion-style; MD round-trip) | MIT | ✅ Locked in |
-| **pdf.js** | PDF rendering | Apache-2.0 | ✅ Locked in |
-| **chokidar** | File watcher | MIT | ✅ Locked in |
-| **Zustand** | Renderer state | MIT | ✅ Locked in |
+| **EmbedPDF** (`@embedpdf/snippet`) | Ready PDF viewer; bundles PDFium WASM | MIT (PDFium: Apache-2.0) | ✅ Locked in |
+| **VS Code workbench services** | Files, watching, working copies, UI state | MIT | ✅ Lower application substrate |
 
 **Other vetted libraries (reference for future decisions):**
 
@@ -43,7 +42,9 @@ gets considered.
 | **maxGraph** | Apache-2.0 | ✅ Diagramming. |
 | **BlockSuite** | MPL-2.0 (weak copyleft) | ⚠️ OK with care — but we picked BlockNote instead (smaller, Notion-shaped, MIT). |
 | **ProseMirror / Tiptap** | MIT | ✅ Underlying engine — BlockNote sits on top. |
-| **Yjs** | MIT | ✅ Reserved for v1 collaboration (D6). |
+| **Yjs** | MIT | ✅ Local per-file rich-editor projection; multi-user sync remains deferred (D6). |
+| **pdf.js** | Apache-2.0 | ✅ Safe renderer fallback, but not the product viewer; a direct integration would require rebuilding the viewer UX EmbedPDF already supplies. |
+| **chokidar / Zustand** | MIT | ✅ Safe libraries, but retired from desktop orchestration now that BaseHalf runs on VS Code's native file and workbench services. |
 | **SQLite** | Public domain | ✅ Reserved for the >5k-files-in-workspace storage swap (D8). |
 | **Tantivy** (Rust) | MIT/Apache | ✅ Reserved for v1+ full-text search if needed. |
 

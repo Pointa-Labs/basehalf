@@ -107,9 +107,50 @@ try {
 	await step('fresh-canvas-framed', () => assertFreshCanvasFramed(page));
 	await step('root-titlebar-breadcrumb', () => assertBaseHalfRootTitlebarBreadcrumb(page));
 	await step('canvas-grid-scoped-to-canvas', () => assertCanvasGridScopedToCanvas(page));
-	await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
+	if (!opts.pluginOnly && !opts.contentOnly) {
+		await step('canvas-create-note-file-folder', () => assertCanvasCreateNoteFileAndFolder(page));
+	}
 
-		if (opts.canvasOnly) {
+		if (opts.pluginOnly) {
+			await step('quick-open-ai-video-project', () => quickOpen(page, 'episode.aivideo'));
+			await step('ai-video-plugin-projection', () => assertAIVideoProject(page));
+			await step('ai-video-local-workflow-output', () => assertAIVideoLocalWorkflow(page));
+			await step('ai-video-dirty-navigation-guard', () => assertAIVideoDirtyNavigationGuard(page));
+			await step('ai-video-no-editor-tab', () => assertNoEditorTabFor(page, 'episode.aivideo'));
+			await step('curated-plugin-manager', () => assertCuratedPluginManager(page));
+			console.log(JSON.stringify({
+				ok: true,
+				workspace: workspacePath,
+				checks: [
+					'ai-video-plugin-projection',
+					'ai-video-local-workflow-output',
+					'ai-video-dirty-navigation-guard',
+					'ai-video-no-editor-tab',
+					'curated-plugin-manager'
+				]
+			}, null, 2));
+		} else if (opts.contentOnly) {
+			await step('quick-open-readme', () => quickOpen(page, 'README.md'));
+			await step('readme-card-detail', () => assertCardDetail(page, 'README.md'));
+			await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
+			await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
+			await step('quick-open-media', () => quickOpen(page, 'concept.svg'));
+			await step('media-card-detail-projection', () => assertMediaCardDetail(page));
+			await step('quick-open-pdf', () => quickOpen(page, 'textbook.pdf'));
+			await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
+			await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
+			console.log(JSON.stringify({
+				ok: true,
+				workspace: workspacePath,
+				checks: [
+					'readme-rich-file-attachment',
+					'readme-no-editor-tab',
+					'media-card-detail-projection',
+					'pdf-card-detail-projection',
+					'pdf-no-editor-tab'
+				]
+			}, null, 2));
+		} else if (opts.canvasOnly) {
 			await step('canvas-inline-rename', () => assertCanvasInlineRename(page));
 			await step('canvas-card-badge-preview-connectors', () => assertCanvasCardBadgePreviewAndConnectors(page));
 			await step('canvas-derived-edge-visible', () => assertCanvasEdgeVisible(page, 'docs', 'src'));
@@ -190,6 +231,7 @@ try {
 	await step('readme-rich-composition-defers-autosave', () => assertMarkdownRichCompositionDefersAutosave(page));
 	await step('readme-rich-composition-queues-single-undo', () => assertMarkdownRichCompositionQueuesSingleUndo(page));
 	await step('readme-rich-file-link-autocomplete', () => assertMarkdownRichFileLinkAutocomplete(page));
+	await step('readme-rich-file-attachment', () => assertMarkdownRichFileAttachment(page));
 	await step('readme-no-editor-tab', () => assertNoEditorTabFor(page, 'README.md'));
 	await step('workspace-setup-agent-protocol-files', () => assertWorkspaceSetupAgentProtocolFiles());
 	await step('readme-card-detail-badge-zone', () => assertCardDetailBadgeZone(page));
@@ -204,6 +246,17 @@ try {
 	await step('source-card-detail-flush-on-navigation', () => assertSourceCardFlushesBeforeNavigation(page));
 	await step('readme-card-detail-after-flush', () => assertCardDetail(page, 'README.md'));
 	await step('readme-no-editor-tab-after-flush', () => assertNoEditorTabFor(page, 'README.md'));
+	await step('quick-open-media', () => quickOpen(page, 'concept.svg'));
+	await step('media-card-detail-projection', () => assertMediaCardDetail(page));
+	await step('media-no-editor-tab', () => assertNoEditorTabFor(page, 'concept.svg'));
+	await step('quick-open-pdf', () => quickOpen(page, 'textbook.pdf'));
+	await step('pdf-card-detail-projection', () => assertPdfCardDetail(page));
+	await step('pdf-no-editor-tab', () => assertNoEditorTabFor(page, 'textbook.pdf'));
+	await step('quick-open-ai-video-project', () => quickOpen(page, 'episode.aivideo'));
+	await step('ai-video-plugin-projection', () => assertAIVideoProject(page));
+	await step('ai-video-local-workflow-output', () => assertAIVideoLocalWorkflow(page));
+	await step('ai-video-dirty-navigation-guard', () => assertAIVideoDirtyNavigationGuard(page));
+	await step('ai-video-no-editor-tab', () => assertNoEditorTabFor(page, 'episode.aivideo'));
 
 	await step('quick-text-search-readme-routing', () => quickOpen(page, '%needle-basehalf-routing'));
 	await step('quick-text-search-readme-card-detail', () => assertCardDetail(page, 'README.md'));
@@ -231,6 +284,7 @@ try {
 	await step('folder-quick-open-canvas', () => assertCanvasContainsCard(page, 'docs/guide.md'));
 	await step('explorer-rename-cascades-mirror', () => assertExplorerRenameCascadesMirror(page));
 	await step('settings-basehalf-category', () => assertBaseHalfSettingsCategory(page));
+	await step('curated-plugin-manager', () => assertCuratedPluginManager(page));
 	await step('readme-badge-closes-on-rich-editor-activation', () => assertBadgeClosesOnRichEditorActivation(page));
 	await step('release-notes-system-page', () => assertBaseHalfReleaseNotesSystemPage(page));
 
@@ -286,6 +340,8 @@ try {
 			'quick-open-side-card-detail-no-tab',
 			'source-card-save-action-hidden',
 			'source-card-detail-flush-on-navigation',
+			'media-card-detail-projection-no-tab',
+			'ai-video-plugin-projection-local-workflow-no-tab',
 			'quick-text-search-card-detail-no-tab',
 			'quick-text-search-selection-focus',
 			'quick-text-search-repeated-selection-focus',
@@ -325,6 +381,8 @@ function parseArgs(args) {
 		keep: false,
 		verbose: false,
 		canvasOnly: false,
+		contentOnly: false,
+		pluginOnly: false,
 		output: undefined
 	};
 
@@ -339,6 +397,12 @@ function parseArgs(args) {
 				break;
 			case '--canvas-only':
 				parsed.canvasOnly = true;
+				break;
+			case '--content-only':
+				parsed.contentOnly = true;
+				break;
+			case '--plugin-only':
+				parsed.pluginOnly = true;
 				break;
 			case '--output':
 				parsed.output = path.resolve(requireValue(args, ++i, arg));
@@ -369,6 +433,8 @@ Options:
   --output <path>     Store smoke logs/user-data/crashes in this directory.
   --keep              Keep the generated temporary directory after the run.
   --canvas-only       Run the canvas/edge interaction slice without unrelated workbench suites.
+  --content-only      Run Card Detail media/PDF rendering and rich attachment integration.
+  --plugin-only       Run the curated plugin and AI Video integration slice.
   --verbose           Echo renderer console logs and pass --verbose to the dev Electron app.
 `);
 	process.exit(0);
@@ -468,6 +534,34 @@ function createFixtureWorkspace(workspace) {
 		''
 	].join('\n'), 'utf8');
 	fs.writeFileSync(path.join(workspace, 'src', 'app.ts'), 'export const needleSymbol = 42;\n', 'utf8');
+	// Keep the media fixture below docs so the root-canvas framing contract is
+	// unchanged by this additional smoke-only file.
+	fs.writeFileSync(path.join(workspace, 'docs', 'concept.svg'), [
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">',
+		'  <rect width="320" height="180" fill="#1f2937"/>',
+		'  <circle cx="160" cy="90" r="54" fill="#60a5fa"/>',
+		'</svg>',
+		''
+	].join('\n'), 'utf8');
+	fs.writeFileSync(path.join(workspace, 'docs', 'textbook.pdf'), createMinimalPdfFixture());
+	fs.writeFileSync(path.join(workspace, 'docs', 'episode.aivideo'), JSON.stringify({
+		version: 1,
+		title: 'Episode',
+		script: 'A short local-first scene.',
+		characters: [{ id: 'character-smoke', name: 'Mira', description: 'The protagonist.' }],
+		scenes: [{ id: 'scene-smoke', name: 'Rooftop', description: 'Blue hour.' }],
+		shots: [{
+			id: 'shot-smoke',
+			title: 'Opening shot',
+			sceneId: 'scene-smoke',
+			prompt: 'Wide rooftop shot at blue hour.',
+			dialogue: 'We begin here.',
+			videoProvider: 'prompt-package',
+			voiceProvider: 'none',
+			status: 'draft',
+			outputs: []
+		}]
+	}, null, 2) + '\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'guide.md'), '# Guide\n\nfolder target\n', 'utf8');
 	fs.writeFileSync(path.join(workspace, 'docs', 'far.md'), '# Far\n\nkeeps the docs canvas taller than the viewport at high zoom\n', 'utf8');
 	fs.mkdirSync(path.join(workspace, '.bh', 'mirror', 'README.md'), { recursive: true });
@@ -567,6 +661,10 @@ function getDevElectronPath() {
 
 async function quickOpen(page, value, acceptKey = 'Enter') {
 	await page.keyboard.press(process.platform === 'darwin' ? 'Meta+P' : 'Control+P');
+	await fillAndAcceptQuickOpen(page, value, acceptKey);
+}
+
+async function fillAndAcceptQuickOpen(page, value, acceptKey) {
 	const quickInput = visibleQuickInput(page);
 	await quickInput.waitFor({ state: 'visible', timeout: 15_000 });
 	await quickInput.fill(value);
@@ -671,7 +769,22 @@ async function waitForQuickInputResult(page) {
 async function openExplorerRow(page, label) {
 	const row = page.locator('.explorer-viewlet .monaco-list-row', { hasText: label }).first();
 	if (!(await row.isVisible().catch(() => false))) {
-		await runCommand(page, 'Focus on Files Explorer');
+		const explorerAction = page.locator([
+			'.part.activitybar .action-label.codicon-explorer-view-icon',
+			'.part.activitybar .action-label[aria-label^="Explorer"]',
+			'.part.activitybar .action-label[aria-label^="Files"]',
+			'.part.sidebar .composite-bar .action-label.codicon-explorer-view-icon',
+			'.part.sidebar .composite-bar .action-label[aria-label^="Explorer"]',
+			'.part.sidebar .composite-bar .action-label[aria-label^="Files"]',
+		].join(', ')).first();
+		if (await explorerAction.isVisible().catch(() => false)) {
+			await explorerAction.click();
+		} else {
+			// Projection webviews keep keyboard focus inside their iframe. Return it
+			// to the workbench before invoking a host command-palette keybinding.
+			await page.locator('.part.sidebar .title-label').click();
+			await runCommand(page, 'Focus on Files Explorer');
+		}
 	}
 	await row.waitFor({ state: 'visible', timeout: 20_000 });
 	await row.click();
@@ -1248,6 +1361,73 @@ async function assertBaseHalfSettingsCategory(page) {
 	}, null, { timeout: 20_000 });
 }
 
+async function assertCuratedPluginManager(page) {
+	const pluginsAction = page.locator([
+		'.part.activitybar .action-label[aria-label^="Plugins"]',
+		'.part.activitybar .action-label.codicon-extensions',
+		'.part.sidebar .composite-bar .action-label[aria-label^="Plugins"]',
+		'.part.sidebar .composite-bar .action-label.codicon-extensions'
+	].join(', ')).first();
+	await pluginsAction.waitFor({ state: 'visible', timeout: 15_000 });
+	if (await page.locator('.part.sidebar .sidebar-utility-footer').count()) {
+		throw new Error('The retired custom sidebar plugin footer is still mounted');
+	}
+	await pluginsAction.click();
+	await page.locator('.part.sidebar .title-label h2', { hasText: /^Plugins$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	const pluginsView = page.locator('.basehalf-plugins-view').first();
+	await pluginsView.waitFor({ state: 'visible', timeout: 15_000 });
+	const sidebarRow = pluginsView.locator('[data-extension-id="pointa.basehalf-ai-video"]', { hasText: 'AI Video' }).first();
+	await sidebarRow.waitFor({ state: 'visible', timeout: 15_000 });
+	const sidebarText = (await pluginsView.textContent()) ?? '';
+	if (!sidebarText.includes('Scripts, characters, scenes, shots') || sidebarText.includes('Marketplace')) {
+		throw new Error(`The native Plugins view exposed an unexpected catalog: ${sidebarText.replace(/\s+/g, ' ').trim()}`);
+	}
+	if (!await sidebarRow.locator('.extension-list-item').count()) {
+		throw new Error('The Plugins view is not using the native VS Code extension-row renderer');
+	}
+	await sidebarRow.hover();
+	await sidebarRow.locator('.action-label.manage').first().click();
+	await page.locator('.context-view .action-label', { hasText: /^Open Details$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Escape');
+	await sidebarRow.click({ button: 'right' });
+	await page.locator('.context-view .action-label', { hasText: /^Open Details$/ }).waitFor({ state: 'visible', timeout: 15_000 });
+	await page.keyboard.press('Escape');
+	await sidebarRow.click();
+	const library = page.locator('.basehalf-plugin-library').first();
+	try {
+		await library.waitFor({ state: 'visible', timeout: 15_000 });
+	} catch (error) {
+		const diagnostics = await page.evaluate(() => ({
+			notifications: Array.from(document.querySelectorAll('.notifications-toasts, .monaco-dialog-box')).map(element => element.textContent?.replace(/\s+/g, ' ').trim()),
+			editorText: document.querySelector('.part.editor')?.textContent?.replace(/\s+/g, ' ').trim(),
+			tabs: Array.from(document.querySelectorAll('.part.editor .tab')).map(element => element.textContent?.replace(/\s+/g, ' ').trim())
+		}));
+		throw new Error(`Plugin Library did not open: ${JSON.stringify(diagnostics)}; ${error}`);
+	}
+	const row = library.locator('.basehalf-plugin-library-row', { hasText: 'AI Video' }).first();
+	await row.waitFor({ state: 'visible', timeout: 15_000 });
+	const allText = (await library.textContent()) ?? '';
+	if (!allText.includes('Scripts, characters, scenes, shots')) {
+		throw new Error('The Plugin Library did not describe the AI Video domain plugin');
+	}
+	if (allText.includes('Marketplace')) {
+		throw new Error('The Plugin Library exposed a Marketplace product surface');
+	}
+	if (await visibleQuickInput(page).isVisible().catch(() => false)) {
+		throw new Error('Manage Plugins reopened the retired Quick Pick instead of the central Library');
+	}
+	const selectedPluginsAction = page.locator([
+		'.part.activitybar .action-item.checked .action-label[aria-label^="Plugins"]',
+		'.part.activitybar .action-item.checked .action-label.codicon-extensions',
+		'.part.sidebar .composite-bar .action-item.checked .action-label[aria-label^="Plugins"]',
+		'.part.sidebar .composite-bar .action-item.checked .action-label.codicon-extensions'
+	].join(', ')).first();
+	await selectedPluginsAction.waitFor({ state: 'visible', timeout: 15_000 });
+	await assertNoEditorTabFor(page, 'Plugins');
+	await library.locator('[data-action="close"]').click();
+	await library.waitFor({ state: 'detached', timeout: 15_000 });
+}
+
 async function assertBaseHalfReleaseNotesSystemPage(page) {
 	await runCommand(page, 'Show Release Notes');
 	const frame = await activeReleaseNotesFrame(page);
@@ -1287,11 +1467,12 @@ async function assertSourceControlPanel(page) {
 	await changesPane.evaluate(async element => {
 		const started = Date.now();
 		while (Date.now() - started < 20_000) {
+			// The SCM tree is virtualized, so only assert an actual rendered
+			// change instead of requiring every dirty file to share the DOM.
 			const text = element.textContent?.replace(/\s+/g, ' ') ?? '';
 			if (text.includes('main')
 				&& text.includes('Changes')
-				&& text.includes('README.md')
-				&& text.includes('app.ts')) {
+				&& text.includes('README.md')) {
 				return;
 			}
 			await new Promise(resolve => setTimeout(resolve, 100));
@@ -1336,6 +1517,134 @@ async function assertCardDetail(page, title) {
 	// bound must stay below the workbench's 10s wedged-boot fallback swap,
 	// or a broken rendered ack would still pass here.
 	await page.locator('.basehalf-card-detail-surface.active').waitFor({ state: 'visible', timeout: 8_000 });
+}
+
+async function assertMediaCardDetail(page) {
+	await assertCardDetail(page, 'concept.svg');
+	const active = page.locator('.basehalf-card-detail-surface.active');
+	await active.locator('.basehalf-card-detail-media-webview').waitFor({ state: 'visible', timeout: 8_000 });
+	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="View"]');
+	await pressed.waitFor({ state: 'visible', timeout: 8_000 });
+	if (await pressed.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('Supported media did not select the registered View projection by default');
+	}
+
+	const started = Date.now();
+	while (Date.now() - started < 8_000) {
+		for (const frame of page.frames()) {
+			if (await frame.locator('img#media').count().catch(() => 0) > 0) {
+				return;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+	throw new Error('Media projection webview did not render the local SVG');
+}
+
+async function assertPdfCardDetail(page) {
+	await assertCardDetail(page, 'textbook.pdf');
+	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="View"]');
+	await pressed.waitFor({ state: 'visible', timeout: 8_000 });
+	if (await pressed.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('PDF did not select the registered View projection by default');
+	}
+
+	const started = Date.now();
+	let diagnostic = '';
+	while (Date.now() - started < 15_000) {
+		for (const frame of page.frames()) {
+			const root = frame.locator('#basehalf-pdf-viewer');
+			if (await root.count().catch(() => 0) === 0) {
+				continue;
+			}
+			const container = root.locator('embedpdf-container');
+			const documentContent = container.locator('#document-content');
+			const status = await root.getAttribute('data-status');
+			const pageCount = await root.getAttribute('data-page-count');
+			if (status === 'ready' && pageCount === '1' && await container.count() > 0 && await documentContent.count() > 0) {
+				return;
+			}
+			diagnostic = await frame.locator('body').evaluate(body => {
+				const viewer = body.querySelector('#basehalf-pdf-viewer');
+				const error = body.querySelector('#basehalf-pdf-error');
+				return JSON.stringify({
+					source: viewer?.getAttribute('data-source'),
+					status: viewer?.getAttribute('data-status'),
+					pageCount: viewer?.getAttribute('data-page-count'),
+					container: viewer?.querySelector('embedpdf-container') !== null,
+					error: error?.textContent,
+					errorHidden: error?.hasAttribute('hidden'),
+					body: body.textContent?.replace(/\s+/g, ' ').trim()
+				});
+			});
+		}
+		await page.waitForTimeout(100);
+	}
+	throw new Error(`PDF projection webview did not render the local fixture: ${diagnostic}`);
+}
+
+async function assertAIVideoProject(page) {
+	await assertCardDetail(page, 'episode.aivideo');
+	const pressed = page.locator('.basehalf-card-detail-projection[aria-label="AI Video"]');
+	await pressed.waitFor({ state: 'visible', timeout: 10_000 });
+	if (await pressed.getAttribute('aria-pressed') !== 'true') {
+		throw new Error('The .aivideo resource did not select the plugin projection by default');
+	}
+	await findAIVideoFrame(page);
+}
+
+async function assertAIVideoLocalWorkflow(page) {
+	const frame = await findAIVideoFrame(page);
+	await frame.locator('button[data-action="run-shot"]').first().click();
+	const output = path.join(workspacePath, 'docs', 'episode.outputs', 'shot-smoke', 'request.json');
+	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
+	const started = Date.now();
+	while (Date.now() - started < 20_000) {
+		if (fs.existsSync(output)) {
+			const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
+			if (project.shots?.[0]?.status === 'prepared' && project.shots[0].outputs?.[0] === 'episode.outputs/shot-smoke/request.json') {
+				const request = JSON.parse(fs.readFileSync(output, 'utf8'));
+				if (request.shot?.id !== 'shot-smoke' || request.project !== 'Episode') {
+					throw new Error('The local prompt-package output did not preserve project and shot context');
+				}
+				return;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+	throw new Error('AI Video workflow did not persist its project state and local output file');
+}
+
+async function assertAIVideoDirtyNavigationGuard(page) {
+	const frame = await findAIVideoFrame(page);
+	const title = frame.locator('[data-project-field="title"]');
+	await title.fill('Episode with unsaved UI edit');
+	await frame.locator('#status', { hasText: 'Unsaved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	// Let the webview dirty signal cross the extension-host boundary before
+	// attempting a BaseHalf navigation operation.
+	await page.waitForTimeout(250);
+	await openExplorerRow(page, 'README.md');
+	await assertCardDetail(page, 'episode.aivideo');
+
+	await frame.locator('button[data-action="save"]').click();
+	await frame.locator('#status', { hasText: 'Saved' }).waitFor({ state: 'visible', timeout: 10_000 });
+	const projectPath = path.join(workspacePath, 'docs', 'episode.aivideo');
+	await waitUntil(() => fs.readFileSync(projectPath, 'utf8').includes('Episode with unsaved UI edit'), 'AI Video explicit save to reach disk');
+	await openExplorerRow(page, 'README.md');
+	await assertCardDetail(page, 'README.md');
+}
+
+async function findAIVideoFrame(page) {
+	const started = Date.now();
+	while (Date.now() - started < 15_000) {
+		for (const frame of page.frames()) {
+			if (await frame.locator('h2', { hasText: 'Shots & workflow' }).count().catch(() => 0) > 0) {
+				return frame;
+			}
+		}
+		await page.waitForTimeout(100);
+	}
+	throw new Error('AI Video plugin webview did not render');
 }
 
 async function assertBaseHalfRootTitlebarBreadcrumb(page) {
@@ -3732,6 +4041,62 @@ async function assertMarkdownRichFileLinkAutocomplete(page) {
 		'the picked file link to persist as relative Markdown',
 		15_000
 	);
+}
+
+async function assertMarkdownRichFileAttachment(page) {
+	const readmePath = path.join(workspacePath, 'README.md');
+	const attachmentPath = path.join(workspacePath, 'attachments', 'handout.pdf');
+	const frame = await activeMarkdownRichFrame(page);
+	const target = frame.locator('.bn-block-content').last();
+	await target.click();
+	await page.keyboard.press('End');
+	await page.keyboard.press('Enter');
+	await page.keyboard.type('/file', { delay: 70 });
+	const item = frame.locator('.bn-suggestion-menu-item', { hasText: 'File' }).first();
+	await item.waitFor({ state: 'visible', timeout: 8_000 });
+	await item.click();
+
+	const addFile = frame.locator('.bn-add-file-button').last();
+	await addFile.waitFor({ state: 'visible', timeout: 8_000 });
+	await addFile.click();
+	const input = frame.locator('.bn-file-input input[type="file"], input[type="file"]').last();
+	await input.waitFor({ state: 'attached', timeout: 8_000 });
+	await input.setInputFiles({
+		name: 'handout.pdf',
+		mimeType: 'application/pdf',
+		buffer: Buffer.from('%PDF-1.4\n% BaseHalf attachment smoke\n', 'utf8')
+	});
+
+	await waitUntil(() => fs.existsSync(attachmentPath), 'the inserted attachment to be written beside the document', 15_000);
+	await waitUntil(
+		() => fs.readFileSync(readmePath, 'utf8').includes('[handout.pdf](attachments/handout.pdf)'),
+		'the inserted attachment to persist as a relative Markdown file link',
+		15_000
+	);
+}
+
+function createMinimalPdfFixture() {
+	const stream = 'BT /F1 18 Tf 40 120 Td (BaseHalf PDF smoke) Tj ET';
+	const objects = [
+		'<< /Type /Catalog /Pages 2 0 R >>',
+		'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+		'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+		`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+		'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+	];
+	let body = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
+	const offsets = [0];
+	for (let index = 0; index < objects.length; index++) {
+		offsets.push(Buffer.byteLength(body, 'binary'));
+		body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+	}
+	const xref = Buffer.byteLength(body, 'binary');
+	body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+	for (const offset of offsets.slice(1)) {
+		body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+	}
+	body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+	return Buffer.from(body, 'binary');
 }
 
 async function assertMarkdownRichPassthroughEditInSource(page) {

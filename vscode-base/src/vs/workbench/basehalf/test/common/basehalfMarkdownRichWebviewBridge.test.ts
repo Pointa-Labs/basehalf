@@ -17,7 +17,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		const transport = new TestTransport();
 		const bridge = disposables.add(new BaseHalfMarkdownRichWebviewBridge('workspace\u0000doc.md', host, transport));
 
-		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', '# Doc\n', true, {
+		assert.strictEqual(await bridge.sendInit('file:///workspace/doc.md', 'vscode-webview-resource://base/workspace/', '# Doc\n', true, {
 			startLineNumber: 3,
 			startColumn: 1,
 			endLineNumber: 3,
@@ -34,6 +34,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 		assert.strictEqual(await bridge.sendCommand('undo'), true);
 		assert.strictEqual(await bridge.sendCommand('redo'), true);
 		assert.strictEqual(await bridge.sendFileSearchResult('files-1', [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]), true);
+		assert.strictEqual(await bridge.sendAttachmentResult('attachment-1', { url: 'attachments/diagram.png' }), true);
 		assert.strictEqual(await bridge.sendSave('save-1', { forceSerialize: true, forceWrite: false, structural: true }), true);
 		assert.strictEqual(await bridge.sendSaveResult('save-1', 'blockedByConflict', { disk: 'Disk changed\n', message: 'Disk changed' }), true);
 		assert.strictEqual(await bridge.sendAdhdState({
@@ -52,6 +53,7 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				type: 'basehalf.markdownRich.init',
 				key: 'workspace\u0000doc.md',
 				resource: 'file:///workspace/doc.md',
+				baseUri: 'vscode-webview-resource://base/workspace/',
 				content: '# Doc\n',
 				editable: true,
 				selection: {
@@ -97,6 +99,12 @@ suite('BaseHalfMarkdownRichWebviewBridge', () => {
 				key: 'workspace\u0000doc.md',
 				requestId: 'files-1',
 				files: [{ name: 'guide.md', path: 'docs/guide.md', href: 'docs/guide.md' }]
+			},
+			{
+				type: 'basehalf.markdownRich.attachmentResult',
+				key: 'workspace\u0000doc.md',
+				requestId: 'attachment-1',
+				url: 'attachments/diagram.png'
 			},
 			{
 				type: 'basehalf.markdownRich.save',

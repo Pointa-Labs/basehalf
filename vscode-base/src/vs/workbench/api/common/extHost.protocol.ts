@@ -1137,6 +1137,12 @@ export interface MainThreadCustomEditorsShape extends IDisposable {
 	$onContentChange(resource: UriComponents, viewType: string): void;
 }
 
+export interface MainThreadBaseHalfShape extends IDisposable {
+	$registerCardProjectionProvider(extension: WebviewExtensionDescription, projectionId: string, options: { readonly retainContextWhenHidden?: boolean }, serializeBuffersForPostMessage: boolean): void;
+	$unregisterCardProjectionProvider(projectionId: string): void;
+	$setCardProjectionDirty(handle: WebviewHandle, dirty: boolean): void;
+}
+
 export interface MainThreadWebviewViewsShape extends IDisposable {
 	$registerWebviewViewProvider(extension: WebviewExtensionDescription, viewType: string, options: { retainContextWhenHidden?: boolean; serializeBuffersForPostMessage: boolean }): void;
 	$unregisterWebviewViewProvider(viewType: string): void;
@@ -1224,6 +1230,12 @@ export interface ExtHostCustomEditorsShape {
 	$backup(resource: UriComponents, viewType: string, cancellation: CancellationToken): Promise<string>;
 
 	$onMoveCustomEditor(handle: WebviewHandle, newResource: UriComponents, viewType: string): Promise<void>;
+}
+
+export interface ExtHostBaseHalfShape {
+	$resolveCardProjection(resource: UriComponents, handle: WebviewHandle, projectionId: string, contentOptions: IWebviewContentOptions, visible: boolean, cancellation: CancellationToken): Promise<void>;
+	$disposeCardProjection(handle: WebviewHandle): void;
+	$setCardProjectionVisible(handle: WebviewHandle, visible: boolean): void;
 }
 
 export interface ExtHostWebviewViewsShape {
@@ -4055,6 +4067,7 @@ export const MainContext = {
 	MainThreadWebviewPanels: createProxyIdentifier<MainThreadWebviewPanelsShape>('MainThreadWebviewPanels'),
 	MainThreadWebviewViews: createProxyIdentifier<MainThreadWebviewViewsShape>('MainThreadWebviewViews'),
 	MainThreadCustomEditors: createProxyIdentifier<MainThreadCustomEditorsShape>('MainThreadCustomEditors'),
+	MainThreadBaseHalf: createProxyIdentifier<MainThreadBaseHalfShape>('MainThreadBaseHalf'),
 	MainThreadUrls: createProxyIdentifier<MainThreadUrlsShape>('MainThreadUrls'),
 	MainThreadUriOpeners: createProxyIdentifier<MainThreadUriOpenersShape>('MainThreadUriOpeners'),
 	MainThreadProfileContentHandlers: createProxyIdentifier<MainThreadProfileContentHandlersShape>('MainThreadProfileContentHandlers'),
@@ -4132,6 +4145,7 @@ export const ExtHostContext = {
 	ExtHostWebviews: createProxyIdentifier<ExtHostWebviewsShape>('ExtHostWebviews'),
 	ExtHostWebviewPanels: createProxyIdentifier<ExtHostWebviewPanelsShape>('ExtHostWebviewPanels'),
 	ExtHostCustomEditors: createProxyIdentifier<ExtHostCustomEditorsShape>('ExtHostCustomEditors'),
+	ExtHostBaseHalf: createProxyIdentifier<ExtHostBaseHalfShape>('ExtHostBaseHalf'),
 	ExtHostWebviewViews: createProxyIdentifier<ExtHostWebviewViewsShape>('ExtHostWebviewViews'),
 	ExtHostEditorInsets: createProxyIdentifier<ExtHostEditorInsetsShape>('ExtHostEditorInsets'),
 	ExtHostEditorTabs: createProxyIdentifier<IExtHostEditorTabsShape>('ExtHostEditorTabs'),
