@@ -17,12 +17,14 @@ the Terraform outputs into the `plugins-production` GitHub environment as:
 - `BASEHALF_PLUGIN_CATALOG_KEY_ID` (a stable client-facing name such as `release-2026-01`)
 - `BASEHALF_PLUGIN_AWS_ROLE_ARN`
 
-After provisioning, export the KMS public key as a PEM SPKI file. Application
-packaging must set `BASEHALF_PLUGIN_CATALOG_KEY_ID` and
+After provisioning, export the KMS public key as a PEM SPKI file. During key
+rotation, application packaging can set `BASEHALF_PLUGIN_CATALOG_KEY_ID` and
 `BASEHALF_PLUGIN_CATALOG_PUBLIC_KEY_PATH`; the package task validates P-256,
-stamps the public key into the product configuration, and refuses to package an
-empty keyring. Keep an old public key in supported clients during rotation. The
-private key never leaves KMS.
+prepends the new public key to the product configuration, and refuses to package
+an empty keyring. The current production public key is pinned in `product.json`
+and under `keys/` so development builds exercise the signed production catalog.
+Keep an old public key in supported clients during rotation. The private key
+never leaves KMS.
 
 Publishing is manual through `Publish BaseHalf plugins`. VSIX objects and each
 versioned catalog/signature pair are immutable. A single

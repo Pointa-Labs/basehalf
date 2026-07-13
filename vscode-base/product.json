@@ -177,7 +177,12 @@
 	"basehalfPlugins": {
 		"catalogIndexUrl": "https://plugins.basehalf.com/v1/catalog-index.json",
 		"assetBaseUrl": "https://plugins.basehalf.com/",
-		"publicKeys": []
+		"publicKeys": [
+			{
+				"keyId": "release-2026-07",
+				"publicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEZwuu3eYNB3hIPT0ljQzkzREL/yMf\nudBWzbar+txPigbDQTuR6DH84LK9C36yStS2RadiEmL34yQgPWMAj/lmFA==\n-----END PUBLIC KEY-----\n"
+			}
+		]
 	},
 	"onboardingKeymaps": [
 		{
